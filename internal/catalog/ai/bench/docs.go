@@ -30,7 +30,7 @@ func runDoc() collection.Doc {
 			{Name: "estimate", Type: "dict", Returned: "in a check", Description: "The set's estimated input tokens, and each prompt's estimate."},
 		},
 		Examples: []collection.Example{
-			{Name: "Score a local model", RunbookYAML: "- name: Bench\n  hosts: workstation\n  ai.bench.run:\n    model: \"qwen3:14b\"\n    max_tokens: 50\n    prompts:\n      - {id: capital, text: \"Capital of France? One word.\", expect: {contains: Paris}}\n      - {id: label, text: \"Answer {\\\"label\\\": \\\"bug\\\"} as JSON.\", expect: {json_field: {path: label, equals: bug}}}\n    save_as: qwen3-14b.json\n"},
+			{Name: "Score a local model", RunbookYAML: "- name: Bench\n  ai.bench.run:\n    model: \"qwen3:14b\"\n    max_tokens: 50\n    prompts:\n      - {id: capital, text: \"Capital of France? One word.\", expect: {contains: Paris}}\n      - {id: label, text: \"Answer {\\\"label\\\": \\\"bug\\\"} as JSON.\", expect: {json_field: {path: label, equals: bug}}}\n    save_as: qwen3-14b.json\n"},
 		},
 		SeeAlso: []string{"ai.chat", "ai.provider.probe"},
 	}

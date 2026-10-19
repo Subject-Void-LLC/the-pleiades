@@ -350,9 +350,11 @@ func TestPing_StatFailureIsReported(t *testing.T) {
 	}
 }
 
-// withKnownHosts points HOME at a temporary directory holding a known_hosts
-// file with the given line, so hostKeyCallback reads a real file at a real
-// path rather than a fixture handed to it directly.
+// withKnownHosts points the home directory at a temporary one holding a
+// known_hosts file with the given line, so hostKeyCallback reads a real file
+// at a real path rather than a fixture handed to it directly. Both HOME and
+// USERPROFILE are set, since os.UserHomeDir reads USERPROFILE on Windows
+// and HOME everywhere else.
 func withKnownHosts(t *testing.T, line string) {
 	t.Helper()
 	home := t.TempDir()
@@ -364,6 +366,7 @@ func withKnownHosts(t *testing.T, line string) {
 		t.Fatalf("writing known_hosts: %v", err)
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 }
 
 // newTestPrivateKeyPEM returns a fresh OpenSSH-format private key.

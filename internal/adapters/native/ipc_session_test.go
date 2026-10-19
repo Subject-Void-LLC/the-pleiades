@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -179,6 +180,7 @@ func TestSession_BusyChildFallsBackToOneShot(t *testing.T) {
 // that each connect over SSH log in once in a session and three times
 // one-shot, counted by the real SSH server.
 func TestSession_SharesOneLogin(t *testing.T) {
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -213,6 +215,7 @@ func TestSession_SharesOneLogin(t *testing.T) {
 // through the whole adapter, with persistence on and off, and counts the
 // server's logins.
 func TestAdapter_Execute_PersistConnections(t *testing.T) {
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

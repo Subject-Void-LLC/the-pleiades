@@ -516,7 +516,14 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 511. The hop stress test's listen-queue bound covered macOS only; FreeBSD and Windows reset and refuse past their backlog (a repeat of 501) (fixed)
 512. bsd-check was sized at 1 GB by assumption, and could not compile the branch's packages (fixed)
 513. A commit that meant to append four entries replaced the failure-pattern archive with them (fixed before push)
-514. Twenty methods' documented examples could never run as written (three fixed, seventeen open)
+514. Twenty methods' documented examples could never run as written (fixed)
+515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 324 and 514) (fixed)
+516. A box resumed from its saved state answered one login, then none for over 20 seconds, and the check failed (fixed)
+517. Windows failed 36 tests in three packages #73 never ran there, each starting the /bin/sh test server unguarded (a repeat of 510) (fixed)
+518. testgate printed a failed table test's "--- FAIL" line and not which case failed or why (fixed)
+519. A WinRM fault in an accepted reply lost its reason, and at a Receive looped until the deadline (fixed)
+520. Windows read the real login's home in tests that set HOME alone (a repeat of 510) (fixed)
+521. bsd-check found a write's prediction claiming a group the write does not keep, behind two test flaws (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

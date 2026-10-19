@@ -48,7 +48,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "estimate", Type: "dict", Returned: "in a check", Description: "The set's estimated input tokens, and each prompt's estimate."},
 			},
 			Examples: []collection.Example{
-				{Name: "Score a local model", RunbookYAML: "- name: Bench\n  hosts: workstation\n  ai.bench.run:\n    model: \"qwen3:14b\"\n    max_tokens: 50\n    prompts:\n      - {id: capital, text: \"Capital of France? One word.\", expect: {contains: Paris}}\n      - {id: label, text: \"Answer {\\\"label\\\": \\\"bug\\\"} as JSON.\", expect: {json_field: {path: label, equals: bug}}}\n    save_as: qwen3-14b.json\n"},
+				{Name: "Score a local model", RunbookYAML: "- name: Bench\n  ai.bench.run:\n    model: \"qwen3:14b\"\n    max_tokens: 50\n    prompts:\n      - {id: capital, text: \"Capital of France? One word.\", expect: {contains: Paris}}\n      - {id: label, text: \"Answer {\\\"label\\\": \\\"bug\\\"} as JSON.\", expect: {json_field: {path: label, equals: bug}}}\n    save_as: qwen3-14b.json\n"},
 			},
 			SeeAlso: []string{"ai.chat", "ai.provider.probe"},
 		},
@@ -118,7 +118,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "resident", Type: "list of string", Returned: "always", Description: "The models in memory."},
 			},
 			Examples: []collection.Example{
-				{Name: "What the workstation has", RunbookYAML: "- name: Models\n  hosts: workstation\n  ai.model.list: {}\n"},
+				{Name: "What the workstation has", RunbookYAML: "- name: Models\n  ai.model.list: {}\n"},
 			},
 			SeeAlso: []string{"ai.model.load", "ai.provider.list"},
 		},
@@ -144,7 +144,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "loaded", Type: "bool", Returned: "always", Description: "Whether the model was loaded (or would be)."},
 			},
 			Examples: []collection.Example{
-				{Name: "Make one model resident", RunbookYAML: "- name: Load\n  hosts: workstation\n  ai.model.load:\n    model: \"qwen3:14b\"\n"},
+				{Name: "Make one model resident", RunbookYAML: "- name: Load\n  ai.model.load:\n    model: \"qwen3:14b\"\n"},
 			},
 			SeeAlso: []string{"ai.model.unload", "ai.model.pull"},
 		},
@@ -168,7 +168,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "present_before", Type: "bool", Returned: "always", Description: "Whether the model was on the host before."},
 			},
 			Examples: []collection.Example{
-				{Name: "Have the model", RunbookYAML: "- name: Pull\n  hosts: workstation\n  ai.model.pull:\n    model: \"qwen3:14b\"\n    timeout: 1h\n"},
+				{Name: "Have the model", RunbookYAML: "- name: Pull\n  ai.model.pull:\n    model: \"qwen3:14b\"\n    timeout: 1h\n"},
 			},
 			SeeAlso: []string{"ai.model.remove", "ai.model.load"},
 		},
@@ -192,7 +192,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "present_before", Type: "bool", Returned: "always", Description: "Whether the model was on the host before."},
 			},
 			Examples: []collection.Example{
-				{Name: "Reclaim the disk", RunbookYAML: "- name: Remove\n  hosts: workstation\n  ai.model.remove:\n    model: \"llama3.1:8b\"\n"},
+				{Name: "Reclaim the disk", RunbookYAML: "- name: Remove\n  ai.model.remove:\n    model: \"llama3.1:8b\"\n"},
 			},
 			SeeAlso: []string{"ai.model.pull"},
 		},
@@ -216,7 +216,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "resident_before", Type: "list of string", Returned: "always", Description: "The models in memory before."},
 			},
 			Examples: []collection.Example{
-				{Name: "Free the memory", RunbookYAML: "- name: Unload\n  hosts: workstation\n  ai.model.unload:\n    model: \"qwen3:14b\"\n"},
+				{Name: "Free the memory", RunbookYAML: "- name: Unload\n  ai.model.unload:\n    model: \"qwen3:14b\"\n"},
 			},
 			SeeAlso: []string{"ai.model.load"},
 		},
@@ -271,7 +271,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "warnings", Type: "list of string", Returned: "when there is one", Description: "What the record allows that a run must say: a key over plain http://, weakened TLS."},
 			},
 			Examples: []collection.Example{
-				{Name: "List every provider", RunbookYAML: "- name: Providers\n  hosts: [claude, workstation]\n  ai.provider.list: {}\n"},
+				{Name: "List every provider", RunbookYAML: "- name: Providers\n  ai.provider.list: {}\n"},
 			},
 			SeeAlso: []string{"ai.provider.probe", "ai.model.list"},
 		},
@@ -298,7 +298,7 @@ var aiCollections = []collectionscaffold.Config{
 				{Name: "estimate", Type: "dict", Returned: "in a check", Description: "The call a run would make, and what it would cost."},
 			},
 			Examples: []collection.Example{
-				{Name: "Prove a provider answers", RunbookYAML: "- name: Probe\n  hosts: claude\n  ai.provider.probe:\n    model: claude-haiku-5-5\n"},
+				{Name: "Prove a provider answers", RunbookYAML: "- name: Probe\n  ai.provider.probe:\n    model: claude-haiku-5-5\n"},
 			},
 			SeeAlso: []string{"ai.provider.list", "ai.chat"},
 		},

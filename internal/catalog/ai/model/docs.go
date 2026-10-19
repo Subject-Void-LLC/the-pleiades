@@ -20,7 +20,7 @@ func listDoc() collection.Doc {
 			{Name: "models", Type: "list of dict", Returned: "always", Description: "Each model on disk: name (with its tag), size in bytes and digest."},
 			{Name: "resident", Type: "list of string", Returned: "always", Description: "The models in memory."},
 		},
-		Examples: []collection.Example{{Name: "What the workstation has", RunbookYAML: "- name: Models\n  hosts: workstation\n  ai.model.list: {}\n"}},
+		Examples: []collection.Example{{Name: "What the workstation has", RunbookYAML: "- name: Models\n  ai.model.list: {}\n"}},
 		SeeAlso:  []string{"ai.model.load", "ai.provider.list"},
 	}
 }
@@ -36,7 +36,7 @@ func loadDoc() collection.Doc {
 			{Name: "unloaded", Type: "list of string", Returned: "always", Description: "The models unloaded (or, in a check, that would be)."},
 			{Name: "loaded", Type: "bool", Returned: "always", Description: "Whether the model was loaded (or would be)."},
 		},
-		Examples: []collection.Example{{Name: "Make one model resident", RunbookYAML: "- name: Load\n  hosts: workstation\n  ai.model.load:\n    model: \"qwen3:14b\"\n"}},
+		Examples: []collection.Example{{Name: "Make one model resident", RunbookYAML: "- name: Load\n  ai.model.load:\n    model: \"qwen3:14b\"\n"}},
 		SeeAlso:  []string{"ai.model.unload", "ai.model.pull"},
 	}
 }
@@ -50,7 +50,7 @@ func unloadDoc() collection.Doc {
 			modelReturn,
 			{Name: "resident_before", Type: "list of string", Returned: "always", Description: "The models in memory before."},
 		},
-		Examples: []collection.Example{{Name: "Free the memory", RunbookYAML: "- name: Unload\n  hosts: workstation\n  ai.model.unload:\n    model: \"qwen3:14b\"\n"}},
+		Examples: []collection.Example{{Name: "Free the memory", RunbookYAML: "- name: Unload\n  ai.model.unload:\n    model: \"qwen3:14b\"\n"}},
 		SeeAlso:  []string{"ai.model.load"},
 	}
 }
@@ -64,7 +64,7 @@ func pullDoc() collection.Doc {
 			modelReturn,
 			{Name: "present_before", Type: "bool", Returned: "always", Description: "Whether the model was on the host before."},
 		},
-		Examples: []collection.Example{{Name: "Have the model", RunbookYAML: "- name: Pull\n  hosts: workstation\n  ai.model.pull:\n    model: \"qwen3:14b\"\n    timeout: 1h\n"}},
+		Examples: []collection.Example{{Name: "Have the model", RunbookYAML: "- name: Pull\n  ai.model.pull:\n    model: \"qwen3:14b\"\n    timeout: 1h\n"}},
 		SeeAlso:  []string{"ai.model.remove", "ai.model.load"},
 	}
 }
@@ -78,7 +78,7 @@ func removeDoc() collection.Doc {
 			modelReturn,
 			{Name: "present_before", Type: "bool", Returned: "always", Description: "Whether the model was on the host before."},
 		},
-		Examples: []collection.Example{{Name: "Reclaim the disk", RunbookYAML: "- name: Remove\n  hosts: workstation\n  ai.model.remove:\n    model: \"llama3.1:8b\"\n"}},
+		Examples: []collection.Example{{Name: "Reclaim the disk", RunbookYAML: "- name: Remove\n  ai.model.remove:\n    model: \"llama3.1:8b\"\n"}},
 		SeeAlso:  []string{"ai.model.pull"},
 	}
 }

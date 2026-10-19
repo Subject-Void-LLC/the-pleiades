@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestLabBox reads the VM settings: none is no box, the VM defaults to the
@@ -38,22 +39,36 @@ func TestLabBox(t *testing.T) {
 	}
 }
 
-// fakeHost answers the box's pleiades calls: the VM's state, and each
-// method failing when fail names it.
+// fakeHost answers the box's pleiades calls: the VM's state, each method
+// failing when fail names it, and wait.connection answering waits in turn
+// (nil once they run out).
 type fakeHost struct {
 	state string
 	fail  map[string]error
+	waits []error
 	calls []string
 }
 
+// install answers through h, with a clock that stands still and pauses
+// that take no time, so a box's waits are only the calls it makes.
 func (h *fakeHost) install(t *testing.T) {
 	t.Helper()
-	old := adhocStats
-	t.Cleanup(func() { adhocStats = old })
+	old, oldNow, oldSleep := adhocStats, boxNow, boxSleep
+	t.Cleanup(func() { adhocStats, boxNow, boxSleep = old, oldNow, oldSleep })
+	start := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+	boxNow = func() time.Time { return start }
+	boxSleep = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 	adhocStats = func(_ context.Context, p Pleiades, method string, params ...string) (map[string]any, error) {
 		h.calls = append(h.calls, p.Device+" "+method+" "+strings.Join(params, " "))
 		if err := h.fail[method]; err != nil {
 			return nil, err
+		}
+		if method == "wait.connection" && len(h.waits) > 0 {
+			err := h.waits[0]
+			h.waits = h.waits[1:]
+			if err != nil {
+				return nil, err
+			}
 		}
 		switch method {
 		case "virt.vbox.vm.info":
@@ -69,6 +84,13 @@ func (h *fakeHost) install(t *testing.T) {
 
 var testBox = Box{Host: Pleiades{Device: "vengeance"}, Device: Pleiades{Device: "box-1"}, VM: "box-vm"}
 
+// The box's two waits, as they reach pleiades: for a login after a start,
+// and the flow's own liveness check.
+const (
+	bootWaitCall   = "box-1 wait.connection timeout=600 connect_timeout=10 sleep=5"
+	steadyWaitCall = "box-1 wait.connection timeout=20 connect_timeout=5 sleep=5"
+)
+
 // TestRunWithBox_StartsAnOffBoxAndPutsItBack: a box that is not running is
 // started and waited for before the flow, and saved after it, whatever the
 // tests did; one already running is left as it was.
@@ -83,7 +105,7 @@ func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 		want := []string{
 			"vengeance virt.vbox.vm.info name=box-vm",
 			"vengeance virt.vbox.vm.start name=box-vm",
-			"box-1 wait.connection timeout=600 connect_timeout=10 sleep=5",
+			bootWaitCall, steadyWaitCall, steadyWaitCall, steadyWaitCall,
 			"vengeance virt.vbox.vm.stop name=box-vm mode=save",
 		}
 		if strings.Join(h.calls, "\n") != strings.Join(want, "\n") || h.state != "saved" {
@@ -100,6 +122,55 @@ func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 	if code := runWithBox(context.Background(), options(t, "a/b"), flow, &fakeLeg{passed: true}, testBox, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 ||
 		len(h.calls) != 1 || h.state != "running" {
 		t.Errorf("a running box: code %d, calls %q", code, h.calls)
+	}
+}
+
+// TestBoxUp_WaitsUntilTheBoxAnswersSteadily: a started box that answers a
+// login and then misses the liveness check is waited for again, as the
+// resumed win-check needed; one that never steadies within bootWait, and
+// a run interrupted while waiting, end the wait with an error.
+func TestBoxUp_WaitsUntilTheBoxAnswersSteadily(t *testing.T) {
+	missed := errors.New("gave up waiting after 5s")
+	h := &fakeHost{state: "saved", waits: []error{nil, nil, missed}}
+	h.install(t)
+	if started, err := testBox.Up(context.Background(), "t", &bytes.Buffer{}); !started || err != nil {
+		t.Fatalf("a box that steadies: %v %v", started, err)
+	}
+	want := []string{bootWaitCall, steadyWaitCall, steadyWaitCall, bootWaitCall, steadyWaitCall, steadyWaitCall, steadyWaitCall}
+	if got := h.calls[2:]; strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls after the start:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// Each wait takes four minutes of a ten-minute bound, and every first
+	// liveness check misses: the third wait has none of the bound left.
+	h = &fakeHost{state: "saved", waits: []error{nil, missed, nil, missed}}
+	h.install(t)
+	now := boxNow()
+	boxNow = func() time.Time { now = now.Add(4 * time.Minute); return now }
+	if _, err := testBox.Up(context.Background(), "t", &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "never passed 3 liveness checks in a row") {
+		t.Errorf("a box that never steadies: %v", err)
+	}
+
+	h = &fakeHost{state: "saved"}
+	h.install(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	boxSleep = func(context.Context, time.Duration) error { cancel(); return context.Canceled }
+	if _, err := testBox.Up(ctx, "t", &bytes.Buffer{}); !errors.Is(err, context.Canceled) {
+		t.Errorf("an interrupted wait: %v", err)
+	}
+}
+
+// TestBoxSleep: the pause between liveness checks ends when its time
+// passes, and at once, with the context's error, when the run ends.
+func TestBoxSleep(t *testing.T) {
+	if err := boxSleep(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("a pause that ran out: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if err := boxSleep(ctx, time.Hour); !errors.Is(err, context.Canceled) || time.Since(start) > time.Minute {
+		t.Errorf("a pause in an ended run: %v after %s", err, time.Since(start))
 	}
 }
 
@@ -130,7 +201,7 @@ func TestRunWithBox_WhatGoesWrong(t *testing.T) {
 	}{
 		"virt.vbox.vm.info":  {2, false, "reading the VM box-vm on vengeance"},
 		"virt.vbox.vm.start": {2, false, "starting the VM box-vm on vengeance"},
-		"wait.connection":    {2, true, "did not answer a login within 10m0s"},
+		"wait.connection":    {2, true, "did not answer logins steadily within 10m0s"},
 		"virt.vbox.vm.stop":  {2, true, "putting the VM box-vm back on vengeance"},
 	} {
 		h := &fakeHost{state: "saved", fail: map[string]error{method: errors.New("refused")}}

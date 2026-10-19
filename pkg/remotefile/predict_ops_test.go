@@ -53,8 +53,24 @@ func TestPredictions_MatchWhatWriteTouchAndSymlinkLeave(t *testing.T) {
 			unknown: []string{"mtime"},
 		},
 		{
+			// Naming only a mode leaves the owner and group to the new file
+			// Write made: the connecting account and the group a new file gets,
+			// the directory's on FreeBSD.
 			name: "a write over a file, changing its mode", existing: true,
 			want: func(remotefile.Info) remotefile.Attributes { return remotefile.Attributes{Mode: "0600"} },
+			predict: func(want remotefile.Attributes, before remotefile.Info, _ string) remotefile.Prediction {
+				return remotefile.PredictWrite(want, before, int64(len(content)))
+			},
+			op: func(ctx context.Context, conn *remoteexec.Conn, path, _ string) error {
+				return remotefile.Write(ctx, conn, path, content)
+			},
+			unknown: []string{"owner", "group", "mtime"},
+		},
+		{
+			name: "a write over a file, changing its mode and keeping its owner and group", existing: true,
+			want: func(before remotefile.Info) remotefile.Attributes {
+				return remotefile.Attributes{Mode: "0600", Owner: before.Owner, Group: before.Group}
+			},
 			predict: func(want remotefile.Attributes, before remotefile.Info, _ string) remotefile.Prediction {
 				return remotefile.PredictWrite(want, before, int64(len(content)))
 			},

@@ -126,6 +126,7 @@ func TestOpen_ReadsNothingOfThisMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("PGPASSFILE", filepath.Join(home, ".pgpass"))
 	t.Setenv("PGPASSWORD", password)
 	t.Setenv("PGDATABASE", "postgres")

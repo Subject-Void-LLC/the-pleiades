@@ -57,7 +57,6 @@ Only staff reach the admin site:
 
 ```yaml
 - name: Access
-  hosts: prod-cf
   edge.access:
     app: admin.example.com
     expect:

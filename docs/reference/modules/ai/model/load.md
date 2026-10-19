@@ -54,7 +54,6 @@ Make one model resident:
 
 ```yaml
 - name: Load
-  hosts: workstation
   ai.model.load:
     model: "qwen3:14b"
 ```

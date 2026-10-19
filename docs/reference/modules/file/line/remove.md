@@ -83,6 +83,6 @@ Act only when something was really removed:
 - name: Reload the service that read them
   exec.command:
     cmd: systemctl reload app
-  when_cel: overrides.found > 0
+  when_cel: result.overrides.found > 0
 ```
 

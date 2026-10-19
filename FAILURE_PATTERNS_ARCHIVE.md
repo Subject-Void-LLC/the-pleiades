@@ -13005,3 +13005,130 @@ method's stats only); eleven `ai.*` and `edge.*` examples put a `hosts:` key on 
 request: some need a different condition (a `diff` checksum where they read `changed`), not only the root.
 
 **Lesson.** An example is code a reader runs; a test builds every one.
+
+## 515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 324 and 514)
+
+**Symptom.** 2026-10-18, while fixing 514's seventeen: the owner said the runbook sanity check should have caught
+them long before. Running each example through `internal/validate` as well as the builder found two more that
+only validation refuses: `file.copy`'s "Write a private file" rendered `{{ deploy_token }}`, a root a template
+does not have (`vars.deploy_token`), and `container.image.load`'s example read `result.archive` with no task
+registering `archive`.
+
+**Root cause.** 324 had already put shipped runbooks through the real binary's `pleiades validate`
+(`TestExamples_EveryRunbookBuildsAndValidates`), but only the files under `examples/`; a method's documented examples
+are runbooks too, and no test ever handed one to it, which is how 514's seventeen got through. 514's planned fix,
+a test in `internal/forge/catalogdata`, called only `engine.Builder`, which
+compiles conditions and task keys but none of validate's rules (parameters, templates and the registers they read,
+check mode, residency). And it read catalogdata's copies, not the registry's, in a package pr-check runs only when
+the branch changes it. The check a user gets from `pleiades validate` was never applied to the text the project
+ships as runbooks.
+
+**Fix.** `internal/archtest`'s `TestEveryDocumentedExampleValidates`, which pr-check always runs: every
+registered method's examples, as `pleiades doc` prints them, built by the real Builder and run through
+`validate.Validate` against an inventory holding the providers the `ai.*` examples name. Nineteen examples fixed:
+bare register names read under `result`, `changed` replaced by comparing `file.copy`'s diff halves (proved on
+`bsd-check`: fired on a write, skipped when converged, fired on a change), `hosts:` removed from eleven tasks,
+`svc.windows.restart`'s config written with `win.file.copy` rather than SSH-only `file.copy`, the two above.
+
+**Lesson.** Shipped runbook text goes through the whole of `pleiades validate`, not the part that was handy.
+
+## 516. A box resumed from its saved state answered one login, then none for over 20 seconds, and the check failed
+
+**Symptom.** 2026-10-18, `make pr-check` on `fix/catalog-examples`: wincheck resumed `win-check` from saved, its
+10-minute wait for a login passed, and the flow's next step, the 20-second liveness check, got no answer at all
+("gave up waiting for 192.168.56.31 after 5s" on every try). The leg failed before shipping anything; FreeBSD and
+the Mac passed.
+
+**Root cause.** `Box.Up` took one answered login as a box that is up. A resumed guest is not steady at once:
+resumed again by hand, `win-check` answered nothing for 132 seconds, its clock 75 minutes slow until Guest
+Additions set it, and then answered every check within a second. Why the guest went dark is not proven (the clock,
+or catching up after the resume, are the candidates); that it can is.
+
+**Fix.** After starting a box, `Up` requires it to pass the flow's own liveness check three times in a row, ten
+seconds apart, and waits for a login again after a miss, all within the 10-minute boot bound
+(`TestBoxUp_WaitsUntilTheBoxAnswersSteadily`). Live: wincheck resumed win-check, passed, and saved it.
+
+**Lesson.** A machine that was just started is up when it answers steadily, not when it first answers.
+
+## 517. Windows failed 36 tests in three packages #73 never ran there, each starting the /bin/sh test server unguarded (a repeat of 510)
+
+**Symptom.** 2026-10-18, `make pr-check` on `fix/catalog-examples`, once the box fix let its Windows leg run:
+36 failures in `internal/catalog/file/line`, `svc` and `svc/systemd`, every command answered "exited 255: no
+output". The branch changed only those packages' doc examples, which put them in scope.
+
+**Root cause.** 510's fix added `need.POSIXShell` to the tests of the eight packages that run reached, and nothing
+held the other harnesses to it: 69 of the 78 test functions that start remoteexectest's server, which hands every
+command to `/bin/sh`, never asked for a POSIX shell. Each package was going to fail on Windows the first time a
+branch changed it.
+
+**Fix.** Every one of those functions calls `need.POSIXShell` before the server starts, and `internal/archtest`'s
+`TestEveryShellServerTestNeedsAPOSIXShell` refuses a new one that does not, naming in `shellFreeServers`, with a
+reason, the thirteen that send no command (scripted CLI and NETCONF devices, bastions that only forward, a host key
+scan, a server that refuses every session). Watched failing with one guard removed.
+
+**Lesson.** A fix for a class of test covers every test of the class, and a guard holds the next one to it; fixing
+the instances a run happened to reach leaves the rest for the next branch.
+
+## 518. testgate printed a failed table test's "--- FAIL" line and not which case failed or why (fixed)
+
+**Symptom.** 2026-10-18, `make pr-check` on `fix/catalog-examples`: FreeBSD's leg failed `pkg/remotefile`'s
+`TestPrediction_MatchesWhatApplyDoes` and Windows' failed `net/ssh`'s `TestPing_VerifiesTheHostKeyAgainstKnownHosts`,
+and the report for each, re-run alone, was the parent's run and fail lines and nothing else.
+
+**Root cause.** `flakegate.FailureOutput` kept the output events whose test name equalled the failed test's, and
+go test names a subtest's events after the subtest (`TestX/case`). A table test's reason is always in one, so every
+table test's failure, locally and in CI's job summaries, arrived without it.
+
+**Fix.** It keeps a test's subtests too (`ownedBy`), and nothing of a test whose name only begins the same way
+(`TestFailureOutput_IncludesTheFailingSubtest`, watched failing).
+
+**Lesson.** A report of why something failed is tested with the shape failures take most, a table test.
+
+## 519. A WinRM fault in an accepted reply lost its reason, and at a Receive looped until the deadline (fixed)
+
+**Symptom.** 2026-10-18, building lab-dc1: a shell was refused with "winrm: opening a shell: received error
+response", which named nothing.
+
+**Root cause.** When a WS-Man fault arrives as a reply the transport accepts, masterzen/winrm's parsers report
+"received error response" and keep the fault in `ExecuteCommandError.Body`; `describeFault` read only the error's
+text. At a Receive the parser read a fault as output not yet done, so the loop asked again until the operation's
+deadline, and a host refusing mid-command looked like a command still running (watched: the test hung).
+
+**Fix.** `describeFault` reads a parse error's Body, and shell open, command start and output parsing use it;
+a fault in a Receive reply ends the command with its sentence, except the routine TimedOut fault, which still means
+nothing yet (`TestRun_AFaultInAReplyReadsAsItsSentence`, `TestReceive_ATimedOutFaultInAReplyStillWaits`).
+
+**Lesson.** A library's error is read for everything it carries, not only its text.
+
+## 520. Windows read the real login's home in tests that set HOME alone (a repeat of 510) (fixed)
+
+**Symptom.** 2026-10-18: `net/ssh`'s known_hosts test failed on win-check the first time a branch put the package
+in scope; five more tests set HOME alone.
+
+**Root cause.** 510 fixed `pkg/remoteexec`'s known_hosts tests, the instance its run reached, and nothing held the
+rest to it: `os.UserHomeDir` reads USERPROFILE on Windows.
+
+**Fix.** Every such test sets both, and `TestEveryHomeOverrideCoversWindows` refuses one that sets HOME without
+USERPROFILE in a file a Windows build includes (`go/build` with GOOS=windows). The class sweep 517 called for.
+
+**Lesson.** As 517: fix the class with a guard, not the instance a run reached.
+
+## 521. bsd-check found a write's prediction claiming a group the write does not keep, behind two test flaws (fixed)
+
+**Symptom.** 2026-10-18: once testgate showed subtest output (518), `pkg/remotefile` on bsd-check failed its setgid
+directory cases at the fixture (`chmod 02755: operation not permitted`); with that fixed, a write naming only a mode
+was predicted to leave group pleiades and left wheel; and `internal/catalog/file`'s directory check predicted an
+mtime one second off.
+
+**Root cause.** On FreeBSD a new path takes its parent directory's group and setgid is refused to a user outside it
+(Linux clears the bit), so the fixture never set the bit. `remotefile.Write` replaces a file with a new one, which
+takes the group a new file gets (the account's on Linux, the directory's on FreeBSD), and `PredictWrite` said an
+existing file's unnamed attributes survive: true on Linux only while the file's group was the account's. The
+directory test compared mtimes across two directories made a moment apart.
+
+**Fix.** The fixture takes the process's group first; `PredictWrite` leaves a mode, owner or group the caller does
+not name unknown over an existing file too (file.copy and file.line name all three, a case pins it); the directory
+test holds the predicted mtime to the checked directory's own. Each ran on bsd-check, not skipped there.
+
+**Lesson.** A test that only ever ran on Linux encodes Linux; run it where else the code claims to work before
+believing it.

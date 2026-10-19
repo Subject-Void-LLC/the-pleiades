@@ -51,7 +51,6 @@ Reclaim the disk:
 
 ```yaml
 - name: Remove
-  hosts: workstation
   ai.model.remove:
     model: "llama3.1:8b"
 ```

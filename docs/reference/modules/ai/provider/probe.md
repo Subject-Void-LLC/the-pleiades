@@ -55,7 +55,6 @@ Prove a provider answers:
 
 ```yaml
 - name: Probe
-  hosts: claude
   ai.provider.probe:
     model: claude-haiku-5-5
 ```

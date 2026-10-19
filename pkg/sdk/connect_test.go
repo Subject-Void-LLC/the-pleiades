@@ -9,6 +9,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 	"os"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -42,6 +43,7 @@ func newStub() *inventorytest.Stub {
 // the test ends.
 func startServer(t *testing.T) *remoteexectest.Server {
 	t.Helper()
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

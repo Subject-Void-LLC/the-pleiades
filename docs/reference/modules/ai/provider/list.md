@@ -50,7 +50,6 @@ List every provider:
 
 ```yaml
 - name: Providers
-  hosts: [claude, workstation]
   ai.provider.list: {}
 ```
 

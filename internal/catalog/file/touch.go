@@ -134,7 +134,7 @@ func touchDoc() collection.Doc {
 			},
 			{
 				Name:        "Act only when the file had to be created",
-				RunbookYAML: "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n",
+				RunbookYAML: "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: result.seed.created\n",
 			},
 		},
 		SeeAlso: []string{"file.remove", "file.permissions", "file.copy"},

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -136,6 +137,7 @@ func startTouchServer(t *testing.T) *remoteexectest.Server {
 // sent: the budget is the exact number of commands a converged run needs.
 func startTouchServerWithLimit(t *testing.T, limit *int) *remoteexectest.Server {
 	t.Helper()
+	need.POSIXShell(t)
 	server, err := remoteexectest.Start(remoteexectest.Options{SessionLimit: limit})
 	if err != nil {
 		t.Fatalf("starting the SSH harness: %v", err)

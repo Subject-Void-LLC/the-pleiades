@@ -16,6 +16,7 @@ import (
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -107,6 +108,7 @@ func startHarness(t *testing.T, tlsDir string) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

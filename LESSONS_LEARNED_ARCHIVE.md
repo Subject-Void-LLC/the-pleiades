@@ -5850,3 +5850,13 @@ answer, and a cap above what is free is none.
 **Why.** 2026-10-18. Measuring the ec2 package's compile with a 6 GB cap while about 3 GB was free coincided with
 the session's environment restarting, losing a background run and the scratch files in progress. The rule was
 already in the agent's notes (WSL limits); it was not applied.
+
+## 301. A documented example is a runbook, and is held to everything `pleiades validate` checks
+
+**Rule.** Any runbook the project ships as text (a method's examples, a guide's snippet) passes the same
+validation a user's runbook gets, in a test pr-check always runs, from the day the text is written.
+
+**Why.** 2026-10-18 (FAILURE_PATTERNS 514, 515). Seventeen examples read registers wrongly or put `hosts:` on a
+task, across several pull requests, while the builder and the validator that refuse both were in the tree. The
+owner: "That never should have gotten that far. The runbook sanity check should have caught them." The first fix
+reached for the builder alone and missed two that only validation finds.

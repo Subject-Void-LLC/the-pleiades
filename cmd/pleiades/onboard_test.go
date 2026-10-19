@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -23,6 +24,7 @@ import (
 // nothing while discovered, onboards it, and then runs exec.shell, whose
 // ShellExecCapable only the probe can grant it.
 func TestCLI_OnboardGenericSSH(t *testing.T) {
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)

@@ -62,6 +62,6 @@ Restart after a config change:
   svc.systemd.restart:
     name: nginx
   when:
-    - nginx_config.changed
+    - result.nginx_config.diff.before != result.nginx_config.diff.after
 ```
 

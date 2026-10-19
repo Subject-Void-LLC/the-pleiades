@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -32,6 +33,7 @@ import (
 // benchServer starts the harness for b and returns where it listens.
 func benchServer(b *testing.B) dirServer {
 	b.Helper()
+	need.POSIXShell(b)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		b.Fatalf("starting the SSH harness: %v", err)

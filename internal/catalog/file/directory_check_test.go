@@ -113,8 +113,18 @@ func TestCheckDirectory_PredictsWhatARealRunDoes(t *testing.T) {
 			// Every key the prediction states must match what the real run
 			// left. A key it leaves out is one only the device decides, and
 			// the create case must leave out owner and group, since this
-			// task names neither.
+			// task names neither. The modification time is the exception:
+			// the check and the real run act on two directories made a moment
+			// apart, which share a second only by luck (on bsd-check they did
+			// not), so the predicted time is held to the checked directory's
+			// own instead: a chmod leaves it alone.
 			for key, want := range predicted {
+				if key == "mtime" {
+					if before := dirDiffHalf(t, rc, "before")["mtime"]; want != before {
+						t.Errorf("the check predicted after.mtime = %v, but the directory it checked has %v and a chmod leaves it", want, before)
+					}
+					continue
+				}
 				if actual[key] != want {
 					t.Errorf("the check predicted after.%s = %v, the real run left %v", key, want, actual[key])
 				}

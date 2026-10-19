@@ -51,7 +51,6 @@ Free the memory:
 
 ```yaml
 - name: Unload
-  hosts: workstation
   ai.model.unload:
     model: "qwen3:14b"
 ```

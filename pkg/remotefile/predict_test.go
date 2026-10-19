@@ -88,6 +88,13 @@ func predictFixture(t *testing.T, kind remotefile.Kind, mode os.FileMode) string
 			t.Fatalf("creating %s: %v", path, err)
 		}
 	}
+	// A new path takes its parent directory's group on FreeBSD (here /tmp's,
+	// wheel), and FreeBSD refuses setgid to a user outside the file's group
+	// where Linux clears the bit, so the fixture is given this process's own
+	// group first. On Linux the path already has it.
+	if err := os.Chown(path, -1, os.Getgid()); err != nil {
+		t.Fatalf("chgrp %s: %v", path, err)
+	}
 	// os.Chmod takes Go's own special-bit flags rather than the raw octal
 	// ones, so the raw bits go through syscall.Chmod instead.
 	if err := syscall.Chmod(path, uint32(mode)); err != nil {

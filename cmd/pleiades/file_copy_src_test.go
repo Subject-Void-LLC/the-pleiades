@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -24,6 +25,7 @@ import (
 // path outside the project, or a symbolic link out of it is refused
 // before anything is sent.
 func TestCLI_FileCopySendsAProjectFile(t *testing.T) {
+	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})
 	if err != nil {
 		t.Fatal(err)
