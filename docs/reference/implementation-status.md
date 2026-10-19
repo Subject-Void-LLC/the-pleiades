@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**170 of 173 methods are implemented.**
+**171 of 174 methods are implemented.**
 
 ## Implemented
 
@@ -180,6 +180,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [win.capability.install](modules/win/capability/install.md)
 - [win.capability.remove](modules/win/capability/remove.md)
 - [win.reboot](modules/win/reboot.md)
+- [win.firewall.rule](modules/win/firewall/rule.md)
 
 ## Declared, not yet implemented
 

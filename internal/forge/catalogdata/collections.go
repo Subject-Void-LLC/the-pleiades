@@ -44,6 +44,7 @@ var Collections = concatCollections(
 	winFileCollections,
 	winCPUCollections,
 	winHostCollections,
+	winFirewallCollections,
 )
 
 // concatCollections joins every catalog section slice into one, explicit

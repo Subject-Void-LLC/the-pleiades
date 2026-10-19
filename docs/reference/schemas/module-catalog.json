@@ -15320,6 +15320,196 @@
       ]
     }
   },
+  "win.firewall.rule": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A rule this run made is removed by its undo; a rule it changed gets back the earlier value of each setting it changed; a rule it removed is made again with every setting it had, though not in the group it belonged to, which a rule cannot be put back into. Its display name and description are text the device holds, withheld from the journal, so an undo restoring either replays only from the task's own rollback: list.",
+      "inverses": [
+        {
+          "fqcn": "win.firewall.rule",
+          "record": [
+            "name",
+            "state",
+            "enabled",
+            "direction",
+            "action",
+            "profiles",
+            "protocol",
+            "local_port",
+            "remote_port",
+            "local_address",
+            "remote_address",
+            "program",
+            "service"
+          ],
+          "withhold": [
+            "display_name",
+            "description"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes, changes or removes a Windows Defender Firewall rule over WinRM, or reports one as it is.",
+      "description": "A rule is named by its Name, its identity (OpenSSH-Server-In-TCP, not its display name), and read and written in the machine's own rule store (PersistentStore). With state present, a rule that does not exist is made, with Windows' defaults for what the task leaves out (inbound, allow, any protocol, every profile, enabled, its name as its display name); a rule that exists is compared on the settings the task gives and only those, and a setting that differs is changed, so a built-in rule's profiles can be widened without restating its ports or program. absent removes it; query only reports it. A rule that exists only through Group Policy is refused, since a change here would not be kept. Profiles, ports and addresses compare as sets, and an IPv4 network compares the same written as 10.0.0.0/8 or with the dotted mask Windows answers with. Ports need protocol tcp or udp, the task's or the rule's. The script is a constant and every value reaches it as JSON on standard input, held to its form first. A rule this run made undoes to its removal; a change, to the earlier value of each setting it changed; a removal, to making the rule again as it was, outside the group it belonged to. Lists may also be given as one comma-separated string, which is how an undo writes them; an undo restoring a display name or description is withheld from the journal. A check reads and reports what would change.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The rule's Name, its identity: letters, digits, space and ._{}()@,+-, at most 255."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent",
+            "query"
+          ],
+          "description": "present makes or changes it; absent removes it; query only reports it."
+        },
+        {
+          "name": "display_name",
+          "type": "string",
+          "description": "The name the firewall shows. A new rule takes its Name when this is left out."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "description": "Its description."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "description": "Whether it is on. A new rule is."
+        },
+        {
+          "name": "direction",
+          "type": "string",
+          "choices": [
+            "inbound",
+            "outbound"
+          ],
+          "description": "Which traffic it matches. A new rule's is inbound."
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "choices": [
+            "allow",
+            "block"
+          ],
+          "description": "What it does with that traffic. A new rule allows it."
+        },
+        {
+          "name": "profiles",
+          "type": "list",
+          "description": "The network profiles it applies in: domain, private, public, or any (all three). A new rule's is any."
+        },
+        {
+          "name": "protocol",
+          "type": "string",
+          "description": "tcp, udp, icmpv4, icmpv6, any, or an IP protocol number 0-255. A new rule's is any."
+        },
+        {
+          "name": "local_port",
+          "type": "list",
+          "description": "The ports on this machine it matches: ports, ranges (8000-8100), any, or a keyword Windows knows (RPC, RPCEPMap, IPHTTPS, Teredo). Needs tcp or udp."
+        },
+        {
+          "name": "remote_port",
+          "type": "list",
+          "description": "The other side's ports it matches: ports, ranges or any. Needs tcp or udp."
+        },
+        {
+          "name": "local_address",
+          "type": "list",
+          "description": "This machine's addresses it matches: addresses, networks (10.0.0.0/8), ranges (10.0.0.1-10.0.0.9), any, or a keyword (LocalSubnet, Internet, Intranet, DNS, DHCP, WINS, DefaultGateway)."
+        },
+        {
+          "name": "remote_address",
+          "type": "list",
+          "description": "The other side's addresses it matches, in the same forms."
+        },
+        {
+          "name": "program",
+          "type": "string",
+          "description": "The program whose traffic it matches, a path, or any."
+        },
+        {
+          "name": "service",
+          "type": "string",
+          "description": "The service whose traffic it matches, by its short name, or any."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The rule's Name."
+        },
+        {
+          "name": "existed",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the rule existed before."
+        },
+        {
+          "name": "group",
+          "type": "string",
+          "returned": "always",
+          "description": "The group it belonged to before, as Windows names it, empty for none."
+        },
+        {
+          "name": "rule",
+          "type": "dict",
+          "returned": "always",
+          "description": "Its settings before, as this method's parameters name them, empty when it did not exist."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "How it differed from what was asked, empty when it matched."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Let SSH in on a domain controller",
+          "runbookYaml": "- name: OpenSSH's rule covers the domain network too\n  win.firewall.rule:\n    name: OpenSSH-Server-In-TCP\n    profiles: [domain, private]\n"
+        },
+        {
+          "name": "An app's port from one network",
+          "runbookYaml": "- name: The app's port, from the office only\n  win.firewall.rule:\n    name: Pleiades-App-In\n    display_name: App (TCP 8443)\n    protocol: tcp\n    local_port: [8443]\n    remote_address: [10.20.0.0/16]\n    profiles: [domain]\n"
+        },
+        {
+          "name": "What a rule allows",
+          "runbookYaml": "- name: Remote Desktop's rule\n  win.firewall.rule:\n    name: RemoteDesktop-UserMode-In-TCP\n    state: query\n  register: rdp\n"
+        }
+      ],
+      "seeAlso": [
+        "win.schtask",
+        "svc.windows.start",
+        "fw.firewalld.allow"
+      ]
+    }
+  },
   "win.reboot": {
     "supportedTransports": [
       "winrm"

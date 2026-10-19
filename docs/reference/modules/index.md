@@ -30,8 +30,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
-| `win` | 9 | 9 |
-| **total** | **173** | **170** |
+| `win` | 10 | 10 |
+| **total** | **174** | **171** |
 
 ## All methods
 
@@ -208,5 +208,6 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [win.feature.remove](win/feature/remove.md) | implemented | Disables a Windows optional feature or role via DISM. |
 | [win.file.copy](win/file/copy.md) | implemented | Copies a file from the project to a Windows host over WinRM and keeps it only if its SHA-256 matches. |
 | [win.file.download](win/file/download.md) | implemented | Downloads a file onto a Windows host over HTTPS and keeps it only if its SHA-256 matches. |
+| [win.firewall.rule](win/firewall/rule.md) | implemented | Makes, changes or removes a Windows Defender Firewall rule over WinRM, or reports one as it is. |
 | [win.reboot](win/reboot.md) | implemented | Restarts a Windows host over WinRM and waits until it is back, as ansible.windows.win_reboot does. |
 | [win.schtask](win/schtask.md) | implemented | Registers, updates or removes a Windows scheduled task over WinRM, or reports one as it is. |
