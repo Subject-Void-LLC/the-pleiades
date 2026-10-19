@@ -13220,3 +13220,23 @@ with nothing built.
 
 **Lesson.** A cached build is reusable only when it is known to be of this tree; "it exists" says nothing about which
 tree made it. The pr-check report named the cause in one line.
+
+## 527. virt.vbox.vm.delete took a saved VM for one it could change, and failed at its first step (fixed)
+
+**Symptom.** 2026-10-19, rebuilding the lab domain: `dc-00-teardown` stopped at "delete lab-lin1 and its disks",
+`VBoxManage storageattach lab-lin1 ... --medium none exited 1: The machine is not mutable or running (state is
+Saved)`. Nothing was deleted. Both lab VMs were saved, the state `virt.vbox.vm.stop mode: save` (#73) leaves them in.
+
+**Root cause.** The delete's guard was `Machine.Off`, which answers "does guest code run" and is right to count a
+saved VM as off. The delete then asked a second question the guard does not answer, "may this VM's media be
+changed", and VirtualBox's answer for a saved VM is no. The test model let a saved machine's media change, so every
+test of the delete passed on a VM in a state the real host refuses.
+
+**Fix.** `vboxmanage.Host.DiscardState` (`VBoxManage discardstate`), called by the delete for a saved VM before it
+detaches anything; the delete throws that memory away anyway. The model now refuses a saved machine's
+`storageattach` in the lab host's own words and answers `discardstate`. TestDelete_ASavedVMIsDiscardedFirst failed
+on the old code with the lab's error.
+
+**Lesson.** A predicate named for one question (off: no guest runs) gets used for a neighbouring one (mutable).
+When a new state appears (saved, from #73), every caller of the predicate needs reading, and the model needs the
+host's refusal for that state, or the tests prove the method against a host that does not exist.
