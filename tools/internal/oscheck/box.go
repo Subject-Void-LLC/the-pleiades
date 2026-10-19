@@ -56,32 +56,19 @@ const bootWait = 10 * time.Minute
 // host that stopped answering cannot hold the check open.
 const PutBackGrace = 5 * time.Minute
 
-// steadyAnswers is how many times in a row, steadyGap apart, a box this
-// run started must pass the liveness check the flow makes next (Lab's
-// Reachable) before the run uses it. A win-check resumed from its saved
-// state answered one login and then none for over 20 seconds (2026-10-18;
-// its clock was 75 minutes slow until Guest Additions set it, two minutes
-// after the resume), so one answer is not a box that is up.
-const steadyAnswers = 3
-
-// steadyGap is the pause between those checks.
-const steadyGap = 10 * time.Second
-
-// boxNow and boxSleep are the clock and the pause Up waits with; a test
-// replaces them.
-var (
-	boxNow   = time.Now
-	boxSleep = func(ctx context.Context, d time.Duration) error {
-		t := time.NewTimer(d)
-		defer t.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-t.C:
-			return nil
-		}
-	}
-)
+// steadyWait is how a box this run started is waited for, as any
+// Pleiades user would wait for one: wait.connection, within bootWait, for
+// three fresh logins in a row ten seconds apart, backing off exponentially
+// from two seconds to thirty while it refuses. A win-check resumed from its
+// saved state answered one login and then none for over 20 seconds
+// (2026-10-18; its clock was 75 minutes slow until Guest Additions set it,
+// two minutes after the resume), so one answer is not a box that is up.
+// This was a loop of the check's own until wait.connection could ask for a
+// streak.
+var steadyWait = []string{
+	fmt.Sprintf("timeout=%d", int(bootWait/time.Second)), "backoff=exponential", "sleep=2", "max_sleep=30",
+	"steady=3", "steady_interval=10", "connect_timeout=10",
+}
 
 // stateStat is virt.vbox.vm.info's return holding the VM's state.
 const stateStat = "state"
@@ -107,46 +94,8 @@ func (b Box) Up(ctx context.Context, tool string, stdout io.Writer) (bool, error
 	if _, err := adhocStats(ctx, b.Host, "virt.vbox.vm.start", "name="+b.VM); err != nil {
 		return false, fmt.Errorf("starting the VM %s on %s: %v", b.VM, b.Host.Device, err)
 	}
-	if err := b.waitSteady(ctx); err != nil {
+	if _, err := adhocStats(ctx, b.Device, "wait.connection", steadyWait...); err != nil {
 		return true, fmt.Errorf("the VM %s started, and %s did not answer logins steadily within %s: %w", b.VM, b.Device.Device, bootWait, err)
-	}
-	return true, nil
-}
-
-// waitSteady waits, within bootWait, until the machine answers a login and
-// then passes the flow's liveness check steadyAnswers times in a row; a
-// miss starts the wait again.
-func (b Box) waitSteady(ctx context.Context) error {
-	deadline := boxNow().Add(bootWait)
-	for {
-		left := int(deadline.Sub(boxNow()) / time.Second)
-		if left < 1 {
-			return fmt.Errorf("it never passed %d liveness checks in a row", steadyAnswers)
-		}
-		if _, err := adhocStats(ctx, b.Device, "wait.connection", fmt.Sprintf("timeout=%d", left), "connect_timeout=10", "sleep=5"); err != nil {
-			return err
-		}
-		steady, err := b.answersSteadily(ctx)
-		if err != nil || steady {
-			return err
-		}
-	}
-}
-
-// answersSteadily reports whether the machine passes the flow's liveness
-// check steadyAnswers times, steadyGap apart; an error is the run's
-// context ending.
-func (b Box) answersSteadily(ctx context.Context) (bool, error) {
-	for range steadyAnswers {
-		if err := boxSleep(ctx, steadyGap); err != nil {
-			return false, err
-		}
-		if _, err := adhocStats(ctx, b.Device, "wait.connection", fmt.Sprintf("timeout=%d", waitSeconds), "connect_timeout=5", "sleep=5"); err != nil {
-			if ctx.Err() != nil {
-				return false, ctx.Err()
-			}
-			return false, nil
-		}
 	}
 	return true, nil
 }
