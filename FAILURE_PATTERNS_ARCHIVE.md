@@ -13240,3 +13240,24 @@ on the old code with the lab's error.
 **Lesson.** A predicate named for one question (off: no guest runs) gets used for a neighbouring one (mutable).
 When a new state appears (saved, from #73), every caller of the predicate needs reading, and the model needs the
 host's refusal for that state, or the tests prove the method against a host that does not exist.
+
+## 528. The file inventory's reads took no lock, so a read could straddle a Save (fixed)
+
+**Symptom.** 2026-10-19, the Windows lab check's first run of `internal/inventory` with cgo on:
+TestFileRepository_ConcurrentSaveDifferentHosts failed alone, "failed to read inventory file ...hosts.yaml: The
+process cannot access the file because it is being used by another process." The test had passed on Linux and macOS
+for months; no branch had put the package on Windows before.
+
+**Root cause.** `fileRepository.GetByName` and `GetGroup` read hosts.yaml and then the sidecar with no lock, while
+Save, Create and Retire hold `mu` and rename new files over both. On Windows an open and a rename of the same file
+refuse each other, which is the error. On every OS the read could take hosts.yaml from before a Save and the sidecar
+from after it: an item with the old properties at the new version, whose own Save then passes the version check and
+overwrites the change it never saw, the lost update Save's version check exists to prevent.
+
+**Fix.** `mu` is a `sync.RWMutex`, and both reads take both files under its read lock.
+TestFileRepository_AReadTakesBothFilesFromOneMoment runs a Save between a read's two files (a test seam,
+`afterHostsRead`) and failed on Linux with the lock removed: "the read holds version 1 without the change version 1
+made". Two pleiades processes on one project are still kept apart only by `.pleiades/run.lock`.
+
+**Lesson.** A test passing on one OS for months says nothing about another; the Windows leg found this the first time
+the package reached it. And a version check guards a write only if the read it compares against was whole.
