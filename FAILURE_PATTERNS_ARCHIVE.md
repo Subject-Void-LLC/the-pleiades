@@ -13132,3 +13132,38 @@ test holds the predicted mtime to the checked directory's own. Each ran on bsd-c
 
 **Lesson.** A test that only ever ran on Linux encodes Linux; run it where else the code claims to work before
 believing it.
+
+## 522. testgate's new run record kept a skip's reason as the test wrote it, beside a ledger that masked it (a repeat of 417) (fixed before push)
+
+**Symptom.** 2026-10-19, on feat/pr-report before its first push: checking the branch against the failure-pattern
+titles, 417's "would have carried test output unmasked" asked whether the run record `testgate -report-out` writes
+masked everything a test wrote. A skip with `LOCALSTACK_AUTH_TOKEN` in its reason, run through the real gate,
+reached the record in the clear while the printed ledger and the job summary beside it showed `********`.
+
+**Root cause.** 417 masked text where it was printed or written (`scrub` on the ledger string and the summary), and
+the failures in the new record went through `RunFailures`' mask, but the record took the skips from the go test
+events directly. 417's fix lived at each place that shows text, so a new place had to remember it; this one
+remembered for the failures and not for the skips.
+
+**Fix.** The skips are masked as testgate reads them (`scrubSkips`: each skip's test name and reason), so the
+ledger, the measurement and the record all build from the same masked text. `TestRun_MasksASecretATestPrints` now
+also skips naming the token and reads the record; it failed on the old code with the token in `skips[0].reason`.
+
+**Lesson.** Mask a test's text where the program reads it, not where each view shows it: a view added later then
+cannot forget.
+
+## 523. prreport dropped a stray argument, a second view and an exit code beside -not-run without a word (a repeat of 358) (fixed before push)
+
+**Symptom.** 2026-10-19, on feat/pr-report before its first push, found by checking the branch against 358's title:
+`prreport -failures -skips` printed the failures alone, `prreport -dir D mac` ignored `mac`, and `prreport step
+-exit 1 -not-run reason` recorded not-run with exit 1 as though both held.
+
+**Root cause.** The same as 358's second half: a command parsed its flags and never asked what was left, or which
+of two exclusive flags it was given. 358's fix was to one command's parser (`splitPositionals` in `pleiades
+validate`); nothing made a new command's parser check either.
+
+**Fix.** Each prreport command refuses an argument left after its flags (`noArguments`), the show command more
+than one of `-json`, `-failures` and `-skips`, and `step` an `-exit` beside `-not-run` (`flag.FlagSet.Visit`, so
+`-exit 0` counts as given). `TestRun_Refusals` holds each; all five cases failed on the old code.
+
+**Lesson.** A new command takes 358 with it: every parser refuses leftovers and contradictory flags on its own.

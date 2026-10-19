@@ -524,6 +524,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 519. A WinRM fault in an accepted reply lost its reason, and at a Receive looped until the deadline (fixed)
 520. Windows read the real login's home in tests that set HOME alone (a repeat of 510) (fixed)
 521. bsd-check found a write's prediction claiming a group the write does not keep, behind two test flaws (fixed)
+522. testgate's new run record kept a skip's reason as the test wrote it, beside a ledger that masked it (a repeat of 417) (fixed before push)
+523. prreport dropped a stray argument, a second view and an exit code beside -not-run without a word (a repeat of 358) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
