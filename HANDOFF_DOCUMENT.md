@@ -49,17 +49,47 @@ caught them."
   - **The fix:** all 56 test functions that run commands through remoteexectest's `/bin/sh` server now call
     `need.POSIXShell`. `internal/archtest`'s `TestEveryShellServerTestNeedsAPOSIXShell` holds new ones to it. The
     13 that send no command are named in it with reasons.
+- **Found by running the newly in-scope packages on FreeBSD and Windows, all fixed** (FAILURE_PATTERNS 518 to 521):
+  - testgate dropped a failed table test's subtest output (`flakegate.FailureOutput`);
+  - six tests set HOME without USERPROFILE; `TestEveryHomeOverrideCoversWindows` holds new ones to both;
+  - `remotefile.PredictWrite` claimed an existing file's unnamed attributes survive a write;
+  - two test flaws: a setgid fixture FreeBSD refused, and a directory test comparing two directories' mtimes.
+- **Found building the lab's domain, fixed:** a WinRM fault arriving in an accepted reply lost its reason, and at a
+  Receive looped until the deadline (`pkg/winrmexec`, FAILURE_PATTERNS 519).
+
+### The lab's domain (lab.raymondrizzo.com), built at the owner's request
+
+- **The runbooks** are in `~/pleiades-lab/runbooks/win/` (not the repository):
+  - `dc-00-teardown`;
+  - `dc-01-build` (Server 2025 Core at the 2016 functional level);
+  - `dc-02-forest-upgrade` (to 2025, after a snapshot);
+  - `dc-03-linux-create` (an extra-small Ubuntu member);
+  - `dc-04-linux-join` (staged computer account, SSSD, an SSH logon test as a domain user).
+- **Proven from nothing, back to back, every rerun a no-op.** No secret is in a file or any output: the passwords
+  that cross go through `register_mask` and stdin.
+- **What the passes found:**
+  - promotion must restart the box itself;
+  - a fresh clone's answer-file image must be deleted while the VM is off;
+  - the domain's DNS records take up to about four minutes;
+  - Server 2025's join hardening refuses an ordinary user's quota join (`realm` and `adcli` both), so the member
+    joins as a staged computer account;
+  - `always:` is parsed but not run, and `validate` says nothing (in the tracker).
+- **State:** `lab-dc1` and `lab-lin1` are saved; `virt.vbox.vm.start` resumes them.
 
 ### Next
 
 1. Gate this branch (coverage of the touched packages, then `make pr-check`), then open its pull request.
-2. **Every method proven on every OS it targets** (the owner, 2026-10-18: "Since we have all targeted OSes
+2. **One results document per pr-check run, with a reader** (planned with the owner; Phase 122b holds the plan):
+   - `flakegate.Run` written by testgate's `-report-out`;
+   - each OS leg reads its report back;
+   - `tools/prreport` merges them into `.coverage/pr/report.json`.
+3. **Every method proven on every OS it targets** (the owner, 2026-10-18: "Since we have all targeted OSes
    available, there is no longer an excuse for a module not working"):
    - an audit of which methods have run through `pleiades` on which lab box;
    - then the gaps closed method by method.
 
    It's tracked in Phase 122b.
-3. **Packages, by the owner's direction of 2026-10-18** (the tracker's Phase 122b item holds the edge cases):
+4. **Packages, by the owner's direction of 2026-10-18** (the tracker's Phase 122b item holds the edge cases):
    - **For Server Core, three backends the user picks among, with no AppX or UWP:**
      - Chocolatey, for system services and MSIs;
      - Scoop, for portable CLI binaries;
@@ -72,7 +102,7 @@ caught them."
    - **Open:** whether `win.package` (an installer by digest) stays beside them.
    - `pkg.winget.*` for Desktop Experience only, refusing Server Core by name.
    - FreeBSD's `pkg(8)`, with the generic `pkg.*` dispatching to it.
-4. **Phase 122b's other open items:**
+5. **Phase 122b's other open items:**
    - the converter maps no Windows module;
    - `win.feature.*` parses DISM's state without `/english`;
    - there is no archive method for Windows;
@@ -99,6 +129,8 @@ caught them."
 - `tools/internal/oscheck/box.go` and its test;
 - `need.POSIXShell` in 50 test files across `cmd`, `internal` and `pkg`, and
   `internal/archtest/posix_shell_test.go`;
+- `internal/archtest/home_env_test.go`, `tools/internal/flakegate/report.go`, `pkg/winrmexec/wsman.go`,
+  `pkg/remotefile/predict.go` and their tests;
 - the doc literals in `internal/catalog/{ai,edge,svc,file,container}` and `internal/forge/catalogdata`;
 - the regenerated `docs/reference` and `internal/api/wellknown`;
 - the changelog fragment;

@@ -520,6 +520,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 324 and 514) (fixed)
 516. A box resumed from its saved state answered one login, then none for over 20 seconds, and the check failed (fixed)
 517. Windows failed 36 tests in three packages #73 never ran there, each starting the /bin/sh test server unguarded (a repeat of 510) (fixed)
+518. testgate printed a failed table test's "--- FAIL" line and not which case failed or why (fixed)
+519. A WinRM fault in an accepted reply lost its reason, and at a Receive looped until the deadline (fixed)
+520. Windows read the real login's home in tests that set HOME alone (a repeat of 510) (fixed)
+521. bsd-check found a write's prediction claiming a group the write does not keep, behind two test flaws (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

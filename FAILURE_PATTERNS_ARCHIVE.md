@@ -13068,3 +13068,67 @@ scan, a server that refuses every session). Watched failing with one guard remov
 
 **Lesson.** A fix for a class of test covers every test of the class, and a guard holds the next one to it; fixing
 the instances a run happened to reach leaves the rest for the next branch.
+
+## 518. testgate printed a failed table test's "--- FAIL" line and not which case failed or why (fixed)
+
+**Symptom.** 2026-10-18, `make pr-check` on `fix/catalog-examples`: FreeBSD's leg failed `pkg/remotefile`'s
+`TestPrediction_MatchesWhatApplyDoes` and Windows' failed `net/ssh`'s `TestPing_VerifiesTheHostKeyAgainstKnownHosts`,
+and the report for each, re-run alone, was the parent's run and fail lines and nothing else.
+
+**Root cause.** `flakegate.FailureOutput` kept the output events whose test name equalled the failed test's, and
+go test names a subtest's events after the subtest (`TestX/case`). A table test's reason is always in one, so every
+table test's failure, locally and in CI's job summaries, arrived without it.
+
+**Fix.** It keeps a test's subtests too (`ownedBy`), and nothing of a test whose name only begins the same way
+(`TestFailureOutput_IncludesTheFailingSubtest`, watched failing).
+
+**Lesson.** A report of why something failed is tested with the shape failures take most, a table test.
+
+## 519. A WinRM fault in an accepted reply lost its reason, and at a Receive looped until the deadline (fixed)
+
+**Symptom.** 2026-10-18, building lab-dc1: a shell was refused with "winrm: opening a shell: received error
+response", which named nothing.
+
+**Root cause.** When a WS-Man fault arrives as a reply the transport accepts, masterzen/winrm's parsers report
+"received error response" and keep the fault in `ExecuteCommandError.Body`; `describeFault` read only the error's
+text. At a Receive the parser read a fault as output not yet done, so the loop asked again until the operation's
+deadline, and a host refusing mid-command looked like a command still running (watched: the test hung).
+
+**Fix.** `describeFault` reads a parse error's Body, and shell open, command start and output parsing use it;
+a fault in a Receive reply ends the command with its sentence, except the routine TimedOut fault, which still means
+nothing yet (`TestRun_AFaultInAReplyReadsAsItsSentence`, `TestReceive_ATimedOutFaultInAReplyStillWaits`).
+
+**Lesson.** A library's error is read for everything it carries, not only its text.
+
+## 520. Windows read the real login's home in tests that set HOME alone (a repeat of 510) (fixed)
+
+**Symptom.** 2026-10-18: `net/ssh`'s known_hosts test failed on win-check the first time a branch put the package
+in scope; five more tests set HOME alone.
+
+**Root cause.** 510 fixed `pkg/remoteexec`'s known_hosts tests, the instance its run reached, and nothing held the
+rest to it: `os.UserHomeDir` reads USERPROFILE on Windows.
+
+**Fix.** Every such test sets both, and `TestEveryHomeOverrideCoversWindows` refuses one that sets HOME without
+USERPROFILE in a file a Windows build includes (`go/build` with GOOS=windows). The class sweep 517 called for.
+
+**Lesson.** As 517: fix the class with a guard, not the instance a run reached.
+
+## 521. bsd-check found a write's prediction claiming a group the write does not keep, behind two test flaws (fixed)
+
+**Symptom.** 2026-10-18: once testgate showed subtest output (518), `pkg/remotefile` on bsd-check failed its setgid
+directory cases at the fixture (`chmod 02755: operation not permitted`); with that fixed, a write naming only a mode
+was predicted to leave group pleiades and left wheel; and `internal/catalog/file`'s directory check predicted an
+mtime one second off.
+
+**Root cause.** On FreeBSD a new path takes its parent directory's group and setgid is refused to a user outside it
+(Linux clears the bit), so the fixture never set the bit. `remotefile.Write` replaces a file with a new one, which
+takes the group a new file gets (the account's on Linux, the directory's on FreeBSD), and `PredictWrite` said an
+existing file's unnamed attributes survive: true on Linux only while the file's group was the account's. The
+directory test compared mtimes across two directories made a moment apart.
+
+**Fix.** The fixture takes the process's group first; `PredictWrite` leaves a mode, owner or group the caller does
+not name unknown over an existing file too (file.copy and file.line name all three, a case pins it); the directory
+test holds the predicted mtime to the checked directory's own. Each ran on bsd-check, not skipped there.
+
+**Lesson.** A test that only ever ran on Linux encodes Linux; run it where else the code claims to work before
+believing it.
