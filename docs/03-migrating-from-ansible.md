@@ -260,7 +260,12 @@ Catalyst Center's REST API, verified against Cisco's public DevNet sandbox.
 | Ansible | The Pleiades FQCN | Capability | Intended side (the Runs row on each reference page is authoritative) |
 |---|---|---|---|
 | `ansible.posix.firewalld` with `port:` or a zone form | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
-| `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
+| `ansible.windows.win_optional_feature`, and `win_feature` by its DISM name | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
+| `community.windows.win_firewall_rule` | `win.firewall.rule`, by the rule's `Name` rather than its display name | `WinRMCapable` | target side |
+| `community.windows.win_firewall` | `win.firewall.profile`, one profile per task | `WinRMCapable` | target side |
+| `ansible.windows.win_reboot` | `win.reboot` | `WinRMCapable` | target side |
+| `ansible.windows.win_get_url` with a SHA-256 checksum | `win.file.download` | `WinRMCapable` | target side |
+| `community.windows.win_scheduled_task`, one action and one trigger | `win.schtask` | `WinRMCapable` | target side |
 | `community.general.archive` | `archive.create` | `POSIXFileSystemCapable` | target side |
 | `community.docker.docker_container` | `container.run`, `container.stop`, `container.remove` | `DockerCapable` | hybrid |
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |

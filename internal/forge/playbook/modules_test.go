@@ -122,6 +122,19 @@ func TestModules_Map(t *testing.T) {
 		{name: "get_url", task: "{get_url: {url: 'http://x', dest: /x}}", code: "module.manual"},
 		{name: "stat", task: "{stat: {path: /x}}", code: "module.manual"},
 		{name: "legacy name", task: "{ansible.legacy.file: {path: /x, state: directory}}", fqcns: []string{"file.directory"}},
+		{name: "win_optional_feature", task: "{win_optional_feature: {name: [Web-Server-Role, DNS-Server-Full-Role]}}", fqcns: []string{"win.feature.install", "win.feature.install"}, code: "module.semantics", class: playbook.ClassAsserted},
+		{name: "win_optional_feature absent", task: "{win_optional_feature: {name: TelnetClient, state: absent, include_parent: yes}}", fqcns: []string{"win.feature.remove"}, params: map[string]any{"name": "TelnetClient"}, code: "args.ignored"},
+		{name: "win_optional_feature source", task: "{win_optional_feature: {name: NetFx3, source: 'D:\\sources\\sxs'}}", code: "args.unmapped"},
+		{name: "win_reboot", task: "{win_reboot: {reboot_timeout: 900, msg: patching}}", fqcns: []string{"win.reboot"}, params: map[string]any{"reboot_timeout": int64(900), "msg": "patching"}, class: playbook.ClassImperative},
+		{name: "win_reboot test_command", task: "{win_reboot: {test_command: whoami}}", code: "args.unmapped"},
+		{name: "win_get_url sha256", task: "{win_get_url: {url: 'https://example.com/a.zip', dest: 'C:\\a.zip', checksum: abc, checksum_algorithm: sha256, force: no}}", fqcns: []string{"win.file.download"}, params: map[string]any{"url": "https://example.com/a.zip", "path": "C:\\a.zip", "sha256": "abc"}, code: "args.ignored"},
+		{name: "win_get_url sha1", task: "{win_get_url: {url: 'https://example.com/a.zip', dest: 'C:\\a.zip', checksum: abc}}", code: "args.value"},
+		{name: "win_firewall", task: "{win_firewall: {profiles: [Domain, Private], state: enabled, inbound_action: block}}", fqcns: []string{"win.firewall.profile", "win.firewall.profile"}, params: map[string]any{"name": "Domain", "enabled": true, "default_inbound_action": "block"}, code: "args.list_unrolled"},
+		{name: "win_firewall actions only", task: "{win_firewall: {profiles: Public, outbound_action: allow}}", fqcns: []string{"win.firewall.profile"}, params: map[string]any{"name": "Public", "default_outbound_action": "allow"}},
+		{name: "win_firewall no profiles", task: "{win_firewall: {state: enabled}}", code: "args.unmapped"},
+		{name: "win_firewall_rule", task: "{win_firewall_rule: {name: SSH, localport: 22, action: allow}}", code: "module.manual"},
+		{name: "win_feature", task: "{win_feature: {name: Web-Server}}", code: "module.manual"},
+		{name: "win_scheduled_task", task: "{win_scheduled_task: {name: x}}", code: "module.manual"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := convertTask(t, tc.task)
