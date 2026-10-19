@@ -4,6 +4,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,8 +53,9 @@ func TestTestScript(t *testing.T) {
 	for _, w := range []string{
 		`if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$')`,
 		`Set-Content -LiteralPath $pidFile -Value $PID`,
-		`& cmd.exe /d /c "go run ./tools/testgate -full -race=false -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
-		`& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
+		`Remove-Item -LiteralPath (Join-Path $tree $f) -Force`,
+		`& cmd.exe /d /c "go run ./tools/testgate -full -race=false -report-out .pleiades-record-full.json -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
+		`& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out .pleiades-record-repeat.json -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
 		`Remove-Item -LiteralPath $pidFile`,
 		`C:\mingit\cmd`,
 	} {
@@ -66,6 +68,20 @@ func TestTestScript(t *testing.T) {
 	}
 	if !strings.Contains(stopScript, "taskkill.exe /T /F /PID $id") || !strings.Contains(stopScript, `'^\d+$'`) {
 		t.Errorf("stop script does not end the run's tree by a number it checked:\n%s", stopScript)
+	}
+}
+
+// TestRecordFiles: the records the test script's passes write are the
+// files oscheck names, and the records script reads exactly those, as
+// UTF-8, from sha's tree.
+func TestRecordFiles(t *testing.T) {
+	if !slices.Equal([]string{recordFull, recordRepeat}, oscheck.RecordFiles) {
+		t.Errorf("wincheck writes %s and %s, oscheck names %v", recordFull, recordRepeat, oscheck.RecordFiles)
+	}
+	for _, w := range []string{"$env:PLEIADES_SHA", recordFull, recordRepeat, "-Raw -Encoding UTF8"} {
+		if !strings.Contains(recordsScript, w) {
+			t.Errorf("records script does not hold %q:\n%s", w, recordsScript)
+		}
 	}
 }
 

@@ -211,6 +211,9 @@ func runWithBox(ctx context.Context, o *Options, flow Flow, leg Leg, box Box, st
 	code := 2
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n%s\n", flow.Tool, err, flow.Advice)
+		rec := flow.record(o)
+		stopped(&rec, StepBox, err)
+		code = flow.writeRecord(o, rec, code, stderr)
 	} else {
 		code = flow.Run(ctx, o, stdout, stderr, leg)
 	}

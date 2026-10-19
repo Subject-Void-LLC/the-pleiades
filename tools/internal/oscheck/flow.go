@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
 // The phases -phase names. prepare checks the machine, builds pleiades and
@@ -44,6 +46,9 @@ type Options struct {
 	// ReadyFile, with PhasePrepare, is written once the tree is on the
 	// machine, so a caller knows PhaseTest has something to run.
 	ReadyFile string
+	// ReportOut, when set, is where the leg's record is written
+	// (LegRecord), with the testgate records read back from the machine.
+	ReportOut string
 	// Packages are the import paths to test.
 	Packages []string
 }
@@ -57,6 +62,7 @@ func Flags(fs *flag.FlagSet, machine string) *Options {
 	fs.IntVar(&o.Parallel, "p", 0, "how many packages testgate runs at once on "+machine+" (0: its default)")
 	fs.StringVar(&o.Phase, "phase", PhaseAll, "prepare (check "+machine+", build pleiades, send the tree), test (run the tests on the tree prepare sent), or all")
 	fs.StringVar(&o.ReadyFile, "ready-file", "", "with -phase prepare, a file written once the tree is on "+machine+", so a caller knows -phase test has something to run")
+	fs.StringVar(&o.ReportOut, "report-out", "", "write the run's record to this JSON file: where it stopped, and the tests' own records read back from "+machine)
 	return o
 }
 
@@ -113,25 +119,71 @@ type Flow struct {
 }
 
 // Run runs o's phases against leg: 0 passed (or nothing to run), 1 a test
-// failed, 2 the machine could not be used or the run was stopped.
+// failed, 2 the machine could not be used or the run was stopped. With
+// o.ReportOut set it writes the leg's record there (LegRecord), except
+// after a prepare phase that succeeded, whose test phase writes it.
 func (f Flow) Run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg Leg) int {
+	rec := f.record(o)
+	code, write := f.run(ctx, o, stdout, stderr, leg, &rec)
+	if write {
+		return f.writeRecord(o, rec, code, stderr)
+	}
+	return code
+}
+
+// record starts the leg's record for o's run.
+func (f Flow) record(o *Options) LegRecord {
+	return LegRecord{Tool: f.Tool, OS: f.OS, Target: f.Target, Packages: o.Packages, Started: time.Now()}
+}
+
+// writeRecord writes rec to o.ReportOut, when one is set, and returns the
+// run's code, or 2 for a run that passed and whose record could not be
+// written, since a caller that asked for one must not read a pass from a
+// record that is missing.
+func (f Flow) writeRecord(o *Options, rec LegRecord, code int, stderr io.Writer) int {
+	if o.ReportOut == "" {
+		return code
+	}
+	rec.Seconds = time.Since(rec.Started).Round(time.Second).Seconds()
+	if err := WriteLegRecord(o.ReportOut, rec); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", f.Tool, err)
+		if code == 0 {
+			return 2
+		}
+	}
+	return code
+}
+
+// stopped marks rec as stopped at step with err, its tests never run.
+func stopped(rec *LegRecord, step string, err error) {
+	rec.Verdict, rec.Step, rec.Error = flakegate.VerdictNotRun, step, err.Error()
+}
+
+// run is Run's phases, marking rec as it goes; write is false for a prepare
+// phase that succeeded.
+func (f Flow) run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg Leg, rec *LegRecord) (code int, write bool) {
 	if len(o.Packages) == 0 {
 		fmt.Fprintf(stdout, "%s: the branch changes no container-free package, so nothing runs on %s\n", f.Tool, f.Machine)
-		return 0
+		rec.Verdict = flakegate.VerdictPass
+		return 0, true
 	}
 	sha, dirty, err := ResolveCommit(o.Commit)
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", f.Tool, err)
-		return 2
+		stopped(rec, StepCommit, err)
+		return 2, true
 	}
+	rec.Commit = sha
 	if err := leg.Reachable(); err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n%s\n", f.Tool, err, f.Advice)
-		return 2
+		stopped(rec, StepReachable, err)
+		return 2, true
 	}
 	if o.Phase != PhaseTest {
 		if err := leg.Ready(); err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n%s\n", f.Tool, err, f.Advice)
-			return 2
+			stopped(rec, StepReady, err)
+			return 2, true
 		}
 		if dirty {
 			fmt.Fprintf(stdout, "%s: the working tree has uncommitted changes; %s tests the committed tree of %s, without them\n", f.Tool, f.Machine, Short(sha))
@@ -139,17 +191,19 @@ func (f Flow) Run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg
 		fmt.Fprintf(stdout, "%s: %d package(s) at %s on %s\n", f.Tool, len(o.Packages), Short(sha), f.Target)
 		if err := leg.Ship(sha); err != nil {
 			fmt.Fprintf(stderr, "%s: sending the tree to %s: %v\n", f.Tool, f.Target, err)
-			return 2
+			stopped(rec, StepShip, err)
+			return 2, true
 		}
 		if o.Phase == PhasePrepare {
 			if o.ReadyFile != "" {
 				if err := os.WriteFile(o.ReadyFile, []byte(sha+"\n"), 0o600); err != nil {
 					fmt.Fprintf(stderr, "%s: %v\n", f.Tool, err)
-					return 2
+					stopped(rec, StepShip, err)
+					return 2, true
 				}
 			}
 			fmt.Fprintf(stdout, "%s: the tree of %s is on %s; -phase test runs its tests\n", f.Tool, Short(sha), f.Target)
-			return 0
+			return 0, false
 		}
 	}
 	start := time.Now()
@@ -158,18 +212,45 @@ func (f Flow) Run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg
 	if err != nil && ctx.Err() != nil {
 		// Stopped from this side: nothing about the machine needs changing.
 		fmt.Fprintf(stderr, "%s: %v (after %s)\n", f.Tool, err, took)
-		return 2
+		rec.Verdict, rec.Step, rec.Error = flakegate.VerdictError, StepTest, err.Error()
+		return 2, true
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: running the tests on %s: %v (after %s)\n%s\n", f.Tool, f.Target, err, took, f.Advice)
-		return 2
+		rec.Verdict, rec.Step, rec.Error = flakegate.VerdictError, StepTest, err.Error()
+		return 2, true
 	}
+	f.readRecords(leg, sha, rec, stderr)
 	if !passed {
 		fmt.Fprintf(stderr, "%s: the tests failed on %s (%s) in %s\n", f.Tool, f.Target, f.OS, took)
-		return 1
+		rec.Verdict, rec.Step = flakegate.VerdictFail, StepTest
+		return 1, true
 	}
 	fmt.Fprintf(stdout, "%s: all tests passed on %s (%s) in %s\n", f.Tool, f.Target, f.OS, took)
-	return 0
+	rec.Verdict = flakegate.VerdictPass
+	return 0, true
+}
+
+// RecordsGrace bounds reading a machine's records back after its tests.
+const RecordsGrace = 2 * time.Minute
+
+// readRecords reads the testgate records the machine wrote into rec, when
+// leg can and a record was asked for. A record that cannot be read is said
+// in rec.Error rather than failing a run the tests decided: the text log
+// still holds what they printed.
+func (f Flow) readRecords(leg Leg, sha string, rec *LegRecord, stderr io.Writer) {
+	r, ok := leg.(Recorder)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), RecordsGrace)
+	defer cancel()
+	runs, err := r.Records(ctx, sha)
+	rec.Runs = runs
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: reading the tests' records back from %s: %v\n", f.Tool, f.Target, err)
+		rec.Error = "reading the tests' records back: " + err.Error()
+	}
 }
 
 // StopGrace bounds stopping the tests on the machine after an interrupt,
