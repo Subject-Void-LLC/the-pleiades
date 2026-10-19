@@ -13006,7 +13006,7 @@ request: some need a different condition (a `diff` checksum where they read `cha
 
 **Lesson.** An example is code a reader runs; a test builds every one.
 
-## 515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 514)
+## 515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 324 and 514)
 
 **Symptom.** 2026-10-18, while fixing 514's seventeen: the owner said the runbook sanity check should have caught
 them long before. Running each example through `internal/validate` as well as the builder found two more that
@@ -13014,7 +13014,10 @@ only validation refuses: `file.copy`'s "Write a private file" rendered `{{ deplo
 does not have (`vars.deploy_token`), and `container.image.load`'s example read `result.archive` with no task
 registering `archive`.
 
-**Root cause.** 514's planned fix, a test in `internal/forge/catalogdata`, called only `engine.Builder`, which
+**Root cause.** 324 had already put shipped runbooks through the real binary's `pleiades validate`
+(`TestExamples_EveryRunbookBuildsAndValidates`), but only the files under `examples/`; a method's documented examples
+are runbooks too, and no test ever handed one to it, which is how 514's seventeen got through. 514's planned fix,
+a test in `internal/forge/catalogdata`, called only `engine.Builder`, which
 compiles conditions and task keys but none of validate's rules (parameters, templates and the registers they read,
 check mode, residency). And it read catalogdata's copies, not the registry's, in a package pr-check runs only when
 the branch changes it. The check a user gets from `pleiades validate` was never applied to the text the project

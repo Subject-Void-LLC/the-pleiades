@@ -20,12 +20,17 @@ import (
 // through the engine's real Builder, which compiles every condition, and
 // runs internal/validate's rules over it, as `pleiades validate` does.
 //
-// Nothing did until 2026-10-18, and seventeen examples had broken:
+// Nothing did until 2026-10-18, and nineteen examples had broken:
 // conditions reading a register by its bare name (a condition reads it
 // under result), a register's changed (a register holds the method's
-// stats), and a hosts: key on a task. TestCatalogDataDocsMatchTheRegistry
-// only holds the two copies of each Doc equal, so a broken example copied
-// into both passed it.
+// stats), a hosts: key on a task, a template root that does not exist.
+// cmd/pleiades' TestExamples_EveryRunbookBuildsAndValidates runs the real
+// binary over the runbooks under examples/ only, and
+// TestCatalogDataDocsMatchTheRegistry only holds the two copies of each
+// Doc equal, so a broken example copied into both passed it
+// (FAILURE_PATTERNS 515). This runs in process, over the registry, where
+// pr-check always runs it; an example has no inventory of its own, so
+// the rules that need a device find none to check.
 func TestEveryDocumentedExampleValidates(t *testing.T) {
 	eval, err := engine.NewCELEvaluator()
 	if err != nil {

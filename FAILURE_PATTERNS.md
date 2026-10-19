@@ -517,7 +517,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 512. bsd-check was sized at 1 GB by assumption, and could not compile the branch's packages (fixed)
 513. A commit that meant to append four entries replaced the failure-pattern archive with them (fixed before push)
 514. Twenty methods' documented examples could never run as written (fixed)
-515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 514) (fixed)
+515. The examples test held documented examples to the builder alone, not to `pleiades validate` (a repeat of 324 and 514) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
