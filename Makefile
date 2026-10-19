@@ -674,6 +674,15 @@ ci-containers:
 # and Windows machines go test's default for their own CPUs
 # (BSD_CHECK_PARALLELISM, WIN_CHECK_PARALLELISM).
 #
+# Each pass, each machine's check and each other step leaves a record in
+# $(COVERAGE_DIR)/pr/records (testgate -report-out, a check's -report-out,
+# prreport step), and the run ends with tools/prreport merging them into
+# report.json there and printing a line for each, then each failure that
+# counts with its own output: `go run ./tools/prreport` reads it back, and
+# -json gives a reader that is not a person the same model. The report
+# decides nothing. Its merge is given pr-check's own status, so it never
+# passes a run the gate failed.
+#
 # A pass ends by writing a receipt (tools/gatereceipt, its own file under
 # .git), and .githooks/pre-push refuses a branch whose tip no receipt
 # covers: run it on a committed, clean tree, since a receipt names a
@@ -701,40 +710,44 @@ pr-check: ci-remote pr-check-vet
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
-	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr; \
+	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr/records; \
+	rec=$(COVERAGE_DIR)/pr/records; report=$(COVERAGE_DIR)/pr/prreport; \
+	go build -o $$report ./tools/prreport || exit 1; \
 	status=0; legs=""; \
+	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s || status=1; [ $$s -eq 0 ] || status=1; }; \
 	trap 'for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done' INT TERM EXIT; \
 	for os in $(OS_CHECKS); do \
 		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
-		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
+		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
 		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ]; then \
-			$(COVERAGE_DIR)/pr/$${os}check -phase test -p $(PR_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
+			$(COVERAGE_DIR)/pr/$${os}check -phase test -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
 			echo "pr-check: the $$os tests run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log)"; \
 		fi; \
 	done; \
 	for os in $(LAB_CHECKS); do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
 	( for os in $(LAB_CHECKS); do \
 		case $$os in bsd) p=$(BSD_CHECK_PARALLELISM);; win) p=$(WIN_CHECK_PARALLELISM);; esac; \
-		$(COVERAGE_DIR)/pr/$${os}check -optional -p $$p $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & child=$$!; \
+		$(COVERAGE_DIR)/pr/$${os}check -optional -report-out $$rec/$$os.json -p $$p $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & child=$$!; \
 		trap 'kill -TERM $$child 2>/dev/null; wait $$child; exit 143' TERM; \
 		wait $$child || touch $(COVERAGE_DIR)/pr/$$os.failed; \
 	done ) & legs="$$legs lab:$$!"; \
 	echo "pr-check: the $(LAB_CHECKS) tests run one after another beside the ones below, each box started and put back; their output follows them"; \
 	if [ -n "$$mine_fast" ]; then \
-		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json $$mine_fast || status=1; \
-		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
+		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json -report-out $$rec/fast.json $$mine_fast || status=1; \
+		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) -report-out $$rec/repeat.json $$mine_fast || status=1; \
 	fi; \
 	if [ -n "$$mine_docker" ]; then \
-		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json $$mine_docker || status=1; \
+		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $$mine_docker || status=1; \
 	fi; \
 	if docker info >/dev/null 2>&1; then \
-		go run ./tools/testimages -served $$docker >/dev/null || status=1; \
+		step images go run ./tools/testimages -served $$docker >/dev/null; \
 	else \
 		echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
+		$$report step -dir $$rec -name images -not-run "no Docker daemon answered, so whether a registry serves each image CI pulls was not checked" || status=1; \
 	fi; \
-	go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json || status=1; \
+	step coverage go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json; \
 	if [ -f $(COVERAGE_DIR)/pr/containers.json ]; then \
-		go run ./tools/testgate -durations-check $(COVERAGE_DIR)/pr/containers.json || status=1; \
+		step durations go run ./tools/testgate -durations-check $(COVERAGE_DIR)/pr/containers.json; \
 	fi; \
 	for leg in $$legs; do \
 		echo "pr-check: waiting for the $${leg%%:*} tests"; \
@@ -749,6 +762,7 @@ pr-check: ci-remote pr-check-vet
 		fi; \
 	done; \
 	trap - INT TERM EXIT; \
+	echo; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit $$status || status=1; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
 	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"

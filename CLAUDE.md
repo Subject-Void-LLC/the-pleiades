@@ -371,6 +371,15 @@ in is not judgement: `tools/internal/flakegate`'s `TestEveryContainerPackageIsLi
 follows each test's calls through the module and fails when a package that starts a
 container is missing from `DOCKER_DEPENDENT_PACKAGES`.
 
+Read a pr-check run back from its record, not its logs. Each testgate pass, each OS check's leg
+(with the records its machine's passes wrote) and each other step writes one to
+`.coverage/pr/records`, and the run ends with `tools/prreport` merging them into `report.json`
+there, holding pr-check's own exit status, so it never passes a run the gate failed. `go run
+./tools/prreport` prints it again; `-json` is the same model for an agent, `-failures` the
+failures that count with their output, `-skips` every skip by reason, and `-leg NAME` one pass
+(`fast`, `repeat`, `containers`), leg (`mac`, `bsd`, `win`) or step (`images`, `coverage`,
+`durations`). A report for a commit other than HEAD says so on stderr.
+
 `make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
 run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,
 and reads the index rather than the working tree. It refuses what `.AGENTS/AGENTS.md` states
