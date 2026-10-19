@@ -12,12 +12,8 @@ const TaskFormRule = "task-form"
 
 // TaskFormWarnings advises, in a warning that never fails validation, that
 // each task written as fqcn: and params: be written with its method as its
-// key, the form a runbook is written in:
-//
-//   - name: Web server
-//     pkg.apt.install:
-//     name: nginx
-//
+// key, the form a runbook is written in (a task's pkg.apt.install: key
+// holding {name: nginx}, rather than fqcn: pkg.apt.install beside params:).
 // The engine still reads fqcn: and params:, so an older runbook runs as it
 // did; the warning names each such task, in pretasks, tasks and posttasks
 // and in every block, rescue and always within them, by the node ID a run
