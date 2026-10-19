@@ -182,15 +182,19 @@ func Coverage(events []Event) map[string]float64 {
 	return out
 }
 
-// FailureOutput returns the last maxLines lines f's own test printed, or
-// for a package-level failure (a build failure, a timeout, a crash) what
-// the package printed outside any test. A gate that names a failure
-// without it sends the reader to rerun the test just to learn why, which
-// on a CI runner they cannot do.
+// FailureOutput returns the last maxLines lines f's own test and its
+// subtests printed, or for a package-level failure (a build failure, a
+// timeout, a crash) what the package printed outside any test. A gate that
+// names a failure without it sends the reader to rerun the test just to
+// learn why, which on a CI runner they cannot do.
+//
+// A subtest's events carry its own name (TestX/case), and a table test's
+// reason is always in one: matching f.Test alone printed a failed table
+// test's "--- FAIL" line and not one word of which case failed or why.
 func FailureOutput(events []Event, f Failure, maxLines int) string {
 	var lines []string
 	for _, evt := range events {
-		if evt.Action != "output" || evt.Package != f.Package || evt.Test != f.Test {
+		if evt.Action != "output" || evt.Package != f.Package || !ownedBy(evt.Test, f.Test) {
 			continue
 		}
 		lines = append(lines, strings.TrimRight(evt.Output, "\n"))
@@ -214,6 +218,12 @@ func FailureOutput(events []Event, f Failure, maxLines int) string {
 		}
 	}
 	return strings.Join(append([]string{gate.Omitted(cut)}, tail...), "\n")
+}
+
+// ownedBy reports whether an event's test is test itself or one of its
+// subtests; an empty test is the package's own output, outside any test.
+func ownedBy(eventTest, test string) bool {
+	return eventTest == test || test != "" && strings.HasPrefix(eventTest, test+"/")
 }
 
 // testMessage matches the first line of a message a test file printed

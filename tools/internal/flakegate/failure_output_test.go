@@ -38,6 +38,27 @@ func TestFailureOutput_KeepsTheReasonBehindATailOfTeardown(t *testing.T) {
 	}
 }
 
+// TestFailureOutput_IncludesTheFailingSubtest is the shape a table test
+// fails in: its parent prints only its run and fail lines, and the reason
+// is in a subtest's events, which carry the subtest's own name. A test
+// whose name only begins the same way is not one of them.
+func TestFailureOutput_IncludesTheFailingSubtest(t *testing.T) {
+	pkg := "example.com/remotefile"
+	events := []Event{
+		{Action: "output", Package: pkg, Test: "TestPrediction", Output: "=== RUN   TestPrediction\n"},
+		{Action: "output", Package: pkg, Test: "TestPrediction/a_setgid_directory", Output: "    predict_test.go:93: chmod: operation not permitted\n"},
+		{Action: "output", Package: pkg, Test: "TestPredictionOther", Output: "    other_test.go:1: someone else's line\n"},
+		{Action: "output", Package: pkg, Test: "TestPrediction", Output: "--- FAIL: TestPrediction (0.18s)\n"},
+	}
+	out := FailureOutput(events, Failure{Package: pkg, Test: "TestPrediction"}, 10)
+	if !strings.Contains(out, "chmod: operation not permitted") || strings.Contains(out, "someone else's line") {
+		t.Fatalf("want the subtest's reason and nothing of another test:\n%s", out)
+	}
+	if pkgOut := FailureOutput(events, Failure{Package: pkg}, 10); pkgOut != "" {
+		t.Errorf("a package-level failure took the tests' lines:\n%s", pkgOut)
+	}
+}
+
 // TestFailureOutput_ATailWithTheTestsOwnLineIsLeftAlone proves the kept
 // line is added only when the tail has none of the test's own lines.
 func TestFailureOutput_ATailWithTheTestsOwnLineIsLeftAlone(t *testing.T) {
