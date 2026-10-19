@@ -59,10 +59,17 @@ type sealedNTLMTransport struct {
 	client                  *http.Client
 }
 
+// headerGrace is how long past the operation's bound a reply's headers may
+// take. The bound itself is Execute's, which names a host that never
+// answered as a command never sent; a header timeout equal to it raced that
+// deadline and, when it won, reported the same silence as a bare HTTP
+// timeout. This timeout exists only so a request Execute abandoned does not
+// hold its connection and goroutine until the operating system gives up.
+const headerGrace = 5 * time.Second
+
 // Transport builds the transport's own connection pool: one connection to
 // the host, kept alive between the handshake and the message as NTLM needs,
-// with endpoint.Timeout bounding each reply's headers as the library's own
-// transports do.
+// with each reply's headers bounded by endpoint.Timeout plus headerGrace.
 func (t *sealedNTLMTransport) Transport(endpoint *winrm.Endpoint) error {
 	t.client = &http.Client{Transport: &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -70,7 +77,7 @@ func (t *sealedNTLMTransport) Transport(endpoint *winrm.Endpoint) error {
 		MaxConnsPerHost:       1,
 		MaxIdleConnsPerHost:   1,
 		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: endpoint.Timeout,
+		ResponseHeaderTimeout: endpoint.Timeout + headerGrace,
 	}}
 	return nil
 }
