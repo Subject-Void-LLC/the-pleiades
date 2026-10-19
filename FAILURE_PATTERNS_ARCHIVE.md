@@ -13301,3 +13301,26 @@ refuses a helper name that is not verb-noun or is a short built-in alias; it fai
 **Lesson.** A stand-in that answers a script's input never runs the script, so a PowerShell name resolution problem
 reaches only a real host (or the parse test, which cannot see it either). Name a script's helpers as cmdlets are
 named.
+
+## 531. The repository taught the task form its owner had refused, so every copy brought it back (fixed)
+
+**Symptom.** 2026-10-19: a converted Windows playbook came out with every task as `fqcn:` and `params:`, the form the
+owner has refused at least 22 times across sessions ("How is fqcn sneaking back in all of the time?"). The same day the
+agent had edited `pleiades init`'s sample runbook to give it a header comment and left `fqcn: noop` in it.
+
+**Root cause.** The rule lived only in memory, and the repository taught the opposite. The converter's emitter wrote
+`fqcn:` and `params:`; `pleiades init`'s sample used it; the `upgrade_ios` example was written that way, with a README
+calling it one of "two syntaxes supported forever" and the migration guide calling module-as-key the "sugar"; the
+`external_collection` README and a developer tool's runbook did the same. Nothing checked any of it, since the engine
+still reads the old form, so every runbook copied or generated from those sources validated cleanly and carried it on.
+
+**Fix.** The converter rewrites each task into module-as-key after encoding, and its round trip proves the file still
+builds to the same runbook (TestEmit_ModuleAsKey). The init sample, the examples and the docs use and teach only the key
+form, mentioning `fqcn:` as something older runbooks may hold. `pleiades validate` warns on each task written the old way
+(validate.TaskFormWarnings), and internal/archtest's TestShippedRunbooksNameTheirMethodAsKey refuses it in docs/,
+examples/, the root documents, every method's documented examples and the init sample; it failed on a planted task.
+
+**Lesson.** A rule kept only in a person's or an agent's memory loses to a generator and an example that teach the
+opposite, every time something is copied. Enforce a style rule where the copies come from: the generator, the scaffold,
+the shipped examples, and a check on all of them. And a file being edited for one reason is fixed for the known rule in
+the same edit.
