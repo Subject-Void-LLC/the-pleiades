@@ -55,8 +55,8 @@ var codes = map[Code]CodeDoc{
 	"when.unsupported": {OutcomeBlocked, "A condition uses Jinja this converter cannot translate to CEL.", "Write the condition as when_cel."},
 	"when.fact":        {OutcomeBlocked, "A condition reads a fact or a magic variable (inventory_hostname, ansible_*).", ""},
 	// Blocks.
-	"block.rescue": {OutcomeReview, "rescue: converted, but the engine does not run rescue tasks yet: a failure in the block ends the run.", ""},
-	"block.always": {OutcomeReview, "always: converted, but the engine does not run always tasks yet.", ""},
+	"block.rescue": {OutcomeReview, "rescue: converted. It runs on each device whose block failed, and every task inside the block runs on the runbook's hosts; Ansible's ansible_failed_task and ansible_failed_result are not translated, and the native rescue reads the failure as error.", ""},
+	"block.always": {OutcomeReview, "always: converted. It runs on each device the block ran on, whatever happened, and every task inside the block runs on the runbook's hosts.", ""},
 	// Task keywords.
 	"keyword.notify":             {OutcomeReview, "notify dropped: the handler will not run.", "Run the handler's task explicitly after the change, guarded by when."},
 	"keyword.become":             {OutcomeReview, "become dropped: the task runs as the connecting user and fails if it needs root.", "A method that needs root says so in its manifest; use a credential with the privilege."},

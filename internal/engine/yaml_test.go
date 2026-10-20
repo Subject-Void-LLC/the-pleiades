@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,20 +23,20 @@ func TestBuildFromYAML_MatchesJSON(t *testing.T) {
 id: runbook-1
 tasks:
   - name: start
-    fqcn: noop
+    noop: {}
   - name: ping
-    fqcn: ssh_exec
+    ssh_exec: {}
   - name: reboot
-    fqcn: ios_backup
+    ios_backup: {}
     when: "stat.ping_ms > 100"
 `)
 
 	jsonPayload := []byte(`{
 		"id": "runbook-1",
 		"tasks": [
-			{"name": "start", "fqcn": "noop"},
-			{"name": "ping", "fqcn": "ssh_exec"},
-			{"name": "reboot", "fqcn": "ios_backup", "when": "stat.ping_ms > 100"}
+			{"name": "start", "noop": {}},
+			{"name": "ping", "ssh_exec": {}},
+			{"name": "reboot", "ios_backup": {}, "when": "stat.ping_ms > 100"}
 		]
 	}`)
 
@@ -74,6 +75,12 @@ tasks:
 // TestBuildFromYAML_RoundTrip proves YAML -> WorkflowDef -> YAML is
 // lossless at the data level: re-marshaling a parsed runbook and
 // re-parsing it produces the same DAG, task for task.
+//
+// Its runbook is written in the Task struct's own serialized form, fqcn:
+// beside params:, unlike every runbook a person writes, because it is
+// decoded with yaml.Unmarshal straight into WorkflowDef: the struct's tags
+// are what this test round-trips, and the method-as-key form is read only
+// by the builder's parser, which this decode bypasses.
 func TestBuildFromYAML_RoundTrip(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
@@ -134,23 +141,23 @@ func TestBuildFromYAML_NestedBlockRescueAlways(t *testing.T) {
 id: runbook-block
 pretasks:
   - name: setup
-    fqcn: noop
+    noop: {}
 tasks:
   - name: risky
     block:
       - name: inner
         block:
           - name: leaf
-            fqcn: ssh_exec
+            ssh_exec: {}
     rescue:
       - name: recover
-        fqcn: noop
+        noop: {}
     always:
       - name: cleanup
-        fqcn: noop
+        noop: {}
 posttasks:
   - name: teardown
-    fqcn: noop
+    noop: {}
 `)
 
 	dag, err := builder.BuildFromYAML(payload)
@@ -171,21 +178,21 @@ posttasks:
 		}
 	}
 
-	// The happy path splices straight through to the deepest leaf:
-	// pretasks[0] -> tasks[0].block[0].block[0] -> posttasks[0].
-	if len(dag.Adjacency["pretasks[0]"]) != 1 || dag.Adjacency["pretasks[0]"][0].To != "tasks[0].block[0].block[0]" {
-		t.Fatalf("expected pretasks[0] -> tasks[0].block[0].block[0], got %v", dag.Adjacency["pretasks[0]"])
+	// The chain splices straight through to the deepest leaf, then the
+	// outer block's rescue and always: pretasks[0] ->
+	// tasks[0].block[0].block[0] -> tasks[0].rescue[0] -> tasks[0].always[0]
+	// -> posttasks[0].
+	chain := []string{"pretasks[0]", "tasks[0].block[0].block[0]", "tasks[0].rescue[0]", "tasks[0].always[0]", "posttasks[0]"}
+	for i := 0; i+1 < len(chain); i++ {
+		if edges := dag.Adjacency[chain[i]]; len(edges) != 1 || edges[0].To != chain[i+1] {
+			t.Errorf("expected %s -> %s, got %v", chain[i], chain[i+1], edges)
+		}
 	}
-	if len(dag.Adjacency["tasks[0].block[0].block[0]"]) != 1 || dag.Adjacency["tasks[0].block[0].block[0]"][0].To != "posttasks[0]" {
-		t.Fatalf("expected tasks[0].block[0].block[0] -> posttasks[0], got %v", dag.Adjacency["tasks[0].block[0].block[0]"])
-	}
-
-	// Rescue and always are not part of the happy path.
-	if _, ok := dag.Adjacency["tasks[0].rescue[0]"]; ok {
-		t.Errorf("expected tasks[0].rescue[0] to have no outgoing adjacency")
-	}
-	if _, ok := dag.Adjacency["tasks[0].always[0]"]; ok {
-		t.Errorf("expected tasks[0].always[0] to have no outgoing adjacency")
+	// The deepest leaf sits in two blocks, the outer one's own tasks first.
+	got := dag.Scopes["tasks[0].block[0].block[0]"]
+	want := []engine.BlockScope{{Block: "tasks[0]", Part: engine.PartBlock}, {Block: "tasks[0].block[0]", Part: engine.PartBlock}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Scopes of the deepest leaf = %v, want %v", got, want)
 	}
 }
 
@@ -232,7 +239,7 @@ func TestBuildFromYAML_TypeDefault(t *testing.T) {
 id: no-type-field
 tasks:
   - name: start
-    fqcn: noop
+    noop: {}
 `)
 
 	dag, err := builder.BuildFromYAML(payload)
@@ -255,7 +262,7 @@ id: explicit-native
 type: native
 tasks:
   - name: start
-    fqcn: noop
+    noop: {}
 `)
 
 	dag, err := builder.BuildFromYAML(payload)
@@ -386,8 +393,8 @@ func TestBuildFromYAML_NonAnsibleListNotOverclaimed(t *testing.T) {
 // a list of tasks too. A list with a play anywhere in it is a playbook.
 func TestBuildFromYAMLFile_TaskListIsErrTaskList(t *testing.T) {
 	dir := t.TempDir()
-	fragment := writeRunbookFile(t, dir, "common.yaml", "- name: step one\n  fqcn: noop\n- name: step two\n  fqcn: noop\n")
-	runbook := writeRunbookFile(t, dir, "site.yaml", "id: site\ntasks:\n  - name: shared\n    fqcn: import_tasks\n    params:\n      file: common.yaml\n")
+	fragment := writeRunbookFile(t, dir, "common.yaml", "- name: step one\n  noop: {}\n- name: step two\n  noop: {}\n")
+	runbook := writeRunbookFile(t, dir, "site.yaml", "id: site\ntasks:\n  - name: shared\n    import_tasks:\n      file: common.yaml\n")
 	builder := newTestBuilder(t)
 
 	_, err := builder.BuildFromYAMLFile(fragment)
@@ -405,7 +412,7 @@ func TestBuildFromYAMLFile_TaskListIsErrTaskList(t *testing.T) {
 	}
 
 	for _, playbook := range []string{
-		"- name: a task first\n  fqcn: noop\n- hosts: all\n  tasks: []\n",
+		"- name: a task first\n  noop: {}\n- hosts: all\n  tasks: []\n",
 		"- import_playbook: other.yml\n",
 		"- ansible.builtin.import_playbook: other.yml\n",
 		"- name: a play missing its hosts\n  roles: [common]\n",
@@ -438,8 +445,7 @@ func TestBuildFromYAML_RejectsAliasBomb(t *testing.T) {
 	bomb := "id: bomb\n" +
 		"tasks:\n" +
 		"  - name: a\n" +
-		"    fqcn: noop\n" +
-		"    params:\n" +
+		"    noop:\n" +
 		"      a: &a [1,1,1,1,1,1,1,1,1]\n" +
 		"      b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]\n" +
 		"      c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]\n" +
@@ -486,7 +492,7 @@ metadata:
     - disruptive
 tasks:
   - name: step
-    fqcn: noop
+    noop: {}
 `
 
 	eval, _ := engine.NewCELEvaluator()
@@ -518,7 +524,7 @@ func TestBuildFromYAML_CatalogMetadataIsOptional(t *testing.T) {
 id: bare
 tasks:
   - name: step
-    fqcn: noop
+    noop: {}
 `
 
 	eval, _ := engine.NewCELEvaluator()

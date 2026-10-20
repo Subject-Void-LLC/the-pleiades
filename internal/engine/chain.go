@@ -1,5 +1,5 @@
 // Package engine: the walk that turns a runbook's task tree into a DAG's
-// Nodes, Conditions and happy-path Adjacency.
+// Nodes, Conditions, Adjacency, and each block's Scopes and Guards.
 //
 // The builder and Select (select.go) share this one walk. The builder
 // registers every task, validating and compiling it; Select re-walks the
@@ -10,7 +10,10 @@
 // does, and a journal entry from a filtered run points at the right line.
 package engine
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // chainWalker wires dag from a task tree. register records one kept task
 // under its ID; include reports whether a leaf task is kept. A block or a
@@ -19,6 +22,14 @@ type chainWalker struct {
 	dag      *DAG
 	register func(task *Task, id string) error
 	include  func(task *Task) bool
+
+	// scope is the blocks enclosing the task being walked, outermost
+	// first, and walked is every node registered so far, in order, which a
+	// block reads back to learn its own parts' nodes. guarded counts the
+	// enclosing blocks that have a rescue: or an always:.
+	scope   []BlockScope
+	walked  []string
+	guarded int
 }
 
 // wire walks the runbook's three top-level lists as three independent
@@ -83,11 +94,12 @@ func (w *chainWalker) chain(tasks []Task, prefix string) (entry, exit string, er
 }
 
 // one registers task at id and returns what it contributes to the chain
-// around it: itself for a leaf, its block's own chain spliced in for a
-// block, and a fan-out/join pair around its children for a parallel
-// group. Its rescue and always tasks are registered for coverage only and
-// never join the chain (DAG.Adjacency). A group with nothing kept inside,
-// rescue and always included, is removed again.
+// around it: itself for a leaf, a block's own tasks, then its rescue tasks,
+// then its always tasks, spliced in one after another, and a fan-out/join
+// pair around its children for a parallel group. Every node is on the
+// chain; which of a block's tasks run on a device is the executor's
+// decision, per device (handlers.go). A group with nothing kept inside is
+// removed again.
 func (w *chainWalker) one(task *Task, id string) (entry, exit string, err error) {
 	kind := task.Kind()
 	group := kind == TaskKindBlock || kind == TaskKindParallel
@@ -97,11 +109,17 @@ func (w *chainWalker) one(task *Task, id string) (entry, exit string, err error)
 	if err := w.register(task, id); err != nil {
 		return "", "", err
 	}
+	if w.guarded > 0 && kind == TaskKindLeaf {
+		if err := guardedTarget(w.dag, task, id); err != nil {
+			return "", "", err
+		}
+	}
+	w.note(id)
 
 	entry, exit = id, id
 	switch kind {
 	case TaskKindBlock:
-		if entry, exit, err = w.chain(task.Block, id+".block"); err != nil {
+		if entry, exit, err = w.block(task, id); err != nil {
 			return "", "", err
 		}
 	case TaskKindParallel:
@@ -109,22 +127,91 @@ func (w *chainWalker) one(task *Task, id string) (entry, exit string, err error)
 			return "", "", err
 		}
 	}
-
-	covered := 0
-	for _, side := range []struct {
-		tasks []Task
-		label string
-	}{{task.Rescue, ".rescue"}, {task.Always, ".always"}} {
-		kept, err := w.collect(side.tasks, id+side.label)
-		if err != nil {
-			return "", "", err
-		}
-		covered += kept
-	}
-	if group && entry == "" && covered == 0 {
+	if group && entry == "" {
 		w.drop(id)
 	}
 	return entry, exit, nil
+}
+
+// note records id's enclosing blocks and that it was walked.
+func (w *chainWalker) note(id string) {
+	if len(w.scope) > 0 {
+		w.dag.Scopes[id] = slices.Clone(w.scope)
+	}
+	w.walked = append(w.walked, id)
+}
+
+// block wires a block at id: its own tasks, its rescue tasks and its always
+// tasks, each part chained in order and the three one after another, and
+// records the nodes of each part as the block's guard.
+func (w *chainWalker) block(task *Task, id string) (entry, exit string, err error) {
+	if len(task.Rescue) > 0 || len(task.Always) > 0 {
+		w.guarded++
+		defer func() { w.guarded-- }()
+	}
+	var guard BlockGuard
+	for _, part := range []struct {
+		tasks []Task
+		part  BlockPart
+		nodes *[]string
+	}{
+		{task.Block, PartBlock, &guard.Tasks},
+		{task.Rescue, PartRescue, &guard.Rescue},
+		{task.Always, PartAlways, &guard.Always},
+	} {
+		w.scope = append(w.scope, BlockScope{Block: id, Part: part.part})
+		from := len(w.walked)
+		partEntry, partExit, err := w.chain(part.tasks, id+"."+string(part.part))
+		w.scope = w.scope[:len(w.scope)-1]
+		if err != nil {
+			return "", "", err
+		}
+		*part.nodes = w.visited(w.walked[from:])
+		if partEntry == "" {
+			continue
+		}
+		if entry == "" {
+			entry = partEntry
+		}
+		if exit != "" {
+			w.link(exit, partEntry)
+		}
+		exit = partExit
+	}
+	if entry != "" {
+		w.dag.Guards[id] = guard
+	}
+	return entry, exit, nil
+}
+
+// guardedTarget refuses a task inside a block with a rescue: or an always:
+// that would run anywhere but the runbook's hosts: a target of its own, a
+// within:, or a method that uses no device. A device's failure, its rescue
+// and its always tasks are one device's handling (handlers.go), which a task
+// on other devices cannot be part of; running a rescue elsewhere (a load
+// balancer, a ticket) needs a rule for how failures on several devices fan
+// in, which is not built (docs/design/block-rescue-always.md).
+func guardedTarget(dag *DAG, task *Task, id string) error {
+	if task.Within == "" && TaskTarget(dag, task) == dag.Hosts {
+		return nil
+	}
+	return fmt.Errorf("task %s is inside a block with rescue: or always:, and runs somewhere other than the runbook's hosts "+
+		"(a target or within: of its own, or a method that uses no device): a block's rescue and always run on the devices "+
+		"its tasks ran on, so every task inside it runs on the runbook's hosts; a rescue on other devices is not built yet",
+		taskLabel(id, task))
+}
+
+// visited returns the ids among walked that the executor's walk reaches: a
+// task or a parallel group's fan-out or join, never a group's own id, and
+// never one a group dropped again.
+func (w *chainWalker) visited(walked []string) []string {
+	var out []string
+	for _, id := range walked {
+		if t, ok := w.dag.Nodes[id]; ok && (t.Kind() == TaskKindLeaf || t.Kind() == TaskKindSynthetic) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // parallel wires a parallel group at id: each kept child's own chain
@@ -150,49 +237,13 @@ func (w *chainWalker) parallel(children []Task, id string) (fanoutID, joinID str
 	fanoutID, joinID = id+".fanout", id+".join"
 	registerSyntheticNode(w.dag, fanoutID)
 	registerSyntheticNode(w.dag, joinID)
+	w.note(fanoutID)
+	w.note(joinID)
 	for _, child := range kept {
 		w.link(fanoutID, child.entry)
 		w.link(child.exit, joinID)
 	}
 	return fanoutID, joinID, nil
-}
-
-// collect registers tasks, a rescue or always list at prefix, for
-// Nodes and Conditions coverage only, at any depth, never touching
-// Adjacency, and returns how many it kept. Everything under a rescue or
-// always list stays off the chain, a parallel group's children included,
-// which is why a group here gets no fan-out/join pair.
-func (w *chainWalker) collect(tasks []Task, prefix string) (int, error) {
-	kept := 0
-	for i := range tasks {
-		task := &tasks[i]
-		id := fmt.Sprintf("%s[%d]", prefix, i)
-		kind := task.Kind()
-		group := kind == TaskKindBlock || kind == TaskKindParallel
-		if !group && !w.include(task) {
-			continue
-		}
-		if err := w.register(task, id); err != nil {
-			return 0, err
-		}
-		inside := 0
-		for _, sub := range []struct {
-			tasks []Task
-			label string
-		}{{task.Block, ".block"}, {task.Parallel, ".parallel"}, {task.Rescue, ".rescue"}, {task.Always, ".always"}} {
-			n, err := w.collect(sub.tasks, id+sub.label)
-			if err != nil {
-				return 0, err
-			}
-			inside += n
-		}
-		if group && inside == 0 {
-			w.drop(id)
-			continue
-		}
-		kept++
-	}
-	return kept, nil
 }
 
 // link adds a happy-path edge from one node to the next.
@@ -205,6 +256,8 @@ func (w *chainWalker) link(from, to string) {
 func (w *chainWalker) drop(id string) {
 	delete(w.dag.Nodes, id)
 	delete(w.dag.Conditions, id)
+	delete(w.dag.Scopes, id)
+	delete(w.dag.Guards, id)
 }
 
 // registerSyntheticNode registers a structural marker node the walk

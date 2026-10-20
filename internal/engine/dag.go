@@ -426,14 +426,10 @@ type DAG struct {
 	// parallel task would compile into Conditions/Nodes but never be
 	// consulted, since nothing in the executor's walk ever visits that
 	// ID; validateTask rejects it instead, naming the child tasks inside
-	// as where it belongs. Rescue and Always children are
-	// deliberately NOT part of this chain: EdgeType (this file) now gives
-	// "run this on failure" a real vocabulary to be expressed as an edge,
-	// but Executor does not yet interpret it (see EdgeType's own doc
-	// comment for why that is a separate, named follow-up rather than
-	// silently folded in here). Rescue/Always still get entries in Nodes
-	// and Conditions, so validation and capability-checking still cover
-	// them, just not here.
+	// as where it belongs. A block's Rescue and Always children follow its
+	// Block children on the chain, in that order: every device walks them,
+	// and which of them run on a device is the executor's per-device
+	// decision (handlers.go), which Scopes and Guards below exist for.
 	Adjacency map[string][]EdgeConfig
 
 	// Conditions holds every task's compiled when/when_or/when_cel
@@ -444,15 +440,23 @@ type DAG struct {
 	// (see ConditionProgram, conditional.go).
 	Conditions map[string]*ConditionProgram
 
+	// Scopes holds, for every node inside a block, each block enclosing it,
+	// outermost first, and the part of it the node sits in: the block's own
+	// tasks, its rescue or its always. Guards holds, for every block, the
+	// nodes the walk visits for each part, at any depth. The executor reads
+	// both to decide, per device, which of a block's tasks run
+	// (handlers.go).
+	Scopes map[string][]BlockScope
+	Guards map[string]BlockGuard
+
 	// EntryPoint is the synthesized ID of the first node in the overall
 	// happy-path chain: the entry of whichever of PreTasks, Tasks, and
 	// PostTasks comes first and is non-empty. It is the empty string only
 	// when all three are empty, meaning this DAG contributes no chain at
-	// all. TopologicalOrder walks Adjacency starting here so that
-	// Rescue, Always, and a block task's own superseded ID (which never
-	// appear as a source or target in Adjacency, see above) are excluded
-	// from the returned order even though they still appear in Nodes and
-	// Conditions.
+	// all. TopologicalOrder walks Adjacency starting here so that a block
+	// task's own superseded ID (which never appears as a source or target
+	// in Adjacency, see above) is excluded from the returned order even
+	// though it still appears in Nodes and Conditions.
 	EntryPoint string
 
 	// Selection is the tag filter this DAG's Nodes, Adjacency and
@@ -473,18 +477,12 @@ type DAG struct {
 // routing ("Node A dispatches, then traverses to Node B on success or Node
 // C on failure") a real vocabulary to be expressed in.
 //
-// This phase (10) adds the vocabulary only, not execution-time branching:
-// every edge synthesizeChain/synthesizeParallel produce today is
-// EdgeTypeOnSuccess (the zero value), so no existing runbook's behavior
-// changes. Executor does not yet interpret EdgeTypeOnFailure or
-// EdgeTypeAlways, and Task.Rescue/Task.Always deliberately still do not
-// appear in Adjacency at all (see DAG.Adjacency's own doc comment) -
-// wiring either in is a named, separate follow-up: LevelIterator computes
-// static, outcome-independent reachability once up front
-// (reachableWithInDegree, topology.go), and Executor.Run aborts its whole
-// walk on any node failure rather than routing around it (executor.go),
-// so making a failure actually route to a different next node changes
-// both, not just adds a field here.
+// Every edge the builder produces is EdgeTypeOnSuccess (the zero value),
+// and nothing interprets the other two. A block's rescue: and always: did
+// not need them: an edge chooses one path for every device at once, and a
+// block's handling of a failure is per device, so its rescue and always
+// tasks sit on the one chain after its own tasks and each device decides
+// whether they run there (handlers.go, docs/design/block-rescue-always.md).
 type EdgeType int
 
 const (
@@ -648,6 +646,8 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		Nodes:      make(map[string]*Task),
 		Adjacency:  make(map[string][]EdgeConfig),
 		Conditions: make(map[string]*ConditionProgram),
+		Scopes:     make(map[string][]BlockScope),
+		Guards:     make(map[string]BlockGuard),
 	}
 
 	// Every task is registered here, validated and compiled, whatever its

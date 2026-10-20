@@ -91,6 +91,7 @@ func (s TagSelection) Select(dag *DAG) (*DAG, error) {
 		ID:         dag.ID,
 		Metadata:   dag.Metadata,
 		CheckMode:  dag.CheckMode,
+		Reversible: dag.Reversible,
 		Name:       dag.Name,
 		Hosts:      dag.Hosts,
 		Version:    dag.Version,
@@ -100,6 +101,8 @@ func (s TagSelection) Select(dag *DAG) (*DAG, error) {
 		Nodes:      make(map[string]*Task),
 		Adjacency:  make(map[string][]EdgeConfig),
 		Conditions: make(map[string]*ConditionProgram),
+		Scopes:     make(map[string][]BlockScope),
+		Guards:     make(map[string]BlockGuard),
 		Selection:  f,
 		full:       dag.full,
 	}

@@ -69,6 +69,7 @@ type runFlags struct {
 	dir, mode       *string
 	verbose, asJSON *bool
 	persist         *bool
+	failOnRescue    *bool
 	forks           *int
 	allowUnchecked  map[string]bool
 }
@@ -93,6 +94,7 @@ func addRunFlags(fs *flag.FlagSet) *runFlags {
 	})
 	f.persist = fs.Bool("persist-connections", true, "keep one SSH connection per device open between its tasks; =false logs in afresh for every task")
 	f.forks = fs.Int("forks", engine.DefaultMaxConcurrency, "how many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default)")
+	f.failOnRescue = fs.Bool("fail-on-rescue", false, fmt.Sprintf("end with status %d when a block's rescue: answered a failure, so a gate never passes through a fallback", exitRescued))
 	return f
 }
 
@@ -110,7 +112,7 @@ func (f *runFlags) options() (runOptions, error) {
 		return runOptions{}, fmt.Errorf("--forks must be between 1 and %d, got %d", maxForks, *f.forks)
 	}
 	return runOptions{
-		dir: *f.dir, mode: mode, forks: *f.forks, persist: *f.persist,
+		dir: *f.dir, mode: mode, forks: *f.forks, persist: *f.persist, failOnRescue: *f.failOnRescue,
 		allowUnchecked: f.allowUnchecked, verbose: *f.verbose, asJSON: *f.asJSON,
 	}, nil
 }

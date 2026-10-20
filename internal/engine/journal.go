@@ -571,6 +571,16 @@ const (
 	// condition skip, this entry keeps DeviceID populated: naming which
 	// device caused it is the whole point of the skip.
 	SkipKindLifecycle SkipKind = "lifecycle"
+
+	// SkipKindBlockFailed is a task a failure on its device keeps from
+	// running there: a later task of the block that failed, a rescue task
+	// after one that failed, or a task the failure passed on its way to the
+	// enclosing block's rescue (handlers.go). DeviceID names the device.
+	SkipKindBlockFailed SkipKind = "block_failed"
+
+	// SkipKindNotFailed is a rescue task on a device where its block did
+	// not fail, so there was nothing for it to answer.
+	SkipKindNotFailed SkipKind = "not_failed"
 )
 
 // Journal is the durable record of what a run did. Executor.Run is its

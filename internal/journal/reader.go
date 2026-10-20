@@ -188,7 +188,8 @@ var (
 	}
 	knownSkip = map[engine.SkipKind]bool{
 		engine.SkipKindNone: true, engine.SkipKindWhen: true, engine.SkipKindWhenOr: true,
-		engine.SkipKindWhenCEL: true, engine.SkipKindLifecycle: true,
+		engine.SkipKindWhenCEL: true, engine.SkipKindLifecycle: true, engine.SkipKindBlockFailed: true,
+		engine.SkipKindNotFailed: true,
 	}
 )
 

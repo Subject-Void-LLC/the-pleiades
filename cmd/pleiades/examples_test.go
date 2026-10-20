@@ -39,36 +39,15 @@ func TestExamples_EveryRunbookBuildsAndValidates(t *testing.T) {
 			t.Logf("%s is validated after onboarding, by %s", rb, by)
 			continue
 		}
-		name := strings.TrimPrefix(rb, filepath.Join("..", "..")+string(filepath.Separator))
-		t.Run(name, func(t *testing.T) {
+		t.Run(strings.TrimPrefix(rb, filepath.Join("..", "..")+string(filepath.Separator)), func(t *testing.T) {
 			out, err := runPleiades(t, project, "validate", filepath.Join("runbooks", filepath.Base(rb)))
 			// A warning counts here: an example shows how a runbook is
-			// written, header comment and all. The one exception is a
-			// warning named in expectedWarnings for this file, which must
-			// still be there, so the exception ends when its cause does.
-			expected, allowed := expectedWarnings[filepath.ToSlash(name)]
-			rest := out
-			if allowed {
-				if !strings.Contains(out, expected.warning) {
-					t.Errorf("%s no longer warns %q, so remove it from expectedWarnings (%s)\n%s", rb, expected.warning, expected.why, out)
-				}
-				rest = strings.ReplaceAll(out, expected.warning, "")
-			}
-			if err != nil || !strings.Contains(out, "validate: no issues found") || strings.Contains(rest, "[warning]") {
+			// written, header comment and all.
+			if err != nil || !strings.Contains(out, "validate: no issues found") || strings.Contains(out, "[warning]") {
 				t.Errorf("pleiades validate %s: err=%v\n%s", rb, err, out)
 			}
 		})
 	}
-}
-
-// expectedWarnings names each example runbook allowed one warning, the
-// warning's opening, and why the example keeps what causes it.
-var expectedWarnings = map[string]struct{ warning, why string }{
-	"examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe.yaml": {
-		warning: "[warning] handlers: tasks[0]'s rescue:",
-		why: "the example is the native form of an Ansible playbook whose rescue records the failure and prints rollback " +
-			"instructions, and its README says rescue does not run yet; the rescue stays so that it runs once the engine runs it",
-	},
 }
 
 // onboardedFirst names each example whose devices must be onboarded before

@@ -132,6 +132,10 @@ func CELVariableOptions() []cel.EnvOption {
 		// singleWriters), so a condition reads result.ticket.json rather
 		// than indexing stat by a device id it cannot know.
 		cel.Variable("result", cel.MapType(cel.StringType, cel.DynType)),
+		// error is the failure a rescue task answers (handlers.go's
+		// errorContext), bound only when a rescue task runs; validation
+		// refuses it anywhere else.
+		cel.Variable("error", cel.MapType(cel.StringType, cel.DynType)),
 	}
 }
 

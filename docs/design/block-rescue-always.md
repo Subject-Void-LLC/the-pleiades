@@ -1,8 +1,9 @@
 # Design note: `rescue:` and `always:` that run
 
-Status: proposed. Today the schema, `pleiades validate` and the plan view accept `rescue:` and `always:`, and the
-executor never runs them (docs/03-migrating-from-ansible.md says so). A block whose task fails runs no rescue, and a
-block's `always:` is skipped in silence while the run exits 0. This note settles how they run in an engine whose
+Status: built for the Crawl tier and for a Runner's one device (sections 1 to 4, and the rollback order of section
+5). Not built yet: `rollback_on_failure` (section 5) and the Walk tier across devices (section 6). Before this, the
+schema, `pleiades validate` and the plan view accepted `rescue:` and `always:` and the executor never ran them: a
+block whose task failed ran no rescue, and a block's `always:` was skipped in silence while the run exited 0. This note settles how they run in an engine whose
 contracts are a check that predicts, a journal that records undos, and a rollback that replays them. Where Ansible
 treats `rescue:` as a jump, here it is a state transition, and every rule below follows from that.
 
@@ -37,6 +38,10 @@ Checked against the code, 2026-10-20:
 - **What triggers a rescue.** A failed task, an unreached one included (the rescue can tell, below). Not a skipped task,
   and not a held one: a result held for a person's decision is a pause, not a failure, so the block stops, `always:`
   runs, and the run ends held.
+- **A run that has to end still cleans up.** When a failure ends the run (one nothing is left to handle, or a failure
+  of a task itself: its condition, its parameters, its target), the run still runs the `always:` of every block it is
+  inside, on every device, and nothing else, before it stops. One device's failure never skips another device's
+  cleanup.
 - **Scope.** Per device. A block's failure on one device rescues that device; the others carry on with their own
   block. Outside a block, a failure still stops the run as it does today: nothing changes for a runbook without
   `rescue:`.
@@ -49,8 +54,9 @@ Checked against the code, 2026-10-20:
   failed and which rescue answered each, so a program or an agent can tell "the desired state was reached" from "the
   primary path failed and the fallback ran". (Your note proposed `succeeded_with_rescue`; the existing outcomes are
   single words, so `rescued`.)
-- **`--fail-on-rescue`.** On `pleiades run`, and as a launch field on the Walk tier: any rescue that ran makes the run
-  exit 1, the outcome still `rescued`, so a gate never passes through a fallback.
+- **`--fail-on-rescue`.** On `pleiades run` (a Walk-tier launch field comes with section 6): a run a rescue answered
+  exits 4, a status of its own (the owner's decision), the outcome still `rescued`, so a gate never passes through a
+  fallback and can tell one from a failure without reading the report.
 - **The failed task keeps `failed`,** and gains `rescued_by` naming the rescue's first task.
 - **Both faults survive.** A block failure followed by a rescue failure reports both, the block's first: the run's
   message names the root cause and then the rescue's failure, and neither error replaces the other.
@@ -59,7 +65,8 @@ Checked against the code, 2026-10-20:
 
 - **An `error` root,** readable by templates and conditions inside `rescue:` only: `error.task` (node id),
   `error.name`, `error.method`, `error.device`, `error.message` (masked, like every report text), `error.unreached`
-  (the device never answered), `error.undo_recorded` (the failed task recorded an undo).
+  (the device never answered). There is no `error.undo_recorded`: a failed task never journals an undo, so it would
+  always be false.
 - **Immutable and scoped.** Built once when the rescue starts, from the failing task's result. `validate` refuses
   `error.` anywhere else, alongside the existing check that a template reads only `vars`, `nodes` and `result`
   (`TemplateProblems`) and the condition compiler's own roots.
@@ -130,29 +137,42 @@ segments and comes as its own change. When it does:
 
 ## The graph and the executor
 
-- The Builder adds `EdgeTypeOnFailure` edges from each block task to the rescue's first task, and `EdgeTypeAlways`
-  edges from the block's end (and the rescue's) to the always chain.
-- The executor routes on a node's outcome instead of stopping. The level iterator's reachability becomes
-  outcome-aware, so a rescue that does not run never leaves a successor waiting on an in-degree that cannot reach zero.
-- A fuzz test generates random nesting of blocks, rescues and always lists with random outcomes per node, and asserts
-  the walk always ends, never runs a node twice, and runs exactly the nodes the semantics above select; a rescue that
-  itself fails with no `always:` is in its corpus by name.
+As built, which is simpler than the edges first sketched here: an edge chooses one path for every device at once, and
+a block's handling is per device.
+
+- **One chain.** The builder splices a block's own tasks, then its rescue tasks, then its always tasks, into the chain
+  where the block sits (internal/engine's chain.go), and records for every task the blocks enclosing it and its part
+  in each (`DAG.Scopes`), and for every block the tasks of each part (`DAG.Guards`). `EdgeTypeOnFailure` and
+  `EdgeTypeAlways` stay unused.
+- **Per-device handling.** Each device keeps a stack of the failures its blocks are handling (handlers.go). A task asks,
+  per device, whether it runs there: a block task not where an earlier task of its block failed, a rescue task only
+  where its block failed and its rescue has not, an always task unless an earlier always task failed there. A task the
+  handling keeps from a device is journaled as skipped (`block_failed`, or `not_failed` for a rescue with nothing to
+  answer).
+- **When a failure ends the run.** At once, as before, when no rescue or always is left that would run for it, which is
+  every failure in a runbook without them; otherwise when the walk has passed the block and the failure stands. A
+  rescue that runs to its end without failing answers it, and every failure it carried (an inner rescue's, an always
+  task's).
+- **Rendering.** A guarded task's devices come from its authored target, so a device it will not run on renders and
+  evaluates nothing; a rescue task renders and evaluates its condition per device, with that device's `error`.
+- **Proof.** The executor is compared with an independent recursive interpreter of these semantics over hundreds of
+  generated nestings with random failures, on one device and on two failing independently, and by the fuzzer; a
+  release gate runs a block that fails for real against a real `sshd`.
 
 ## Order of work
 
-1. **`validate` warns now** on every `rescue:` and `always:`, naming the tasks that will not run. Removed by step 3.
-2. **This note,** with its open decisions settled.
-3. **Executor and graph** (semantics, outcomes, `error`, the register rule, check mode), with the fuzz test and a
-   release gate: a real `sshd` container, a block whose task fails for real, a rescue and an always.
-4. **Journal and rollback** (order, `rollback:` inside rescue and always, `rollback_on_failure`).
+1. **`validate` warned** on every `rescue:` and `always:` while they did not run. Done, and removed by step 3.
+2. **This note.** Done.
+3. **Executor and graph,** with the oracle, the fuzz test and the release gate. Done.
+4. **Journal and rollback:** the order and `rollback:` inside rescue and always are done; `rollback_on_failure` is not.
 5. **The Walk tier,** after Phase 117b.
 6. **The lab.** Each `# TODO(always):` task in the lab project moves into an `always:`, proven by failing a task in its
    block through Pleiades.
 
-## Open decisions
+## Decisions
 
-- **The run-once key's name** for a Walk rescue aimed at shared infrastructure.
-- **Whether `always:` also reads `error`** when the block failed (Ansible gives the failed task to rescue only). Off by
-  default here; an `always:` that must behave differently after a failure can test `result` instead.
-- **The exit status under `--fail-on-rescue`:** 1, as for a failure, or a status of its own so a gate can tell a
-  rescued run from a failed one without reading the document.
+Settled by the owner, 2026-10-20: `--fail-on-rescue` exits with a status of its own, 4; `always:` does not read `error`
+(rescue only, as in Ansible); a check that fails reports the failure, as before, and never routes to a rescue.
+
+Open: the run-once key's name for a Walk rescue aimed at shared infrastructure (`run_once` is refused today as an
+Ansible keyword, so either adopt it with these semantics or choose a native name).
