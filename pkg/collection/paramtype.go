@@ -99,11 +99,10 @@ func ParamFits(typ string, v any) (bool, error) {
 		return everyItem(v, func(e any) bool { _, ok := e.(map[string]any); return ok }), nil
 	case ParamTypeIntOrIntList:
 		return isWhole(v) || everyItem(v, isWhole), nil
-	case ParamTypeScalarOrList:
+	default: // ParamTypeScalarOrList, the last type ParamTypes lists
 		textOrNumber := func(e any) bool { _, isText := e.(string); return isText || isNumber(e) }
 		return textOrNumber(v) || everyItem(v, textOrNumber), nil
 	}
-	return false, nil
 }
 
 // checkParamTypes refuses a method declaring a parameter whose type is not

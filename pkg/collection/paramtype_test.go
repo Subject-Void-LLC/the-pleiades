@@ -49,6 +49,7 @@ func TestParamFits(t *testing.T) {
 		{"list", "a,b", false},
 		{"list of string", []any{"a", "b"}, true},
 		{"list of string", []string{"a"}, true},
+		{"list of string", []string{}, true},
 		{"list of string", []any{"a", 1}, false},
 		{"list of string", "a", false},
 		{"list of dict", []any{map[string]any{"k": 1}}, true},
@@ -106,5 +107,65 @@ func TestValueKind(t *testing.T) {
 	}
 	if got := collection.ValueKind([]string{"a"}); got != "a list" {
 		t.Errorf("ValueKind([]string) = %q", got)
+	}
+}
+
+// TestParamFits_EveryNumberShapeAndKind covers the decoders' other number
+// shapes (uint, float32, json.Number) and the values that are not numbers at
+// all, which a number parameter refuses whatever shape they arrive in.
+func TestParamFits_EveryNumberShapeAndKind(t *testing.T) {
+	for _, tc := range []struct {
+		typ  string
+		v    any
+		want bool
+	}{
+		{"int", uint(3), true},
+		{"int", uint64(3), true},
+		{"int", float32(3), true},
+		{"int", float32(3.5), false},
+		{"int", float32(math.Inf(1)), false},
+		{"int", json.Number("3.5"), false},
+		{"int", json.Number("3"), true},
+		{"int", json.Number("x"), false},
+		{"int", true, false},
+		{"float", float32(0.5), true},
+		{"float", uint8(2), true},
+		{"float", json.Number("0.5"), true},
+		{"float", json.Number("x"), false},
+		{"float", true, false},
+		{"float", math.Inf(-1), false},
+		{"int", []any{1}, false},
+		{"int or list of int", []any{1, 2.5}, false},
+		{"int or list of int", "1", false},
+		{"scalar or list", []any{1, "a"}, true},
+		{"scalar or list", []any{1.5}, true},
+		{"scalar or list", []any{true}, false},
+		{"list", 3, false},
+	} {
+		got, err := collection.ParamFits(tc.typ, tc.v)
+		if err != nil || got != tc.want {
+			t.Errorf("ParamFits(%q, %#v) = %v, %v; want %v", tc.typ, tc.v, got, err, tc.want)
+		}
+	}
+}
+
+// TestValueKind_NamesEachKind: a value's kind for a message, without the
+// value, covering the shapes a decoder produces and the one it does not.
+func TestValueKind_NamesEachKind(t *testing.T) {
+	for _, tc := range []struct {
+		v    any
+		want string
+	}{
+		{nil, "null"},
+		{true, "a boolean"},
+		{map[string]any{}, "a map"},
+		{[]any{}, "a list"},
+		{uint8(1), "a number"},
+		{json.Number("1.5"), "a number"},
+		{struct{}{}, "a value of type struct {}"},
+	} {
+		if got := collection.ValueKind(tc.v); got != tc.want {
+			t.Errorf("ValueKind(%#v) = %q, want %q", tc.v, got, tc.want)
+		}
 	}
 }
