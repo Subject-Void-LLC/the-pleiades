@@ -97,7 +97,7 @@ func TestCLI_AIRepairExampleRepairsAndRollsBack(t *testing.T) {
 	}
 
 	// 2. The disk fills, the model names free_space, and only that fix runs.
-	host.Answer = `{"fix":"free_space","confidence":0.9,"reason":"the filesystem under the document root is full"}`
+	host.SetAnswer(`{"fix":"free_space","confidence":0.9,"reason":"the filesystem under the document root is full"}`)
 	rep, raw, code = runPleiadesJSON(t, dir, "run", "runbooks/repair_web.yaml", "-e", "fault=disk_full")
 	if code != 0 || rep.Outcome.Status != "rescued" || rep.RunID == "" || host.Chats() != 1 {
 		t.Fatalf("run: exit %d, %d model call(s)\n%s", code, host.Chats(), raw)

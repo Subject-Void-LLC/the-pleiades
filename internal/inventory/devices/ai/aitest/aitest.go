@@ -31,7 +31,9 @@ type Ollama struct {
 	mu sync.Mutex
 	// Disk and Memory are the models on disk and in memory, with tags.
 	Disk, Memory []string
-	// Answer is what every chat answers.
+	// Answer is what every chat answers. Set it before the first request,
+	// or with SetAnswer once the host has served one: the server reads it
+	// on its own goroutine, under mu.
 	Answer string
 	// Reject, when set, is an option a chat refuses with a 400 naming it.
 	Reject string
@@ -62,6 +64,14 @@ func (o *Ollama) Requests() []string {
 }
 
 // Chats is how many chat calls reached the host.
+// SetAnswer changes what every chat answers from now on, safely while the
+// host serves requests.
+func (o *Ollama) SetAnswer(answer string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.Answer = answer
+}
+
 func (o *Ollama) Chats() int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
