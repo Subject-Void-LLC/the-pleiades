@@ -13571,3 +13571,22 @@ checked there.
 **Lesson.** A refusal names what it found in its own words; a test that accepts one system's error text is a test
 of that system. When a branch first brings a package into a system's leg, expect that package's host assumptions to
 show up there.
+
+## 545. Every CI job's Go cache restore failed, because setup-go installed go.mod's go line and Go then fetched the toolchain line's release into the module cache (fixed)
+
+**Symptom.** 2026-10-20, reading PR #80's container shard logs for the e2e hang: setup-go's step downloaded a
+1.66 GB cache in ten seconds, then warned "Failed to restore: /usr/bin/tar failed with exit code 2" after a page of
+"Cannot open: File exists" lines under `golang.org/toolchain@v0.0.1-go1.26.9`. The `fast`, `ci` and every container
+job showed it: each compiled from nothing, and paid for downloading the cache anyway.
+
+**Root cause.** go.mod says `go 1.26.0` and `toolchain go1.26.9`. setup-go v5's `go-version-file` reads the `go`
+line, so it installed 1.26.0; its first `go` command then switched toolchains and fetched 1.26.9 into the module
+cache, before the cache was restored. The cache held its own copy of that same toolchain directory, so extracting
+it collided, and the restore failed whole. The cache key carried `go-1.26.9` (setup-go names it from `go version`
+after the switch), which made the entries look right.
+
+**Fix.** `.github/actions/setup-go` reads the toolchain line (stripping a carriage return, for a Windows checkout)
+and installs that release, so Go has nothing to fetch. Every job uses it.
+
+**Lesson.** A cache step that warns and carries on fails silently in every run; read a step's warnings, not its
+color. A toolchain switch inside a setup step changes what the step writes before anything restores over it.
