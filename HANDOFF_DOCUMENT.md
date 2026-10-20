@@ -4,74 +4,70 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-19. Branch `feat/wait-backoff-report-contract`, off `main` at `eac1812e` (#75 merged green).** One pull
-request at a time; `make pr-check` before every push; the owner merges.
+**2026-10-20. Branch `feat/rescue-always-design`, pull request #80, off `main` at `d33ff7e7` (#79 merged green).**
+One pull request at a time; `make pr-check` before every push; the owner merges.
 
-### What #75 shipped
+### What merged since the last handoff
 
-`make pr-check` ends with one report of the run (`tools/prreport`), from records each testgate pass, OS check and
-step writes.
+- #76: `wait.connection`'s exponential backoff and steady streak; the pr-check report as a versioned contract.
+- #77: `virt.vbox.vm.delete`'s saved-state header warning.
+- #78: Windows firewall rules.
+- #79: parameter type rules, the unreached mark in the run report, lab readiness retries, the disk check, flakegate
+  build output.
 
-### This branch, at the owner's request ("along with the exponential backoff, make the consolidated report a stable, versioned contract for tooling")
+### This branch, at the owner's request ("plan always:", then "do it on the same PR")
 
-- **`wait.connection` waits for a machine that keeps answering.**
-  - `backoff: exponential` doubles the gap after each failed try, from `sleep` up to `max_sleep`, with jitter in
-    the gap's upper half.
-  - `steady` asks for that many fresh logins in a row, `steady_interval` apart. A refusal mid-streak starts the
-    streak and the backoff again.
-  - It records `tries` and `failures`. A setting that would do nothing, or cannot work, is refused before any
-    try.
-  - The schedule is tested with a recorded sleep, never the wall clock (FAILURE_PATTERNS 479's class). The streak
-    is tested against the real SSH server, counted in its own logins.
-- **A defect found on the way (FAILURE_PATTERNS 524):** the wait's SSH try borrowed the run's pooled session, so a
-  second wait passed without logging in. `sdk.ConnectFresh` now always logs in.
-- **The OS checks wait for a box they started with `wait.connection`'s streak**: three fresh logins, ten seconds
-  apart, backing off from 2 to 30 seconds. The check's own loop is gone. The lab examples' first-boot waits ask for
-  a streak too.
-- **The pr-check report is a versioned contract** (`tools/internal/prreport`), with a schema published by
-  `tools/gendocs` (`docs/reference/schemas/pr-check-report.json`). Schema 2:
-  - each problem is an object with a stable code;
-  - the report names what it expected and what is missing;
-  - verdicts are `pass`, `fail`, `incomplete`, `running` and `interrupted`.
+The design, with the owner's pasted spec and decisions, is `docs/design/block-rescue-always.md`.
 
-  The rules: a reader ignores unknown fields, treats unknown values as not a pass, and refuses unknown majors. The
-  schema is open to match. pr-check begins with a running report, and its trap merges what ran as interrupted.
-- **Another defect found on the way (FAILURE_PATTERNS 525, fixed before push):** that trap ran twice on one signal,
-  and the second merge overwrote the first. The handler now disarms itself and exits.
-- **Proven so far:** every touched package's tests under `-race`. The waits package and the report package are at
-  100%. The interrupt and early-exit paths were proven in a real `sh`. Not yet live: `wait.connection`'s streak
-  against the lab boxes. This branch's own pr-check is that proof, since it starts the saved FreeBSD and Windows
-  boxes through it.
+- **A block's `rescue:` and `always:` run**, per device: one chain (block, rescue, always), a stack of frames per
+  device, every task deciding per device (`internal/engine/handlers.go`, `handlers_run.go`).
+- **A rescued run ends `rescued`** (exit 0); `--fail-on-rescue` ends it with exit 4. Answered tasks report
+  `rescued_by`.
+- **A block reaching another device runs as one unit** (`DAG.Units`): a failure anywhere fails it everywhere, and its
+  rescue and always run once on their own targets.
+- **A run that has to end still runs the `always:` of every block it is inside**, on every device.
+- **`error`** (template and CEL) only in rescue; validate's `HandlersRule` refuses it elsewhere, and refuses a register
+  only a rescued block writes when a later task reads it unguarded.
+- **Check mode:** rescue tasks are `conditional_skip`; a failed check never routes to a rescue.
+- **Journal:** skip kinds `block_failed` and `not_failed`, read by the strict reader.
+- **Owner decisions:** exit 4 of its own; always: does not read `error`; a failed check reports as before; a block
+  reaching other devices runs as one unit.
+- **Proof:** unit scenarios; an independent recursive oracle over 400 generated nestings on one and two devices in
+  every run (found 541 and 542, LESSONS 302); FuzzHandlers about 167k cases; an sshd release gate (exit 0 and 4);
+  every lab `# TODO(always):` converted and proven through Pleiades by injecting a failure in its block.
+- **Also:** `engine.Select` kept `reversible:` out of a tag selection (540); the journal reader names a refused link on
+  FreeBSD (544).
+- **pr-check** passed on `a61fede9` in 1657s, every leg green; one contention re-run
+  (`TestCLI_RunExecutesExecCommand`, an sshd container's readiness deadline).
+
+### Open, in the design note, not built
+
+- `rollback_on_failure`.
+- Walk-tier cross-device blocks (Phase 117b's segmented dispatch); a Runner still runs every task on its one device.
+- The name of a run-once key; `ignore_errors` and `changed_when`.
 
 ### Next
 
-1. `make pr-check` (cap at least 3 G; govulncheck peaks near 2.7 GB), read its report, then push and open the pull
-   request with `-R`.
-2. **The live gates read gitignored `tests/<name>/.env` files** (agreed 2026-10-19, in the tracker):
-   - a loader in `internal/testsupport/need`;
-   - examples drafted in the scratchpad for ios, xr, catalyst, servicenow, winrm, localstack, cloudflare and ai;
-   - new live gates for `edge.*` (Cloudflare, read-only token) and `ai.*` (local Ollama and an OpenAI-compatible
-     endpoint).
-3. **Every method proven on every OS it targets** (Phase 122b).
+1. Watch #80's CI; the owner merges.
+2. **The live gates read gitignored `tests/<name>/.env` files** (agreed 2026-10-19, in the tracker).
+3. **Every method proven on every OS it targets** (Phase 122b), and its other open items.
 4. **Packages for Server Core:** Chocolatey, Scoop and PSResourceGet, after a design note.
-5. **Phase 122b's other open items:**
-   - `validate` is silent on `always:` and `rescue:`;
-   - the screenshot `dest` gotcha;
-   - the converter maps no Windows module;
-   - and the rest listed there.
 
 ### Lab state
 
 - `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved; checks start and save the check boxes.
-- The domain's runbooks are in `~/pleiades-lab/runbooks/win/` (`dc-00` to `dc-04`).
+- lab-dc1 takes its time from time.windows.com (`win/dc-01-build.yaml`), since a resumed domain controller was 90
+  minutes slow (543).
+- The lab's must-run tasks are in `always:` blocks: `ubuntu-throwaway.yaml`, `win/dc-04-linux-join.yaml`,
+  `win/ca-01-build.yaml`.
 
 ### Files changed this session
 
-- `internal/catalog/wait/connection.go` and its tests, `pkg/sdk/connect.go` and its test;
-- `internal/forge/catalogdata/collections_gating.go`, the regenerated `docs/reference` and
-  `internal/api/wellknown`;
-- `tools/internal/oscheck/box.go` and its test, `examples/virtualbox_lab`;
-- `tools/internal/prreport` (new), `tools/prreport`, `tools/gendocs/{reportschema,prreportschema,run_test}*`, and
-  doc comments in `tools/internal/{flakegate,oscheck}`;
-- the Makefile, `docs/design/os-checks.md`, `CLAUDE.md`, three changelog fragments;
-- `FAILURE_PATTERNS*` and `HANDOFF_*`.
+- `internal/engine`: `handlers.go`, `handlers_run.go`, `unreached.go` (new), `executor.go`, `chain.go`, `dag.go`,
+  `select.go`, `journal*.go`, `cel.go`, `render_params.go`, `condition_refs.go`, `rollback_key.go`, and tests
+  (`handlers_test.go`, `handlers_fuzz_test.go`, `select_reversible_test.go`, fqcn conversions);
+- `internal/validate/handlers.go`; `internal/journal` (`reader.go`, `reader_unix.go`, tests);
+- `cmd/pleiades` (`run*.go`, `validate.go`, `rescue_release_gate_test.go`);
+- `internal/forge/playbook`, `tools/gendocs/taskkeys.go`, the regenerated `docs/reference`, docs 02 and 03,
+  `docs/design/block-rescue-always.md`, `examples/upgrade_ios`, one changelog fragment;
+- `FAILURE_PATTERNS*` (539 to 544), `LESSONS_LEARNED*` (302), `HANDOFF_*`; the lab runbooks above.

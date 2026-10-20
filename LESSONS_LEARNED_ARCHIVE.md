@@ -5860,3 +5860,17 @@ validation a user's runbook gets, in a test pr-check always runs, from the day t
 task, across several pull requests, while the builder and the validator that refuse both were in the tree. The
 owner: "That never should have gotten that far. The runbook sanity check should have caught them." The first fix
 reached for the builder alone and missed two that only validation finds.
+
+## 302. Control flow is checked against an independent interpreter over generated programs
+
+**Rule.** When a feature's input is a grammar (blocks inside blocks, each with a rescue, an always, a failing task
+or not, on one device or several), its behavior is compared, over generated inputs in every test run, with a second
+implementation of a different shape written from the specification alone, and fuzzed beyond that.
+
+**Why.** 2026-10-20 (FAILURE_PATTERNS 541, 542). The executor runs rescue: and always: as a per-device stack of
+frames over a flat chain. A recursive interpreter of the same nesting, a page long, disagreed with it on two
+generated cases that every hand-written scenario had passed: a rescue that answered two failures cleared only the
+first, and one device's fatal stop skipped another device's always:. Each needed two conditions at once, which a
+hand-written fixture neutralizes by design (lesson 174); a generator holds them by default. Different shapes matter:
+a second stack machine would likely share the first one's bookkeeping mistakes, and recursion has no bookkeeping to
+share.
