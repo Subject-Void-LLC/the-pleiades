@@ -25,22 +25,43 @@ func succeeded(e engine.JournalEntry) bool {
 	return e.Outcome == engine.OutcomeChanged || e.Outcome == engine.OutcomeRan
 }
 
-// undoneSteps returns every step an earlier rollback of target already
-// did, so a rollback that stopped partway resumes where it stopped rather
-// than repeating what worked.
-func undoneSteps(target string, others []Run) map[stepKey]bool {
-	done := map[stepKey]bool{}
-	for _, r := range others {
-		if rollbackOf(r) != target {
+// undoneSteps returns every step already done of target's undo, so a
+// rollback that stopped partway resumes where it stopped rather than
+// repeating what worked: by an earlier rollback of it, or by target itself,
+// when a block's rollback_on_failure undid what the block completed. The
+// value says which (byRun for the run itself).
+func undoneSteps(target Run, others []Run) map[stepKey]string {
+	done := map[stepKey]string{}
+	for _, r := range append([]Run{target}, others...) {
+		if r.ID != target.ID && rollbackOf(r) != target.ID {
 			continue
 		}
-		for _, e := range r.Entries {
-			if e.UndoesNode != "" && succeeded(e) {
-				done[stepKey{pair{e.UndoesNode, e.DeviceID}, e.UndoesStep}] = true
+		for _, e := range undoEntries(r, target.ID) {
+			if succeeded(e) {
+				by := r.ID
+				if r.ID == target.ID {
+					by = byRun
+				}
+				done[stepKey{pair{e.UndoesNode, e.DeviceID}, e.UndoesStep}] = by
 			}
 		}
 	}
 	return done
+}
+
+// byRun marks a step the run being undone did itself (undoneSteps).
+const byRun = "the run itself"
+
+// undoEntries returns r's entries undoing a node of the run target: all of
+// a rollback run's, or the steps a run of its own rollback_on_failure ran.
+func undoEntries(r Run, target string) []engine.JournalEntry {
+	var out []engine.JournalEntry
+	for _, e := range r.Entries {
+		if e.UndoesNode != "" && e.RollbackOf == target {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // fullyUndone reports whether every change run made has been undone by a
@@ -59,12 +80,12 @@ func fullyUndone(run Run, others []Run) bool {
 		ok bool
 	}
 	latest := map[stepKey]attempt{}
-	for _, r := range others {
-		if rollbackOf(r) != run.ID {
+	for _, r := range append([]Run{run}, others...) {
+		if r.ID != run.ID && rollbackOf(r) != run.ID {
 			continue
 		}
-		for _, e := range r.Entries {
-			if e.UndoesNode == "" || (!succeeded(e) && e.Outcome != engine.OutcomeFailed) {
+		for _, e := range undoEntries(r, run.ID) {
+			if !succeeded(e) && e.Outcome != engine.OutcomeFailed {
 				continue
 			}
 			k := stepKey{pair{e.UndoesNode, e.DeviceID}, e.UndoesStep}

@@ -383,7 +383,7 @@ func validSkipKind(kind SkipKind) bool {
 // nobody can vouch for is worse than a missing one that was logged and
 // counted, because the first is read as fact.
 func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
-	task := r.dag.Nodes[n.NodeID]
+	task := r.taskFor(n.NodeID)
 	if task == nil {
 		// Unreachable through runNode, which looks the task up by this
 		// exact id before doing anything else. It is checked because the
@@ -459,7 +459,13 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	}
 	entry.ActionChanged = n.journalChanged
 	entry.AuthoredRollback = len(task.Rollback) > 0
-	if r.x != nil && r.x.rollback.of != "" {
+	switch {
+	case n.Undo != nil:
+		// A step of a block's rollback_on_failure: a rollback of this very
+		// run, of the node and step it undid (rollback_on_failure.go).
+		entry.RollbackOf = r.runID
+		entry.UndoesNode, entry.UndoesStep = n.Undo.Node, n.Undo.Step
+	case r.x != nil && r.x.rollback.of != "":
 		entry.RollbackOf = r.x.rollback.of
 		undo := r.x.rollback.undoes[n.NodeID]
 		entry.UndoesNode, entry.UndoesStep = undo.Node, undo.Step
@@ -753,7 +759,7 @@ func (r *run) recordLevel(ctx context.Context, levelIndex int, outs [][]NodeResu
 	// For the same reason, a real run leaves out every node whose task
 	// carries check_mode: that task was checked, not run.
 	outs = slices.DeleteFunc(slices.Clone(outs), func(node []NodeResult) bool {
-		return len(node) > 0 && r.modeFor(r.dag.Nodes[node[0].NodeID]) != collection.ModeExecute
+		return len(node) > 0 && r.modeFor(r.taskFor(node[0].NodeID)) != collection.ModeExecute
 	})
 	if len(outs) == 0 {
 		return

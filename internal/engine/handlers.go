@@ -36,9 +36,12 @@ type BlockScope struct {
 
 // BlockGuard is what a block has besides its own tasks, and every node of
 // each part, at any depth, for knowing when the walk has passed them.
+// Rollback is the block's rollback_on_failure: a failure in its own tasks
+// first undoes what they completed on that device (rollback_on_failure.go).
 type BlockGuard struct {
 	Rescue, Always []string
 	Tasks          []string
+	Rollback       bool
 }
 
 // HasRescue and HasAlways report whether the block kept a rescue: or an
@@ -56,11 +59,12 @@ func InPart(scopes []BlockScope, part BlockPart) bool {
 
 // Guarded reports whether a task with scopes sits inside a block that has a
 // rescue: or an always:, which is what makes its device's failures
-// something other than the end of the run.
+// something other than the end of the run, or rollback_on_failure, which
+// undoes what the block completed before the failure goes on.
 func (d *DAG) Guarded(scopes []BlockScope) bool {
 	return slices.ContainsFunc(scopes, func(s BlockScope) bool {
 		g := d.Guards[s.Block]
-		return g.HasRescue() || g.HasAlways()
+		return g.HasRescue() || g.HasAlways() || g.Rollback
 	})
 }
 
@@ -83,6 +87,12 @@ type handlerFrame struct {
 	// that failed while the frame was handling: the rest of that part does
 	// not run.
 	rescueFailed, alwaysFailed bool
+	// undoFailed is the block's rollback_on_failure, which could not undo
+	// what the block completed: the rescue does not run, since it would
+	// start from a state nobody chose, and the always tasks do.
+	// undoPending is that undo, asked for and not yet run: the frame is
+	// not settled until it has, so its result stays the frame's.
+	undoFailed, undoPending bool
 }
 
 // handlers is every device's stack of frames, keyed by device ID, the
@@ -97,6 +107,21 @@ type handlers struct {
 	// rescued maps each node result that a rescue answered, by node and
 	// device, to the rescue's first task.
 	rescued map[resultKey]string
+	// pending is each block with rollback_on_failure that has taken a
+	// failure in its own tasks since the level barrier last ran its undo.
+	pending []rollbackRequest
+}
+
+// rollbackRequest is one block's undo of what it completed, for the
+// handling key (a device, or a unit's devices together), or for every
+// device when all is set: a failure no frame takes (a target that resolved
+// to nothing) fails the block everywhere. frame is the handling the undo
+// belongs to, nil for one with no frame.
+type rollbackRequest struct {
+	block string
+	key   string
+	all   bool
+	frame *handlerFrame
 }
 
 // resultKey names one node's result on one device.
@@ -153,6 +178,8 @@ func (h *handlers) decide(nodeID, device string) (bool, skip) {
 				return false, skip{SkipKindNotFailed, "runs only if its block fails, and on this device it did not"}
 			case top.held:
 				return false, skip{SkipKindBlockFailed, fmt.Sprintf("%s is held for a person's decision, which no rescue answers", top.origin.NodeID)}
+			case top.undoFailed:
+				return false, skip{SkipKindBlockFailed, fmt.Sprintf("undoing what the block completed before %s failed did not finish, so the rescue would start from a state nobody chose", top.origin.NodeID)}
 			case top.rescueFailed:
 				return false, skip{SkipKindBlockFailed, fmt.Sprintf("an earlier task of this rescue failed while it handled %s", top.origin.NodeID)}
 			}
@@ -193,6 +220,13 @@ func (h *handlers) failed(n NodeResult) bool {
 	}
 	switch n.failureStage {
 	case FailureStageResolveTarget, FailureStageLockAll:
+		// No frame, but the block failed: on every device, so each block
+		// with rollback_on_failure around it still undoes, everywhere.
+		for i := len(scopes) - 1; i >= 0; i-- {
+			if s := scopes[i]; s.Part == PartBlock && h.dag.Guards[s.Block].Rollback {
+				h.pending = append(h.pending, rollbackRequest{block: s.Block, all: true})
+			}
+		}
 		return false
 	}
 	_, held := HoldOf(n.Err)
@@ -207,11 +241,30 @@ func (h *handlers) failed(n NodeResult) bool {
 		top.alwaysFailed = true
 		top.causes = append(top.causes, n)
 	default:
-		h.frames[key] = append(h.frames[key], &handlerFrame{
+		h.push(key, &handlerFrame{
 			block: innermost.Block, part: innermost.Part, origin: n, held: held, alwaysFailed: innermost.Part == PartAlways,
 		})
 	}
 	return h.handled(key)
+}
+
+// push adds frame to key's stack, and when it is a failure in the own tasks
+// of a block with rollback_on_failure, asks the barrier to undo what they
+// completed (rollback_on_failure.go) before anything of the block runs on.
+func (h *handlers) push(key string, frame *handlerFrame) {
+	h.frames[key] = append(h.frames[key], frame)
+	if frame.part == PartBlock && h.dag.Guards[frame.block].Rollback {
+		frame.undoPending = true
+		h.pending = append(h.pending, rollbackRequest{block: frame.block, key: key, frame: frame})
+	}
+}
+
+// takePending returns the undos asked for since the last call, oldest
+// first, and forgets them.
+func (h *handlers) takePending() []rollbackRequest {
+	out := h.pending
+	h.pending = nil
+	return out
 }
 
 // handled reports whether device's failures still have a rescue: or an
@@ -221,18 +274,18 @@ func (h *handlers) failed(n NodeResult) bool {
 // outside any block does, rather than when the walk reaches the block's end.
 func (h *handlers) handled(device string) bool {
 	type sim struct {
-		block                            string
-		part                             BlockPart
-		held, rescueFailed, alwaysFailed bool
+		block                                        string
+		part                                         BlockPart
+		held, rescueFailed, alwaysFailed, undoFailed bool
 	}
 	var stack []sim
 	for _, f := range h.frames[device] {
-		stack = append(stack, sim{f.block, f.part, f.held, f.rescueFailed, f.alwaysFailed})
+		stack = append(stack, sim{f.block, f.part, f.held, f.rescueFailed, f.alwaysFailed, f.undoFailed})
 	}
 	for len(stack) > 0 {
 		top := stack[len(stack)-1]
 		g := h.dag.Guards[top.block]
-		if top.part == PartBlock && g.HasRescue() && !top.held && !top.rescueFailed && !h.allDone(g.Rescue) {
+		if top.part == PartBlock && g.HasRescue() && !top.held && !top.rescueFailed && !top.undoFailed && !h.allDone(g.Rescue) {
 			return true
 		}
 		if g.HasAlways() && !top.alwaysFailed && !h.allDone(g.Always) {
@@ -303,7 +356,7 @@ func (h *handlers) advanceDevice(device string) *NodeResult {
 			return nil
 		}
 		g := h.dag.Guards[top.block]
-		if top.part == PartBlock && g.HasRescue() && !top.held && !top.rescueFailed && h.allDone(g.Rescue) {
+		if top.part == PartBlock && g.HasRescue() && !top.held && !top.rescueFailed && !top.undoFailed && h.allDone(g.Rescue) {
 			// The rescue ran to its end without failing: the block's failure
 			// is answered, every failure it carried with it too (an inner
 			// rescue or always that failed on the way here), and its always:
@@ -314,7 +367,7 @@ func (h *handlers) advanceDevice(device string) *NodeResult {
 			h.pop(device)
 			continue
 		}
-		if !h.allDone(g.Tasks) || !h.allDone(g.Rescue) || !h.allDone(g.Always) {
+		if top.undoPending || !h.allDone(g.Tasks) || !h.allDone(g.Rescue) || !h.allDone(g.Always) {
 			return nil
 		}
 		// The walk has passed the whole block and the failure stands: it
@@ -354,7 +407,7 @@ func (h *handlers) propagate(device string, frame *handlerFrame) bool {
 		top.alwaysFailed = true
 		top.causes = append(top.causes, append([]NodeResult{frame.origin}, frame.causes...)...)
 	default:
-		h.frames[device] = append(h.frames[device], &handlerFrame{
+		h.push(device, &handlerFrame{
 			block: outer.Block, part: outer.Part, origin: frame.origin, causes: frame.causes, held: frame.held,
 			alwaysFailed: outer.Part == PartAlways,
 		})

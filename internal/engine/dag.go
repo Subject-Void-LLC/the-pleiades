@@ -345,6 +345,14 @@ type Task struct {
 	// holds them to a plain method call each (validateRollback).
 	Rollback []Task `json:"rollback,omitempty" yaml:"rollback,omitempty"`
 
+	// RollbackOnFailure, on a block, undoes what the block's own tasks
+	// completed on a device when one of them fails there, newest first,
+	// before the block's rescue starts, and journals those undos as a
+	// rollback of those tasks, so a later rollback of the run does not
+	// repeat them (rollback_on_failure.go). Unlike Rollback it changes what
+	// the forward run does, so it is hashed into DAG.Version.
+	RollbackOnFailure bool `json:"rollback_on_failure,omitempty" yaml:"rollback_on_failure,omitempty"`
+
 	// synthetic marks a structural fan-out/join marker node the Builder
 	// constructs itself (synthesizeParallel), never one a runbook author
 	// writes. It is unexported so it is unreachable from encoding/json or

@@ -96,7 +96,9 @@ func journalList(dir string, asJSON bool) error {
 			if e.Outcome == engine.OutcomeFailed {
 				s.Failed++
 			}
-			if e.RollbackOf != "" {
+			// An entry naming its own run is a step of a block's
+			// rollback_on_failure, not a sign the run is a rollback.
+			if e.RollbackOf != "" && e.RollbackOf != s.RunID {
 				s.RollbackOf = e.RollbackOf
 			}
 		}

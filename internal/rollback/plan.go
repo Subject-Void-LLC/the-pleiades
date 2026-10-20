@@ -229,7 +229,7 @@ func Build(req Request) (Plan, error) {
 		}
 	}
 
-	done := undoneSteps(req.Target.ID, req.Others)
+	done := undoneSteps(req.Target, req.Others)
 	problems = append(problems, laterRunProblems(req, changed)...)
 
 	type levelKey struct {
@@ -263,14 +263,21 @@ func Build(req Request) (Plan, error) {
 			continue
 		}
 		var remaining []Step
+		bySelf := true
 		for _, s := range steps {
-			if !done[stepKey{p, s.Index}] {
+			by, isDone := done[stepKey{p, s.Index}]
+			if !isDone {
 				remaining = append(remaining, s)
+			} else if by != byRun {
+				bySelf = false
 			}
 		}
 		if len(remaining) == 0 {
-			plan.AlreadyUndone = append(plan.AlreadyUndone, Gap{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name,
-				Reason: "an earlier rollback of this run undid it"})
+			reason := "an earlier rollback of this run undid it"
+			if bySelf {
+				reason = "the run undid it itself, when its block failed (rollback_on_failure)"
+			}
+			plan.AlreadyUndone = append(plan.AlreadyUndone, Gap{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name, Reason: reason})
 			continue
 		}
 		if !known {
@@ -289,9 +296,9 @@ func Build(req Request) (Plan, error) {
 	// operator named to leave: a refusal saying so, rather than a run of
 	// nothing that reads as a rollback done.
 	if len(plan.AlreadyUndone) > 0 && len(plan.AlreadyUndone)+len(plan.Left) == len(changed) && len(problems) == 0 {
-		reason := "every change this run made has already been undone by an earlier rollback of it; there is nothing left to undo"
+		reason := "every change this run made has already been undone, by the run itself or by an earlier rollback of it; there is nothing left to undo"
 		if len(plan.Left) > 0 {
-			reason = "every change this run made has already been undone by an earlier rollback of it, apart from those named to leave in place; there is nothing left to undo"
+			reason = "every change this run made has already been undone, by the run itself or by an earlier rollback of it, apart from those named to leave in place; there is nothing left to undo"
 		}
 		problems = append(problems, Problem{Reason: reason})
 	}
@@ -336,10 +343,12 @@ func deviceName(req Request, deviceID string) string {
 	return name
 }
 
-// rollbackOf returns the run a run is a rollback of, or "".
+// rollbackOf returns the run a run is a rollback of, or "". An entry naming
+// the run itself is a step of a block's rollback_on_failure, which undid
+// part of the run inside it, and does not make the run a rollback.
 func rollbackOf(run Run) string {
 	for _, e := range run.Entries {
-		if e.RollbackOf != "" {
+		if e.RollbackOf != "" && e.RollbackOf != run.ID {
 			return e.RollbackOf
 		}
 	}

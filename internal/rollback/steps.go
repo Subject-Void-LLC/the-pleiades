@@ -33,7 +33,9 @@ func changesOf(run Run) (changed, unknown []engine.JournalEntry) {
 	latest := map[pair]engine.JournalEntry{}
 	for _, e := range run.Entries {
 		switch {
-		case e.Outcome == engine.OutcomeNotReached:
+		case e.Outcome == engine.OutcomeNotReached, e.UndoesNode != "":
+			// An undo the run ran itself (a block's rollback_on_failure) is
+			// not a change to undo; it is what undoneSteps reads.
 			continue
 		case e.ActionChanged || e.Outcome == engine.OutcomeChanged:
 			p := pair{e.NodeID, e.DeviceID}

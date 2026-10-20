@@ -139,7 +139,7 @@ func (w *chainWalker) note(id string) {
 // tasks, each part chained in order and the three one after another, and
 // records the nodes of each part as the block's guard.
 func (w *chainWalker) block(task *Task, id string) (entry, exit string, err error) {
-	var guard BlockGuard
+	guard := BlockGuard{Rollback: task.RollbackOnFailure}
 	for _, part := range []struct {
 		tasks []Task
 		part  BlockPart
