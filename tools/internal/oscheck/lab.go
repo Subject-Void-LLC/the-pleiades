@@ -99,6 +99,9 @@ type LabCheck struct {
 	// device's when unset). With a host named, a run starts the VM when it
 	// is not running and saves its state when the run ends (LabBox, Box).
 	VMHostKey, VMKey string
+	// BoxWait is how a VM this run started is waited for (Box.Wait):
+	// SteadyWait when empty.
+	BoxWait []string
 }
 
 // keys is every setting c reads.
@@ -184,7 +187,7 @@ func (c LabCheck) box(project, device, host, vm string) (Box, error) {
 	}
 	onHost := lab.Pleiades
 	onHost.Device = host
-	return Box{Host: onHost, Device: lab.Pleiades, VM: vm}, nil
+	return Box{Host: onHost, Device: lab.Pleiades, VM: vm, Wait: c.BoxWait}, nil
 }
 
 // LabAdvice is what ends a lab check's refusals: how to point it at

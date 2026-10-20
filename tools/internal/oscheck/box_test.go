@@ -118,6 +118,24 @@ func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 	}
 }
 
+// TestBoxUp_WaitsAsItsMachineNeeds: a box naming its own wait (a Windows
+// box, which misses connections for a minute or two after it resumes) is
+// waited for with it, six fresh logins twenty seconds apart, rather than the
+// default streak.
+func TestBoxUp_WaitsAsItsMachineNeeds(t *testing.T) {
+	h := &fakeHost{state: "saved"}
+	h.install(t)
+	box := testBox
+	box.Wait = WindowsWait
+	if started, err := box.Up(context.Background(), "t", &bytes.Buffer{}); !started || err != nil {
+		t.Fatalf("Up: %v %v", started, err)
+	}
+	want := "box-1 wait.connection timeout=600 backoff=exponential sleep=2 max_sleep=30 steady=6 steady_interval=20 connect_timeout=10"
+	if got := h.calls[2:]; len(got) != 1 || got[0] != want {
+		t.Errorf("calls after the start: %q", got)
+	}
+}
+
 // TestBoxUp_WaitsForASteadyStreak: a started box is waited for once, by
 // wait.connection asking for three fresh logins in a row, and a box that
 // never gives them ends the wait with wait.connection's own reason.

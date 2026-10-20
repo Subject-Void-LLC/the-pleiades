@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
@@ -47,9 +48,10 @@ type Need struct {
 	Command, Why string
 }
 
-// Ready asks the machine for its kernel and for each of needs, refusing
-// one whose kernel is not kernel (noun names such a machine: "Mac") or that
-// lacks a command.
+// Ready asks the machine for its kernel, for each of needs and for the
+// space free under its login's home, refusing one whose kernel is not kernel
+// (noun names such a machine: "Mac"), that lacks a command, or that has
+// less than MinFreeGB free (FreeSpace).
 func (x POSIX) Ready(target, kernel, noun string, needs ...Need) error {
 	out, err := x.Pleiades.Adhoc(context.Background(), "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.readyScript(needs)))
 	if err != nil {
@@ -59,19 +61,22 @@ func (x POSIX) Ready(target, kernel, noun string, needs ...Need) error {
 }
 
 // readyScript prints the kernel's name, then for each need its command, or
-// no- and its command when it is not on the PATH, one line each.
+// no- and its command when it is not on the PATH, then the whole gigabytes
+// free on the file system holding the login's home, where the trees and Go's
+// build cache are, one line each.
 func (x POSIX) readyScript(needs []Need) string {
 	lines := []string{`export PATH="$PATH:` + x.Path + `"`, "uname -s"}
 	for _, n := range needs {
 		lines = append(lines, fmt.Sprintf("command -v %[1]s >/dev/null 2>&1 && echo %[1]s || echo no-%[1]s", n.Command))
 	}
+	lines = append(lines, `df -Pk "$HOME" | awk 'NR==2 {print int($4/1048576)}'`)
 	return strings.Join(lines, "\n")
 }
 
 // readyAnswer checks readyScript's output.
 func (x POSIX) readyAnswer(target, kernel, noun, out string, needs []Need) error {
 	lines := strings.Fields(out)
-	if len(lines) != 1+len(needs) {
+	if len(lines) != 2+len(needs) {
 		return fmt.Errorf("%s answered the readiness check with %q", target, out)
 	}
 	if lines[0] != kernel {
@@ -82,7 +87,7 @@ func (x POSIX) readyAnswer(target, kernel, noun, out string, needs []Need) error
 			return fmt.Errorf("%s has no %s on its PATH (looked in its PATH and %s): %s", target, n.Command, x.Path, n.Why)
 		}
 	}
-	return nil
+	return FreeSpace(target, lines[len(lines)-1], "go clean -cache there, or for the lab's bsd-check run runbooks/bsd/check-05-disk-cleanup.yaml")
 }
 
 // Ship sends commit sha's tree: exec.command removes all but the newest
@@ -224,4 +229,26 @@ case "$pid" in ''|*[!0-9]*) exit 0 ;; esac
 %[4]s
 stop_run "$pid"
 exit 0`, x.Dir, sha, x.PIDFile(), stopRun)
+}
+
+// MinFreeGB is the space, in whole gigabytes, a machine must have free
+// before a check runs on it. A run unpacks a tree and builds every package
+// it tests and their dependencies into Go's build cache, which nothing
+// trims: bsd-check's grew to 7.8 GB and filled its disk on 2026-10-19, and
+// every package then failed to build with no compiler message reaching the
+// report.
+const MinFreeGB = 4
+
+// FreeSpace refuses a machine whose readiness check said it has fewer than
+// MinFreeGB gigabytes free (free, a whole number as text), saying how much
+// it has and fix, what frees space there.
+func FreeSpace(target, free, fix string) error {
+	gb, err := strconv.Atoi(free)
+	if err != nil {
+		return fmt.Errorf("%s answered its free space with %q, not a number", target, free)
+	}
+	if gb < MinFreeGB {
+		return fmt.Errorf("%s has %d GB free where its tests unpack and build, under the %d GB a run needs: %s", target, gb, MinFreeGB, fix)
+	}
+	return nil
 }
