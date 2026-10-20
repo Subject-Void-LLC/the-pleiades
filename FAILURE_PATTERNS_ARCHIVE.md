@@ -13608,3 +13608,22 @@ two compose gates go to different parts and the six shards come to about 650 s e
 
 **Lesson.** A seed from another machine is a guess even when scaled, and worst for tests whose cost is a cache; take
 the first real measurement before trusting the dealing, and expect the check's drift warning on the first run.
+
+## 547. After rescue and always ran, the generated task-key reference still said they never run, and that rollback was refused in them (a repeat of 539's documentation) (fixed)
+
+**Symptom.** 2026-10-20, mapping the rollback code for `rollback_on_failure`: docs/reference/task-keys.md, regenerated
+and merged in #80, opened by saying "`rescue` and `always` validate and never run", and its `rollback` row said the key
+is refused on a `rescue` or `always` task, though #80 made both run and lifted that refusal. The design note also said a
+failed task contributes the undo it recorded, where the engine drops it.
+
+**Root cause.** #80's sweep rewrote every rescue and always statement it found in the docs' prose and in the key table's
+rows, which are data; the page's opening sentence is a string literal in the generator's own code
+(tools/gendocs/taskkeys.go), and a search of the docs reads its output, not the sentence's source, which it found only
+after regenerating had already copied it back. 539 recorded that the docs said the keys did not run; its fix changed
+what ran and the statements it looked for, not every place a statement could live.
+
+**Fix.** The sentence and the row are corrected at their source and regenerated; the design note says what the engine
+does with a failed task's undo.
+
+**Lesson.** When a feature stops being "not yet", search for the old claim in the generators' code too: a generated
+page's fixed text is written there, and regenerating restores whatever it says.
