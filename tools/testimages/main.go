@@ -14,7 +14,9 @@
 // always included, because its helpers (StartNATS, StartSSHD, ...) start
 // its pinned images for packages that never name one. Images this
 // repository builds itself (pleiades/...) are left out: there is nothing
-// to pull.
+// to pull. An image no test can start without a token the environment lacks
+// (LocalStack's, without LOCALSTACK_AUTH_TOKEN) is left out, and said so on
+// standard error.
 //
 // With -served it pulls nothing, and asks a registry for the manifest of
 // each image this machine's engine lacks: make pr-check runs it, so a
@@ -54,6 +56,10 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testimages:", err)
 		os.Exit(1)
+	}
+	images, omitted := startableHere(images)
+	for _, image := range omitted {
+		fmt.Fprintf(os.Stderr, "testimages: leaving out %s, which no test starts without its token\n", image)
 	}
 	for _, image := range images {
 		fmt.Println(image)
