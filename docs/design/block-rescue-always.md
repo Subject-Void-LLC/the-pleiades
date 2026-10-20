@@ -38,13 +38,20 @@ Checked against the code, 2026-10-20:
 - **What triggers a rescue.** A failed task, an unreached one included (the rescue can tell, below). Not a skipped task,
   and not a held one: a result held for a person's decision is a pause, not a failure, so the block stops, `always:`
   runs, and the run ends held.
-- **A run that has to end still cleans up.** When a failure ends the run (one nothing is left to handle, or a failure
-  of a task itself: its condition, its parameters, its target), the run still runs the `always:` of every block it is
+- **A run that has to end still cleans up.** When a failure ends the run (one nothing is left to handle, or a task
+  whose target resolved to nothing or could not lock every device at once), the run still runs the `always:` of every block it is
   inside, on every device, and nothing else, before it stops. One device's failure never skips another device's
   cleanup.
 - **Scope.** Per device. A block's failure on one device rescues that device; the others carry on with their own
-  block. Outside a block, a failure still stops the run as it does today: nothing changes for a runbook without
-  `rescue:`.
+  block. A failure of a task's own condition or parameters is each device's it would have run on. Outside a block, a
+  failure still stops the run as it does today: nothing changes for a runbook without `rescue:`.
+- **A block that reaches other devices runs as one unit.** When one of a block's tasks, at any depth, runs somewhere
+  other than the runbook's hosts (a target of its own, or a method that uses no device), per-device handling cannot
+  say whose failure it is: a grant on a domain controller that fails is the domain controller's, yet the block on the
+  member server must stop. Such a block (`DAG.Units`) is one unit: a failure on any device fails it on every device,
+  the rest of it is skipped everywhere, and its rescue and always tasks decide once and run on their own targets, a
+  rescue reading the first failure as `error` (the owner's decision, 2026-10-20). That is the shape of a temporary
+  grant that must always be revoked.
 - **Conditions.** A block whose `when:` is false is skipped whole, its `rescue:` and `always:` with it.
 
 ## 1. A recovered failure is visible
@@ -154,7 +161,8 @@ a block's handling is per device.
   rescue that runs to its end without failing answers it, and every failure it carried (an inner rescue's, an always
   task's).
 - **Rendering.** A guarded task's devices come from its authored target, so a device it will not run on renders and
-  evaluates nothing; a rescue task renders and evaluates its condition per device, with that device's `error`.
+  evaluates nothing; a rescue task renders and evaluates its condition per device, with that device's `error`. In a
+  unit the decision is the unit's, so a task decides once, then renders and resolves its own target as any task does.
 - **Proof.** The executor is compared with an independent recursive interpreter of these semantics over hundreds of
   generated nestings with random failures, on one device and on two failing independently, and by the fuzzer; a
   release gate runs a block that fails for real against a real `sshd`.

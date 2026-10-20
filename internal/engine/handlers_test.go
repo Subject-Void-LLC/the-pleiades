@@ -339,28 +339,82 @@ func TestHandlers_JournalWhatEachDeviceSkipped(t *testing.T) {
 	}
 }
 
-// TestGuardedBlock_RunsOnTheRunbooksHostsOnly: a task inside a block with a
-// rescue: or an always: that names a target of its own is refused when the
-// runbook builds, since its device's handling could not include it; inside a
-// plain block it is not.
-func TestGuardedBlock_RunsOnTheRunbooksHostsOnly(t *testing.T) {
-	eval, err := engine.NewCELEvaluator()
-	if err != nil {
-		t.Fatal(err)
+// unitRunbook is a block over web with a task on db in the middle, so it
+// runs as one unit, a rescue on db and an always over web.
+const unitRunbook = `id: u
+hosts: web
+tasks:
+  - name: mixed
+    block:
+      - name: b0
+        noop: {}
+      - name: grant
+        noop:
+          target: db
+      - name: b2
+        noop: {}
+    rescue:
+      - name: revoke
+        noop:
+          target: db
+          after: "{{ error.task }}"
+    always:
+      - name: a0
+        noop: {}
+  - name: after
+    noop: {}
+`
+
+// webAndDB resolves web to web1 and web2, and db to db1.
+func webAndDB() mapResolver {
+	m := twoDevices()
+	m["db"] = []inventory.InventoryItem{&inventorytest.Stub{StubID: "db1", StubName: "db1", StubState: inventory.StateActive}}
+	return m
+}
+
+// TestUnitBlock_FailsEverywhereAndRescuesOnce: a block whose tasks do not all
+// run on the hosts runs as one unit. A failure on db fails it on web too, so
+// neither web device runs the rest of it; its rescue runs once, on its own
+// target, reading the failure; always runs on every device; the run goes on.
+// A failure on one web device fails it everywhere just the same.
+func TestUnitBlock_FailsEverywhereAndRescuesOnce(t *testing.T) {
+	dag := yamlRunbook(t, unitRunbook)
+	if !dag.Units["tasks[0]"] {
+		t.Fatalf("the block is not a unit: %v", dag.Units)
 	}
 	for _, tc := range []struct {
-		name, handler string
-		refused       bool
+		fail string
+		want []string
 	}{
-		{"with a rescue", "    rescue:\n      - name: r\n        noop: {}\n", true},
-		{"with an always", "    always:\n      - name: a\n        noop: {}\n", true},
-		{"a plain block", "", false},
+		{"grant@db1", []string{"a0@web1", "a0@web2", "after@web1", "after@web2", "b0@web1", "b0@web2", "grant@db1", "revoke@db1"}},
+		{"b0@web1", []string{"a0@web1", "a0@web2", "after@web1", "after@web2", "b0@web1", "b0@web2", "revoke@db1"}},
 	} {
-		src := "id: t\nhosts: web\ntasks:\n  - name: g\n    block:\n      - name: elsewhere\n        noop:\n          target: db\n" + tc.handler
-		_, err := engine.NewBuilder(eval).BuildFromYAML([]byte(src))
-		if refused := err != nil && strings.Contains(err.Error(), "runs somewhere other than the runbook's hosts"); refused != tc.refused {
-			t.Errorf("%s: err = %v, want refused %v", tc.name, err, tc.refused)
+		actions := &scripted{fail: map[string]bool{tc.fail: true}}
+		x := engine.NewExecutor(webAndDB(), actions, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0,
+			engine.WithRenderer(render.New()))
+		result, err := x.Run(context.Background(), dag)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
 		}
+		if got := actions.ranSorted(); !slices.Equal(got, tc.want) {
+			t.Errorf("failing %s: ran %v, want %v", tc.fail, got, tc.want)
+		}
+		if result.HasErrors() || !result.Rescued() {
+			t.Errorf("failing %s: HasErrors %v, Rescued %v", tc.fail, result.HasErrors(), result.Rescued())
+		}
+		failed, _, _ := strings.Cut(tc.fail, "@")
+		node := map[string]string{"grant": "tasks[0].block[1]", "b0": "tasks[0].block[0]"}[failed]
+		if got := actions.params["revoke@db1"]["after"]; got != node {
+			t.Errorf("failing %s: the rescue read error.task %v", tc.fail, got)
+		}
+	}
+}
+
+// TestUnitBlock_ARunbookOnTheHostsAloneIsNot: a block whose tasks all run on
+// the hosts handles each device apart.
+func TestUnitBlock_ARunbookOnTheHostsAloneIsNot(t *testing.T) {
+	if dag := yamlRunbook(t, guarded); dag.Units["tasks[0]"] {
+		t.Error("a block on the hosts alone is a unit")
 	}
 }
 
@@ -461,10 +515,10 @@ func TestConditionRoots(t *testing.T) {
 	}
 }
 
-// TestEndingRun_StillRunsTheAlwaysItIsInside: a failure of the task itself
-// (its parameters fail to render) ends the run whatever encloses it, and
-// the run still runs the always: of the block it is inside, on every
-// device, before it stops, and nothing after the block.
+// TestEndingRun_StillRunsTheAlwaysItIsInside: a task whose target resolves
+// to nothing failed for every device alike and ends the run whatever
+// encloses it, and the run still runs the always: of the block it is inside,
+// on every device, before it stops, and nothing after the block.
 func TestEndingRun_StillRunsTheAlwaysItIsInside(t *testing.T) {
 	runbook := `id: r
 hosts: web
@@ -473,7 +527,7 @@ tasks:
     block:
       - name: b0
         noop:
-          x: "{{ vars.missing }}"
+          target: nowhere
       - name: b1
         noop: {}
     rescue:
@@ -492,5 +546,32 @@ tasks:
 	}
 	if !result.HasErrors() {
 		t.Error("the run has no error")
+	}
+}
+
+// TestRescue_AnswersATasksOwnFailureOnEachDevice: a guarded task whose
+// parameters fail to render fails on each device it would have run on, and
+// the block's rescue answers it there.
+func TestRescue_AnswersATasksOwnFailureOnEachDevice(t *testing.T) {
+	runbook := `id: o
+hosts: web
+tasks:
+  - name: guarded
+    block:
+      - name: b0
+        noop:
+          x: "{{ vars.missing }}"
+    rescue:
+      - name: r0
+        noop:
+          stage: "{{ error.task }}"
+`
+	actions := &scripted{}
+	result := runScripted(t, runbook, actions)
+	if got := actions.ranSorted(); !slices.Equal(got, []string{"r0@web1", "r0@web2"}) {
+		t.Fatalf("ran %v", got)
+	}
+	if result.HasErrors() || !result.Rescued() {
+		t.Errorf("HasErrors %v, Rescued %v", result.HasErrors(), result.Rescued())
 	}
 }

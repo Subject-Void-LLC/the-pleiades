@@ -23,9 +23,11 @@ and Limitations sections are the honest baseline everything below builds on.
 device where a task of its block failed, and answers the failure when it runs to its end:
 the run goes on, and ends `rescued` rather than `complete` (exit 0, or 4 with `pleiades run
 --fail-on-rescue`, for a gate that must not pass through a fallback). An `always:` runs on
-every device the block ran on, whatever happened. The differences: every task inside such a
-block runs on the runbook's `hosts:` (no `delegate_to`, no target of its own); a rescue task
-reads the failure as `error` (`error.task`, `error.message` and the rest), not
+every device the block ran on, whatever happened. The differences: a block one of whose tasks
+runs somewhere other than the runbook's `hosts:` (a `target:` of its own, in place of
+`delegate_to`) runs as one unit, a failure on any device failing it on every device and its
+rescue and always tasks running once on their own targets; a rescue task reads the failure as
+`error` (`error.task`, `error.message` and the rest), not
 `ansible_failed_task` or `ansible_failed_result`; and in `--mode check` a rescue task is not
 predicted (`conditional_skip`), since a check never runs a fallback. How they run beside
 check mode, the journal and rollback is set out in
@@ -173,7 +175,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | `tasks:` | `tasks:` | Same. | Converted. |
 | `post_tasks:` | `posttasks:` | Same phase, no underscore. | Converted. |
 | `block:` | `block:` | Same grouping. | Converted; a `when:` on it is pushed down onto each task inside. |
-| `rescue:` | `rescue:` | Runs on each device whose block failed; reads the failure as `error`, not `ansible_failed_task`; every task in the block runs on the runbook's hosts. | Converted, with a review finding naming those differences. |
+| `rescue:` | `rescue:` | Runs on each device whose block failed (once, for a block that runs as one unit); reads the failure as `error`, not `ansible_failed_task`. | Converted, with a review finding naming those differences. |
 | `always:` | `always:` | Runs on every device the block ran on, whatever happened. | Converted, with a review finding. |
 | `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. | Kept. |
 | `when:` (single or list) | `when:` | A list ANDs, same as Ansible. The Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. | Translated to CEL for comparisons, `and`/`or`/`not`, `in`, `is defined` and the `bool`/`int`/`length` filters; anything else is blocked. |

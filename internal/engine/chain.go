@@ -27,9 +27,8 @@ type chainWalker struct {
 	// first, and walked is every node registered so far, in order, which a
 	// block reads back to learn its own parts' nodes. guarded counts the
 	// enclosing blocks that have a rescue: or an always:.
-	scope   []BlockScope
-	walked  []string
-	guarded int
+	scope  []BlockScope
+	walked []string
 }
 
 // wire walks the runbook's three top-level lists as three independent
@@ -109,11 +108,6 @@ func (w *chainWalker) one(task *Task, id string) (entry, exit string, err error)
 	if err := w.register(task, id); err != nil {
 		return "", "", err
 	}
-	if w.guarded > 0 && kind == TaskKindLeaf {
-		if err := guardedTarget(w.dag, task, id); err != nil {
-			return "", "", err
-		}
-	}
 	w.note(id)
 
 	entry, exit = id, id
@@ -145,10 +139,6 @@ func (w *chainWalker) note(id string) {
 // tasks, each part chained in order and the three one after another, and
 // records the nodes of each part as the block's guard.
 func (w *chainWalker) block(task *Task, id string) (entry, exit string, err error) {
-	if len(task.Rescue) > 0 || len(task.Always) > 0 {
-		w.guarded++
-		defer func() { w.guarded-- }()
-	}
 	var guard BlockGuard
 	for _, part := range []struct {
 		tasks []Task
@@ -180,25 +170,21 @@ func (w *chainWalker) block(task *Task, id string) (entry, exit string, err erro
 	}
 	if entry != "" {
 		w.dag.Guards[id] = guard
+		for _, n := range slices.Concat(guard.Tasks, guard.Rescue, guard.Always) {
+			if t := w.dag.Nodes[n]; t.Kind() == TaskKindLeaf && !onHosts(w.dag, t) {
+				w.dag.Units[id] = true
+				break
+			}
+		}
 	}
 	return entry, exit, nil
 }
 
-// guardedTarget refuses a task inside a block with a rescue: or an always:
-// that would run anywhere but the runbook's hosts: a target of its own, a
-// within:, or a method that uses no device. A device's failure, its rescue
-// and its always tasks are one device's handling (handlers.go), which a task
-// on other devices cannot be part of; running a rescue elsewhere (a load
-// balancer, a ticket) needs a rule for how failures on several devices fan
-// in, which is not built (docs/design/block-rescue-always.md).
-func guardedTarget(dag *DAG, task *Task, id string) error {
-	if task.Within == "" && TaskTarget(dag, task) == dag.Hosts {
-		return nil
-	}
-	return fmt.Errorf("task %s is inside a block with rescue: or always:, and runs somewhere other than the runbook's hosts "+
-		"(a target or within: of its own, or a method that uses no device): a block's rescue and always run on the devices "+
-		"its tasks ran on, so every task inside it runs on the runbook's hosts; a rescue on other devices is not built yet",
-		taskLabel(id, task))
+// onHosts reports whether task runs on the runbook's hosts: no target or
+// within: of its own, and a method that uses a device. A block holding one
+// that does not runs as one unit (DAG.Units, handlers.go).
+func onHosts(dag *DAG, task *Task) bool {
+	return task.Within == "" && TaskTarget(dag, task) == dag.Hosts
 }
 
 // visited returns the ids among walked that the executor's walk reaches: a

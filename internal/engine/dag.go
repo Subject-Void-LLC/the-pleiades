@@ -448,6 +448,10 @@ type DAG struct {
 	// (handlers.go).
 	Scopes map[string][]BlockScope
 	Guards map[string]BlockGuard
+	// Units holds every block one of whose tasks, at any depth, runs
+	// somewhere other than the runbook's hosts: such a block runs as one
+	// unit, a failure on any device failing it everywhere (handlers.go).
+	Units map[string]bool
 
 	// EntryPoint is the synthesized ID of the first node in the overall
 	// happy-path chain: the entry of whichever of PreTasks, Tasks, and
@@ -648,6 +652,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		Conditions: make(map[string]*ConditionProgram),
 		Scopes:     make(map[string][]BlockScope),
 		Guards:     make(map[string]BlockGuard),
+		Units:      make(map[string]bool),
 	}
 
 	// Every task is registered here, validated and compiled, whatever its

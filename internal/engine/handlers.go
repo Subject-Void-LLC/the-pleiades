@@ -86,7 +86,8 @@ type handlerFrame struct {
 }
 
 // handlers is every device's stack of frames, keyed by device ID, the
-// empty string keying a task that runs with no device. Run reads and
+// empty string keying a task that runs with no device, and a block that
+// runs as one unit (DAG.Units) keying all of its devices together (key). Run reads and
 // writes it at the level barrier only; nodes running in a level read it,
 // and nothing changes it while they do.
 type handlers struct {
@@ -111,11 +112,22 @@ type skip struct {
 	reason string
 }
 
-// decide reports whether nodeID runs on the device keyed device, and when it
-// does not, why.
+// key is the handling nodeID's failures and decisions on device belong to:
+// the outermost unit block enclosing it, whatever the device, or the
+// device itself.
+func (h *handlers) key(nodeID, device string) string {
+	for _, s := range h.dag.Scopes[nodeID] {
+		if h.dag.Units[s.Block] {
+			return "unit:" + s.Block
+		}
+	}
+	return device
+}
+
+// decide reports whether nodeID runs on device, and when it does not, why.
 func (h *handlers) decide(nodeID, device string) (bool, skip) {
 	scopes := h.dag.Scopes[nodeID]
-	frames := h.frames[device]
+	frames := h.frames[h.key(nodeID, device)]
 	inner := scopes
 	if len(frames) > 0 {
 		top := frames[len(frames)-1]
@@ -163,23 +175,25 @@ func (h *handlers) top(device string) *handlerFrame {
 	return frames[len(frames)-1]
 }
 
-// failed takes n, a result that failed on its device, into that device's
-// handling, and reports whether a rescue: or always: is left to run for it.
-// false means the failure ends the run, exactly as one outside any block
-// does. A failure before the node reached any device (its condition, its
-// parameters, its target, a lock on every device at once) is the task's,
-// not a device's, and ends the run whatever encloses it.
+// failed takes n, a result that failed, into its handling (key), and
+// reports whether a rescue: or always: is left to run for it. false means
+// the failure ends the run, exactly as one outside any block does. A task
+// whose target resolved to nothing, or that could not lock every device at
+// once, failed for every device alike, and ends the run whatever encloses
+// it (the always: of the blocks it is in still runs, executor.go).
 func (h *handlers) failed(n NodeResult) bool {
 	scopes := h.dag.Scopes[n.NodeID]
-	// A rescue task prepares per device, so its condition or parameters
-	// failing on one device is that device's rescue failing.
-	onDevice := perDevice(n.failureStage) || n.Device != "" && InPart(scopes, PartRescue)
-	if !onDevice || len(scopes) == 0 || !h.dag.Guarded(scopes) {
+	if len(scopes) == 0 || !h.dag.Guarded(scopes) {
+		return false
+	}
+	switch n.failureStage {
+	case FailureStageResolveTarget, FailureStageLockAll:
 		return false
 	}
 	_, held := HoldOf(n.Err)
 	innermost := scopes[len(scopes)-1]
-	top := h.top(n.Device)
+	key := h.key(n.NodeID, n.Device)
+	top := h.top(key)
 	switch {
 	case innermost.Part == PartRescue && top != nil && top.block == innermost.Block:
 		top.rescueFailed = true
@@ -188,21 +202,11 @@ func (h *handlers) failed(n NodeResult) bool {
 		top.alwaysFailed = true
 		top.causes = append(top.causes, n)
 	default:
-		h.frames[n.Device] = append(h.frames[n.Device], &handlerFrame{
+		h.frames[key] = append(h.frames[key], &handlerFrame{
 			block: innermost.Block, part: innermost.Part, origin: n, held: held, alwaysFailed: innermost.Part == PartAlways,
 		})
 	}
-	return h.handled(n.Device)
-}
-
-// perDevice reports whether a failure at stage happened on one device (or
-// one device-less run of the task) rather than to the whole task.
-func perDevice(stage FailureStage) bool {
-	switch stage {
-	case FailureStageLockDevice, FailureStageAction, FailureStageRegisterMask, FailureStageRecord:
-		return true
-	}
-	return false
+	return h.handled(key)
 }
 
 // handled reports whether device's failures still have a rescue: or an
@@ -300,7 +304,7 @@ func (h *handlers) advanceDevice(device string) *NodeResult {
 			// rescue or always that failed on the way here), and its always:
 			// runs as after a success.
 			for _, n := range append([]NodeResult{top.origin}, top.causes...) {
-				h.rescued[resultKey{n.NodeID, device}] = g.Rescue[0]
+				h.rescued[resultKey{n.NodeID, n.Device}] = g.Rescue[0]
 			}
 			h.pop(device)
 			continue
@@ -353,10 +357,10 @@ func (h *handlers) propagate(device string, frame *handlerFrame) bool {
 	return h.handled(device)
 }
 
-// errorContext is the error root a rescue task on device reads: the failure
-// its block is handling, or nil when there is none.
-func (h *handlers) errorContext(device string, dag *DAG, mask func(string) string) map[string]any {
-	top := h.top(device)
+// errorContext is the error root rescue task nodeID reads on device: the
+// failure its block is handling there, or nil when there is none.
+func (h *handlers) errorContext(nodeID, device string, dag *DAG, mask func(string) string) map[string]any {
+	top := h.top(h.key(nodeID, device))
 	if top == nil {
 		return nil
 	}

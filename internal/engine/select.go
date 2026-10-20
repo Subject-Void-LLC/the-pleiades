@@ -103,6 +103,7 @@ func (s TagSelection) Select(dag *DAG) (*DAG, error) {
 		Conditions: make(map[string]*ConditionProgram),
 		Scopes:     make(map[string][]BlockScope),
 		Guards:     make(map[string]BlockGuard),
+		Units:      make(map[string]bool),
 		Selection:  f,
 		full:       dag.full,
 	}
