@@ -7426,7 +7426,7 @@
         },
         {
           "name": "key",
-          "type": "string",
+          "type": "scalar or list",
           "required": true,
           "description": "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."
         },
@@ -8172,7 +8172,7 @@
         },
         {
           "name": "key",
-          "type": "string",
+          "type": "scalar or list",
           "required": true,
           "description": "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."
         },
@@ -15641,7 +15641,7 @@
         },
         {
           "name": "profiles",
-          "type": "list",
+          "type": "scalar or list",
           "description": "The network profiles it applies in: domain, private, public, or any (all three). A new rule's is any."
         },
         {
@@ -15651,22 +15651,22 @@
         },
         {
           "name": "local_port",
-          "type": "list",
+          "type": "scalar or list",
           "description": "The ports on this machine it matches: ports, ranges (8000-8100), any, or a keyword Windows knows (RPC, RPCEPMap, IPHTTPS, Teredo). Needs tcp or udp."
         },
         {
           "name": "remote_port",
-          "type": "list",
+          "type": "scalar or list",
           "description": "The other side's ports it matches: ports, ranges or any. Needs tcp or udp."
         },
         {
           "name": "local_address",
-          "type": "list",
+          "type": "scalar or list",
           "description": "This machine's addresses it matches: addresses, networks (10.0.0.0/8), ranges (10.0.0.1-10.0.0.9), any, or a keyword (LocalSubnet, Internet, Intranet, DNS, DHCP, WINS, DefaultGateway)."
         },
         {
           "name": "remote_address",
-          "type": "list",
+          "type": "scalar or list",
           "description": "The other side's addresses it matches, in the same forms."
         },
         {

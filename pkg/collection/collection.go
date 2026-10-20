@@ -209,6 +209,10 @@ func Register(d Descriptor) error {
 		return err
 	}
 
+	if err := checkParamTypes(d); err != nil {
+		return err
+	}
+
 	if err := checkCheckSupport(d); err != nil {
 		return err
 	}

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
@@ -65,8 +66,9 @@ func shellParams(script string, env map[string]string, seconds int) []string {
 	return params
 }
 
-// Ready builds pleiades from this tree and asks the machine whether it
-// runs Windows with go and tar.exe.
+// Ready builds pleiades from this tree, asks the machine whether it runs
+// Windows with go and tar.exe and the space free on its profile's drive,
+// and sets its clock (clockScript).
 func (w windows) Ready() error {
 	if err := w.Pleiades.Build(); err != nil {
 		return err
@@ -75,20 +77,40 @@ func (w windows) Ready() error {
 	if err != nil {
 		return fmt.Errorf("checking %s: %v", w.Target, err)
 	}
-	return readyAnswer(w.Target, out)
+	if err := readyAnswer(w.Target, out); err != nil {
+		return err
+	}
+	utc := time.Now().UTC().Format(time.RFC3339)
+	if _, err := w.shell(context.Background(), clockScript, map[string]string{"UTC": utc}, 60); err != nil {
+		return fmt.Errorf("setting %s's clock: %v", w.Target, err)
+	}
+	return nil
 }
 
 // readyScript prints the platform, then go, git and tar, or no-go, no-git
-// and no-tar when one is not on the PATH, one line each.
+// and no-tar when one is not on the PATH, then the whole gigabytes free on
+// the drive holding the login's profile, where the trees and Go's build
+// cache are, one line each.
 const readyScript = `$env:Path = '` + winPath + `;' + $env:Path
 [string][Environment]::OSVersion.Platform
-foreach ($c in 'go', 'git', 'tar') { if (Get-Command "$c.exe" -ErrorAction SilentlyContinue) { $c } else { "no-$c" } }`
+foreach ($c in 'go', 'git', 'tar') { if (Get-Command "$c.exe" -ErrorAction SilentlyContinue) { $c } else { "no-$c" } }
+[string][math]::Floor((Get-Item $env:USERPROFILE).PSDrive.Free / 1GB)`
+
+// clockScript sets the machine's clock: from its time source (w32tm), or,
+// when that cannot reach one, to $env:PLEIADES_UTC, this machine's time when
+// the check began. A lab box resumed from its saved state keeps the time it
+// was saved at, minutes or hours slow, until something sets it, and nothing
+// in a resume does (win-check was 567 s slow after three resumes, 2026-10-20).
+const clockScript = `w32tm /resync /force | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  Set-Date -Date ([DateTime]::Parse($env:PLEIADES_UTC, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal).ToLocalTime()) | Out-Null
+}`
 
 // readyAnswer checks readyScript's output.
 func readyAnswer(target, out string) error {
 	lines := strings.Fields(out)
 	switch {
-	case len(lines) != 4:
+	case len(lines) != 5:
 		return fmt.Errorf("%s answered the readiness check with %q", target, out)
 	case lines[0] != "Win32NT":
 		return fmt.Errorf("%s is not a Windows machine: its platform is %s", target, lines[0])
@@ -99,7 +121,7 @@ func readyAnswer(target, out string) error {
 	case lines[3] != "tar":
 		return fmt.Errorf("%s has no tar.exe, which unpacks the tree; Windows has had it since Windows 10 1803 and Server 2019", target)
 	}
-	return nil
+	return oscheck.FreeSpace(target, lines[4], `go clean -cache there, or delete the trees under %USERPROFILE%\`+winDir)
 }
 
 // Ship sends commit sha's tree: exec.winrm.shell removes all but the

@@ -247,16 +247,20 @@ func TestPrepareScript(t *testing.T) {
 	}
 }
 
-// TestReadyAnswer accepts only the kernel asked for with every command,
-// naming what is wrong otherwise.
+// TestReadyAnswer accepts only the kernel asked for with every command and
+// MinFreeGB free, naming what is wrong otherwise.
 func TestReadyAnswer(t *testing.T) {
 	needs := []Need{{"go", "install it"}, {"caffeinate", "it keeps the Mac awake"}}
 	for out, want := range map[string]string{
-		"Darwin\ngo\ncaffeinate\n":  "",
-		"Linux\ngo\ncaffeinate\n":   "me@mac is not a Mac: its kernel is Linux",
-		"Darwin\nno-go\ncaffeinate": "me@mac has no go on its PATH (looked in its PATH and /opt/homebrew/bin): install it",
-		"Darwin\ngo\nno-caffeinate": "has no caffeinate",
-		"":                          "answered the readiness check",
+		"Darwin\ngo\ncaffeinate\n12\n":  "",
+		"Darwin\ngo\ncaffeinate\n4\n":   "",
+		"Linux\ngo\ncaffeinate\n12\n":   "me@mac is not a Mac: its kernel is Linux",
+		"Darwin\nno-go\ncaffeinate\n12": "me@mac has no go on its PATH (looked in its PATH and /opt/homebrew/bin): install it",
+		"Darwin\ngo\nno-caffeinate\n12": "has no caffeinate",
+		"Darwin\ngo\ncaffeinate\n0\n":   "me@mac has 0 GB free where its tests unpack and build, under the 4 GB a run needs: go clean -cache",
+		"Darwin\ngo\ncaffeinate\nlots":  "answered its free space with \"lots\"",
+		"Darwin\ngo\ncaffeinate\n":      "answered the readiness check",
+		"":                              "answered the readiness check",
 	} {
 		err := posix.readyAnswer("me@mac", "Darwin", "Mac", out, needs)
 		if (want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
@@ -275,7 +279,10 @@ func TestReadyScript(t *testing.T) {
 	}
 	lines := strings.Fields(string(out))
 	kernel, _ := exec.Command("uname", "-s").Output()
-	if len(lines) != 3 || lines[0] != strings.TrimSpace(string(kernel)) || lines[1] != "sh" || !strings.HasPrefix(lines[2], "no-no-such-command-") {
-		t.Errorf("readyScript printed %q", out)
+	if len(lines) != 4 || lines[0] != strings.TrimSpace(string(kernel)) || lines[1] != "sh" || !strings.HasPrefix(lines[2], "no-no-such-command-") {
+		t.Fatalf("readyScript printed %q", out)
+	}
+	if _, err := strconv.Atoi(lines[3]); err != nil {
+		t.Errorf("the free space line is %q, not a whole number", lines[3])
 	}
 }

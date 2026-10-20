@@ -377,7 +377,9 @@ status and output), and how the run ended. The exit status is the
 same as the text view's, and the document says it too, so a program reading it never
 has to tell a failure from an empty answer: a runbook that does not load, a refused
 parameter and a validation failure are all reports, with `outcome.status` set to
-`error`, `invalid` or `failed`.
+`error`, `invalid` or `failed`. A failed task whose device never answered (its SSH or WinRM
+connection failed or timed out before anything was sent) carries `"unreached": true`:
+nothing ran, so running it again is safe. A refused login is an answer, and is not marked.
 
 ```console
 $ pleiades adhoc ubuntu-lab exec.command argv:='[cat, /etc/hostname]' --json

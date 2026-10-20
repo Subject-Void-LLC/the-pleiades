@@ -43,7 +43,11 @@ answers), earlier registered results (`nodes`), and a result one device wrote
 (`result.<register>`). A target may be chosen from data too, when a `within:` names the
 only devices it may resolve to. There is no statement syntax (`{% %}`), no arithmetic
 and no authored `vars:`, and command text and URLs are held to rules that keep data from
-adding a command or choosing a host. See the [task keys reference](reference/task-keys.md).
+adding a command or choosing a host. Every value is held to the type its method declares,
+where Ansible would convert it: `pleiades validate` refuses `stdin: 4` where text is
+expected and `timeout: "600"` where a number is (quote a mode, `"0644"`, since an unquoted
+`0644` is a number), and a template rendering into a text parameter gives text. See the
+[task keys reference](reference/task-keys.md).
 
 **Does not exist yet, and a runbook cannot express it:** `loop:`/`with_items:`,
 `handlers:`/`notify:`, `become:`, `serial:`, `roles:`, `ignore_errors:`,

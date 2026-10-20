@@ -51,6 +51,7 @@ var check = oscheck.LabCheck{
 	DeviceKey:  "PLEIADES_WINRM_DEVICE",
 	VMHostKey:  "PLEIADES_WIN_VM_HOST",
 	VMKey:      "PLEIADES_WIN_VM",
+	BoxWait:    oscheck.WindowsWait,
 }
 
 func main() {

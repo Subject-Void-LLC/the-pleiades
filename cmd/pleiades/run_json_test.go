@@ -43,6 +43,7 @@ type jsonReport struct {
 		Host             string         `json:"host"`
 		Status           string         `json:"status"`
 		Error            string         `json:"error"`
+		Unreached        bool           `json:"unreached"`
 		Reason           string         `json:"reason"`
 		AllowedUnchecked bool           `json:"allowed_unchecked"`
 		Warnings         []string       `json:"warnings"`

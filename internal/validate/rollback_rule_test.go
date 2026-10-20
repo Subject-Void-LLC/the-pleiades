@@ -32,7 +32,7 @@ func registerUndoShapes(t *testing.T) {
 	} {
 		d := collection.Descriptor{Name: name, Manifest: collection.Manifest{
 			Status: collection.StatusImplemented, Reversibility: r,
-			Doc: collection.Doc{Params: []collection.Param{{Name: "name"}, {Name: "content"}}},
+			Doc: collection.Doc{Params: []collection.Param{{Name: "name", Type: "string"}, {Name: "content", Type: "string"}}},
 		}, Invoke: run}
 		if err := collection.Register(d); err != nil {
 			t.Fatal(err)
@@ -41,7 +41,7 @@ func registerUndoShapes(t *testing.T) {
 	// An external program's method, whose declaration is never honored.
 	external := collection.Descriptor{Name: "undo.external", Manifest: collection.Manifest{
 		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{target}},
-		Doc: collection.Doc{Params: []collection.Param{{Name: "name"}}},
+		Doc: collection.Doc{Params: []collection.Param{{Name: "name", Type: "string"}}},
 	}, Invoke: run, Provider: &collection.Provider{Program: "/opt/collections/undo", Digest: "sha256:" + strings.Repeat("0", 64)}}
 	if err := collection.Register(external); err != nil {
 		t.Fatal(err)

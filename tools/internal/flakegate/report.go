@@ -197,7 +197,12 @@ func Coverage(events []Event) map[string]float64 {
 func FailureOutput(events []Event, f Failure, maxLines int) string {
 	var lines []string
 	for _, evt := range events {
-		if evt.Action != "output" || evt.Package != f.Package || !ownedBy(evt.Test, f.Test) {
+		switch {
+		case evt.Action == "output" && evt.Package == f.Package && ownedBy(evt.Test, f.Test):
+		case f.Kind == FailedBuild && evt.Action == "build-output" && builtPackage(evt.ImportPath) == f.Package:
+			// What the compiler said, which go test -json gives only in build
+			// events named by ImportPath ("pkg [pkg.test]" for a test build).
+		default:
 			continue
 		}
 		lines = append(lines, strings.TrimRight(evt.Output, "\n"))
@@ -221,6 +226,13 @@ func FailureOutput(events []Event, f Failure, maxLines int) string {
 		}
 	}
 	return strings.Join(append([]string{gate.Omitted(cut)}, tail...), "\n")
+}
+
+// builtPackage is the import path a build event's ImportPath names, without
+// the " [pkg.test]" a test build adds.
+func builtPackage(importPath string) string {
+	pkg, _, _ := strings.Cut(importPath, " [")
+	return pkg
 }
 
 // ownedBy reports whether an event's test is test itself or one of its

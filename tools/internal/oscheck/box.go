@@ -20,6 +20,9 @@ type Box struct {
 	Device Pleiades
 	// VM is the machine's name on the host.
 	VM string
+	// Wait is wait.connection's parameters for a box this run started:
+	// SteadyWait when empty.
+	Wait []string
 }
 
 // LabBox reads a lab check's VM settings: the VirtualBox host in the
@@ -56,7 +59,7 @@ const bootWait = 10 * time.Minute
 // host that stopped answering cannot hold the check open.
 const PutBackGrace = 5 * time.Minute
 
-// steadyWait is how a box this run started is waited for, as any
+// SteadyWait is how a box this run started is waited for, as any
 // Pleiades user would wait for one: wait.connection, within bootWait, for
 // three fresh logins in a row ten seconds apart, backing off exponentially
 // from two seconds to thirty while it refuses. A win-check resumed from its
@@ -65,9 +68,22 @@ const PutBackGrace = 5 * time.Minute
 // two minutes after the resume), so one answer is not a box that is up.
 // This was a loop of the check's own until wait.connection could ask for a
 // streak.
-var steadyWait = []string{
+var SteadyWait = []string{
 	fmt.Sprintf("timeout=%d", int(bootWait/time.Second)), "backoff=exponential", "sleep=2", "max_sleep=30",
 	"steady=3", "steady_interval=10", "connect_timeout=10",
+}
+
+// WindowsWait is SteadyWait held over two minutes: six fresh logins in a
+// row, twenty seconds apart. Measured through Pleiades on 2026-10-19 and
+// 2026-10-20, win-check resumed from its saved state missed connections from
+// about 30 s to 90-130 s after virt.vbox.vm.start began at one vCPU (three
+// resumes of three) and to 87 s at two (one of two), answering in between,
+// so a 20-second streak could pass inside that window and the next step
+// meet a host that did not answer. FreeBSD on the same host and network
+// answered every probe from the start, and keeps SteadyWait.
+var WindowsWait = []string{
+	fmt.Sprintf("timeout=%d", int(bootWait/time.Second)), "backoff=exponential", "sleep=2", "max_sleep=30",
+	"steady=6", "steady_interval=20", "connect_timeout=10",
 }
 
 // stateStat is virt.vbox.vm.info's return holding the VM's state.
@@ -94,7 +110,11 @@ func (b Box) Up(ctx context.Context, tool string, stdout io.Writer) (bool, error
 	if _, err := adhocStats(ctx, b.Host, "virt.vbox.vm.start", "name="+b.VM); err != nil {
 		return false, fmt.Errorf("starting the VM %s on %s: %v", b.VM, b.Host.Device, err)
 	}
-	if _, err := adhocStats(ctx, b.Device, "wait.connection", steadyWait...); err != nil {
+	wait := b.Wait
+	if len(wait) == 0 {
+		wait = SteadyWait
+	}
+	if _, err := adhocStats(ctx, b.Device, "wait.connection", wait...); err != nil {
 		return true, fmt.Errorf("the VM %s started, and %s did not answer logins steadily within %s: %w", b.VM, b.Device.Device, bootWait, err)
 	}
 	return true, nil

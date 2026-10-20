@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -144,6 +145,10 @@ type taskReport struct {
 	Status taskStatus `json:"status"`
 	// Error is a failed task's error.
 	Error string `json:"error,omitempty"`
+	// Unreached marks a failed task whose device never answered: its
+	// connection failed or timed out before anything was sent, so nothing
+	// ran and running it again is safe. A refused login is not unreached.
+	Unreached bool `json:"unreached,omitempty"`
 	// Reason is why a task was skipped or could not be checked.
 	Reason string `json:"reason,omitempty"`
 	// AllowedUnchecked marks an unchecked task --allow-unchecked accepts.
@@ -171,6 +176,20 @@ type runOutcome struct {
 	Unchecked int `json:"unchecked,omitempty"`
 	// AllowedUnchecked names the unchecked tasks --allow-unchecked allowed.
 	AllowedUnchecked []string `json:"allowed_unchecked,omitempty"`
+}
+
+// unreachedError is a transport's failure that knows whether the device
+// never answered (pkg/remoteexec.DialError, pkg/winrmexec.NotStartedError).
+type unreachedError interface {
+	error
+	Unreached() bool
+}
+
+// unreached reports whether err, anywhere in its chain, is a transport's
+// failure saying the device never answered.
+func unreached(err error) bool {
+	var u unreachedError
+	return errors.As(err, &u) && u.Unreached()
 }
 
 // planReport fills the parts of the report known before anything runs.
@@ -259,6 +278,7 @@ func taskReports(dag *engine.DAG, result *engine.RunResult, items []pkginventory
 			if _, held := engine.HoldOf(node.Err); held {
 				t.Status = statusHeld
 			}
+			t.Unreached = unreached(node.Err)
 		case node.Skipped:
 			t.Status, t.Reason = statusSkipped, redact.Text(result.Secrets, node.SkipReason)
 		case node.Changed && (checking || node.Checked):

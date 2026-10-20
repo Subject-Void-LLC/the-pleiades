@@ -927,6 +927,13 @@ suite doing its job.
   word. This holds for an external Collection program's methods too: one that
   reads `path` and declares nothing makes every runbook passing `path` fail
   validation until the program documents it.
+- Every parameter's `Type` is one of the declared vocabulary (`collection.ParamTypes`:
+  `string`, `bool`, `int`, `float`, `list`, `list of string`, `list of dict`, `dict`,
+  `int or list of int`, `scalar or list`, `any`), and it must be what the method really
+  accepts: registration refuses another word, `pleiades validate` refuses a literal value
+  that does not fit it, and the engine holds a rendered value to it. Declare `scalar or
+  list` for a parameter that takes one value or a list (a key path, a set of ports), not
+  `list`, or a task writing the single value is refused.
 - Never cite this repository's internal, gitignored specification and roadmap
   documents from anywhere a real user can see them: `tools/docs-lint`, wired into
   `make ci`, fails the build if you do, and that includes a Go string literal

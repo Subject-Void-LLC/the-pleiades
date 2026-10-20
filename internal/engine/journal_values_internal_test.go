@@ -37,7 +37,8 @@ func registerUndoFixtures(t testing.TB, provider *collection.Provider, mayBePart
 		Manifest: collection.Manifest{Status: collection.StatusImplemented,
 			Reversibility: collection.Reversibility{Notes: "fixture"},
 			Doc: collection.Doc{Params: []collection.Param{
-				{Name: "name"}, {Name: "size"}, {Name: "on"}, {Name: "ratio"}, {Name: "content"}, {Name: "note"},
+				{Name: "name", Type: "any"}, {Name: "size", Type: "any"}, {Name: "on", Type: "any"},
+				{Name: "ratio", Type: "any"}, {Name: "content", Type: "any"}, {Name: "note", Type: "any"},
 			}}},
 		Invoke: noop,
 	}

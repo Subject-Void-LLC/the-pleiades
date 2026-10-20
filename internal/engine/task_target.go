@@ -3,7 +3,6 @@
 package engine
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -36,29 +35,5 @@ func validateTarget(task *Task, id string) error {
 	if isText && target != "" {
 		return nil
 	}
-	return fmt.Errorf("task %s sets params.target to %s: a target must be a non-empty string naming one inventory host or tag (leave it out to use the runbook's hosts:)", taskLabel(id, task), valueKind(raw))
-}
-
-// valueKind names the kind of a decoded YAML or JSON value for an error
-// message, without printing the value.
-func valueKind(v any) string {
-	switch v := v.(type) {
-	case nil:
-		return "null"
-	case string:
-		if v == "" {
-			return "an empty string"
-		}
-		return "a string"
-	case bool:
-		return "a boolean"
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, json.Number:
-		return "a number"
-	case []any:
-		return "a list"
-	case map[string]any:
-		return "a map"
-	default:
-		return fmt.Sprintf("a value of type %T", v)
-	}
+	return fmt.Errorf("task %s sets params.target to %s: a target must be a non-empty string naming one inventory host or tag (leave it out to use the runbook's hosts:)", taskLabel(id, task), collection.ValueKind(raw))
 }

@@ -30,12 +30,12 @@ A rule is named by its Name, its identity (OpenSSH-Server-In-TCP, not its displa
 | `enabled` | `bool` | no | - | Whether it is on. A new rule is. |
 | `direction` | `string` | no | - | Which traffic it matches. A new rule's is inbound. |
 | `action` | `string` | no | - | What it does with that traffic. A new rule allows it. |
-| `profiles` | `list` | no | - | The network profiles it applies in: domain, private, public, or any (all three). A new rule's is any. |
+| `profiles` | `scalar or list` | no | - | The network profiles it applies in: domain, private, public, or any (all three). A new rule's is any. |
 | `protocol` | `string` | no | - | tcp, udp, icmpv4, icmpv6, any, or an IP protocol number 0-255. A new rule's is any. |
-| `local_port` | `list` | no | - | The ports on this machine it matches: ports, ranges (8000-8100), any, or a keyword Windows knows (RPC, RPCEPMap, IPHTTPS, Teredo). Needs tcp or udp. |
-| `remote_port` | `list` | no | - | The other side's ports it matches: ports, ranges or any. Needs tcp or udp. |
-| `local_address` | `list` | no | - | This machine's addresses it matches: addresses, networks (10.0.0.0/8), ranges (10.0.0.1-10.0.0.9), any, or a keyword (LocalSubnet, Internet, Intranet, DNS, DHCP, WINS, DefaultGateway). |
-| `remote_address` | `list` | no | - | The other side's addresses it matches, in the same forms. |
+| `local_port` | `scalar or list` | no | - | The ports on this machine it matches: ports, ranges (8000-8100), any, or a keyword Windows knows (RPC, RPCEPMap, IPHTTPS, Teredo). Needs tcp or udp. |
+| `remote_port` | `scalar or list` | no | - | The other side's ports it matches: ports, ranges or any. Needs tcp or udp. |
+| `local_address` | `scalar or list` | no | - | This machine's addresses it matches: addresses, networks (10.0.0.0/8), ranges (10.0.0.1-10.0.0.9), any, or a keyword (LocalSubnet, Internet, Intranet, DNS, DHCP, WINS, DefaultGateway). |
+| `remote_address` | `scalar or list` | no | - | The other side's addresses it matches, in the same forms. |
 | `program` | `string` | no | - | The program whose traffic it matches, a path, or any. |
 | `service` | `string` | no | - | The service whose traffic it matches, by its short name, or any. |
 

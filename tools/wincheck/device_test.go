@@ -12,16 +12,18 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// TestReadyAnswer accepts only Windows with go, git and tar.exe, naming
-// what is missing otherwise.
+// TestReadyAnswer accepts only Windows with go, git and tar.exe and
+// oscheck.MinFreeGB free, naming what is wrong otherwise.
 func TestReadyAnswer(t *testing.T) {
 	for out, want := range map[string]string{
-		"Win32NT\r\ngo\r\ngit\r\ntar\r\n": "",
-		"Unix\ngo\ngit\ntar":              "is not a Windows machine: its platform is Unix",
-		"Win32NT\nno-go\ngit\ntar":        "has no go on its PATH",
-		"Win32NT\ngo\nno-git\ntar":        "has no git on its PATH",
-		"Win32NT\ngo\ngit\nno-tar":        "has no tar.exe",
-		"Win32NT\ngo":                     "answered the readiness check",
+		"Win32NT\r\ngo\r\ngit\r\ntar\r\n21\r\n": "",
+		"Unix\ngo\ngit\ntar\n21":                "is not a Windows machine: its platform is Unix",
+		"Win32NT\nno-go\ngit\ntar\n21":          "has no go on its PATH",
+		"Win32NT\ngo\nno-git\ntar\n21":          "has no git on its PATH",
+		"Win32NT\ngo\ngit\nno-tar\n21":          "has no tar.exe",
+		"Win32NT\ngo\ngit\ntar\n3":              "has 3 GB free where its tests unpack and build, under the 4 GB",
+		"Win32NT\ngo\ngit\ntar":                 "answered the readiness check",
+		"Win32NT\ngo":                           "answered the readiness check",
 	} {
 		err := readyAnswer("win-1", out)
 		if (want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
@@ -41,6 +43,12 @@ func TestScripts_TakeTheirValuesFromTheEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(prepareScript, "Select-Object -Skip 2") {
 		t.Errorf("the prepare script does not keep the newest %d trees:\n%s", oscheck.Kept, prepareScript)
+	}
+	// The clock is set from its time source, and from this machine's time,
+	// read from the environment, only when that fails.
+	if !strings.Contains(clockScript, "w32tm /resync /force") || !strings.Contains(clockScript, "$env:PLEIADES_UTC") ||
+		strings.Index(clockScript, "w32tm") > strings.Index(clockScript, "Set-Date") {
+		t.Errorf("the clock script:\n%s", clockScript)
 	}
 }
 

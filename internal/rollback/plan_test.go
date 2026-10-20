@@ -29,7 +29,7 @@ func registerShapes(t *testing.T) {
 	run := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
 		return collection.Result{}, nil
 	}
-	params := []collection.Param{{Name: "name"}, {Name: "uuid"}, {Name: "content"}, {Name: "size"}}
+	params := []collection.Param{{Name: "name", Type: "string"}, {Name: "uuid", Type: "string"}, {Name: "content", Type: "string"}, {Name: "size", Type: "int"}}
 	for name, r := range map[string]collection.Reversibility{
 		"rb.delete": {Notes: "gone is gone"},
 		"rb.stop":   {Reversible: true, Inverses: []sdk.InverseSpec{{FQCN: "rb.start", Record: []string{"name"}}}},
