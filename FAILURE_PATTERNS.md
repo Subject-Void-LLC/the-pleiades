@@ -540,6 +540,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 535. A resumed Windows box missed connections for up to two minutes, after the streak entry 516 added had passed (a repeat of 516) (fixed)
 536. A run report could not say a task never reached its device, so nothing could retry it safely (fixed)
 537. A package that failed to build was reported without the compiler's words, so a full disk read as 169 unexplained build failures (fixed)
+538. A new CLI test read the developer's own known_hosts, passed here and failed on CI's runner (a repeat of 520) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

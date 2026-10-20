@@ -13454,3 +13454,20 @@ bsd/check-05-disk-cleanup.yaml.
 
 **Lesson.** When every failure in a report has the same empty reason, the reader of the report is broken before
 anything else is. Test a report with the real event stream of the failure it must explain.
+
+## 538. A new CLI test read the developer's own known_hosts, passed here and failed on CI's runner (a repeat of 520) (fixed)
+
+**Symptom.** 2026-10-20, PR #79's `containers (1)` job: TestCLI_ADeviceThatNeverAnsweredIsUnreached/ssh failed, alone
+too, with the task refused before any dial: "host key verification unavailable for 127.0.0.1:...: known_hosts file
+/home/runner/.ssh/known_hosts not found". `make pr-check` had passed it on this machine.
+
+**Root cause.** The test ran the binary with this process's HOME, and this machine's `~/.ssh/known_hosts` exists, so
+the dial reached the handshake and failed there as the test meant; the runner has no such file, and Pleiades refuses an
+SSH dial with no known_hosts (entry 150's rule), a local mistake rightly not marked unreached. Entry 520's class: a
+test whose result depends on the home of whoever runs it.
+
+**Fix.** The test gives the binary a home of its own with an empty known_hosts (emptyKnownHostsHome). Reproduced first
+by running the old test with HOME pointed at an empty directory, which failed as CI did; the new one passes there.
+
+**Lesson.** A test that reaches SSH through the real binary owns its home, as the release gates already do with
+runPleiadesWithHome. Running a new CLI test once with an empty HOME is the cheap way to find out whether it does.

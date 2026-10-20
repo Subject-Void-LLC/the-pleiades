@@ -70,6 +70,24 @@ func unreachedProject(t *testing.T, kind, host string, port int, password string
 	return dir
 }
 
+// emptyKnownHostsHome is a home directory of the test's own whose
+// known_hosts exists and is empty, so an SSH dial goes as far as the
+// handshake whatever the machine running the test holds: with no file at
+// all the dial is refused before it starts (host key verification
+// unavailable), which is a local mistake, not a silent device, and a test
+// reading the runner's own home passed here and failed on CI's.
+func emptyKnownHostsHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".ssh", "known_hosts"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
 // TestCLI_ADeviceThatNeverAnsweredIsUnreached: over SSH a connection the
 // device closes before its handshake, and over WinRM one it accepts and
 // never answers, each fail the task marked unreached, so a caller knows
@@ -86,7 +104,7 @@ func TestCLI_ADeviceThatNeverAnsweredIsUnreached(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			host, port := listenAndHold(t, tc.hang)
 			dir := unreachedProject(t, tc.kind, host, port, "pw")
-			rep, raw, code := runPleiadesJSON(t, dir, append([]string{"adhoc", "dev1"}, tc.call...)...)
+			rep, raw, code := runPleiadesJSONWithHome(t, dir, emptyKnownHostsHome(t), append([]string{"adhoc", "dev1"}, tc.call...)...)
 			if code == 0 || len(rep.Tasks) != 1 {
 				t.Fatalf("exit %d, report:\n%s", code, raw)
 			}
