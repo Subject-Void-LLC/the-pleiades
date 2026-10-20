@@ -13549,3 +13549,25 @@ is corrected at its next sync.
 
 **Lesson.** The forest root's time source is part of building the forest. A lab that saves and resumes its machines
 has to give each one a clock that corrects itself.
+
+## 544. The journal reader's symbolic-link refusal read as Linux's errno, and two owner-only mode tests assumed Unix (a repeat of 505) (fixed)
+
+**Symptom.** 2026-10-20, `make pr-check` on the rescue/always branch, the first to bring `internal/journal` into
+scope: on the FreeBSD box `TestReadRun_RefusesWhatNoRunWrote/a_symbolic_link` got "too many links" where it wanted
+"symbolic link", and on the Windows box `TestNewFileStoreCreatesBothDirectoriesOwnerOnly` and
+`TestSealWritesAnOwnerOnlyFileBesideTheJournal` read modes 0777 and 0666.
+
+**Root cause.** The reader passed `O_NOFOLLOW`'s error through unchanged, so its refusal said only what the kernel
+said: ELOOP's "too many levels of symbolic links" on Linux, EMLINK's "too many links" on FreeBSD. The test had
+special-cased Linux's wording rather than the reader naming what it found. The two mode tests lacked the Windows
+skip their siblings in the same files have. 505's fix covered the packages its branch touched; pr-check runs a
+system's leg only over the packages a branch changes, so a package meets FreeBSD or Windows the first time a branch
+edits it.
+
+**Fix.** The reader maps ELOOP and EMLINK to "is a symbolic link", keeping the kernel's error wrapped, and the test
+asks for that wording everywhere. The two tests skip only their mode check on Windows; the seal's content is still
+checked there.
+
+**Lesson.** A refusal names what it found in its own words; a test that accepts one system's error text is a test
+of that system. When a branch first brings a package into a system's leg, expect that package's host assumptions to
+show up there.

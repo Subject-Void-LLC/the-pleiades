@@ -546,6 +546,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 541. A rescue that answered a chain of failures cleared only the first, so the run still read failed (fixed before push)
 542. One device's failure ended the run before another device had run its always: (fixed before push)
 543. A domain controller resumed from its saved state was 90 minutes slow, and a member's Kerberos join failed (a repeat of 535's clock) (fixed)
+544. The journal reader's symbolic-link refusal read as Linux's errno, and two owner-only mode tests assumed Unix (a repeat of 505) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
