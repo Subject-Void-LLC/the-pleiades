@@ -13370,3 +13370,87 @@ and the timeout remains only to release a request Execute abandoned. 200 of 200 
 
 **Lesson.** Two timers set to one value are a race, not a redundancy. A replacement for a library component inherits
 the tests written against the old one's timing, and a backstop timer has to sit clearly past the bound it backs.
+
+## 534. A value of the wrong type reached a method as absent, literal or rendered, and nothing compared it with the declared type (a sibling of 324) (fixed)
+
+**Symptom.** 2026-10-19, writing the lab's bsd/check-05-disk-cleanup.yaml: `stdin: "{{ vars.min_free_gb | default(4) }}"`
+reached `exec.shell` empty, with `-e min_free_gb=7` too, and the script's own guard refused the empty value. A literal
+`stdin: 4` was dropped the same way.
+
+**Root cause.** Two layers. A parameter that is one expression keeps its rendered type (renderValue, through
+`render.Template.Value`), so 7 stayed a number; and `sdk.StringParam`, which most methods read text through, takes any
+non-string for absent. `collection.Param.Type` was documentation only: no rule held a value to it, at validation or at
+dispatch. Entry 324 closed the undeclared key; a declared key of the wrong type was the same silence one step on.
+Checking the catalog against the rule found file.json and file.yaml's `key` declared a string while documented (and
+used by a shipped example) as a string or a list of segments, and five win.firewall.rule parameters declared lists while
+taking a comma-separated string, the form their own undo records.
+
+**Fix.** `collection.ParamFits` (pkg/collection/paramtype.go) is the one rule, accepting every number shape the tiers
+produce and converting nothing; `Register` refuses a type outside its vocabulary; validate's `param-type` rule refuses a
+literal of the wrong type with how to write it; the engine renders a string parameter, and each item of a list of
+strings, as text, and holds every other rendered value to its declared type, naming the parameter and never the value.
+The seven parameters take a new type, `scalar or list`. TestRenderedParams_AStringParameterReceivesText failed on the
+old rendering with `stdin = 7`; every shipped example and the lab's 149 runbooks pass the new rule; the cleanup runbook
+ran on bsd-check without its workaround.
+
+**Lesson.** A declared type that nothing checks is a comment, and a reader that takes the wrong type for absent turns
+every mismatch into a silent pass. Hold values to declarations at the boundary, both where they are written and where
+they are computed.
+
+## 535. A resumed Windows box missed connections for up to two minutes, after the streak entry 516 added had passed (a repeat of 516) (fixed)
+
+**Symptom.** 2026-10-19, `make pr-check` on e2161c72: wincheck resumed win-check, `Box.Up`'s three-login streak passed,
+and Ready's first WinRM call failed to connect ("dial tcp 192.168.56.31:5985: i/o timeout"). Started again by hand, it
+answered at once.
+
+**Root cause.** Measured through Pleiades: after `virt.vbox.vm.start` began, win-check (one vCPU) missed TCP
+connections and WinRM calls from about 30 s to 90-130 s on three resumes of three, answering in between; at two vCPUs,
+one resume of two stalled to 87 s. Entry 516's streak (three logins ten seconds apart) spans about 20 seconds and can
+pass on those answers. FreeBSD on the same host and network answered every probe from the start; no adapter or DHCP
+event, and the guest clock ran at the host's rate (a Get-Counter logger that stalled after the resume misled for a
+while), so what the guest is doing in the window is not proven, only its length. The guest clock also stayed minutes
+slow across resumes.
+
+**Fix.** oscheck tries any call again while the run report says its device never answered (entry 536's mark), within
+three minutes of waits and never after an answer; a Windows box waits for six logins twenty seconds apart
+(`oscheck.WindowsWait`); wincheck sets the guest's clock (w32tm, else the host's time); win-check runs at two vCPUs.
+Unit tests for every retry boundary.
+
+**Lesson.** 516 was right that one answer is not a box that is up, and wrong about how long "steady" has to last: a
+streak shorter than the window it guards proves nothing. Measure the window, then size the wait from it, and let the
+steps after it survive a miss anyway.
+
+## 536. A run report could not say a task never reached its device, so nothing could retry it safely (fixed)
+
+**Symptom.** Found 2026-10-19 planning entry 535's fix: wincheck reaches its machine only through `pleiades adhoc
+--json`, whose report gave a failed task's error text and nothing a caller could act on without matching words.
+
+**Root cause.** The distinction existed inside the transports (winrmexec.NotStartedError, internal/transport/winrm's
+networkNotStarted, remoteexec's authRejected) and stopped at the engine's error string.
+
+**Fix.** `pkg/remoteexec.DialError` and `winrmexec.NotStartedError` each carry `Unreached()`, false for a refused
+login, a refused host key or a TLS alert, which are answers; `run --json` and `adhoc --json` mark such a task
+`unreached: true`; internal/transport/winrm's rule is now NotStartedError's own. Tested through the real binary against
+a closing listener, a silent one, and a real sshd refusing the password.
+
+**Lesson.** A property a caller needs to decide safely (did anything run?) belongs in the result's model, not in the
+text of an error a caller would have to parse.
+
+## 537. A package that failed to build was reported without the compiler's words, so a full disk read as 169 unexplained build failures (fixed)
+
+**Symptom.** 2026-10-19, `make pr-check` on e2161c72: the FreeBSD leg failed 169 packages, the standard library's
+among them, each "(the package: build) [failed]" with no output, and the same code had passed there half an hour
+before. The cause, bsd-check's / at 99% with a 7.8 GB Go build cache nothing trims, was found only by logging in.
+
+**Root cause.** `go test -json` gives a compiler's message only in build-output events named by ImportPath ("pkg
+[pkg.test]"), and flakegate.FailureOutput read output events named by Package, so every build failure carried
+"[build failed]" or nothing, locally and on every leg. The plan for this fix guessed the output was lost on the remote
+leg's way back; the captured event stream showed it was never read.
+
+**Fix.** FailureOutput includes a build failure's build-output events, the package's own and a dependency's
+(TestFailureOutput_ABuildFailureCarriesTheCompilersWords, from a captured stream, failed first). Each check's readiness
+now refuses under 4 GB free where its tests unpack and build, naming the fix, and the lab has
+bsd/check-05-disk-cleanup.yaml.
+
+**Lesson.** When every failure in a report has the same empty reason, the reader of the report is broken before
+anything else is. Test a report with the real event stream of the failure it must explain.

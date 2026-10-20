@@ -536,6 +536,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 531. The repository taught the task form its owner had refused, so every copy brought it back (fixed)
 532. WinRM over HTTP sent a message unsealed whenever its NTLM handshake failed (fixed)
 533. The sealed transport's header timeout raced Execute's deadline, and a silent host lost its name again (a repeat of 400) (fixed before push)
+534. A value of the wrong type reached a method as absent, literal or rendered, and nothing compared it with the declared type (a sibling of 324) (fixed)
+535. A resumed Windows box missed connections for up to two minutes, after the streak entry 516 added had passed (a repeat of 516) (fixed)
+536. A run report could not say a task never reached its device, so nothing could retry it safely (fixed)
+537. A package that failed to build was reported without the compiler's words, so a full disk read as 169 unexplained build failures (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -7,14 +7,18 @@
 id: vbox-lab-check-windows-create
 hosts: vengeance
 tasks:
-  - name: make win-check from the Server Core base's snapshot (small, one CPU and 2048 MB)
+  # Two CPUs, not one: resumed from its saved state, a one-CPU win-check missed
+  # connections for up to two minutes on every resume measured, and a two-CPU one
+  # for up to 87 s on one resume of two (tools/internal/oscheck's WindowsWait).
+  - name: make win-check from the Server Core base's snapshot (two CPUs and 2048 MB)
     virt.vbox.vm.clone:
       name: win-check
       from: ws2025-core-base
       snapshot: base
       login: win-check
       address: 192.168.56.31/24
-      size: small
+      cpus: 2
+      memory_mb: 2048
   - name: start it
     virt.vbox.vm.start:
       name: win-check
