@@ -298,7 +298,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 		return nil, &RollbackRefusedError{Problems: problems}
 	}
 	if len(out.Devices) == 0 {
-		return nil, fmt.Errorf("%w: nothing is left to run, since every change is left in place as named", ErrNotRollbackable)
+		return nil, fmt.Errorf("%w: nothing is left to run, since every change is left in place as named or its rollback: list says there is nothing to undo", ErrNotRollbackable)
 	}
 	return out, nil
 }

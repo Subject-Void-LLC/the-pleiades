@@ -81,9 +81,16 @@ type stepError struct {
 // Error returns the reason.
 func (e *stepError) Error() string { return e.reason }
 
+// errNothingToUndo is stepsFor's answer for a task whose rollback: list is
+// present and empty: its author says undoing it means doing nothing. Build
+// reports it in Plan.NothingToUndo rather than as a step or a refusal.
+var errNothingToUndo = errors.New("its rollback: list is empty, which says undoing it means doing nothing")
+
 // stepsFor returns the steps that undo one change: the runbook's authored
 // rollback: steps when the entry says the task had them, otherwise the
-// undo the method recorded, checked against what the method declares.
+// undo the method recorded, checked against what the method declares. A
+// present, empty rollback: list is errNothingToUndo; Authored tells it from
+// no list by nil, as the engine does.
 func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 	leave := "--leave " + e.NodeID
 	if e.AuthoredRollback {
@@ -97,6 +104,8 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 	if req.Authored != nil {
 		tasks, err := req.Authored(e.NodeID)
 		switch {
+		case err == nil && tasks != nil && len(tasks) == 0:
+			return nil, errNothingToUndo
 		case err == nil && len(tasks) > 0:
 			return authoredList(e, tasks), nil
 		case errors.Is(err, ErrNoRunbook):
@@ -157,8 +166,11 @@ func authoredSteps(req Request, e engine.JournalEntry, leave string) ([]Step, er
 	if err != nil {
 		return nil, &stepError{reason: err.Error(), accept: leave}
 	}
-	if len(tasks) == 0 {
+	if tasks == nil {
 		return nil, &stepError{reason: "the journal says the task had a rollback: list, and the runbook no longer gives it one", accept: leave}
+	}
+	if len(tasks) == 0 {
+		return nil, errNothingToUndo
 	}
 	return authoredList(e, tasks), nil
 }

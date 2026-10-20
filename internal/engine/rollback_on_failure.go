@@ -152,7 +152,10 @@ func (r *run) undoSteps(n NodeResult) (steps []*Task, authored bool, err error) 
 	if task == nil {
 		return nil, false, fmt.Errorf("%s names no task of the runbook", n.NodeID)
 	}
-	if len(task.Rollback) > 0 {
+	// A rollback: list that is present and empty says undoing the task means
+	// doing nothing: no steps, nothing journaled, and a later rollback of
+	// the run reports it as nothing to undo.
+	if task.Rollback != nil {
 		for i := range task.Rollback {
 			step := task.Rollback[i]
 			if step.Name == "" {

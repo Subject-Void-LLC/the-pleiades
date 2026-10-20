@@ -64,7 +64,9 @@ func ReversibleRule(world WorldView) []Finding {
 	}
 	var findings []Finding
 	for id, task := range world.DAG.Nodes {
-		if task.Kind() != engine.TaskKindLeaf || len(task.Rollback) > 0 {
+		// An authored list, rollback: [] included (an undo of nothing),
+		// is the author's answer, whatever the method records.
+		if task.Kind() != engine.TaskKindLeaf || task.Rollback != nil {
 			continue
 		}
 		why := whyNotUndoable(task.FQCN)
@@ -101,7 +103,7 @@ func RollbackOnFailureRule(world WorldView) []Finding {
 		}
 		for _, id := range guard.Tasks {
 			task := world.DAG.Nodes[id]
-			if task == nil || task.Kind() != engine.TaskKindLeaf || len(task.Rollback) > 0 {
+			if task == nil || task.Kind() != engine.TaskKindLeaf || task.Rollback != nil {
 				continue
 			}
 			why := whyNotUndoable(task.FQCN)

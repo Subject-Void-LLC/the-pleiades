@@ -21,9 +21,14 @@ import (
 
 // validateRollback holds a task's rollback: list to what a rollback can
 // run: it belongs on a method call, not on a group, and each step is one
-// plain method call on the task's own device.
+// plain method call on the task's own device. An empty list, rollback: [],
+// is the author saying undoing the task means doing nothing, which is
+// different from no list (use the undo the method recorded): decoding
+// keeps it non-nil, so every reader tells the two apart with nil, never
+// with len. An encode drops it (omitempty), so it lives only in the
+// runbook as written, which is what every tier compiles.
 func validateRollback(task *Task, id string) error {
-	if len(task.Rollback) == 0 {
+	if task.Rollback == nil {
 		return nil
 	}
 	if task.Kind() != TaskKindLeaf {
@@ -59,7 +64,7 @@ func validateRollbackStep(step *Task, label string) error {
 		"register_mask":    len(step.RegisterMask) > 0,
 		"secret_mask":      step.SecretMask != nil,
 		"lock_acquisition": step.LockAcquisition != AcquisitionPerDeviceAsReached,
-		"rollback":         len(step.Rollback) > 0,
+		"rollback":         step.Rollback != nil,
 		"timeout":          step.Timeout != 0,
 	} {
 		if isSet {

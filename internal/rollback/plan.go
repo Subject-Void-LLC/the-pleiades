@@ -165,6 +165,11 @@ type Plan struct {
 
 	// AlreadyUndone are changes an earlier rollback of this run undid.
 	AlreadyUndone []Gap `json:"already_undone,omitempty"`
+
+	// NothingToUndo are changes whose task's rollback: list is present and
+	// empty: its runbook says undoing them means doing nothing, so no step
+	// runs and none is refused.
+	NothingToUndo []Gap `json:"nothing_to_undo,omitempty"`
 }
 
 // Steps returns every step of the plan in the order it runs.
@@ -252,6 +257,9 @@ func Build(req Request) (Plan, error) {
 			continue
 		}
 		switch {
+		case errors.Is(err, errNothingToUndo):
+			plan.NothingToUndo = append(plan.NothingToUndo, Gap{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name, Reason: err.Error()})
+			continue
 		case err != nil:
 			accept := "--leave " + e.NodeID
 			var se *stepError
@@ -292,10 +300,11 @@ func Build(req Request) (Plan, error) {
 		}
 	}
 
-	// Nothing left but what an earlier rollback undid and what the
-	// operator named to leave: a refusal saying so, rather than a run of
-	// nothing that reads as a rollback done.
-	if len(plan.AlreadyUndone) > 0 && len(plan.AlreadyUndone)+len(plan.Left) == len(changed) && len(problems) == 0 {
+	// Nothing left but what an earlier rollback undid, what the operator
+	// named to leave and what its runbook says has nothing to undo: a
+	// refusal saying so, rather than a run of nothing that reads as a
+	// rollback done.
+	if len(plan.AlreadyUndone) > 0 && len(plan.AlreadyUndone)+len(plan.Left)+len(plan.NothingToUndo) == len(changed) && len(problems) == 0 {
 		reason := "every change this run made has already been undone, by the run itself or by an earlier rollback of it; there is nothing left to undo"
 		if len(plan.Left) > 0 {
 			reason = "every change this run made has already been undone, by the run itself or by an earlier rollback of it, apart from those named to leave in place; there is nothing left to undo"

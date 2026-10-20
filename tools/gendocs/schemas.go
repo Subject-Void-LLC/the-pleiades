@@ -85,7 +85,7 @@ func taskSchema() map[string]any {
 			"rescue":              map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 			"always":              map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 			"parallel":            map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-			"rollback":            map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}, "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. Only on a method call; each step is a method and its params, with no target, register, conditions or tags."},
+			"rollback":            map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}, "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. An empty list says undoing the task means doing nothing. Only on a method call; each step is a method and its params, with no target, register, conditions or tags."},
 			"rollback_on_failure": map[string]any{"type": "boolean", "description": "On a block: when one of its own tasks fails on a device, undo what its tasks completed there, newest first, before its rescue starts, journaled as a rollback of each. Only on a block, and only over tasks whose undo is exact."},
 			"tags":                tagsSchema("Names --tags and --skip-tags select this task by. On a block or parallel group they pass down to every task inside."),
 			"timeout": map[string]any{
