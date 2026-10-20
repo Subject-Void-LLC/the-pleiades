@@ -127,7 +127,12 @@ func (h *handlers) key(nodeID, device string) string {
 // decide reports whether nodeID runs on device, and when it does not, why.
 func (h *handlers) decide(nodeID, device string) (bool, skip) {
 	scopes := h.dag.Scopes[nodeID]
-	frames := h.frames[h.key(nodeID, device)]
+	key := h.key(nodeID, device)
+	frames := h.frames[key]
+	where := "on this device"
+	if key != device {
+		where = "in its block, which runs as one unit"
+	}
 	inner := scopes
 	if len(frames) > 0 {
 		top := frames[len(frames)-1]
@@ -137,11 +142,11 @@ func (h *handlers) decide(nodeID, device string) (bool, skip) {
 			// passed it (advance would have popped it), so this node is a
 			// sibling the failure keeps from running, as it would outside
 			// any block.
-			return false, skip{SkipKindBlockFailed, fmt.Sprintf("%s failed on this device", top.origin.NodeID)}
+			return false, skip{SkipKindBlockFailed, fmt.Sprintf("%s failed %s", top.origin.NodeID, where)}
 		}
 		switch scopes[at].Part {
 		case PartBlock:
-			return false, skip{SkipKindBlockFailed, fmt.Sprintf("%s failed on this device earlier in its block", top.origin.NodeID)}
+			return false, skip{SkipKindBlockFailed, fmt.Sprintf("%s failed earlier, %s", top.origin.NodeID, where)}
 		case PartRescue:
 			switch {
 			case top.part != PartBlock:
@@ -153,7 +158,7 @@ func (h *handlers) decide(nodeID, device string) (bool, skip) {
 			}
 		case PartAlways:
 			if top.alwaysFailed {
-				return false, skip{SkipKindBlockFailed, "an earlier task of this always: failed on this device"}
+				return false, skip{SkipKindBlockFailed, "an earlier task of this always: failed " + where}
 			}
 		}
 		inner = scopes[at+1:]
