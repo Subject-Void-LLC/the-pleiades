@@ -541,6 +541,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 536. A run report could not say a task never reached its device, so nothing could retry it safely (fixed)
 537. A package that failed to build was reported without the compiler's words, so a full disk read as 169 unexplained build failures (fixed)
 538. A new CLI test read the developer's own known_hosts, passed here and failed on CI's runner (a repeat of 520) (fixed)
+539. A block's always: was parsed and never run, so a failed lab run left a domain account enabled (fixed)
+540. A tag selection dropped the runbook's reversible: flag, so --tags turned the reversible rule off (fixed)
+541. A rescue that answered a chain of failures cleared only the first, so the run still read failed (fixed before push)
+542. One device's failure ended the run before another device had run its always: (fixed before push)
+543. A domain controller resumed from its saved state was 90 minutes slow, and a member's Kerberos join failed (a repeat of 535's clock) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

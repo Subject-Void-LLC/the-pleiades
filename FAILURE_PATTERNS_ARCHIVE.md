@@ -13471,3 +13471,81 @@ by running the old test with HOME pointed at an empty directory, which failed as
 
 **Lesson.** A test that reaches SSH through the real binary owns its home, as the release gates already do with
 runPleiadesWithHome. Running a new CLI test once with an empty HOME is the cheap way to find out whether it does.
+
+## 539. A block's always: was parsed and never run, so a failed lab run left a domain account enabled (fixed)
+
+**Symptom.** 2026-10-18, building the lab's Linux domain member: a block's `always:` disabled the logon test account,
+the block failed, and the account stayed enabled. `pleiades validate` reported no issues, and a block that succeeded
+printed `run complete` and exited 0 with its `always:` skipped.
+
+**Root cause.** The builder registered rescue and always tasks as DAG nodes for validation's sake and kept them off the
+chain; the executor walked the chain and stopped at the first failure. The schema, validate and the plan view all
+accepted both, so nothing said they did not run. docs/03 said so; the plan view printed them as if they would.
+
+**Fix.** They run (docs/design/block-rescue-always.md): one chain, a block's tasks then its rescue then its always,
+with a per-device stack of failures deciding what runs where, a block that reaches other devices running as one unit,
+a rescued run ending `rescued` (exit 4 under `--fail-on-rescue`), `error` in a rescue, and a run that has to end still
+running the always of every block it is inside. Proven against an independent interpreter over generated nestings,
+by a release gate on a real sshd, and on the lab, where each `# TODO(always):` task now sits in an `always:` proven by
+failing a task inside its block.
+
+**Lesson.** A keyword the parser accepts and the executor ignores is the most dangerous kind of unbuilt feature: it
+validates, it prints, and it reads as working. Refuse it, or warn on it, until it runs.
+
+## 540. A tag selection dropped the runbook's reversible: flag, so --tags turned the reversible rule off (fixed)
+
+**Symptom.** Found 2026-10-20 adding block scopes to `engine.Select`: the copy it makes of a DAG listed every field but
+`Reversible`. A runbook declaring `reversible: true`, run with `--tags`, was validated as though it declared nothing,
+so a task that cannot be undone passed.
+
+**Root cause.** `Select` builds its DAG with a struct literal naming each field to carry over; `Reversible` was added to
+`DAG` later and never to the literal. Nothing compared the two.
+
+**Fix.** The literal carries it; TestSelect_KeepsReversibleAndHandlers failed without the line.
+
+**Lesson.** A copy written as a field-by-field literal goes stale silently whenever the type grows. Copy the struct and
+change what differs, or test that a selection keeps every flag the runbook sets.
+
+## 541. A rescue that answered a chain of failures cleared only the first, so the run still read failed (fixed before push)
+
+**Symptom.** 2026-10-20, the rescue oracle test (seed 99): the executor and the independent interpreter ran the same
+tasks in the same order, but the executor reported the run failed where the interpreter reported it rescued.
+
+**Root cause.** A failure that passes outward (an inner block's rescue that also failed, an always task that failed)
+carries the failures before it as causes. When an outer rescue answered the chain, only the frame's first failure was
+marked rescued; the causes still counted as errors.
+
+**Fix.** Every failure a rescued frame carried is marked with the rescue. The oracle agrees over 400 seeds on one
+device and two, and the fuzzer over 160,000 runs.
+
+**Lesson.** A state machine checked only by hand-picked cases is checked where its author looked. An independent
+interpreter of the same rules, run over generated inputs, finds the case nobody wrote.
+
+## 542. One device's failure ended the run before another device had run its always: (fixed before push)
+
+**Symptom.** 2026-10-20, TestAlways_AFailureSkipsTheRestOfIt: a failure inside `always:` on web1 ended the run at once,
+and web2 never ran the rest of its own `always:`.
+
+**Root cause.** A failure no handler is left for ended the walk at its level, as a failure outside any block always
+has. That is right for the failed device, and wrong for the others: their cleanup is what `always:` exists for.
+
+**Fix.** A run that has to end still runs the `always:` of every block it is inside, on every device, and nothing else,
+then stops (`whileEnding`). A runbook without `always:` still stops at its first failure.
+
+**Lesson.** "Always" is a promise to every device, not to the one that failed. Test the guarantee from the device that
+did nothing wrong.
+
+## 543. A domain controller resumed from its saved state was 90 minutes slow, and a member's Kerberos join failed (a repeat of 535's clock) (fixed)
+
+**Symptom.** 2026-10-20, proving dc-04's `always:` on the lab: the join failed with "Ticket expired" before the run
+reached the block. lab-dc1's clock read 90 minutes behind the host; lab-lin1, on NTP, was right.
+
+**Root cause.** A VM resumed from its saved state keeps the time it was saved at (entry 535 measured win-check 567 s
+slow), and lab-dc1, as the forest root, took its time from its own clock, so `w32tm /resync` reported success and
+changed nothing. Kerberos refuses more than five minutes of skew.
+
+**Fix.** lab-dc1 takes its time from time.windows.com, applied through Pleiades and added to dc-01-build, so a resume
+is corrected at its next sync.
+
+**Lesson.** The forest root's time source is part of building the forest. A lab that saves and resumes its machines
+has to give each one a clock that corrects itself.
