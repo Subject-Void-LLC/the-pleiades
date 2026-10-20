@@ -129,10 +129,15 @@ Every job calls a `make` target, so you can run exactly what a job ran:
 | `ci` | `make ci-remote` | build, vet, format, scanners, generated files, on Linux, macOS and Windows |
 | `fast` | `make ci-fast` | every container-free package, and each three times over, on Linux |
 | `fast-macos` | `make ci-fast` | the same on macOS; advisory until it has passed once |
-| `containers` | `make ci-containers SHARD=k/4` | the container packages, in four shards |
-| `coverage` | `make coverage-measured` | the coverage ratchet, from the numbers the jobs above recorded |
+| `containers` | `make ci-containers SHARD=k/6` | the container packages, in six shards, `tests/e2e` divided among them test by test |
+| `coverage` | `make coverage-measured` | the coverage ratchet, from the numbers the jobs above recorded; it fails, rather than being skipped, when any of them failed |
 | `nightly` | `make test-full` | the whole suite, strictly, with nothing re-run |
 | `vulns` | `make govulncheck` | no known vulnerability is reachable, re-asked on the schedule because an advisory lands without any code changing |
+
+When a `tests/e2e` test fails, the `containers` job uploads every line its Controller and
+Runner printed, masked, as the `test-logs-containers-<shard>` artifact, since the job log
+quotes only a failure's end. To keep those files from a local run, point
+`PLEIADES_TEST_ARTIFACTS` at a directory.
 
 The `containers` job restores its images from a cache and only pulls on a miss. A
 maintainer can set a read-only `DOCKERHUB_TOKEN` (and `DOCKERHUB_USERNAME`) secret to
