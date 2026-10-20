@@ -24,8 +24,11 @@ both, `pleiades validate` checks both, and `pleiades run` prints both in the pla
 the executor never reaches them. A `block:` whose child fails runs no rescue handler:
 the run just fails. `always:` is the more dangerous of the two, because a `block:` that
 succeeds still prints `run complete` and exits 0 while its `always:` tasks are skipped
-in silence, so nothing warns you the cleanup did not happen. Keep cleanup and recovery
-steps inside the `block:` itself, in order, until these are implemented.
+in silence, and the run itself says nothing about it. `pleiades validate` warns on each
+block's `rescue:` and `always:` (rule `handlers`), naming the block and how many tasks will
+not run. Keep cleanup and recovery steps inside the `block:` itself, in order, until these
+are implemented; how they will run is set out in
+[design/block-rescue-always.md](design/block-rescue-always.md).
 
 **Genuinely new, no Ansible equivalent:** `when_or:` (list ORed instead of ANDed),
 `when_cel:` (one raw CEL expression), `register_mask:` and `secret_mask:` (per-field

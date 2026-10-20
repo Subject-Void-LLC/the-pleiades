@@ -184,7 +184,7 @@ func buildCheck(builder *engine.Builder, path string) runbookCheck {
 			check.err, check.stage = err, "read"
 			return check
 		}
-		check.dag, check.warnings = dag, append(validate.HeaderWarnings(source), validate.TaskFormWarnings(source)...)
+		check.dag, check.warnings = dag, append(append(validate.HeaderWarnings(source), validate.TaskFormWarnings(source)...), validate.HandlerWarnings(dag)...)
 	}
 	return check
 }
