@@ -465,6 +465,14 @@ func TopLevel(test string) string {
 // both fail together and pass alone. That limit is worth stating rather
 // than implying, because it is the one shape this pass will wave through.
 func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, contention, notRun []Failure, err error) {
+	return IsolateWith(failures, func(Failure) []string { return args }, echo)
+}
+
+// IsolateWith is Isolate with each re-run's go test arguments chosen for its
+// target: a gate that ran part of a package (a -run or -skip piece of it)
+// re-runs a package-level failure as that part again, not as the whole
+// package, while a named test is re-run by name either way.
+func IsolateWith(failures []Failure, argsFor func(Failure) []string, echo io.Writer) (confirmed, contention, notRun []Failure, err error) {
 	// One re-run per parent test, since a parent and three of its subtests
 	// are one fixture and one answer.
 	seen := make(map[string]bool, len(failures))
@@ -508,7 +516,7 @@ func Isolate(failures []Failure, args []string, echo io.Writer) (confirmed, cont
 		if echo != nil {
 			fmt.Fprintf(echo, "flakegate: re-running %s %s alone\n", target.Package, target.Test)
 		}
-		verdict, runErr := runAlone(target, args)
+		verdict, runErr := runAlone(target, argsFor(target))
 		switch {
 		case runErr != nil, verdict == isolationInconclusive:
 			// The re-run did not answer the question: it could not be

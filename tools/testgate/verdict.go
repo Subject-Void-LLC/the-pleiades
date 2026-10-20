@@ -60,14 +60,15 @@ func printOutput(events []flakegate.Event, failures []flakegate.Failure) {
 	}
 }
 
-// remeasure runs each package that had a contention failure again, whole
-// and alone, and records its coverage from that run in coverage. It
-// returns a package-level failure for each one that fails even alone.
-func remeasure(args []string, contention []flakegate.Failure, coverage map[string]float64) []flakegate.Failure {
+// remeasure runs each package that had a contention failure again, alone
+// and as much of it as this run owns (argsFor), and records its coverage
+// from that run in coverage. It returns a package-level failure for each
+// one that fails even alone.
+func remeasure(argsFor func(pkg string) []string, contention []flakegate.Failure, coverage map[string]float64) []flakegate.Failure {
 	var failed []flakegate.Failure
 	for pkg := range flakegate.FailedPackages(contention) {
 		fmt.Printf("testgate: re-measuring %s alone, since its coverage came from a run where a test stopped partway\n", pkg)
-		events, _ := flakegate.RunGoTestJSONPackages(args, []string{pkg}, testOutput)
+		events, _ := flakegate.RunGoTestJSONPackages(argsFor(pkg), []string{pkg}, testOutput)
 		hard, warned := flakegate.Classify(events, nil)
 		if len(hard)+len(warned) > 0 {
 			printOutput(events, append(hard, warned...))

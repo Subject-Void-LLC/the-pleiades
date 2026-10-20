@@ -5,9 +5,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -75,24 +77,41 @@ func TestShardBy_BalancesByTime(t *testing.T) {
 	}
 }
 
-// TestShardOf_TheEmbeddedTimesSplitEvenly: with durations.json, the four
+// TestShardOf_TheEmbeddedTimesSplitEvenly: with durations.json, the six
 // containers shards of the packages it names come within a quarter of one
-// another, where dealing by position left one at three times the rest.
+// another, where dealing by position left one at three times the rest. A
+// shard's time counts a divided package's tests it runs: those named, or all
+// but those skipped.
 func TestShardOf_TheEmbeddedTimesSplitEvenly(t *testing.T) {
 	recorded := durations()
+	seen := map[string]bool{}
 	var packages []string
-	for p := range recorded {
-		packages = append(packages, modulePrefix+p)
+	for key := range recorded {
+		pkg, _, _ := strings.Cut(key, " ")
+		if !seen[pkg] {
+			seen[pkg] = true
+			packages = append(packages, modulePrefix+pkg)
+		}
 	}
+	split := splitTests(packages, recorded)
 	var loads []float64
-	for _, shard := range []string{"1/4", "2/4", "3/4", "4/4"} {
-		owned, err := shardOf(packages, shard)
+	for k := 1; k <= 6; k++ {
+		pieces, err := piecesOf(packages, fmt.Sprintf("%d/6", k), recorded)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var load float64
-		for _, p := range owned {
-			load += recorded[strings.TrimPrefix(p, modulePrefix)]
+		for _, p := range pieces {
+			tests, divided := split[p.pkg]
+			if !divided {
+				load += recorded[strings.TrimPrefix(p.pkg, modulePrefix)]
+				continue
+			}
+			for _, test := range tests {
+				if (len(p.run) == 0 && !slices.Contains(p.skip, test)) || slices.Contains(p.run, test) {
+					load += recorded[testKey(p.pkg, test)]
+				}
+			}
 		}
 		loads = append(loads, load)
 	}
@@ -149,5 +168,40 @@ func TestDurationsCheck(t *testing.T) {
 	_ = os.WriteFile(bad, []byte("{"), 0o600)
 	if err := durationsCheck(&out, []string{bad}, recorded); err == nil {
 		t.Error("a file that is not a measurement was accepted")
+	}
+}
+
+// TestDurationsCheck_ADividedPackageIsHeldTestByTest: a package
+// durations.json times test by test needs no package-level time, since each
+// shard timed only its part; its tests are held instead, a test with no time
+// failing like a package with none, and a recorded test its measured package
+// no longer ran is warned about.
+func TestDurationsCheck_ADividedPackageIsHeldTestByTest(t *testing.T) {
+	recorded := map[string]float64{"tests/e2e TestA": 300, "tests/e2e TestGone": 40, "pkg/small": 5}
+	write := func(m flakegate.Measurement) string {
+		t.Helper()
+		data, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(t.TempDir(), "m.json")
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	var out bytes.Buffer
+	file := write(flakegate.Measurement{Coverage: map[string]float64{},
+		Seconds:     map[string]float64{modulePrefix + "tests/e2e": 520, modulePrefix + "pkg/small": 5},
+		TestSeconds: map[string]float64{modulePrefix + "tests/e2e TestA": 310, modulePrefix + "tests/e2e TestNew": 204.6}})
+	err := durationsCheck(&out, []string{file}, recorded)
+	if err == nil || !strings.Contains(err.Error(), `"tests/e2e TestNew": 205,`) {
+		t.Errorf("a divided package's untimed test = %v, want the line to add", err)
+	}
+	if strings.Contains(fmt.Sprint(err), `"tests/e2e":`) {
+		t.Errorf("a divided package was asked for a package-level time: %v", err)
+	}
+	if !strings.Contains(out.String(), "tests/e2e TestGone") {
+		t.Errorf("a recorded test the package no longer ran was not named:\n%s", &out)
 	}
 }
