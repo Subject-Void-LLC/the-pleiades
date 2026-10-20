@@ -111,7 +111,10 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   rollback that stopped partway, and holds each recorded undo to the method's declaration (and,
   on the Walk tier, to the runbook the job ran, on the Controller and again on the Runner). A
   task's `rollback:` list (not hashed into `DAG.Version`, so it can be written after a failure)
-  wins over a recorded undo. External Collections' recorded undos are never replayed.
+  wins over a recorded undo. External Collections' recorded undos are never replayed. A block's
+  `rollback_on_failure: true` undoes its own completed tasks on a device inside the run, newest first, before its
+  rescue (`internal/engine/rollback_on_failure.go`), journaled as `<node>.undo[k]` with `RollbackOf` naming the run
+  itself, which the planner reads as already undone; `validate` refuses it over a task whose undo is not exact.
 - **The scheduler is real (Phase 23), and since Phase 21's C1 seam it schedules more than
   templates.** A schedule is an RFC 5545 recurrence attached to a `launchable.Target`: one row
   in the `launchables` table standing for a job template or for a project whose run is a sync,

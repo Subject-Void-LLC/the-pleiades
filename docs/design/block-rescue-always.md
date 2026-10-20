@@ -1,7 +1,7 @@
 # Design note: `rescue:` and `always:` that run
 
-Status: built for the Crawl tier and for a Runner's one device (sections 1 to 4, and the rollback order of section
-5). Not built yet: `rollback_on_failure` (section 5) and the Walk tier across devices (section 6). Before this, the
+Status: built for the Crawl tier and for a Runner's one device (sections 1 to 5). Not built yet: the Walk tier across
+devices (section 6). Before this, the
 schema, `pleiades validate` and the plan view accepted `rescue:` and `always:` and the executor never ran them: a
 block whose task failed ran no rescue, and a block's `always:` was skipped in silence while the run exited 0. This note settles how they run in an engine whose
 contracts are a check that predicts, a journal that records undos, and a rollback that replays them. Where Ansible
@@ -17,12 +17,12 @@ Checked against the code, 2026-10-20:
 - **Edges.** `EdgeTypeOnFailure` and `EdgeTypeAlways` are declared, and no executor reads them.
 - **Rollback.** The planner (`internal/rollback`) already replays undos newest first, in the reverse of the order the
   run made its changes, so the last-in-first-out rule needs no new mechanism. A task's authored `rollback:` list wins
-  over its recorded undo; `rollback:` inside `rescue:`/`always:` is refused today only because they never run. An
-  earlier, partial rollback of a run is tracked (`Plan.AlreadyUndone`) and resumed rather than repeated.
-- **Failed tasks.** A failed task contributes the undo its method recorded before failing, and otherwise an effect
-  nobody can name (`Plan.Unknown`), which a rollback refuses until accepted with `--allow-unknown` (FAILURE_PATTERNS
-  452, 487, 507). The planner's own doc comment still says an undo is recorded only on success; that comment is to be
-  checked and corrected while building.
+  over its recorded undo; `rollback:` inside `rescue:`/`always:` was refused while they never ran, and is allowed now.
+  An earlier, partial rollback of a run is tracked (`Plan.AlreadyUndone`) and resumed rather than repeated.
+- **Failed tasks.** A task that fails during its action journals no undo (the engine drops the one it recorded), only
+  an effect nobody can name (`Plan.Unknown`), which a rollback refuses until accepted with `--allow-unknown`
+  (FAILURE_PATTERNS 452, 487, 507). One that failed after its action succeeded (at `register_mask` or recording its
+  result) keeps the undo its action recorded, and its change is undone like any other.
 - **Reports.** A task's status is one of ok, changed, would_change, checked_only, failed, held, skipped, unchecked; a
   run's outcome is complete, failed, incomplete, invalid or error. A failed task whose device never answered carries
   `unreached`.
@@ -123,7 +123,26 @@ Checked against the code, 2026-10-20:
   - **An undo that fails** leaves the device in a state nobody chose: the rescue does not run, `always:` does, and the
     run fails reporting the block's failure and the undo's.
   - **Without the key,** a hand-written compensating rescue remains possible. A rollback then needs `--leave` for the
-    rescue's steps, which the docs will say beside the key.
+    rescue's steps, which the docs say beside the key.
+- **As built** (internal/engine's rollback_on_failure.go):
+  - A block takes a failure into its handling in two places, when one of its own tasks fails and when an inner block
+    hands on a failure it did not answer; either one, for a block with the key, asks for the undo, which the level
+    barrier runs before anything else of the block does. A frame with an undo pending is not settled until it has
+    run, so a failure in the block's last task, or in a block with no rescue, still undoes first.
+  - The undo covers every node of the block's own part, at any depth (an inner block's rescue and always included),
+    that changed the device, newest first, and never a node already undone in this run, so nested blocks with the key
+    undo each change once. A predicted change (a checked task) is never undone.
+  - Each step runs through the same path as a task (lock, timeout, secrets) and is journaled as `<node>.undo[<step>]`,
+    `RollbackOf` naming the run itself, `UndoesNode` and `UndoesStep` the change; the strict reader accepts that id.
+    The planner reads such entries as steps done (and reports them as undone by the run itself), never as changes or
+    unknown effects, and does not take the run for a rollback.
+  - An authored step renders like a task; a recorded undo's params are the values the journal holds and are run as
+    they are. A change the journal cannot replay exactly at run time (a value too long to record) is reported as not
+    undone, and counts as a failed undo.
+  - A failure no frame takes (a target that resolved to nothing) fails the block on every device, so each enclosing
+    block with the key undoes everywhere. A block that runs as one unit undoes on every device.
+  - The Walk tier runs the same engine on a Runner, so a block on the dispatched device undoes the same way; that has
+    no end-to-end test on the Walk tier yet, and a unit block there waits for section 6.
 
 ## 6. The Walk tier (after Phase 117b's segmented dispatch)
 
@@ -172,7 +191,7 @@ a block's handling is per device.
 1. **`validate` warned** on every `rescue:` and `always:` while they did not run. Done, and removed by step 3.
 2. **This note.** Done.
 3. **Executor and graph,** with the oracle, the fuzz test and the release gate. Done.
-4. **Journal and rollback:** the order and `rollback:` inside rescue and always are done; `rollback_on_failure` is not.
+4. **Journal and rollback:** the order, `rollback:` inside rescue and always, and `rollback_on_failure`. Done.
 5. **The Walk tier,** after Phase 117b.
 6. **The lab.** Each `# TODO(always):` task in the lab project moves into an `always:`, proven by failing a task in its
    block through Pleiades.

@@ -29,7 +29,8 @@ runs somewhere other than the runbook's `hosts:` (a `target:` of its own, in pla
 rescue and always tasks running once on their own targets; a rescue task reads the failure as
 `error` (`error.task`, `error.message` and the rest), not
 `ansible_failed_task` or `ansible_failed_result`; and in `--mode check` a rescue task is not
-predicted (`conditional_skip`), since a check never runs a fallback. How they run beside
+predicted (`conditional_skip`), since a check never runs a fallback. One addition has no Ansible equivalent: `rollback_on_failure: true` on a block undoes what
+the block completed on a device before its rescue starts, journaled so a later `pleiades rollback` does not repeat it. How they run beside
 check mode, the journal and rollback is set out in
 [design/block-rescue-always.md](design/block-rescue-always.md).
 

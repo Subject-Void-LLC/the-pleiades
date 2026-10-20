@@ -84,6 +84,10 @@
           },
           "type": "array"
         },
+        "rollback_on_failure": {
+          "description": "On a block: when one of its own tasks fails on a device, undo what its tasks completed there, newest first, before its rescue starts, journaled as a rollback of each. Only on a block, and only over tasks whose undo is exact.",
+          "type": "boolean"
+        },
         "secret_mask": {
           "additionalProperties": false,
           "description": "Retroactively masks fields of an earlier task's registered result.",
