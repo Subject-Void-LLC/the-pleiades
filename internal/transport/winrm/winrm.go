@@ -58,8 +58,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -248,32 +246,12 @@ func retryable(err error) bool {
 // itself before the command was sent: the one kind of failure that is
 // safe to retry and that counts toward the circuit breaker.
 //
-// It is a connection that failed or timed out, or the operation's
-// deadline passing before a shell opened.
-//
-// A TLS alert is excluded even though Go reports it as a *net.OpError,
-// with Op "remote error": the host sent it, so the host is reachable and
-// is refusing something, most often the client certificate. Retrying it
-// would present the same certificate again, and counting it would let a
-// wrong credential open a circuit that every other task to that address
+// It is winrmexec.NotStartedError's own rule (Unreached), so this transport,
+// a run's report and a caller retrying through it judge one failure the
+// same way. A TLS alert is excluded: the host sent it, so counting it would
+// let a wrong credential open a circuit every other task to that address
 // then shares.
 func networkNotStarted(err error) bool {
 	var notStarted *winrmexec.NotStartedError
-	if !errors.As(err, &notStarted) {
-		return false
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return opErr.Op != "remote error"
-	}
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) && urlErr.Timeout() {
-		return true
-	}
-	// The operation's own deadline passed before a shell opened: the host
-	// never answered, which is what a host silently dropping packets
-	// looks like when the bound is shorter than the connect timeout. A
-	// caller's cancellation (context.Canceled) is not the network and
-	// does not count.
-	return errors.Is(err, context.DeadlineExceeded)
+	return errors.As(err, &notStarted) && notStarted.Unreached()
 }

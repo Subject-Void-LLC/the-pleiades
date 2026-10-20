@@ -474,7 +474,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		}
 		next, dialErr := r.dialWithRetry(ctx, dial, leg.addr, config)
 		if dialErr != nil {
-			return nil, fmt.Errorf("remoteexec: dial %s: %w", leg.addr, dialErr)
+			return nil, &DialError{Addr: leg.addr, Err: dialErr}
 		}
 
 		// Step 4: a successful dial closes the circuit, or completes a
