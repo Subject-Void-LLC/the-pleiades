@@ -4,6 +4,7 @@
 package journal
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -22,6 +23,12 @@ func openPrivate(path string, limit int64) (*os.File, error) {
 	// with a name fileNameFor restricted.
 	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
+		// Linux answers a link refused by O_NOFOLLOW with ELOOP, FreeBSD
+		// with EMLINK ("too many links"), neither of which says what was
+		// found.
+		if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.EMLINK) {
+			return nil, fmt.Errorf("%s is a symbolic link; the journal is never read through one: %w", path, err)
+		}
 		return nil, err
 	}
 	info, err := f.Stat()

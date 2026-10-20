@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,9 @@ func TestSealWritesAnOwnerOnlyFileBesideTheJournal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat seal: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
+	// Unix permission bits do not apply on Windows, where the directory's
+	// ACL decides; the seal's content is checked everywhere.
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Errorf("seal has mode %04o, want 0600", got)
 	}
 	raw, err := os.ReadFile(path) // #nosec G304 -- a path under t.TempDir()

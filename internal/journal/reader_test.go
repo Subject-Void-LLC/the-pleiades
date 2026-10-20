@@ -125,7 +125,7 @@ func TestReadRun_RefusesWhatNoRunWrote(t *testing.T) {
 			root := writtenRun(t)
 			tc.make(t, root)
 			_, err := journal.ReadRun(root, readerRun)
-			if err == nil || (!strings.Contains(err.Error(), tc.want) && !(tc.want == "symbolic link" && strings.Contains(err.Error(), "too many levels"))) {
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("ReadRun = %v, want a refusal mentioning %q", err, tc.want)
 			}
 		})
