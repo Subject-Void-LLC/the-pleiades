@@ -1,6 +1,7 @@
-// Package validate: the two rules for a runbook's rollback keys (Phase 40).
+// Package validate: the rules for a runbook's rollback keys (Phase 40).
 // RollbackRule holds a task's rollback: steps to what any task is held to;
-// ReversibleRule holds a runbook marked reversible: true to its word.
+// ReversibleRule holds a runbook marked reversible: true to its word, and
+// RollbackOnFailureRule a block with rollback_on_failure to its.
 package validate
 
 import (
@@ -84,6 +85,44 @@ func ReversibleRule(world WorldView) []Finding {
 	return findings
 }
 
+// RollbackOnFailureRule refuses a block with rollback_on_failure that holds
+// a task its undo could not reverse exactly: one calling a method whose
+// recorded undo would not replay whole, with no rollback: list of its own,
+// anywhere in the block's own tasks (an inner block's rescue and always
+// included, since they are part of what the block did). The engine undoes
+// those tasks itself when one fails, before the rescue starts, so a task it
+// cannot undo would leave the rescue starting from a state nobody chose;
+// this finds it from the runbook, before the run.
+func RollbackOnFailureRule(world WorldView) []Finding {
+	var findings []Finding
+	for block, guard := range world.DAG.Guards {
+		if !guard.Rollback {
+			continue
+		}
+		for _, id := range guard.Tasks {
+			task := world.DAG.Nodes[id]
+			if task == nil || task.Kind() != engine.TaskKindLeaf || len(task.Rollback) > 0 {
+				continue
+			}
+			why := whyNotUndoable(task.FQCN)
+			if why == "" {
+				continue
+			}
+			label := id
+			if task.Name != "" {
+				label = fmt.Sprintf("%s (name %q)", id, task.Name)
+			}
+			findings = append(findings, Finding{
+				RuleName: "rollback_on_failure",
+				Node:     id,
+				Message: fmt.Sprintf("block %s undoes its tasks when one fails (rollback_on_failure), and task %s %s; give the task a rollback: list saying how to undo it, or remove rollback_on_failure",
+					block, label, why),
+			})
+		}
+	}
+	return findings
+}
+
 // whyNotUndoable says why a task calling fqcn could not be undone from its
 // journal, or "" when it could (or changes no device). A name nothing
 // registers is CollectionRule's finding, not this rule's.
@@ -126,4 +165,5 @@ func whyNotUndoable(fqcn string) string {
 func init() {
 	Register(RollbackRule)
 	Register(ReversibleRule)
+	Register(RollbackOnFailureRule)
 }
