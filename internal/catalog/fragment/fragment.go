@@ -109,3 +109,17 @@ func Declared(d collection.Descriptor) map[string]bool {
 	}
 	return declared
 }
+
+// Types returns the declared type of every parameter d's documentation
+// declares, its Doc.Params and its named fragments' alike, by name.
+func Types(d collection.Descriptor) map[string]string {
+	types := make(map[string]string, len(d.Manifest.Doc.Params))
+	shared, _ := Params(d.Manifest.Doc.Fragments)
+	for _, p := range shared {
+		types[p.Name] = p.Type
+	}
+	for _, p := range d.Manifest.Doc.Params {
+		types[p.Name] = p.Type
+	}
+	return types
+}

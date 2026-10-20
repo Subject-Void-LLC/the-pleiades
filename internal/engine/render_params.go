@@ -22,10 +22,12 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -94,13 +96,97 @@ func (r *run) renderTask(task *Task) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	rendered, err := renderValue(r.x.renderer, task.Params, ctx)
+	rendered, err := renderParams(r.x.renderer, task.FQCN, task.Params, ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := *task
-	out.Params, _ = rendered.(map[string]any)
+	out.Params = rendered
 	return &out, nil
+}
+
+// renderParams renders each of params, as its method declares it. A
+// parameter declared a string renders to text, and so does each item of a
+// list of strings, whatever the expression's value: a template rendering 7
+// into stdin is the text 7, where keeping the number handed the method a
+// value its string reader takes for absent. Any other rendered parameter
+// keeps its value's type and must be of the declared type
+// (collection.ParamFits), or the task fails naming it. A parameter with no
+// template, or one the method does not declare (validation's finding), is
+// left as it is.
+func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map[string]any) (map[string]any, error) {
+	types := ParamTypes(fqcn)
+	out := make(map[string]any, len(params))
+	for key, value := range params {
+		if !HasTemplate(value) {
+			out[key] = value
+			continue
+		}
+		typ := types[key]
+		var rendered any
+		var err error
+		switch typ {
+		case collection.ParamTypeString, collection.ParamTypeListOfString:
+			rendered, err = renderText(eng, value, ctx)
+		default:
+			rendered, err = renderValue(eng, value, ctx)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("parameter %s: %w", key, err)
+		}
+		if typ != "" {
+			fits, err := collection.ParamFits(typ, rendered)
+			if err != nil {
+				return nil, fmt.Errorf("parameter %s: %w", key, err)
+			}
+			if !fits {
+				return nil, fmt.Errorf("parameter %s rendered to %s, and %s declares it %s", key, collection.ValueKind(rendered), fqcn, typ)
+			}
+		}
+		out[key] = rendered
+	}
+	return out, nil
+}
+
+// renderText renders a string holding a template to text, and each such
+// string in a list, leaving every other value for ParamFits to judge. A
+// string that is one expression whose value is a list or a map is refused:
+// its text is a rendering nobody chose, where a number or a boolean has one
+// obvious text.
+func renderText(eng render.Engine, v any, ctx map[string]any) (any, error) {
+	switch t := v.(type) {
+	case string:
+		if !strings.Contains(t, "{{") {
+			return t, nil
+		}
+		tmpl, err := eng.Compile(t)
+		if err != nil {
+			return nil, err
+		}
+		if value, single, err := tmpl.Value(ctx); single {
+			if err != nil {
+				return nil, err
+			}
+			if value != nil {
+				switch reflect.TypeOf(value).Kind() {
+				case reflect.Slice, reflect.Array, reflect.Map:
+					return nil, fmt.Errorf("renders to %s, and this parameter takes text", collection.ValueKind(value))
+				}
+			}
+		}
+		return tmpl.Render(ctx)
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			rendered, err := renderText(eng, e, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("item %d: %w", i, err)
+			}
+			out[i] = rendered
+		}
+		return out, nil
+	}
+	return v, nil
 }
 
 // templateContext is what a rendered parameter reads: vars, nodes and
@@ -245,6 +331,17 @@ func ParamFormats(fqcn string) map[string]collection.ParamFormat {
 	return out
 }
 
+// ParamTypes returns each declared parameter's type for fqcn, its own and
+// its fragments' (fragment.Types), or an empty map for a name that is not a
+// registered method.
+func ParamTypes(fqcn string) map[string]string {
+	desc, ok := collection.Lookup(fqcn)
+	if !ok {
+		return map[string]string{}
+	}
+	return fragment.Types(desc)
+}
+
 // TemplateStrings returns every string in v, at any depth, that holds a
 // template action, in a stable order.
 func TemplateStrings(v any) []string {
@@ -350,12 +447,12 @@ func renderedNames(raw any) ([]string, error) {
 		for _, item := range t {
 			s, ok := item.(string)
 			if !ok || strings.TrimSpace(s) == "" {
-				return nil, fmt.Errorf("the rendered target is a list holding %s, and each item must be a device name", valueKind(item))
+				return nil, fmt.Errorf("the rendered target is a list holding %s, and each item must be a device name", collection.ValueKind(item))
 			}
 			names = append(names, strings.TrimSpace(s))
 		}
 	default:
-		return nil, fmt.Errorf("the rendered target is %s, and it must be a device name, several separated by commas, or a list of names", valueKind(raw))
+		return nil, fmt.Errorf("the rendered target is %s, and it must be a device name, several separated by commas, or a list of names", collection.ValueKind(raw))
 	}
 	if len(names) == 0 {
 		return nil, errors.New("the rendered target names no device")

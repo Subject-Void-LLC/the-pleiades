@@ -27,7 +27,7 @@ func registerManifestMethod(t *testing.T) {
 	}
 	if err := collection.Register(collection.Descriptor{Name: "t119.apply", Invoke: run, Manifest: collection.Manifest{Status: collection.StatusImplemented,
 		Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a test fixture that changes nothing"},
-		Doc:           collection.Doc{Params: []collection.Param{{Name: "definition", Type: "raw", Format: collection.ParamFormatKubernetesManifest}}}}}); err != nil {
+		Doc:           collection.Doc{Params: []collection.Param{{Name: "definition", Type: "any", Format: collection.ParamFormatKubernetesManifest}}}}}); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -124,7 +124,7 @@ func toNative(n *yaml.Node, paramType, param string) (any, error) {
 	case isVault(n):
 		return nil, errAmbiguous{"a vault value"}
 	case n.Kind == yaml.SequenceNode:
-		if paramType != "list" && paramType != "list of string" && paramType != "int or list of int" {
+		if paramType != "list" && paramType != "list of string" && paramType != "int or list of int" && paramType != "scalar or list" {
 			return nil, errAmbiguous{fmt.Sprintf("a list where %s takes a %s", param, paramType)}
 		}
 		out := make([]any, 0, len(n.Content))
@@ -152,6 +152,8 @@ func toNative(n *yaml.Node, paramType, param string) (any, error) {
 // scalarToNative converts one scalar.
 func scalarToNative(v ansibleValue, paramType, param string) (any, error) {
 	switch paramType {
+	case "scalar or list":
+		return scalarToNative(v, "string", param)
 	case "list", "list of string":
 		text, err := scalarToNative(v, "string", param)
 		if err != nil {

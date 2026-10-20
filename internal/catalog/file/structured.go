@@ -185,7 +185,7 @@ func structuredRun(ctx context.Context, rc sdk.RunbookContext, device inventory.
 func structuredParams(what string) []collection.Param {
 	return []collection.Param{
 		{Name: structuredParamPath, Type: "string", Required: true, Description: "The " + what + " file on the device, an absolute path."},
-		{Name: structuredParamKey, Type: "string", Required: true, Description: "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."},
+		{Name: structuredParamKey, Type: "scalar or list", Required: true, Description: "The key path: dotted (server.port, items.0.name, a whole number indexing a list), or a list of segments ([server, \"a.b\", 0]) for a key holding a dot. A missing key is created, with a mapping for each missing step; an index one past a list's end appends."},
 		{Name: structuredParamValue, Type: "any", Description: "The value to set, any YAML value (a mapping, a list, a scalar, null). Required with state present."},
 		{Name: structuredParamState, Type: "string", Default: "present", Choices: []string{"present", "absent"}, Description: "present sets the value; absent removes the key, which is no change when it is not there."},
 		{Name: structuredParamCreate, Type: "bool", Default: "false", Description: "Start from an empty document when the file does not exist; without it a missing file is refused. A file it creates is mode 0644, owned by the account the device is reached as (file.attrs changes either)."},
