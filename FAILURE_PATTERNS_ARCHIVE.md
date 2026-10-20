@@ -13590,3 +13590,21 @@ and installs that release, so Go has nothing to fetch. Every job uses it.
 
 **Lesson.** A cache step that warns and carries on fails silently in every run; read a step's warnings, not its
 color. A toolchain switch inside a setup step changes what the step writes before anything restores over it.
+
+## 546. tests/e2e's per-test times came from a local run, where the compose gates' image builds hit a warm cache, so one CI shard got both builds (a repeat of 503) (fixed before merge)
+
+**Symptom.** 2026-10-20, PR #80's first run with tests/e2e divided: one e2e part took 855 s where 393 were expected,
+the other 368. `TestPackagingReleaseGate_ComposeStack` took 323 s in CI against 32 recorded, and
+`TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` 322 against 138, and both had been dealt to the same part.
+
+**Root cause.** 503's class: a table holding times from a different source than the check and the runners. No CI
+run had recorded per-test times yet (they are recorded only for a package durations.json divides), so the seed came
+from a local run scaled to CI's package total. The compose gates build images, which a developer's warm Docker build
+cache makes cheap and a fresh runner does not, so scaling by one factor ranked them wrong. 503's fix (regenerate from
+CI's own measurements) holds for packages; per-test times had no CI measurement to regenerate from until this run.
+
+**Fix.** durations.json is regenerated from this run's own Seconds and TestSeconds, as 503 said. With CI's times the
+two compose gates go to different parts and the six shards come to about 650 s each, except cmd/pleiades alone.
+
+**Lesson.** A seed from another machine is a guess even when scaled, and worst for tests whose cost is a cache; take
+the first real measurement before trusting the dealing, and expect the check's drift warning on the first run.
