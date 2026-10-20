@@ -53,8 +53,9 @@ func TestExamples_EveryRunbookBuildsAndValidates(t *testing.T) {
 // onboardedFirst names each example whose devices must be onboarded before
 // it validates, and the test that does that and then validates it.
 var onboardedFirst = map[string]string{
-	"ai_lab":   "TestCLI_AIExampleChecksWithoutChanging",
-	"edge_lab": "TestCLI_EdgeExampleReadsAndNamesEveryDifference",
+	"ai_lab":        "TestCLI_AIExampleChecksWithoutChanging",
+	"ai_repair_lab": "TestCLI_AIRepairExampleRepairsAndRollsBack",
+	"edge_lab":      "TestCLI_EdgeExampleReadsAndNamesEveryDifference",
 }
 
 // testExists reports whether a test file in this package declares the test
