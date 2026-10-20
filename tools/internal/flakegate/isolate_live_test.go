@@ -286,3 +286,48 @@ func TestSomethingElse(t *testing.T) {}
 		t.Errorf("confirmed = %+v, want the unanswerable re-run", confirmed)
 	}
 }
+
+// TestIsolateWith_APackageIsReRunWithItsOwnArguments proves a package-level
+// re-run takes the arguments chosen for its target, so a shard that ran part
+// of a package re-runs that part rather than the whole: here the package
+// fails whole and passes once its broken test is skipped, as a shard owning
+// only the other test would run it.
+func TestIsolateWith_APackageIsReRunWithItsOwnArguments(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs a throwaway module")
+	}
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"go.mod":        "module piecepkg\n\ngo 1.22\n",
+		"piece_test.go": "package piecepkg\n\nimport \"testing\"\n\nfunc TestMine(t *testing.T) {}\n\nfunc TestAnotherShards(t *testing.T) { t.Fatal(\"not this shard's\") }\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restore, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(restore) })
+
+	failure := []Failure{{Package: "piecepkg", Kind: FailedPackage}}
+	confirmed, _, _, err := Isolate(failure, nil, nil)
+	if err != nil || len(confirmed) != 1 {
+		t.Fatalf("the whole package re-run = %+v, %v, want it confirmed", confirmed, err)
+	}
+	var asked []Failure
+	confirmed, contention, _, err := IsolateWith(failure, func(f Failure) []string {
+		asked = append(asked, f)
+		return []string{"-skip", "^(TestAnotherShards)$"}
+	}, nil)
+	if err != nil || len(confirmed) != 0 || len(contention) != 1 {
+		t.Errorf("the piece re-run = confirmed %+v, contention %+v, %v; want contention", confirmed, contention, err)
+	}
+	if len(asked) != 1 || asked[0].Package != "piecepkg" || asked[0].Test != "" {
+		t.Errorf("argsFor was asked about %+v, want the package-level target", asked)
+	}
+}

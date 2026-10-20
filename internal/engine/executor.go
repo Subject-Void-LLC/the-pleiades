@@ -104,6 +104,17 @@ type NodeResult struct {
 	// answer that the caller must not report as clean.
 	Unchecked bool
 
+	// Conditional reports a rescue task in a check: it runs only if its
+	// block fails, which a check does not predict, so it is neither checked
+	// nor a gap in the check (it does not count as Unchecked). Skipped is
+	// true beside it.
+	Conditional bool
+
+	// RescuedBy names the first task of the rescue that answered this
+	// result's failure, for a failed result a block's rescue: recovered:
+	// Err stays as it was, and the run does not count it as an error.
+	RescuedBy string
+
 	// Provider names the external Collection program behind this node's
 	// method, with the digest it was loaded with, and is nil for a method
 	// compiled into this binary. It travels with the result so a reader
@@ -333,10 +344,21 @@ type RunResult struct {
 	Metadata map[string]interface{}
 }
 
-// HasErrors reports whether any NodeResult in this run failed.
+// HasErrors reports whether any NodeResult in this run failed, a failure a
+// rescue: answered aside.
 func (r RunResult) HasErrors() bool {
 	for _, n := range r.Nodes {
-		if n.Err != nil {
+		if n.Err != nil && n.RescuedBy == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// Rescued reports whether a rescue: answered any failure in this run.
+func (r RunResult) Rescued() bool {
+	for _, n := range r.Nodes {
+		if n.Err != nil && n.RescuedBy != "" {
 			return true
 		}
 	}
@@ -561,6 +583,11 @@ type run struct {
 	// collection.ModeCheck when the runbook itself carries check_mode.
 	// modeFor narrows it again per task.
 	mode collection.Mode
+
+	// handlers is each device's handling of failures inside blocks with a
+	// rescue: or an always: (handlers.go). Run changes it at the level
+	// barrier only; the nodes of a level only read it.
+	handlers *handlers
 }
 
 // modeFor is the mode task runs in (TaskMode): a check whenever the run
@@ -589,7 +616,8 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		secrets:           newStringSet(),
 		metadataRegisters: newStringSet(),
 		// The runbook's own check_mode narrows a real run to a check.
-		mode: TaskMode(x.mode, dag, nil),
+		mode:     TaskMode(x.mode, dag, nil),
+		handlers: newHandlers(dag),
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
@@ -613,6 +641,9 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 	// it is not stored in the journal, whose entries are ordered by
 	// Sequence and grouped by RunID.
 	levelIndex := 0
+	// ending holds, once a failure has ended the run, the blocks the walk
+	// was inside then: their always: tasks still run (whileEnding).
+	var ending map[string]bool
 	for {
 		level, ok := it.Next()
 		if !ok {
@@ -621,6 +652,16 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			err = ctxErr
 			return
+		}
+		if ending != nil {
+			run, pass := r.handlers.whileEnding(level, ending)
+			if !run && !pass {
+				break
+			}
+			if !run {
+				r.handlers.finished(level)
+				continue
+			}
 		}
 		levelIndex++
 
@@ -636,17 +677,25 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		// failure on the Walk tier.
 		r.recordLevel(ctx, levelIndex, outs)
 
+		// A failure ends the walk unless a rescue: or an always: is left to
+		// run for it (handlers.go). A check never routes one: a failed check
+		// is a failed prediction, and a check never runs a fallback.
 		failed := false
 		for _, out := range outs {
 			result.Nodes = append(result.Nodes, out...)
 			for _, nr := range out {
-				if nr.Err != nil {
+				if nr.Err != nil && (nr.Checked || !r.handlers.failed(nr)) {
 					failed = true
 				}
 			}
 		}
-		if failed {
-			break
+		r.handlers.finished(level)
+		if len(r.handlers.advance()) > 0 {
+			failed = true
+		}
+		markRescued(result.Nodes, r.handlers)
+		if failed && ending == nil {
+			ending = r.handlers.enclosing(level)
 		}
 	}
 
@@ -655,6 +704,16 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		return
 	}
 	return
+}
+
+// markRescued names, on each failed result a rescue answered, the rescue's
+// first task.
+func markRescued(nodes []NodeResult, h *handlers) {
+	for i := range nodes {
+		if by, ok := h.rescued[resultKey{nodes[i].NodeID, nodes[i].Device}]; ok && nodes[i].Err != nil {
+			nodes[i].RescuedBy = by
+		}
+	}
 }
 
 // runConcurrently runs fn once per item in items, each on its own
@@ -719,11 +778,40 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	// the node did.
 	started := time.Now().UTC()
 
+	// A task inside a block with a rescue: or an always: decides per device
+	// before anything else runs (handlers.go, handlers_run.go).
+	if r.dag.Guarded(r.dag.Scopes[nodeID]) {
+		return r.runGuarded(ctx, nodeID, task, started)
+	}
+
+	prepared, early := r.prepare(nodeID, task, started, "", nil)
+	if early != nil {
+		return []NodeResult{*early}
+	}
+	task = prepared
+
+	devices, err := r.resolveDevices(task)
+	if err != nil {
+		wrapped := fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err)
+		r.publish(nodeID, task, "", "failed", wrapped.Error())
+		return []NodeResult{failedNode(nodeID, started, FailureStageResolveTarget, wrapped)}
+	}
+	return r.dispatch(ctx, nodeID, task, devices, started)
+}
+
+// prepare evaluates task's condition, applies its secret_mask and renders
+// its parameters, returning the task to run, or the result that ends the
+// node here: a skip, or a failure. errorRoot, when not nil, is the failure
+// a rescue task reads as error, for device (a rescue renders per device);
+// device names the device a per-device skip belongs to, empty otherwise.
+func (r *run) prepare(nodeID string, task *Task, started time.Time, device string, errorRoot map[string]any) (*Task, *NodeResult) {
 	if cp := r.dag.Conditions[nodeID]; cp != nil {
 		tree, err := r.x.workflow.Read()
 		if err != nil {
-			return []NodeResult{failedNode(nodeID, started, FailureStageWorkflowRead,
-				fmt.Errorf("failed to read workflow context for %s: %w", taskLabel(nodeID, task), err))}
+			failed := failedNode(nodeID, started, FailureStageWorkflowRead,
+				fmt.Errorf("failed to read workflow context for %s: %w", taskLabel(nodeID, task), err))
+			failed.Device = device
+			return nil, &failed
 		}
 		// "stat" and "nodes" are bound to the identical WorkflowContext
 		// snapshot today: "stat" for simple, non-cross-node conditions and
@@ -734,12 +822,16 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		// different: it is r.x.extraVars (WithVariables), fixed for the
 		// whole Run call rather than grown by WorkflowContext, defaulting
 		// to an empty map so a condition can reference vars.foo on an
-		// Executor no caller supplied one for.
+		// Executor no caller supplied one for. "error" is the failure a
+		// rescue task answers, and is there only for one.
 		extraVars := r.x.extraVars
 		if extraVars == nil {
 			extraVars = map[string]interface{}{}
 		}
 		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars, "result": singleWriters(tree)}
+		if errorRoot != nil {
+			condVars[TemplateRootError] = errorRoot
+		}
 		var res ConditionResult
 		if r.modeFor(task) == collection.ModeCheck {
 			// A condition the unchecked tasks before it leave undecided is
@@ -752,16 +844,19 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 			if err == nil && undecided != "" {
 				r.markUnchecked(task, "", true)
 				r.publish(nodeID, task, "", "skipped", "could not check: "+undecided)
-				return []NodeResult{finish(NodeResult{
-					NodeID: nodeID, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
-				})}
+				skipped := finish(NodeResult{
+					NodeID: nodeID, Device: device, StartedAt: started, Skipped: true, Unchecked: true, Checked: true, SkipReason: undecided,
+				})
+				return nil, &skipped
 			}
 		} else {
 			res, err = cp.Eval(condVars)
 		}
 		if err != nil {
-			return []NodeResult{failedNode(nodeID, started, FailureStageConditionEval,
-				fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err))}
+			failed := failedNode(nodeID, started, FailureStageConditionEval,
+				fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err))
+			failed.Device = device
+			return nil, &failed
 		}
 		if !res.OK {
 			r.publish(nodeID, task, "", "skipped", res.Reason)
@@ -770,10 +865,11 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 			// already computed to build res.Reason. Taking them here rather
 			// than re-deriving them at the level barrier is what keeps the
 			// journal's numbers and the reason sentence from drifting apart.
-			return []NodeResult{finish(NodeResult{
-				NodeID: nodeID, StartedAt: started, Skipped: true, SkipReason: res.Reason,
+			skipped := finish(NodeResult{
+				NodeID: nodeID, Device: device, StartedAt: started, Skipped: true, SkipReason: res.Reason,
 				skipKind: skipKindFor(cp), skipOrdinal: res.Ordinal, skipTotal: res.Total,
-			})}
+			})
+			return nil, &skipped
 		}
 	}
 
@@ -786,27 +882,29 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	if err := r.applySecretMask(task); err != nil {
 		wrapped := fmt.Errorf("failed to apply secret_mask for %s: %w", taskLabel(nodeID, task), err)
 		r.publish(nodeID, task, "", "failed", wrapped.Error())
-		return []NodeResult{failedNode(nodeID, started, FailureStageSecretMask, wrapped)}
+		failed := failedNode(nodeID, started, FailureStageSecretMask, wrapped)
+		failed.Device = device
+		return nil, &failed
 	}
 
 	// Params render here, after the condition decided the task runs and
 	// before its targets resolve, since a target may itself be rendered
 	// (render_params.go). The DAG's own task is left as authored.
-	rendered, err := r.renderTask(task)
+	rendered, err := r.renderTask(task, errorRoot)
 	if err != nil {
 		wrapped := fmt.Errorf("failed to render the parameters of %s: %w", taskLabel(nodeID, task), err)
 		r.publish(nodeID, task, "", "failed", wrapped.Error())
-		return []NodeResult{failedNode(nodeID, started, FailureStageRender, wrapped)}
+		failed := failedNode(nodeID, started, FailureStageRender, wrapped)
+		failed.Device = device
+		return nil, &failed
 	}
-	task = rendered
+	return rendered, nil
+}
 
-	devices, err := r.resolveDevices(task)
-	if err != nil {
-		wrapped := fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err)
-		r.publish(nodeID, task, "", "failed", wrapped.Error())
-		return []NodeResult{failedNode(nodeID, started, FailureStageResolveTarget, wrapped)}
-	}
-
+// dispatch runs task on devices (or once with no device, when there are
+// none): each device its lifecycle admits, with its lock, through runOne,
+// returning one result per device.
+func (r *run) dispatch(ctx context.Context, nodeID string, task *Task, devices []inventory.InventoryItem, started time.Time) []NodeResult {
 	// The runtime half of the chain audit's lifecycle finding
 	// (IMPLEMENTATION.md Phase W5): a device that resolveDevices found is
 	// not necessarily one real work may target. Partitioning here, not

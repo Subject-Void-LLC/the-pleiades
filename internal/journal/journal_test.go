@@ -29,6 +29,9 @@ func TestNewFileStoreCreatesBothDirectoriesOwnerOnly(t *testing.T) {
 	if got, want := store.Dir(), journalDir(root); got != want {
 		t.Errorf("Dir() = %q, want %q", got, want)
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission bits do not apply on windows")
+	}
 
 	for _, path := range []string{filepath.Join(root, ".pleiades"), journalDir(root)} {
 		info, err := os.Stat(path)

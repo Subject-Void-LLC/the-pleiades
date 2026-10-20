@@ -114,7 +114,15 @@ func printResults(rep *runReport, verbose bool) {
 			fmt.Printf("  %s: COULD NOT CHECK (%s)%s\n", label, termsafe.Escape(t.Reason), note)
 			continue
 		case statusFailed:
+			if t.RescuedBy != "" {
+				// The run went on: say so on the line, so a reader of the text
+				// view sees the fallback as plainly as the failure.
+				fmt.Printf("  %s: FAILED, RESCUED by %s: %v\n", label, t.RescuedBy, termsafe.Escape(t.Error))
+				break
+			}
 			fmt.Printf("  %s: FAILED: %v\n", label, termsafe.Escape(t.Error))
+		case statusConditionalSkip:
+			fmt.Printf("  %s: not predicted (%s)\n", label, termsafe.Escape(t.Reason))
 		case statusHeld:
 			fmt.Printf("  %s: HELD FOR REVIEW: %v\n", label, termsafe.Escape(t.Error))
 		case statusSkipped:
@@ -159,11 +167,13 @@ func printResults(rep *runReport, verbose bool) {
 		fmt.Printf("run %s, journal %s\n", rep.RunID, termsafe.EscapeLine(rep.Journal))
 	}
 
-	switch rep.Outcome.Status {
-	case "complete":
+	switch {
+	case rep.Outcome.Status == "complete", rep.Outcome.Status == "rescued" && rep.Outcome.ExitCode == 0:
+		// A rescued run that ends 0 prints its own line saying so; under
+		// --fail-on-rescue it is the error the command ends with instead.
 		fmt.Println()
 		fmt.Println(rep.Outcome.Message)
-	case "incomplete":
+	case rep.Outcome.Status == "incomplete":
 		// The tasks were named above, so the fix is visible without
 		// rerunning anything; the error main prints says what is missing.
 		fmt.Println()
@@ -310,3 +320,19 @@ func (e *incompleteError) Error() string { return e.msg }
 
 // ExitCode implements exitCoder.
 func (e *incompleteError) ExitCode() int { return exitIncomplete }
+
+// exitRescued is the status of a run a block's rescue: answered, under
+// --fail-on-rescue: neither success, since a fallback ran, nor failure (1),
+// since the run reached its end, so a gate can tell the two apart without
+// reading the report.
+const exitRescued = 4
+
+// rescuedError is the error a rescued run ends with under --fail-on-rescue,
+// carrying exitRescued.
+type rescuedError struct{ msg string }
+
+// Error implements error.
+func (e *rescuedError) Error() string { return e.msg }
+
+// ExitCode implements exitCoder.
+func (e *rescuedError) ExitCode() int { return exitRescued }

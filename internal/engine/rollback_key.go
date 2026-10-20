@@ -26,14 +26,11 @@ func validateRollback(task *Task, id string) error {
 	if len(task.Rollback) == 0 {
 		return nil
 	}
-	switch {
-	case task.Kind() != TaskKindLeaf:
+	if task.Kind() != TaskKindLeaf {
 		// A block's own id never runs (see validateTask), so no journal
 		// entry could ever say it changed anything; and an import_tasks
 		// task is a block by the time it is registered.
 		return fmt.Errorf("task %s sets rollback: on a block or parallel group: put it on the tasks inside, since only a task that runs can be undone", taskLabel(id, task))
-	case strings.Contains(id, ".rescue[") || strings.Contains(id, ".always["):
-		return fmt.Errorf("task %s sets rollback: inside rescue: or always:, which does not run yet, so nothing it changes needs undoing; put rollback: on the tasks of the block", taskLabel(id, task))
 	}
 	for i := range task.Rollback {
 		step := &task.Rollback[i]

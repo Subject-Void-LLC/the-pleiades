@@ -4,7 +4,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -41,6 +40,10 @@ const (
 	statusSkipped taskStatus = "skipped"
 	// statusUnchecked could not say what it would change.
 	statusUnchecked taskStatus = "unchecked"
+	// statusConditionalSkip is a rescue task in a check: it runs only if its
+	// block fails, which a check does not predict, so it is neither checked
+	// nor a gap in the check.
+	statusConditionalSkip taskStatus = "conditional_skip"
 )
 
 // runReport is one run, as both views print it.
@@ -145,6 +148,9 @@ type taskReport struct {
 	Status taskStatus `json:"status"`
 	// Error is a failed task's error.
 	Error string `json:"error,omitempty"`
+	// RescuedBy names the first task of the rescue: that answered this
+	// failed task's failure; the run went on past it.
+	RescuedBy string `json:"rescued_by,omitempty"`
 	// Unreached marks a failed task whose device never answered: its
 	// connection failed or timed out before anything was sent, so nothing
 	// ran and running it again is safe. A refused login is not unreached.
@@ -176,20 +182,6 @@ type runOutcome struct {
 	Unchecked int `json:"unchecked,omitempty"`
 	// AllowedUnchecked names the unchecked tasks --allow-unchecked allowed.
 	AllowedUnchecked []string `json:"allowed_unchecked,omitempty"`
-}
-
-// unreachedError is a transport's failure that knows whether the device
-// never answered (pkg/remoteexec.DialError, pkg/winrmexec.NotStartedError).
-type unreachedError interface {
-	error
-	Unreached() bool
-}
-
-// unreached reports whether err, anywhere in its chain, is a transport's
-// failure saying the device never answered.
-func unreached(err error) bool {
-	var u unreachedError
-	return errors.As(err, &u) && u.Unreached()
 }
 
 // planReport fills the parts of the report known before anything runs.
@@ -270,6 +262,8 @@ func taskReports(dag *engine.DAG, result *engine.RunResult, items []pkginventory
 			t.FinishedAt = &finished
 		}
 		switch {
+		case node.Conditional:
+			t.Status, t.Reason = statusConditionalSkip, node.SkipReason
 		case node.Unchecked:
 			t.Status, t.Reason = statusUnchecked, redact.Text(result.Secrets, node.SkipReason)
 			t.AllowedUnchecked = allowUnchecked[t.Method]
@@ -278,7 +272,8 @@ func taskReports(dag *engine.DAG, result *engine.RunResult, items []pkginventory
 			if _, held := engine.HoldOf(node.Err); held {
 				t.Status = statusHeld
 			}
-			t.Unreached = unreached(node.Err)
+			t.Unreached = engine.Unreached(node.Err)
+			t.RescuedBy = node.RescuedBy
 		case node.Skipped:
 			t.Status, t.Reason = statusSkipped, redact.Text(result.Secrets, node.SkipReason)
 		case node.Changed && (checking || node.Checked):

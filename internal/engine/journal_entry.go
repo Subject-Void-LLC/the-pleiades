@@ -355,12 +355,12 @@ func validFailureStage(stage FailureStage) bool {
 	}
 }
 
-// validSkipKind reports whether kind is one of the four reasons a node
-// may be recorded as skipped. It enumerates them for the same reason
+// validSkipKind reports whether kind is one of the six reasons a node may
+// be recorded as skipped. It enumerates them for the same reason
 // validFailureStage does.
 func validSkipKind(kind SkipKind) bool {
 	switch kind {
-	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle:
+	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed:
 		return true
 	case SkipKindNone:
 		return false

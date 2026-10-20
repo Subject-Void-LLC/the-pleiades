@@ -19,13 +19,19 @@ and Limitations sections are the honest baseline everything below builds on.
 `when:` (list form ANDs, same as Ansible), `pretasks:`/`tasks:`/`posttasks:` (Ansible's
 `pre_tasks:`/`tasks:`/`post_tasks:`, same three-phase shape and ordering).
 
-**Parses and validates, but never runs:** `rescue:` and `always:`. The schema accepts
-both, `pleiades validate` checks both, and `pleiades run` prints both in the plan, but
-the executor never reaches them. A `block:` whose child fails runs no rescue handler:
-the run just fails. `always:` is the more dangerous of the two, because a `block:` that
-succeeds still prints `run complete` and exits 0 while its `always:` tasks are skipped
-in silence, so nothing warns you the cleanup did not happen. Keep cleanup and recovery
-steps inside the `block:` itself, in order, until these are implemented.
+**Transfers, with three differences:** `rescue:` and `always:`. A `rescue:` runs on each
+device where a task of its block failed, and answers the failure when it runs to its end:
+the run goes on, and ends `rescued` rather than `complete` (exit 0, or 4 with `pleiades run
+--fail-on-rescue`, for a gate that must not pass through a fallback). An `always:` runs on
+every device the block ran on, whatever happened. The differences: a block one of whose tasks
+runs somewhere other than the runbook's `hosts:` (a `target:` of its own, in place of
+`delegate_to`) runs as one unit, a failure on any device failing it on every device and its
+rescue and always tasks running once on their own targets; a rescue task reads the failure as
+`error` (`error.task`, `error.message` and the rest), not
+`ansible_failed_task` or `ansible_failed_result`; and in `--mode check` a rescue task is not
+predicted (`conditional_skip`), since a check never runs a fallback. How they run beside
+check mode, the journal and rollback is set out in
+[design/block-rescue-always.md](design/block-rescue-always.md).
 
 **Genuinely new, no Ansible equivalent:** `when_or:` (list ORed instead of ANDed),
 `when_cel:` (one raw CEL expression), `register_mask:` and `secret_mask:` (per-field
@@ -169,8 +175,8 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | `tasks:` | `tasks:` | Same. | Converted. |
 | `post_tasks:` | `posttasks:` | Same phase, no underscore. | Converted. |
 | `block:` | `block:` | Same grouping. | Converted; a `when:` on it is pushed down onto each task inside. |
-| `rescue:` | `rescue:` | Accepted and validated; the Crawl-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). | Converted, with a review finding: it does not run yet. |
-| `always:` | `always:` | Same status as `rescue:` above: accepted, not yet executed. | Converted, with a review finding: it does not run yet. |
+| `rescue:` | `rescue:` | Runs on each device whose block failed (once, for a block that runs as one unit); reads the failure as `error`, not `ansible_failed_task`. | Converted, with a review finding naming those differences. |
+| `always:` | `always:` | Runs on every device the block ran on, whatever happened. | Converted, with a review finding. |
 | `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. | Kept. |
 | `when:` (single or list) | `when:` | A list ANDs, same as Ansible. The Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. | Translated to CEL for comparisons, `and`/`or`/`not`, `in`, `is defined` and the `bool`/`int`/`length` filters; anything else is blocked. |
 | none | `when_or:` | New. A list ORed instead of ANDed. | - |

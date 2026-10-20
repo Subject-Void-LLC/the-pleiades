@@ -66,11 +66,11 @@ func (t *translator) translateBlock(node *yaml.Node, entries []entry, name strin
 	out := &outTask{name: name, tags: tags, cites: cites, at: at}
 	out.block = t.translateTasks(lookup(node, "block"), inner)
 	if rescue.key != "" {
-		out.cites = append(out.cites, t.raise("block.rescue", nodePos(rescue.keyAt, t.file), name, "rescue converted but not yet run by the engine"))
+		out.cites = append(out.cites, t.raise("block.rescue", nodePos(rescue.keyAt, t.file), name, "rescue converted: it runs per device, and reads the failure as error rather than ansible_failed_task"))
 		out.rescue = t.translateTasks(rescue.value, inner)
 	}
 	if always.key != "" {
-		out.cites = append(out.cites, t.raise("block.always", nodePos(always.keyAt, t.file), name, "always converted but not yet run by the engine"))
+		out.cites = append(out.cites, t.raise("block.always", nodePos(always.keyAt, t.file), name, "always converted: it runs on each device the block ran on"))
 		out.always = t.translateTasks(always.value, inner)
 	}
 	if len(out.block) == 0 {

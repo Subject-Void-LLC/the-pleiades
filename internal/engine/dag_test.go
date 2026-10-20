@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -17,9 +18,9 @@ func TestDAGBuilder_LinearTasks(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-1",
 		"tasks": [
-			{"name": "start", "fqcn": "noop"},
-			{"name": "ping", "fqcn": "ssh_exec"},
-			{"name": "reboot", "fqcn": "ios_backup", "when": "stat.ping_ms > 100"}
+			{"name": "start", "noop": {}},
+			{"name": "ping", "ssh_exec": {}},
+			{"name": "reboot", "ios_backup": {}, "when": "stat.ping_ms > 100"}
 		]
 	}`)
 
@@ -63,7 +64,7 @@ func TestDAGBuilder_WhenCondition(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-when",
 		"tasks": [
-			{"name": "conditional step", "fqcn": "noop", "when": "stat.ok == true"}
+			{"name": "conditional step", "noop": {}, "when": "stat.ok == true"}
 		]
 	}`)
 
@@ -76,10 +77,11 @@ func TestDAGBuilder_WhenCondition(t *testing.T) {
 	}
 }
 
-// TestDAGBuilder_BlockRescueAlways confirms a block task's Block children
-// splice into the happy-path chain, while its Rescue and Always children
-// land in DAG.Nodes (for coverage) but never appear in the happy-path
-// Adjacency chain.
+// TestDAGBuilder_BlockRescueAlways confirms a block task's own tasks, then
+// its rescue tasks, then its always tasks, splice into the chain in the
+// place the block occupies, the block's own id never on it; and that each
+// task records the block enclosing it and its part, and the block the nodes
+// of each part, which is what the executor decides per device from.
 func TestDAGBuilder_BlockRescueAlways(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
@@ -87,16 +89,16 @@ func TestDAGBuilder_BlockRescueAlways(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-block",
 		"tasks": [
-			{"name": "before", "fqcn": "noop"},
+			{"name": "before", "noop": {}},
 			{"name": "risky", "block": [
-				{"name": "b0", "fqcn": "ssh_exec"},
-				{"name": "b1", "fqcn": "ssh_exec"}
+				{"name": "b0", "ssh_exec": {}},
+				{"name": "b1", "ssh_exec": {}}
 			], "rescue": [
-				{"name": "r0", "fqcn": "noop"}
+				{"name": "r0", "noop": {}}
 			], "always": [
-				{"name": "a0", "fqcn": "noop"}
+				{"name": "a0", "noop": {}}
 			]},
-			{"name": "after", "fqcn": "noop"}
+			{"name": "after", "noop": {}}
 		]
 	}`)
 
@@ -105,9 +107,6 @@ func TestDAGBuilder_BlockRescueAlways(t *testing.T) {
 		t.Fatalf("failed to build valid DAG: %v", err)
 	}
 
-	// Every task, at every depth, lands in Nodes: tasks[0], tasks[1] (the
-	// block task itself), tasks[1].block[0], tasks[1].block[1],
-	// tasks[1].rescue[0], tasks[1].always[0], tasks[2].
 	wantNodes := []string{
 		"tasks[0]", "tasks[1]", "tasks[1].block[0]", "tasks[1].block[1]",
 		"tasks[1].rescue[0]", "tasks[1].always[0]", "tasks[2]",
@@ -121,35 +120,30 @@ func TestDAGBuilder_BlockRescueAlways(t *testing.T) {
 		}
 	}
 
-	// The happy-path chain splices tasks[1]'s Block children into the
-	// position tasks[1] occupies: tasks[0] -> tasks[1].block[0] ->
-	// tasks[1].block[1] -> tasks[2]. tasks[1] itself never appears as a
-	// source or target.
-	if len(dag.Adjacency["tasks[0]"]) != 1 || dag.Adjacency["tasks[0]"][0].To != "tasks[1].block[0]" {
-		t.Fatalf("expected tasks[0] -> tasks[1].block[0], got %v", dag.Adjacency["tasks[0]"])
-	}
-	if len(dag.Adjacency["tasks[1].block[0]"]) != 1 || dag.Adjacency["tasks[1].block[0]"][0].To != "tasks[1].block[1]" {
-		t.Fatalf("expected tasks[1].block[0] -> tasks[1].block[1], got %v", dag.Adjacency["tasks[1].block[0]"])
-	}
-	if len(dag.Adjacency["tasks[1].block[1]"]) != 1 || dag.Adjacency["tasks[1].block[1]"][0].To != "tasks[2]" {
-		t.Fatalf("expected tasks[1].block[1] -> tasks[2], got %v", dag.Adjacency["tasks[1].block[1]"])
+	chain := []string{"tasks[0]", "tasks[1].block[0]", "tasks[1].block[1]", "tasks[1].rescue[0]", "tasks[1].always[0]", "tasks[2]"}
+	for i := 0; i+1 < len(chain); i++ {
+		if edges := dag.Adjacency[chain[i]]; len(edges) != 1 || edges[0].To != chain[i+1] {
+			t.Errorf("expected %s -> %s, got %v", chain[i], chain[i+1], edges)
+		}
 	}
 	if edges, ok := dag.Adjacency["tasks[1]"]; ok {
 		t.Errorf("expected tasks[1] (the block task itself) to have no outgoing adjacency, got %v", edges)
 	}
 
-	// Rescue and Always never appear as a source or target in Adjacency.
-	for _, id := range []string{"tasks[1].rescue[0]", "tasks[1].always[0]"} {
-		if edges, ok := dag.Adjacency[id]; ok {
-			t.Errorf("expected %q to have no outgoing adjacency, got %v", id, edges)
+	for id, part := range map[string]engine.BlockPart{
+		"tasks[1].block[1]": engine.PartBlock, "tasks[1].rescue[0]": engine.PartRescue, "tasks[1].always[0]": engine.PartAlways,
+	} {
+		if got := dag.Scopes[id]; len(got) != 1 || got[0].Block != "tasks[1]" || got[0].Part != part {
+			t.Errorf("Scopes[%s] = %v, want tasks[1]'s %s", id, got, part)
 		}
 	}
-	for _, edges := range dag.Adjacency {
-		for _, e := range edges {
-			if e.To == "tasks[1].rescue[0]" || e.To == "tasks[1].always[0]" {
-				t.Errorf("expected no edge to target %q, got one", e.To)
-			}
-		}
+	if got := dag.Scopes["tasks[0]"]; got != nil {
+		t.Errorf("a task in no block has scopes %v", got)
+	}
+	guard := dag.Guards["tasks[1]"]
+	if !reflect.DeepEqual(guard.Tasks, []string{"tasks[1].block[0]", "tasks[1].block[1]"}) ||
+		!reflect.DeepEqual(guard.Rescue, []string{"tasks[1].rescue[0]"}) || !reflect.DeepEqual(guard.Always, []string{"tasks[1].always[0]"}) {
+		t.Errorf("Guards[tasks[1]] = %+v", guard)
 	}
 }
 
@@ -188,8 +182,8 @@ func TestDAGBuilder_BothFQCNAndBlockIsError(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-both-task",
 		"tasks": [
-			{"name": "confused", "fqcn": "noop", "block": [
-				{"name": "child", "fqcn": "noop"}
+			{"name": "confused", "noop": {}, "block": [
+				{"name": "child", "noop": {}}
 			]}
 		]
 	}`)
@@ -213,8 +207,8 @@ func TestDAGBuilder_RescueWithoutBlockIsError(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-rescue-no-block",
 		"tasks": [
-			{"name": "orphan rescue", "fqcn": "noop", "rescue": [
-				{"name": "r0", "fqcn": "noop"}
+			{"name": "orphan rescue", "noop": {}, "rescue": [
+				{"name": "r0", "noop": {}}
 			]}
 		]
 	}`)
@@ -238,8 +232,8 @@ func TestDAGBuilder_AlwaysWithoutBlockIsError(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-always-no-block",
 		"tasks": [
-			{"name": "orphan always", "fqcn": "noop", "always": [
-				{"name": "a0", "fqcn": "noop"}
+			{"name": "orphan always", "noop": {}, "always": [
+				{"name": "a0", "noop": {}}
 			]}
 		]
 	}`)
@@ -265,7 +259,7 @@ func TestDAGBuilder_RejectsUnsafeRunbookID(t *testing.T) {
 	builder := engine.NewBuilder(eval)
 
 	for _, id := range []string{"billing.exfil", "wildcard*", "prefix>", "has space"} {
-		payload := []byte(`{"id":"` + id + `","tasks":[{"name":"a","fqcn":"noop"}]}`)
+		payload := []byte(`{"id":"` + id + `","tasks":[{"name":"a","noop": {}}]}`)
 		_, err := builder.Build(payload)
 		if err == nil {
 			t.Fatalf("expected id %q to be rejected", id)
@@ -285,7 +279,7 @@ func TestDAGBuilder_AllowsSafeRunbookID(t *testing.T) {
 	builder := engine.NewBuilder(eval)
 
 	for _, id := range []string{"", "sample", "runbook-1", "runbook_1", "R9"} {
-		payload := []byte(`{"id":"` + id + `","tasks":[{"name":"a","fqcn":"noop"}]}`)
+		payload := []byte(`{"id":"` + id + `","tasks":[{"name":"a","noop": {}}]}`)
 		if _, err := builder.Build(payload); err != nil {
 			t.Errorf("expected id %q to be accepted, got: %v", id, err)
 		}
@@ -316,12 +310,12 @@ func TestDAGBuilder_Parallel(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-parallel",
 		"tasks": [
-			{"name": "before", "fqcn": "noop"},
+			{"name": "before", "noop": {}},
 			{"name": "fanout", "parallel": [
-				{"name": "p0", "fqcn": "noop"},
-				{"name": "p1", "fqcn": "noop"}
+				{"name": "p0", "noop": {}},
+				{"name": "p1", "noop": {}}
 			]},
-			{"name": "after", "fqcn": "noop"}
+			{"name": "after", "noop": {}}
 		]
 	}`)
 
@@ -407,10 +401,10 @@ func TestDAGBuilder_ParallelWithNestedBlock(t *testing.T) {
 		"tasks": [
 			{"name": "fanout", "parallel": [
 				{"name": "grouped", "block": [
-					{"name": "b0", "fqcn": "noop"},
-					{"name": "b1", "fqcn": "noop"}
+					{"name": "b0", "noop": {}},
+					{"name": "b1", "noop": {}}
 				]},
-				{"name": "p1", "fqcn": "noop"}
+				{"name": "p1", "noop": {}}
 			]}
 		]
 	}`)
@@ -451,11 +445,11 @@ func TestDAGBuilder_ParallelExclusivity(t *testing.T) {
 	builder := engine.NewBuilder(eval)
 
 	cases := map[string]string{
-		"fqcn and parallel": `{"id":"x","tasks":[{"name":"bad","fqcn":"noop","parallel":[{"name":"c","fqcn":"noop"}]}]}`,
-		"block and parallel": `{"id":"x","tasks":[{"name":"bad","block":[{"name":"c","fqcn":"noop"}],
-			"parallel":[{"name":"c","fqcn":"noop"}]}]}`,
-		"parallel with rescue, no block": `{"id":"x","tasks":[{"name":"bad","parallel":[{"name":"c","fqcn":"noop"}],
-			"rescue":[{"name":"r","fqcn":"noop"}]}]}`,
+		"fqcn and parallel": `{"id":"x","tasks":[{"name":"bad","noop": {},"parallel":[{"name":"c","noop": {}}]}]}`,
+		"block and parallel": `{"id":"x","tasks":[{"name":"bad","block":[{"name":"c","noop": {}}],
+			"parallel":[{"name":"c","noop": {}}]}]}`,
+		"parallel with rescue, no block": `{"id":"x","tasks":[{"name":"bad","parallel":[{"name":"c","noop": {}}],
+			"rescue":[{"name":"r","noop": {}}]}]}`,
 	}
 
 	for name, payload := range cases {
@@ -482,7 +476,7 @@ func TestDAGBuilder_ConditionOrSecretMaskOnGroupTaskIsError(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
 
-	child := `{"name":"c","fqcn":"noop"}`
+	child := `{"name":"c","noop": {}}`
 	cases := map[string]string{
 		"when on block":           `{"id":"x","tasks":[{"name":"bad","when":"true","block":[` + child + `]}]}`,
 		"when_or on block":        `{"id":"x","tasks":[{"name":"bad","when_or":["true"],"block":[` + child + `]}]}`,
@@ -522,10 +516,10 @@ func TestDAGBuilder_ConditionOnGroupChildStillCompiles(t *testing.T) {
 		"id": "runbook-child-condition",
 		"tasks": [
 			{"name": "guarded block", "block": [
-				{"name": "b0", "fqcn": "noop", "when_cel": "true"}
+				{"name": "b0", "noop": {}, "when_cel": "true"}
 			]},
 			{"name": "guarded parallel", "parallel": [
-				{"name": "p0", "fqcn": "noop", "when_cel": "true"}
+				{"name": "p0", "noop": {}, "when_cel": "true"}
 			]}
 		]
 	}`)
@@ -550,7 +544,7 @@ func TestDAGBuilder_Version(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
 
-	payload := []byte(`{"id":"v1","tasks":[{"name":"a","fqcn":"noop"}]}`)
+	payload := []byte(`{"id":"v1","tasks":[{"name":"a","noop": {}}]}`)
 
 	first, err := builder.Build(payload)
 	if err != nil {
@@ -571,7 +565,7 @@ func TestDAGBuilder_Version(t *testing.T) {
 		t.Errorf("expected identical input to produce identical Version, got %q and %q", first.Version, second.Version)
 	}
 
-	changed := []byte(`{"id":"v1","tasks":[{"name":"a","fqcn":"noop","params":{"x":1}}]}`)
+	changed := []byte(`{"id":"v1","tasks":[{"name":"a","noop": {"x":1}}]}`)
 	third, err := builder.Build(changed)
 	if err != nil {
 		t.Fatalf("failed to build DAG: %v", err)
@@ -614,7 +608,7 @@ func TestDAGBuilder_ExcessiveNestingRejected(t *testing.T) {
 // FuzzDAGBuilder seed corpus, so the fuzzer exercises the identical
 // adversarial shape the targeted test already pins down.
 func deeplyNestedPayload(n int) []byte {
-	inner := `{"name":"leaf","fqcn":"noop"}`
+	inner := `{"name":"leaf","noop": {}}`
 	for i := 0; i < n; i++ {
 		inner = `{"name":"level","block":[` + inner + `]}`
 	}
@@ -637,7 +631,7 @@ func TestDAGBuilder_LargeFlatTaskListDoesNotCrash(t *testing.T) {
 		if i > 0 {
 			sb.WriteByte(',')
 		}
-		sb.WriteString(`{"name":"t","fqcn":"noop"}`)
+		sb.WriteString(`{"name":"t","noop": {}}`)
 	}
 	sb.WriteString(`]}`)
 

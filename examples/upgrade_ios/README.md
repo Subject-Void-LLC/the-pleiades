@@ -69,13 +69,13 @@ instead.
 
 ## What is different
 
-**No Jinja templating in params, yet.** The Ansible playbook has a `vars:` block
-(`target_image`, `target_md5`, `image_server`) and reuses `{{ target_image }}` five times.
-Pleiades runbooks have no `vars:` section and no string interpolation in `params:` at all
-(`internal/engine`'s `Task.Params` is a literal `map[string]interface{}`, nothing renders it).
-The Pleiades runbook repeats the literal image filename and checksum in every task instead.
-The shared template renderer exists but is not applied to task params yet, so this is a
-current gap, not a design choice you should copy.
+**No authored `vars:`.** The Ansible playbook has a `vars:` block (`target_image`,
+`target_md5`, `image_server`) and reuses `{{ target_image }}` five times. A Pleiades runbook
+has no `vars:` section of its own: a string in `params:` renders, and can read the run's
+variables (`pleiades run -e target_image=...`), earlier registered results, and in a
+`rescue:` the failure it answers, but nothing in the file defines a variable. This runbook
+repeats the literal image filename and checksum in every task, so it runs without `-e`; its
+rescue does use templating, to quote the version the switch started from.
 
 **No answers to interactive prompts.** The playbook's `cli_command` tasks answer IOS's own
 questions with `prompt:` and `answer:` ("Destination filename" on copy, "[confirm]" on reload).
@@ -137,15 +137,16 @@ $ pleiades validate runbooks/upgrade_ios_xe.yaml
 validate: no issues found
 ```
 
-Three things still stop it running end to end against a real switch, each stated at the task
+Two things still stop it running end to end against a real switch, each stated at the task
 it affects:
 
 - The image copy needs `file prompt quiet` on the switch, since the step cannot answer IOS's
   "Destination filename" question (see "No answers to interactive prompts" above).
 - The reload cannot answer "[confirm]" at all yet, so that step fails after 30 seconds and the
   switch has to be reloaded by hand.
-- `rescue:` is accepted and checked, but the executor does not run rescue or always tasks yet,
-  so a failure inside the block ends the run without recording the rollback instructions.
+
+When a task inside the block fails, its `rescue:` runs: it records the failure and the
+rollback instructions in the run's metadata, and the run ends `rescued` rather than failed.
 
 `pleiades.builtin.set_metadata` is a working builtin reached through the engine's own action path
 rather than a Collection method, which is why it needs no catalog entry.

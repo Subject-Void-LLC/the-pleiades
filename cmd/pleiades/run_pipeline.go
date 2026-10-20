@@ -45,6 +45,8 @@ type runOptions struct {
 	forks int
 	// persist keeps one SSH connection per device between its tasks.
 	persist bool
+	// failOnRescue ends a run a block's rescue: answered with exitRescued.
+	failOnRescue bool
 	// allowUnchecked names methods whose unchecked tasks do not make a
 	// check incomplete.
 	allowUnchecked map[string]bool
@@ -219,7 +221,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	if len(result.Metadata) > 0 {
 		rep.Metadata, _ = redact.Value(result.Secrets, result.Metadata).(map[string]any)
 	}
-	rep.Outcome = outcomeOf(rep, result.HasErrors())
+	rep.Outcome = outcomeOf(rep, result.HasErrors(), result.Rescued(), opts.failOnRescue)
 	if opts.rollback != nil {
 		rep.Rollback = opts.rollback
 		rep.Outcome = rollbackOutcome(rep.Outcome, opts.rollback)
@@ -269,10 +271,18 @@ func loadSource(dir string, src runSource) ([]pkginventory.InventoryItem, *engin
 // outcomeOf is how a finished run ended, counting what a check left
 // uncovered. A task an --allow-unchecked method left unchecked is named
 // rather than counted, so a pipeline accepts exactly the gaps it named.
-func outcomeOf(rep *runReport, failed bool) runOutcome {
+//
+// A run a block's rescue: answered ends rescued, never complete, so a
+// reader can tell a desired state reached cleanly from a fallback that ran;
+// with --fail-on-rescue it ends with exitRescued rather than 0.
+func outcomeOf(rep *runReport, failed, rescued, failOnRescue bool) runOutcome {
 	checking := rep.Mode == collection.ModeCheck
 	var out runOutcome
+	var answered []string
 	for _, t := range rep.Tasks {
+		if t.RescuedBy != "" {
+			answered = append(answered, taskLabel(t))
+		}
 		if t.Status != statusUnchecked {
 			continue
 		}
@@ -298,6 +308,12 @@ func outcomeOf(rep *runReport, failed bool) runOutcome {
 		out.Message = fmt.Sprintf("check complete: nothing was changed (not checked, as --allow-unchecked allows: %s)", strings.Join(out.AllowedUnchecked, ", "))
 	case checking:
 		out.Status, out.Message = "complete", "check complete: nothing was changed"
+	case rescued && failOnRescue:
+		out.Status, out.ExitCode = "rescued", exitRescued
+		out.Message = fmt.Sprintf("run rescued: a rescue: answered the failure of %s, and --fail-on-rescue does not accept that", strings.Join(answered, ", "))
+	case rescued:
+		out.Status = "rescued"
+		out.Message = fmt.Sprintf("run complete through a rescue: it answered the failure of %s", strings.Join(answered, ", "))
 	case out.Unchecked > 0:
 		// Validation refuses check_mode on a task that cannot be checked, so
 		// this is the backstop for a runbook that reached the engine another
@@ -314,11 +330,13 @@ func outcomeOf(rep *runReport, failed bool) runOutcome {
 // outcomeError is the error the command ends with for outcome: none for a
 // complete run, exitIncomplete's for an incomplete one, else a plain one.
 func outcomeError(outcome runOutcome) error {
-	switch outcome.Status {
-	case "complete":
+	switch {
+	case outcome.Status == "complete", outcome.Status == "rescued" && outcome.ExitCode == 0:
 		return nil
-	case "incomplete":
+	case outcome.Status == "incomplete":
 		return &incompleteError{msg: outcome.Message}
+	case outcome.Status == "rescued":
+		return &rescuedError{msg: outcome.Message}
 	}
 	return errors.New(outcome.Message)
 }

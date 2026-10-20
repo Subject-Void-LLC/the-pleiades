@@ -96,3 +96,54 @@ func collectReads(root celast.Expr, seen map[string]bool) (dynamic bool) {
 	}))
 	return appearances > named
 }
+
+// ConditionUsesRoot reports whether any of c's expressions names the CEL
+// variable root at all, which validation reads to refuse error outside a
+// rescue: task.
+func ConditionUsesRoot(c Conditional, root string) (bool, error) {
+	found := false
+	err := eachConditionExpr(c, func(e celast.Expr) {
+		if e.Kind() == celast.IdentKind && e.AsIdent() == root {
+			found = true
+		}
+	})
+	return found, err
+}
+
+// ConditionTestsPresence returns the register names c tests for with
+// has(stat.<name>), has(nodes.<name>) or has(result.<name>): a condition that
+// does is written for the register's absence, and validation lets it read a
+// register that may not exist.
+func ConditionTestsPresence(c Conditional) (map[string]bool, error) {
+	tested := map[string]bool{}
+	err := eachConditionExpr(c, func(e celast.Expr) {
+		if e.Kind() != celast.SelectKind {
+			return
+		}
+		sel := e.AsSelect()
+		if op := sel.Operand(); sel.IsTestOnly() && op.Kind() == celast.IdentKind && registerVariables[op.AsIdent()] {
+			tested[sel.FieldName()] = true
+		}
+	})
+	return tested, err
+}
+
+// eachConditionExpr parses each of c's expressions and visits every node of
+// each.
+func eachConditionExpr(c Conditional, visit func(celast.Expr)) error {
+	env, err := parseEnv()
+	if err != nil {
+		return err
+	}
+	for _, src := range append(append(append([]string(nil), c.When...), c.WhenOr...), c.WhenCEL) {
+		if src == "" {
+			continue
+		}
+		ast, iss := env.Parse(src)
+		if iss.Err() != nil {
+			return fmt.Errorf("condition %q does not parse: %w", src, iss.Err())
+		}
+		celast.PreOrderVisit(ast.NativeRep().Expr(), celast.NewExprVisitor(visit))
+	}
+	return nil
+}

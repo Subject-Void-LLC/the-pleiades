@@ -98,18 +98,6 @@ tasks:
     rollback:
       - noop: {}
 `, "block or parallel"},
-		{"inside rescue", `id: r
-hosts: web
-tasks:
-  - name: group
-    block:
-      - noop: {}
-    rescue:
-      - name: recover
-        noop: {}
-        rollback:
-          - noop: {}
-`, "rescue: or always:"},
 		{"a step with register", `id: r
 hosts: web
 tasks:
@@ -172,5 +160,36 @@ tasks:
 				t.Fatalf("build = %v, want an error mentioning %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestRollbackKey_InsideRescueAndAlways: a rescue or always task runs, so
+// what it changes can be undone, and its rollback: list builds and is kept
+// as any task's is.
+func TestRollbackKey_InsideRescueAndAlways(t *testing.T) {
+	dag, err := buildYAML(t, `id: r
+hosts: web
+tasks:
+  - name: group
+    block:
+      - noop: {}
+    rescue:
+      - name: recover
+        noop: {}
+        rollback:
+          - noop: {}
+    always:
+      - name: clean
+        noop: {}
+        rollback:
+          - noop: {}
+`)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	for _, id := range []string{"tasks[0].rescue[0]", "tasks[0].always[0]"} {
+		if task := dag.Nodes[id]; task == nil || len(task.Rollback) != 1 {
+			t.Errorf("%s keeps rollback %v", id, task)
+		}
 	}
 }

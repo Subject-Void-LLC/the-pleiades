@@ -13,7 +13,9 @@
 //   - nodes: every registered result, register first and then device id,
 //     the same snapshot a condition reads;
 //   - result: each register that exactly one device (or one device-less
-//     task) wrote, by name alone, so an author need not type a device id.
+//     task) wrote, by name alone, so an author need not type a device id;
+//   - error: inside a rescue: only, the failure its block is handling on the
+//     device the task runs on (handlers.go's errorContext).
 //
 // A value with no "{{" is passed through untouched, so a runbook that
 // renders nothing costs nothing and behaves as it always did.
@@ -38,12 +40,13 @@ const (
 	TemplateRootVars   = "vars"
 	TemplateRootNodes  = "nodes"
 	TemplateRootResult = "result"
+	TemplateRootError  = "error"
 )
 
 // TemplateRoots are the roots a rendered parameter may read, for plan-time
 // validation.
 func TemplateRoots() []string {
-	return []string{TemplateRootNodes, TemplateRootResult, TemplateRootVars}
+	return []string{TemplateRootError, TemplateRootNodes, TemplateRootResult, TemplateRootVars}
 }
 
 // WithRenderer hands the Executor the template renderer its tasks' params
@@ -79,7 +82,8 @@ func HasTemplate(v any) bool {
 // renderTask returns task with its params rendered, or task itself when no
 // param holds a template. The copy shares everything but Params, so the
 // DAG's own task is never changed and a later node reads the authored text.
-func (r *run) renderTask(task *Task) (*Task, error) {
+// errorRoot, when not nil, is what a rescue task reads as error.
+func (r *run) renderTask(task *Task, errorRoot map[string]any) (*Task, error) {
 	if !HasTemplate(task.Params) {
 		return task, nil
 	}
@@ -95,6 +99,9 @@ func (r *run) renderTask(task *Task) (*Task, error) {
 	ctx, err := r.templateContext()
 	if err != nil {
 		return nil, err
+	}
+	if errorRoot != nil {
+		ctx[TemplateRootError] = errorRoot
 	}
 	rendered, err := renderParams(r.x.renderer, task.FQCN, task.Params, ctx)
 	if err != nil {

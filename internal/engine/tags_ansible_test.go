@@ -58,41 +58,41 @@ const tagDifferentialRunbook = `id: tagdiff
 tags: [site]
 tasks:
   - name: plain
-    fqcn: noop
+    noop: {}
   - name: web block
     tags: web
     block:
       - name: web one
-        fqcn: noop
+        noop: {}
       - name: web two
-        fqcn: noop
+        noop: {}
         tags: slow
       - name: inner
         tags: [deep]
         block:
           - name: deep one
-            fqcn: noop
+            noop: {}
     always:
       - name: web cleanup
-        fqcn: noop
+        noop: {}
   - name: wipe
-    fqcn: noop
+    noop: {}
     tags: [never, wipe]
   - name: audit
-    fqcn: noop
+    noop: {}
     tags: always
   - name: db one
-    fqcn: noop
+    noop: {}
     tags: db
   - name: bare
-    fqcn: noop
+    noop: {}
 `
 
 // TestTagFilter_MatchesAnsible runs ansible-playbook --list-tasks (the
 // pinned ansible-core in the repository's own runner image) once per
 // filter and requires Select to keep exactly the tasks Ansible lists, in
-// the same order. --list-tasks omits rescue and always tasks, and the
-// engine does not run them yet, so both sides compare the happy path.
+// the same order. --list-tasks lists neither rescue nor always tasks, so
+// both sides compare the rest.
 func TestTagFilter_MatchesAnsible(t *testing.T) {
 	image := testsupport.BuildAnsibleRunnerImage(t)
 	dir := t.TempDir()
@@ -175,7 +175,8 @@ func parseListTasks(t *testing.T, out string) [][]string {
 }
 
 // happyPathNames returns the names of the leaf tasks dag runs, in the
-// order it runs them.
+// order it runs them, less its rescue and always tasks, which
+// --list-tasks does not list.
 func happyPathNames(t *testing.T, dag *engine.DAG) []string {
 	t.Helper()
 	order, err := engine.TopologicalOrder(dag)
@@ -184,6 +185,9 @@ func happyPathNames(t *testing.T, dag *engine.DAG) []string {
 	}
 	names := []string{}
 	for _, id := range order {
+		if engine.InPart(dag.Scopes[id], engine.PartRescue) || engine.InPart(dag.Scopes[id], engine.PartAlways) {
+			continue
+		}
 		if task := dag.Nodes[id]; task != nil && task.Kind() == engine.TaskKindLeaf {
 			names = append(names, task.Name)
 		}

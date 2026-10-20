@@ -18,9 +18,9 @@ func TestLevelIterator_LinearChain(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-linear",
 		"tasks": [
-			{"name": "start", "fqcn": "noop"},
-			{"name": "ping", "fqcn": "ssh_exec"},
-			{"name": "reboot", "fqcn": "ios_backup"}
+			{"name": "start", "noop": {}},
+			{"name": "ping", "ssh_exec": {}},
+			{"name": "reboot", "ios_backup": {}}
 		]
 	}`)
 
@@ -117,27 +117,26 @@ func TestLevelIterator_Diamond(t *testing.T) {
 	}
 }
 
-// TestLevelIterator_ExcludesRescueAlwaysAndBlockParent confirms
-// LevelIterator honors the exact same reachability rule TopologicalOrder
-// already does: Rescue, Always, and a block task's own superseded ID
-// never appear as a source or target in Adjacency, so they never appear
-// in any level either, even though they still exist in dag.Nodes.
-func TestLevelIterator_ExcludesRescueAlwaysAndBlockParent(t *testing.T) {
+// TestLevelIterator_WalksRescueAndAlwaysAfterTheBlock confirms LevelIterator
+// honors the exact same reachability rule TopologicalOrder does: a block's
+// own tasks, then its rescue, then its always, each a level of its own in
+// that order, and the block task's own superseded ID in none.
+func TestLevelIterator_WalksRescueAndAlwaysAfterTheBlock(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
 
 	payload := []byte(`{
 		"id": "runbook-block",
 		"tasks": [
-			{"name": "before", "fqcn": "noop"},
+			{"name": "before", "noop": {}},
 			{"name": "risky", "block": [
-				{"name": "b0", "fqcn": "noop"}
+				{"name": "b0", "noop": {}}
 			], "rescue": [
-				{"name": "r0", "fqcn": "noop"}
+				{"name": "r0", "noop": {}}
 			], "always": [
-				{"name": "a0", "fqcn": "noop"}
+				{"name": "a0", "noop": {}}
 			]},
-			{"name": "after", "fqcn": "noop"}
+			{"name": "after", "noop": {}}
 		]
 	}`)
 
@@ -159,7 +158,7 @@ func TestLevelIterator_ExcludesRescueAlwaysAndBlockParent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := []string{"tasks[0]", "tasks[1].block[0]", "tasks[2]"}
+	want := []string{"tasks[0]", "tasks[1].block[0]", "tasks[1].rescue[0]", "tasks[1].always[0]", "tasks[2]"}
 	if !reflect.DeepEqual(seen, want) {
 		t.Fatalf("expected levels to cover exactly %v, got %v", want, seen)
 	}

@@ -359,8 +359,10 @@ func (h *harness) pollJobUntilTerminal(tb testing.TB, bearer, jobID string) jobR
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	tb.Fatalf("job %s did not reach a terminal state within its budget; last observed state %q\nlast response body: %s\n%s",
-		jobID, last.State, lastBody, h.controller.output())
+	// The Runner's output last: a job stuck running is usually the Runner's
+	// story, and a gate quotes only the end of a failure.
+	tb.Fatalf("job %s did not reach a terminal state within its budget; last observed state %q\nlast response body: %s\n%s\n%s",
+		jobID, last.State, lastBody, h.controller.output(), h.runner.output())
 	return last
 }
 

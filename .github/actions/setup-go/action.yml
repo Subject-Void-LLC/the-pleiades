@@ -1,0 +1,26 @@
+name: Set up Go
+description: >-
+  Go at the release go.mod's toolchain line names, with setup-go's module and
+  build cache.
+
+# setup-go's go-version-file reads go.mod's go line (1.26.0), so it installed
+# that release, and the first go command then fetched the toolchain line's
+# release (1.26.9) into the module cache, before the cache was restored. The
+# cached copy of that same release then collided with it ("Cannot open: File
+# exists"), the restore failed whole, and every job compiled from nothing.
+# Installing the toolchain line's release leaves Go nothing to fetch.
+runs:
+  using: composite
+  steps:
+    - name: The release go.mod's toolchain line names
+      id: release
+      shell: bash
+      run: |
+        release=$(tr -d '\r' < go.mod | sed -n 's/^toolchain go//p')
+        if [ -z "$release" ]; then
+          release=$(tr -d '\r' < go.mod | sed -n 's/^go //p')
+        fi
+        echo "version=$release" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      with:
+        go-version: ${{ steps.release.outputs.version }}

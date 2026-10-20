@@ -120,9 +120,13 @@ func run(o options) (err error) {
 		return err
 	}
 	maskEnvironment()
-	packages, err := o.selected()
+	pieces, err := o.pieces()
 	if err != nil {
 		return err
+	}
+	packages := make([]string, 0, len(pieces))
+	for _, p := range pieces {
+		packages = append(packages, p.pkg)
 	}
 	rec.Packages = packages
 	tolerated, err := flakegate.LoadTolerated(flakyPackagesPath)
@@ -139,7 +143,11 @@ func run(o options) (err error) {
 	// Every raw JSON line is echoed to this process's own stdout as it is
 	// read, so a slow package's progress is visible live rather than
 	// silent until the whole run finishes.
-	events, waitErr := flakegate.RunGoTestJSONPackages(args, packages, testOutput)
+	events, waitErr, err := runPieces(args, pieces)
+	if err != nil {
+		return err
+	}
+	argsFor := piecewise(args, pieces)
 	// Built with cgo off (Windows with no C compiler), a test that opens a
 	// SQLite database fails on go-sqlite3's stub before it checks anything:
 	// a skip that needs cgo, never a pass and never a failure of the code.
@@ -154,8 +162,15 @@ func run(o options) (err error) {
 	coverage := flakegate.Coverage(events)
 	missing := flakegate.Missing(skips)
 	rec.Skips, rec.Coverage, rec.Missing, rec.PackageSeconds = skips, coverage, missing, flakegate.Elapsed(events)
+	if err := wholeCoverageOnly(pieces, coverage); err != nil {
+		return err
+	}
+	measurement := func() flakegate.Measurement {
+		return flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events),
+			TestSeconds: flakegate.TestElapsed(events, divided(o.packages))}
+	}
 	if o.coverageOut != "" {
-		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events)}); err != nil {
+		if err := writeCoverage(o.coverageOut, measurement()); err != nil {
 			return err
 		}
 	}
@@ -183,7 +198,12 @@ func run(o options) (err error) {
 	// consecutive runs and were warned about every time, and the defect
 	// behind them was a total outage.
 	failures := append(append([]flakegate.Failure{}, listed...), warned...)
-	confirmed, contention, notRun, err := flakegate.Isolate(failures, args, testOutput)
+	confirmed, contention, notRun, err := flakegate.IsolateWith(failures, func(f flakegate.Failure) []string {
+		if f.Test != "" {
+			return args // the re-run names the test itself
+		}
+		return argsFor(f.Package)
+	}, testOutput)
 	if err != nil {
 		return fmt.Errorf("re-running failures in isolation: %w", err)
 	}
@@ -195,10 +215,10 @@ func run(o options) (err error) {
 	// the whole package again, alone; a package that fails even then has
 	// failed, and joins confirmed.
 	if o.coverageOut != "" && len(contention) > 0 {
-		failedAgain := remeasure(args, contention, coverage)
+		failedAgain := remeasure(argsFor, contention, coverage)
 		confirmed = append(confirmed, failedAgain...)
 		rec.Coverage = coverage
-		if err := writeCoverage(o.coverageOut, flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events)}); err != nil {
+		if err := writeCoverage(o.coverageOut, measurement()); err != nil {
 			return err
 		}
 	}

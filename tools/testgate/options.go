@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -104,6 +105,65 @@ func (o options) selected() ([]string, error) {
 	return shardOf(o.packages, o.shard)
 }
 
+// pieces is what this run tests of each package it owns: piecesOf with the
+// times in durations.json, or ./... whole when no package was named.
+func (o options) pieces() ([]piece, error) {
+	if len(o.packages) == 0 {
+		return []piece{{pkg: "./..."}}, nil
+	}
+	return piecesOf(o.packages, o.shard, durations())
+}
+
+// piece is what one run tests of one package: all of it, or, for a package
+// durations.json times test by test, the tests named in run, or every test
+// but those named in skip.
+type piece struct {
+	pkg  string
+	run  []string
+	skip []string
+}
+
+// filter is the go test flag that narrows a run of the package to p, or
+// nothing for the whole package. The names are test function names, which
+// need no quoting in a pattern.
+func (p piece) filter() []string {
+	switch {
+	case len(p.run) > 0:
+		return []string{"-run", "^(" + strings.Join(p.run, "|") + ")$"}
+	case len(p.skip) > 0:
+		return []string{"-skip", "^(" + strings.Join(p.skip, "|") + ")$"}
+	}
+	return nil
+}
+
+// testKey is how durations.json names one top-level test of a package: the
+// package's path in the module, a space, and the test.
+func testKey(pkg, test string) string {
+	return strings.TrimPrefix(pkg, modulePrefix) + " " + test
+}
+
+// splitTests returns the tests seconds times one by one for each of the
+// packages, by package. A package it names no test of is absent: it is
+// balanced, and run, whole.
+func splitTests(packages []string, seconds map[string]float64) map[string][]string {
+	out := map[string][]string{}
+	for _, pkg := range packages {
+		prefix := strings.TrimPrefix(pkg, modulePrefix) + " "
+		for key := range seconds {
+			if test, ok := strings.CutPrefix(key, prefix); ok && test != "" {
+				out[pkg] = append(out[pkg], test)
+			}
+		}
+		sort.Strings(out[pkg])
+	}
+	for pkg, tests := range out {
+		if len(tests) == 0 {
+			delete(out, pkg)
+		}
+	}
+	return out
+}
+
 // durationsJSON is how long each container package's tests took in CI, in
 // seconds, by its path inside the module: go test's own elapsed time for
 // the package, which each containers job records in the measurement it
@@ -135,26 +195,68 @@ func shardOf(packages []string, shard string) ([]string, error) {
 	return shardBy(packages, shard, durations())
 }
 
-// shardBy returns the packages shard ("k/n") owns. The packages are taken
-// longest first (by seconds, a package's path in the module mapping to its
-// time; one it lacks counts as the median of those it has), each given to
-// the shard with the least time so far, the lower-numbered on a tie. Every
+// shardBy returns the packages shard ("k/n") owns, all of them or a piece:
+// the packages of piecesOf, sorted.
+func shardBy(packages []string, shard string, seconds map[string]float64) ([]string, error) {
+	pieces, err := piecesOf(packages, shard, seconds)
+	if err != nil {
+		return nil, err
+	}
+	owned := make([]string, 0, len(pieces))
+	for _, p := range pieces {
+		owned = append(owned, p.pkg)
+	}
+	return owned, nil
+}
+
+// piecesOf returns what shard ("k/n") tests of the packages, one piece per
+// package it owns any of, sorted by package. Without a shard every package
+// is one whole piece.
+//
+// The units dealt are packages, taken longest first (by seconds; a package
+// it lacks counts as the median of the packages it has), each given to the
+// shard with the least time so far, the lower-numbered on a tie. Every
 // runner computes the same assignment whatever order the list arrived in,
-// since ties are broken by name. With every time equal this deals the
-// sorted list round-robin. The shard's packages come back sorted.
+// since ties are broken by name. With every time equal this deals the sorted
+// list round-robin.
 //
 // Dealing by position alone put the three longest packages in one shard,
-// which then took three times as long as the others (41 minutes against
-// 9 to 16), and a pull request waits for its slowest shard.
+// which then took three times as long as the others (41 minutes against 9
+// to 16), and a pull request waits for its slowest shard. Dealing whole
+// packages then left the slowest shard no faster than the longest package,
+// tests/e2e's fourteen minutes, however many shards there were.
+//
+// So a package seconds times test by test (splitTests) and that takes longer
+// than a shard's fair share (the total over n) is cut into as few parts as
+// bring each under it, its tests dealt among the parts the same way, and the
+// parts are dealt with the packages. As few as possible, not one test per
+// unit, because a shard pays for a divided package once whichever of its
+// tests it runs: its test binary is built, its TestMain runs (tests/e2e's
+// builds the Controller and the Runner), and the shard loads every image the
+// package's directory names, several gigabytes for tests/e2e, which also
+// fills the image cache once per shard. Dealt one test at a time, forty tests
+// went to every shard, and every shard paid. A package within its share runs
+// whole.
+//
+// A divided package's shard that owns its longest test runs every test but
+// the ones other shards own (-skip), so a test added since durations.json
+// was written still runs exactly once; every other shard runs the tests it
+// owns by name (-run). A divided package must have no statements of its own,
+// as tests/e2e has none: a piece's coverage is a percentage of a part, which
+// no merge can turn back into the whole's.
 //
 // A shard that owns nothing is an error rather than an empty success, so a
-// workflow asking for more shards than there are packages is told, instead
-// of reporting a green job that tested nothing.
-func shardBy(packages []string, shard string, seconds map[string]float64) ([]string, error) {
+// workflow asking for more shards than there are units is told, instead of
+// reporting a green job that tested nothing.
+func piecesOf(packages []string, shard string, seconds map[string]float64) ([]piece, error) {
 	sorted := append([]string(nil), packages...)
 	sort.Strings(sorted)
 	if shard == "" {
-		return sorted, nil
+		pieces := make([]piece, 0, len(sorted))
+		for _, pkg := range sorted {
+			pieces = append(pieces, piece{pkg: pkg})
+		}
+		return pieces, nil
 	}
 	kText, nText, ok := strings.Cut(shard, "/")
 	k, errK := strconv.Atoi(kText)
@@ -162,28 +264,136 @@ func shardBy(packages []string, shard string, seconds map[string]float64) ([]str
 	if !ok || errK != nil || errN != nil || n < 1 || k < 1 || k > n {
 		return nil, fmt.Errorf("-shard %q is not k/n with 1 <= k <= n", shard)
 	}
-	weight := weights(sorted, seconds)
-	byTime := append([]string(nil), sorted...)
-	sort.SliceStable(byTime, func(i, j int) bool { return weight[byTime[i]] > weight[byTime[j]] })
+
+	split := splitTests(sorted, seconds)
+	var whole []string
+	for _, pkg := range sorted {
+		if _, divided := split[pkg]; !divided {
+			whole = append(whole, pkg)
+		}
+	}
+	weight := weights(whole, seconds)
+	total := 0.0
+	for _, pkg := range whole {
+		total += weight[pkg]
+	}
+	testTime := func(pkg, test string) float64 { return seconds[testKey(pkg, test)] }
+	for pkg, tests := range split {
+		for _, test := range tests {
+			total += testTime(pkg, test)
+		}
+	}
+	fair := total / float64(n)
+
+	// A unit is a whole package, or one part of a divided one: the tests
+	// dealt to it, the first of them that package's longest.
+	type unit struct {
+		pkg    string
+		part   int
+		tests  []string
+		weight float64
+	}
+	var units []unit
+	for _, pkg := range sorted {
+		tests, divided := split[pkg]
+		if !divided {
+			units = append(units, unit{pkg: pkg, weight: weight[pkg]})
+			continue
+		}
+		sum := 0.0
+		for _, test := range tests {
+			sum += testTime(pkg, test)
+		}
+		parts := 1
+		if fair > 0 {
+			parts = min(len(tests), max(1, int(math.Ceil(sum/fair))))
+		}
+		if parts == 1 {
+			units = append(units, unit{pkg: pkg, weight: sum})
+			continue
+		}
+		for i, part := range cutTests(tests, func(test string) float64 { return testTime(pkg, test) }, parts) {
+			w := 0.0
+			for _, test := range part {
+				w += testTime(pkg, test)
+			}
+			units = append(units, unit{pkg: pkg, part: i + 1, tests: part, weight: w})
+		}
+	}
+	sort.SliceStable(units, func(i, j int) bool { return units[i].weight > units[j].weight })
+
 	load := make([]float64, n)
+	mine := map[string][]string{} // a divided package -> the tests this shard owns
+	theirs := map[string][]string{}
+	skipper := map[string]bool{} // a divided package whose longest test this shard owns
 	var owned []string
-	for _, pkg := range byTime {
+	for _, u := range units {
 		least := 0
 		for i := 1; i < n; i++ {
 			if load[i] < load[least] {
 				least = i
 			}
 		}
-		load[least] += weight[pkg]
-		if least == k-1 {
-			owned = append(owned, pkg)
+		load[least] += u.weight
+		switch {
+		case u.part == 0 && least == k-1:
+			owned = append(owned, u.pkg)
+		case u.part == 0:
+		case least == k-1:
+			mine[u.pkg] = append(mine[u.pkg], u.tests...)
+			skipper[u.pkg] = skipper[u.pkg] || u.part == 1
+		default:
+			theirs[u.pkg] = append(theirs[u.pkg], u.tests...)
 		}
 	}
-	if len(owned) == 0 {
+
+	pieces := make([]piece, 0, len(owned)+len(mine))
+	for _, pkg := range owned {
+		pieces = append(pieces, piece{pkg: pkg})
+	}
+	for pkg, tests := range mine {
+		sort.Strings(tests)
+		other := theirs[pkg]
+		sort.Strings(other)
+		if skipper[pkg] {
+			pieces = append(pieces, piece{pkg: pkg, skip: other})
+			continue
+		}
+		pieces = append(pieces, piece{pkg: pkg, run: tests})
+	}
+	if len(pieces) == 0 {
 		return nil, fmt.Errorf("shard %s owns none of the %d packages; use fewer shards", shard, len(sorted))
 	}
-	sort.Strings(owned)
-	return owned, nil
+	sort.Slice(pieces, func(i, j int) bool { return pieces[i].pkg < pieces[j].pkg })
+	return pieces, nil
+}
+
+// cutTests deals tests among at most parts groups, longest first to the
+// group with the least time so far, so the first group holds the longest
+// test. A group left with no test is dropped rather than returned: it would
+// reach a shard as a piece with no filter, which runs the whole package.
+func cutTests(tests []string, time func(string) float64, parts int) [][]string {
+	byTime := append([]string(nil), tests...)
+	sort.SliceStable(byTime, func(i, j int) bool { return time(byTime[i]) > time(byTime[j]) })
+	groups := make([][]string, max(1, parts))
+	load := make([]float64, len(groups))
+	for _, test := range byTime {
+		least := 0
+		for i := 1; i < len(groups); i++ {
+			if load[i] < load[least] {
+				least = i
+			}
+		}
+		groups[least] = append(groups[least], test)
+		load[least] += time(test)
+	}
+	kept := groups[:0]
+	for _, g := range groups {
+		if len(g) > 0 {
+			kept = append(kept, g)
+		}
+	}
+	return kept
 }
 
 // weights is each package's time: its own from seconds, or, for one seconds

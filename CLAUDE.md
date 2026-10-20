@@ -317,10 +317,15 @@ pulled every image anonymously from Docker Hub, and ran on two cores. Now `ci.ym
 jobs `ci` (`make ci-remote` on three operating systems), `fast` (`make ci-fast` on Ubuntu)
 and `fast-macos` (the same, advisory until it has passed once, and a job of its own so it
 cannot decide whether `coverage` runs), `containers` (`make ci-containers`,
-four shards, images restored from a cache keyed on `tools/testimages`' list, with an
+six shards, images restored from a cache keyed on `tools/testimages`' list, with an
 optional read-only `DOCKERHUB_TOKEN` and no LocalStack, whose tests skip there as
-`needs localstack`), `coverage` (`make coverage-measured` over the
-numbers those jobs uploaded), `nightly` (`make test-full`, strict, no tolerance), `vulns`
+`needs localstack`; `tests/e2e` is timed in `tools/testgate/durations.json` test by test and
+dealt to the shards that way, since whole it was fourteen minutes no shard count could beat,
+and a failed e2e test's full, masked Controller and Runner logs are uploaded as
+`test-logs-containers-<shard>`, through `PLEIADES_TEST_ARTIFACTS`), `coverage` (`make
+coverage-measured` over the numbers those jobs uploaded, which runs and fails rather than
+being skipped when one of them failed, since GitHub counts a skipped required check as
+passed), `nightly` (`make test-full`, strict, no tolerance), `vulns`
 (`make govulncheck` on the schedule, since an advisory lands without any code changing) and an
 experimental `winrm` job against the Windows runner's own WinRM service. Every job is a
 make target, so there is still no CI-only step. The pull-request jobs use push-gate's
@@ -348,7 +353,9 @@ file is tagged `!integration`, which `tools/internal/flakegate`'s
 only by merging a pull request, and that pull request's checks are the gate: the repository's
 ruleset ("Main Branch Guardrails") requires a pull request and requires `ci (ubuntu-24.04,
 true)`, `ci (macos-latest, true)`, `fast`, `containers (1)` to `(4)` and `coverage` to pass,
-reported by GitHub Actions itself, and it refuses deleting or force-pushing `main`. The
+reported by GitHub Actions itself, and it refuses deleting or force-pushing `main`. There are
+six container shards now; `coverage` fails whenever any shard failed, so requiring it covers
+every shard whatever their number, and the four shard names in the ruleset are redundant. The
 repository is public, so hosted runners cost nothing, and a pull request's checks finish in
 about half an hour where `make push-gate` takes about an hour and a half here and has run this
 machine out of memory. `make push-gate` and `make ci` stay for a developer who wants them

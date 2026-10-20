@@ -16,9 +16,9 @@ func TestTopologicalOrder_LinearTasks(t *testing.T) {
 	payload := []byte(`{
 		"id": "runbook-linear",
 		"tasks": [
-			{"name": "start", "fqcn": "noop"},
-			{"name": "ping", "fqcn": "ssh_exec"},
-			{"name": "reboot", "fqcn": "ios_backup"}
+			{"name": "start", "noop": {}},
+			{"name": "ping", "ssh_exec": {}},
+			{"name": "reboot", "ios_backup": {}}
 		]
 	}`)
 
@@ -46,9 +46,9 @@ func TestTopologicalOrder_PreTasksAndPostTasksStitchIn(t *testing.T) {
 
 	payload := []byte(`{
 		"id": "runbook-sections",
-		"pretasks": [{"name": "pre0", "fqcn": "noop"}],
-		"tasks": [{"name": "t0", "fqcn": "noop"}],
-		"posttasks": [{"name": "post0", "fqcn": "noop"}]
+		"pretasks": [{"name": "pre0", "noop": {}}],
+		"tasks": [{"name": "t0", "noop": {}}],
+		"posttasks": [{"name": "post0", "noop": {}}]
 	}`)
 
 	dag, err := builder.Build(payload)
@@ -67,32 +67,33 @@ func TestTopologicalOrder_PreTasksAndPostTasksStitchIn(t *testing.T) {
 	}
 }
 
-// TestTopologicalOrder_ExcludesRescueAlwaysAndBlockParent reproduces the
-// exact regression this test guards against: a chain tasks[0] ->
+// TestTopologicalOrder_ExcludesTheBlockParent reproduces the exact
+// regression this test guards against: a chain tasks[0] ->
 // {block/rescue/always} -> tasks[2] used to return tasks[1] (the block
-// task's own now-superseded ID) and its rescue/always children as
-// disconnected "islands" interleaved into the order, because the prior
-// implementation seeded Kahn's algorithm from every key in dag.Nodes (the
-// fully-flattened map) instead of only nodes reachable from dag.EntryPoint
-// via dag.Adjacency. Rescue, Always, and the block task's own ID must still
-// land in dag.Nodes (for validation/capability-checking coverage), but must
-// never appear in the returned order.
-func TestTopologicalOrder_ExcludesRescueAlwaysAndBlockParent(t *testing.T) {
+// task's own now-superseded ID) as a disconnected "island" interleaved into
+// the order, because the prior implementation seeded Kahn's algorithm from
+// every key in dag.Nodes (the fully-flattened map) instead of only nodes
+// reachable from dag.EntryPoint via dag.Adjacency. The block's own ID must
+// still land in dag.Nodes (for validation/capability-checking coverage) and
+// never appear in the order; its rescue and always tasks come after its own
+// tasks, in that order, since every device walks them and each decides
+// whether they run there (handlers.go).
+func TestTopologicalOrder_ExcludesTheBlockParent(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
 
 	payload := []byte(`{
 		"id": "runbook-block",
 		"tasks": [
-			{"name": "before", "fqcn": "noop"},
+			{"name": "before", "noop": {}},
 			{"name": "risky", "block": [
-				{"name": "b0", "fqcn": "ssh_exec"}
+				{"name": "b0", "ssh_exec": {}}
 			], "rescue": [
-				{"name": "r0", "fqcn": "noop"}
+				{"name": "r0", "noop": {}}
 			], "always": [
-				{"name": "a0", "fqcn": "noop"}
+				{"name": "a0", "noop": {}}
 			]},
-			{"name": "after", "fqcn": "noop"}
+			{"name": "after", "noop": {}}
 		]
 	}`)
 
@@ -100,32 +101,17 @@ func TestTopologicalOrder_ExcludesRescueAlwaysAndBlockParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to build valid DAG: %v", err)
 	}
-
-	// Sanity check: Rescue, Always, and the block task's own ID are still
-	// covered in Nodes, exactly as TestDAGBuilder_BlockRescueAlways
-	// confirms for the builder itself.
-	for _, id := range []string{"tasks[1]", "tasks[1].rescue[0]", "tasks[1].always[0]"} {
-		if _, ok := dag.Nodes[id]; !ok {
-			t.Fatalf("expected node %q to exist in dag.Nodes", id)
-		}
+	if _, ok := dag.Nodes["tasks[1]"]; !ok {
+		t.Fatal("expected the block's own node to exist in dag.Nodes")
 	}
 
 	order, err := engine.TopologicalOrder(dag)
 	if err != nil {
 		t.Fatalf("TopologicalOrder returned an error: %v", err)
 	}
-
-	want := []string{"tasks[0]", "tasks[1].block[0]", "tasks[2]"}
+	want := []string{"tasks[0]", "tasks[1].block[0]", "tasks[1].rescue[0]", "tasks[1].always[0]", "tasks[2]"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("expected order %v, got %v", want, order)
-	}
-
-	for _, id := range []string{"tasks[1]", "tasks[1].rescue[0]", "tasks[1].always[0]"} {
-		for _, got := range order {
-			if got == id {
-				t.Errorf("expected %q to be excluded from the order, but it appeared in %v", id, order)
-			}
-		}
 	}
 }
 

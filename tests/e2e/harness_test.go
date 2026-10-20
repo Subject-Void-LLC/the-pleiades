@@ -46,6 +46,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
@@ -191,10 +192,14 @@ type managedProc struct {
 	// just for the kill signal to be delivered.
 	done chan struct{}
 
-	// mu guards lines, which both the drain goroutine and a failing test
-	// touch.
+	// mu guards lines, routine and log, which both the drain goroutine and a
+	// failing test touch.
 	mu    sync.Mutex
 	lines []string
+	// routine counts the lines left out of lines as routine requests.
+	routine int
+	// log, when set, receives every line, masked (openProcLog).
+	log *os.File
 }
 
 // harness is one fully wired mesh: two containers, two subprocesses, and
@@ -610,7 +615,7 @@ func startProcess(tb testing.TB, name, bin string, env []string) *managedProc {
 		tb.Fatalf("piping %s stderr: %v", name, err)
 	}
 
-	proc := &managedProc{name: name, cmd: cmd, done: make(chan struct{})}
+	proc := &managedProc{name: name, cmd: cmd, done: make(chan struct{}), log: openProcLog(tb, name)}
 
 	if err := cmd.Start(); err != nil {
 		tb.Fatalf("starting %s: %v", name, err)
@@ -665,6 +670,13 @@ func (p *managedProc) record(line string) {
 	const keep = 60
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.log != nil {
+		_, _ = fmt.Fprintln(p.log, redact.Text(nil, line))
+	}
+	if routine(line) {
+		p.routine++
+		return
+	}
 	p.lines = append(p.lines, line)
 	if len(p.lines) > keep {
 		p.lines = p.lines[len(p.lines)-keep:]
@@ -675,11 +687,17 @@ func (p *managedProc) record(line string) {
 // timeout with no output is close to undebuggable, which is the whole
 // reason this ring exists.
 func (p *managedProc) output() string {
+	if p == nil {
+		return ""
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := p.name + " output:\n"
 	for _, line := range p.lines {
 		out += "  " + line + "\n"
+	}
+	if p.routine > 0 {
+		out += fmt.Sprintf("  (%d routine request lines left out)\n", p.routine)
 	}
 	return out
 }

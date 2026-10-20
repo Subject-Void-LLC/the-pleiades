@@ -380,6 +380,10 @@ parameter and a validation failure are all reports, with `outcome.status` set to
 `error`, `invalid` or `failed`. A failed task whose device never answered (its SSH or WinRM
 connection failed or timed out before anything was sent) carries `"unreached": true`:
 nothing ran, so running it again is safe. A refused login is an answer, and is not marked.
+A run in which a block's `rescue:` answered a failure ends with `outcome.status` set to
+`rescued`, never `complete`, and each failed task it answered carries `rescued_by`, naming
+the rescue; the run exits 0, or 4 with `--fail-on-rescue`, so a gate can refuse a run that
+only reached its end through a fallback.
 
 ```console
 $ pleiades adhoc ubuntu-lab exec.command argv:='[cat, /etc/hostname]' --json

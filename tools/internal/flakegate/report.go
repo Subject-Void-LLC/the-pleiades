@@ -143,6 +143,27 @@ type Measurement struct {
 	// Seconds is how long each package's tests took (Elapsed), which
 	// testgate -shard balances the container packages by.
 	Seconds map[string]float64 `json:"seconds,omitempty"`
+	// TestSeconds is how long each top-level test took (TestElapsed), for
+	// the packages testgate -shard divides test by test, keyed by import
+	// path and test name with a space between.
+	TestSeconds map[string]float64 `json:"test_seconds,omitempty"`
+}
+
+// TestElapsed returns how long each top-level test of the packages split
+// reports true for took, from its own pass, fail or skip event, keyed by
+// import path and test name with a space between. A test that never
+// finished is absent.
+func TestElapsed(events []Event, split func(pkg string) bool) map[string]float64 {
+	out := map[string]float64{}
+	for _, evt := range events {
+		if evt.Test == "" || strings.Contains(evt.Test, "/") || !split(evt.Package) {
+			continue
+		}
+		if evt.Action == "pass" || evt.Action == "fail" || evt.Action == "skip" {
+			out[evt.Package+" "+evt.Test] = evt.Elapsed
+		}
+	}
+	return out
 }
 
 // Elapsed returns how long each package's test binary ran, from its own

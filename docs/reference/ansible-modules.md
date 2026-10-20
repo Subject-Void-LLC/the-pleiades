@@ -629,8 +629,8 @@ Every finding in a migration report carries one of these codes. The set is close
 | `args.unmapped` | blocked | An argument the native method has no equivalent for. | Drop it if it changes nothing, or write the task by hand. |
 | `args.unparsable` | blocked | Free-form arguments this converter cannot read unambiguously. | Write the arguments as a map. |
 | `args.value` | blocked | A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take. | Quote the value in the playbook so its meaning is plain. |
-| `block.always` | review | always: converted, but the engine does not run always tasks yet. | - |
-| `block.rescue` | review | rescue: converted, but the engine does not run rescue tasks yet: a failure in the block ends the run. | - |
+| `block.always` | review | always: converted. It runs on each device the block ran on, whatever happened, or once on its own target. | - |
+| `block.rescue` | review | rescue: converted. It runs on each device whose block failed, or once for a block one of whose tasks runs elsewhere (delegate_to becomes a target of its own, and such a block fails as one unit); Ansible's ansible_failed_task and ansible_failed_result are not translated, and the native rescue reads the failure as error. | - |
 | `debug.dropped` | info | A debug task only prints, so it was dropped. | - |
 | `handler.dropped` | review | A handler was not converted, since nothing native notifies it. | Run its task explicitly where it was notified. |
 | `import.playbook` | blocked | import_playbook: convert the imported playbook on its own. | - |

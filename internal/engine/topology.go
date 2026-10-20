@@ -11,11 +11,12 @@ import (
 // happy-path chain (pretasks, then tasks, then posttasks, with block
 // children spliced in), and does not evaluate any node's compiled
 // when/when_or/when_cel condition (DAG.Conditions) or execute anything.
-// Only nodes reachable from EntryPoint via Adjacency are included: Rescue,
-// Always, and a block task's own superseded ID never appear as a source or
-// target in Adjacency (see DAG.Adjacency), so they are excluded from the
-// returned order even though they still appear in dag.Nodes and
-// dag.Conditions for validation and capability-checking. `pleiades run`'s
+// Only nodes reachable from EntryPoint via Adjacency are included: a block
+// task's own superseded ID never appears as a source or target in
+// Adjacency (see DAG.Adjacency), so it is excluded from the returned order
+// even though it still appears in dag.Nodes and dag.Conditions for
+// validation and capability-checking. A block's rescue and always tasks
+// are in the order, after its own tasks. `pleiades run`'s
 // plan-printing uses this flat order; Executor (executor.go) uses
 // LevelIterator (level_iterator.go) instead, since it needs to know which
 // nodes may run concurrently, not just one valid serial order. Both build
