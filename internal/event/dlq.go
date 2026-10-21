@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 	"github.com/nats-io/nats.go/jetstream"
@@ -21,22 +22,72 @@ const (
 )
 
 // DeadLetterEnvelope is what a message becomes once it is republished to
-// its dead letter subject: the original payload plus the context an
-// operator needs to diagnose why it never succeeded.
+// its dead letter subject: which message it was and why it never
+// succeeded, never what it carried.
+//
+// It holds identifiers only, by allowlist (Phase 103a). It used to copy the
+// whole message, and a dispatch carries its credential, its fields, its
+// extra variables and its injected values, so every dead letter doubled
+// the secrets the stream held, for the same retention. Naming what is kept
+// rather than what is stripped means a secret-bearing field added to a
+// payload later cannot reach a dead letter. Dead letters written before
+// this change still hold payloads until the stream's retention removes
+// them.
+//
+// A consumer learns the job and device a dead dispatch was for from
+// IdempotencyKey, which for a dispatch is topology.DispatchIdentity, read
+// back by topology.ParseDispatchIdentity beside it, and from
+// OriginalSubject; never by splitting either by hand.
 type DeadLetterEnvelope struct {
 	// OriginalSubject is the subject the message was originally published
 	// to, before redelivery exhaustion routed it here.
 	OriginalSubject string `json:"original_subject"`
 	// Reason is the last handler failure's error text (or a description of
-	// a recovered panic).
+	// a recovered panic), masked as every log line is before it leaves the
+	// process, since an error can quote what a device said.
 	Reason string `json:"reason"`
 	// FailedAt is when the message was dead-lettered, in UTC.
 	FailedAt time.Time `json:"failed_at"`
 	// NumDelivered is how many delivery attempts the message had received
 	// by the time it was dead-lettered.
 	NumDelivered uint64 `json:"num_delivered"`
-	// Payload is the original message's raw bytes, unmodified.
-	Payload json.RawMessage `json:"payload"`
+
+	// The Event envelope's identifiers, empty for a message that was not
+	// one. Its Data never travels here.
+	EventID        string `json:"event_id,omitempty"`
+	EventType      string `json:"event_type,omitempty"`
+	CorrelationID  string `json:"correlation_id,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Actor          string `json:"actor,omitempty"`
+}
+
+// eventIdentifiers is the part of an Event a dead letter may keep. Decoding
+// into it rather than into Event means the payload is never even held.
+type eventIdentifiers struct {
+	ID             string `json:"id"`
+	Type           string `json:"type"`
+	CorrelationID  string `json:"correlation_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Actor          string `json:"actor"`
+}
+
+// deadLetter is msg's dead letter: its identifiers, and reason masked.
+func deadLetter(msg jetstream.Msg, numDelivered uint64, reason string) DeadLetterEnvelope {
+	var ids eventIdentifiers
+	// A message that is not an Event keeps no identifiers, which is the
+	// whole of what can be said about it without copying it.
+	_ = json.Unmarshal(msg.Data(), &ids)
+	return DeadLetterEnvelope{
+		OriginalSubject: msg.Subject(),
+		Reason:          redact.Text(nil, reason),
+		FailedAt:        time.Now().UTC(),
+		NumDelivered:    numDelivered,
+		EventID:         ids.ID,
+		EventType:       ids.Type,
+		CorrelationID:   ids.CorrelationID,
+		IdempotencyKey:  ids.IdempotencyKey,
+		Actor:           ids.Actor,
+	}
 }
 
 // HandleDeliveryFailure is the single implementation of PLAN.md Section
@@ -53,7 +104,8 @@ type DeadLetterEnvelope struct {
 // with a jittered backoff delay derived from its own delivery count (never
 // a bare Nak, which JetStream redelivers instantly and ignores the
 // consumer's own AckWait/backoff configuration for). At or above
-// maxDeliver, the message is marshaled into a DeadLetterEnvelope, published
+// maxDeliver, the message's identifiers are marshaled into a
+// DeadLetterEnvelope (never its payload), published
 // to topology.DeadLetterSubject(msg.Subject()), and terminated so it is
 // never redelivered again.
 func HandleDeliveryFailure(ctx context.Context, js jetstream.JetStream, msg jetstream.Msg, maxDeliver int, reason string) error {
@@ -80,14 +132,7 @@ func HandleDeliveryFailure(ctx context.Context, js jetstream.JetStream, msg jets
 		return msg.NakWithDelay(delay)
 	}
 
-	dlqEnvelope := DeadLetterEnvelope{
-		OriginalSubject: msg.Subject(),
-		Reason:          reason,
-		FailedAt:        time.Now().UTC(),
-		NumDelivered:    meta.NumDelivered,
-		Payload:         json.RawMessage(msg.Data()),
-	}
-	data, err := json.Marshal(dlqEnvelope)
+	data, err := json.Marshal(deadLetter(msg, meta.NumDelivered, reason))
 	if err != nil {
 		return fmt.Errorf("failed to marshal dead letter envelope for %s: %w", msg.Subject(), err)
 	}

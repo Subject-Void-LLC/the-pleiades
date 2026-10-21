@@ -232,6 +232,15 @@ func ControllerGrant(name string) Grant {
 			// job's journal, not one job's.
 			topology.DeadLetterSubject(topology.JournalSubjectAll()),
 
+			// And the result consumer's, the third Bus.Subscribe the
+			// Controller makes, which shipped without it: a result it
+			// failed to record five times (a database outage of about a
+			// minute) was neither dead-lettered nor terminated, so the
+			// broker stopped delivering it and the job stayed running.
+			// TestControllerGrantDeadLettersEveryConsumedSubject derives
+			// these three from the subscriptions themselves.
+			topology.DeadLetterSubject(topology.ResultSubjectAll()),
+
 			jetStreamAPIInfo,
 			// Named operations rather than a wildcard. `streamAPI(">")`
 			// put `>` in a NON-FINAL token

@@ -1116,6 +1116,18 @@ real and holds a per-device lease while it does. The gap is now narrower and liv
 entirely on this side: the Crawl-tier CLI still has no distributed locking, so two
 concurrent `pleiades run` invocations against one device do not coordinate.
 
+**Two jobs on one device, on the Walk tier.** A Runner holds the device's lease while
+it runs a job, and records the job holding it. A second job dispatched to that device
+waits for the first, redelivered after about 30 seconds, then 60, 120 and 120: about
+five and a half minutes in all. If the device is still held on its last delivery, the
+second job fails with `device busy: held by job <id>`, naming the job holding it, rather
+than waiting longer. Nothing stops the overlap up front: a scheduled run overlapping a
+manual one is enough to reach it, so give runs that must not collide schedules that do
+not. A Runner tells the broker every ten seconds that a job it is running is still in
+progress, so a job longer than the broker's 30 second acknowledgement wait is not
+delivered a second time while it runs. A lease taken by a Runner from before this
+release records no job, and reads as another job's.
+
 **What to do instead:** serialize device access outside The Pleiades. Run one
 `pleiades run` at a time per device set. If more than one person or scheduler can start
 a run, gate it with your own mutual exclusion: a CI concurrency group, a change window,
@@ -2988,6 +3000,18 @@ Not built yet. Jobs, their results and the activity trail are kept until someone
 deletes them, and nothing purges them on a schedule. The broker's retention is the
 one exception, derived from the outage budget (see
 [One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)).
+
+**Dead letters hold identifiers only.** A message that fails every delivery goes to a
+dead-letter subject (`pleiades.dlq.<its subject>`) as a record of which message it was
+and why it failed: its subject, the event's id, type, correlation id, idempotency key
+and actor, the number of deliveries, and the failure's reason, masked as logs are. It
+never holds the message itself, since a dispatch carries the device's credential.
+Dead letters written by a release before this one still hold whole messages until the
+broker's retention removes them. To remove them now:
+
+```bash
+nats stream purge PLEIADES --subject 'pleiades.dlq.>'
+```
 
 ## Upgrading and rolling back
 

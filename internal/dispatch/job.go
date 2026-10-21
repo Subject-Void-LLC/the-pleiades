@@ -491,7 +491,7 @@ type JobStore interface {
 	// response to a job.requested delivery. A Worker that dies between
 	// BeginFanOut and Complete/Fail leaves nothing to ever deliver that
 	// event again: JetStream's redelivery budget (MaxDeliverDefault
-	// redeliveries at consumerAckWait apart, internal/topology) is far
+	// redeliveries at DispatchAckWait apart, internal/topology) is far
 	// shorter than any realistic staleAfter, so the message dead-letters
 	// long before the job becomes eligible for reclaim, and BeginFanOut's
 	// reclaim branch is provably never reached by natural redelivery

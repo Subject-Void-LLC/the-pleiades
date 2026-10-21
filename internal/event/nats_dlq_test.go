@@ -3,6 +3,7 @@ package event_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,7 +59,9 @@ func TestNatsBusSubscribe_HandlerErrorEventuallyDeadLetters(t *testing.T) {
 		t.Fatalf("jetstream: %v", err)
 	}
 
-	evt := event.Event{ID: "always-fails", Type: "dlq.handler-error"}
+	// The event carries a sentinel, which the dead letter must not.
+	const sentinel = "sentinel-dead-letter-payload-41d2"
+	evt := event.Event{ID: "always-fails", Type: "dlq.handler-error", Data: json.RawMessage(`{"password":"` + sentinel + `"}`)}
 	if err := bus.Publish(ctx, topic, evt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -115,12 +118,11 @@ func TestNatsBusSubscribe_HandlerErrorEventuallyDeadLetters(t *testing.T) {
 		t.Errorf("NumDelivered = %d, want at least %d", envelope.NumDelivered, topology.MaxDeliverDefault)
 	}
 
-	var originalEvt event.Event
-	if err := json.Unmarshal(envelope.Payload, &originalEvt); err != nil {
-		t.Fatalf("failed to unmarshal original payload from dead letter envelope: %v", err)
+	if envelope.EventID != "always-fails" || envelope.EventType != "dlq.handler-error" {
+		t.Errorf("the dead letter names event %q of type %q, want always-fails and dlq.handler-error", envelope.EventID, envelope.EventType)
 	}
-	if originalEvt.ID != "always-fails" {
-		t.Errorf("dead-lettered payload ID = %q, want always-fails", originalEvt.ID)
+	if strings.Contains(string(dlqMsg.Data()), sentinel) {
+		t.Errorf("the dead letter copies the event's data:\n%s", dlqMsg.Data())
 	}
 }
 

@@ -1,0 +1,1 @@
+A job sent to a device another run holds now waits for it, about five and a half minutes across its deliveries, and then fails naming the job holding the device ("device busy: held by job ..."). It used to retry five times in about six seconds, after which the broker stopped delivering it, nothing reported a result, and the job stayed running forever.

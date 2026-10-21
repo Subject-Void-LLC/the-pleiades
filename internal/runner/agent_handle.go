@@ -96,6 +96,13 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
+	// From here until msg is settled it is reported in progress
+	// (agent_progress.go), so a run longer than the ack wait is not
+	// delivered again while it runs. settle is called immediately before
+	// each Ack, Nak or Term below, and again, as a no-op, on return.
+	settle := a.keepInProgress(msg)
+	defer settle()
+
 	span.SetAttributes(
 		attribute.String("pleiades.job.id", payload.JobID),
 		attribute.String("pleiades.runbook.id", payload.RunbookID),
@@ -122,6 +129,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		a.logger.Info("skipping a dispatch that already executed",
 			slog.String("job", payload.JobID),
 			slog.String("device", payload.DeviceName))
+		settle()
 		if err := msg.Ack(); err != nil {
 			a.logger.Warn("failed to ack an already-executed dispatch", slog.String("error", err.Error()))
 		}
@@ -144,18 +152,12 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 
 	outcome, execErr := a.executeWithLease(ctx, payload)
 	if execErr != nil && errorsIsContention(execErr) {
-		// Not an execution failure, so it is deliberately not reported to
-		// the WAL below: another execution genuinely holds this device
-		// right now, and Execute was never actually attempted. Nak with
-		// backoff so this redelivers once the current holder's lease has
-		// likely cleared, rather than routing through the Dead Letter
-		// Queue, which is reserved for a job that actually ran and failed.
-		a.logger.Warn("device lock contention, retrying later",
-			slog.String("device_id", payload.DeviceID), slog.String("error", execErr.Error()))
-		delay := a.calculateBackoff(numDeliveredFor(msg))
-		if nakErr := msg.NakWithDelay(delay); nakErr != nil {
-			a.logger.Error("failed to nak contended message", slog.String("error", nakErr.Error()))
-		}
+		// Not an execution failure: Execute was never attempted, so it is
+		// not routed through the Dead Letter Queue, which is reserved for a
+		// job that actually ran and failed. settleContention waits for the
+		// holder, and on the final delivery reports the device busy rather
+		// than letting the broker drop the dispatch with no result.
+		a.settleContention(ctx, msg, payload, execErr, settle)
 		return
 	}
 
@@ -182,6 +184,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 			slog.String("kind", payload.Kind),
 			slog.String("error", execErr.Error()))
 		a.reportResult(ctx, payload, wire.Outcome{}, execErr)
+		settle()
 		a.termMalformed(msg, "dropping a dispatch this runner cannot route", execErr,
 			slog.String("kind", payload.Kind))
 		return
@@ -194,6 +197,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// happened for would leave a Runner crash between the two silently
 	// losing the outcome.
 	a.reportResult(ctx, payload, outcome, execErr)
+	settle()
 
 	if execErr != nil {
 		span.RecordError(execErr)

@@ -16,7 +16,7 @@ import (
 // this package's own central fix for the finding that a Worker crashing
 // between BeginFanOut and Complete/Fail stranded its job in "fanning_out"
 // forever: JetStream's own redelivery budget (five redeliveries at 30s
-// apart, internal/topology's MaxDeliverDefault and consumerAckWait) is far
+// apart, internal/topology's MaxDeliverDefault and DispatchAckWait) is far
 // shorter than any realistic staleAfter, so a real broker never
 // redelivers job.requested long enough for BeginFanOut's own staleAfter
 // reclaim to ever run.

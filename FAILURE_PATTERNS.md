@@ -498,7 +498,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 493. gofmt turned the '' inside ''' in a doc comment into a typographic quote (fixed before push)
 494. chmod MODE -- FILE works on GNU and fails on BSD, twice: build's undo directory and scpxfer's put (a repeat of 420 and 476) (fixed)
 495. The reaper's end-to-end test failed on a shared-cache test database the Controller does not use (a repeat of 469) (fixed)
-496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 61) (open)
+496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 396) (fixed)
 497. pg_restore read the database name as a connection string, so a name could send the restore and its password to another host (a repeat of 450 and 148) (fixed)
 498. The additive-only lint read string literals one way and the server another, so a DROP ran inside what the lint saw as one INSERT (fixed)
 499. The device tools carried the database password in their environment, which PostgreSQL's own documentation advises against (fixed, by the owner's decision)
@@ -555,6 +555,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 550. pleiades validate did not refuse a task missing a parameter its method marks required, and three runbooks left one out (fixed)
 551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open)
 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
+553. The Controller's result consumer shipped without its dead-letter grant (a repeat of 258) (fixed)
+554. Dead letters copied the whole message, so every dead-lettered dispatch put its secrets on the stream twice (fixed)
+555. A run longer than the ack wait was delivered again while it ran, and the copies spent its delivery budget (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

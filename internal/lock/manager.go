@@ -110,6 +110,13 @@ type AcquireOptions struct {
 	// Policy selects how contention is handled. Defaults to PolicyReject.
 	Policy ContentionPolicy
 
+	// Owner names who takes the hold, recorded with it so a caller that
+	// contends for the item is told who holds it (*HeldError). It is a
+	// value other processes read, so Acquire refuses one outside
+	// [A-Za-z0-9_-]{1,256}; empty records none. The Runner passes the
+	// dispatch's topology.DispatchKey.
+	Owner string
+
 	// Priority is consulted only when Policy is PolicyPriority. Among
 	// callers racing to reclaim the same already-expired itemID, a higher
 	// Priority wins the eager steal; it has no effect against a lock that

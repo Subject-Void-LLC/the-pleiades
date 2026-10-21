@@ -233,6 +233,12 @@ func TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity(t *testing.T) {
 	if _, err := ctrlJS.Publish(runCtx, dlq, []byte(`{"dead":true}`)); err != nil {
 		t.Fatalf("the Controller could not dead-letter a run journal batch under ControllerGrant: %v", err)
 	}
+	// And the result consumer's, which shipped without it (Phase 103a,
+	// Finding A): a result the Controller failed to record five times was
+	// neither dead-lettered nor terminated, and its job stayed running.
+	if _, err := ctrlJS.Publish(runCtx, topology.DeadLetterSubject(topology.ResultSubject("gate-1")), []byte(`{"dead":true}`)); err != nil {
+		t.Fatalf("the Controller could not dead-letter a result under ControllerGrant: %v", err)
+	}
 
 	// ---- Act 4c: a check crosses the mesh on its own consumer. ----
 	//

@@ -35,6 +35,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -119,7 +120,9 @@ func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPaylo
 	// A shared device (a Kubernetes cluster) takes a shared lease, so runs
 	// against it do not queue behind each other; every other device's is
 	// exclusive.
-	opts := lock.AcquireOptions{}
+	// The owner the lease records, so a delivery that finds the device held
+	// can tell its own running dispatch from another run (settleContention).
+	opts := lock.AcquireOptions{Owner: topology.DispatchKey(payload.JobID, payload.DeviceID)}
 	if payload.SharedDevice {
 		opts.Mode = lock.ModeShared
 	}

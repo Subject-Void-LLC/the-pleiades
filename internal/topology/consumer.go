@@ -6,10 +6,14 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// consumerAckWait is how long JetStream waits for an Ack before considering
+// DispatchAckWait is how long JetStream waits for an Ack before considering
 // a delivery timed out and eligible for redelivery. It bounds a handler
-// that hangs without ever Ack/Nak/Term-ing its message.
-const consumerAckWait = 30 * time.Second
+// that hangs without ever Ack/Nak/Term-ing its message, and it is how fast
+// a Runner that died mid-dispatch is noticed, which is why it stays short.
+// A Runner signals progress (msg.InProgress) at a third of it for as long
+// as it works on a dispatch, so a run longer than this is not redelivered
+// while it is still running (Phase 103a).
+const DispatchAckWait = 30 * time.Second
 
 // SubscribeConsumerConfig returns the durable, at-least-once consumer shape
 // every event.Bus.Subscribe call uses: a named durable consumer (so
@@ -30,7 +34,7 @@ func SubscribeConsumerConfig(durable, filterSubject string) jetstream.ConsumerCo
 		FilterSubject: filterSubject,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		AckPolicy:     jetstream.AckExplicitPolicy,
-		AckWait:       consumerAckWait,
+		AckWait:       DispatchAckWait,
 		MaxDeliver:    MaxDeliverDefault,
 	}
 }

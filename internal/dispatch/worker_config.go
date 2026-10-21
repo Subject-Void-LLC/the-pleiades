@@ -194,7 +194,7 @@ func WithFanOutLeaseTTL(ttl time.Duration) WorkerOption {
 // **Reaching that stale state does not, on its own, get reclaimed by a
 // redelivered job.requested**, despite what an earlier version of this
 // comment claimed: JetStream's own redelivery budget (internal/topology's
-// MaxDeliverDefault redeliveries at consumerAckWait apart) is far shorter
+// MaxDeliverDefault redeliveries at DispatchAckWait apart) is far shorter
 // than this value, production ten minutes, so the message dead-letters
 // long before a job becomes eligible for reclaim, and no further delivery
 // of it ever arrives. Reaper (reaper.go) is what actually triggers the

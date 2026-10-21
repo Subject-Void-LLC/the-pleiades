@@ -276,7 +276,7 @@ func (w *Worker) publishDispatch(ctx context.Context, job *Job, traceID string, 
 	if traceID != "" {
 		pubCtx = event.WithTraceID(pubCtx, traceID)
 	}
-	pubCtx = event.WithIdempotencyKey(pubCtx, job.JobID+":"+string(device.ID()))
+	pubCtx = event.WithIdempotencyKey(pubCtx, topology.DispatchIdentity(job.JobID, string(device.ID())))
 
 	// Deliberately no live OpenTelemetry span is grafted onto this
 	// publish, unlike internal/api/dispatcher.go's own block (which can
