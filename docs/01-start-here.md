@@ -142,7 +142,8 @@ template authenticates every device in the fan-out that it can log in to (over S
 WinRM, NETCONF, a network command line or a console), and the per-device credential
 store remains the fallback. A device reached only through an API, such as a
 `generic_http` device, a Catalyst Center or a cloud account, never receives the
-machine credential, which departs from AWX: it uses its own stored credential.
+machine credential, which departs from AWX: it uses its own stored credential, or,
+for a Kubernetes cluster, a bound Kubernetes credential naming its API server.
 
 Four limits are worth knowing.
 
@@ -341,7 +342,11 @@ The Controller makes the same two checks when a job is launched, for every metho
 the runbook names, and skips a device that fails one with that refusal as its
 reason. A method only a Runner loads (an external Collection) is checked by the
 Runner's own preflight instead. On the Walk tier every task still runs against each
-dispatched device, so a device is held to every method in the runbook.
+dispatched device, so a device is held to every method in the runbook. A task with
+a `when:` of its own is left out of both checks, since the run may skip it on any
+device; the engine checks it on each device where the condition holds, so a runbook
+choosing `pkg.apt.install` or `pkg.dnf.install` by each host's OS family still
+validates.
 
 **The whole web UI is a mockup, including its job log viewer.** Five of its six
 routes render hardcoded content and make no network request at all. The sixth, an SSE

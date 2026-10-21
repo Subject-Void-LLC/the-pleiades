@@ -128,3 +128,78 @@ func TestCapabilityRule_MethodHalfRunsInValidate(t *testing.T) {
 		t.Fatalf("report = %s, want the capability finding", report.String())
 	}
 }
+
+// osFamilyRunbook chooses one of two methods by a variable, each under a
+// condition of its own, the way a playbook picks apt or dnf by OS family:
+// first is the method for systemd hosts, second the one for the others.
+func osFamilyRunbook(first, second string) string {
+	return `id: os-family
+hosts: lab
+tasks:
+  - name: on systemd
+    ` + first + `: {}
+    when: vars.family == 'systemd'
+  - name: elsewhere
+    ` + second + `: {}
+    when: vars.family != 'systemd'
+`
+}
+
+// TestCapabilityRule_LeavesAConditionalTaskToTheEngine: a task with a
+// condition of its own may be skipped on any device, and the engine checks
+// it only where the condition holds, so refusing it here refused a runbook
+// that never calls a method where it cannot. An unconditional task beside
+// it is still checked. The runbook is built by the real builder, so the
+// condition is the one a run compiles.
+func TestCapabilityRule_LeavesAConditionalTaskToTheEngine(t *testing.T) {
+	registerCapabilityMethods(t)
+
+	world := capabilityWorld("test.needs_systemd", nil)
+	world.DAG = buildYAML(t, osFamilyRunbook("test.needs_systemd", "test.needs_nothing"))
+	if findings := validate.CapabilityRule(world); len(findings) != 0 {
+		t.Fatalf("findings = %+v, want none: the task is conditional", findings)
+	}
+
+	world.DAG = buildYAML(t, `id: plain
+hosts: lab
+tasks:
+  - name: always
+    test.needs_systemd: {}
+`)
+	if findings := validate.CapabilityRule(world); len(findings) != 1 || !strings.Contains(findings[0].Message, `device "sw1"`) {
+		t.Fatalf("findings = %+v, want sw1 refused for the unconditional task", findings)
+	}
+}
+
+// TestCapabilityRule_AConditionalLegacyTargetMustStillExist: the exemption
+// covers what a device must carry, not a target naming nothing, which is a
+// mistake whatever the condition says.
+func TestCapabilityRule_AConditionalLegacyTargetMustStillExist(t *testing.T) {
+	world := capabilityWorld("noop", nil)
+	world.DAG = buildYAML(t, `id: legacy
+tasks:
+  - name: nowhere
+    ssh_exec:
+      target: no-such-host
+      command: uptime
+    when: vars.go == true
+`)
+	findings := validate.CapabilityRule(world)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, `target "no-such-host" matches no inventory host or tag`) {
+		t.Fatalf("findings = %+v, want the target refused", findings)
+	}
+
+	// A legacy action's capability is left to the run like a method's:
+	// web1 is no Cisco device, and the backup runs only where the
+	// condition holds.
+	world.DAG = buildYAML(t, `id: legacy
+tasks:
+  - name: back it up
+    ios_backup:
+      target: web1
+    when: vars.go == true
+`)
+	if findings := validate.CapabilityRule(world); len(findings) != 0 {
+		t.Fatalf("findings = %+v, want none: the backup is conditional", findings)
+	}
+}

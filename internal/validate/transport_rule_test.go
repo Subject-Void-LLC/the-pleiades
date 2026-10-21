@@ -125,3 +125,23 @@ func TestTransportRule_IsRegistered(t *testing.T) {
 		t.Fatalf("report = %s, want the transport finding", report.String())
 	}
 }
+
+// TestTransportRule_LeavesAConditionalTaskToTheEngine: a task with a
+// condition of its own may be skipped on any device, so the engine checks
+// its transports only where the condition holds (engine.DAG.Conditional).
+// The SSH-only task here runs, by its condition, only where SSH reaches.
+func TestTransportRule_LeavesAConditionalTaskToTheEngine(t *testing.T) {
+	registerTransportMethods(t)
+
+	world := transportWorld("test.ssh_only", nil)
+	world.DAG = buildYAML(t, `id: by-os
+hosts: lab
+tasks:
+  - name: on linux
+    test.ssh_only: {}
+    when: vars.os == 'linux'
+`)
+	if findings := validate.TransportRule(world); len(findings) != 0 {
+		t.Fatalf("findings = %+v, want none: the task is conditional", findings)
+	}
+}

@@ -967,7 +967,9 @@ Each compares every name against the device, resolving the capability hierarchy
 (a device declaring `SystemdCapable` satisfies a requirement for its parent
 `ServiceManagerCapable`) and asserting the device really implements the interface
 rather than merely naming it. A call that runs with no device is refused when the
-method requires any capability, since nothing can supply it.
+method requires any capability, since nothing can supply it. A task with a `when:`
+of its own is checked only by the engine, on each device where its condition holds,
+because `validate` and admission cannot know which devices the run will skip it on.
 
 Write the test for it yourself: target a device lacking the capability and assert
 the refusal. That test is also how you find out whether your requirement is the

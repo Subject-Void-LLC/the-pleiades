@@ -21,6 +21,11 @@ import (
 // requiring SystemdCapable validated against a Cisco switch and was refused
 // only once the run reached it.
 //
+// A task with a condition of its own is not held to its capabilities: the
+// run may skip it on any device, and the engine checks it on each device
+// where its condition holds (engine.DAG.Conditional). A legacy action's
+// target that matches nothing is still refused, condition or not.
+//
 // world.DAG.Nodes is already the flattened view produced by internal/engine
 // (every pretasks/tasks/posttasks entry plus every block/rescue/always
 // descendant, keyed by its synthesized ID), so this loop needs no recursion
@@ -29,7 +34,11 @@ func CapabilityRule(world WorldView) []Finding {
 	var findings []Finding
 
 	for id, task := range world.DAG.Nodes {
+		conditional := world.DAG.Conditional(id)
 		if desc, ok := collection.Lookup(task.FQCN); ok {
+			if conditional {
+				continue
+			}
 			findings = append(findings, methodCapabilityFindings(world, id, task, desc)...)
 			continue
 		}
@@ -51,6 +60,9 @@ func CapabilityRule(world WorldView) []Finding {
 				Node:     id,
 				Message:  fmt.Sprintf("target %q matches no inventory host or tag (task %s)", target, label),
 			})
+			continue
+		}
+		if conditional {
 			continue
 		}
 

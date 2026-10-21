@@ -264,10 +264,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `pkg/capability`'s `ReachedBy`, and `collection.Register` refuses an unknown name). The generic
   `pkg.*`/`svc.*` dispatchers declare the union of their concrete methods' transports and re-check
   the concrete one. Required capabilities are compared by `collection.CheckCapabilities` at plan time
-  (`CapabilityRule`, which also keeps the legacy `engine.ActionCapability` check for `ssh_exec` and
-  `ios_backup`), at a Controller's admission of each device (`dispatch.methodsAdmit`, with the
-  transports, for every method the runbook names that the Controller has registered), and by the
-  engine before the method runs (Phase 117b). `WindowsShellCapable`
+  (`CapabilityRule`, which also keeps the legacy `engine.ActionCapability` check for `ssh_exec`,
+  `winrm_exec` and the other four transport actions), at a Controller's admission of each device
+  (`dispatch.methodsAdmit`, with the transports, for every method the runbook names that the
+  Controller has registered), and by the engine before the method runs (Phase 117b). A task with a
+  `when:` of its own (`engine.DAG.Conditional`) is left out of the plan-time and admission checks,
+  transports included, and checked by the engine where its condition holds. `WindowsShellCapable`
   is a child of `CommandExecCapable`; the transport check is what keeps SSH-only `exec.command` off
   a Windows server.
 - **One circuit breaker, `pkg/breaker` (Phase 75).** `pkg/remoteexec` (SSH, telnet, serial-over-TCP)

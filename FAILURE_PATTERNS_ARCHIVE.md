@@ -13871,14 +13871,19 @@ method; each was refused only by the engine, on the Runner, once the run reached
 
 **Root cause.** 151 recorded that nothing read `Manifest.RequiredCapabilities`. Its later fix put the check in the
 engine alone (`checkMethodCapabilities`), while `validate.CapabilityRule` and the Controller's admission
-(`engine.CapabilityAdmits` over `runbook.Runbook.Required`) kept reading `engine.ActionCapability`, a two-entry table
-for `ssh_exec` and `ios_backup`. Phase 75 added transports to validate and the engine, again not to admission. Each
-fix closed the place it was found and no other.
+(`engine.CapabilityAdmits` over `runbook.Runbook.Required`) kept reading `engine.ActionCapability`, a table of the six
+legacy transport actions (`ssh_exec`, `ios_backup`, `serial_exec`, `serialtcp_exec`, `telnet_exec`, `winrm_exec`).
+Phase 75 added transports to validate and the engine, again not to admission. Each fix closed the place it was found
+and no other.
 
 **Fix.** One function, `collection.CheckCapabilities`, beside `CheckTransports`. `CapabilityRule` calls it for every
 Collection method (and refuses a device-less call of a method requiring a capability); the engine calls it directly;
 and admission (`dispatch.methodsAdmit`) calls both checks for every method the runbook names that the Controller has
-registered (`runbook.Runbook.Methods`), leaving an external method to the Runner's preflight. Tests:
+registered (`runbook.Runbook.Methods`), leaving an external method to the Runner's preflight. The generic `pkg.*` and
+`svc.*` dispatchers, which had hand-written copies of the loop, call it for the concrete method they pick. A task with a
+`when:` of its own (`engine.DAG.Conditional`) is left out of the plan-time and admission checks, transports included,
+because the engine evaluates the condition before it checks a device: holding it to its method there refused a runbook
+choosing `pkg.apt.install` or `pkg.dnf.install` by OS family on every host, the shape of 249. Tests:
 `TestCapabilityRule_RefusesADeviceWithoutAMethodsCapability` and its siblings, `TestWorker_SkipsADeviceAMethodCannotRunOn`,
 `TestWorker_SkipsADeviceAMethodCannotReach`, `TestCheckCapabilities`.
 

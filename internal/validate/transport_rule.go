@@ -20,11 +20,15 @@ import (
 // makes again before the method runs and the generic dispatchers make for
 // the concrete method they pick, so plan time and run time answer the
 // same question the same way. Devices come from taskDevices, so a call
-// that needs no device (engine.TaskTarget) has none to check.
+// that needs no device (engine.TaskTarget) has none to check. A task with
+// a condition of its own is left to the engine (engine.DAG.Conditional).
 func TransportRule(world WorldView) []Finding {
 	var findings []Finding
 
 	for id, task := range world.DAG.Nodes {
+		if world.DAG.Conditional(id) {
+			continue
+		}
 		desc, ok := collection.Lookup(task.FQCN)
 		if !ok || len(desc.Manifest.SupportedTransports) == 0 {
 			continue

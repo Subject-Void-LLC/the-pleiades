@@ -338,8 +338,8 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 }
 
 // requiredCapabilities computes Runbook.Required from a compiled DAG:
-// engine.ActionCapability[task.FQCN] for every node in dag.Nodes,
-// deduplicated, mirroring internal/validate/capability_rule.go's own
+// engine.ActionCapability[task.FQCN] for every node in dag.Nodes without a
+// condition of its own (engine.DAG.Conditional), deduplicated, mirroring internal/validate/capability_rule.go's own
 // "for id, task := range world.DAG.Nodes { required, ok :=
 // engine.ActionCapability[task.FQCN] ... }" loop exactly, so this package
 // and plan-time validation can never disagree about what a given runbook
@@ -360,6 +360,9 @@ func requiredCapabilities(dag *engine.DAG) []capability.Name {
 	seen := make(map[capability.Name]bool, len(ids))
 	var required []capability.Name
 	for _, id := range ids {
+		if dag.Conditional(id) {
+			continue
+		}
 		task := dag.Nodes[id]
 		name, ok := engine.ActionCapability[task.FQCN]
 		if !ok {
@@ -374,14 +377,16 @@ func requiredCapabilities(dag *engine.DAG) []capability.Name {
 	return required
 }
 
-// methods computes Runbook.Methods from a compiled DAG: every node's FQCN,
-// deduplicated and sorted. A synthetic node (a parallel block's fan-out or
-// join) names none and contributes nothing.
+// methods computes Runbook.Methods from a compiled DAG: the FQCN of every
+// node without a condition of its own (engine.DAG.Conditional, the rule
+// internal/validate's CapabilityRule and TransportRule follow), deduplicated
+// and sorted. A synthetic node (a parallel block's fan-out or join) names
+// none and contributes nothing.
 func methods(dag *engine.DAG) []string {
 	seen := make(map[string]bool, len(dag.Nodes))
 	var names []string
-	for _, task := range dag.Nodes {
-		if task.FQCN == "" || seen[task.FQCN] {
+	for id, task := range dag.Nodes {
+		if task.FQCN == "" || seen[task.FQCN] || dag.Conditional(id) {
 			continue
 		}
 		seen[task.FQCN] = true
