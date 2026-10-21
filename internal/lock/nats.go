@@ -102,6 +102,19 @@ func (m *natsLockManager) Close() error {
 type holderInfo struct {
 	ID  string        `json:"id"`
 	TTL time.Duration `json:"ttl"`
+	// Owner is the holder's AcquireOptions.Owner, omitted when it named
+	// none, so a record written before owners existed decodes unchanged
+	// and reads as held by an unnamed holder, never as free.
+	Owner string `json:"owner,omitempty"`
+}
+
+// ownersOf is each holder's owner, "" for one that named none.
+func ownersOf(holders []holderInfo) []string {
+	owners := make([]string, 0, len(holders))
+	for _, h := range holders {
+		owners = append(owners, h.Owner)
+	}
+	return owners
 }
 
 // lockValue is the JSON envelope stored as a lock key's value, replacing
@@ -255,6 +268,9 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 	if ttl > 0 && ttl < minPositiveTTL {
 		return nil, fmt.Errorf("ttl must be 0 or at least %v, got %v", minPositiveTTL, ttl)
 	}
+	if err := validateOwner(opts.Owner); err != nil {
+		return nil, err
+	}
 	// Encoded ONCE, here, because this is the only place an itemID enters
 	// this manager. Every KV operation below and every one the returned
 	// lease performs uses this value, so the key and the subject derived
@@ -272,7 +288,7 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 			return nil, err
 		}
 
-		data, err := json.Marshal(lockValue{Mode: opts.Mode, Holders: []holderInfo{{ID: holderID, TTL: ttl}}})
+		data, err := json.Marshal(lockValue{Mode: opts.Mode, Holders: []holderInfo{{ID: holderID, TTL: ttl, Owner: opts.Owner}}})
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode lock value for %s: %w", itemID, err)
 		}
@@ -282,7 +298,7 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 		// mechanism for the common, uncontended case.
 		rev, err := m.kv.Create(ctx, string(key), data, createOpts...)
 		if err == nil {
-			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, mode: opts.Mode, revision: rev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
+			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, owner: opts.Owner, mode: opts.Mode, revision: rev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 		}
 		if !errors.Is(err, jetstream.ErrKeyExists) {
 			return nil, fmt.Errorf("failed to acquire lock for %s: %w", itemID, err)
@@ -290,14 +306,11 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 
 		// itemID already has a value. Only a shared request joining an
 		// existing shared entry can succeed against it; every other
-		// combination is real contention. Priority never overrides this:
-		// it only changes how fast a caller retries in
-		// acquireWithContention, never what a single attempt is allowed
-		// to do to a live holder (see queue.go's own doc comment for why).
-		if opts.Mode != ModeShared {
-			return nil, ErrLockHeld
-		}
-
+		// combination is real contention, reported as a *HeldError naming
+		// the holders read just below. Priority never overrides this: it
+		// only changes how fast a caller retries in acquireWithContention,
+		// never what a single attempt is allowed to do to a live holder
+		// (see queue.go's own doc comment for why).
 		entry, getErr := m.kv.Get(ctx, string(key))
 		if getErr != nil {
 			if errors.Is(getErr, jetstream.ErrKeyNotFound) {
@@ -317,13 +330,13 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 		if err := json.Unmarshal(entry.Value(), &current); err != nil {
 			return nil, fmt.Errorf("failed to decode lock value for %s: %w", itemID, err)
 		}
-		if current.Mode != ModeShared {
-			return nil, ErrLockHeld
+		if opts.Mode != ModeShared || current.Mode != ModeShared {
+			return nil, &HeldError{Owners: ownersOf(current.Holders)}
 		}
 
 		joined := make([]holderInfo, 0, len(current.Holders)+1)
 		joined = append(joined, current.Holders...)
-		joined = append(joined, holderInfo{ID: holderID, TTL: ttl})
+		joined = append(joined, holderInfo{ID: holderID, TTL: ttl, Owner: opts.Owner})
 		joinedData, err := json.Marshal(lockValue{Mode: ModeShared, Holders: joined})
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode lock value for %s: %w", itemID, err)
@@ -331,7 +344,7 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 
 		newRev, updateErr := m.publishWithTTL(ctx, key, joinedData, entry.Revision(), maxHolderTTL(joined))
 		if updateErr == nil {
-			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, mode: ModeShared, revision: newRev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
+			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, owner: opts.Owner, mode: ModeShared, revision: newRev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 		}
 		if !errors.Is(updateErr, jetstream.ErrKeyExists) {
 			return nil, fmt.Errorf("failed to join shared lock for %s: %w", itemID, updateErr)
@@ -363,6 +376,9 @@ type natsLease struct {
 	// useful one.
 	key      storedKey
 	holderID string
+	// owner is AcquireOptions.Owner, rewritten with the holder on every
+	// KeepAlive of an exclusive lease so a renewal never drops it.
+	owner    string
 	mode     Mode
 	revision uint64
 	ttl      time.Duration
@@ -398,7 +414,7 @@ func (l *natsLease) KeepAlive(ctx context.Context) error {
 	}
 
 	if l.mode == ModeExclusive {
-		data, err := json.Marshal(lockValue{Mode: ModeExclusive, Holders: []holderInfo{{ID: l.holderID, TTL: l.ttl}}})
+		data, err := json.Marshal(lockValue{Mode: ModeExclusive, Holders: []holderInfo{{ID: l.holderID, TTL: l.ttl, Owner: l.owner}}})
 		if err != nil {
 			return fmt.Errorf("failed to keep alive lease %s: %w", l.itemID, err)
 		}

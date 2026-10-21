@@ -3,6 +3,7 @@ package lock
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 )
@@ -28,6 +29,22 @@ type inProcessManager struct {
 type inProcessLockEntry struct {
 	mode    Mode
 	holders map[uint64]time.Time // token to that holder's own locally-computed deadline
+	owners  map[uint64]string    // token to that holder's AcquireOptions.Owner
+}
+
+// heldError names entry's current holders, in token order so the same
+// holders always read the same way.
+func (entry *inProcessLockEntry) heldError() *HeldError {
+	tokens := make([]uint64, 0, len(entry.holders))
+	for token := range entry.holders {
+		tokens = append(tokens, token)
+	}
+	slices.Sort(tokens)
+	owners := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		owners = append(owners, entry.owners[token])
+	}
+	return &HeldError{Owners: owners}
 }
 
 // NewInProcessManager builds a Manager backed entirely by in-process
@@ -61,6 +78,9 @@ func (m *inProcessManager) tryAcquireOnce(ctx context.Context, itemID string, tt
 	if err := validateTTL(ttl); err != nil {
 		return nil, err
 	}
+	if err := validateOwner(opts.Owner); err != nil {
+		return nil, err
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -83,11 +103,12 @@ func (m *inProcessManager) tryAcquireOnce(ctx context.Context, itemID string, tt
 		// attempt is allowed to do to a live holder (see queue.go's own
 		// doc comment for why).
 		if opts.Mode != ModeShared || entry.mode != ModeShared {
-			return nil, ErrLockHeld
+			return nil, entry.heldError()
 		}
 		m.nextToken++
 		token := m.nextToken
 		entry.holders[token] = time.Now().Add(ttl)
+		entry.owners[token] = opts.Owner
 		return &inProcessLease{manager: m, itemID: itemID, token: token, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 	}
 
@@ -96,6 +117,7 @@ func (m *inProcessManager) tryAcquireOnce(ctx context.Context, itemID string, tt
 	m.locks[itemID] = &inProcessLockEntry{
 		mode:    opts.Mode,
 		holders: map[uint64]time.Time{token: time.Now().Add(ttl)},
+		owners:  map[uint64]string{token: opts.Owner},
 	}
 	return &inProcessLease{manager: m, itemID: itemID, token: token, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 }
@@ -116,6 +138,7 @@ func pruneExpiredHolders(entry *inProcessLockEntry) {
 	for token, deadline := range entry.holders {
 		if now.After(deadline) {
 			delete(entry.holders, token)
+			delete(entry.owners, token)
 		}
 	}
 }
@@ -196,6 +219,7 @@ func (l *inProcessLease) Release(ctx context.Context) error {
 	}
 
 	delete(entry.holders, l.token)
+	delete(entry.owners, l.token)
 	if len(entry.holders) == 0 {
 		delete(l.manager.locks, l.itemID)
 	}

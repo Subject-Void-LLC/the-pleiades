@@ -76,6 +76,10 @@ func runManagerConformance(t *testing.T, newManager func() lock.Manager) {
 	t.Run("AcquireAllReleasesOnPartialFailure", func(t *testing.T) {
 		conformanceAcquireAllReleasesOnPartialFailure(t, newManager())
 	})
+
+	t.Run("ContentionNamesOwners", func(t *testing.T) {
+		conformanceContentionNamesOwners(t, newManager())
+	})
 }
 
 // conformanceThunderingHerd races numGoroutines callers to Acquire the same
