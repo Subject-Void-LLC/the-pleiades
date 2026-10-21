@@ -301,6 +301,7 @@ func TestControllerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 		topology.JobRequestedSubject():                                   "publishes the launch itself",
 		topology.DeadLetterSubject(topology.JobRequestedSubject()):       "dead-letters a job.requested that failed MaxDeliver times",
 		topology.DeadLetterSubject(topology.JournalSubject("job-1")):     "dead-letters a run journal batch that failed MaxDeliver times",
+		topology.DeadLetterSubject(topology.ResultSubject("job-1")):      "dead-letters a Runner's result it failed to record MaxDeliver times",
 		"$KV.Pleiades_Locks.device-1":                                    "holds the scheduler and leader election leases",
 		"$JS.API.INFO":                                                   "AccountInfo when preparing a bucket",
 		"$JS.API.STREAM.INFO.PLEIADES":                                   "reads the stream before provisioning",
