@@ -562,6 +562,24 @@ whether gopls or the wiring is at fault, use `gopls references` and `gopls defin
 command line for that session, and say so in the writeup. Grep stays correct for prose, YAML
 and markdown.
 
+### Project subagents
+
+`.claude/agents/` defines five agents. Delegate to them instead of writing a general-purpose prompt that
+repeats the house rules: each one already carries the gopls ladder, the no-build rule, the evidence format,
+and the writing rules. Each reads `.IGNORE/agents-local.md` first when it exists (git-ignored; this machine's
+memory limits, `gh` setup and lab names).
+
+| Agent | Use it for | Changes files |
+|---|---|---|
+| `go-mapper` | how Go code works: where, who calls, how a value travels between tiers | no |
+| `fp-reviewer` | the branch diff against FAILURE_PATTERNS and LESSONS before a PR or push; pass a lens to narrow it | no |
+| `claim-refuter` | testing a finding, a "fixed" claim, a ticked roadmap item or a doc claim | no |
+| `ci-triager` | a failed Actions run or a local `prreport`: real, contention, infrastructure, or a repeat of N | no |
+| `records-keeper` | the end-of-branch records: failure patterns, lessons, handoff, changelog, roadmap ticks | records only |
+
+None commits, pushes, comments, reruns CI or touches a lab VM. The main thread keeps to the machine's
+concurrency limit across all of them.
+
 ### ent code generation
 
 `internal/ent` is generated from `internal/ent/schema`. Never hand-edit generated files:
