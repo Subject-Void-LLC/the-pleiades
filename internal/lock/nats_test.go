@@ -67,8 +67,10 @@ func TestThunderingHerdLocking(t *testing.T) {
 				if err := lease.Release(context.Background()); err != nil {
 					t.Errorf("failed to release lock: %v", err)
 				}
-			} else if err == lock.ErrLockHeld {
-				// We lost the race, which is expected for 99 of the routines
+			} else if errors.Is(err, lock.ErrLockHeld) {
+				// We lost the race, which is expected for 99 of the routines.
+				// errors.Is, since contention is a *lock.HeldError naming the
+				// holder (Phase 103a), which wraps ErrLockHeld.
 				atomic.AddInt32(&lockedCount, 1)
 			} else {
 				// Some other transport or KV error occurred
