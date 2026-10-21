@@ -353,7 +353,7 @@
       "type": "object"
     },
     "Step": {
-      "description": "Step is the record of one step pr-check ran besides the tests (the coverage check, the served-images check): how it exited, or why it did not run.",
+      "description": "Step is the record of one step pr-check ran besides the tests (govulncheck, the coverage check, the served-images check): how it exited, or why it did not run.",
       "properties": {
         "exit_code": {
           "description": "ExitCode is how the step's command exited; 0 for a step that did not run.",

@@ -372,8 +372,9 @@ and for the refs below that still need a receipt. The schedule-only jobs (`night
 `winrm`) never run on a pull request; dispatch the workflow on its branch when a change
 touches them.
 
-**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote`, vet for
-macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it
+**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote` (its
+`govulncheck` on the Mac when one is ready, for this machine's platform and Go release, since a
+scan that traces a vulnerable call took 7 GB there), vet for macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it
 through the same `testgate` passes, the container-free ones three times strictly as
 `test-repeat` does, and `coverage-check -measured -scoped` over the floors of exactly what it
 measured; the container-list guard and `internal/archtest` always run, and so does
@@ -394,8 +395,8 @@ Read a pr-check run back from its record, not its logs. Each testgate pass, each
 there, holding pr-check's own exit status, so it never passes a run the gate failed. `go run
 ./tools/prreport` prints it again; `-json` is the same model for an agent, `-failures` the
 failures that count with their output, `-skips` every skip by reason, and `-leg NAME` one pass
-(`fast`, `repeat`, `containers`), leg (`mac`, `bsd`, `win`) or step (`images`, `coverage`,
-`durations`). A report for a commit other than HEAD says so on stderr. The report is a versioned
+(`fast`, `repeat`, `containers`), leg (`mac`, `bsd`, `win`) or step (`govulncheck`, `images`,
+`coverage`, `durations`). A report for a commit other than HEAD says so on stderr. The report is a versioned
 contract for tools, schema 2, published as `docs/reference/schemas/pr-check-report.json` from
 `tools/internal/prreport`. A reader ignores unknown fields, treats an unknown verdict or outcome as not a
 pass, and refuses an unknown major version. The verdict is `pass`, `fail`, `incomplete`, `running`

@@ -24,11 +24,14 @@ import (
 // The phases -phase names. prepare checks the machine, builds pleiades and
 // sends the tree, all of which uses this machine; test runs the tests on
 // the tree prepare sent, which uses only the other one, so pr-check can run
-// it in the background beside the Linux passes. all is both.
+// it in the background beside the Linux passes. all is both. vuln runs
+// govulncheck on the tree prepare sent, on a machine whose leg is a
+// Scanner, so its memory is that machine's.
 const (
 	PhaseAll     = "all"
 	PhasePrepare = "prepare"
 	PhaseTest    = "test"
+	PhaseVuln    = "vuln"
 )
 
 // Options are the flags every check takes, registered by Flags.
@@ -51,6 +54,9 @@ type Options struct {
 	ReportOut string
 	// Packages are the import paths to test.
 	Packages []string
+	// Govulncheck, with PhaseVuln, is the govulncheck release to scan with
+	// (the Makefile's GOVULNCHECK_VERSION).
+	Govulncheck string
 }
 
 // Flags registers the shared flags on fs; machine names the machine in
@@ -60,9 +66,10 @@ func Flags(fs *flag.FlagSet, machine string) *Options {
 	fs.BoolVar(&o.Optional, "optional", false, "a clone with no machine configured is a skip rather than an error")
 	fs.StringVar(&o.Commit, "commit", "HEAD", "the commit whose tree runs on "+machine)
 	fs.IntVar(&o.Parallel, "p", 0, "how many packages testgate runs at once on "+machine+" (0: its default)")
-	fs.StringVar(&o.Phase, "phase", PhaseAll, "prepare (check "+machine+", build pleiades, send the tree), test (run the tests on the tree prepare sent), or all")
+	fs.StringVar(&o.Phase, "phase", PhaseAll, "prepare (check "+machine+", build pleiades, send the tree), test (run the tests on the tree prepare sent), vuln (run govulncheck on the tree prepare sent), or all")
 	fs.StringVar(&o.ReadyFile, "ready-file", "", "with -phase prepare, a file written once the tree is on "+machine+", so a caller knows -phase test has something to run")
 	fs.StringVar(&o.ReportOut, "report-out", "", "write the run's record to this JSON file: where it stopped, and the tests' own records read back from "+machine)
+	fs.StringVar(&o.Govulncheck, "govulncheck", "", "with -phase vuln, the govulncheck release to scan with (v1.6.0)")
 	return o
 }
 
@@ -70,11 +77,27 @@ func Flags(fs *flag.FlagSet, machine string) *Options {
 // written into the command the machine runs.
 var importPath = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
+// release is what -govulncheck must look like, since it is written into
+// the command the machine runs.
+var release = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+
 // Check refuses a phase, package or commit that cannot be run, before
 // anything is read or contacted.
 func (o *Options) Check() error {
-	if o.Phase != PhaseAll && o.Phase != PhasePrepare && o.Phase != PhaseTest {
-		return fmt.Errorf("-phase is %s, %s or %s, not %q", PhaseAll, PhasePrepare, PhaseTest, o.Phase)
+	switch o.Phase {
+	case PhaseAll, PhasePrepare, PhaseTest:
+		if o.Govulncheck != "" {
+			return fmt.Errorf("-govulncheck is for -phase %s", PhaseVuln)
+		}
+	case PhaseVuln:
+		if !release.MatchString(o.Govulncheck) {
+			return fmt.Errorf("-phase %s needs -govulncheck naming a release (v1.6.0), not %q", PhaseVuln, o.Govulncheck)
+		}
+		if o.ReportOut != "" {
+			return fmt.Errorf("-phase %s writes no record; pr-check records the scan as a step of its own", PhaseVuln)
+		}
+	default:
+		return fmt.Errorf("-phase is %s, %s, %s or %s, not %q", PhaseAll, PhasePrepare, PhaseTest, PhaseVuln, o.Phase)
 	}
 	for _, p := range o.Packages {
 		if !importPath.MatchString(p) {
@@ -103,6 +126,14 @@ type Leg interface {
 	Test(ctx context.Context, sha string, parallel int, packages []string, stdout io.Writer) (bool, error)
 }
 
+// Scanner is a Leg that can run govulncheck on a tree it was sent.
+type Scanner interface {
+	// Vuln runs govulncheck release version over sha's tree, analyzing it
+	// as a run on this machine would, and reports whether it passed,
+	// writing its output to stdout.
+	Vuln(ctx context.Context, sha, version string, stdout io.Writer) (bool, error)
+}
+
 // Flow is one check's words for its machine, and Run is its run.
 type Flow struct {
 	// Tool names the command, starting each line it prints ("maccheck").
@@ -119,7 +150,8 @@ type Flow struct {
 }
 
 // Run runs o's phases against leg: 0 passed (or nothing to run), 1 a test
-// failed, 2 the machine could not be used or the run was stopped. With
+// (or govulncheck) failed, 2 the machine could not be used or the run was
+// stopped. With
 // o.ReportOut set it writes the leg's record there (LegRecord), except
 // after a prepare phase that succeeded, whose test phase writes it.
 func (f Flow) Run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg Leg) int {
@@ -162,6 +194,9 @@ func stopped(rec *LegRecord, step string, err error) {
 // run is Run's phases, marking rec as it goes; write is false for a prepare
 // phase that succeeded.
 func (f Flow) run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg Leg, rec *LegRecord) (code int, write bool) {
+	if o.Phase == PhaseVuln {
+		return f.vuln(ctx, o, stdout, stderr, leg), false
+	}
 	if len(o.Packages) == 0 {
 		fmt.Fprintf(stdout, "%s: the branch changes no container-free package, so nothing runs on %s\n", f.Tool, f.Machine)
 		rec.Verdict = flakegate.VerdictPass
@@ -229,6 +264,40 @@ func (f Flow) run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg
 	fmt.Fprintf(stdout, "%s: all tests passed on %s (%s) in %s\n", f.Tool, f.Target, f.OS, took)
 	rec.Verdict = flakegate.VerdictPass
 	return 0, true
+}
+
+// vuln is the vuln phase: govulncheck over the tree prepare sent, on the
+// machine. 0 it passed, 1 it found something or could not scan, 2 the
+// machine cannot run it or could not be used, which a caller may answer by
+// scanning elsewhere.
+func (f Flow) vuln(ctx context.Context, o *Options, stdout, stderr io.Writer, leg Leg) int {
+	scanner, ok := leg.(Scanner)
+	if !ok {
+		fmt.Fprintf(stderr, "%s: %s cannot run govulncheck\n", f.Tool, f.Machine)
+		return 2
+	}
+	sha, _, err := ResolveCommit(o.Commit)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", f.Tool, err)
+		return 2
+	}
+	if err := leg.Reachable(); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n%s\n", f.Tool, err, f.Advice)
+		return 2
+	}
+	start := time.Now()
+	passed, err := scanner.Vuln(ctx, sha, o.Govulncheck, stdout)
+	took := time.Since(start).Round(time.Second)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: running govulncheck on %s: %v (after %s)\n", f.Tool, f.Target, err, took)
+		return 2
+	}
+	if !passed {
+		fmt.Fprintf(stderr, "%s: govulncheck %s failed on the tree of %s, on %s, in %s\n", f.Tool, o.Govulncheck, Short(sha), f.Target, took)
+		return 1
+	}
+	fmt.Fprintf(stdout, "%s: govulncheck %s passed on the tree of %s, on %s, in %s\n", f.Tool, o.Govulncheck, Short(sha), f.Target, took)
+	return 0
 }
 
 // RecordsGrace bounds reading a machine's records back after its tests.

@@ -63,6 +63,11 @@ func TestCheck(t *testing.T) {
 		{[]string{"a b; rm -rf /"}, "is not an import path"},
 		{[]string{"--", "-leading/dash"}, "is not an import path"},
 		{[]string{"-commit", "--output=x", "a/b"}, "which git reads as an option"},
+		{[]string{"-phase", "vuln"}, `needs -govulncheck naming a release (v1.6.0), not ""`},
+		{[]string{"-phase", "vuln", "-govulncheck", "latest"}, `not "latest"`},
+		{[]string{"-phase", "vuln", "-govulncheck", "v1.6.0; rm -rf /"}, "needs -govulncheck naming a release"},
+		{[]string{"-phase", "vuln", "-govulncheck", "v1.6.0", "-report-out", "x.json"}, "writes no record"},
+		{[]string{"-phase", "test", "-govulncheck", "v1.6.0", "a/b"}, "-govulncheck is for -phase vuln"},
 	} {
 		err := options(t, tc.args...).Check()
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -71,6 +76,73 @@ func TestCheck(t *testing.T) {
 	}
 	if err := options(t, "-phase", "test", "github.com/x/a", "github.com/x/b").Check(); err != nil {
 		t.Errorf("a good run was refused: %v", err)
+	}
+	if err := options(t, "-phase", "vuln", "-govulncheck", "v1.6.0").Check(); err != nil {
+		t.Errorf("a good scan was refused: %v", err)
+	}
+}
+
+// fakeScanner is a machine that can also run govulncheck.
+type fakeScanner struct {
+	*fakeLeg
+	clean   bool
+	err     error
+	version string
+}
+
+func (f *fakeScanner) Vuln(_ context.Context, sha, version string, _ io.Writer) (bool, error) {
+	f.steps = append(f.steps, "vuln")
+	f.sha, f.version = sha, version
+	return f.clean, f.err
+}
+
+// TestRun_Vuln drives the vuln phase: it scans the tree prepare sent, with
+// no packages named and no readiness check or sending of its own, and
+// exits 2 for a machine that cannot scan or be used (which pr-check answers
+// by scanning here), 1 for a scan that failed, and 0 for one that passed.
+func TestRun_Vuln(t *testing.T) {
+	inRepo(t)
+	vuln := []string{"-phase", "vuln", "-govulncheck", "v1.6.0"}
+	for _, tc := range []struct {
+		name      string
+		leg       Leg
+		wantCode  int
+		wantSteps string
+		want      []string
+	}{
+		{"not a scanner", &fakeLeg{}, 2, "", []string{"the box cannot run govulncheck"}},
+		{"unreachable", &fakeScanner{fakeLeg: &fakeLeg{reachable: errors.New("box-1 did not answer")}}, 2, "reachable", []string{"did not answer", "delete it"}},
+		{"the scan breaks", &fakeScanner{fakeLeg: &fakeLeg{}, err: errors.New("lost")}, 2, "reachable vuln", []string{"running govulncheck on box-1: lost"}},
+		{"it finds something", &fakeScanner{fakeLeg: &fakeLeg{}}, 1, "reachable vuln", []string{"govulncheck v1.6.0 failed on the tree of", "on box-1, in "}},
+		{"it passes", &fakeScanner{fakeLeg: &fakeLeg{}, clean: true}, 0, "reachable vuln", []string{"govulncheck v1.6.0 passed on the tree of", "on box-1, in "}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := flow.Run(context.Background(), options(t, vuln...), &stdout, &stderr, tc.leg)
+			out := stdout.String() + stderr.String()
+			var steps []string
+			switch leg := tc.leg.(type) {
+			case *fakeLeg:
+				steps = leg.steps
+			case *fakeScanner:
+				steps = leg.steps
+			}
+			if code != tc.wantCode || strings.Join(steps, " ") != tc.wantSteps {
+				t.Fatalf("exit %d after %v, want %d after %q\n%s", code, steps, tc.wantCode, tc.wantSteps, out)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("output does not say %q:\n%s", w, out)
+				}
+			}
+		})
+	}
+	leg := &fakeScanner{fakeLeg: &fakeLeg{}, clean: true}
+	if code := flow.Run(context.Background(), options(t, vuln...), io.Discard, io.Discard, leg); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if sha, _, _ := ResolveCommit("HEAD"); leg.sha != sha || leg.version != "v1.6.0" {
+		t.Errorf("the scan got %q and %q, want HEAD's full hash and v1.6.0", leg.sha, leg.version)
 	}
 }
 

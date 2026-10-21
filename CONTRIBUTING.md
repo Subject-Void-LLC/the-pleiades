@@ -81,7 +81,8 @@ git push -u origin my-branch   # the hook reads pr-check's receipt back, in abou
 gh pr create                   # its checks are the gate; merge once they are green
 ```
 
-`make pr-check` runs the static checks, `go vet` as macOS and Windows build, each package your
+`make pr-check` runs the static checks (`govulncheck` on your Mac when `tests/mac/.env` names
+one), `go vet` as macOS and Windows build, each package your
 branch changes in the test tier CI gives it, and the coverage floors of what it measured. Run
 it on a committed, clean tree: it ends by writing a receipt naming the commit it checked, and
 a dirty tree gets none. It is narrower than CI, which still tests every package.

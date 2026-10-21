@@ -1,6 +1,7 @@
 // A check on a POSIX machine (macOS, FreeBSD), through exec.command: the
 // tree goes by file.copy and archive.extract, and the tests run under
-// /bin/sh, as a job of their own so an interrupt can end them all.
+// /bin/sh, as a job of their own so an interrupt can end them all; so does
+// govulncheck, as a scan here would run it.
 package oscheck
 
 import (
@@ -11,6 +12,8 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -186,6 +189,52 @@ wait "$job"
 status=$?
 rm -f %[6]s
 exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1])
+}
+
+// VulnTimeout bounds a govulncheck run on the machine, in seconds, as the
+// task's own timeout: a scan took 8 to 35 seconds on a Mac in October 2026,
+// and the first one also downloads govulncheck and a Go release.
+const VulnTimeout = 30 * 60
+
+// goRelease is what this machine's Go release must look like to be named to
+// another machine's go command, which fetches it.
+var goRelease = regexp.MustCompile(`^go[0-9]+\.[0-9]+(\.[0-9]+)?$`)
+
+// Vuln runs govulncheck release version over sha's tree through
+// exec.command (VulnScript), analyzing it for this machine's own operating
+// system, architecture and Go release, so its answer is the one a scan here
+// gives. An interrupt ends the pleiades here; a scan it leaves on the
+// machine ends by itself.
+func (x POSIX) Vuln(ctx context.Context, sha, version string, stdout io.Writer) (bool, error) {
+	if !FileExists(x.Pleiades.Binary) {
+		return false, fmt.Errorf("this worktree has no pleiades for %s yet; run -phase prepare first", x.Machine)
+	}
+	if !goRelease.MatchString(runtime.Version()) {
+		return false, fmt.Errorf("this machine's Go is %s, not a release %s can fetch to scan as this machine would", runtime.Version(), x.Machine)
+	}
+	fmt.Fprintf(stdout, "%s: govulncheck %s runs on %s, scanning for %s/%s with %s as a scan here would\n", x.Tool, version, x.Machine, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	out, err := x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.VulnScript(sha, version, runtime.GOOS, runtime.GOARCH, runtime.Version())), fmt.Sprintf("--timeout=%d", VulnTimeout))
+	if err != nil {
+		return false, err
+	}
+	fmt.Fprintln(stdout, strings.TrimRight(out.Output, "\r\n"))
+	return out.ExitCode == 0, nil
+}
+
+// VulnScript is what the machine runs for Vuln, in sha's tree: it installs
+// govulncheck release version into the tree, where it goes when the tree is
+// pruned (Go's build cache makes the next install cheap), then runs it over
+// every package under Wrap, exiting with its status. GOTOOLCHAIN names
+// goVersion for the scan, since the machine's own go may be newer than the
+// toolchain line and would otherwise judge its own standard library; GOOS
+// and GOARCH name goos and goarch for the scan alone, since the install
+// builds a program the machine runs.
+func (x POSIX) VulnScript(sha, version, goos, goarch, goVersion string) string {
+	return fmt.Sprintf(`exec 2>&1
+export PATH="$PATH:%[1]s"
+cd "$HOME/%[2]s/%[3]s" || exit 2
+GOBIN="$PWD/.pleiades-bin" go install golang.org/x/vuln/cmd/govulncheck@%[4]s || exit $?
+GOTOOLCHAIN=%[7]s GOOS=%[5]s GOARCH=%[6]s %[8]s"$PWD/.pleiades-bin/govulncheck" ./...`, x.Path, x.Dir, sha, version, goos, goarch, goVersion, x.Wrap)
 }
 
 // Records reads back the testgate records TestScript's passes wrote in

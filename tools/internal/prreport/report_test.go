@@ -109,7 +109,13 @@ func fixture(t *testing.T) string {
 // TestMerge_ReadsEveryRecordInOrder: every record but the report is read by
 // its kind, each list in the order pr-check runs them.
 func TestMerge_ReadsEveryRecordInOrder(t *testing.T) {
-	r := merge(t, fixture(t), MergeOptions{Commit: "abc"})
+	dir := fixture(t)
+	// govulncheck runs before the tests, between the Mac's prepare and test
+	// phases, so it leads the steps.
+	if err := WriteStep(dir, "govulncheck", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	r := merge(t, dir, MergeOptions{Commit: "abc"})
 	var passes, legs, steps []string
 	for _, p := range r.Passes {
 		passes = append(passes, p.Name)
@@ -120,7 +126,7 @@ func TestMerge_ReadsEveryRecordInOrder(t *testing.T) {
 	for _, s := range r.Steps {
 		steps = append(steps, s.Name)
 	}
-	if !slices.Equal(passes, []string{"fast", "containers"}) || !slices.Equal(legs, []string{"mac", "bsd", "win"}) || !slices.Equal(steps, []string{"images", "coverage"}) {
+	if !slices.Equal(passes, []string{"fast", "containers"}) || !slices.Equal(legs, []string{"mac", "bsd", "win"}) || !slices.Equal(steps, []string{"govulncheck", "images", "coverage"}) {
 		t.Errorf("passes %v legs %v steps %v", passes, legs, steps)
 	}
 	if r.Verdict != flakegate.VerdictFail || len(r.Problems) != 0 || r.Commit != "abc" || r.Kind != ReportKind || r.Schema != ReportSchema || !r.Generated.Equal(now) {
