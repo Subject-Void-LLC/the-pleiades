@@ -87,8 +87,12 @@ var (
 	// iosErrorPattern matches IOS's own line-start "% " error
 	// convention ("% Invalid input detected at '^' marker.", "%
 	// Incomplete command.", "% Ambiguous command: ..."), verified
-	// directly against a real device rather than assumed from memory.
-	iosErrorPattern = regexp.MustCompile(`(?m)^% `)
+	// directly against a real device rather than assumed from memory,
+	// and the "%Error ..." a file operation prints when it fails ("%Error
+	// opening flash:x (No such file or directory)"), with no space after
+	// the percent sign. A "%Warning:" line is not a failure, and neither
+	// is a syslog line ("%SYS-5-CONFIG_I: ...").
+	iosErrorPattern = regexp.MustCompile(`(?m)^%(?: |Error\b)`)
 )
 
 // IOS is the one concrete vendor Dialect this package ships, covering
