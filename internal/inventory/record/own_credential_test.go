@@ -50,7 +50,9 @@ func TestTakesMachineCredential(t *testing.T) {
 		{"a Catalyst Center", "catalyst_center", []capability.Name{capability.NameCatalystAPI}, false},
 		{"an AWS account", "aws_account", []capability.Name{capability.NameAWSAPI}, false},
 		{"a Kubernetes cluster", "kubernetes_cluster", []capability.Name{capability.NameKubernetes}, false},
-		{"a container engine over TLS alone", "container_host", []capability.Name{capability.NameDocker, capability.NameEngineTLS}, false},
+		// Not a real container_host, whose type always declares SSH and so
+		// takes the credential: the rule over capabilities with no login.
+		{"an engine API and no login", "", []capability.Name{capability.NameDocker, capability.NameEngineTLS}, false},
 		{"a device declaring nothing", "", nil, false},
 		{"a login on a type registered as using its own credential", "record_test_own_login", []capability.Name{capability.NameSSHTransport}, false},
 	}

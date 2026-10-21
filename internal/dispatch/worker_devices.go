@@ -246,17 +246,18 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 
 	// The template's own bound credentials, already rendered for the whole
 	// fan-out, reach the payload first. A machine credential among them
-	// supplies authentication for EVERY device in this dispatch, which is
-	// AWX's semantics: an operator binds one machine credential to a job
-	// template and every host in the inventory is reached with it.
+	// supplies authentication for every device in this dispatch that can be
+	// logged into, AWX's semantics narrowed to logins: a device reached only
+	// through an API never receives it (record.TakesMachineCredential).
 	//
 	// ApplyInjection (inject.go) is where that precedence lives, and its
 	// doc comment carries the reasoning for the ordering, including why the
 	// inverse would be worse.
 	ApplyInjection(&payload, injected, device)
 
-	// The per-device store is the FALLBACK, consulted only when the
-	// template bound no machine credential. It is what keeps every dispatch
+	// The per-device store is the FALLBACK, consulted when nothing the
+	// template bound gave this device its secrets: no machine credential was
+	// bound, or this device does not take one. It is what keeps every dispatch
 	// that exists today working unchanged, including the whole Crawl tier,
 	// which has no template and no binding.
 	//

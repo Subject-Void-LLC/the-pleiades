@@ -1290,9 +1290,10 @@ The first is device credentials: a username plus a password or an SSH private ke
 keyed by device name, encrypted at rest in a local file. This is the Crawl tier's
 store and it is still what the control plane falls back to when a template binds no
 machine credential. A device reached only through an API (a `generic_http` or
-`generic_grpc` device, a Catalyst Center, a cloud account, a cluster) always uses
-this store, never a template's machine credential: that credential is a login, and
-sent to such a device it would go to whatever answers at the device's URL.
+`generic_grpc` device, a Catalyst Center, a cloud account, a cluster) never receives
+a template's machine credential: that credential is a login, and sent to such a
+device it would go to whatever answers at the device's URL. It uses this store, or,
+for a cluster, a bound Kubernetes credential naming its API server.
 
 The second is control-plane credentials: a credential of a declared type, holding
 whatever inputs that type declares, encrypted at rest in the database. These are the
