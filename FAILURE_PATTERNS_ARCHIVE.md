@@ -13717,7 +13717,20 @@ would let a rollback undo beneath another run's change, so it matters which.
 **Fix.** Open. The gate now fails naming a later run that failed, with its journal, so the next failure says which of
 the two it is.
 
-**Lesson.** A gate step whose outcome it ignores turns a flake in the setup into a wrong verdict on the product.
+**Evidence since (2026-10-21, after #81 merged).** On a quiet machine, under `-race` with `GOMAXPROCS=4`, G2 alone
+passed 30 runs in a row and the whole gate 20, on top of the 30 before: 80 with neither failure, against 2 in 14
+while another session's gate was loading this machine. Reading `laterRunProblems` (`internal/rollback/history.go`),
+the planner lets a rollback run beneath a later run that changed the same device in two ways only: the later run
+recorded no change (it failed before acting, which the gate now names), or its last finish is not after the
+target's first start by the wall-clock times the journals hold. The second is a gap whatever caused this entry: a
+clock stepped back between two Crawl runs hides the later one, and on the Walk tier the comparison is between two
+Runners' clocks (`journal.EntStore.onDevicesSince` filters on `FinishedAt` against the target's earliest
+`StartedAt`, and the planner compares again), so skew between Runners hides a later job. Phase 40a plans ordering
+by a logical clock instead: the device lease's fencing revision on the Walk tier, a project counter on the Crawl
+tier. Not built here, since it reaches the lock, the Runner, the journal schema and both dialects' migrations.
+
+**Lesson.** A gate step whose outcome it ignores turns a flake in the setup into a wrong verdict on the product. And
+a safety check that compares two clocks is only as safe as their agreement, which nothing here bounds.
 
 ## 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
 
