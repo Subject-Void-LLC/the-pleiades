@@ -560,6 +560,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 555. A run longer than the ack wait was delivered again while it ran, and the copies spent its delivery budget (fixed)
 556. A template's machine credential reached every device in the fan-out, API-only ones included, because the exemption was a list of types (fixed)
 557. validate and a Controller's admission checked no Collection method's required capabilities, only the engine did (a repeat of 151) (fixed)
+558. The reaper's leadership test gave the leader a fixed 60 ms, and a slow machine spent it on the first query (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

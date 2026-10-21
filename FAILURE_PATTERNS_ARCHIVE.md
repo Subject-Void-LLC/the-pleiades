@@ -13889,3 +13889,21 @@ choosing `pkg.apt.install` or `pkg.dnf.install` by OS family on every host, the 
 
 **Lesson.** A check that exists in three places is three fixes; put it in one function and make every place that
 decides call it, then a test per place proves each still does.
+
+## 558. The reaper's leadership test gave the leader a fixed 60 ms, and a slow machine spent it on the first query (fixed)
+
+**Symptom.** `make pr-check` on the 117b part 1 branch, 2026-10-21: the FreeBSD leg's strict repeat pass failed
+`TestReaper_Run_RepublishesOnlyWhileLeader` once in three runs ("failed to list stale fanning_out jobs: context
+deadline exceeded", then "published 0 events while leader"). The same pass's first run and every other machine passed.
+The branch does not touch the reaper.
+
+**Root cause.** The test ran the reaper as leader under `context.WithTimeout(ctx, 60*time.Millisecond)` and then
+required an event. On the 4 GB FreeBSD VM the first stale-job query outlived the whole window, its context expired
+mid-query, and nothing was published. The test bounded elapsed time where it meant to wait for an outcome.
+
+**Fix.** The leader runs until the capturing bus has an event, or 30 s pass, and is then cancelled and waited for. A
+broken leadership gate still fails, after 30 s rather than 60 ms. The non-leader half keeps its short window, since
+running briefly can only make it pass for the wrong reason, never fail for one.
+
+**Lesson.** A test that waits for something to happen waits for it, with a generous deadline; a short window proves
+only how fast the machine was that day.
