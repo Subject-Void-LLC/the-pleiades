@@ -253,7 +253,7 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// ApplyInjection (inject.go) is where that precedence lives, and its
 	// doc comment carries the reasoning for the ordering, including why the
 	// inverse would be worse.
-	ApplyInjection(&payload, injected)
+	ApplyInjection(&payload, injected, device)
 
 	// The per-device store is the FALLBACK, consulted only when the
 	// template bound no machine credential. It is what keeps every dispatch

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // ownCredential holds the device types a template's machine credential
@@ -47,9 +48,15 @@ var machineLogins = []capability.Name{
 }
 
 // TakesMachineCredential reports whether a template's machine credential
-// may authenticate a device of deviceType declaring caps: only when the
-// device can be logged into (machineLogins) and its type is not registered
-// as using its own credential.
+// may authenticate device, of deviceType: only when the device can be
+// logged into (machineLogins) and its type is not registered as using its
+// own credential. A nil device takes nothing.
+//
+// It asks device.HasCapability, never the declared list alone. A vendor
+// type unions a record's own capabilities into its declared set, so a
+// record writer could declare SSHTransportCapable on a Catalyst Center;
+// HasCapability also asserts the Go type implements the capability, which
+// that type does not, so a declaration cannot open the credential to it.
 //
 // It is an allowlist on purpose (Phase 117b, S1). A machine credential sent
 // to a device reached only through an API (generic_http, a Catalyst Center,
@@ -57,16 +64,12 @@ var machineLogins = []capability.Name{
 // device's URL, and it also displaces the device's own stored credential. A
 // new device type is refused it until it declares a login, rather than given
 // it until someone remembers to register the type.
-func TakesMachineCredential(deviceType string, caps []capability.Name) bool {
-	if UsesOwnCredential(deviceType) {
+func TakesMachineCredential(deviceType string, device inventory.InventoryItem) bool {
+	if device == nil || UsesOwnCredential(deviceType) {
 		return false
 	}
-	declared := make(map[capability.Name]struct{}, len(caps))
-	for _, c := range caps {
-		declared[c] = struct{}{}
-	}
 	for _, login := range machineLogins {
-		if capability.Resolves(declared, login) {
+		if device.HasCapability(login) {
 			return true
 		}
 	}

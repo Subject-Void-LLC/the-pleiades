@@ -40,6 +40,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -181,14 +182,14 @@ func InjectedFrom(art credtype.Artifact) *wire.Injected {
 // Kubernetes cluster, a cloud account), or whose type is registered as
 // using its own credential, is never given the machine credential, and
 // falls back to its own, since an SSH login is not an API's identity.
-func ApplyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
+func ApplyInjection(payload *wire.DispatchPayload, art credtype.Artifact, device pkginventory.InventoryItem) {
 	payload.Injected = InjectedFrom(art)
 	// Only a device that can be logged into takes the template's machine
 	// credential. Anything reached through an API alone (an HTTP API, a
 	// cluster, a cloud account) never does: the login would go to whatever
 	// answers at its URL, and would win over the device's own credential
 	// (record.TakesMachineCredential).
-	if machine, ok := art.Machine(); ok && record.TakesMachineCredential(payload.DeviceType, payload.Capabilities) {
+	if machine, ok := art.Machine(); ok && record.TakesMachineCredential(payload.DeviceType, device) {
 		payload.Secrets = machine
 	}
 	// The template's one container registry credential travels beside the

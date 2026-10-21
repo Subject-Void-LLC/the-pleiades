@@ -3,10 +3,14 @@
 package record_test
 
 import (
+	"slices"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
 // TestUsesOwnCredential: a registered type uses its own credential; any
@@ -52,9 +56,36 @@ func TestTakesMachineCredential(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := record.TakesMachineCredential(tt.deviceType, tt.caps); got != tt.want {
+			device := &inventorytest.Stub{StubName: "d1", Caps: tt.caps}
+			if got := record.TakesMachineCredential(tt.deviceType, device); got != tt.want {
 				t.Errorf("TakesMachineCredential(%q, %v) = %v, want %v", tt.deviceType, tt.caps, got, tt.want)
 			}
 		})
+	}
+	if record.TakesMachineCredential("linux_server", nil) {
+		t.Error("a nil device takes the machine credential")
+	}
+}
+
+// TestTakesMachineCredential_ADeclarationAloneOpensNothing: a Catalyst
+// Center's record may add capabilities to its type's baseline, so one
+// declaring SSHTransportCapable lists it among its capabilities. The type
+// implements no SSH accessor, so HasCapability says no, and the machine
+// credential is still refused: whoever writes inventory cannot route the
+// switches' login to an API by declaring a login.
+func TestTakesMachineCredential_ADeclarationAloneOpensNothing(t *testing.T) {
+	device, err := catalyst.NewCenter(record.Record{
+		ID: "cc-id", Name: "cc1", Type: "catalyst_center", State: inventory.StateActive,
+		Properties:   map[string]inventory.PropertyValue{"host": "cc.example.test"},
+		Capabilities: []capability.Name{capability.NameSSHTransport},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(device.Capabilities(), capability.NameSSHTransport) {
+		t.Fatalf("capabilities %v: the record's declaration did not reach the declared set, so this proves nothing", device.Capabilities())
+	}
+	if record.TakesMachineCredential("catalyst_center", device) {
+		t.Error("a Catalyst Center declaring SSHTransportCapable in its record takes the machine credential")
 	}
 }

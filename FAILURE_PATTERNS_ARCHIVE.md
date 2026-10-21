@@ -13850,8 +13850,12 @@ the AWS account were never added, and a new API device type would not be either.
 type exempt?") was not the question that matters ("can this device be logged into?").
 
 **Fix.** `record.TakesMachineCredential` is an allowlist derived from the device: the machine credential reaches a
-device only when it declares a login capability (SSH, WinRM, Telnet, a serial or console line, NETCONF, a network
-CLI), and never a type registered as using its own credential. A device reached only through an API falls back to its
+device only when it has a login capability (SSH, WinRM, Telnet, a serial or console line, NETCONF, a network CLI),
+and never a type registered as using its own credential. It asks `HasCapability`, not the declared list: a vendor
+type unions a record's own capabilities into its declared set, so a Catalyst Center record declaring
+`SSHTransportCapable` lists it, but the type implements no SSH accessor and is still refused
+(`TestTakesMachineCredential_ADeclarationAloneOpensNothing`). The first cut of this fix read the declared list and
+would have let an inventory writer reopen the leak; it was caught before the push, rereading the PR's own claim. A device reached only through an API falls back to its
 own stored credential. The registration stays as an extra refusal. AWX's semantics change, and the changelog says so
 twice (`machine-credential-logins-only.security.md`, `.breaking.md`). Tests: the fan-out test above (fails on the
 unfixed tree, naming both fields), `TestTakesMachineCredential` (a table across device kinds).
