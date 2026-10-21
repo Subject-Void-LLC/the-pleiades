@@ -20,6 +20,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
@@ -60,7 +62,7 @@ func init() {
 				"its timeout and fail where the real run succeeds",
 			Doc: collection.Doc{
 				Summary:     "Waits until the target answers a command over its own connection, SSH or WinRM.",
-				Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
+				Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A network device's CLI is not a shell with a command that does nothing, so for one that declares CiscoIOSCapable, or a cli_prompt, a try opens its terminal and waits for its prompt instead. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
 				Params: []collection.Param{
 					{Name: "timeout", Type: "int", Default: "600", Description: "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."},
 					{Name: "delay", Type: "int", Default: "0", Description: "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."},
@@ -345,9 +347,47 @@ func connectionProbe(rc sdk.RunbookContext, device inventory.InventoryItem, para
 		return func(ctx context.Context) error { return winrmexec.Reachable(ctx, target, auth, opts) }, transportWinRM, nil
 	}
 	if _, ok := device.(capability.SSHTransportCapable); ok && device.HasCapability(capability.NameSSHTransport) {
+		if dialect, cli := cliDialect(device); cli {
+			return func(ctx context.Context) error { return cliTry(ctx, rc, device, params, fqcn, dialect) }, transportSSH, nil
+		}
 		return func(ctx context.Context) error { return sshTry(ctx, rc, device, params, fqcn) }, transportSSH, nil
 	}
 	return nil, "", fmt.Errorf("device %q is reached over neither SSH nor WinRM", device.Name())
+}
+
+// cliDialect is the CLI convention of a network device whose terminal is
+// not a POSIX shell: Cisco IOS's for a device declaring CiscoIOSCapable,
+// else the one its own cli_prompt names. A device with neither is tried
+// with a command, as any other SSH device is.
+func cliDialect(device inventory.InventoryItem) (netcli.Dialect, bool) {
+	if device.HasCapability(capability.NameCiscoIOS) {
+		return netcli.IOS, true
+	}
+	if cli, ok := device.(capability.NetworkCLICapable); ok && device.HasCapability(capability.NameNetworkCLI) && cli.CLIPrompt() != "" {
+		return netcli.FromPrompt(cli.CLIPrompt()), true
+	}
+	return netcli.Dialect{}, false
+}
+
+// cliTry logs in afresh over SSH, opens a terminal and waits for the
+// device's prompt: what a network device answers once it is ready, where
+// a POSIX machine answers a command.
+func cliTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, dialect netcli.Dialect) error {
+	conn, err := sdk.ConnectFresh(ctx, rc, device, params, fqcn)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }() // a try's connection has nothing left to report once it answered
+	shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})
+	if err != nil {
+		return err
+	}
+	session, err := netcli.Open(ctx, shell, dialect, netcli.Options{})
+	if err != nil {
+		_ = shell.Close()
+		return err
+	}
+	return session.Close()
 }
 
 // sshTry logs in over SSH and runs a command that does nothing. A command

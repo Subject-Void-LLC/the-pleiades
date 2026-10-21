@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -62,6 +63,91 @@ type winrmTarget struct {
 
 func (d *winrmTarget) WinRMHost() string { return "127.0.0.1" }
 func (d *winrmTarget) WinRMPort() int    { return d.port }
+
+// cliTarget is a network device reached over SSH whose terminal is not a
+// shell: it declares its own CLI prompt.
+type cliTarget struct {
+	*waitTarget
+	prompt string
+}
+
+func (d *cliTarget) CLIPrompt() string { return d.prompt }
+
+// startCLIDevice starts a scripted CLI printing prompt, which runs no
+// command a POSIX machine would, and returns a server to reach it by.
+func startCLIDevice(t *testing.T, prompt string) (waitServer, *remoteexectest.Server) {
+	t.Helper()
+	srv, err := remoteexectest.Start(remoteexectest.Options{Device: &remoteexectest.Device{Prompt: prompt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Close)
+	return waitServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password, srv: srv}, srv
+}
+
+// TestConnection_WaitsForANetworkDevicesPrompt: an IOS device, or one that
+// declares its prompt, is ready when a fresh login reaches that prompt,
+// since its CLI has no command that does nothing. What the device received
+// shows the try opened a terminal rather than running a command.
+func TestConnection_WaitsForANetworkDevicesPrompt(t *testing.T) {
+	params := map[string]any{"timeout": 30, "sleep": 1, sdk.ParamInsecureSkipHostKeyVerify: true}
+
+	server, srv := startCLIDevice(t, "sw1#")
+	ios := &waitTarget{Stub: &inventorytest.Stub{StubName: "sw1", Caps: []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS}}, host: server.host, port: server.port}
+	if _, err := wait.Connection(context.Background(), newWaitContext(server), ios, params); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Commands(); len(got) != 1 || got[0] != "terminal length 0" {
+		t.Errorf("the IOS device received %q, want only IOS's paging command", got)
+	}
+
+	server, srv = startCLIDevice(t, "edge-1>")
+	generic := &cliTarget{waitTarget: &waitTarget{Stub: &inventorytest.Stub{StubName: "edge-1", Caps: []capability.Name{capability.NameSSHTransport, capability.NameNetworkCLI}}, host: server.host, port: server.port}, prompt: "edge-1>"}
+	if _, err := wait.Connection(context.Background(), newWaitContext(server), generic, params); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Commands(); len(got) != 0 {
+		t.Errorf("the device that declares its prompt received %q, want nothing", got)
+	}
+}
+
+// TestConnection_ANetworkDeviceThatNeverPromptsIsNotReady: a login that
+// never reaches the prompt is a failed try, and the wait times out.
+func TestConnection_ANetworkDeviceThatNeverPromptsIsNotReady(t *testing.T) {
+	server, _ := startCLIDevice(t, "login: ")
+	ios := &waitTarget{Stub: &inventorytest.Stub{StubName: "sw1", Caps: []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS}}, host: server.host, port: server.port}
+	params := map[string]any{"timeout": 3, "sleep": 1, "connect_timeout": 1, sdk.ParamInsecureSkipHostKeyVerify: true}
+	if _, err := wait.Connection(context.Background(), newWaitContext(server), ios, params); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// TestConnection_ANetworkDeviceNotLettingATerminalInIsNotReady: a try that
+// cannot log in, or logs in and is refused a terminal, is a failed try.
+func TestConnection_ANetworkDeviceNotLettingATerminalInIsNotReady(t *testing.T) {
+	params := map[string]any{"timeout": 2, "sleep": 1, "connect_timeout": 1, sdk.ParamInsecureSkipHostKeyVerify: true}
+	ios := func(server waitServer) *waitTarget {
+		return &waitTarget{Stub: &inventorytest.Stub{StubName: "sw1", Caps: []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS}}, host: server.host, port: server.port}
+	}
+
+	down := waitServer{host: "127.0.0.1", port: deadPort(t), username: "u", password: "p"}
+	if _, err := wait.Connection(context.Background(), newWaitContext(down), ios(down), params); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("a device refusing the connection: %v", err)
+	}
+
+	srv, err := remoteexectest.Start(remoteexectest.Options{SessionLimit: remoteexectest.Limit(0), Device: &remoteexectest.Device{Prompt: "sw1#"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Close)
+	busy := waitServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password, srv: srv}
+	if _, err := wait.Connection(context.Background(), newWaitContext(busy), ios(busy), params); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("a device refusing the terminal: %v", err)
+	}
+	if srv.Logins() == 0 {
+		t.Error("the refused terminal was never asked for: no try logged in")
+	}
+}
 
 func TestConnection_Registered(t *testing.T) {
 	d, ok := collection.Lookup("wait.connection")

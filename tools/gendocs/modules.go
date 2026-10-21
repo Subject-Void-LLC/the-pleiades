@@ -212,6 +212,15 @@ func riskNote(r collection.ParamRisk) string {
 	return "**Risk (" + string(r) + "):** "
 }
 
+// aliasNote is the lead a parameter's description gets in the reference
+// when it is a second name for another, which a task may give instead.
+func aliasNote(of string) string {
+	if of == "" {
+		return ""
+	}
+	return "**Alias of `" + of + "`:** "
+}
+
 func writeParameters(b *strings.Builder, doc collection.Doc) {
 	var params []collection.Param
 	for _, name := range doc.Fragments {
@@ -227,7 +236,7 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 
 	rows := make([][]string, len(params))
 	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + p.Description}
+		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + aliasNote(p.AliasOf) + p.Description}
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))

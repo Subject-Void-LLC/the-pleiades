@@ -14,10 +14,10 @@ import (
 
 // RollbackRule holds every task's rollback: steps to exactly what the
 // runbook's own tasks are held to: a method that is registered and
-// implemented (CollectionRule), and only parameters it declares
-// (ParamsRule). It runs those two rules over a view whose tasks are the
-// steps, rather than restating either, so a step can never pass something
-// a task would not. A step is found here, at validation, rather than at
+// implemented (CollectionRule), only parameters it declares (ParamsRule),
+// and every parameter it requires (RequiredParamsRule). It runs those rules
+// over a view whose tasks are the steps, rather than restating any, so a
+// step can never pass something a task would not. A step is found here, at validation, rather than at
 // the rollback that needs it, which may be long after the run and the one
 // moment a typo in an undo costs the most.
 func RollbackRule(world WorldView) []Finding {
@@ -32,7 +32,7 @@ func RollbackRule(world WorldView) []Finding {
 	}
 	view := WorldView{Items: world.Items, DAG: steps, Mode: world.Mode, Resolver: world.Resolver}
 	var findings []Finding
-	for _, rule := range []Rule{CollectionRule, ParamsRule} {
+	for _, rule := range []Rule{CollectionRule, ParamsRule, RequiredParamsRule} {
 		for _, f := range rule(view) {
 			f.RuleName = "rollback"
 			findings = append(findings, f)

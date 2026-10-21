@@ -128,6 +128,53 @@ func TestOpenSession_SendsEveryConfigLineOverOneSession(t *testing.T) {
 	}
 }
 
+// TestCommand_AnswersTheQuestionsTheTaskLists covers prompts over a real
+// session against a device with its own prompt: the question is answered,
+// the device's reply comes back, and what was answered is recorded.
+func TestCommand_AnswersTheQuestionsTheTaskLists(t *testing.T) {
+	srv, err := remoteexectest.Start(remoteexectest.Options{Device: &remoteexectest.Device{
+		Prompt:  "sw1#",
+		Replies: map[string]string{"copy running-config flash:a.cfg": "5184 bytes copied in 0.067 secs"},
+		Asks:    map[string][]remoteexectest.Question{"copy running-config flash:a.cfg": {{Text: "Destination filename [a.cfg]? "}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Close)
+	device := &sshDevice{Stub: &inventorytest.Stub{StubName: "sw1", Caps: []capability.Name{capability.NameSSHTransport}}, host: srv.Host, port: srv.Port, prompt: "sw1#"}
+	rc := &secretContext{stubContext: newStubContext(), secrets: srv.Secrets()}
+
+	if _, err := Command(context.Background(), rc, device, params(map[string]any{
+		"command": "copy running-config flash:a.cfg",
+		"prompts": []any{map[string]any{"match": `Destination filename \[[^\]]*\]\?`, "answer": ""}},
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Commands(); len(got) != 2 || got[1] != "" {
+		t.Errorf("the device received %q, want the command and one Enter", got)
+	}
+	if out, _ := rc.stats[statStdout].(string); !strings.Contains(out, "bytes copied") {
+		t.Errorf("stdout %q", out)
+	}
+	if exchanges, _ := rc.stats["exchanges"].([]any); len(exchanges) != 1 {
+		t.Errorf("exchanges %v", rc.stats["exchanges"])
+	}
+}
+
+// TestCommand_RefusesDialogParametersBeforeReachingTheDevice: a prompts
+// entry that does not read fails the task with nothing sent.
+func TestCommand_RefusesDialogParametersBeforeReachingTheDevice(t *testing.T) {
+	srv, device, rc := scriptedDevice(t, "sw1#", "sw1#", nil)
+
+	_, err := Command(context.Background(), rc, device, params(map[string]any{"command": "x", "prompts": "Destination filename"}))
+	if err == nil || !strings.Contains(err.Error(), "prompts is a list") {
+		t.Fatalf("err %v", err)
+	}
+	if srv.Logins() != 0 {
+		t.Error("the device was reached")
+	}
+}
+
 // TestOpenSession_FailsWhenTheDeclaredPromptIsWrong is the failure an
 // operator actually hits: cli_prompt is a property somebody typed, and a
 // device printing something else never matches it. The session gives up

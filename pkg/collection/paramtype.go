@@ -107,15 +107,51 @@ func ParamFits(typ string, v any) (bool, error) {
 
 // checkParamTypes refuses a method declaring a parameter whose type is not
 // one of ParamTypes, since validation and the engine hold every value to its
-// declared type and a word neither knows would refuse every value.
+// declared type and a word neither knows would refuse every value. It also
+// refuses a parameter both required and defaulted: validation refuses a
+// task leaving out a required one, so a default it states would be one no
+// task could ever get.
 func checkParamTypes(d Descriptor) error {
 	for _, p := range d.Manifest.Doc.Params {
 		if !KnownParamType(p.Type) {
 			return fmt.Errorf("collection: %q declares parameter %q of type %q, which is not a parameter type (one of %s)",
 				d.Name, p.Name, p.Type, strings.Join(ParamTypes(), ", "))
 		}
+		if p.Required && p.Default != "" {
+			return fmt.Errorf("collection: %q declares parameter %q both required and defaulted to %q; a task must give a required one, so drop the default or the requirement",
+				d.Name, p.Name, p.Default)
+		}
+		if err := checkAlias(d, p); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// checkAlias refuses an alias that could not stand for the parameter it
+// names: one naming no other parameter of the method, or one that is
+// itself an alias (a chain no reader follows), or of another type, or
+// required, which would ask for the same value twice.
+func checkAlias(d Descriptor, p Param) error {
+	if p.AliasOf == "" {
+		return nil
+	}
+	if p.Required {
+		return fmt.Errorf("collection: %q declares parameter %q, an alias of %q, required; mark %q required instead", d.Name, p.Name, p.AliasOf, p.AliasOf)
+	}
+	for _, other := range d.Manifest.Doc.Params {
+		if other.Name != p.AliasOf || other.Name == p.Name {
+			continue
+		}
+		switch {
+		case other.AliasOf != "":
+			return fmt.Errorf("collection: %q declares parameter %q an alias of %q, which is itself an alias", d.Name, p.Name, p.AliasOf)
+		case other.Type != p.Type:
+			return fmt.Errorf("collection: %q declares parameter %q (%s) an alias of %q (%s), of another type", d.Name, p.Name, p.Type, p.AliasOf, other.Type)
+		}
+		return nil
+	}
+	return fmt.Errorf("collection: %q declares parameter %q an alias of %q, which it does not declare", d.Name, p.Name, p.AliasOf)
 }
 
 // listOf returns v as a list of values, for a decoded list or a Go caller's

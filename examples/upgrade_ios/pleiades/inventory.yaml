@@ -5,6 +5,12 @@
 # once per device (it prompts for the password/enable secret and writes
 # it to the encrypted secret store). Ansible's equivalent lives in
 # ../ansible/group_vars/catalyst_lab.yml plus an ansible-vault file.
+#
+# workstation is a local Ollama, used only by runbooks/upgrade_ios_xe_ai.yaml.
+# Onboard it once, which makes no model call:
+#   pleiades onboard workstation
+# Point api_base at your Ollama if it is not on this machine, and pull the
+# model first: ollama pull gemma4:e4b-it-qat
 hosts:
   - id: sw1
     name: sw1
@@ -22,3 +28,12 @@ hosts:
     properties:
       host: 10.10.20.12
       port: 22
+  - id: workstation
+    name: workstation
+    type: ai_provider
+    properties:
+      ai_kind: ollama
+      ai_price_currency: USD
+      ai_prices: gemma4:e4b-it-qat=0/0
+      api_base: http://127.0.0.1:11434
+      residency: local

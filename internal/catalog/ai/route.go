@@ -90,7 +90,7 @@ func route(ctx context.Context, rc sdk.RunbookContext, params map[string]any, ch
 			return fail(err)
 		}
 	}
-	gate, err := reviewGate(rc, fqcnRoute, "use:"+use.Name, prompts[0], params, use.Review)
+	gate, err := aitask.GateFor(rc, fqcnRoute, "use:"+use.Name, prompts[0], params, use.Review)
 	if err != nil {
 		return fail(err)
 	}
@@ -104,7 +104,7 @@ func route(ctx context.Context, rc sdk.RunbookContext, params map[string]any, ch
 		for i, s := range steps {
 			estimates[i] = aitask.Estimate(rc, s.target, s.step.Model, prompts[i], opts)
 		}
-		if err := setStats(rc, map[string]any{"estimate": estimates, "prompt": verdict(prompts[0]), "use": use.Name, "review": gate.Peek()}); err != nil {
+		if err := setStats(rc, map[string]any{"estimate": estimates, "prompt": prompts[0].VerdictStat(), "use": use.Name, "review": gate.Peek()}); err != nil {
 			return fail(err)
 		}
 		return collection.Result{Changed: true}, nil
@@ -140,11 +140,11 @@ func route(ctx context.Context, rc sdk.RunbookContext, params map[string]any, ch
 			// crosses a review threshold; a held answer is not a provider's
 			// failure, so it never falls back.
 			approved, err := gate.After(ctx, sdk.Review{Method: fqcnRoute, Provider: s.step.Provider, Model: s.step.Model, Answer: resp.Text, Usage: rec},
-				outcome(s.target, s.step.Model, resp, usage, prompts[i], i > 0))
+				aitask.OutcomeOf(s.target, s.step.Model, resp, usage, prompts[i], i > 0))
 			if err != nil {
 				return fail(err)
 			}
-			stats := answerStats(resp, opts, rec, prompts[i])
+			stats := aitask.AnswerStats(resp, opts, rec, prompts[i])
 			stats["review"] = aitask.Stat(gate, approved)
 			stats["provider"], stats["model"], stats["use"], stats["attempts"] = s.step.Provider, s.step.Model, use.Name, attempts
 			if err := setStats(rc, stats); err != nil {

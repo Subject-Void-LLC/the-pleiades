@@ -28,6 +28,7 @@ func fullyPopulatedDoc() collection.Doc {
 			Default:     "present",
 			Choices:     []string{"present", "absent"},
 			Description: "The package to install.",
+			AliasOf:     "package",
 			Format:      collection.ParamFormatCommand,
 			Risk:        collection.ParamRiskHostEscape,
 		}},

@@ -57,9 +57,12 @@
           register: md5_check
           failed_when: "'Verified' not in md5_check.stdout"
 
+        # "no boot system" first, so no older boot statement is tried before
+        # the new image.
         - name: Point the boot variable at the new image and save
           cisco.ios.ios_config:
             lines:
+              - "no boot system"
               - "boot system flash:{{ target_image }}"
             save_when: modified
 

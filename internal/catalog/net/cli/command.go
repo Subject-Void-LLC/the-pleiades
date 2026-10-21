@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/clidialog"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -54,23 +55,27 @@ func init() {
 }
 
 func commandDoc() collection.Doc {
+	params := []collection.Param{{Name: paramCommand, Type: "string", Required: true, Description: "The single CLI line to run, e.g. \"show version\".", Format: collection.ParamFormatCommand}}
+	params = append(params, clidialog.Params()...)
+	params = append(params, collection.Param{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."})
+	returns := []collection.ReturnField{{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed."}}
 	return collection.Doc{
-		Summary:     "Runs one show/exec-mode command against a network device's CLI.",
-		Description: "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real.",
-		Params: []collection.Param{
-			{Name: paramCommand, Type: "string", Required: true, Description: "The single CLI line to run, e.g. \"show version\".", Format: collection.ParamFormatCommand},
-			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
-		},
-		Returns: []collection.ReturnField{
-			{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, with the echoed command line and the trailing prompt removed."},
-		},
+		Summary: "Runs one show/exec-mode command against a network device's CLI.",
+		Description: "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real. " +
+			"A command that asks questions before it finishes is answered from prompts, each answer written in the task, and a question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses; expect_disconnect counts the device closing the session after an answer as success. The 30 seconds cover the whole command, its questions included.",
+		Params:  params,
+		Returns: append(returns, clidialog.Returns()...),
 		Examples: []collection.Example{
 			{
 				Name:        "Read a device's software version",
 				RunbookYAML: "- name: Check the running version\n  net.cli.command:\n    command: show version\n  register: version\n",
 			},
+			{
+				Name:        "Answer the question a command asks",
+				RunbookYAML: "- name: Copy the configuration to a file\n  net.cli.command:\n    command: copy running-config flash:before-change.cfg\n    prompts:\n      - match: 'Destination filename \\[[^\\]]*\\]\\?'\n        answer: \"\"\n      - match: 'over ?write\\? \\[confirm\\]'\n        refuse: true\n",
+			},
 		},
-		SeeAlso: []string{"net.cli.config", "net.ios.config"},
+		SeeAlso: []string{"net.cli.config", "net.ios.command", "net.ios.config"},
 	}
 }
 
@@ -82,6 +87,13 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	// Read before the session opens, so a parameter that does not read
+	// never leaves a command half answered.
+	dialog := clidialog.Uses(params)
+	opts, err := clidialog.Read(ctx, rc, fqcn, params)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	session, err := openSession(ctx, rc, device, params, fqcn)
 	if err != nil {
@@ -89,14 +101,27 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	defer func() { _ = session.Close() }()
 
-	out, err := runCommand(ctx, session, line)
+	if !dialog {
+		out, err := runCommand(ctx, session, line)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := rc.SetStat(statStdout, out); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
+	}
+
+	res, err := runDialog(ctx, session, line, opts)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-
-	if err := rc.SetStat(statStdout, out); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	stats := clidialog.Stats(res)
+	stats[statStdout] = res.Output
+	for k, v := range stats {
+		if err := rc.SetStat(k, v); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	}
-
 	return collection.Result{Changed: true}, nil
 }

@@ -59,6 +59,7 @@ func renderDoc(doc collection.Doc) string {
 			fields = appendStringField(fields, "Default", p.Default)
 			fields = appendStringSliceField(fields, "Choices", p.Choices)
 			fields = appendStringField(fields, "Description", p.Description)
+			fields = appendStringField(fields, "AliasOf", p.AliasOf)
 			// Format is a named constant rather than a quoted string, so a
 			// generated method reads as a hand-written one does.
 			switch p.Format {

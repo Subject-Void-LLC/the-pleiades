@@ -28,6 +28,7 @@ import (
 // no Config method at all.
 type cliSession interface {
 	Command(ctx context.Context, line string) (string, error)
+	Dialog(ctx context.Context, line string, opts netcli.DialogOptions) (netcli.DialogResult, error)
 	Close() error
 }
 
@@ -112,6 +113,14 @@ func runCommand(ctx context.Context, session cliSession, line string) (string, e
 	ctx, cancel := context.WithTimeout(ctx, genericCommandTimeout)
 	defer cancel()
 	return session.Command(ctx, line)
+}
+
+// runDialog is runCommand for a command that asks questions: the same
+// bound covers the whole command, its questions and answers included.
+func runDialog(ctx context.Context, session cliSession, line string, opts netcli.DialogOptions) (netcli.DialogResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, genericCommandTimeout)
+	defer cancel()
+	return session.Dialog(ctx, line, opts)
 }
 
 // cliPrompt reads the device's own declared CLI prompt, or "" when it

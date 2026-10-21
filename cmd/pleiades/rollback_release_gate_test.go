@@ -309,7 +309,14 @@ tasks:
 
 		// A later run changed the same device: undoing beneath it is refused
 		// until named.
-		later, _ := g.run(t, "g2l", "id: g2l\nhosts: container1\ntasks:\n  - name: another\n    file.directory:\n      path: /tmp/rb-g2-later\n")
+		later, laterCode := g.run(t, "g2l", "id: g2l\nhosts: container1\ntasks:\n  - name: another\n    file.directory:\n      path: /tmp/rb-g2-later\n")
+		// A later run that failed before its task acted changed nothing a
+		// rollback has to respect, so the refusal below would be wrong to
+		// expect; say so rather than report a rollback that ran.
+		if laterCode != 0 {
+			out, _ := g.pleiades(t, "journal", "show", later)
+			t.Fatalf("the later run failed (exit %d), so it is no later change:\n%s", laterCode, out)
+		}
 		logins = sshdLogins(t, container)
 		out, code = g.pleiades(t, "rollback", runID, "--leave", "tasks[1]")
 		if code != 1 || !strings.Contains(out, later) || !strings.Contains(out, "--despite-run "+later) {

@@ -1,0 +1,194 @@
+# Upgrades sw1 to IOS-XE 17.03.04 as upgrade_ios_xe.yaml does, with a local model handling what that runbook refuses.
+# Blast radius: one switch, which reloads; the model is a local Ollama and nothing leaves this machine.
+# Changes: copies the image to flash, replaces the boot statements, saves the configuration, reloads; may delete
+# the image this run copied, when the rescue's model picks that and the copy or its checksum is what failed.
+# Undo: none automatic. The rescue records the model's pick, why, and what to do by hand.
+#
+# Where the model fits, and where it does not:
+# - Questions this file lists are answered as written, every time; the model is never asked about them.
+# - A question nobody listed goes to the model with the answers listed under ask. It picks one by id, or
+#   refuses, which closes the session and abandons the command. It never types an answer of its own: on IOS
+#   one Enter accepts a default filename and also confirms a reload, so only this file says what an answer
+#   does.
+# - When the block fails, the model reads what was left behind and picks one of two fixed recoveries, each
+#   also held to a condition it cannot change.
+#
+# Crawl tier only: a Walk Runner cannot reach workstation from a task on sw1 yet.
+#
+# Run with: pleiades onboard workstation, then pleiades run runbooks/upgrade_ios_xe_ai.yaml
+id: upgrade-ios-xe-ai
+hosts: sw1
+metadata:
+  service_effecting: true
+  description: "This runbook upgrades an IOS switch, with a local model choosing among fixed answers to questions nobody listed."
+
+pretasks:
+  - name: Get Config
+    net.ios.command:
+      command: "show running-config"
+    register: running_config
+    register_mask: running_config.stdout
+
+  - name: Record the currently running version
+    net.ios.command:
+      command: "show version | include Version"
+    register: pre_facts
+
+  - name: Check free space on flash before pulling a new image
+    net.ios.command:
+      command: "dir flash:"
+    register: flash_dir
+
+tasks:
+  - name: Upgrade sw1
+    block:
+      # The filename question is listed. Anything else IOS asks (an image of
+      # the same name already on flash, say) goes to the model, which may
+      # overwrite, keep the file and stop, or refuse. Its pick is held for a
+      # person when it is unsure.
+      - name: Pull the new image onto flash
+        net.ios.command:
+          command: "copy http://10.10.10.5/images/cat9k_iosxe.17.03.04.SPA.bin flash:cat9k_iosxe.17.03.04.SPA.bin"
+          prompts:
+            - match: 'Destination filename \[[^\]]*\]\?'
+              answer: ""
+          ask:
+            provider: workstation
+            model: "gemma4:e4b-it-qat"
+            residency: local
+            choices:
+              - id: overwrite
+                answer: ""
+                means: "Press Enter to replace a file named cat9k_iosxe.17.03.04.SPA.bin on flash with this download. Right only when the question asks whether to overwrite that file."
+              - id: keep
+                answer: "n"
+                means: "Answer no and keep the file already on flash; the copy stops and this task fails."
+            max_tokens: 1500
+            usage_sink: spend.jsonl
+            review:
+              - field: confidence
+                below: 0.7
+        timeout: 1800
+
+      - name: Verify the image checksum before trusting it
+        net.ios.command:
+          command: "verify /md5 flash:cat9k_iosxe.17.03.04.SPA.bin 5f4dcc3b5aa765d61d8327deb882cf99"
+        register: md5_check
+        timeout: 600
+
+      - name: Point the boot variable at the new image
+        net.ios.config:
+          backup: true
+          lines:
+            - "no boot system"
+            - "boot system flash:cat9k_iosxe.17.03.04.SPA.bin"
+        register_mask: backup
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
+
+      - name: Save the configuration
+        net.ios.save:
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
+
+      # A "Save? [yes/no]" before the confirmation means the configuration
+      # changed after the save above. The model may answer no and reload
+      # without it, but every answer it gives here is held for a person: an
+      # unattended run stops with the reload abandoned.
+      - name: Reload the switch
+        net.ios.command:
+          command: reload
+          prompts:
+            - match: 'Proceed with reload\? \[confirm\]'
+              answer: ""
+          ask:
+            provider: workstation
+            model: "gemma4:e4b-it-qat"
+            residency: local
+            choices:
+              - id: reload_without_saving
+                answer: "no"
+                means: "Answer no to saving and reload; configuration changed since the last save is lost. Right only when the question asks whether to save before reloading."
+            max_tokens: 1500
+            usage_sink: spend.jsonl
+            review:
+              - always: true
+          expect_disconnect: true
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
+
+    rescue:
+      - name: Look at what the failure left behind
+        net.ios.command:
+          command: "dir flash:"
+        register: flash_now
+
+      - name: Ask the local model which recovery fits
+        ai.chat:
+          target: workstation
+          model: "gemma4:e4b-it-qat"
+          residency: local
+          prompt_file: upgrade_triage
+          input: "failed task: {{ error.name }}\nerror: {{ error.message }}\nrunning: {{ result.pre_facts.stdout }}\n--- flash\n{{ result.flash_now.stdout }}"
+          schema:
+            type: object
+            properties:
+              recovery: {type: string, enum: [remove_new_image, leave_for_operator]}
+              confidence: {type: number, minimum: 0, maximum: 1}
+              reason: {type: string}
+            required: [recovery, confidence, reason]
+          max_tokens: 1500
+          usage_sink: spend.jsonl
+          review:
+            - field: confidence
+              below: 0.5
+        register: triage
+
+      # The model's pick is necessary and not enough: the image is removed
+      # only when the copy or its checksum is what failed, so the boot
+      # statements never named it, and when the switch is not already
+      # running that version from it.
+      - name: Recovery, remove the image this run copied
+        net.ios.command:
+          command: "delete /force flash:cat9k_iosxe.17.03.04.SPA.bin"
+        when: >-
+          result.triage.json.recovery == 'remove_new_image'
+          && error.name in ['Pull the new image onto flash', 'Verify the image checksum before trusting it']
+          && !result.pre_facts.stdout.contains('17.03.04')
+
+      - name: Record the failure and the model's pick for the run report
+        pleiades.builtin.set_metadata:
+          data:
+            upgrade_failed: true
+            failed_task: "{{ error.name }}"
+            version_before: "{{ result.pre_facts.stdout }}"
+            recovery: "{{ result.triage.json.recovery }}"
+            recovery_reason: "{{ result.triage.json.reason }}"
+            rollback_instructions: >-
+              To recover sw1 by hand: reconnect to 10.10.20.11 and run "show boot". If the boot
+              statements already name cat9k_iosxe.17.03.04.SPA.bin, put back the ones the backup of
+              "Point the boot variable at the new image" holds, run "write memory", and reload.
+
+posttasks:
+  # Ready once a fresh login reaches the switch's prompt; the delay lets it
+  # go down first.
+  - name: Wait for the switch to come back
+    wait.connection:
+      delay: 60
+      timeout: 900
+
+  - name: Re-check the running version
+    net.ios.command:
+      command: "show version | include Version"
+    register: post_facts
+
+  - name: Record that the upgrade landed
+    pleiades.builtin.set_metadata:
+      data:
+        upgrade_succeeded: true
+        version: "17.03.04"
+    when_cel: 'stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'
+
+  - name: Record that the upgrade did not land
+    pleiades.builtin.set_metadata:
+      data:
+        upgrade_succeeded: false
+        note: "still not running 17.03.04 after reload"
+    when_cel: '!stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'
