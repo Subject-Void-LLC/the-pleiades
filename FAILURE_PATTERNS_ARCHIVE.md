@@ -13907,3 +13907,27 @@ running briefly can only make it pass for the wrong reason, never fail for one.
 
 **Lesson.** A test that waits for something to happen waits for it, with a generous deadline; a short window proves
 only how fast the machine was that day.
+
+## 559. The capability check reached validate with no census of what already validates, and two cmd/pleiades gates failed in CI (a repeat of 550) (fixed)
+
+**Symptom.** Pull request #84's `containers (1)` shard, 2026-10-21: `TestExamples_EveryRunbookBuildsAndValidates`
+failed on `examples/scan_lab`'s `release.yaml` (`scan.*` requires `ContainerEngineCapable`, which `release-box` has
+only once onboarding finds its engine), and `TestMigratePlaybookReleaseGate` failed validating its converted playbook
+(`pkg.apt.install` requires `AptCapable`, and the gate's `web` was a bare `linux_server`). Both failed again alone.
+`make pr-check` had passed, and the pull request said no existing fixture needed a capability added.
+
+**Root cause.** 557's fix made `validate` hold every Collection method to its capabilities. Both runbooks could never
+have run as written (the engine refuses the same calls), so the rule was right and the fixtures were wrong. But
+nothing that would show it ran before the push: pr-check tests the packages a branch changes (`tools/prscope`), and
+the examples and the migrate gate live in `cmd/pleiades`, which the branch did not change. The claim about fixtures
+covered only the container-free importers that were run. 550's lesson (a new plan-time check's first run over
+everything that exists is a census) was written as a sentence, not as a step, so it did not happen.
+
+**Fix.** The migrate gate adds `web` with `--classify linux_server,debian_family,ubuntu`, which declares `AptCapable`
+as an apt host does. `scan_lab` joins the examples validated after onboarding, and
+`TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork` now validates the shipped `release.yaml` against the device it
+onboarded. Both gates and the examples test pass.
+
+**Lesson.** A branch that makes `validate` stricter runs `cmd/pleiades`'s examples and gates, and
+`TestEveryDocumentedExampleValidates`, before the push, whatever pr-check's scope says, because those are where every
+existing runbook is validated. A claim about "every existing fixture" names the packages it ran.

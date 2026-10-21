@@ -86,6 +86,22 @@ func TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork(t *testing.T) {
 	if err != nil || !strings.Contains(onboarded, "ContainerEngineCapable") {
 		t.Fatalf("onboarding found no engine: %v\n%s", err, onboarded)
 	}
+	// The shipped example validates against a device onboarding proved
+	// runs an engine; as shipped, release-box has not been onboarded, so
+	// examples_test.go leaves it to this gate.
+	example, err := os.ReadFile(filepath.Join("..", "..", "examples", "scan_lab", "pleiades", "runbooks", "release.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(example), "hosts: release-box\n") {
+		t.Fatalf("examples/scan_lab's release.yaml no longer targets release-box:\n%s", example)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "runbooks", "example-release.yaml"), []byte(strings.Replace(string(example), "hosts: release-box\n", "hosts: scan1\n", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runPleiadesWithEnv(t, dir, env, "validate", "runbooks/example-release.yaml"); err != nil || !strings.Contains(out, "no issues found") || strings.Contains(out, "[warning]") {
+		t.Fatalf("validate refuses examples/scan_lab's release.yaml on an onboarded engine host: %v\n%s", err, out)
+	}
 
 	// The project, an offline vulnerability database, a tree with a
 	// planted credential, and an ignore file, all on the device.

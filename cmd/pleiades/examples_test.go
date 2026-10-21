@@ -17,7 +17,8 @@ import (
 // and nothing would say so until a reader copied it.
 //
 // An example whose devices start discovered (a type onboarding proves,
-// such as ai_provider) cannot validate as shipped: the platform refuses to
+// such as ai_provider), or need a capability only onboarding records (a
+// linux_server's container engine), cannot validate as shipped: the platform refuses to
 // target a device until onboarding records what it proved, and shipping a
 // discovery would claim a proof nobody made. Such an example is named in
 // onboardedFirst with the test that onboards its devices against real
@@ -56,7 +57,10 @@ var onboardedFirst = map[string]string{
 	"ai_lab":        "TestCLI_AIExampleChecksWithoutChanging",
 	"ai_repair_lab": "TestCLI_AIRepairExampleRepairsAndRollsBack",
 	"edge_lab":      "TestCLI_EdgeExampleReadsAndNamesEveryDifference",
-	"upgrade_ios":   "TestCLI_UpgradeIOSExamplesAnswerRefuseAndRecover",
+	// A linux_server claims a container engine only once onboarding finds
+	// one, and the scan methods require it.
+	"scan_lab":    "TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork",
+	"upgrade_ios": "TestCLI_UpgradeIOSExamplesAnswerRefuseAndRecover",
 }
 
 // testExists reports whether a test file in this package declares the test
