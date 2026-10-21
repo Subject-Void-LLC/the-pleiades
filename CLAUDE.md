@@ -61,12 +61,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 176 registered FQCNs; 173 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 177 registered FQCNs; 174 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 19, `ai` 11,
-  `svc` 16, `net` 12, `file` 12, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
+  `svc` 16, `net` 13, `file` 12, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
   `http` 2, `pleiades` 2, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -78,7 +78,13 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   inventory`/`show ip interface brief`, and is the ONLY fact gatherer a Cisco device has, since
   `facts.gather` requires `FactGathererCapable` which no Cisco device type declares),
   `net.ios.ping` (pings FROM the device, a different question from `net.ssh.ping`'s "can this
-  platform reach the device"), and `net.ios.save` (`write memory`). The twelfth is
+  platform reach the device"), and `net.ios.save` (`write memory`). `net.ios.command` (2026-10-20)
+  runs one exec-mode command and, like `net.cli.command`, answers the questions it asks
+  (`prompts:` written by the author, `refuse:`, `expect_disconnect:` for a reload) through
+  `pkg/netcli.Session.Dialog`, reading the parameters in `pkg/clidialog`; `ask:` hands a question
+  nobody listed to a model (`pkg/aitask.Chooser`, Crawl tier only), which picks one of the
+  author's own answers by id or refuses and never types its own. It is proven against a scripted
+  switch, not yet a real one. The thirteenth is
   `net.netconf.config`, Phase 74a's, and it is the only one in the group that is not a terminal
   session at all: it speaks RFC 6241 NETCONF over an SSH subsystem channel (`pkg/netconf`,
   implementing the shared `pkg/datastore` port), so a rejected element comes back as a structured
@@ -148,7 +154,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 163 of the 173 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 163 of the 174 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -159,8 +165,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The ten methods with no check (`exec.winrm.shell`, `container.exec`,
-  `net.cli.*`, `net.ios.config`, `net.netconf.config`, the four waits) each carry
+  call. The eleven methods with no check (`exec.winrm.shell`, `container.exec`,
+  `net.cli.*`, `net.ios.command`, `net.ios.config`, `net.netconf.config`, the four waits) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
   Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a

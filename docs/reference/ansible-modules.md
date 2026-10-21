@@ -429,10 +429,10 @@ Also written as `cli_command`.
 | Argument | Becomes |
 |---|---|
 | `command` | `command` |
-| `prompt` | blocked (`args.unmapped`): no native method answers a device's prompt |
-| `answer` | blocked (`args.unmapped`): no native method answers a device's prompt |
-| `sendonly` | blocked (`args.unmapped`): net.cli.command waits for the device's prompt |
-| `check_all` | blocked (`args.unmapped`): no native method answers a device's prompt |
+| `prompt` | blocked (`args.unmapped`): net.cli.command answers a question from prompts, a list of {match, answer}; write each prompt with its answer there |
+| `answer` | blocked (`args.unmapped`): net.cli.command answers a question from prompts, a list of {match, answer}; write each answer with its prompt there |
+| `sendonly` | blocked (`args.unmapped`): net.cli.command waits for the device's prompt; for a command that ends the session, such as reload, write expect_disconnect: true |
+| `check_all` | blocked (`args.unmapped`): net.cli.command answers each prompts entry at most once, in whatever order the device asks; write the pairs as prompts |
 
 A condition may read `stdout` from its registered result.
 

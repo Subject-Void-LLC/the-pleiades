@@ -13627,3 +13627,94 @@ does with a failed task's undo.
 
 **Lesson.** When a feature stops being "not yet", search for the old claim in the generators' code too: a generated
 page's fixed text is written there, and regenerating restores whatever it says.
+
+## 548. The upgrade_ios example validated clean and could not run past its first task (a repeat of 324) (fixed)
+
+**Symptom.** 2026-10-20, rewriting examples/upgrade_ios so a model could handle the switch's questions. Reading the
+code each task reaches, before any run, found five defects `pleiades validate` passed:
+- `sw1` set no `cli_prompt`, which `net.cli.command` needs, so its first pretask was refused at session open.
+- "Back up the running config" called `net.ios.config` with `backup: true` and no `lines`, which the method refuses.
+- `net.cli.command` cuts each line at 30 seconds, and a task's `timeout:` can only shorten that, so a real image copy
+  failed even with `file prompt quiet`, which the README said made it work.
+- The post-reload wait was `pleiades.builtin.wait.port`, which dials from the device itself over SSH: not something a
+  switch can run, least of all mid-reload.
+- A failed copy or checksum prints `%Error ...`, which neither the generic dialect nor `netcli.IOS` read as a failure
+  (549), so the block never failed and its rescue never ran.
+
+**Root cause.** 324 put every example through `pleiades validate`, which checks what a runbook says, not what its
+methods need from the device (a property, a runtime bound, a place to run), and, it turned out, not even the parameters a
+method marks required (550). The example had never been run against anything that answers as a switch does, so nothing
+reached the steps that could not work. 324's fix held for what validate reads and could not reach the rest.
+
+**Fix.** Both runbooks now use `net.ios.command` (no `cli_prompt` needed, paging off, `%Error` fails the task, the task's
+`timeout:` the only bound), answer IOS's questions through `prompts:`, back up in the boot change itself, and wait with
+`wait.connection`, whose try on an IOS device now logs in and waits for the prompt. `cmd/pleiades`'s
+`TestCLI_UpgradeIOSExamplesAnswerRefuseAndRecover` runs both through the real binary over real SSH against a scripted
+switch that asks IOS's questions, drops the session on reload and answers the new version afterwards; the examples test
+defers `upgrade_ios` to it.
+
+**Lesson.** An example passing validate says it is well formed, not that it runs. An example that changes a device is
+done when a test runs it through the binary against something that answers as that device does.
+
+## 549. netcli.IOS read IOS's "%Error ..." as output, so a failed save could report success (fixed)
+
+**Symptom.** 2026-10-20, found by design review of the upgrade example, not observed on a device. `netcli.IOS`'s error
+pattern was `(?m)^% `, IOS's form for a rejected line ("% Invalid input ..."). A failed file operation prints
+`%Error opening ...` with no space, so `net.ios.save` would report a save IOS refused as made, and a copy or checksum
+failure read as output.
+
+**Root cause.** The pattern was pinned against the device's answer to an invalid configuration line, the only error the
+first live probe provoked. No probe asked for a file operation's failure.
+
+**Fix.** The pattern also matches `%Error` (`(?m)^%(?: |Error\b)`), and still not a `%Warning:` or a syslog line
+(`TestIOSErrorPattern_ReadsBothErrorFormsAndNothingElse`); `TestSave_AnIOSFileErrorIsNotASave` and
+`TestCommand_AnIOSErrorFailsTheTask` fail with the old pattern (run as a negative control). `TestLiveIOSDialogs` checks
+the form against a real device when its credentials are set.
+
+**Lesson.** Pin an error convention against every kind of failure a method can meet, not the first one a probe found.
+
+## 550. pleiades validate did not refuse a task missing a parameter its method marks required, and three runbooks left one out (fixed)
+
+**Symptom.** 2026-10-20, confirming 548: a runbook calling `net.ios.config` with `backup: true` and no `lines`, which
+the method's documentation marks required, validated with "no issues found" and failed only at run time. Once the
+rule below existed, its first runs found three more runbooks that could not run:
+- `net.catalyst.reachability`'s documented example called `net.ios.config` with no `lines`;
+- the lab's `runbooks/win/10-install.yaml` (outside this repository) called `virt.vbox.vm.install` with no
+  `installer`, which the method requires and never infers from `os_type`;
+- and `exec.winrm.shell` documented `shell` both required and defaulted to `powershell`, a default no task could get,
+  since the method reads it with `RequiredStringParam`.
+
+**Root cause.** `ParamsRule` (324) refuses a parameter a method does not declare; nothing compared a task's parameters
+with the ones its method marks `Required`. The method checks at run time, after the tasks before it have run.
+
+**Fix.** `RequiredParamsRule` (`internal/validate/required_params_rule.go`, rule `param-required`) refuses a call
+leaving out a parameter its method marks required, in its own parameters or a fragment's; null does not count and a
+template does. `RollbackRule` holds a `rollback:` step to it too. A parameter can now name the one it is a second name
+for (`collection.Param.AliasOf`): `file.symlink`'s `dest`, Ansible's name for its required `path`, gives `path`.
+`collection.Register` refuses a parameter both required and defaulted, and an alias that names nothing, another alias,
+a parameter of another type, or is required itself. The three runbooks give what they lacked, and `shell` lost its
+default. Proven by `TestRequiredParamsRule`, `TestRequiredParamsRule_RunsInValidateAndOverRollbackSteps`,
+`TestRegister_RefusesARequiredParamWithADefault`, `TestRegister_HoldsAnAliasToTheParameterItNames`, and
+`TestEveryDocumentedExampleValidates` over all 248 documented examples; every lab runbook validates.
+
+**Lesson.** A declared contract is checked at plan time or it is checked at task 47. The first run of a new plan-time
+check over everything that exists is a census: read every finding before deciding the rule is wrong.
+
+## 551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open)
+
+**Symptom.** 2026-10-20, running `cmd/pleiades`'s whole suite after 550: `TestCLI_RollbackReleaseGate`'s G2 case
+expected `pleiades rollback <run> --leave tasks[1]` to be refused because a later run changed the same container, and
+the rollback ran instead (exit 0, "undo tasks[0] ... changed"). It failed once in six runs alone, once in eight on a
+pristine copy of the branch's last commit (`git archive HEAD`), so it predates this session's work, and then passed
+thirty runs in a row.
+
+**Root cause.** Not proven. Journal times are nanosecond-precise, so a same-second comparison in `laterRunProblems`
+(`internal/rollback/history.go`) is not it. The gate discarded the later run's exit status, and a later run that failed
+before its task acted (a refused SSH login under the gate's rapid logins, say) records no change, so the planner is
+right to ignore it; that fits the symptom and is unconfirmed. The other reading, a later change the planner missed,
+would let a rollback undo beneath another run's change, so it matters which.
+
+**Fix.** Open. The gate now fails naming a later run that failed, with its journal, so the next failure says which of
+the two it is.
+
+**Lesson.** A gate step whose outcome it ignores turns a flake in the setup into a wrong verdict on the product.

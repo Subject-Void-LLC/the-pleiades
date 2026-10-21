@@ -58,6 +58,8 @@ Gate a change on full fleet reachability:
 
 - name: Apply the change
   net.ios.config:
+    lines:
+      - ntp server 192.0.2.10
   when_cel: "stat.health[''].unreachable.size() == 0"
 ```
 

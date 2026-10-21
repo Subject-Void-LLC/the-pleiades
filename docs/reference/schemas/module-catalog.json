@@ -6695,7 +6695,6 @@
           "name": "shell",
           "type": "string",
           "required": true,
-          "default": "powershell",
           "description": "How the command runs: powershell, cmd or none. powershell and cmd name the interpreter that reads a script, and none runs a command line directly with no interpreter. Required rather than defaulted silently, because the three read the same text three different ways and a command written for one is not safe in another. Which programs run is the device's own setting (cmd_path, powershell_path)."
         },
         {
@@ -7955,7 +7954,8 @@
         {
           "name": "dest",
           "type": "string",
-          "description": "Ansible's own alias for path, accepted so a converted playbook needs no renaming. Setting both of them to different paths is refused rather than guessed at."
+          "description": "Ansible's own alias for path, accepted so a converted playbook needs no renaming. Setting both of them to different paths is refused rather than guessed at.",
+          "aliasOf": "path"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -9814,7 +9814,7 @@
       "examples": [
         {
           "name": "Gate a change on full fleet reachability",
-          "runbookYaml": "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"
+          "runbookYaml": "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"
         }
       ],
       "seeAlso": [
@@ -9940,7 +9940,7 @@
     "noCheckReason": "an arbitrary CLI line can be anything the device accepts, and what it changes, if anything, is known only once the device has run it",
     "doc": {
       "summary": "Runs one show/exec-mode command against a network device's CLI.",
-      "description": "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real.",
+      "description": "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real. A command that asks questions before it finishes is answered from prompts, each answer written in the task, and a question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses; expect_disconnect counts the device closing the session after an answer as success. The 30 seconds cover the whole command, its questions included.",
       "params": [
         {
           "name": "command",
@@ -9948,6 +9948,22 @@
           "required": true,
           "description": "The single CLI line to run, e.g. \"show version\".",
           "format": "command"
+        },
+        {
+          "name": "prompts",
+          "type": "list of dict",
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+        },
+        {
+          "name": "ask",
+          "type": "dict",
+          "description": "A model for questions no prompts entry matches, on the Crawl tier: choices, a list of {id, answer, means} the model picks from by id (it never types its own answer, and may refuse, which fails the task, or say the line was no question); max, how many it may answer (1 to 10, default 3); shape, the RE2 a waiting line must match to be asked about (default: ending in ?, ] or ]:); and ai.chat's own provider, model, residency, prompt or prompt_file (a built-in prompt when neither), signing, review, usage_sink and call options. Its provider is resolved before the device is reached. A held answer fails the task as held, which abandons the command; decided with pleiades ai review, running again reuses the decision for that same question."
+        },
+        {
+          "name": "expect_disconnect",
+          "type": "bool",
+          "default": "false",
+          "description": "Count the device closing the session after at least one answer as success, which is how a reload ends. A close before any answer still fails."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -9961,17 +9977,34 @@
           "name": "stdout",
           "type": "string",
           "returned": "always",
-          "description": "Everything the device printed in response to the command, with the echoed command line and the trailing prompt removed."
+          "description": "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed."
+        },
+        {
+          "name": "exchanges",
+          "type": "list of dict",
+          "returned": "when prompts, ask or expect_disconnect is set",
+          "description": "Each question the device asked and what was typed: question and answer, with prompt (the entry's index) or, for the model, choice, reason, provider, model, confidence, usage and review."
+        },
+        {
+          "name": "disconnected",
+          "type": "bool",
+          "returned": "when prompts, ask or expect_disconnect is set",
+          "description": "Whether the device closed the session after an answer (expect_disconnect)."
         }
       ],
       "examples": [
         {
           "name": "Read a device's software version",
           "runbookYaml": "- name: Check the running version\n  net.cli.command:\n    command: show version\n  register: version\n"
+        },
+        {
+          "name": "Answer the question a command asks",
+          "runbookYaml": "- name: Copy the configuration to a file\n  net.cli.command:\n    command: copy running-config flash:before-change.cfg\n    prompts:\n      - match: 'Destination filename \\[[^\\]]*\\]\\?'\n        answer: \"\"\n      - match: 'over ?write\\? \\[confirm\\]'\n        refuse: true\n"
         }
       ],
       "seeAlso": [
         "net.cli.config",
+        "net.ios.command",
         "net.ios.config"
       ]
     }
@@ -10044,6 +10077,101 @@
     "supportsCheck": false,
     "doc": {
       "summary": "Applies configuration to an Arista EOS device."
+    }
+  },
+  "net.ios.command": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "CiscoIOSCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "An arbitrary IOS command's effect (a copy, a delete, a reload) is unknown to this platform, so no undo can be derived from it. Give the task a rollback: list naming what undoes it when one exists."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "an arbitrary command can be anything the device accepts, and what it changes, if anything, is known only once the device has run it",
+    "doc": {
+      "summary": "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
+      "description": "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task. A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed. A command cannot be inspected, so it reports changed every time it runs without error.",
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "required": true,
+          "description": "The single exec-mode line to run, e.g. \"show version\" or \"copy http://192.0.2.5/x.bin flash:x.bin\".",
+          "format": "command"
+        },
+        {
+          "name": "prompts",
+          "type": "list of dict",
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+        },
+        {
+          "name": "ask",
+          "type": "dict",
+          "description": "A model for questions no prompts entry matches, on the Crawl tier: choices, a list of {id, answer, means} the model picks from by id (it never types its own answer, and may refuse, which fails the task, or say the line was no question); max, how many it may answer (1 to 10, default 3); shape, the RE2 a waiting line must match to be asked about (default: ending in ?, ] or ]:); and ai.chat's own provider, model, residency, prompt or prompt_file (a built-in prompt when neither), signing, review, usage_sink and call options. Its provider is resolved before the device is reached. A held answer fails the task as held, which abandons the command; decided with pleiades ai review, running again reuses the decision for that same question."
+        },
+        {
+          "name": "expect_disconnect",
+          "type": "bool",
+          "default": "false",
+          "description": "Count the device closing the session after at least one answer as success, which is how a reload ends. A close before any answer still fails."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "always",
+          "description": "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed."
+        },
+        {
+          "name": "exchanges",
+          "type": "list of dict",
+          "returned": "when prompts, ask or expect_disconnect is set",
+          "description": "Each question the device asked and what was typed: question and answer, with prompt (the entry's index) or, for the model, choice, reason, provider, model, confidence, usage and review."
+        },
+        {
+          "name": "disconnected",
+          "type": "bool",
+          "returned": "when prompts, ask or expect_disconnect is set",
+          "description": "Whether the device closed the session after an answer (expect_disconnect)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Copy an image to flash, refusing to overwrite one already there",
+          "runbookYaml": "- name: Pull the new image onto flash\n  net.ios.command:\n    command: copy http://192.0.2.5/images/c8000v-17.15.04c.SPA.bin flash:c8000v-17.15.04c.SPA.bin\n    prompts:\n      - match: 'Destination filename \\[[^\\]]*\\]\\?'\n        answer: \"\"\n      - match: 'over ?write\\? \\[confirm\\]'\n        refuse: true\n  timeout: 1800\n"
+        },
+        {
+          "name": "Reload, ending when the device drops the session",
+          "runbookYaml": "- name: Reload the router\n  net.ios.command:\n    command: reload\n    prompts:\n      - match: 'Proceed with reload\\? \\[confirm\\]'\n        answer: \"\"\n      - match: 'Save\\? \\[yes/no\\]'\n        refuse: true\n    expect_disconnect: true\n"
+        },
+        {
+          "name": "Let a local model answer a question nobody listed",
+          "runbookYaml": "- name: Delete the old image\n  net.ios.command:\n    command: delete flash:c8000v-17.12.01.SPA.bin\n    prompts:\n      - match: 'Delete filename \\[[^\\]]*\\]\\?'\n        answer: \"\"\n    ask:\n      provider: workstation\n      model: gemma4:e4b-it-qat\n      residency: local\n      choices:\n        - id: confirm\n          answer: \"\"\n          means: Press Enter to confirm deleting the file the question names.\n        - id: decline\n          answer: \"n\"\n          means: Answer no and keep the file.\n      review:\n        - field: confidence\n          below: 0.8\n"
+        }
+      ],
+      "seeAlso": [
+        "net.cli.command",
+        "net.ios.config",
+        "net.ios.save",
+        "ai.chat"
+      ]
     }
   },
   "net.ios.config": {
@@ -14424,7 +14552,7 @@
     "noCheckReason": "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits until the target answers a command over its own connection, SSH or WinRM.",
-      "description": "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
+      "description": "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A network device's CLI is not a shell with a command that does nothing, so for one that declares CiscoIOSCapable, or a cli_prompt, a try opens its terminal and waits for its prompt instead. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
       "params": [
         {
           "name": "timeout",

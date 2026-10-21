@@ -550,6 +550,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 545. Every CI job's Go cache restore failed, because setup-go installed go.mod's go line and Go then fetched the toolchain line's release into the module cache (fixed)
 546. tests/e2e's per-test times came from a local run, where the compose gates' image builds hit a warm cache, so one CI shard got both builds (a repeat of 503) (fixed before merge)
 547. After rescue and always ran, the generated task-key reference still said they never run, and that rollback was refused in them (a repeat of 539's documentation) (fixed)
+548. The upgrade_ios example validated clean and could not run past its first task (a repeat of 324) (fixed)
+549. netcli.IOS read IOS's "%Error ..." as output, so a failed save could report success (fixed)
+550. pleiades validate did not refuse a task missing a parameter its method marks required, and three runbooks left one out (fixed)
+551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

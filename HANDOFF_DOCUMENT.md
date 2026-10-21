@@ -4,70 +4,56 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-20. Branch `feat/rescue-always-design`, pull request #80, off `main` at `d33ff7e7` (#79 merged green).**
-One pull request at a time; `make pr-check` before every push; the owner merges.
+**2026-10-20. Branch `feat/rollback-on-failure`, off `main` before #80's merge; no pull request yet.** One pull
+request at a time; `make pr-check` before every push; the owner merges.
 
-### What merged since the last handoff
+### On this branch, committed
 
-- #76: `wait.connection`'s exponential backoff and steady streak; the pr-check report as a versioned contract.
-- #77: `virt.vbox.vm.delete`'s saved-state header warning.
-- #78: Windows firewall rules.
-- #79: parameter type rules, the unreached mark in the run report, lab readiness retries, the disk check, flakegate
-  build output.
+- `rollback_on_failure: true` on a block, refused by validate over a task it cannot undo (Phase 88).
+- `examples/ai_repair_lab`: a local model picks a fix in a rescue; `container.run` undos replay.
 
-### This branch, at the owner's request ("plan always:", then "do it on the same PR")
+### On this branch, not committed yet (the owner asked: "rewrite the IOS upgrade example to use the AI module")
 
-The design, with the owner's pasted spec and decisions, is `docs/design/block-rescue-always.md`.
+The owner's decisions: the runbook author decides whether a question is answered from the task or by a model;
+`net.ios.command` plus prompts on `net.cli.command`; proof by a scripted switch now, the DevNet probe when its
+credentials are set, and a C8000V lab VM later; this branch.
 
-- **A block's `rescue:` and `always:` run**, per device: one chain (block, rescue, always), a stack of frames per
-  device, every task deciding per device (`internal/engine/handlers.go`, `handlers_run.go`).
-- **A rescued run ends `rescued`** (exit 0); `--fail-on-rescue` ends it with exit 4. Answered tasks report
-  `rescued_by`.
-- **A block reaching another device runs as one unit** (`DAG.Units`): a failure anywhere fails it everywhere, and its
-  rescue and always run once on their own targets.
-- **A run that has to end still runs the `always:` of every block it is inside**, on every device.
-- **`error`** (template and CEL) only in rescue; validate's `HandlersRule` refuses it elsewhere, and refuses a register
-  only a rescued block writes when a later task reads it unguarded.
-- **Check mode:** rescue tasks are `conditional_skip`; a failed check never routes to a rescue.
-- **Journal:** skip kinds `block_failed` and `not_failed`, read by the strict reader.
-- **Owner decisions:** exit 4 of its own; always: does not read `error`; a failed check reports as before; a block
-  reaching other devices runs as one unit.
-- **Proof:** unit scenarios; an independent recursive oracle over 400 generated nestings on one and two devices in
-  every run (found 541 and 542, LESSONS 302); FuzzHandlers about 167k cases; an sshd release gate (exit 0 and 4);
-  every lab `# TODO(always):` converted and proven through Pleiades by injecting a failure in its block.
-- **Also:** `engine.Select` kept `reversible:` out of a tag selection (540); the journal reader names a refused link on
-  FreeBSD (544).
-- **pr-check** passed on `a61fede9` in 1657s, every leg green; one contention re-run
-  (`TestCLI_RunExecutesExecCommand`, an sshd container's readiness deadline).
+- `pkg/netcli.Session.Dialog`: one read to the exec prompt, a listed question, or a question-shaped line; each
+  listed answer once; `refuse` closes the session; no text to a password question; `ExpectDisconnect`; a timeout
+  names the question (`pkg/remoteexec.ReadError` keeps what was read). `netcli.IOS.ErrorPattern` also reads
+  `%Error` (549).
+- `pkg/aitask`: `Prepare`/`Call.Run`, the one-provider call `ai.chat` now uses; `Chooser`, a model picking one of
+  the author's choices by id (schema of the ids plus refuse and wait), through the project, Crawl tier only.
+- `pkg/clidialog`: reads `prompts`, `ask`, `expect_disconnect` for both CLI methods.
+- `net.ios.command` (new, 177th method); `net.cli.command` gets the same parameters; `wait.connection` tries an
+  IOS or `cli_prompt` device by waiting for its prompt.
+- `examples/upgrade_ios`: `upgrade_ios_xe.yaml` rewritten (548), `upgrade_ios_xe_ai.yaml` new, a triage prompt,
+  `workstation` in the inventory, README rewritten; the Ansible twin gains `no boot system`.
+- Proof: `TestCLI_UpgradeIOSExamplesAnswerRefuseAndRecover` (real binary, scripted switch over SSH, Ollama
+  stand-in); `pkg/netcli/dialog_test.go`; `TestLiveIOSDialogs` (DevNet, gated, not yet run).
+- Roadmap: Phase 88 gains `retries`/`until`/`delay` (owner request).
+- Records: FAILURE_PATTERNS 548 to 550.
+- Validate (owner: "Do the validate work"): `RequiredParamsRule` (`param-required`) refuses a call leaving out a
+  required parameter, `rollback:` steps included; `collection.Param.AliasOf` (file.symlink's `dest` gives `path`);
+  `Register` refuses required-and-defaulted and bad aliases. Its first run fixed `exec.winrm.shell`'s doc, the
+  `net.catalyst.reachability` example, and the lab's `runbooks/win/10-install.yaml` (no `installer`; outside this repo).
 
-### Open, in the design note, not built
+### Open
 
-- `rollback_on_failure`.
-- Walk-tier cross-device blocks (Phase 117b's segmented dispatch); a Runner still runs every task on its one device.
-- The name of a run-once key; `ignore_errors` and `changed_when`.
+- The converter still blocks `cli_command`'s `prompt`/`answer` (it needs a mapping that zips two arguments into
+  `prompts`); its reasons now say how to write them.
+- `TestLiveIOSDialogs` needs DevNet credentials (`PLEIADES_E2E_IOS*`); no reload is ever run there.
+- Nothing has run against a real Catalyst switch.
+
+- 551: `TestCLI_RollbackReleaseGate` G2 let a rollback run beneath a later run, 2 in 14 runs (also on HEAD), then 0 in
+  30; the gate now names a failed later run. Cause unproven.
+- `TestGenericReleaseGate_GRPC` failed once in the full suite at its Java container's start (environment), passed alone.
 
 ### Next
 
-1. Watch #80's CI; the owner merges.
-2. **The live gates read gitignored `tests/<name>/.env` files** (agreed 2026-10-19, in the tracker).
-3. **Every method proven on every OS it targets** (Phase 122b), and its other open items.
-4. **Packages for Server Core:** Chocolatey, Scoop and PSResourceGet, after a design note.
+1. Commit the IOS work in logical commits, then `make pr-check` and open the branch's pull request.
+2. Run `TestLiveIOSDialogs` once credentials are given.
 
 ### Lab state
 
-- `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved; checks start and save the check boxes.
-- lab-dc1 takes its time from time.windows.com (`win/dc-01-build.yaml`), since a resumed domain controller was 90
-  minutes slow (543).
-- The lab's must-run tasks are in `always:` blocks: `ubuntu-throwaway.yaml`, `win/dc-04-linux-join.yaml`,
-  `win/ca-01-build.yaml`.
-
-### Files changed this session
-
-- `internal/engine`: `handlers.go`, `handlers_run.go`, `unreached.go` (new), `executor.go`, `chain.go`, `dag.go`,
-  `select.go`, `journal*.go`, `cel.go`, `render_params.go`, `condition_refs.go`, `rollback_key.go`, and tests
-  (`handlers_test.go`, `handlers_fuzz_test.go`, `select_reversible_test.go`, fqcn conversions);
-- `internal/validate/handlers.go`; `internal/journal` (`reader.go`, `reader_unix.go`, tests);
-- `cmd/pleiades` (`run*.go`, `validate.go`, `rescue_release_gate_test.go`);
-- `internal/forge/playbook`, `tools/gendocs/taskkeys.go`, the regenerated `docs/reference`, docs 02 and 03,
-  `docs/design/block-rescue-always.md`, `examples/upgrade_ios`, one changelog fragment;
-- `FAILURE_PATTERNS*` (539 to 544), `LESSONS_LEARNED*` (302), `HANDOFF_*`; the lab runbooks above.
+Unchanged: `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved.
