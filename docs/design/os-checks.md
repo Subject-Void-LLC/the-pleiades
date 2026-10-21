@@ -98,6 +98,14 @@ Each machine runs beside the Linux passes, not after them:
 
 - **The Mac: prepare here, test in the background.** `-phase prepare` checks it, builds `pleiades` and sends the
   tree; `-phase test` then runs on the Mac's own CPU and memory while the Linux passes run here.
+- **govulncheck on the Mac, between those phases.** `-phase vuln` runs it on the tree prepare sent, before the
+  Mac's tests start, so the two never share its memory. A scan that traces a vulnerable call builds a call graph
+  of the whole module: 7 GB on a Mac in October 2026, more than this machine could spare.
+  - It scans for this machine's operating system, architecture and Go release (`GOOS`, `GOARCH` and
+    `GOTOOLCHAIN`), so its answer is the one a scan here gives. The Mac's own Go may be newer than the toolchain
+    line, and would otherwise judge its own standard library.
+  - With no Mac ready, or one that cannot run it, it runs here.
+  - pr-check records it as the step `govulncheck`.
 - **The VMs: one at a time, in the background.** FreeBSD's check runs whole, its box started and put back, then
   Windows', so at most one box holds the host's memory (`LAB_CHECKS`).
 - Each machine's output goes to `.coverage/pr/<mac|bsd|win>.log`.

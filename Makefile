@@ -630,7 +630,8 @@ ci-containers:
 		-coverage-out $(COVERAGE_DIR)/containers-$(subst /,-of-,$(SHARD)).json $$docker
 
 # pr-check is what a pull request's required jobs run, run here before a
-# push, for the packages the branch changes: ci-remote's static checks; vet
+# push, for the packages the branch changes: ci-remote's static checks
+# (govulncheck on the Mac when one is ready; CI_REMOTE_STATIC says why); vet
 # for macOS and Windows, which the ci job builds on and this machine does
 # not; then each changed package (tools/prscope) in the tier CI gives it,
 # through the same testgate passes, with the container-free ones repeated
@@ -659,9 +660,9 @@ ci-containers:
 # (tests/mac/.env, tools/maccheck), a FreeBSD machine (tests/bsd/.env,
 # tools/bsdcheck) and a Windows one (tests/win/.env, tools/wincheck), each
 # beside the Linux passes rather than after them. The Mac's -phase prepare
-# checks it, builds pleiades and sends the tree first, here; then its
-# -phase test runs in the background, on the Mac's CPU and memory, while
-# the Linux passes run here. The FreeBSD and Windows machines are lab VMs
+# checks it, builds pleiades and sends the tree first, here; its -phase
+# vuln then runs govulncheck on that tree; then its -phase test runs in the
+# background, on the Mac's CPU and memory, while the Linux passes run here. The FreeBSD and Windows machines are lab VMs
 # a check starts when it needs one and puts back afterwards, its state
 # saved, so they run in the background one after the other (LAB_CHECKS),
 # each whole, and at most one holds the host's memory at a time. Each
@@ -694,6 +695,18 @@ ci-containers:
 # gets a receipt for what did run, the way `git push --no-verify` skips the
 # hook: both are deliberate, and both are the developer's to answer for.
 PR_BASE ?= origin/main
+# CI_REMOTE_STATIC is ci-remote's list of checks but govulncheck, which
+# pr-check runs in its recipe instead: on the Mac (VULN_CHECK) when its
+# prepare phase left the tree there, between that phase and its tests so
+# the scan and the tests never share the Mac's memory, and here otherwise,
+# or when the Mac cannot run it. A scan that traces a vulnerable call
+# builds a call graph of the whole module (7 GB on a Mac, over 4 GB here,
+# October 2026), which this machine's memory cannot spare beside the rest.
+# The Mac scans for this machine's operating system and architecture with
+# its Go release, so its answer is the one a scan here gives. It is defined
+# here because a prerequisite list is read when its rule is.
+CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
+VULN_CHECK := mac
 PR_CHECK_PARALLELISM ?= 0
 BSD_CHECK_PARALLELISM ?= 0
 WIN_CHECK_PARALLELISM ?= 0
@@ -705,7 +718,7 @@ LAB_CHECKS := bsd win
 PR_CHECK_ALWAYS := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
 	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
-pr-check: ci-remote pr-check-vet
+pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	@$(SPLIT_PACKAGES); \
 	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
 	mine_fast=""; mine_docker=""; \
@@ -717,7 +730,7 @@ pr-check: ci-remote pr-check-vet
 	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr/records; \
 	rec=$(COVERAGE_DIR)/pr/records; report=$(COVERAGE_DIR)/pr/prreport; \
 	go build -o $$report ./tools/prreport || exit 1; \
-	expect="mac,bsd,win,images,coverage"; \
+	expect="mac,bsd,win,govulncheck,images,coverage"; \
 	if [ -n "$$mine_fast" ]; then expect="fast,repeat,$$expect"; fi; \
 	if [ -n "$$mine_docker" ]; then expect="$$expect,containers,durations"; fi; \
 	$$report begin -dir $$rec -commit "$(GATE_START_COMMIT)" -expect "$$expect" || exit 1; \
@@ -725,9 +738,22 @@ pr-check: ci-remote pr-check-vet
 	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s || status=1; [ $$s -eq 0 ] || status=1; }; \
 	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; }; \
 	trap 'stop; exit 130' INT; trap 'stop; exit 143' TERM; trap stop EXIT; \
+	vuln() { \
+		if [ -f $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready ]; then \
+			$(COVERAGE_DIR)/pr/$(VULN_CHECK)check -phase vuln -govulncheck $(GOVULNCHECK_VERSION); s=$$?; \
+			[ $$s -eq 2 ] || return $$s; \
+			echo "pr-check: the $(VULN_CHECK) check could not run govulncheck, so it runs here"; \
+		else \
+			echo "pr-check: the $(VULN_CHECK) check has no tree to scan, so govulncheck runs here"; \
+		fi; \
+		govulncheck ./...; \
+	}; \
 	for os in $(OS_CHECKS); do \
 		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
 		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
+	done; \
+	step govulncheck vuln; \
+	for os in $(OS_CHECKS); do \
 		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ]; then \
 			$(COVERAGE_DIR)/pr/$${os}check -phase test -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
 			echo "pr-check: the $$os tests run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log)"; \
@@ -1017,7 +1043,10 @@ ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck co
 # reaches no container, and is the only thing in this file that compiles
 # the tag-gated developer commands at all, so dropping it would stop
 # building tools/devcert and tools/uidev anywhere in this workflow.
-ci-remote: build devtools vet fmt tidy-check gosec govulncheck docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
+#
+# Its list but govulncheck is CI_REMOTE_STATIC, defined above pr-check,
+# which shares it rather than copying it.
+ci-remote: $(CI_REMOTE_STATIC) govulncheck
 	@echo "ci-remote: all checks passed (no tests were run; see this target's comment)"
 
 # push-gate is every check ci runs, in the same order, with test-full

@@ -23,7 +23,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 2 | 2 |
 | `identity` | 6 | 6 |
-| `net` | 14 | 12 |
+| `net` | 15 | 13 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 2 | 2 |
 | `scan` | 3 | 3 |
@@ -31,7 +31,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 12 | 12 |
-| **total** | **176** | **173** |
+| **total** | **177** | **174** |
 
 ## All methods
 
@@ -142,6 +142,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.cli.command](net/cli/command.md) | implemented | Runs one show/exec-mode command against a network device's CLI. |
 | [net.cli.config](net/cli/config.md) | implemented | Applies configuration lines to a network device over its CLI. |
 | [net.eos.config](net/eos/config.md) | declared | Applies configuration to an Arista EOS device. |
+| [net.ios.command](net/ios/command.md) | implemented | Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says. |
 | [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, with an optional pre-change backup. |
 | [net.ios.facts](net/ios/facts.md) | implemented | Gathers structured facts from a Cisco IOS device over its CLI. |
 | [net.ios.ping](net/ios/ping.md) | implemented | Runs a ping from a Cisco IOS device and reports the result. |

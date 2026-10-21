@@ -79,9 +79,10 @@ func TestShardBy_BalancesByTime(t *testing.T) {
 
 // TestShardOf_TheEmbeddedTimesSplitEvenly: with durations.json, the six
 // containers shards of the packages it names come within a quarter of one
-// another, where dealing by position left one at three times the rest. A
-// shard's time counts a divided package's tests it runs: those named, or all
-// but those skipped.
+// another, where dealing by position left one at three times the rest,
+// apart from one package too long for a shard's share that cannot be
+// divided, which sits alone. A shard's time counts a divided package's
+// tests it runs: those named, or all but those skipped.
 func TestShardOf_TheEmbeddedTimesSplitEvenly(t *testing.T) {
 	recorded := durations()
 	seen := map[string]bool{}
@@ -115,12 +116,25 @@ func TestShardOf_TheEmbeddedTimesSplitEvenly(t *testing.T) {
 		}
 		loads = append(loads, load)
 	}
-	lo, hi := loads[0], loads[0]
-	for _, l := range loads {
-		lo, hi = min(lo, l), max(hi, l)
+	// One package longer than a shard's fair share, which statements of its
+	// own keep from being divided (cmd/pleiades, about 950 seconds), is a
+	// floor no dealing can beat: the shard holding it may be that long, and
+	// only if it holds nothing else. Every other shard is held within a
+	// quarter of the fastest.
+	longest := 0.0
+	for key, s := range recorded {
+		if !strings.Contains(key, " ") && split[modulePrefix+key] == nil {
+			longest = max(longest, s)
+		}
 	}
-	if hi > lo*1.25 {
-		t.Errorf("shard loads %v seconds: the slowest is more than a quarter over the fastest", loads)
+	sorted := slices.Clone(loads)
+	slices.Sort(sorted)
+	lo, hi, second := sorted[0], sorted[len(sorted)-1], sorted[len(sorted)-2]
+	if hi > lo*1.25 && hi != longest {
+		t.Errorf("shard loads %v seconds: the slowest is more than a quarter over the fastest, and is not one undividable package (%.0f) alone", loads, longest)
+	}
+	if second > lo*1.25 {
+		t.Errorf("shard loads %v seconds: beyond the one longest package, a shard is more than a quarter over the fastest", loads)
 	}
 }
 

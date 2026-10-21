@@ -78,11 +78,15 @@
           "type": "array"
         },
         "rollback": {
-          "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. Only on a method call; each step is a method and its params, with no target, register, conditions or tags.",
+          "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. An empty list says undoing the task means doing nothing. Only on a method call; each step is a method and its params, with no target, register, conditions or tags.",
           "items": {
             "$ref": "#/$defs/task"
           },
           "type": "array"
+        },
+        "rollback_on_failure": {
+          "description": "On a block: when one of its own tasks fails on a device, undo what its tasks completed there, newest first, before its rescue starts, journaled as a rollback of each. Only on a block, and only over tasks whose undo is exact.",
+          "type": "boolean"
         },
         "secret_mask": {
           "additionalProperties": false,

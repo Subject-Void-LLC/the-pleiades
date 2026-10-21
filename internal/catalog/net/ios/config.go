@@ -137,6 +137,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 type iosSession interface {
 	Command(ctx context.Context, line string) (string, error)
 	Config(ctx context.Context, lines []string) error
+	Dialog(ctx context.Context, line string, opts netcli.DialogOptions) (netcli.DialogResult, error)
 	Close() error
 }
 

@@ -22,7 +22,7 @@
 # so two people building on different days get the same compiler. This is
 # the stronger form of the rule docker-compose.yml already follows by
 # pinning exact versions.
-FROM golang:1.26-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS builder
+FROM golang:1.26-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 AS builder
 
 WORKDIR /src
 

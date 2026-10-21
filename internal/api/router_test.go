@@ -291,6 +291,15 @@ func TestRouter_ReadyzReflectsDependencies(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Errorf("healthy /readyz returned %d, want %d", rr.Code, http.StatusOK)
 	}
+	// The gate keeps an answer for ReadinessMinInterval by its own clock, and
+	// Windows' monotonic clock moves in ticks of up to 15.6 ms, so a second
+	// request in the same tick read back the healthy answer: on win-check
+	// the test passed once and failed on every repeat. Wait until the clock
+	// has moved past the first answer, whatever its tick.
+	answered := time.Now()
+	for time.Since(answered) < time.Microsecond {
+		time.Sleep(time.Millisecond)
+	}
 
 	natsUp = false
 

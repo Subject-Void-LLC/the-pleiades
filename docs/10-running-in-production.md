@@ -628,6 +628,15 @@ ordinary run of ordinary tasks, journaled like any other.
   it meant to, and a run whose process was killed has no seal on its journal, so its
   last level may be missing. Neither is guessed at. The CLI runs everything else and
   ends incomplete (exit 3); the Controller refuses until each is accepted.
+- **Undoing inside the run.** A block with `rollback_on_failure: true` undoes what
+  its own tasks completed on a device the moment one of them fails there, newest first,
+  before its `rescue:` starts, with the same steps a rollback would run, and journals
+  each as a rollback of that task. A later rollback of the run lists those changes as
+  undone by the run itself and does not repeat them. `pleiades validate` refuses the key
+  on a block holding a task it could not undo exactly, and if an undo fails the rescue
+  does not run, `always:` does, and the run fails. A hand-written rescue that puts
+  things back still works without the key, but a later rollback would undo the
+  rescue's own steps as well, so it needs `--leave` for them.
 - **Resuming.** A rollback that stops partway, because an undo failed, can be run
   again, and it continues from where it stopped. A run already undone in full is
   refused, and a rollback is never itself rolled back: run the runbook again instead.

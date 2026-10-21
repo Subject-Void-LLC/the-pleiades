@@ -339,7 +339,9 @@ type JournalEntry struct {
 
 	// AuthoredRollback reports that the task carries a rollback: list in
 	// its runbook (kind 3), which a rollback runs instead of the recorded
-	// undo. The steps themselves are the runbook's, never the journal's.
+	// undo; an empty one, rollback: [], included, which says undoing the
+	// task means doing nothing. The steps themselves are the runbook's,
+	// never the journal's.
 	AuthoredRollback bool `json:"authored_rollback"`
 
 	// RollbackOf names the run this run undoes (kind 1): the run id on the

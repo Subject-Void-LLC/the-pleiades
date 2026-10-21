@@ -151,6 +151,10 @@ type taskReport struct {
 	// RescuedBy names the first task of the rescue: that answered this
 	// failed task's failure; the run went on past it.
 	RescuedBy string `json:"rescued_by,omitempty"`
+	// Undoes names the task this one undid: a step of a block's
+	// rollback_on_failure, which undid what the block's tasks completed
+	// when one of them failed. Its id is that task's, with .undo[step].
+	Undoes string `json:"undoes,omitempty"`
 	// Unreached marks a failed task whose device never answered: its
 	// connection failed or timed out before anything was sent, so nothing
 	// ran and running it again is safe. A refused login is not unreached.
@@ -252,6 +256,9 @@ func taskReports(dag *engine.DAG, result *engine.RunResult, items []pkginventory
 		t := taskReport{ID: node.NodeID, Device: node.Device, Host: hosts[node.Device], Provider: node.Provider}
 		if task := dag.Nodes[node.NodeID]; task != nil {
 			t.Name, t.Method = task.Name, task.FQCN
+		}
+		if node.Undo != nil {
+			t.Name, t.Method, t.Undoes = node.Undo.Name, node.Undo.Method, node.Undo.Node
 		}
 		if !node.StartedAt.IsZero() {
 			started := node.StartedAt

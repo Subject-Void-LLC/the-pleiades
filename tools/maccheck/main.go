@@ -22,18 +22,23 @@
 // Usage:
 //
 //	go run ./tools/maccheck [-optional] [-phase all|prepare|test] [-mac target] [-commit HEAD] [-p N] package...
+//	go run ./tools/maccheck -phase vuln -govulncheck v1.6.0 [-mac target] [-commit HEAD]
 //
 // -phase splits the run in two, so pr-check can start the Mac's tests and
 // run the Linux ones while they go: prepare checks the Mac, builds
 // pleiades and sends the tree, all of which uses this machine; test runs
 // the tests on the tree prepare sent, which uses only the Mac. all (the
 // default) is both. Interrupted (SIGINT or SIGTERM) while the tests run,
-// it stops them on the Mac too. tools/internal/oscheck holds the flow it
-// shares with tools/bsdcheck and tools/wincheck.
+// it stops them on the Mac too. vuln runs govulncheck on the tree prepare
+// sent, on the Mac's memory (it took 7 GB there with a vulnerable call to
+// trace), scanning for this machine's operating system and architecture
+// with its Go release, so its answer is the one a scan here gives.
+// tools/internal/oscheck holds the flow it shares with tools/bsdcheck and
+// tools/wincheck.
 //
 // With -optional, a clone with no Mac configured is a skip, said so, which
-// is how pr-check calls it. Exit status: 0 passed or skipped, 1 a test
-// failed, 2 the Mac could not be used.
+// is how pr-check calls it. Exit status: 0 passed or skipped, 1 a test (or
+// govulncheck) failed, 2 the Mac could not be used.
 package main
 
 import (

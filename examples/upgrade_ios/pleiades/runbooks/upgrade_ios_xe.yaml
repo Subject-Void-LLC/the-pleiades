@@ -1,7 +1,11 @@
-# Upgrade a Cisco Catalyst lab switch to IOS-XE 17.03.04.
-# Compare task for task against ../../ansible/upgrade_ios_xe.yml.
-# See ../../README.md for what actually executes today versus what this
-# demonstrates as the target runbook shape.
+# Upgrades a Cisco Catalyst lab switch, sw1, to IOS-XE 17.03.04, answering every question IOS asks from this file.
+# Blast radius: one switch, which reloads; it carries no traffic while it boots.
+# Changes: copies the image to flash, replaces the boot statements, saves the configuration, reloads.
+# Undo: none automatic. The rescue records what to do by hand: put the old boot statements back from the
+# backup "Point the boot variable" captured, save, and reload.
+#
+# Compare task for task against ../../ansible/upgrade_ios_xe.yml, and see ./upgrade_ios_xe_ai.yaml for the
+# same upgrade with a local model handling the questions nobody listed here.
 #
 # Run with: pleiades run runbooks/upgrade_ios_xe.yaml
 id: upgrade-ios-xe
@@ -12,48 +16,55 @@ metadata:
 
 pretasks:
   - name: Get Config
-    net.cli.command:
+    net.ios.command:
       command: "show running-config"
     register: running_config
     # hide the running config from the run report, since it may contain secrets
     register_mask: running_config.stdout
 
   - name: Record the currently running version
-    net.cli.command:
+    net.ios.command:
       command: "show version | include Version"
     register: pre_facts
 
   - name: Check free space on flash before pulling a new image
-    net.cli.command:
+    net.ios.command:
       command: "dir flash:"
     register: flash_dir
 
 tasks:
   - name: Upgrade sw1
     block:
-      - name: Back up the running config before touching anything
-        net.ios.config:
-          backup: true
-
-      # net.cli.command cannot answer an interactive prompt. IOS asks for a
-      # destination filename on copy unless the switch has "file prompt
-      # quiet" configured, so set that on sw1 first; otherwise this step
-      # waits on the prompt and fails after its 30 second bound. (The
-      # Ansible playbook answers the prompt with prompt:/answer:, which
-      # have no native equivalent.)
+      # IOS asks where to put the file. An image of the same name already on
+      # flash means an earlier run got this far; this task refuses to
+      # overwrite it rather than guess, and the run's rescue says so.
       - name: Pull the new image onto flash
-        net.cli.command:
+        net.ios.command:
           command: "copy http://10.10.10.5/images/cat9k_iosxe.17.03.04.SPA.bin flash:cat9k_iosxe.17.03.04.SPA.bin"
+          prompts:
+            - match: 'Destination filename \[[^\]]*\]\?'
+              answer: ""
+            - match: 'over ?write\? \[confirm\]'
+              refuse: true
+        # A cat9k image is about a gigabyte.
+        timeout: 1800
 
+      # A mismatch prints "%Error verifying ...", which fails this task.
       - name: Verify the image checksum before trusting it
-        net.cli.command:
+        net.ios.command:
           command: "verify /md5 flash:cat9k_iosxe.17.03.04.SPA.bin 5f4dcc3b5aa765d61d8327deb882cf99"
         register: md5_check
+        timeout: 600
 
+      # "no boot system" first, so no older boot statement is tried before the
+      # new image. The backup holds the statements it removes.
       - name: Point the boot variable at the new image
         net.ios.config:
+          backup: true
           lines:
+            - "no boot system"
             - "boot system flash:cat9k_iosxe.17.03.04.SPA.bin"
+        register_mask: backup
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
       # The Ansible playbook's save_when: modified, written as its own
@@ -62,13 +73,19 @@ tasks:
         net.ios.save:
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
-      # IOS asks "Proceed with reload? [confirm]", and no native method can
-      # answer an interactive prompt yet, so this step waits on the prompt
-      # and fails after its 30 second bound. Reload sw1 by hand at this
-      # point. (The Ansible playbook answers it with prompt:/answer:.)
+      # IOS asks to confirm, then drops the session as the switch reloads,
+      # which expect_disconnect counts as success. A "Save? [yes/no]" first
+      # means something changed after the save above; the task refuses it, and
+      # closing the session abandons the reload.
       - name: Reload the switch
-        net.cli.command:
+        net.ios.command:
           command: reload
+          prompts:
+            - match: 'Proceed with reload\? \[confirm\]'
+              answer: ""
+            - match: 'Save\? \[yes/no\]'
+              refuse: true
+          expect_disconnect: true
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
 
     rescue:
@@ -76,36 +93,35 @@ tasks:
         pleiades.builtin.set_metadata:
           data:
             upgrade_failed: true
-            note: "sw1 failed before reload; running config is unchanged, boot variable was not committed"
+            note: "sw1 failed before it reloaded into the new image"
 
       # Quotes the pre-upgrade version "Record the currently running
       # version" registered (pre_facts), so the operator knows exactly what
-      # to roll back to, and names the task that failed (error.task).
+      # to roll back to, and names the task that failed (error.name).
       - name: Display rollback instructions for the operator
         pleiades.builtin.set_metadata:
           data:
-            failed_task: "{{ error.task }}"
+            failed_task: "{{ error.name }}"
             version_before: "{{ result.pre_facts.stdout }}"
             rollback_instructions: >-
-              Automatic rollback is not implemented yet.
-              To recover sw1 by hand: reconnect to 10.10.20.11 over console or SSH, run
-              "show boot" to confirm the boot variable. If it already points at
-              cat9k_iosxe.17.03.04.SPA.bin, run "no boot system
-              flash:cat9k_iosxe.17.03.04.SPA.bin" then "write memory" and reload. The
-              version this attempt started from is in version_before beside this. The
-              pre-upgrade config backup task in this same block may not have run either;
-              restore config from your own change-management backup if it drifted.
+              Nothing here is undone automatically. To recover sw1 by hand: reconnect to
+              10.10.20.11 over console or SSH and run "show boot". If the boot statements
+              already name cat9k_iosxe.17.03.04.SPA.bin, put back the ones the backup of "Point
+              the boot variable at the new image" holds, run "write memory", and reload. The
+              version this attempt started from is in version_before beside this. A partial
+              image may be left on flash; "delete /force flash:cat9k_iosxe.17.03.04.SPA.bin"
+              removes it.
 
 posttasks:
-  - name: Wait for the switch to come back on SSH
-    pleiades.builtin.wait.port:
-      host: 10.10.20.11
-      port: 22
+  # Ready once a fresh login reaches the switch's prompt; the delay lets it
+  # go down first.
+  - name: Wait for the switch to come back
+    wait.connection:
       delay: 60
-      timeout: 600
+      timeout: 900
 
   - name: Re-check the running version
-    net.cli.command:
+    net.ios.command:
       command: "show version | include Version"
     register: post_facts
 

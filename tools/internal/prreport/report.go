@@ -101,9 +101,9 @@ var (
 	KnownProblemCodes   = []string{ProblemUnreadable, ProblemUnknownKind, ProblemUnknownSchema, ProblemUnknownValue, ProblemMissing, ProblemGateFailed, ProblemGateDisagrees, ProblemInterrupted}
 )
 
-// Step is the record of one step pr-check ran besides the tests (the
-// coverage check, the served-images check): how it exited, or why it did not
-// run.
+// Step is the record of one step pr-check ran besides the tests (govulncheck,
+// the coverage check, the served-images check): how it exited, or why it did
+// not run.
 type Step struct {
 	// Schema is the step record's version (StepSchema).
 	Schema int `json:"schema"`
@@ -328,7 +328,7 @@ func (r Report) has(name string) bool {
 
 // orderOf ranks the names pr-check gives its records in the order it runs
 // them; any other name follows, alphabetically.
-var orderOf = map[string]int{"fast": 1, "repeat": 2, "containers": 3, "mac": 4, "bsd": 5, "win": 6, "images": 7, "coverage": 8, "durations": 9}
+var orderOf = map[string]int{"govulncheck": 1, "fast": 2, "repeat": 3, "containers": 4, "mac": 5, "bsd": 6, "win": 7, "images": 8, "coverage": 9, "durations": 10}
 
 // order is a name's sort key.
 func order(name string) string {

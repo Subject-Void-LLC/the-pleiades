@@ -20,21 +20,20 @@ var networkCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Runs one show/exec-mode command against a network device's CLI.",
-			Description: "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real.",
-			Params: []collection.Param{
-				{Name: "command", Type: "string", Required: true, Description: "The single CLI line to run, e.g. \"show version\".", Format: collection.ParamFormatCommand},
-				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
-			},
-			Returns: []collection.ReturnField{
-				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, with the echoed command line and the trailing prompt removed."},
-			},
+			Description: netCLICommandDescription,
+			Params:      netCLICommandParams(),
+			Returns:     netCLICommandReturns(),
 			Examples: []collection.Example{
 				{
 					Name:        "Read a device's software version",
 					RunbookYAML: "- name: Check the running version\n  net.cli.command:\n    command: show version\n  register: version\n",
 				},
+				{
+					Name:        "Answer the question a command asks",
+					RunbookYAML: "- name: Copy the configuration to a file\n  net.cli.command:\n    command: copy running-config flash:before-change.cfg\n    prompts:\n      - match: 'Destination filename \\[[^\\]]*\\]\\?'\n        answer: \"\"\n      - match: 'over ?write\\? \\[confirm\\]'\n        refuse: true\n",
+				},
 			},
-			SeeAlso: []string{"net.cli.config", "net.ios.config"},
+			SeeAlso: []string{"net.cli.config", "net.ios.command", "net.ios.config"},
 		},
 	},
 	{
@@ -137,6 +136,20 @@ var networkCollections = []collectionscaffold.Config{
 				},
 			},
 			SeeAlso: []string{"net.cli.command", "net.cli.config"},
+		},
+	},
+	{
+		Name:          "net.ios.command",
+		Capabilities:  []capability.Name{capability.NameCiscoIOS},
+		Transports:    []string{"ssh"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
+			Description: netIOSCommandDescription,
+			Params:      netIOSCommandParams(),
+			Returns:     netCLICommandReturns(),
+			Examples:    netIOSCommandExamples(),
+			SeeAlso:     []string{"net.cli.command", "net.ios.config", "net.ios.save", "ai.chat"},
 		},
 	},
 	{
@@ -331,7 +344,7 @@ var networkCollections = []collectionscaffold.Config{
 				{Name: "managed_count", Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
 			},
 			Examples: []collection.Example{
-				{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
+				{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
 			},
 			SeeAlso: []string{"net.catalyst.device_facts"},
 		},

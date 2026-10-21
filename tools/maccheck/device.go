@@ -51,6 +51,16 @@ func (r pleiadesRemote) Test(ctx context.Context, sha string, parallel int, pack
 	return r.posix.Test(ctx, r.mac, sha, parallel, packages, stdout)
 }
 
+// The Mac runs pr-check's govulncheck when it is ready; without this, a
+// leg that lost Vuln would send every scan back to this machine unnoticed.
+var _ oscheck.Scanner = pleiadesRemote{}
+
+// Vuln runs govulncheck on sha's tree, under caffeinate, as a scan on this
+// machine would (oscheck.POSIX.Vuln).
+func (r pleiadesRemote) Vuln(ctx context.Context, sha, version string, stdout io.Writer) (bool, error) {
+	return r.posix.Vuln(ctx, sha, version, stdout)
+}
+
 // Records reads back the tests' records (oscheck.POSIX.Records).
 func (r pleiadesRemote) Records(ctx context.Context, sha string) ([]flakegate.Run, error) {
 	return r.posix.Records(ctx, sha)

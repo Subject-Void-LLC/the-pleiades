@@ -43,6 +43,9 @@ type rollbackReport struct {
 	UnacceptedUnknown int `json:"unaccepted_unknown"`
 	// AlreadyUndone are changes an earlier rollback of the run undid.
 	AlreadyUndone []rollback.Gap `json:"already_undone,omitempty"`
+	// NothingToUndo are changes whose task's rollback: list is empty: its
+	// runbook says undoing them means doing nothing.
+	NothingToUndo []rollback.Gap `json:"nothing_to_undo,omitempty"`
 	// Problems are why the rollback was refused, when it was.
 	Problems []rollback.Problem `json:"problems,omitempty"`
 }
@@ -101,7 +104,7 @@ func runRollback(args []string) error {
 
 	plan, err := planRollback(opts.dir, runID, rf)
 	report := &rollbackReport{Of: runID, Levels: plan.Levels, Left: plan.Left, Unknown: plan.Unknown,
-		UnacceptedUnknown: plan.UnacceptedUnknown, AlreadyUndone: plan.AlreadyUndone}
+		UnacceptedUnknown: plan.UnacceptedUnknown, AlreadyUndone: plan.AlreadyUndone, NothingToUndo: plan.NothingToUndo}
 	var refused *rollback.RefusedError
 	switch {
 	case errors.As(err, &refused):
@@ -316,7 +319,7 @@ func printGaps(plan rollback.Plan) {
 	for _, list := range []struct {
 		title string
 		gaps  []rollback.Gap
-	}{{"left in place", plan.Left}, {"unknown", plan.Unknown}, {"already undone", plan.AlreadyUndone}} {
+	}{{"left in place", plan.Left}, {"unknown", plan.Unknown}, {"already undone", plan.AlreadyUndone}, {"nothing to undo", plan.NothingToUndo}} {
 		for _, g := range list.gaps {
 			where := g.Node
 			if g.DeviceName != "" {

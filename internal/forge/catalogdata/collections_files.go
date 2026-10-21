@@ -112,7 +112,7 @@ var filesCollections = []collectionscaffold.Config{
 			Params: []collection.Param{
 				{Name: "src", Type: "string", Required: true, Description: "The path the link points AT, written into the link exactly as given. It does not have to exist. A relative value is stored verbatim and is resolved by the system against the directory holding the link, not against the directory this task runs in."},
 				{Name: "path", Type: "string", Required: true, Description: "The link itself, the path this task creates or repoints. Its parent directory must already exist: this method creates a link, never the directories above it. Ansible's alias dest is accepted for this too."},
-				{Name: "dest", Type: "string", Description: "Ansible's own alias for path, accepted so a converted playbook needs no renaming. Setting both of them to different paths is refused rather than guessed at."},
+				{Name: "dest", Type: "string", Description: "Ansible's own alias for path, accepted so a converted playbook needs no renaming. Setting both of them to different paths is refused rather than guessed at.", AliasOf: "path"},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{

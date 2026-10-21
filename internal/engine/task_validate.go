@@ -40,6 +40,9 @@ func validateTask(task *Task, id string) error {
 	if task.Kind() != TaskKindBlock && (len(task.Rescue) > 0 || len(task.Always) > 0) {
 		return fmt.Errorf("task %s sets rescue or always without a block: rescue/always only make sense guarding a block", taskLabel(id, task))
 	}
+	if task.Kind() != TaskKindBlock && task.RollbackOnFailure {
+		return fmt.Errorf("task %s sets rollback_on_failure without a block: it undoes what a block's tasks completed when one of them fails, so it belongs on the block; a single task's own undo is its rollback: list", taskLabel(id, task))
+	}
 
 	// A block or parallel task's own id never enters dag.Adjacency:
 	// synthesizeOne splices in its CHILDREN's entry/exit instead (see that

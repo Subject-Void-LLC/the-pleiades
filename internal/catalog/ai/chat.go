@@ -11,7 +11,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/promptsign"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -80,111 +78,32 @@ func chat(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return fail(err)
 	}
-	tag, err := aitask.ParseResidency(params)
-	if err != nil {
-		return fail(err)
-	}
-	if err := aitask.CheckResidency(tag, t.Name, t.Residency); err != nil {
-		return fail(err)
-	}
-	sink, err := aitask.ParseSink(params)
-	if err != nil {
-		return fail(err)
-	}
-	p, err := aitask.ParsePrompt(rc, params, model, now())
-	if err != nil {
-		return fail(err)
-	}
-	o, err := aitask.ParseOptions(p.Params)
-	if err != nil {
-		return fail(err)
-	}
-	if err := sdk.RecordWarnings(rc, t.Provider.Warnings); err != nil {
-		return fail(err)
-	}
-	gate, err := reviewGate(rc, fqcnChat, t.Name, p, params, nil)
+	call, err := aitask.Prepare(rc, fqcnChat, t, model, params, now)
 	if err != nil {
 		return fail(err)
 	}
 	if check {
-		if sink != "" {
+		if call.Sink != "" {
 			if err := aitask.HasProject(rc); err != nil {
 				return fail(fmt.Errorf("%s: %w", aitask.ParamUsageSink, err))
 			}
 		}
-		if err := setStats(rc, map[string]any{"estimate": aitask.Estimate(rc, t, model, p, o), "prompt": verdict(p), "review": gate.Peek()}); err != nil {
+		if err := setStats(rc, map[string]any{"estimate": call.Estimate(rc), "prompt": call.Prompt.VerdictStat(), "review": call.Gate.Peek()}); err != nil {
 			return fail(err)
 		}
 		return collection.Result{Changed: true}, nil
 	}
-	// A request already decided is answered from its review, with no
-	// call: asking again after a person's decision never bills twice.
-	if decided, err := gate.Before(); err != nil || decided != nil {
-		if err != nil {
-			return fail(err)
-		}
-		return released(rc, fail, gate, decided, o, p)
-	}
-	if err := aitask.PrepareSink(rc, sink); err != nil {
-		return fail(err)
-	}
-	if err := aitask.Commit(rc, p); err != nil {
-		return fail(fmt.Errorf("recording the prompt's version: %w", err))
-	}
-	resp, usage, callErr := aitask.Send(ctx, rc, t, model, p, o)
-	rec := aitask.Record(fqcnChat, t, model, usage, p, callErr, now())
-	if err := aitask.WriteSink(rc, sink, rec); err != nil {
-		if callErr != nil {
-			return fail(fmt.Errorf("%w; and its usage was not recorded: %v", callErr, err))
-		}
-		return fail(fmt.Errorf("the call was made, and its usage was not recorded: %w", err))
-	}
-	if callErr != nil {
-		return fail(callErr)
-	}
-	// The answer is held here, before any stat a later task could read is
-	// set, when it crosses one of the review's thresholds.
-	approved, err := gate.After(ctx, sdk.Review{Method: fqcnChat, Provider: t.Name, Model: model, Answer: resp.Text, Usage: rec}, outcome(t, model, resp, usage, p, false))
+	// A request already decided is answered from its review, with no call,
+	// and an answer crossing a review threshold is held here, before any
+	// stat a later task could read is set.
+	answer, err := call.Run(ctx, rc)
 	if err != nil {
 		return fail(err)
 	}
-	stats := answerStats(resp, o, rec, p)
-	stats["review"] = aitask.Stat(gate, approved)
-	if err := setStats(rc, stats); err != nil {
+	if err := setStats(rc, call.Stats(answer)); err != nil {
 		return fail(err)
 	}
 	return collection.Result{Changed: true}, nil
-}
-
-// reviewGate is the request's review: the task's rules added to the use's
-// (extra), keyed by the request as asked.
-func reviewGate(rc sdk.RunbookContext, fqcn, target string, p aitask.Prompt, params map[string]any, extra []aitask.Rule) (aitask.Gate, error) {
-	rules, err := aitask.ParseReview(params[aitask.ParamReview])
-	if err != nil {
-		return aitask.Gate{}, err
-	}
-	rules = append(append([]aitask.Rule(nil), extra...), rules...)
-	if len(rules) == 0 {
-		return aitask.Gate{}, nil
-	}
-	bundle := ""
-	if p.Bundle != nil {
-		bundle = p.Bundle.Hash
-	}
-	key, err := aitask.RequestKey(fqcn, target, bundle, params)
-	if err != nil {
-		return aitask.Gate{}, err
-	}
-	return aitask.NewGate(rc, rules, key), nil
-}
-
-// outcome is what a call came to, as review rules read it.
-func outcome(t aitask.Target, model string, resp aiprovider.Response, usage aiprovider.Usage, p aitask.Prompt, fallback bool) aitask.Outcome {
-	cost, _, priced := aitask.Cost(t, model, usage)
-	return aitask.Outcome{
-		Answer: resp.Text, StopReason: resp.StopReason, OutputTokens: usage.OutputTokens, Reported: usage.Reported, Cost: cost, Priced: priced,
-		Verified: p.Verdict.Status == promptsign.Verified, Fallback: fallback,
-	}
 }
 
 // released returns an answer a person approved earlier, from its review,
@@ -193,37 +112,12 @@ func released(rc sdk.RunbookContext, fail func(error) (collection.Result, error)
 	if err := o.ValidateAnswer(r.Answer); err != nil {
 		return fail(fmt.Errorf("the approved answer does not meet the schema: %w", err))
 	}
-	stats := answerStats(aiprovider.Response{Text: r.Answer}, o, r.Usage, p)
+	stats := aitask.AnswerStats(aiprovider.Response{Text: r.Answer}, o, r.Usage, p)
 	stats["review"], stats["reused"] = aitask.Stat(gate, r), true
 	if err := setStats(rc, stats); err != nil {
 		return fail(err)
 	}
 	return collection.Result{Changed: true}, nil
-}
-
-// answerStats are what a call returns: the answer (and its JSON value
-// when a schema asked for one), why it stopped, the usage record, the
-// prompt's verdict, and the parameters ignored and dropped.
-func answerStats(resp aiprovider.Response, o aitask.Options, rec map[string]any, p aitask.Prompt) map[string]any {
-	stats := map[string]any{
-		"answer": resp.Text, "stop_reason": resp.StopReason, "usage": rec, "prompt": verdict(p),
-		"ignored": rec["ignored"], "dropped": rec["dropped"],
-	}
-	if len(o.Schema) > 0 {
-		var v any
-		if json.Unmarshal([]byte(resp.Text), &v) == nil {
-			stats["json"] = v
-		}
-	}
-	return stats
-}
-
-// verdict is the prompt's verdict as a return value.
-func verdict(p aitask.Prompt) map[string]any {
-	if p.Bundle == nil {
-		return map[string]any{"status": string(p.Verdict.Status)}
-	}
-	return p.Verdict.Map()
 }
 
 // setStats sets each stat.

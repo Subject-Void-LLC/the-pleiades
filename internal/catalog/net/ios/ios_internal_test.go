@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -56,6 +57,13 @@ func (f *fakeSession) Command(ctx context.Context, line string) (string, error) 
 func (f *fakeSession) Config(ctx context.Context, lines []string) error {
 	f.configCalls = append(f.configCalls, lines)
 	return f.configErr
+}
+
+// Dialog answers as Command does, with no questions asked: the dialogs
+// themselves are proven over a real session (command_session_internal_test.go).
+func (f *fakeSession) Dialog(ctx context.Context, line string, _ netcli.DialogOptions) (netcli.DialogResult, error) {
+	out, err := f.Command(ctx, line)
+	return netcli.DialogResult{Output: out}, err
 }
 
 func (f *fakeSession) Close() error {
@@ -145,6 +153,23 @@ func TestConfig_RequiresTheLinesParam(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), paramLines) {
 		t.Errorf("error = %v, want it to name %q", err, paramLines)
+	}
+}
+
+// TestSave_AnIOSFileErrorIsNotASave: IOS reports a failed file operation
+// as "%Error ...", with no space after the percent sign, and a save that
+// printed one did not happen.
+func TestSave_AnIOSFileErrorIsNotASave(t *testing.T) {
+	fake := &fakeSession{outputs: map[string]string{saveCommand: "Building configuration...\n%Error opening nvram:startup-config (Device or resource busy)"}}
+	swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (iosSession, error) {
+		return fake, nil
+	})
+	rc := newStubContext()
+	if result, err := Save(context.Background(), rc, nil, map[string]any{}); err == nil || result.Changed || !strings.Contains(err.Error(), "%Error opening") {
+		t.Fatalf("result %+v, err %v", result, err)
+	}
+	if _, set := rc.stats[statSaveStdout]; set {
+		t.Error("a failed save recorded its output as a save")
 	}
 }
 

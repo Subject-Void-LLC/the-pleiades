@@ -134,3 +134,57 @@ tasks:
 		t.Errorf("clean rollback steps were refused: %+v", findings)
 	}
 }
+
+// TestRollbackOnFailureRule_RefusesATaskTheBlockCouldNotUndo: a block with
+// rollback_on_failure is held to undoing exactly every task of its own,
+// an inner block's rescue included; a task with a rollback: list, a
+// read-only one, and anything outside the block's own tasks pass.
+func TestRollbackOnFailureRule_RefusesATaskTheBlockCouldNotUndo(t *testing.T) {
+	registerUndoShapes(t)
+	runbook := `id: r
+hosts: web
+tasks:
+  - name: guarded
+    rollback_on_failure: true
+    block:
+      - name: whole
+        undo.whole: {name: a}
+      - name: reads
+        undo.reads: {name: a}
+      - name: authored
+        undo.never: {name: a}
+        rollback:
+          - undo.target: {name: a}
+      - name: never
+        undo.never: {name: a}
+      - name: inner
+        block:
+          - name: inner ok
+            undo.whole: {name: a}
+        rescue:
+          - name: inner rescue
+            undo.withholding: {name: a}
+    rescue:
+      - name: outer rescue
+        undo.never: {name: a}
+  - name: after
+    undo.never: {name: a}
+`
+	findings := validate.RollbackOnFailureRule(validate.WorldView{DAG: yamlDAG(t, runbook)})
+	got := map[string]string{}
+	for _, f := range findings {
+		got[f.Node] = f.Message
+	}
+	if len(got) != 2 || !strings.Contains(got["tasks[0].block[3]"], "cannot be undone") || !strings.Contains(got["tasks[0].block[4].rescue[0]"], "keeps content out of the journal") {
+		t.Errorf("findings %+v, want the undo.never task and the inner rescue's withholding task", findings)
+	}
+	for _, f := range findings {
+		if f.RuleName != "rollback_on_failure" || !strings.Contains(f.Message, "remove rollback_on_failure") {
+			t.Errorf("finding %+v does not name the rule and the way out", f)
+		}
+	}
+	unasked := strings.Replace(runbook, "    rollback_on_failure: true\n", "", 1)
+	if findings := validate.RollbackOnFailureRule(validate.WorldView{DAG: yamlDAG(t, unasked)}); len(findings) != 0 {
+		t.Errorf("a block without the key was refused: %+v", findings)
+	}
+}

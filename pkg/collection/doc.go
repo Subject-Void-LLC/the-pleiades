@@ -18,6 +18,14 @@ type Param struct {
 	// other parameter.
 	Format ParamFormat `json:"format,omitempty"`
 
+	// AliasOf, when set, names another of the method's parameters this one
+	// is a second name for (file.symlink's dest, Ansible's name for its
+	// path, so a converted playbook renames nothing). A task giving the alias
+	// gives that parameter: validation counts it when the other is
+	// required. An alias is never required itself, and names a parameter of
+	// its own type that is not an alias (Register refuses anything else).
+	AliasOf string `json:"aliasOf,omitempty"`
+
 	// Risk marks a parameter whose setting widens what a task can do
 	// beyond its own target: a container's host escapes (privileged, added
 	// capabilities, devices, host mounts, the host's network). Empty for

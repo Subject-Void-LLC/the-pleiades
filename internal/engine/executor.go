@@ -115,6 +115,12 @@ type NodeResult struct {
 	// Err stays as it was, and the run does not count it as an error.
 	RescuedBy string
 
+	// Undo is set on the result of a step that undid an earlier node of
+	// this run, because the block it was in has rollback_on_failure and
+	// failed (rollback_on_failure.go): which node, which step of its undo,
+	// and the task the step ran, since no task of the DAG has its id.
+	Undo *UndoStep
+
 	// Provider names the external Collection program behind this node's
 	// method, with the digest it was loaded with, and is nil for a method
 	// compiled into this binary. It travels with the result so a reader
@@ -588,6 +594,20 @@ type run struct {
 	// rescue: or an always: (handlers.go). Run changes it at the level
 	// barrier only; the nodes of a level only read it.
 	handlers *handlers
+
+	// undos holds what a block's rollback_on_failure ran
+	// (rollback_on_failure.go): each undo step's task by its node id, which
+	// names no task of the DAG, and every node result already undone, so an
+	// enclosing block's undo does not repeat an inner one's. Both are
+	// touched at the level barrier only.
+	undoTasks map[string]*Task
+	undone    map[resultKey]bool
+
+	// items is every device a node has dispatched to, by id, for an undo
+	// step that runs on the device a task changed. dispatch writes it from
+	// a level's goroutines, so itemsMu guards it.
+	itemsMu sync.Mutex
+	items   map[string]inventory.InventoryItem
 }
 
 // modeFor is the mode task runs in (TaskMode): a check whenever the run
@@ -616,8 +636,11 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		secrets:           newStringSet(),
 		metadataRegisters: newStringSet(),
 		// The runbook's own check_mode narrows a real run to a check.
-		mode:     TaskMode(x.mode, dag, nil),
-		handlers: newHandlers(dag),
+		mode:      TaskMode(x.mode, dag, nil),
+		handlers:  newHandlers(dag),
+		undoTasks: map[string]*Task{},
+		undone:    map[resultKey]bool{},
+		items:     map[string]inventory.InventoryItem{},
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
@@ -689,9 +712,21 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 				}
 			}
 		}
+		// A block with rollback_on_failure that took a failure undoes what
+		// its own tasks completed before anything after it runs; undoing
+		// and settling the frames alternate, since settling can hand a
+		// failure on to an enclosing block that undoes in turn.
 		r.handlers.finished(level)
-		if len(r.handlers.advance()) > 0 {
-			failed = true
+		for {
+			if r.rollBack(ctx, levelIndex, &result) {
+				failed = true
+			}
+			if len(r.handlers.advance()) > 0 {
+				failed = true
+			}
+			if len(r.handlers.pending) == 0 {
+				break
+			}
 		}
 		markRescued(result.Nodes, r.handlers)
 		if failed && ending == nil {
@@ -941,6 +976,9 @@ func (r *run) dispatch(ctx context.Context, nodeID string, task *Task, devices [
 				continue
 			}
 			cmds = append(cmds, nodeExecution{NodeID: nodeID, Task: task, Device: d})
+			r.itemsMu.Lock()
+			r.items[string(d.ID())] = d
+			r.itemsMu.Unlock()
 		}
 	}
 

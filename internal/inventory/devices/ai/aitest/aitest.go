@@ -31,8 +31,13 @@ type Ollama struct {
 	mu sync.Mutex
 	// Disk and Memory are the models on disk and in memory, with tags.
 	Disk, Memory []string
-	// Answer is what every chat answers.
+	// Answer is what every chat answers. Set it before the first request,
+	// or with SetAnswer once the host has served one: the server reads it
+	// on its own goroutine, under mu.
 	Answer string
+	// answers, set with SetAnswers, are answered one per chat, in turn,
+	// before Answer is.
+	answers []string
 	// Reject, when set, is an option a chat refuses with a 400 naming it.
 	Reject string
 	// FailStatus, when set, is the status every chat fails with.
@@ -62,6 +67,23 @@ func (o *Ollama) Requests() []string {
 }
 
 // Chats is how many chat calls reached the host.
+// SetAnswer changes what every chat answers from now on, safely while the
+// host serves requests.
+func (o *Ollama) SetAnswer(answer string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.Answer = answer
+}
+
+// SetAnswers queues answers, one for each of the next chats in turn,
+// before Answer is answered again: a run whose model is asked twice, about
+// two different things, gets a fitting answer to each.
+func (o *Ollama) SetAnswers(answers ...string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.answers = append([]string(nil), answers...)
+}
+
 func (o *Ollama) Chats() int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -139,7 +161,11 @@ func (o *Ollama) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":"overloaded"}`))
 			return
 		}
-		answer, _ := json.Marshal(o.Answer)
+		text := o.Answer
+		if len(o.answers) > 0 {
+			text, o.answers = o.answers[0], o.answers[1:]
+		}
+		answer, _ := json.Marshal(text)
 		_, _ = fmt.Fprintf(w, "{\"model\":%q,\"message\":{\"content\":%s},\"done\":false}\n", model, answer)
 		_, _ = fmt.Fprintf(w, "{\"model\":%q,\"message\":{\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":10,\"eval_count\":4}\n", model)
 	default:

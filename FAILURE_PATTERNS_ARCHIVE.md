@@ -13590,3 +13590,158 @@ and installs that release, so Go has nothing to fetch. Every job uses it.
 
 **Lesson.** A cache step that warns and carries on fails silently in every run; read a step's warnings, not its
 color. A toolchain switch inside a setup step changes what the step writes before anything restores over it.
+
+## 546. tests/e2e's per-test times came from a local run, where the compose gates' image builds hit a warm cache, so one CI shard got both builds (a repeat of 503) (fixed before merge)
+
+**Symptom.** 2026-10-20, PR #80's first run with tests/e2e divided: one e2e part took 855 s where 393 were expected,
+the other 368. `TestPackagingReleaseGate_ComposeStack` took 323 s in CI against 32 recorded, and
+`TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` 322 against 138, and both had been dealt to the same part.
+
+**Root cause.** 503's class: a table holding times from a different source than the check and the runners. No CI
+run had recorded per-test times yet (they are recorded only for a package durations.json divides), so the seed came
+from a local run scaled to CI's package total. The compose gates build images, which a developer's warm Docker build
+cache makes cheap and a fresh runner does not, so scaling by one factor ranked them wrong. 503's fix (regenerate from
+CI's own measurements) holds for packages; per-test times had no CI measurement to regenerate from until this run.
+
+**Fix.** durations.json is regenerated from this run's own Seconds and TestSeconds, as 503 said. With CI's times the
+two compose gates go to different parts and the six shards come to about 650 s each, except cmd/pleiades alone.
+
+**Lesson.** A seed from another machine is a guess even when scaled, and worst for tests whose cost is a cache; take
+the first real measurement before trusting the dealing, and expect the check's drift warning on the first run.
+
+## 547. After rescue and always ran, the generated task-key reference still said they never run, and that rollback was refused in them (a repeat of 539's documentation) (fixed)
+
+**Symptom.** 2026-10-20, mapping the rollback code for `rollback_on_failure`: docs/reference/task-keys.md, regenerated
+and merged in #80, opened by saying "`rescue` and `always` validate and never run", and its `rollback` row said the key
+is refused on a `rescue` or `always` task, though #80 made both run and lifted that refusal. The design note also said a
+failed task contributes the undo it recorded, where the engine drops it.
+
+**Root cause.** #80's sweep rewrote every rescue and always statement it found in the docs' prose and in the key table's
+rows, which are data; the page's opening sentence is a string literal in the generator's own code
+(tools/gendocs/taskkeys.go), and a search of the docs reads its output, not the sentence's source, which it found only
+after regenerating had already copied it back. 539 recorded that the docs said the keys did not run; its fix changed
+what ran and the statements it looked for, not every place a statement could live.
+
+**Fix.** The sentence and the row are corrected at their source and regenerated; the design note says what the engine
+does with a failed task's undo.
+
+**Lesson.** When a feature stops being "not yet", search for the old claim in the generators' code too: a generated
+page's fixed text is written there, and regenerating restores whatever it says.
+
+## 548. The upgrade_ios example validated clean and could not run past its first task (a repeat of 324) (fixed)
+
+**Symptom.** 2026-10-20, rewriting examples/upgrade_ios so a model could handle the switch's questions. Reading the
+code each task reaches, before any run, found five defects `pleiades validate` passed:
+- `sw1` set no `cli_prompt`, which `net.cli.command` needs, so its first pretask was refused at session open.
+- "Back up the running config" called `net.ios.config` with `backup: true` and no `lines`, which the method refuses.
+- `net.cli.command` cuts each line at 30 seconds, and a task's `timeout:` can only shorten that, so a real image copy
+  failed even with `file prompt quiet`, which the README said made it work.
+- The post-reload wait was `pleiades.builtin.wait.port`, which dials from the device itself over SSH: not something a
+  switch can run, least of all mid-reload.
+- A failed copy or checksum prints `%Error ...`, which neither the generic dialect nor `netcli.IOS` read as a failure
+  (549), so the block never failed and its rescue never ran.
+
+**Root cause.** 324 put every example through `pleiades validate`, which checks what a runbook says, not what its
+methods need from the device (a property, a runtime bound, a place to run), and, it turned out, not even the parameters a
+method marks required (550). The example had never been run against anything that answers as a switch does, so nothing
+reached the steps that could not work. 324's fix held for what validate reads and could not reach the rest.
+
+**Fix.** Both runbooks now use `net.ios.command` (no `cli_prompt` needed, paging off, `%Error` fails the task, the task's
+`timeout:` the only bound), answer IOS's questions through `prompts:`, back up in the boot change itself, and wait with
+`wait.connection`, whose try on an IOS device now logs in and waits for the prompt. `cmd/pleiades`'s
+`TestCLI_UpgradeIOSExamplesAnswerRefuseAndRecover` runs both through the real binary over real SSH against a scripted
+switch that asks IOS's questions, drops the session on reload and answers the new version afterwards; the examples test
+defers `upgrade_ios` to it.
+
+**Lesson.** An example passing validate says it is well formed, not that it runs. An example that changes a device is
+done when a test runs it through the binary against something that answers as that device does.
+
+## 549. netcli.IOS read IOS's "%Error ..." as output, so a failed save could report success (fixed)
+
+**Symptom.** 2026-10-20, found by design review of the upgrade example, not observed on a device. `netcli.IOS`'s error
+pattern was `(?m)^% `, IOS's form for a rejected line ("% Invalid input ..."). A failed file operation prints
+`%Error opening ...` with no space, so `net.ios.save` would report a save IOS refused as made, and a copy or checksum
+failure read as output.
+
+**Root cause.** The pattern was pinned against the device's answer to an invalid configuration line, the only error the
+first live probe provoked. No probe asked for a file operation's failure.
+
+**Fix.** The pattern also matches `%Error` (`(?m)^%(?: |Error\b)`), and still not a `%Warning:` or a syslog line
+(`TestIOSErrorPattern_ReadsBothErrorFormsAndNothingElse`); `TestSave_AnIOSFileErrorIsNotASave` and
+`TestCommand_AnIOSErrorFailsTheTask` fail with the old pattern (run as a negative control). `TestLiveIOSDialogs` checks
+the form against a real device when its credentials are set.
+
+**Lesson.** Pin an error convention against every kind of failure a method can meet, not the first one a probe found.
+
+## 550. pleiades validate did not refuse a task missing a parameter its method marks required, and three runbooks left one out (fixed)
+
+**Symptom.** 2026-10-20, confirming 548: a runbook calling `net.ios.config` with `backup: true` and no `lines`, which
+the method's documentation marks required, validated with "no issues found" and failed only at run time. Once the
+rule below existed, its first runs found three more runbooks that could not run:
+- `net.catalyst.reachability`'s documented example called `net.ios.config` with no `lines`;
+- the lab's `runbooks/win/10-install.yaml` (outside this repository) called `virt.vbox.vm.install` with no
+  `installer`, which the method requires and never infers from `os_type`;
+- and `exec.winrm.shell` documented `shell` both required and defaulted to `powershell`, a default no task could get,
+  since the method reads it with `RequiredStringParam`.
+
+**Root cause.** `ParamsRule` (324) refuses a parameter a method does not declare; nothing compared a task's parameters
+with the ones its method marks `Required`. The method checks at run time, after the tasks before it have run.
+
+**Fix.** `RequiredParamsRule` (`internal/validate/required_params_rule.go`, rule `param-required`) refuses a call
+leaving out a parameter its method marks required, in its own parameters or a fragment's; null does not count and a
+template does. `RollbackRule` holds a `rollback:` step to it too. A parameter can now name the one it is a second name
+for (`collection.Param.AliasOf`): `file.symlink`'s `dest`, Ansible's name for its required `path`, gives `path`.
+`collection.Register` refuses a parameter both required and defaulted, and an alias that names nothing, another alias,
+a parameter of another type, or is required itself. The three runbooks give what they lacked, and `shell` lost its
+default. Proven by `TestRequiredParamsRule`, `TestRequiredParamsRule_RunsInValidateAndOverRollbackSteps`,
+`TestRegister_RefusesARequiredParamWithADefault`, `TestRegister_HoldsAnAliasToTheParameterItNames`, and
+`TestEveryDocumentedExampleValidates` over all 248 documented examples; every lab runbook validates.
+
+**Lesson.** A declared contract is checked at plan time or it is checked at task 47. The first run of a new plan-time
+check over everything that exists is a census: read every finding before deciding the rule is wrong.
+
+## 551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open)
+
+**Symptom.** 2026-10-20, running `cmd/pleiades`'s whole suite after 550: `TestCLI_RollbackReleaseGate`'s G2 case
+expected `pleiades rollback <run> --leave tasks[1]` to be refused because a later run changed the same container, and
+the rollback ran instead (exit 0, "undo tasks[0] ... changed"). It failed once in six runs alone, once in eight on a
+pristine copy of the branch's last commit (`git archive HEAD`), so it predates this session's work, and then passed
+thirty runs in a row.
+
+**Root cause.** Not proven. Journal times are nanosecond-precise, so a same-second comparison in `laterRunProblems`
+(`internal/rollback/history.go`) is not it. The gate discarded the later run's exit status, and a later run that failed
+before its task acted (a refused SSH login under the gate's rapid logins, say) records no change, so the planner is
+right to ignore it; that fits the symptom and is unconfirmed. The other reading, a later change the planner missed,
+would let a rollback undo beneath another run's change, so it matters which.
+
+**Fix.** Open. The gate now fails naming a later run that failed, with its journal, so the next failure says which of
+the two it is.
+
+**Lesson.** A gate step whose outcome it ignores turns a flake in the setup into a wrong verdict on the product.
+
+## 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
+
+**Symptom.** 2026-10-20 and 21, `make pr-check` on 27a440a1: every leg had passed once, then three reruns died at
+`ci-remote`'s govulncheck, killed in its memory cgroup at 3100M, 3300M and 4G (4.16 GB resident), where the first run
+of the same commit had passed under 3100M the day before. It read as a machine short of memory, and the next steps
+weighed were a larger cap or a push without the receipt.
+
+**Root cause.** The commit had not changed; the advisory database had. GO-2026-6809 (`crypto/x509` trusting
+intermediate certificates since found compromised) landed against go1.26.9, the toolchain line, fixed in go1.26.10,
+and govulncheck traced a call to it: `pkg/pgclient`'s connector, through pq, to `x509.Certificate.Verify`. govulncheck
+builds a call graph of the whole module only when a vulnerable symbol may be reached, so the advisory is what took its
+peak from under 3.1 GB to over 4 GB here (7.0 GB resident on a Mac). A scan killed for memory prints nothing, so the
+jump was the only sign of the finding. A second trap turned up on the way: the Mac's own go was go1.27.2, newer than
+the toolchain line, so a scan there without `GOTOOLCHAIN` judged go1.27.2's standard library (fixed in go1.27.3)
+rather than the one this module builds with.
+
+**Fix.** `toolchain go1.26.10`, and both builder images pinned to the 1.26.10 digest (7b8ccafc); the scan then finds
+nothing, in 8 s on the Mac. `main` still builds with go1.26.9 until this merges. pr-check now runs govulncheck on the
+Mac when one is ready (`maccheck -phase vuln`, c6efa2de), between the Mac's prepare and test phases, naming `GOOS`,
+`GOARCH` and `GOTOOLCHAIN` for this machine so its answer is the one a scan here gives, and here otherwise. Proven on
+the real Mac through Pleiades in both directions: 7b8ccafc passes, and 27a440a1 scanned as go1.26.9 fails on
+GO-2026-6809 with exit 1.
+
+**Lesson.** When a check's resource use jumps between runs of the same commit, ask what it reads that the commit does
+not fix (a live database, a newer tool) before raising its limits. A scanner killed for memory has said nothing, not
+"clean".

@@ -6,6 +6,7 @@ package collection_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -94,6 +95,66 @@ func TestRegister_RefusesAnUnknownParamType(t *testing.T) {
 			Doc: collection.Doc{Params: []collection.Param{{Name: "p", Type: typ}}}}})
 		if err == nil || !strings.Contains(err.Error(), "not a parameter type") {
 			t.Errorf("type %q: err = %v, want a refusal", typ, err)
+		}
+	}
+}
+
+// TestRegister_RefusesARequiredParamWithADefault: a default no task could
+// get (validation refuses a task leaving the parameter out) is a
+// contradiction in the method's own documentation, refused at
+// registration; required alone, or defaulted alone, registers.
+func TestRegister_RefusesARequiredParamWithADefault(t *testing.T) {
+	restore := collection.SnapshotForTest()
+	t.Cleanup(restore)
+	run := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		return collection.Result{}, nil
+	}
+	register := func(name string, p collection.Param) error {
+		return collection.Register(collection.Descriptor{Name: name, Invoke: run, Manifest: collection.Manifest{
+			Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "fixture"},
+			Doc: collection.Doc{Params: []collection.Param{p}}}})
+	}
+	err := register("requiredtest.both", collection.Param{Name: "shell", Type: "string", Required: true, Default: "powershell"})
+	if err == nil || !strings.Contains(err.Error(), `"shell" both required and defaulted to "powershell"`) {
+		t.Errorf("err = %v, want a refusal naming the parameter", err)
+	}
+	if err := register("requiredtest.required", collection.Param{Name: "shell", Type: "string", Required: true}); err != nil {
+		t.Errorf("required alone: %v", err)
+	}
+	if err := register("requiredtest.defaulted", collection.Param{Name: "shell", Type: "string", Default: "powershell"}); err != nil {
+		t.Errorf("defaulted alone: %v", err)
+	}
+}
+
+// TestRegister_HoldsAnAliasToTheParameterItNames: an alias must name
+// another declared parameter of its own type that is not an alias, and is
+// never required itself.
+func TestRegister_HoldsAnAliasToTheParameterItNames(t *testing.T) {
+	restore := collection.SnapshotForTest()
+	t.Cleanup(restore)
+	run := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		return collection.Result{}, nil
+	}
+	path := collection.Param{Name: "path", Type: "string", Required: true}
+	for i, tc := range []struct {
+		params []collection.Param
+		want   string // "" registers
+	}{
+		{[]collection.Param{path, {Name: "dest", Type: "string", AliasOf: "path"}}, ""},
+		{[]collection.Param{path, {Name: "dest", Type: "string", AliasOf: "target_path"}}, "which it does not declare"},
+		{[]collection.Param{path, {Name: "dest", Type: "string", AliasOf: "dest"}}, "which it does not declare"},
+		{[]collection.Param{path, {Name: "dest", Type: "int", AliasOf: "path"}}, "of another type"},
+		{[]collection.Param{path, {Name: "dest", Type: "string", AliasOf: "path", Required: true}}, `mark "path" required instead`},
+		{[]collection.Param{path, {Name: "dest", Type: "string", AliasOf: "path"}, {Name: "to", Type: "string", AliasOf: "dest"}}, "itself an alias"},
+	} {
+		err := collection.Register(collection.Descriptor{Name: fmt.Sprintf("aliastest.m%d", i), Invoke: run, Manifest: collection.Manifest{
+			Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "fixture"},
+			Doc: collection.Doc{Params: tc.params}}})
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%d: %v", i, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%d: err = %v, want %q", i, err, tc.want)
 		}
 	}
 }

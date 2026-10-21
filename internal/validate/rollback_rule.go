@@ -1,6 +1,7 @@
-// Package validate: the two rules for a runbook's rollback keys (Phase 40).
+// Package validate: the rules for a runbook's rollback keys (Phase 40).
 // RollbackRule holds a task's rollback: steps to what any task is held to;
-// ReversibleRule holds a runbook marked reversible: true to its word.
+// ReversibleRule holds a runbook marked reversible: true to its word, and
+// RollbackOnFailureRule a block with rollback_on_failure to its.
 package validate
 
 import (
@@ -13,10 +14,10 @@ import (
 
 // RollbackRule holds every task's rollback: steps to exactly what the
 // runbook's own tasks are held to: a method that is registered and
-// implemented (CollectionRule), and only parameters it declares
-// (ParamsRule). It runs those two rules over a view whose tasks are the
-// steps, rather than restating either, so a step can never pass something
-// a task would not. A step is found here, at validation, rather than at
+// implemented (CollectionRule), only parameters it declares (ParamsRule),
+// and every parameter it requires (RequiredParamsRule). It runs those rules
+// over a view whose tasks are the steps, rather than restating any, so a
+// step can never pass something a task would not. A step is found here, at validation, rather than at
 // the rollback that needs it, which may be long after the run and the one
 // moment a typo in an undo costs the most.
 func RollbackRule(world WorldView) []Finding {
@@ -31,7 +32,7 @@ func RollbackRule(world WorldView) []Finding {
 	}
 	view := WorldView{Items: world.Items, DAG: steps, Mode: world.Mode, Resolver: world.Resolver}
 	var findings []Finding
-	for _, rule := range []Rule{CollectionRule, ParamsRule} {
+	for _, rule := range []Rule{CollectionRule, ParamsRule, RequiredParamsRule} {
 		for _, f := range rule(view) {
 			f.RuleName = "rollback"
 			findings = append(findings, f)
@@ -63,7 +64,9 @@ func ReversibleRule(world WorldView) []Finding {
 	}
 	var findings []Finding
 	for id, task := range world.DAG.Nodes {
-		if task.Kind() != engine.TaskKindLeaf || len(task.Rollback) > 0 {
+		// An authored list, rollback: [] included (an undo of nothing),
+		// is the author's answer, whatever the method records.
+		if task.Kind() != engine.TaskKindLeaf || task.Rollback != nil {
 			continue
 		}
 		why := whyNotUndoable(task.FQCN)
@@ -80,6 +83,44 @@ func ReversibleRule(world WorldView) []Finding {
 			Message: fmt.Sprintf("the runbook is marked reversible, and task %s %s; give the task a rollback: list saying how to undo it, or remove reversible: true",
 				label, why),
 		})
+	}
+	return findings
+}
+
+// RollbackOnFailureRule refuses a block with rollback_on_failure that holds
+// a task its undo could not reverse exactly: one calling a method whose
+// recorded undo would not replay whole, with no rollback: list of its own,
+// anywhere in the block's own tasks (an inner block's rescue and always
+// included, since they are part of what the block did). The engine undoes
+// those tasks itself when one fails, before the rescue starts, so a task it
+// cannot undo would leave the rescue starting from a state nobody chose;
+// this finds it from the runbook, before the run.
+func RollbackOnFailureRule(world WorldView) []Finding {
+	var findings []Finding
+	for block, guard := range world.DAG.Guards {
+		if !guard.Rollback {
+			continue
+		}
+		for _, id := range guard.Tasks {
+			task := world.DAG.Nodes[id]
+			if task == nil || task.Kind() != engine.TaskKindLeaf || task.Rollback != nil {
+				continue
+			}
+			why := whyNotUndoable(task.FQCN)
+			if why == "" {
+				continue
+			}
+			label := id
+			if task.Name != "" {
+				label = fmt.Sprintf("%s (name %q)", id, task.Name)
+			}
+			findings = append(findings, Finding{
+				RuleName: "rollback_on_failure",
+				Node:     id,
+				Message: fmt.Sprintf("block %s undoes its tasks when one fails (rollback_on_failure), and task %s %s; give the task a rollback: list saying how to undo it, or remove rollback_on_failure",
+					block, label, why),
+			})
+		}
 	}
 	return findings
 }
@@ -126,4 +167,5 @@ func whyNotUndoable(fqcn string) string {
 func init() {
 	Register(RollbackRule)
 	Register(ReversibleRule)
+	Register(RollbackOnFailureRule)
 }

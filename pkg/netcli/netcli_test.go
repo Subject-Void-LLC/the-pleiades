@@ -240,6 +240,27 @@ func TestConfig_AbortsAndStillExitsConfigModeOnRejection(t *testing.T) {
 	}
 }
 
+// TestIOSErrorPattern_ReadsBothErrorFormsAndNothingElse: IOS's rejected
+// line ("% Invalid input ...") and its failed file operation ("%Error
+// opening ...") are errors; a warning, a syslog line, and a percent sign
+// inside output are not.
+func TestIOSErrorPattern_ReadsBothErrorFormsAndNothingElse(t *testing.T) {
+	for text, want := range map[string]bool{
+		"% Invalid input detected at '^' marker.":                                 true,
+		"Building configuration...\r\n%Error opening nvram:startup-config (busy)": true,
+		"%Error verifying bootflash:x.bin":                                        true,
+		"%Warning:There is a file already existing with this name":                false,
+		"*Oct 20 12:00:00.000: %SYS-5-CONFIG_I: Configured from console":          false,
+		"%SYS-5-RELOAD: Reload requested":                                         false,
+		"Success rate is 100 percent (5/5)":                                       false,
+		"%Errors are logged elsewhere":                                            false,
+	} {
+		if got := netcli.IOS.ErrorPattern.MatchString(text); got != want {
+			t.Errorf("%q: error %v, want %v", text, got, want)
+		}
+	}
+}
+
 func TestConfig_RefusesADialectWithNoConfigModeCommands(t *testing.T) {
 	// A Session built around FromPrompt's own generic Dialect has no
 	// EnterConfigMode; this check runs before any I/O, so a scripted

@@ -8,6 +8,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -33,6 +34,9 @@ type fakeSession struct {
 	// runCommand actually applies one rather than trusting the caller's
 	// own ctx.
 	deadlines []bool
+
+	// dialogs are the options each Dialog call was given.
+	dialogs []netcli.DialogOptions
 }
 
 func (f *fakeSession) Command(ctx context.Context, line string) (string, error) {
@@ -43,6 +47,15 @@ func (f *fakeSession) Command(ctx context.Context, line string) (string, error) 
 		return "", f.err
 	}
 	return f.outputs[line], nil
+}
+
+// Dialog answers as Command does, with no questions asked, recording the
+// options it was given: the dialogs themselves are proven over a real
+// session (cli_session_internal_test.go and pkg/netcli).
+func (f *fakeSession) Dialog(ctx context.Context, line string, opts netcli.DialogOptions) (netcli.DialogResult, error) {
+	f.dialogs = append(f.dialogs, opts)
+	out, err := f.Command(ctx, line)
+	return netcli.DialogResult{Output: out}, err
 }
 
 func (f *fakeSession) Close() error {
@@ -256,5 +269,30 @@ func TestRunCommand_BoundsTheContextEvenWhenTheCallerGivesNone(t *testing.T) {
 
 	if len(fake.deadlines) != 1 || !fake.deadlines[0] {
 		t.Fatal("Session.Command was called with no ctx deadline at all, even though the caller's own context.Background() carried none: a pager pause this Dialect cannot answer would hang forever")
+	}
+}
+
+// TestCommand_ADialogIsBoundedAsACommandIs: a task with prompts goes
+// through Dialog, given the task's prompts and the same bound a plain
+// command gets, since a question nobody answers waits as a pager does.
+func TestCommand_ADialogIsBoundedAsACommandIs(t *testing.T) {
+	fake := &fakeSession{outputs: map[string]string{"reload": ""}}
+	swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (cliSession, error) {
+		return fake, nil
+	})
+	rc := newStubContext()
+
+	_, err := Command(context.Background(), rc, nil, map[string]any{
+		paramCommand: "reload", "expect_disconnect": true,
+		"prompts": []any{map[string]any{"match": `Proceed with reload\?`, "answer": ""}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.dialogs) != 1 || len(fake.dialogs[0].Prompts) != 1 || !fake.dialogs[0].ExpectDisconnect || !fake.deadlines[0] {
+		t.Fatalf("dialogs %+v, deadlines %v", fake.dialogs, fake.deadlines)
+	}
+	if _, set := rc.stats["exchanges"]; !set {
+		t.Error("a dialog recorded no exchanges")
 	}
 }

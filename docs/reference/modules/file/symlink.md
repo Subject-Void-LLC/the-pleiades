@@ -25,7 +25,7 @@ Makes path be a symbolic link pointing at src, which is ansible.builtin.file wit
 | --- | --- | --- | --- | --- |
 | `src` | `string` | yes | - | The path the link points AT, written into the link exactly as given. It does not have to exist. A relative value is stored verbatim and is resolved by the system against the directory holding the link, not against the directory this task runs in. |
 | `path` | `string` | yes | - | The link itself, the path this task creates or repoints. Its parent directory must already exist: this method creates a link, never the directories above it. Ansible's alias dest is accepted for this too. |
-| `dest` | `string` | no | - | Ansible's own alias for path, accepted so a converted playbook needs no renaming. Setting both of them to different paths is refused rather than guessed at. |
+| `dest` | `string` | no | - | **Alias of `path`:** Ansible's own alias for path, accepted so a converted playbook needs no renaming. Setting both of them to different paths is refused rather than guessed at. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

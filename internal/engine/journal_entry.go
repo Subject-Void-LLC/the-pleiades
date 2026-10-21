@@ -29,6 +29,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -186,24 +187,20 @@ type resolvedFQCN struct {
 func resolveFQCN(name string) resolvedFQCN {
 	if desc, ok := collection.Lookup(name); ok {
 		return resolvedFQCN{
-			Name:      desc.Name,
-			statKeys:  returnFieldNames(desc.Manifest.Doc.Returns),
-			paramKeys: paramNames(desc.Manifest.Doc.Params),
+			Name:     desc.Name,
+			statKeys: returnFieldNames(desc.Manifest.Doc.Returns),
+			// Its Doc.Params and every param its named fragments add, as
+			// validate and the rollback planner read a method's params.
+			// Doc.Params alone left out the engine param every container.*
+			// undo carries (the container_engine fragment's), so each one
+			// was journaled incomplete and no rollback could replay it.
+			paramKeys: fragment.Declared(desc),
 		}
 	}
 	if statKeys, ok := engineActionStatKeys[name]; ok {
 		return resolvedFQCN{Name: name, engineAction: true, statKeys: nameSet(statKeys)}
 	}
 	return resolvedFQCN{Name: FQCNUnregistered, Unresolved: true}
-}
-
-// paramNames is the set of names a method's Doc.Params declares.
-func paramNames(params []collection.Param) map[string]bool {
-	set := make(map[string]bool, len(params))
-	for _, p := range params {
-		set[p.Name] = true
-	}
-	return set
 }
 
 // returnFieldNames is the set of names a method's Doc.Returns declares.
@@ -241,9 +238,9 @@ func nameSet(names []string) map[string]bool {
 //
 // A refused key is counted, never named. Doc is a documentation-generator
 // struct that is partial by construction (pkg/collection/doc.go says so
-// itself, and Doc.Fragments names params that live in a registry
-// internal/engine cannot reach), so an undocumented key is as likely to
-// be a documentation gap as a surprise. Counting keeps the gap visible
+// itself; resolveFQCN adds the params Doc.Fragments names, through
+// internal/catalog/fragment), so an undocumented key is as likely to be a
+// documentation gap as a surprise. Counting keeps the gap visible
 // instead of dropping it silently, which is the shape LESSONS_LEARNED #71
 // exists to forbid.
 //
@@ -383,7 +380,7 @@ func validSkipKind(kind SkipKind) bool {
 // nobody can vouch for is worse than a missing one that was logged and
 // counted, because the first is read as fact.
 func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
-	task := r.dag.Nodes[n.NodeID]
+	task := r.taskFor(n.NodeID)
 	if task == nil {
 		// Unreachable through runNode, which looks the task up by this
 		// exact id before doing anything else. It is checked because the
@@ -458,8 +455,15 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 		projectInverse(&entry, n.journalStats, emitter)
 	}
 	entry.ActionChanged = n.journalChanged
-	entry.AuthoredRollback = len(task.Rollback) > 0
-	if r.x != nil && r.x.rollback.of != "" {
+	// Non-nil, not non-empty: rollback: [] is an authored undo of nothing.
+	entry.AuthoredRollback = task.Rollback != nil
+	switch {
+	case n.Undo != nil:
+		// A step of a block's rollback_on_failure: a rollback of this very
+		// run, of the node and step it undid (rollback_on_failure.go).
+		entry.RollbackOf = r.runID
+		entry.UndoesNode, entry.UndoesStep = n.Undo.Node, n.Undo.Step
+	case r.x != nil && r.x.rollback.of != "":
 		entry.RollbackOf = r.x.rollback.of
 		undo := r.x.rollback.undoes[n.NodeID]
 		entry.UndoesNode, entry.UndoesStep = undo.Node, undo.Step
@@ -753,7 +757,7 @@ func (r *run) recordLevel(ctx context.Context, levelIndex int, outs [][]NodeResu
 	// For the same reason, a real run leaves out every node whose task
 	// carries check_mode: that task was checked, not run.
 	outs = slices.DeleteFunc(slices.Clone(outs), func(node []NodeResult) bool {
-		return len(node) > 0 && r.modeFor(r.dag.Nodes[node[0].NodeID]) != collection.ModeExecute
+		return len(node) > 0 && r.modeFor(r.taskFor(node[0].NodeID)) != collection.ModeExecute
 	})
 	if len(outs) == 0 {
 		return

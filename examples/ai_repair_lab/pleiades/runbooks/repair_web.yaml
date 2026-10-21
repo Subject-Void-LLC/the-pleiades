@@ -1,0 +1,179 @@
+# Starts a tiny web server in a throwaway BusyBox container and, when it fails, lets a local model pick the repair.
+# Blast radius: one container named ai-repair-web on dockerhost; the model is a local Ollama and nothing leaves the machine.
+# Changes: creates and starts the container, writes files under /dev/shm and /etc inside it; appends usage to spend.jsonl.
+# Undo: pleiades rollback <run-id> removes the container, and everything the run did inside it with it.
+#
+# Pick a failure with -e fault=<disk_full|bad_perms|port_taken|bad_config|no_server>; without it the deploy succeeds.
+# no_server has no fix the model can pick, so the model should answer give_up and the run fails.
+# The "simulate" tasks stand in for the real-world cause. The model sees only what the failure left behind.
+#
+# Every container.exec here acts inside the container and nowhere else, so its rollback: is empty: removing
+# the container, which is the first task's recorded undo and runs last, takes everything they did with it.
+# The model call changes no device at all. A run expects to create the container itself; roll back or
+# remove one an earlier run left before running again, or that run's undo is not this one's.
+id: ai-repair-web
+name: Deploy a web server in a container, repairing a failed health check with a local model's pick of fix.
+hosts: dockerhost
+tasks:
+  - name: Deploy the site
+    block:
+      # busybox:1.36 is pulled from its registry by digest. On a host with no registry, load the image
+      # first (docker load) and add pull: never, which runs the image the engine holds and contacts nothing.
+      - name: Start the container
+        container.run:
+          name: ai-repair-web
+          image: busybox:1.36
+          command: [sleep, "3600"]
+
+      - name: Write the application config
+        container.exec:
+          name: ai-repair-web
+          cmd: "printf 'GREETING=\"hello\"\\n' > /etc/app.conf"
+        rollback: []
+
+      # Each simulate task breaks the environment one way. In real life the
+      # cause is not in the runbook; here it is, so the failure is repeatable.
+      - name: Simulate a full disk
+        container.exec:
+          name: ai-repair-web
+          cmd: "dd if=/dev/zero of=/dev/shm/filler bs=1M count=100 2>/dev/null; true"
+        rollback: []
+        when: has(vars.fault) && vars.fault == 'disk_full'
+
+      - name: Simulate a document root the server user cannot read
+        container.exec:
+          name: ai-repair-web
+          cmd: "mkdir -p /dev/shm/www && chmod 700 /dev/shm/www"
+        rollback: []
+        when: has(vars.fault) && vars.fault == 'bad_perms'
+
+      - name: Simulate another server already on port 8080
+        container.exec:
+          name: ai-repair-web
+          cmd: "mkdir -p /tmp/squat && httpd -p 8080 -h /tmp/squat"
+        rollback: []
+        when: has(vars.fault) && vars.fault == 'port_taken'
+
+      - name: Simulate a malformed config
+        container.exec:
+          name: ai-repair-web
+          cmd: "printf 'GREETING=\"hello\\n' > /etc/app.conf"
+        rollback: []
+        when: has(vars.fault) && vars.fault == 'bad_config'
+
+      - name: Simulate a server binary that is gone
+        container.exec:
+          name: ai-repair-web
+          cmd: "rm -f /bin/httpd"
+        rollback: []
+        when: has(vars.fault) && vars.fault == 'no_server'
+
+      - name: Publish the site from the config
+        container.exec:
+          name: ai-repair-web
+          cmd: ". /etc/app.conf && mkdir -p /dev/shm/www && echo \"$GREETING from pleiades\" > /dev/shm/www/index.html"
+        rollback: []
+
+      - name: Start the web server unless the port is taken
+        container.exec:
+          name: ai-repair-web
+          cmd: "P=$(cat /tmp/port 2>/dev/null || echo 8080); netstat -ltn | grep -q \":$P \" || httpd -p $P -h /dev/shm/www -u nobody"
+        rollback: []
+
+      - name: Health check
+        container.exec:
+          name: ai-repair-web
+          cmd: "P=$(cat /tmp/port 2>/dev/null || echo 8080); wget -q -T 3 -O - http://127.0.0.1:$P/ | grep -q 'hello from pleiades' || { echo \"health check on port $P did not return the site\" >&2; exit 1; }"
+        rollback: []
+
+    rescue:
+      - name: Look at what the failure left behind
+        container.exec:
+          name: ai-repair-web
+          cmd: "echo '--- df'; df -h /dev/shm /; echo '--- docroot'; ls -ld /dev/shm/www; ls -l /dev/shm/www; echo '--- listeners'; netstat -ltnp; echo '--- processes'; ps; echo '--- config'; cat /etc/app.conf; sh -n /etc/app.conf; true"
+        rollback: []
+        register: dump
+
+      - name: Ask the local model which fix fits
+        ai.chat:
+          target: workstation
+          model: "gemma4:e4b-it-qat"
+          residency: local
+          prompt_file: diagnose
+          input: "error: {{ error.message }}\n{{ result.dump.stdout }}"
+          schema:
+            type: object
+            properties:
+              fix: {type: string, enum: [free_space, fix_perms, change_port, regenerate_config, give_up]}
+              confidence: {type: number, minimum: 0, maximum: 1}
+              reason: {type: string}
+            required: [fix, confidence, reason]
+          # A model that thinks first needs room to answer after it.
+          max_tokens: 1500
+          usage_sink: spend.jsonl
+          # Held for a person when the model is unsure of its own pick.
+          review:
+            - field: confidence
+              below: 0.5
+        rollback: []
+        register: diagnosis
+
+      # The model picks a value; it never writes a command. Each value is one
+      # fixed task here.
+      - name: Fix, free the full filesystem
+        container.exec:
+          name: ai-repair-web
+          cmd: "rm -f /dev/shm/filler"
+        rollback: []
+        when: result.diagnosis.json.fix == 'free_space'
+
+      - name: Fix, make the document root readable
+        container.exec:
+          name: ai-repair-web
+          cmd: "chmod 755 /dev/shm/www"
+        rollback: []
+        when: result.diagnosis.json.fix == 'fix_perms'
+
+      - name: Fix, serve on port 8081 instead
+        container.exec:
+          name: ai-repair-web
+          cmd: "echo 8081 > /tmp/port"
+        rollback: []
+        when: result.diagnosis.json.fix == 'change_port'
+
+      - name: Fix, write the config again
+        container.exec:
+          name: ai-repair-web
+          cmd: "printf 'GREETING=\"hello\"\\n' > /etc/app.conf"
+        rollback: []
+        when: result.diagnosis.json.fix == 'regenerate_config'
+
+      - name: Publish the site again
+        container.exec:
+          name: ai-repair-web
+          cmd: ". /etc/app.conf && mkdir -p /dev/shm/www && echo \"$GREETING from pleiades\" > /dev/shm/www/index.html"
+        rollback: []
+        when: result.diagnosis.json.fix != 'give_up'
+
+      - name: Start the web server again unless the port is taken
+        container.exec:
+          name: ai-repair-web
+          cmd: "P=$(cat /tmp/port 2>/dev/null || echo 8080); netstat -ltn | grep -q \":$P \" || httpd -p $P -h /dev/shm/www -u nobody"
+        rollback: []
+        when: result.diagnosis.json.fix != 'give_up'
+
+      - name: Health check again
+        container.exec:
+          name: ai-repair-web
+          cmd: "P=$(cat /tmp/port 2>/dev/null || echo 8080); wget -q -T 3 -O - http://127.0.0.1:$P/ | grep -q 'hello from pleiades' || { echo \"health check on port $P still fails after the fix\" >&2; exit 1; }"
+        rollback: []
+        when: result.diagnosis.json.fix != 'give_up'
+
+      # Failing the rescue is how a run says no repair worked. The container
+      # is kept to look at; pleiades rollback <run-id> removes it.
+      - name: Say the model found no fix
+        container.exec:
+          name: ai-repair-web
+          cmd: "echo 'the model could not name a fix; run pleiades rollback to remove the container' >&2; exit 1"
+        rollback: []
+        when: result.diagnosis.json.fix == 'give_up'

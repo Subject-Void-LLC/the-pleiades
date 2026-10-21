@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**173 of 176 methods are implemented.**
+**174 of 177 methods are implemented.**
 
 ## Implemented
 
@@ -59,6 +59,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [net.ssh.ping](modules/net/ssh/ping.md)
 - [net.netconf.config](modules/net/netconf/config.md)
 - [net.ios.config](modules/net/ios/config.md)
+- [net.ios.command](modules/net/ios/command.md)
 - [net.ios.facts](modules/net/ios/facts.md)
 - [net.ios.ping](modules/net/ios/ping.md)
 - [net.ios.save](modules/net/ios/save.md)

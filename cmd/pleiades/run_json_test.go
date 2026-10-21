@@ -45,6 +45,7 @@ type jsonReport struct {
 		Error            string         `json:"error"`
 		Unreached        bool           `json:"unreached"`
 		RescuedBy        string         `json:"rescued_by"`
+		Undoes           string         `json:"undoes"`
 		Reason           string         `json:"reason"`
 		AllowedUnchecked bool           `json:"allowed_unchecked"`
 		Warnings         []string       `json:"warnings"`
