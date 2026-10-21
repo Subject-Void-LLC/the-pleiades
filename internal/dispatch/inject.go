@@ -177,16 +177,18 @@ func InjectedFrom(art credtype.Artifact) *wire.Injected {
 // a credential, watching the run authenticate as something else, and having
 // nothing in the record to tell them why.
 //
-// One exception: a device type registered as using its own credential (a
-// Kubernetes cluster) is never given the machine credential, and falls
-// back to its own, since an SSH login is not a cluster's identity.
+// One exception: a device that cannot be logged into (an HTTP API, a
+// Kubernetes cluster, a cloud account), or whose type is registered as
+// using its own credential, is never given the machine credential, and
+// falls back to its own, since an SSH login is not an API's identity.
 func ApplyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
 	payload.Injected = InjectedFrom(art)
-	// A device whose type authenticates only with its own credential (a
-	// Kubernetes cluster) never takes the template's machine credential:
-	// that is a login for a machine, and here it would win over the
-	// cluster's own (record.RegisterOwnCredentialType).
-	if machine, ok := art.Machine(); ok && !record.UsesOwnCredential(payload.DeviceType) {
+	// Only a device that can be logged into takes the template's machine
+	// credential. Anything reached through an API alone (an HTTP API, a
+	// cluster, a cloud account) never does: the login would go to whatever
+	// answers at its URL, and would win over the device's own credential
+	// (record.TakesMachineCredential).
+	if machine, ok := art.Machine(); ok && record.TakesMachineCredential(payload.DeviceType, payload.Capabilities) {
 		payload.Secrets = machine
 	}
 	// The template's one container registry credential travels beside the

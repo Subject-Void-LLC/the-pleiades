@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -38,7 +39,8 @@ func TestApplyInjection_CarriesDatabaseConnectionsApart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var payload wire.DispatchPayload
+	// A server: a machine credential reaches only a device it can log in to.
+	payload := wire.DispatchPayload{DeviceType: "linux_server", Capabilities: []capability.Name{capability.NameSSHTransport}}
 	ApplyInjection(&payload, art)
 	if len(payload.Databases) != 2 {
 		t.Fatalf("payload.Databases = %+v", payload.Databases)

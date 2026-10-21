@@ -1,0 +1,1 @@
+A job template's machine credential no longer authenticates a device reached only through an API, which departs from AWX, where a machine credential reaches every host in the inventory. Such a device now uses the credential stored for it, so a template that relied on its machine credential for a Catalyst Center or a `generic_http` device needs that device's own credential stored.

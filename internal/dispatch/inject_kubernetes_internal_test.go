@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -69,7 +70,7 @@ func TestApplyInjection_ATokenAuthenticatesTheClusterItNames(t *testing.T) {
 		t.Errorf("a cluster the credential does not name received secrets: %d", len(other.Secrets))
 	}
 
-	server := wire.DispatchPayload{Kind: runbook.Kind, DeviceType: "linux_server"}
+	server := wire.DispatchPayload{Kind: runbook.Kind, DeviceType: "linux_server", Capabilities: []capability.Name{capability.NameSSHTransport}}
 	ApplyInjection(&server, art)
 	if server.Secrets[wire.SecretPassword] != "ssh-secret" || server.Secrets[wire.SecretBearerToken] != "" {
 		t.Errorf("a server's secrets = %v, want the machine credential alone", server.Secrets)
@@ -81,7 +82,7 @@ func TestApplyInjection_ATokenAuthenticatesTheClusterItNames(t *testing.T) {
 // in a file.
 func TestApplyInjection_TheAnsiblePathGetsAWXsEnvironment(t *testing.T) {
 	art := kubernetesArtifact(t)
-	payload := wire.DispatchPayload{Kind: playbook.Kind, DeviceType: "linux_server"}
+	payload := wire.DispatchPayload{Kind: playbook.Kind, DeviceType: "linux_server", Capabilities: []capability.Name{capability.NameSSHTransport}}
 	ApplyInjection(&payload, art)
 	if payload.Injected == nil {
 		t.Fatal("a playbook job received no injection")

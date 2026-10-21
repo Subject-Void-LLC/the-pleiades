@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -38,7 +39,7 @@ func TestApplyInjection_CarriesTheRegistryAccountApart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var payload wire.DispatchPayload
+	payload := wire.DispatchPayload{DeviceType: "linux_server", Capabilities: []capability.Name{capability.NameSSHTransport}}
 	ApplyInjection(&payload, art)
 	if payload.Registry == nil || payload.Registry.Host != "ghcr.io" || payload.Registry.Password != "registry-secret" {
 		t.Fatalf("payload.Registry = %+v", payload.Registry)
@@ -71,7 +72,7 @@ func TestApplyInjection_AMachineCredentialNeverAuthenticatesACluster(t *testing.
 		t.Fatal(err)
 	}
 
-	server := wire.DispatchPayload{DeviceType: "linux_server"}
+	server := wire.DispatchPayload{DeviceType: "linux_server", Capabilities: []capability.Name{capability.NameSSHTransport}}
 	ApplyInjection(&server, art)
 	if server.Secrets[wire.SecretPassword] != "ssh-secret" {
 		t.Errorf("a server did not get the template's machine credential: %v", server.Secrets)
