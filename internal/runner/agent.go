@@ -65,6 +65,10 @@ type Agent struct {
 	// topology.DispatchAckWait unless WithProgressInterval overrides it.
 	progressEvery time.Duration
 
+	// contentionBase and contentionMax shape a contended dispatch's waits
+	// (agent_contention.go); WithContentionSchedule overrides them.
+	contentionBase, contentionMax time.Duration
+
 	// wal and bus back optional Write-Ahead-Log result buffering
 	// (agent_wal.go). Both nil unless WithResultWAL is passed to
 	// NewAgent, in which case neither is ever nil again for this Agent's
@@ -210,6 +214,8 @@ func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstrea
 		leaseTTL:       execLeaseTTL,
 		heartbeatEvery: heartbeatInterval,
 		progressEvery:  defaultProgressInterval,
+		contentionBase: contentionBase,
+		contentionMax:  contentionMax,
 	}
 	for _, opt := range opts {
 		opt(a)

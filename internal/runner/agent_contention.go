@@ -62,7 +62,7 @@ func (a *Agent) settleContention(ctx context.Context, msg jetstream.Msg, payload
 		settle()
 		a.nakContended(msg, a.leaseTTL)
 	case delivered < a.maxDeliver:
-		delay := retry.Backoff(contentionBase, contentionMax, delivered)
+		delay := retry.Backoff(a.contentionBase, a.contentionMax, delivered)
 		a.logger.Warn("device lock contention, retrying later",
 			slog.String("device_id", payload.DeviceID), slog.Duration("retry_in", delay),
 			slog.Int("delivery", delivered), slog.String("error", err.Error()))
@@ -76,6 +76,21 @@ func (a *Agent) settleContention(ctx context.Context, msg jetstream.Msg, payload
 		settle()
 		if termErr := msg.Term(); termErr != nil {
 			a.logger.Error("failed to terminate a dispatch for a busy device", slog.String("error", termErr.Error()))
+		}
+	}
+}
+
+// WithContentionSchedule overrides the base and ceiling of a contended
+// dispatch's waits (contentionBase, contentionMax). It exists for release
+// gates that must see a busy device's final delivery without waiting five
+// minutes; a non-positive value is ignored.
+func WithContentionSchedule(base, ceiling time.Duration) AgentOption {
+	return func(a *Agent) {
+		if base > 0 {
+			a.contentionBase = base
+		}
+		if ceiling > 0 {
+			a.contentionMax = ceiling
 		}
 	}
 }
