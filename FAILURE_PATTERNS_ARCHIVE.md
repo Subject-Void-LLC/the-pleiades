@@ -13718,3 +13718,30 @@ would let a rollback undo beneath another run's change, so it matters which.
 the two it is.
 
 **Lesson.** A gate step whose outcome it ignores turns a flake in the setup into a wrong verdict on the product.
+
+## 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
+
+**Symptom.** 2026-10-20 and 21, `make pr-check` on 27a440a1: every leg had passed once, then three reruns died at
+`ci-remote`'s govulncheck, killed in its memory cgroup at 3100M, 3300M and 4G (4.16 GB resident), where the first run
+of the same commit had passed under 3100M the day before. It read as a machine short of memory, and the next steps
+weighed were a larger cap or a push without the receipt.
+
+**Root cause.** The commit had not changed; the advisory database had. GO-2026-6809 (`crypto/x509` trusting
+intermediate certificates since found compromised) landed against go1.26.9, the toolchain line, fixed in go1.26.10,
+and govulncheck traced a call to it: `pkg/pgclient`'s connector, through pq, to `x509.Certificate.Verify`. govulncheck
+builds a call graph of the whole module only when a vulnerable symbol may be reached, so the advisory is what took its
+peak from under 3.1 GB to over 4 GB here (7.0 GB resident on a Mac). A scan killed for memory prints nothing, so the
+jump was the only sign of the finding. A second trap turned up on the way: the Mac's own go was go1.27.2, newer than
+the toolchain line, so a scan there without `GOTOOLCHAIN` judged go1.27.2's standard library (fixed in go1.27.3)
+rather than the one this module builds with.
+
+**Fix.** `toolchain go1.26.10`, and both builder images pinned to the 1.26.10 digest (7b8ccafc); the scan then finds
+nothing, in 8 s on the Mac. `main` still builds with go1.26.9 until this merges. pr-check now runs govulncheck on the
+Mac when one is ready (`maccheck -phase vuln`, c6efa2de), between the Mac's prepare and test phases, naming `GOOS`,
+`GOARCH` and `GOTOOLCHAIN` for this machine so its answer is the one a scan here gives, and here otherwise. Proven on
+the real Mac through Pleiades in both directions: 7b8ccafc passes, and 27a440a1 scanned as go1.26.9 fails on
+GO-2026-6809 with exit 1.
+
+**Lesson.** When a check's resource use jumps between runs of the same commit, ask what it reads that the commit does
+not fix (a live database, a newer tool) before raising its limits. A scanner killed for memory has said nothing, not
+"clean".

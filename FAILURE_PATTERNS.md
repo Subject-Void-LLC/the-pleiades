@@ -554,6 +554,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 549. netcli.IOS read IOS's "%Error ..." as output, so a failed save could report success (fixed)
 550. pleiades validate did not refuse a task missing a parameter its method marks required, and three runbooks left one out (fixed)
 551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open)
+552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
