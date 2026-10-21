@@ -2,6 +2,7 @@
 package event
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -55,6 +56,33 @@ func TestDeadLetter_KeepsIdentifiersOnly(t *testing.T) {
 	if strings.Contains(d.Reason, jwt) {
 		t.Errorf("the reason was not masked: %q", d.Reason)
 	}
+}
+
+// FuzzDeadLetter: whatever an event's data holds never reaches its dead
+// letter, and no body or reason panics the builder.
+func FuzzDeadLetter(f *testing.F) {
+	f.Add([]byte(`{"secrets":{"password":"hunter2hunter2"}}`), "a reason")
+	f.Add([]byte(`"a bare string payload"`), "Bearer abcdefghijklmnop")
+	f.Add([]byte(`null`), "")
+	f.Fuzz(func(t *testing.T, data []byte, reason string) {
+		_ = deadLetter(stubMsg{subject: "s", data: data}, 1, reason)
+		if !json.Valid(data) {
+			return
+		}
+		body, err := json.Marshal(Event{ID: "evt", Type: "t", Data: json.RawMessage(data)})
+		if err != nil {
+			return
+		}
+		out, err := json.Marshal(deadLetter(stubMsg{subject: "s", data: body}, 1, "r"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var compact bytes.Buffer
+		_ = json.Compact(&compact, data)
+		if c := compact.String(); len(c) >= 16 && strings.Contains(string(out), c) {
+			t.Fatalf("the dead letter holds the event's data %s: %s", c, out)
+		}
+	})
 }
 
 // TestDeadLetter_ANonEventKeepsNothingOfIt: a body that is not an Event
