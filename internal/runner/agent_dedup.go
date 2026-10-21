@@ -71,7 +71,7 @@ type DedupStore interface {
 // The identity string above is what goes IN, so the agreement with the
 // other two mechanisms is preserved: only its encoding changed.
 func dispatchDedupKey(payload wire.DispatchPayload) string {
-	return topology.SubjectToken(payload.JobID + ":" + payload.DeviceID)
+	return topology.DispatchKey(payload.JobID, payload.DeviceID)
 }
 
 // alreadyExecuted reports whether this exact unit of work has already

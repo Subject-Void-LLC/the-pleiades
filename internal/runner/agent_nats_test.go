@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -94,12 +95,26 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	defer cancelAgent()
 	go agent.Run(agentCtx)
 
-	payload := wire.DispatchPayload{JobID: testJobID, RunbookID: "pb-1", DeviceID: "dlq-device", DeviceName: "dev-1", DeviceHost: "10.0.0.1"}
+	// Every field that carries a secret holds the sentinel, so the dead
+	// letter is searched for it below (Phase 103a: dead letters hold
+	// identifiers only).
+	const sentinel = "sentinel-dead-letter-secret-7f3a9c"
+	payload := wire.DispatchPayload{
+		JobID: testJobID, RunbookID: "pb-1", DeviceID: "dlq-device", DeviceName: "dev-1", DeviceHost: "10.0.0.1",
+		Secrets:   map[string]string{"password": sentinel},
+		Fields:    map[string]any{"answer": sentinel},
+		ExtraVars: map[string]any{"token": sentinel},
+		Injected:  &wire.Injected{Env: map[string]string{"API_TOKEN": sentinel}, ExtraVars: map[string]any{"key": sentinel}, Mask: []string{sentinel}},
+		Registry:  &wire.RegistryCredential{Host: "registry.example", Username: "u", Password: sentinel},
+		Databases: []wire.DatabaseConnection{{Password: sentinel}},
+	}
 	evt, err := event.WrapPayload("dispatch-1", "runbook.dispatched", payload)
 	if err != nil {
 		t.Fatalf("wrap payload: %v", err)
 	}
-	if err := bus.Publish(ctx, topology.DispatchSubject(payload.DeviceID), *evt); err != nil {
+	// The key the Controller stamps on a dispatch (dispatch.Worker).
+	pubCtx := event.WithIdempotencyKey(ctx, topology.DispatchIdentity(payload.JobID, payload.DeviceID))
+	if err := bus.Publish(pubCtx, topology.DispatchSubject(payload.DeviceID), *evt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 
@@ -146,16 +161,15 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 		t.Errorf("OriginalSubject = %q, want %q", envelope.OriginalSubject, topology.DispatchSubject(payload.DeviceID))
 	}
 
-	var dlqEvt event.Event
-	if err := json.Unmarshal(envelope.Payload, &dlqEvt); err != nil {
-		t.Fatalf("unmarshal dead-lettered event: %v", err)
+	if strings.Contains(string(dlqMsg.Data()), sentinel) {
+		t.Fatalf("the dead letter carries a secret from the dispatch it was for:\n%s", dlqMsg.Data())
 	}
-	var dlqPayload wire.DispatchPayload
-	if err := json.Unmarshal(dlqEvt.Data, &dlqPayload); err != nil {
-		t.Fatalf("unmarshal dead-lettered payload: %v", err)
+	job, device, ok := topology.ParseDispatchIdentity(envelope.IdempotencyKey)
+	if !ok || job != testJobID || device != payload.DeviceID {
+		t.Errorf("the dead letter's idempotency key %q names job %q and device %q, want %q and %q", envelope.IdempotencyKey, job, device, testJobID, payload.DeviceID)
 	}
-	if dlqPayload.JobID != testJobID {
-		t.Errorf("dead-lettered JobID = %q, want %q", dlqPayload.JobID, testJobID)
+	if envelope.EventID != "dispatch-1" || envelope.EventType != "runbook.dispatched" {
+		t.Errorf("the dead letter names event %q of type %q, want dispatch-1 and runbook.dispatched", envelope.EventID, envelope.EventType)
 	}
 }
 

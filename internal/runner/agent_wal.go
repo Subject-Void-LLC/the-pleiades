@@ -131,7 +131,7 @@ func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, 
 		// This comment used to say that the two keys agreeing "exactly,
 		// for the identical reason" was the point. That was the bug,
 		// written down as a safety property.
-		ID:        payload.JobID + ":" + payload.DeviceID,
+		ID:        topology.DispatchIdentity(payload.JobID, payload.DeviceID),
 		JobID:     payload.JobID,
 		DeviceID:  payload.DeviceID,
 		RunbookID: payload.RunbookID,
