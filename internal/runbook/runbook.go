@@ -61,6 +61,16 @@ type Runbook struct {
 	// with the runbook itself.
 	Required []capability.Name
 
+	// Methods is the sorted, deduplicated list of every action FQCN this
+	// runbook's compiled DAG names, legacy actions and Collection methods
+	// alike. The Controller admits a device against each method it knows
+	// (collection.CheckTransports and CheckCapabilities), the same checks the
+	// Runner's preflight and the engine make, so a device that cannot run a
+	// method is skipped at launch rather than failed after dispatch. A
+	// method only a Runner loads (an external Collection) is not known here
+	// and is left to the Runner.
+	Methods []string
+
 	// Interruptible is engine.Metadata.IsInterruptible()'s own resolved
 	// answer for this runbook (dir_source.go's Get applies the default
 	// there, once, so every caller of this package gets a concrete bool

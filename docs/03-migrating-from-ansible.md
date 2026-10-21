@@ -243,12 +243,10 @@ Every native method on either page is `implemented` except `file.template`,
 and refused at call time with an explicit "not implemented yet" error rather than a
 silent no-op. See [Implementation status](reference/implementation-status.md).
 
-**The Capability column below is documentation, not a check.** It records the
-capability each method's manifest declares it needs. Nothing compares that to your
-inventory: `pleiades validate` checks capabilities only for the two legacy action names
-`ssh_exec` and `ios_backup`. Point any FQCN at a device that lacks the listed capability
-and `validate` still reports no issues; the mismatch surfaces during the run instead.
-See [Start here](01-start-here.md#implementation-status).
+**The Capability column below is checked.** It records the capability each method's
+manifest declares it needs, and `pleiades validate` refuses a task whose device lacks
+it, as a Controller skips such a device when a job is launched. See
+[Start here](01-start-here.md#implementation-status).
 
 The rest of this section covers the native methods whose Ansible counterparts the
 converter does not map yet, so a task using one is blocked and written by hand, and

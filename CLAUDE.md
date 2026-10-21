@@ -257,15 +257,17 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   again at render. `pleiades run --extra-vars`/`-e`. **Walk caveat:** a Runner still runs every task
   against its one dispatched device (Phase 117b builds segmented dispatch), and the Runner's per-task child
   refuses a call with no device.
-- **Plan-time checking covers transports; capabilities only for a two-entry table.** Since Phase 75
+- **Plan-time checking covers transports and capabilities.** Since Phase 75
   `pleiades validate` refuses a task whose device reaches none of its method's `SupportedTransports`
   (`internal/validate`'s `TransportRule` and the engine's run-time gate share
   `collection.CheckTransports`; the vocabulary and the capability reaching each transport are
   `pkg/capability`'s `ReachedBy`, and `collection.Register` refuses an unknown name). The generic
   `pkg.*`/`svc.*` dispatchers declare the union of their concrete methods' transports and re-check
-  the concrete one. Required capabilities are still compared at plan time only for `ssh_exec` and
-  `ios_backup` (`internal/engine/action_capability.go`), so a capability mismatch on a reachable
-  device surfaces at run time, refused by the engine before the method runs. `WindowsShellCapable`
+  the concrete one. Required capabilities are compared by `collection.CheckCapabilities` at plan time
+  (`CapabilityRule`, which also keeps the legacy `engine.ActionCapability` check for `ssh_exec` and
+  `ios_backup`), at a Controller's admission of each device (`dispatch.methodsAdmit`, with the
+  transports, for every method the runbook names that the Controller has registered), and by the
+  engine before the method runs (Phase 117b). `WindowsShellCapable`
   is a child of `CommandExecCapable`; the transport check is what keeps SSH-only `exec.command` off
   a Windows server.
 - **One circuit breaker, `pkg/breaker` (Phase 75).** `pkg/remoteexec` (SSH, telnet, serial-over-TCP)

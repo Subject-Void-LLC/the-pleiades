@@ -318,6 +318,7 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 	rb := &Runbook{
 		ID:            id,
 		Required:      requiredCapabilities(dag),
+		Methods:       methods(dag),
 		Interruptible: dag.Metadata.IsInterruptible(),
 		// Catalog metadata, read from the file rather than stored beside
 		// it. Name falls back to the id so a runbook that never set one is
@@ -371,4 +372,21 @@ func requiredCapabilities(dag *engine.DAG) []capability.Name {
 		required = append(required, name)
 	}
 	return required
+}
+
+// methods computes Runbook.Methods from a compiled DAG: every node's FQCN,
+// deduplicated and sorted. A synthetic node (a parallel block's fan-out or
+// join) names none and contributes nothing.
+func methods(dag *engine.DAG) []string {
+	seen := make(map[string]bool, len(dag.Nodes))
+	var names []string
+	for _, task := range dag.Nodes {
+		if task.FQCN == "" || seen[task.FQCN] {
+			continue
+		}
+		seen[task.FQCN] = true
+		names = append(names, task.FQCN)
+	}
+	sort.Strings(names)
+	return names
 }

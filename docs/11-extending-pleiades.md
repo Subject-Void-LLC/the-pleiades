@@ -959,20 +959,15 @@ transport through a capability, listed in the
 your method can use, or none if it calls an API rather than its device, and write
 the test that targets a device reaching only some other transport.
 
-`validate` does not confirm capability matching. No validator reads a manifest's
-`RequiredCapabilities`: `internal/validate.CapabilityRule` keys off
-`engine.ActionCapability`, a two-entry table holding only the legacy `ssh_exec`
-and `ios_backup`, and skips every other FQCN. So `validate` will pass a runbook
-whose method's device reaches the right transport but lacks the capability.
-
-The dispatcher does check, which is a different thing and worth being precise
-about. Before invoking a method, the engine compares every name in its
-`RequiredCapabilities` against the target device, resolving the capability
-hierarchy (a device declaring `SystemdCapable` satisfies a requirement for its
-parent `ServiceManagerCapable`) and asserting the device really implements the
-interface rather than merely naming it. A mismatch is a clear refusal at run
-time. What you do not get is that answer at plan time, so a runbook can pass
-`validate` and fail on contact.
+Your manifest's `RequiredCapabilities` is checked in three places by one
+function, `collection.CheckCapabilities`: `validate` (`internal/validate`'s
+`CapabilityRule`, which the Runner's preflight also runs), a Controller admitting
+each device when a job is launched, and the engine before it invokes the method.
+Each compares every name against the device, resolving the capability hierarchy
+(a device declaring `SystemdCapable` satisfies a requirement for its parent
+`ServiceManagerCapable`) and asserting the device really implements the interface
+rather than merely naming it. A call that runs with no device is refused when the
+method requires any capability, since nothing can supply it.
 
 Write the test for it yourself: target a device lacking the capability and assert
 the refusal. That test is also how you find out whether your requirement is the

@@ -112,7 +112,9 @@ type admission struct {
 
 // admit decides whether device may be dispatched for job: the job's mode
 // must parse, the device's lifecycle must admit that mode, it must carry
-// every capability the definition requires, and it must have an address.
+// every capability the definition requires, it must be reachable by and
+// carry the capabilities of every method the definition names, and it must
+// have an address.
 // The fan-out and a windowed job's pump both ask, through this one
 // function, so the two can never disagree about what admits a device.
 func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventory.InventoryItem) admission {
@@ -131,6 +133,9 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 	if ok, reason := engine.CapabilityAdmits(device, prepared.Required); !ok {
 		return admission{mode: mode, outcome: OutcomeSkipped, reason: reason}
 	}
+	if err := methodsAdmit(device, prepared.Methods); err != nil {
+		return admission{mode: mode, outcome: OutcomeSkipped, reason: err.Error()}
+	}
 
 	// "host", never "ip": every concrete device type in this codebase
 	// populates its management address under this property key
@@ -148,6 +153,36 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 		return admission{mode: mode, outcome: OutcomeSkipped, reason: fmt.Sprintf("device %q has no host property", device.Name())}
 	}
 	return admission{mode: mode, host: host}
+}
+
+// methodsAdmit refuses device when a method in methods cannot run on it: a
+// transport the method needs that the device does not reach, or a
+// capability the method requires that the device lacks. The checks are
+// collection.CheckTransports and CheckCapabilities, which the Runner's
+// preflight (validate's rules) and the engine make again, so admission and
+// execution answer the same question the same way. Until Phase 117b
+// admission asked only engine.ActionCapability, which names two legacy
+// actions, so a device no method could reach was dispatched and failed on
+// the Runner.
+//
+// A method this process has not registered (an external Collection, which
+// only a Runner loads) is left to the Runner's preflight. On the Walk tier
+// every task runs against its one dispatched device, so every method is
+// checked against it; segmented dispatch narrows that per segment.
+func methodsAdmit(device pkginventory.InventoryItem, methods []string) error {
+	for _, fqcn := range methods {
+		desc, ok := collection.Lookup(fqcn)
+		if !ok {
+			continue
+		}
+		if err := collection.CheckCapabilities(device, fqcn, desc.Manifest); err != nil {
+			return err
+		}
+		if err := collection.CheckTransports(device, fqcn, desc.Manifest); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dispatchPayload builds the dispatch payload for a device admit let
