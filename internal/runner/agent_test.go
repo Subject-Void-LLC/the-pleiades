@@ -166,6 +166,10 @@ func (m *MockMsg) Metadata() (*jetstream.MsgMetadata, error) {
 	return &jetstream.MsgMetadata{NumDelivered: 1}, nil
 }
 
+// InProgress accepts handleMessage's progress reports (agent_progress.go),
+// so a test that runs past a report does not reach the nil embedded Msg.
+func (m *MockMsg) InProgress() error { return nil }
+
 func (m *MockMsg) Subject() string { return "pleiades.jobs.dispatch" }
 
 // Headers backs handleMessage's trace-context extraction. It returns nil,

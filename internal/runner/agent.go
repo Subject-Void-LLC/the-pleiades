@@ -60,6 +60,11 @@ type Agent struct {
 	leaseTTL       time.Duration
 	heartbeatEvery time.Duration
 
+	// progressEvery is how often handleMessage tells JetStream a dispatch
+	// is still being worked on (agent_progress.go): a third of
+	// topology.DispatchAckWait unless WithProgressInterval overrides it.
+	progressEvery time.Duration
+
 	// wal and bus back optional Write-Ahead-Log result buffering
 	// (agent_wal.go). Both nil unless WithResultWAL is passed to
 	// NewAgent, in which case neither is ever nil again for this Agent's
@@ -204,6 +209,7 @@ func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstrea
 		poolSize:       defaultPoolSize,
 		leaseTTL:       execLeaseTTL,
 		heartbeatEvery: heartbeatInterval,
+		progressEvery:  defaultProgressInterval,
 	}
 	for _, opt := range opts {
 		opt(a)

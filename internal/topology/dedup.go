@@ -17,7 +17,7 @@ const (
 
 	// DedupDefaultTTL bounds how long a "seen" marker is remembered. It
 	// only needs to outlive the longest realistic redelivery window
-	// (bounded by MaxDeliverDefault redeliveries at consumerAckWait
+	// (bounded by MaxDeliverDefault redeliveries at DispatchAckWait
 	// apiece), not forever; unlike internal/lock's bucket, which uses its
 	// TTL only as an absolute failsafe, this TTL is load-bearing for
 	// correctness (see internal/event's dedup decorator), so it is sized
