@@ -216,6 +216,8 @@ func (s *Shell) WriteLine(ctx context.Context, line string) error {
 // Exceeding maxBytes, like a ctx deadline firing, closes the underlying
 // session; see Shell's own doc comment for why leaving it usable
 // afterward is not attempted.
+//
+// Every error it returns is a *ReadError holding what had been read.
 func (s *Shell) ReadUntil(ctx context.Context, pattern *regexp.Regexp, maxBytes int) (string, error) {
 	done := make(chan struct{})
 	defer close(done)
@@ -238,7 +240,7 @@ func (s *Shell) ReadUntil(ctx context.Context, pattern *regexp.Regexp, maxBytes 
 		}
 		if len(buf) >= maxBytes {
 			_ = s.session.Close()
-			return "", fmt.Errorf("remoteexec: shell on %s: read %d bytes without matching %s, exceeding the %d-byte bound", s.addr, len(buf), pattern, maxBytes)
+			return "", &ReadError{Partial: buf, err: fmt.Errorf("remoteexec: shell on %s: read %d bytes without matching %s, exceeding the %d-byte bound", s.addr, len(buf), pattern, maxBytes)}
 		}
 
 		n, err := s.stdout.Read(chunk)
@@ -246,7 +248,7 @@ func (s *Shell) ReadUntil(ctx context.Context, pattern *regexp.Regexp, maxBytes 
 			buf = append(buf, chunk[:n]...)
 		}
 		if err != nil {
-			return "", fmt.Errorf("remoteexec: read from shell on %s: %w", s.addr, wrapCtx(ctx, err))
+			return "", &ReadError{Partial: buf, err: fmt.Errorf("remoteexec: read from shell on %s: %w", s.addr, wrapCtx(ctx, err))}
 		}
 	}
 }
