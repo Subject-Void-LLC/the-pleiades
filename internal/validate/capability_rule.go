@@ -83,10 +83,10 @@ func methodCapabilityFindings(world WorldView, id string, task *engine.Task, des
 	}
 	target, devices := world.taskDevices(task)
 	if target == "" && len(devices) == 0 {
-		if err := collection.CheckCapabilities(nil, task.FQCN, desc.Manifest); err != nil {
-			return []Finding{{RuleName: "capability", Node: id, Message: fmt.Sprintf("%v (task %s)", err, taskLabel(id, task))}}
-		}
-		return nil
+		// The method requires a capability (above), so a call with no
+		// device is always refused.
+		err := collection.CheckCapabilities(nil, task.FQCN, desc.Manifest)
+		return []Finding{{RuleName: "capability", Node: id, Message: fmt.Sprintf("%v (task %s)", err, taskLabel(id, task))}}
 	}
 	var findings []Finding
 	for _, dev := range devices {
