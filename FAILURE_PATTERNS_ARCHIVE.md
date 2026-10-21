@@ -12685,7 +12685,7 @@ included: 0 in 200. Branch `fix/reaper-test-store`.
 **Lesson.** A test store that is not the production configuration fails in ways production does not, and its
 comments explaining the difference are the clue; replace the store, not the assertion.
 
-## 496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 61) (open)
+## 496. The Grand Integration runbook job stayed "running" for its whole budget twice in one CI job (a repeat of 396) (fixed)
 
 **Symptom.** #61's `containers (1)` at `64f1a959`: `TestGrandIntegration_EachKindReachesItsOwnAdapter`'s `noop`
 runbook job never left "running" in 300 s, under load and again re-run alone. The same commit passed locally in 16 s
@@ -12696,6 +12696,20 @@ its path. A runner that stays slow for a whole job (both failures were on one ru
 
 **Fix.** None yet. If it recurs, the Runner's own output for the stuck dispatch is the evidence to keep; the
 harness prints the Controller's, not the Runner's.
+
+**Cause, found 2026-10-21.** The nightly run on `main` at f71cdf58 failed the same way, and #80's log capture had
+uploaded the Runner's log. Four jobs arrived at once on rtr1 and rtr2. The two playbook jobs took both device locks
+and then waited 60 s for testcontainers' reaper (483's class). The two `ping` runbook jobs met the held locks, and the
+Runner NAKed each on the fetch loop's own backoff, 0.3 to 3.3 s apart, every one counting toward `MaxDeliver = 5`:
+five deliveries in six seconds, then nothing. No result was ever published and the job stayed `running`. It is 396's
+product defect, which 396 fixed only in its own gate; the earlier "slow runner" reading was wrong. The same log shows
+the second defect: the playbook jobs ran past the 30 s ack wait and were delivered again while still running.
+
+**Fixed by Phase 103a.** A contended dispatch waits on a schedule of its own and, on its final delivery, reports the
+device busy naming the holding job; a delivery that finds its own dispatch running waits one lease TTL; and a
+dispatch in hand is reported in progress, so it is not delivered again while it runs. Proven by
+`TestBusyDeviceReleaseGate_*` (`cmd/runner`), against real NATS, the real lock bucket and a real sshd, and by the
+mutation checks recorded on 555.
 
 **Lesson.** A failure that repeats alone on one runner and not on another is still worth a line; two samples are
 how it was told from a code change here.
@@ -13758,3 +13772,63 @@ GO-2026-6809 with exit 1.
 **Lesson.** When a check's resource use jumps between runs of the same commit, ask what it reads that the commit does
 not fix (a live database, a newer tool) before raising its limits. A scanner killed for memory has said nothing, not
 "clean".
+
+## 553. The Controller's result consumer shipped without its dead-letter grant (a repeat of 258) (fixed)
+
+**Symptom.** Phase 103a, Finding A, read from source in 2026-09 and proven on 2026-10-21: under mesh identity the
+Controller could not publish `pleiades.dlq.pleiades.jobs.results.<job>`. On a real operator-mode broker the publish
+was refused as a deadline, not a permissions error. `event.HandleDeliveryFailure` returns before `msg.Term` when the
+dead-letter publish fails, so a result the Controller failed to record five times (a database outage of about a
+minute) was neither dead-lettered nor terminated: the broker stopped delivering it and the job stayed running.
+
+**Root cause.** `ControllerGrant` listed the dead-letter subjects of two of the three subjects the Controller consumes
+through `Bus.Subscribe` (`job.requested` and the journal), by hand, in another package from the subscriptions. 258's
+fix extended the real-broker gate for the check traffic it was about, and its lesson said to do so for every new
+subject, which is a rule a person must remember. The result consumer was not new; nobody had looked.
+
+**Fix.** The grant names the result dead-letter subject, and
+`TestControllerGrantDeadLettersEveryConsumedSubject` (`internal/meshid`) derives the requirement from the code: it
+finds every `Subscribe(ctx, topology.X(), handler)` in shipped source and requires the dead-letter grant for each,
+failing on a subject its table does not know. It, the enumerated grant test and the real-broker release gate each
+failed before the grant line.
+
+**Lesson.** A permission that must accompany a call is checked against the calls, not against a second list of them.
+
+## 554. Dead letters copied the whole message, so every dead-lettered dispatch put its secrets on the stream twice (fixed)
+
+**Symptom.** Phase 103a, Finding B: `DeadLetterEnvelope.Payload` was the raw message. A dispatch carries `Secrets`,
+`Fields`, `ExtraVars`, `Injected` and its registry and database passwords, and `job.requested` carries prompted
+credential inputs, so each dead letter held a second copy of them on the same stream for the same retention.
+
+**Root cause.** The envelope was designed for diagnosis by an operator, and copying the message was the easy way to
+give one everything. Nothing asked what the message held.
+
+**Fix.** The envelope keeps an allowlist: subject, masked reason, time, delivery count, and the Event's id, type,
+correlation id, idempotency key and actor, decoded into those fields alone so the payload is never held. A consumer
+learns a dead dispatch's job and device from its idempotency key through `topology.ParseDispatchIdentity`. Proven by a
+sentinel planted in every secret-bearing field of a real dispatch dead-lettered through real NATS
+(`TestAgent_FailedExecutionEventuallyDeadLetters`) and in an event's data (`TestNatsBusSubscribe_*`,
+`TestDeadLetter_*`). The changelog gives the purge command for dead letters written before.
+
+**Lesson.** A record that copies a message inherits every secret the message will ever carry; name what it keeps.
+
+## 555. A run longer than the ack wait was delivered again while it ran, and the copies spent its delivery budget (fixed)
+
+**Symptom.** Phase 103a, read from source in 2026-09 and seen in 496's log on 2026-10-21: no code called
+`msg.InProgress()`, so every dispatch running past the consumer's 30 s ack wait was delivered again. The copy met the
+run's own device lease and was NAKed as contention, burning deliveries; a long run that then failed found its retries
+and dead letter already spent.
+
+**Root cause.** The ack wait does two jobs, bounding a hung handler and noticing a dead Runner quickly, and a long but
+healthy run looks like neither unless it says so. The lease heartbeat proved liveness to the lock store, never to the
+broker.
+
+**Fix.** `topology.DispatchAckWait` (still 30 s) is exported, and `handleMessage` reports the message in progress every
+third of it from receipt until just before it acks, naks or terminates it (`agent_progress.go`). Proven by
+`TestBusyDeviceReleaseGate_ARunLongerThanTheAckWaitIsDeliveredOnce`: a 75 s run under the real ack wait, delivered once
+with no redelivery, one result. Mutation checks, 2026-10-21: with the progress reports removed that test fails on a
+redelivery, and with a busy device never reported `TestBusyDeviceReleaseGate_TheSecondJobEndsBusyNamingTheFirst` times
+out waiting for a result.
+
+**Lesson.** A delivery deadline needs a heartbeat to the thing that enforces it, not only to whatever else the worker
+holds.
