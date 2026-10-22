@@ -198,6 +198,77 @@ func TestSplit_RefusesABlockItWouldSplit(t *testing.T) {
 	}
 }
 
+// TestSplit_RefusesWhatOneDevicesDispatchCannotKeep: a unit block (a task
+// with a target of its own) with a rescue on several devices, and a lock
+// taken all or nothing across several devices, are refused; on one device
+// both are kept as they are.
+func TestSplit_RefusesWhatOneDevicesDispatchCannotKeep(t *testing.T) {
+	for _, tc := range []struct {
+		name, yaml, want string
+	}{
+		{"a unit block on several devices",
+			"id: r\nhosts: web\ntasks:\n  - name: unit\n    block:\n      - name: a\n        noop:\n          target: db\n    rescue:\n      - name: r\n        noop:\n          target: db\n",
+			"fails it on every device"},
+		{"a unit block on one device",
+			"id: r\nhosts: web\ntasks:\n  - name: unit\n    block:\n      - name: a\n        noop:\n          target: api\n    rescue:\n      - name: r\n        noop:\n          target: api\n",
+			""},
+		{"all_at_plan_time on several devices",
+			"id: r\nhosts: web\ntasks:\n  - name: a\n    noop: {}\n    lock_acquisition: all_at_plan_time\n",
+			"all or nothing"},
+		{"all_at_plan_time on one device",
+			"id: r\nhosts: web01\ntasks:\n  - name: a\n    noop: {}\n    lock_acquisition: all_at_plan_time\n",
+			""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := segment.Split(build(t, tc.yaml), devices)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatalf("Split refused: %v", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Fatalf("Split error = %v, want one saying %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestSplit_AParallelGroupOpensAGuardedBlock: a guarded block whose first
+// task is a parallel group, after a task on another target, is one segment
+// with its rescue: the group's structural fan-out, which lands with the
+// earlier segment, runs nothing and is not counted.
+func TestSplit_AParallelGroupOpensAGuardedBlock(t *testing.T) {
+	dag := build(t, "id: r\nhosts: db\ntasks:\n  - name: t0\n    noop:\n      target: web\n"+
+		"  - name: guarded\n    block:\n      - name: p\n        parallel:\n          - name: d1\n            noop: {}\n          - name: d2\n            noop: {}\n"+
+		"    rescue:\n      - name: r\n        noop: {}\n")
+	plan, err := segment.Split(dag, devices)
+	if err != nil {
+		t.Fatalf("Split refused a block that runs on one target: %v", err)
+	}
+	if got := shapes(dag, plan); len(got) != 2 || !slices.Equal(got[1].names, []string{"d1", "d2", "r"}) {
+		t.Fatalf("segments %+v", got)
+	}
+}
+
+// TestSplit_CarriesWhatAnUndoStepReads: a block's rollback_on_failure runs
+// a task's authored rollback: steps in the forward run, rendering their
+// params, so what a step reads is carried in.
+func TestSplit_CarriesWhatAnUndoStepReads(t *testing.T) {
+	dag := build(t, "id: r\nhosts: web\ntasks:\n  - name: a\n    noop: {}\n    register: cfg\n"+
+		"  - name: guarded\n    rollback_on_failure: true\n    block:\n      - name: b\n        noop:\n          target: api\n        rollback:\n          - name: undo b\n            noop:\n              content: \"{{ nodes.cfg | to_json }}\"\n")
+	plan, err := segment.Split(dag, devices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Segments) != 2 {
+		t.Fatalf("got %d segments, want 2", len(plan.Segments))
+	}
+	if got := plan.Segments[0].Returns; !slices.Equal(got, []string{"cfg"}) {
+		t.Errorf("web returns %v, want cfg, which the undo step reads", got)
+	}
+	if got := plan.Segments[1]; !slices.Equal(got.Reads, []string{"cfg"}) {
+		t.Errorf("api reads %v, want cfg", got.Reads)
+	}
+}
+
 // TestSplit_CarriesOnlyWhatLaterSegmentsRead: a segment reads in the
 // registers an earlier one wrote and returns the ones a later one reads;
 // a register nobody reads later is not returned, and a read of every

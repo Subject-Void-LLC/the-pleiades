@@ -14,8 +14,15 @@ import (
 // guardsWhole refuses a plan that splits a block with a rescue:, an always:
 // or rollback_on_failure: across segments. A failed segment ends the run, so
 // a rescue, an always or an undo in a later segment than the failure would
-// never run; each such block is named with where and why it was split.
-func guardsWhole(dag *engine.DAG, plan Plan) error {
+// never run; each such block is named with where and why it was split. A
+// parallel group's structural nodes run nothing and are not counted.
+//
+// It also refuses such a block that is a unit (engine.DAG.Units: a task in
+// it runs somewhere other than hosts:) on several devices. A unit's failure
+// on one device fails it on all of them on the Crawl tier, its rescue and
+// undo running everywhere, and one device's dispatch cannot learn another's
+// failure.
+func guardsWhole(dag *engine.DAG, plan Plan, several func(Placement) (bool, error)) error {
 	at := map[string]int{}
 	for _, seg := range plan.Segments {
 		for _, id := range seg.Nodes {
@@ -34,8 +41,20 @@ func guardsWhole(dag *engine.DAG, plan Plan) error {
 		}
 		var spans []int
 		for _, id := range slices.Concat(g.Tasks, g.Rescue, g.Always) {
+			if dag.Nodes[id].Kind() == engine.TaskKindSynthetic {
+				continue
+			}
 			if ord, ok := at[id]; ok && !slices.Contains(spans, ord) {
 				spans = append(spans, ord)
+			}
+		}
+		if len(spans) == 1 && dag.Units[block] {
+			place := plan.Segments[spans[0]].Placement
+			if many, err := several(place); err != nil {
+				return err
+			} else if many {
+				return fmt.Errorf("block %s has a rescue:, an always: or rollback_on_failure:, and a task in it runs somewhere other than hosts:, so a failure on one device fails it on every device; on the Walk tier each device %s names is dispatched on its own and cannot learn another's failure. "+
+					"Run the block on one device, or move the task with its own target out of it", label(dag, block), place)
 			}
 		}
 		if len(spans) < 2 {
@@ -91,11 +110,30 @@ func Verify(dag *engine.DAG, devices Devices, version string, got Segment) error
 	want := plan.Segments[got.Ordinal]
 	switch {
 	case !slices.Equal(want.Nodes, got.Nodes):
-		return fmt.Errorf("segment %d of runbook %q runs %s here, not %s", got.Ordinal, dag.ID, strings.Join(want.Nodes, ", "), strings.Join(got.Nodes, ", "))
+		return fmt.Errorf("segment %d of runbook %q runs %s here, not the %d nodes the dispatch names", got.Ordinal, dag.ID, quoted(want.Nodes), len(got.Nodes))
 	case want.Placement != got.Placement:
-		return fmt.Errorf("segment %d of runbook %q runs on %s here, not %s", got.Ordinal, dag.ID, want.Placement, got.Placement)
+		return fmt.Errorf("segment %d of runbook %q runs on %s here, not where the dispatch says", got.Ordinal, dag.ID, want.Placement)
 	case !slices.Equal(want.Reads, got.Reads) || want.ReadsAll != got.ReadsAll || !slices.Equal(want.Returns, got.Returns):
 		return fmt.Errorf("segment %d of runbook %q carries other registers here", got.Ordinal, dag.ID)
 	}
 	return nil
+}
+
+// maxQuoted bounds how many node ids a message quotes.
+const maxQuoted = 8
+
+// quoted lists ids for a message, each quoted and at most maxQuoted of them.
+// Only this copy's own ids are ever listed: a dispatch's are counted, never
+// echoed, since the message carrying them is what Verify does not trust.
+func quoted(ids []string) string {
+	shown := ids[:min(len(ids), maxQuoted)]
+	parts := make([]string, len(shown))
+	for i, id := range shown {
+		parts[i] = fmt.Sprintf("%q", id)
+	}
+	out := strings.Join(parts, ", ")
+	if len(ids) > maxQuoted {
+		out += fmt.Sprintf(" and %d more", len(ids)-maxQuoted)
+	}
+	return out
 }

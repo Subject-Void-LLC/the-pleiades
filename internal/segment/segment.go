@@ -5,10 +5,12 @@
 // between them.
 //
 // Split is a pure function of the DAG and of how many devices each of its
-// targets names. The Controller calls it to plan a job and the Runner calls
-// it again on its own copy of the runbook, refusing a dispatch whose segment
-// it does not compute itself (Verify), the way a Runner checks a rollback's
-// steps against its own runbook (internal/adapters/native's rollback.go).
+// targets names. It is built for the Controller to plan a job with, and for
+// the Runner to recompute on its own copy of the runbook, refusing a
+// dispatch whose segment it does not compute itself (Verify), the way a
+// Runner checks a rollback's steps against its own runbook
+// (internal/adapters/native's rollback.go). Nothing calls either yet:
+// segmented dispatch, which does, is the next part of Phase 117b.
 //
 // A segment ends, and the next begins, where:
 //
@@ -26,10 +28,25 @@
 //
 // A level of the walk whose tasks go to different targets (a parallel group's
 // children) runs its parts one after another, the part that continues the
-// current segment first. A block with a rescue:, an always: or
-// rollback_on_failure: must sit inside one segment: a failed segment ends the
-// run, so what the block keeps for a failure would never run, and Split
-// refuses it rather than lose it.
+// current segment first. Branches on different targets with several tasks
+// each therefore alternate, a segment per level, where running each branch
+// whole would need two.
+//
+// Split refuses what per-device dispatch would lose rather than lose it:
+//
+//   - a block with a rescue:, an always: or rollback_on_failure: split
+//     across segments, since a failed segment ends the run and what the
+//     block keeps for a failure would never run;
+//   - such a block that is a unit (a task in it runs somewhere other than
+//     hosts:) on several devices, since a unit's failure on one device fails
+//     it on all of them and one device's dispatch cannot learn another's;
+//   - lock_acquisition: all_at_plan_time on several devices, since each
+//     device's dispatch takes only its own lock.
+//
+// Inside one segment each device's dispatch goes on after another device
+// fails, where the Crawl tier stops every device after the level that
+// failed; that is the Walk tier's behavior today, with the whole runbook as
+// its one segment.
 package segment
 
 import (
@@ -169,7 +186,7 @@ func Split(dag *engine.DAG, devices Devices) (Plan, error) {
 	}
 	s.flush()
 	plan := Plan{Version: dag.Version, Segments: s.segments}
-	if err := guardsWhole(dag, plan); err != nil {
+	if err := guardsWhole(dag, plan, s.several); err != nil {
 		return Plan{}, err
 	}
 	carry(plan.Segments, s.reads)

@@ -99,6 +99,29 @@ func FuzzSplit(f *testing.F) {
 			}
 			return
 		}
+		// A plan Split accepts keeps every guarded block's tasks in one
+		// segment, structural nodes aside.
+		segmentOf := map[string]int{}
+		for _, seg := range plan.Segments {
+			for _, id := range seg.Nodes {
+				segmentOf[id] = seg.Ordinal
+			}
+		}
+		for block, g := range dag.Guards {
+			if !g.HasRescue() && !g.HasAlways() && !g.Rollback {
+				continue
+			}
+			span := -1
+			for _, id := range append(append(append([]string(nil), g.Tasks...), g.Rescue...), g.Always...) {
+				if dag.Nodes[id].Kind() == engine.TaskKindSynthetic {
+					continue
+				}
+				if span >= 0 && segmentOf[id] != span {
+					t.Fatalf("guarded block %s was accepted across segments %d and %d", block, span, segmentOf[id])
+				}
+				span = segmentOf[id]
+			}
+		}
 		walked, err := engine.TopologicalOrder(dag)
 		if err != nil {
 			t.Fatal(err)

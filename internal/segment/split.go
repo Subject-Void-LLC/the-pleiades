@@ -123,6 +123,11 @@ func (s *splitter) place(id string, p Placement) error {
 	if err != nil {
 		return err
 	}
+	// A lock taken on every device before any runs cannot be all or nothing
+	// when each device is dispatched on its own.
+	if several && task.LockAcquisition == engine.AcquisitionAllAtPlanTime {
+		return fmt.Errorf("task %s takes every device's lock before any runs (lock_acquisition), and on the Walk tier each of the devices %s names is dispatched on its own, so the locks cannot be taken all or nothing", label(s.dag, id), p)
+	}
 	if task.Register != "" {
 		if !slices.Contains(cur.Writes, task.Register) {
 			cur.Writes = append(cur.Writes, task.Register)
