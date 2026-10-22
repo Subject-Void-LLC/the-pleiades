@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -257,7 +258,7 @@ func TestSaveFileStore_WritesTheFileOwnerReadableOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat() failed: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 { // Windows has no POSIX modes
 		t.Errorf("credentials.yaml has mode %o, want 600: any other local user can read it", perm)
 	}
 }
