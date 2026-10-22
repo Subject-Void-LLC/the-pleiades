@@ -671,6 +671,9 @@ look up a Collection method's reference from the live registry (see 'pleiades do
 | --list | `bool` | `false` | list every registered FQCN, or those in one namespace if fqcn is given as a prefix |
 | --snippet | `bool` | `false` | print a paste-ready runbook task stanza for fqcn |
 | --json | `bool` | `false` | print the full catalog, or one fqcn's Manifest, as JSON |
+| --create-skill | `bool` | `false` | create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method |
+
+`pleiades doc --create-skill`
 
 `pleiades doc --list`
 

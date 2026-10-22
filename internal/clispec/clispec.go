@@ -629,8 +629,10 @@ var Root = Command{
 				{Name: "list", Type: "bool", Default: "false", Doc: "list every registered FQCN, or those in one namespace if fqcn is given as a prefix"},
 				{Name: "snippet", Type: "bool", Default: "false", Doc: "print a paste-ready runbook task stanza for fqcn"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print the full catalog, or one fqcn's Manifest, as JSON"},
+				{Name: "create-skill", Type: "bool", Default: "false", Doc: "create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method"},
 			},
 			Examples: []string{
+				"pleiades doc --create-skill",
 				"pleiades doc --list",
 				"pleiades doc --list net.catalyst",
 				"pleiades doc net.catalyst.device_facts",

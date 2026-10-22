@@ -428,6 +428,18 @@ as `\u` escapes, so the document is safe to print.
 `adhoc` is a Crawl-tier command only. The Controller has no ad-hoc path: everything it
 runs goes through a saved template.
 
+**Teaching an AI agent.** `pleiades doc --create-skill` writes `SKILL.md` in the current
+directory: a skill an AI agent reads to learn The Pleiades. It says which commands to use
+(`adhoc --json` to call one method, `doc` to read a method's parameters before calling it,
+`--mode check` before changing anything, `rollback` to undo), how a runbook is written,
+with a runbook that validates as written, and lists every method built into the binary
+with whether it can be checked and undone. Put it where your agent loads skills from (for
+Claude Code, `.claude/skills/pleiades/SKILL.md`), and run the command again after an
+upgrade: it replaces a `SKILL.md` it wrote and refuses to touch one it did not. Methods
+from external Collections are left out on purpose, since a skill is text an agent
+follows and their descriptions are written by somebody else; `pleiades doc --list` shows
+them.
+
 ### 10. Undo a run
 
 `pleiades journal list` lists the project's runs, and `pleiades journal show <run-id>`

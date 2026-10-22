@@ -30,7 +30,10 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   <hosts> <method> key=value ...` runs one method with no runbook, through the same pipeline
   as `run` (`cmd/pleiades/run_pipeline.go`), and `run --json`/`adhoc --json` print that
   pipeline's report model as one JSON document (Phase 113). For an agent, `adhoc ... --json` is
-  the way to call a method once; do not write a throwaway runbook for it.
+  the way to call a method once; do not write a throwaway runbook for it. `pleiades doc --create-skill`
+  (`cmd/pleiades/doc_skill.go`) writes `SKILL.md`, a skill teaching an agent those commands, the runbook rules and
+  every built-in method from the live registry; external Collections are left out, since their text would become
+  instructions an agent follows, and it replaces only a `SKILL.md` it wrote.
 - **Walk tier's control plane is real and tested**: data layer, event bus, distributed
   locking, leader election, envelope encryption, inventory factory, RBAC, the CEL
   conditional engine, the workflow DAG builder, the HATEOAS API gateway, job dispatcher.
