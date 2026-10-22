@@ -193,6 +193,36 @@ func ValidateGrant(def DataDefinition, props map[string]any) error {
 	return nil
 }
 
+// ValidateGrantShape checks the properties of a grant whose definition this
+// process does not hold (a Controller loads no program): at most
+// MaxDataProperties, each a snake case name holding a bounded plain string,
+// a bool or a whole number. The definition is checked where it is held, on
+// the command line and on a Runner.
+func ValidateGrantShape(props map[string]any) error {
+	if len(props) > MaxDataProperties {
+		return fmt.Errorf("a grant carries %d properties, more than %d", len(props), MaxDataProperties)
+	}
+	for key, value := range props {
+		if !propertyName.MatchString(key) || len(key) > MaxDataNameLength {
+			return fmt.Errorf("property %q is not a snake case name of at most %d characters", key, MaxDataNameLength)
+		}
+		var err error
+		switch value.(type) {
+		case string:
+			err = propertyFits(DataProperty{Type: "string"}, value)
+		case bool:
+		case int, int64, float64:
+			err = propertyFits(DataProperty{Type: "int"}, value)
+		default:
+			err = fmt.Errorf("want a string, a bool or a whole number, got %T", value)
+		}
+		if err != nil {
+			return fmt.Errorf("property %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
 // propertyFits checks one value against its declared type.
 func propertyFits(p DataProperty, value any) error {
 	switch p.Type {

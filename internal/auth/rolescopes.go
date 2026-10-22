@@ -137,6 +137,7 @@ func operatorScopes() []Scope {
 func adminScopes() []Scope {
 	return append(operatorScopes(),
 		ScopeAccessWrite,
+		ScopeInventoryAssert,
 	)
 }
 
@@ -167,5 +168,6 @@ func AllScopes() []Scope {
 		ScopeProjectRead,
 		ScopeProjectWrite,
 		ScopeAccessWrite,
+		ScopeInventoryAssert,
 	}
 }

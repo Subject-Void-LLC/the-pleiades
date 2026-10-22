@@ -1592,6 +1592,8 @@ func main() {
 		apispec.UpdateDevice.Name:     devices.Update,
 		apispec.DeleteDevice.Name:     devices.Delete,
 		apispec.OnboardDevice.Name:    devices.Onboard,
+		apispec.GrantCapability.Name:  devices.GrantCapability,
+		apispec.RevokeCapability.Name: devices.RevokeCapability,
 		apispec.ImportKubeconfig.Name: devices.ImportKubeconfig,
 		apispec.ListRunbooks.Name:     catalog.List,
 		apispec.GetRunbook.Name:       catalog.Get,

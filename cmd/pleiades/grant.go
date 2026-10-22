@@ -12,15 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
-
-// maxGrantReason bounds a grant's reason.
-const maxGrantReason = 512
 
 // granting is the one write path a grant has on an inventory item
 // (record.Base.RecordGrant and RevokeGrant).
@@ -53,8 +49,8 @@ func runGrantCapability(args []string) error {
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	if err := checkGrantReason(*reason); err != nil {
-		return err
+	if err := inventory.ValidateGrantReason(*reason); err != nil {
+		return fmt.Errorf("--reason: %w", err)
 	}
 	if !capability.IsDataName(capName) {
 		if _, compiled := capability.Lookup(capName); compiled {
@@ -151,23 +147,6 @@ func runRevokeCapability(args []string) error {
 		return err
 	}
 	fmt.Printf("revoked %s from host %q\n", capName, name)
-	return nil
-}
-
-// checkGrantReason refuses an empty reason, one too long, and one holding
-// a control character.
-func checkGrantReason(reason string) error {
-	if strings.TrimSpace(reason) == "" {
-		return errors.New("--reason is required: a granted capability is an assertion nothing on the device vouched for, so say why it holds")
-	}
-	if len(reason) > maxGrantReason {
-		return fmt.Errorf("--reason is longer than %d bytes", maxGrantReason)
-	}
-	for _, r := range reason {
-		if unicode.IsControl(r) {
-			return errors.New("--reason holds a control character")
-		}
-	}
 	return nil
 }
 

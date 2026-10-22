@@ -3,9 +3,12 @@
 package inventory
 
 import (
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
@@ -128,4 +131,25 @@ func GrantsFrom(props Properties) ([]Grant, bool, error) {
 	}
 	sort.Slice(grants, func(i, j int) bool { return grants[i].Capability < grants[j].Capability })
 	return grants, true, nil
+}
+
+// MaxGrantReason bounds an asserted grant's reason.
+const MaxGrantReason = 512
+
+// ValidateGrantReason refuses an asserted grant's reason that is empty, too
+// long, or holds a control character. An assertion is a claim nothing on
+// the device vouched for, so it always says why.
+func ValidateGrantReason(reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return errors.New("a reason is required: a granted capability is an assertion nothing on the device vouched for, so say why it holds")
+	}
+	if len(reason) > MaxGrantReason {
+		return fmt.Errorf("the reason is longer than %d bytes", MaxGrantReason)
+	}
+	for _, r := range reason {
+		if unicode.IsControl(r) {
+			return errors.New("the reason holds a control character")
+		}
+	}
+	return nil
 }

@@ -220,4 +220,13 @@ const (
 	// look at a project should not be able to make the controller reach
 	// out to an arbitrary host.
 	ScopeProjectWrite Scope = "project:write"
+
+	// ScopeInventoryAssert grants the right to assert that a device holds a
+	// capability an external program defines, and to take such a grant
+	// back. It is its own scope, implied by neither ScopeInventoryWrite nor
+	// ScopeInventoryOnboard and held by no role but admin, because an
+	// assertion is a claim nothing on the device vouched for: onboarding
+	// proves what it grants, and this records only who said so and why.
+	// Appended last for the reason ScopeProjectRead's comment gives.
+	ScopeInventoryAssert Scope = "inventory:assert"
 )
