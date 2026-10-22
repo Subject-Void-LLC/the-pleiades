@@ -25,8 +25,39 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
-// rollbackUsage is the command's usage line.
-const rollbackUsage = "usage: pleiades rollback <run-id> [--dir DIR] [--mode check] [--runbook FILE] [--leave NODE]... [--allow-partial NODE]... [--allow-unknown NODE]... [--despite-run RUN]... [--json] [--verbose]"
+// newRollbackFlags declares every flag rollback parses: run's own, which
+// steer how the undo's tasks run, and the ones that decide what is undone.
+func newRollbackFlags() (*flag.FlagSet, *runFlags, rollbackFlags) {
+	fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
+	flags := addRunFlags(fs)
+	rf := rollbackFlags{leave: map[string]bool{}, allowPartial: map[string]bool{}, allowUnknown: map[string]bool{}, despite: map[string]bool{}}
+	rf.runbook = fs.String("runbook", "", "the runbook the run ran, when a task's undo is its rollback: list (found in DIR/runbooks when unset)")
+	namedList(fs, "leave", "a node whose change to leave in place rather than undo", rf.leave)
+	namedList(fs, "allow-partial", "a node whose partial undo to run anyway", rf.allowPartial)
+	namedList(fs, "allow-unknown", "a node whose unknown effect to accept, or unsealed for a journal with no seal", rf.allowUnknown)
+	namedList(fs, "despite-run", "a later run whose changes to the same devices to undo beneath", rf.despite)
+	return fs, flags, rf
+}
+
+// usageLine is a command's usage line, built from the flags it parses so
+// it can never leave one out: every long flag in name order, a value
+// placeholder for one that takes a value, single-letter shorthands left
+// out.
+func usageLine(command string, fs *flag.FlagSet) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "usage: pleiades %s", command)
+	fs.VisitAll(func(f *flag.Flag) {
+		if len(f.Name) == 1 {
+			return
+		}
+		if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+			fmt.Fprintf(&b, " [--%s]", f.Name)
+			return
+		}
+		fmt.Fprintf(&b, " [--%s X]", f.Name)
+	})
+	return b.String()
+}
 
 // rollbackReport is a rollback's own part of the run report.
 type rollbackReport struct {
@@ -70,18 +101,11 @@ func namedList(fs *flag.FlagSet, name, usage string, set map[string]bool) {
 // runRollback is `pleiades rollback <run-id>`.
 func runRollback(args []string) error {
 	positionals, rest := splitPositionals(args, runBoolFlags)
+	fs, flags, rf := newRollbackFlags()
 	if len(positionals) != 1 {
-		return fmt.Errorf("%s: %w", rollbackUsage, errMissingPositional)
+		return fmt.Errorf("%s: %w", usageLine("rollback <run-id>", fs), errMissingPositional)
 	}
 	runID := positionals[0]
-	fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
-	flags := addRunFlags(fs)
-	rf := rollbackFlags{leave: map[string]bool{}, allowPartial: map[string]bool{}, allowUnknown: map[string]bool{}, despite: map[string]bool{}}
-	rf.runbook = fs.String("runbook", "", "the runbook the run ran, when a task's undo is its rollback: list (found in DIR/runbooks when unset)")
-	namedList(fs, "leave", "a node whose change to leave in place rather than undo", rf.leave)
-	namedList(fs, "allow-partial", "a node whose partial undo to run anyway", rf.allowPartial)
-	namedList(fs, "allow-unknown", "a node whose unknown effect to accept, or unsealed for a journal with no seal", rf.allowUnknown)
-	namedList(fs, "despite-run", "a later run whose changes to the same devices to undo beneath", rf.despite)
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}

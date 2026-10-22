@@ -7900,6 +7900,111 @@
       ]
     }
   },
+  "file.stat": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "POSIXFileSystemCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads what is at a path; nothing on the device changes, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports what is at a path on the target, and changes nothing.",
+      "description": "Reads what is at a path and reports it: whether anything is there, what it is (a file, a directory, a symlink or something else), its mode, owner and group, a symlink's target, its size and its modification time. This is ansible.builtin.stat. It only reads, so it never reports a change, records no undo, and its check is the same read. An absent path is an answer (exists is false), not a failure. Use it to look at a path before or after a change instead of a shell command, which reports changed on every run because it cannot tell what its command did.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The path to look at. A symlink is reported as the link itself, with its target, not as what it points to."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The path this task looked at."
+        },
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether anything is at the path."
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "returned": "always",
+          "description": "What is there: file, directory, symlink, other, or absent."
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The permission bits in octal, such as 0755, with the setuid, setgid and sticky digit when one is set."
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The owning user's name."
+        },
+        {
+          "name": "group",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The owning group's name."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "The size in bytes."
+        },
+        {
+          "name": "mtime",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "The modification time, as a Unix timestamp."
+        },
+        {
+          "name": "target",
+          "type": "string",
+          "returned": "when it is a symlink",
+          "description": "Where the symlink points."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Look at a directory before changing it",
+          "runbookYaml": "- name: See what is at the app directory\n  file.stat:\n    path: /srv/app\n  register: app_dir\n"
+        }
+      ],
+      "seeAlso": [
+        "file.directory",
+        "file.permissions",
+        "facts.gather"
+      ]
+    }
+  },
   "file.symlink": {
     "supportedTransports": [
       "ssh"
@@ -9405,12 +9510,14 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created an absent account emits an identity.user.remove naming it. A run that found the account already present but converged one or more attributes (uid, group, shell, home or comment) emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found the account already exactly as requested emits nothing. What no inverse here can restore is the account's password, or anything a login shell or profile script did while the account existed.",
+      "notes": "A run that created an absent account emits an identity.user.remove naming it, which also removes the home directory the run made (none was there before) while that still holds only what useradd copied into it; a home in use since is kept, and the undo says so. A run that found the account already present but converged one or more attributes (uid, group, shell, home or comment) emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found the account already exactly as requested emits nothing. What no inverse here can restore is the account's password, or anything a login shell or profile script did while the account existed.",
       "inverses": [
         {
           "fqcn": "identity.user.remove",
           "record": [
-            "name"
+            "name",
+            "remove_home_if_unchanged",
+            "created_home"
           ]
         },
         {
@@ -9669,6 +9776,17 @@
           "type": "bool",
           "default": "false",
           "description": "Also delete the home directory and mail spool (userdel -r). Left false, they are left on disk."
+        },
+        {
+          "name": "remove_home_if_unchanged",
+          "type": "bool",
+          "default": "false",
+          "description": "Delete the home directory and mail spool only while the home holds exactly what useradd copied into it from the skeleton directory, every file unchanged; otherwise keep it and say so in a warning. identity.user.create's undo sets it for a home that run made. Not with remove."
+        },
+        {
+          "name": "created_home",
+          "type": "string",
+          "description": "With remove_home_if_unchanged, the home the account was made with: the home is deleted only while the account's home is still this path, so a home moved since (identity.user.modify) is never judged in its place. identity.user.create's undo sets it."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -10664,12 +10782,13 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that installed an absent package emits a pkg.apt.remove naming it. A run that found it already present, even at a different version than requested, emits nothing: reinstalling over an existing package is not something removing it would undo correctly, since the version that was already there before this task ran would be lost along with the one this task left. What the inverse cannot restore is anything the package's install scripts did: a service they started, a user they created, a config file they wrote outside dpkg's own tracking.",
+      "notes": "A run that installed an absent package emits a pkg.apt.remove naming it and the packages the install pulled in with it (dependencies), which the remove takes too while nothing else needs them and removing them takes nothing else with them; any it keeps it names. An install that pulled in more than 128 packages, or whose installed set could not be read afterwards, names the package alone and says so, leaving the rest to apt-get autoremove. A run that found it already present, even at a different version than requested, emits nothing: reinstalling over an existing package is not something removing it would undo correctly, since the version that was already there before this task ran would be lost along with the one this task left. What the inverse cannot restore is anything the package's install scripts did: a service they started, a user they created, a config file they wrote outside dpkg's own tracking.",
       "inverses": [
         {
           "fqcn": "pkg.apt.remove",
           "record": [
-            "name"
+            "name",
+            "dependencies"
           ]
         }
       ]
@@ -10751,7 +10870,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files.",
+      "notes": "A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. Reinstalling brings back the dependencies it removed with the package, at whatever version APT then picks. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files.",
       "inverses": [
         {
           "fqcn": "pkg.apt.install",
@@ -10774,6 +10893,11 @@
           "description": "The APT package name to remove."
         },
         {
+          "name": "dependencies",
+          "type": "list",
+          "description": "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."
+        },
+        {
           "name": "insecure_skip_host_key_verify",
           "type": "bool",
           "default": "false",
@@ -10792,6 +10916,12 @@
           "type": "string",
           "returned": "always",
           "description": "Always empty after a successful run: a removed package has no installed version, and a package that was already absent had none either."
+        },
+        {
+          "name": "dependencies_removed",
+          "type": "list",
+          "returned": "when dependencies names one the run removes",
+          "description": "The dependencies removed with the package, or that a check predicts would be."
         },
         {
           "name": "diff",
@@ -11141,7 +11271,8 @@
         {
           "fqcn": "pkg.apt.remove",
           "record": [
-            "name"
+            "name",
+            "dependencies"
           ]
         },
         {

@@ -24,6 +24,7 @@ Makes sure a package is absent from a Debian-family host, removing it if it is p
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The APT package name to remove. |
+| `dependencies` | `list` | no | - | Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns
@@ -32,13 +33,14 @@ Makes sure a package is absent from a Debian-family host, removing it if it is p
 | --- | --- | --- | --- |
 | `name` | `string` | always | The package this task acted on. |
 | `version` | `string` | always | Always empty after a successful run: a removed package has no installed version, and a package that was already absent had none either. |
+| `dependencies_removed` | `list` | when dependencies names one the run removes | The dependencies removed with the package, or that a check predicts would be. |
 | `diff` | `dict` | always | What dpkg reported about the package before this task and after it, each holding installed and version. |
 
 ## Undoing this
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files.
+A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. Reinstalling brings back the dependencies it removed with the package, at whatever version APT then picks. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 

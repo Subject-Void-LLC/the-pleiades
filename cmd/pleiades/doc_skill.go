@@ -172,14 +172,23 @@ const skillGuide = "## Starting in a project\n\n" +
 	"2. `pleiades add-host web01 --type linux_server --tags web --set host=10.0.0.5` adds a device. `--type` is its\n" +
 	"   device type (`linux_server`, `windows_server`, `cisco_switch`, `container_host`, `generic_ssh` and others);\n" +
 	"   `--tags` are what a runbook's `hosts:` and `adhoc`'s `<hosts>` can name besides the device itself. SSH on\n" +
-	"   another port is `--set port=2222`.\n" +
-	"3. `pleiades add-credential web01 --username <name> --password-stdin < <file>` stores its login, encrypted,\n" +
-	"   reading one line from standard input. Get it from the person you work for; never write it into a file of\n" +
-	"   your own or a command line. It lands in `.pleiades/credentials.yaml` beside `.pleiades/master.key`, the key\n" +
-	"   that decrypts it: never commit, copy or share `.pleiades/`.\n" +
+	"   another port is `--set port=2222`. A `linux_server` added by `--type` runs commands and file methods, but\n" +
+	"   package and account methods (`pkg.apt.*`, `pkg.dnf.*`, `identity.*`) need its family: add a Debian or Ubuntu\n" +
+	"   server with `--classify linux_server,debian_family` and a RHEL, Rocky or Fedora one with\n" +
+	"   `--classify linux_server,rhel_family`, in place of `--type`. Choose when adding it: `set-host` cannot change it.\n" +
+	"3. `pleiades add-credential` stores a device's login, encrypted. Get the password from the person you work for:\n" +
+	"   - as a sealed file, which never shows the password and needs no shell redirect:\n" +
+	"     `pleiades add-credential web01 --username <name> --password-file <file>`. One sealed to this project's key\n" +
+	"     (`pleiades seal-key` prints the public key the person seals to with `pleiades seal --to`) opens with it;\n" +
+	"     one sealed to a passphrase also needs `--passphrase`, which the person types, or `--passphrase-stdin`.\n" +
+	"   - or as a plaintext file: `pleiades add-credential web01 --username <name> --password-stdin < <file>`.\n" +
+	"   Never write a password into a file of your own or a command line. It lands in `.pleiades/credentials.yaml`\n" +
+	"   beside `.pleiades/master.key`, the key that decrypts it: never commit, copy or share `.pleiades/`.\n" +
 	"4. An SSH device's host key must be trusted before the first connection, and an unknown key is refused.\n" +
 	"   `pleiades trust-host web01 --first-connect` connects to the device's `host` and `port` and trusts every key\n" +
-	"   it offers, unverified: ask first. Keys go in `$HOME/.ssh/known_hosts`, not in the project.\n" +
+	"   it offers, unverified: ask first. Keys go in the file `PLEIADES_KNOWN_HOSTS` names, or else in\n" +
+	"   `$HOME/.ssh/known_hosts` as pleiades sees `$HOME`, never in the project; `trust-host` prints the file it\n" +
+	"   wrote, and every later connection reads the same one.\n" +
 	"5. A `generic_*` device starts discovered and runs nothing until `pleiades onboard <device>` records what it\n" +
 	"   proved it can do.\n" +
 	"6. `pleiades adhoc web01 facts.gather --json` is a safe first call: it reads and changes nothing.\n\n" +
@@ -190,15 +199,23 @@ const skillGuide = "## Starting in a project\n\n" +
 	"   value (`argv:='[uname, -r]'`). `<hosts>` is a device name or a tag. Do not write a throwaway runbook for this.\n" +
 	"3. Check before you change: add `--mode check` to `adhoc` or `run`. It reports what each task would change and\n" +
 	"   changes nothing. A method with no check support is named as unchecked, and an incomplete check exits 3.\n" +
+	"   A check reads each task against the device as it is now, so a task needing what an earlier one makes (a\n" +
+	"   user whose group is created first) is unchecked, with the reason. Once the earlier task covers it, accept\n" +
+	"   that gap by name: `--allow-unchecked <method>`.\n" +
 	"4. Read results from `--json`, one JSON document on standard output whose exit status matches the text view.\n" +
 	"   What each task returned is under `tasks[].stats`, with or without a `register:`.\n" +
 	"5. Target the narrowest set the request allows: a device's own name, not its tag, when the work is about\n" +
 	"   one device.\n" +
 	"6. A run that changed something can usually be undone: `pleiades journal list`, then\n" +
-	"   `pleiades rollback <run-id> --mode check`, then the same without `--mode check`.\n" +
-	"7. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
-	"   (`pleiades add-credential <device> --username <name> --password-stdin`) and reaches its methods on its own.\n" +
-	"8. `pleiades <command> --help` lists every flag a command takes, and exits 1 after printing it, which is not a\n" +
+	"   `pleiades rollback <run-id> --mode check`, then the same without `--mode check`. A check of a rollback\n" +
+	"   sees the device as it is now, before any of the undo runs, so a warning that a later step would keep\n" +
+	"   something may not hold once the steps before it have run.\n" +
+	"7. To look at a device without changing it, use a method that only reads (`facts.gather`, `file.stat`) or\n" +
+	"   any method with `--mode check`, which is never journaled. A command method (`exec.command`) reports\n" +
+	"   changed on every run and is journaled, so a later rollback has to be told to step over it.\n" +
+	"8. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
+	"   (`pleiades add-credential <device> --username <name> --password-file <file>`) and reaches its methods on its own.\n" +
+	"9. `pleiades <command> --help` lists every flag a command takes, and exits 1 after printing it, which is not a\n" +
 	"   failure. A command that takes a name needs one first: `pleiades add-host x --help` (it adds nothing).\n\n" +
 	"## When something fails\n\n" +
 	"- `outcome.status` in the `--json` report is `complete` only when everything succeeded. Otherwise read\n" +
@@ -209,6 +226,19 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  `unchecked`. `held` waits for a person's decision; do not work around it.\n" +
 	"- A check that could not cover every task exits 3 and names the unchecked tasks. Treat their effect as unknown.\n" +
 	"- After a failed run, `pleiades journal show <run-id>` says what each task did, and what can be undone.\n\n" +
+	"## Keep a journal\n\n" +
+	"Keep your own notes in `AGENT_JOURNAL.md` at the project's root, so a later session, yours or another agent's,\n" +
+	"starts where you stopped instead of from nothing.\n\n" +
+	"1. Read it first, if it exists: what the person asked for, what is done, what is left, and which runs to undo.\n" +
+	"2. Write down the request as the person gave it, and each decision you make with its reason.\n" +
+	"3. After every `adhoc` or `run`, append an entry: the date, the command, each task's `status`, and the outputs a\n" +
+	"   later step needs (a version, an address, a path a task made). A run that is not a check also has a `run_id` in\n" +
+	"   its `--json` report: write it, say whether the run changed anything, and mark it when it is rolled back.\n" +
+	"   `pleiades rollback <run-id>` and `pleiades journal show <run-id>` take it; undo runs newest first, and\n" +
+	"   only runs that changed something: a run that changed nothing, or only read, needs no undo.\n" +
+	"4. End each session with what is left, so the next one can start from it.\n" +
+	"5. Never write a password, token, key or the contents of a credential or sealed file into it; name the file.\n" +
+	"   `pleiades journal list` is pleiades' own record of what ran; yours records why, and what comes next.\n\n" +
 	"## Runbooks\n\n" +
 	"A runbook is a YAML file under `runbooks/`. Validate it with `pleiades validate runbooks/<file>.yaml`, then run it\n" +
 	"with `pleiades run runbooks/<file>.yaml --json`. How a runbook is written (`pleiades validate` warns when one\n" +
@@ -220,7 +250,10 @@ const skillGuide = "## Starting in a project\n\n" +
 	"- A command method (`exec.command`, `exec.shell`) cannot tell what its command did, so it reports `changed` on\n" +
 	"  every run, even one that only reads, and a check of it is unchecked. To read a device, prefer a method that\n" +
 	"  only reads, such as `facts.gather` with a `filter` list naming the facts (`ansible_kernel`,\n" +
-	"  `ansible_distribution*`); a report needs no `register:`. The example below uses commands to show one.\n\n" +
+	"  `ansible_distribution*`); a report needs no `register:`. The example below uses commands to show one.\n" +
+	"- A file `file.copy` creates is owned by the account the task logs in as, mode 0600 (an existing file keeps\n" +
+	"  its own), and a directory `file.directory` makes takes the device's umask, unless the task names `owner`,\n" +
+	"  `group` and `mode`: name them for anything another account must read.\n\n" +
 	"```yaml\n" +
 	skillRunbook +
 	"```\n\n"

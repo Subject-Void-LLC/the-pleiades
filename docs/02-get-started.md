@@ -91,6 +91,43 @@ to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held maste
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
 
+**A password in a sealed file.** When the password should never be typed or kept in the
+clear where the project runs, or an AI agent sets the project up and its shell refuses a
+`<` redirect, give `add-credential` a sealed file instead. The project prints its public
+seal key, making the key pair on first use:
+
+```console
+$ pleiades seal-key > project.pub
+made this project's seal key, SHA256:CwhPNY8FJFlVcAwCJ7CylhvhYT/sP2LO3x60wk/eONo
+```
+
+Whoever holds the password seals it to that key, on any machine with `pleiades` on it. It is
+typed twice at a prompt, or piped in with `--secret-stdin`:
+
+```console
+$ pleiades seal --to @project.pub --out web1.sealed
+secret:
+again:
+sealed a password to SHA256:CwhPNY8FJFlVcAwCJ7CylhvhYT/sP2LO3x60wk/eONo in web1.sealed
+
+$ pleiades add-credential web1 --username svc-netauto --password-file web1.sealed
+stored credential for device "web1"
+```
+
+Only the project holding the private half opens the file. It is sealed with HPKE (RFC 9180)
+using ML-KEM-768 with X25519, so a recorded file stays closed unless both are broken, and
+every header is bound into the encryption, so an edited file refuses to open rather than
+open as something else. A person who would rather type a passphrase than handle a key seals
+with `pleiades seal --passphrase --out web1.sealed` (argon2id, at least 12 characters), and
+`add-credential --password-file web1.sealed --passphrase` asks for it.
+
+Be clear about what this protects. A sealed file keeps the password out of command lines,
+shell history, transcripts and logs, and lets it be sealed on another machine so the
+plaintext never exists where the project runs. It does not hide the password from anything
+that can read `.pleiades/`: `master.key` opens the seal key, and `add-credential` stores the
+password in `credentials.yaml` under that same master key. To keep a password from an agent
+or a script, keep `.pleiades/` out of its reach, for example by running it as another user.
+
 ### 5. Validate
 
 ```console
@@ -430,7 +467,7 @@ runs goes through a saved template.
 
 **Teaching an AI agent.** `pleiades doc --create-skill` writes `SKILL.md` in the current
 directory: a skill an AI agent reads to learn The Pleiades. It says how to set up a project
-(`init`, `add-host`, `add-credential --password-stdin`, `trust-host`, `onboard`), which commands
+(`init`, `add-host`, `add-credential --password-file`, `trust-host`, `onboard`), which commands
 to use (`adhoc --json` to call one method, `doc` to read a method's parameters before calling it,
 `--mode check` before changing anything, `rollback` to undo), how to read a failed run's
 report, how a runbook is written,
@@ -441,7 +478,8 @@ an upgrade: it replaces a `SKILL.md` it wrote and refuses to touch one it did no
 link, since replacing a link would leave the file it points at stale. Methods
 from external Collections are left out on purpose, since a skill is text an agent
 follows and their descriptions are written by somebody else; `pleiades doc --list` shows
-them.
+them. [Let an AI agent drive it](#11-let-an-ai-agent-drive-it) below says what the skill
+asks of an agent and what its sandbox has to provide.
 
 ### 10. Undo a run
 
@@ -518,6 +556,49 @@ partway ends the rollback incomplete (exit 3) unless you accept it with
 `--allow-unknown`. `--json` prints the plan, or the refusal and every problem, as one
 document. See [Rolling a run back](10-running-in-production.md#rolling-a-run-back) for
 what is undone and what is trusted.
+
+### 11. Let an AI agent drive it
+
+The skill `pleiades doc --create-skill` writes (step 9) is enough for an agent to set a
+server up and later put it back. In testing, three different agent CLIs each onboarded a
+Debian server, wrote and checked a runbook, applied it, and then, in a new conversation
+that knew nothing but the project, rolled it back until the server matched its starting
+state exactly: accounts, groups, files and installed packages, the libraries a package
+pulled in included. What the skill asks of an agent:
+
+1. Read a method with `pleiades doc <method>` before calling it, and call one method once
+   with `pleiades adhoc <hosts> <method> key=value ... --json` rather than writing a
+   throwaway runbook.
+2. Check before changing: `--mode check` on `adhoc` or `run`. A check reads each task
+   against the device as it is now, so a task that needs what an earlier one makes (a user
+   whose group is created first) is reported unchecked with the reason, and
+   `--allow-unchecked <method>` accepts that gap by name once the earlier task covers it.
+3. Look with a method that only reads, such as `facts.gather` or `file.stat`, not
+   `exec.command`. A shell command cannot tell what it did, so it reports a change on
+   every run and leaves behind a run that a later rollback has to step over.
+4. Keep `AGENT_JOURNAL.md` at the project's root: the request, each decision and why, and
+   after every real run its `run_id` and whether it changed anything. A new session reads
+   it first. It never holds a password, key or token, only the name of the file that does.
+5. Undo with `pleiades journal list`, `pleiades rollback <run-id> --mode check`, then
+   `pleiades rollback <run-id>`, newest run first.
+
+Some things an agent needs come from its own sandbox, not from The Pleiades:
+
+- **A memory and process limit** on the agent and everything it starts. An agent's tools
+  run programs, and a program that starts itself in a loop can take a whole machine down;
+  a cgroup with a memory cap, no swap and a task limit stops that at the sandbox.
+- **An allow list** that includes `pleiades` and the read-only file commands the agent will
+  use. Some agent CLIs, run without a person to ask, end the whole turn at the first command
+  that is not allowed, so give the list everything the work needs before it starts. A
+  sealed `--password-file` exists partly because many allow lists refuse every `<`
+  redirect.
+- **Write access to the project directory**, and a `known_hosts` it can write: set
+  `PLEIADES_KNOWN_HOSTS` to a file inside the sandbox when the agent's `HOME` is outside
+  it. `trust-host` prints the file it wrote.
+- **A boundary around `.pleiades/`, if the passwords must be hidden from the agent.** An
+  agent that runs `pleiades` as itself can read everything `pleiades` reads, `master.key`
+  included (see the sealed file note in step 4). Hiding the passwords takes something
+  outside The Pleiades, such as running `pleiades` as another user.
 
 ## Quickstart: Walk tier
 

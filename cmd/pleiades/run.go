@@ -40,17 +40,16 @@ func runRunbook(args []string) error {
 	// --verbose` would silently treat --verbose as a second positional
 	// and fail with a usage error naming neither the flag nor why. The
 	// runbook path is the thing a person types first.
-	runbook, rest, err := splitPositional(args, runBoolFlags)
-	if err != nil {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--mode execute|check] [--tags a,b] [--skip-tags c] [--forks 5] [--persist-connections=false] [--extra-vars key=value|@file.yaml ...] [--verbose] [--json] [--dir .]: %w", err)
-	}
-
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags := addRunFlags(fs)
 	selection := tagFlags(fs)
 	extraVars := &extraVarsFlag{}
 	fs.Var(extraVars, "extra-vars", "a variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.<name>")
 	fs.Var(extraVars, "e", "shorthand for --extra-vars")
+	runbook, rest, err := splitPositional(args, runBoolFlags)
+	if err != nil {
+		return fmt.Errorf("%s: %w", usageLine("run <runbook.yaml>", fs), err)
+	}
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}

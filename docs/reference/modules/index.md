@@ -17,7 +17,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `edge` | 3 | 3 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
-| `file` | 13 | 12 |
+| `file` | 14 | 13 |
 | `fs` | 2 | 2 |
 | `fw` | 3 | 3 |
 | `gate` | 2 | 2 |
@@ -31,7 +31,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 19 | 19 |
 | `wait` | 3 | 3 |
 | `win` | 12 | 12 |
-| **total** | **177** | **174** |
+| **total** | **178** | **175** |
 
 ## All methods
 
@@ -116,6 +116,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [file.line.set](file/line/set.md) | implemented | Ensures one line matching a pattern is present in a file, replacing or appending it. |
 | [file.permissions](file/permissions.md) | implemented | Sets a file's owner, group, and mode on the target. |
 | [file.remove](file/remove.md) | implemented | Removes a file or directory from the target. |
+| [file.stat](file/stat.md) | implemented | Reports what is at a path on the target, and changes nothing. |
 | [file.symlink](file/symlink.md) | implemented | Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory. |
 | [file.template](file/template.md) | declared | Renders a template and writes the result to the target. |
 | [file.touch](file/touch.md) | implemented | Creates an empty file on the target, or updates its modification time. |

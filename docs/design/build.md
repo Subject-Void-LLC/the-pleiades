@@ -60,9 +60,9 @@ view the build will have. A device whose engine has no such route (to be measure
 
 ## Decisions, by edge case
 
-- **The undo is a record on the device, named by an id.** A run's journal keeps only short scalar values (at most
-  256 characters each), so it could never hold the references a refresh replaced; a list of them, or one reference
-  with its digest, is past that. The record holds only image references (never a file's content, which in a
+- **The undo is a record on the device, named by an id.** A run's journal keeps only short values (text of at
+  most 256 characters, or a list of such names where the undo method declares one), so it could never hold the
+  references a refresh replaced, each paired with its digest. The record holds only image references (never a file's content, which in a
   Compose file can hold secrets), is private to the login, is written before any file changes (so a run that
   changed a file always has one), and is removed when replayed or after 90 days unused. Declaring the method
   irreversible instead would make every rollback of a run that refreshed pins refuse until the gap is accepted.

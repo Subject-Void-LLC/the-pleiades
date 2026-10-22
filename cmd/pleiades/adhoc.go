@@ -16,8 +16,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
-// adhocUsage is adhoc's usage line, for its errors.
-const adhocUsage = "usage: pleiades adhoc <hosts> <method> [key=value | key:=yaml ...] [--timeout seconds] [--mode execute|check] [--forks 5] [--persist-connections=false] [--verbose] [--json] [--dir .]"
+// adhocCommand is adhoc's positionals, the start of its usage line.
+const adhocCommand = "adhoc <hosts> <method> [key=value | key:=yaml ...]"
 
 // adhocRunbookID is the id an ad-hoc run is journaled under.
 const adhocRunbookID = "adhoc"
@@ -35,13 +35,13 @@ var paramKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // validated, checked, journaled and reported exactly as that runbook
 // would be. There is no second execution path to keep in step.
 func runAdhoc(args []string) error {
-	positionals, rest := splitPositionals(args, runBoolFlags)
-	if len(positionals) < 2 {
-		return fmt.Errorf("%s: %w", adhocUsage, errMissingPositional)
-	}
 	fs := flag.NewFlagSet("adhoc", flag.ContinueOnError)
 	flags := addRunFlags(fs)
 	timeout := fs.Int("timeout", 0, "seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound)")
+	positionals, rest := splitPositionals(args, runBoolFlags)
+	if len(positionals) < 2 {
+		return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
+	}
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func runAdhoc(args []string) error {
 	label := adhocLabel(hosts, method)
 	params, err := parseAdhocParams(positionals[2:], declaredTypes(method))
 	if err != nil {
-		return refuseAdhoc(opts, label, err, fmt.Errorf("%w\n%s", err, adhocUsage))
+		return refuseAdhoc(opts, label, err, fmt.Errorf("%w\n%s", err, usageLine(adhocCommand, fs)))
 	}
 	payload, err := adhocRunbook(hosts, method, params, *timeout)
 	if err != nil {
