@@ -11,6 +11,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/prompt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 )
 
 // runAddCredential stores one device's SSH credential, encrypted at rest,
@@ -24,7 +25,11 @@ import (
 //   - --password, a literal value or an interactive no-echo prompt if
 //     omitted, or --password-stdin, one line on standard input, for a
 //     script, which has no terminal to prompt and should not put the
-//     password on its command line.
+//     password on its command line, or --password-file, a file `pleiades
+//     seal` wrote: sealed to this project's key, it opens with that key;
+//     sealed to a passphrase, it opens with --passphrase or
+//     --passphrase-stdin. It is the way for an agent whose shell refuses a
+//     redirect, and the file never holds the password readably.
 //   - --key, a path to a PEM private key file, optionally protected by a
 //     passphrase, itself prompted for with no echo.
 //   - --certificate together with --key, a PEM client certificate and the
@@ -56,7 +61,7 @@ func runAddCredential(args []string) error {
 	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true, "token-stdin": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]]: %w", err)
+			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
@@ -64,12 +69,13 @@ func runAddCredential(args []string) error {
 	username := fs.String("username", "", "account name to authenticate as")
 	password := fs.String("password", "", "password to authenticate with (prompted interactively if --key is also absent and this is empty)")
 	stdinPassword := fs.Bool("password-stdin", false, "read the password to authenticate with as one line on standard input")
+	passwordFile := fs.String("password-file", "", "path to a file `pleiades seal` wrote holding the password, opened with this project's seal key or, sealed to a passphrase, with --passphrase or --passphrase-stdin")
 	keyPath := fs.String("key", "", "path to a PEM private key file to authenticate with")
 	certPath := fs.String("certificate", "", "path to a PEM client certificate to present, which requires --key")
 	pfxPath := fs.String("pfx", "", "path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key")
-	promptPassphrase := fs.Bool("passphrase", false, "prompt for the private key's or the bundle's passphrase")
+	promptPassphrase := fs.Bool("passphrase", false, "prompt for the passphrase of the private key, the bundle or a passphrase-sealed --password-file")
 	stdinPassphrase := fs.Bool("passphrase-stdin", false,
-		"read the private key's or the bundle's passphrase as one line on standard input")
+		"read the passphrase of the private key, the bundle or a passphrase-sealed --password-file as one line on standard input")
 	generate := fs.Bool("generate", false, "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key")
 	replace := fs.Bool("replace", false, "with --generate, replace a credential already stored for the device")
 	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)")
@@ -85,7 +91,7 @@ func runAddCredential(args []string) error {
 		// A token is the whole identity, so it combines with nothing: a
 		// cluster credential carries one way of authenticating, and an
 		// account name beside a token would be a second answer to who.
-		if *username != "" || *password != "" || *stdinPassword || *keyPath != "" || *certPath != "" || *pfxPath != "" ||
+		if *username != "" || *password != "" || *stdinPassword || *passwordFile != "" || *keyPath != "" || *certPath != "" || *pfxPath != "" ||
 			*promptPassphrase || *stdinPassphrase || *generate {
 			return fmt.Errorf("--token-stdin is the whole credential, so it cannot be combined with --username, a password, a key, a certificate, a bundle or --generate")
 		}
@@ -99,7 +105,7 @@ func runAddCredential(args []string) error {
 		return saveCredential(*dir, name, credential.Credential{Token: strings.TrimSpace(token)})
 	}
 	if *generate {
-		if *password != "" || *stdinPassword || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
+		if *password != "" || *stdinPassword || *passwordFile != "" || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
 			return fmt.Errorf("--generate makes its own key and password, so it cannot be combined with --password, --key, --certificate, --pfx or a passphrase")
 		}
 		if *username == "" {
@@ -116,11 +122,17 @@ func runAddCredential(args []string) error {
 	if *username != "" && usesCertificate {
 		return fmt.Errorf("--username does not apply to a certificate: the target maps the certificate to an account, so naming one here would be a second answer")
 	}
-	if (*password != "" || *stdinPassword) && (*keyPath != "" || usesCertificate) {
+	if (*password != "" || *stdinPassword || *passwordFile != "") && (*keyPath != "" || usesCertificate) {
 		return fmt.Errorf("--password is mutually exclusive with --key, --certificate and --pfx: a device authenticates one way at a time")
 	}
-	if *password != "" && *stdinPassword {
-		return fmt.Errorf("--password and --password-stdin are mutually exclusive: a password is read one way")
+	passwordWays := 0
+	for _, given := range []bool{*password != "", *stdinPassword, *passwordFile != ""} {
+		if given {
+			passwordWays++
+		}
+	}
+	if passwordWays > 1 {
+		return fmt.Errorf("--password, --password-stdin and --password-file are mutually exclusive: a password is read one way")
 	}
 	if *pfxPath != "" && (*certPath != "" || *keyPath != "") {
 		return fmt.Errorf("--pfx already holds a certificate and its key, so it cannot be combined with --certificate or --key")
@@ -128,8 +140,8 @@ func runAddCredential(args []string) error {
 	if *certPath != "" && *keyPath == "" {
 		return fmt.Errorf("--certificate needs --key: a certificate alone cannot prove possession")
 	}
-	if (*promptPassphrase || *stdinPassphrase) && *keyPath == "" && *pfxPath == "" {
-		return fmt.Errorf("--passphrase and --passphrase-stdin only apply to --key or --pfx")
+	if (*promptPassphrase || *stdinPassphrase) && *keyPath == "" && *pfxPath == "" && *passwordFile == "" {
+		return fmt.Errorf("--passphrase and --passphrase-stdin only apply to --key, --pfx or a passphrase-sealed --password-file")
 	}
 	if (*promptPassphrase || *stdinPassphrase) && *certPath != "" {
 		// Refused rather than stored and ignored. Nothing decrypts a loose
@@ -208,6 +220,12 @@ func runAddCredential(args []string) error {
 			return err
 		}
 		cred.Password = read
+	case *passwordFile != "":
+		opened, err := openPasswordFile(*dir, *passwordFile, *promptPassphrase || *stdinPassphrase, readPassphrase)
+		if err != nil {
+			return err
+		}
+		cred.Password = opened
 	default:
 		prompted, err := promptSecret("password: ")
 		if err != nil {
@@ -217,6 +235,38 @@ func runAddCredential(args []string) error {
 	}
 
 	return saveCredential(*dir, name, cred)
+}
+
+// openPasswordFile opens the sealed file at path for its password. A
+// passphrase is read, through readPassphrase, only when one was asked for
+// (passphraseGiven), so the credential package can refuse a passphrase a
+// key-sealed file does not take and ask for one a passphrase-sealed file
+// does.
+func openPasswordFile(dir, path string, passphraseGiven bool, readPassphrase func(string) (string, error)) (string, error) {
+	data, err := readBounded(path, sealed.MaxFileSize)
+	if err != nil {
+		return "", err
+	}
+	file, err := sealed.Parse(data)
+	if errors.Is(err, sealed.ErrNotSealed) {
+		return "", fmt.Errorf("%s is not a sealed file: seal the password with `pleiades seal`, or pipe a plaintext one to --password-stdin", path)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	key, err := credential.ResolveMasterKey(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve master key: %w", err)
+	}
+	var passphrase func() (string, error)
+	if passphraseGiven {
+		passphrase = func() (string, error) { return readPassphrase("sealed file passphrase: ") }
+	}
+	opened, err := credential.OpenSealedPassword(dir, key, file, passphrase)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	return opened, nil
 }
 
 // saveCredential encrypts cred into dir's credential store for device name.

@@ -30,6 +30,8 @@ var commands = map[string]commandFunc{
 	"add-host":                   runAddHost,
 	"set-host":                   runSetHost,
 	"add-credential":             runAddCredential,
+	"seal-key":                   runSealKey,
+	"seal":                       runSeal,
 	"add-registry-credential":    runAddRegistryCredential,
 	"add-database-connection":    runAddDatabaseConnection,
 	"list-database-connections":  runListDatabaseConnections,
