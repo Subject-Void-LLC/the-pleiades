@@ -31,7 +31,8 @@ func TestTaskReads(t *testing.T) {
 		{"a whole root in a template", engine.Task{Params: map[string]any{"body": "{{ nodes | to_json }}"}}, nil, true},
 		{"vars and error read no register", engine.Task{Params: map[string]any{"a": "{{ vars.x }}", "b": "{{ error.msg }}"}}, nil, false},
 		{"secret_mask", engine.Task{SecretMask: &engine.SecretMaskSpec{Register: "g", Fields: []string{"token"}}}, []string{"g"}, false},
-		{"rollback steps are not read", engine.Task{Rollback: []engine.Task{{Params: map[string]any{"x": "{{ result.h.y }}"}}}}, nil, false},
+		{"rollback steps are read", engine.Task{Rollback: []engine.Task{{Params: map[string]any{"x": "{{ result.h.y }}"}}, {Params: map[string]any{"z": "{{ nodes | to_json }}"}}}}, []string{"h"}, true},
+		{"a literal tested with in", engine.Task{Conditional: engine.Conditional{When: []string{"\"j\" in stat"}}}, []string{"j"}, false},
 		{"one name from three places", engine.Task{
 			Conditional: engine.Conditional{When: []string{"result.i.rc == 0"}},
 			Params:      map[string]any{"x": "{{ result.i.y }}"},
@@ -60,6 +61,7 @@ func TestTaskReads_RefusesWhatDoesNotParse(t *testing.T) {
 	for name, task := range map[string]engine.Task{
 		"condition": {Conditional: engine.Conditional{When: []string{"result.a.rc =="}}},
 		"template":  {Params: map[string]any{"x": "{{ result.a | nosuchfilter }}"}},
+		"rollback":  {Rollback: []engine.Task{{Conditional: engine.Conditional{When: []string{"x =="}}}}},
 	} {
 		if _, err := engine.TaskReads(eng, &task); err == nil {
 			t.Errorf("%s: TaskReads accepted what does not parse", name)

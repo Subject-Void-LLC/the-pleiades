@@ -1,8 +1,8 @@
 // Package engine: which registered results a task reads, from every place a
-// task can read one: its condition, its rendered parameters and its
-// secret_mask. Validation and the segmenter (internal/segment) both ask this
-// one function, so a way of reading a register that one of them knows about
-// cannot be missing from the other (FAILURE_PATTERNS 561).
+// task can read one: its condition, its rendered parameters, its secret_mask
+// and its authored rollback: steps. The segmenter (internal/segment) asks it;
+// validate's rules still each read their own seam (TemplateRule templates,
+// ConditionRule conditions, SecretMaskRule secret_mask).
 package engine
 
 import (
@@ -45,9 +45,11 @@ func TemplateReads(tmpl render.Template) (names []string, all bool) {
 
 // TaskReads returns every register task reads before or while it runs: the
 // ones its condition reads (ConditionReads), the ones its parameters'
-// templates read (TemplateReads, compiled through eng), and the register its
-// secret_mask marks, which it reads to find the values to mask. A rollback:
-// list is left out: it never runs in the forward run.
+// templates read (TemplateReads, compiled through eng), the register its
+// secret_mask marks, which it reads to find the values to mask, and what its
+// authored rollback: steps read, since a block's rollback_on_failure runs
+// them inside the forward run, each prepared as a task is
+// (rollback_on_failure.go's runUndoStep).
 func TaskReads(eng render.Engine, task *Task) (Reads, error) {
 	seen := map[string]bool{}
 	names, all, err := ConditionReads(task.Conditional)
@@ -70,6 +72,16 @@ func TaskReads(eng render.Engine, task *Task) (Reads, error) {
 	}
 	if task.SecretMask != nil && task.SecretMask.Register != "" {
 		seen[task.SecretMask.Register] = true
+	}
+	for i := range task.Rollback {
+		step, err := TaskReads(eng, &task.Rollback[i])
+		if err != nil {
+			return Reads{}, fmt.Errorf("rollback step %d: %w", i+1, err)
+		}
+		all = all || step.All
+		for _, name := range step.Names {
+			seen[name] = true
+		}
 	}
 	return Reads{Names: sortedKeys(seen), All: all}, nil
 }
