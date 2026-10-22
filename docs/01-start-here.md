@@ -138,8 +138,12 @@ they would in AWX; a real AWX export decodes into it with no translation layer.
 Credentials of that type are bound to a template, resolved at the moment a job fans
 out rather than when it was queued, and injected into the run as environment
 variables, extra variables and generated files. A machine credential bound to a
-template authenticates every device in the fan-out, and the per-device credential
-store remains the fallback, so nothing that worked before still needs changing.
+template authenticates every device in the fan-out that it can log in to (over SSH,
+WinRM, NETCONF, a network command line or a console), and the per-device credential
+store remains the fallback. A device reached only through an API, such as a
+`generic_http` device, a Catalyst Center or a cloud account, never receives the
+machine credential, which departs from AWX: it uses its own stored credential, or,
+for a Kubernetes cluster, a bound Kubernetes credential naming its API server.
 
 Four limits are worth knowing.
 
@@ -325,21 +329,24 @@ which confines every program to its own directory and the system files it needs,
 it cannot read the credential store or your SSH keys. See
 [External Collections](11-extending-pleiades.md#external-collections).
 
-**Plan-time checking covers transports, and capabilities only for two legacy action names.**
+**Plan-time checking covers transports and capabilities.**
 `pleiades validate` refuses a task whose target device cannot be reached over any
 transport its method uses: `exec.command` speaks SSH, so it is refused against a
 `windows_server` reached only over WinRM, naming both sides. The table of which
 capability reaches which transport is in the
-[capability reference](reference/capabilities.md#transports). A method's required
-capabilities are a different matter: `validate` compares them to a device only for
-`ssh_exec` and `ios_backup`, the two entries in a hand-written table
-(`internal/engine/action_capability.go`). So a runbook calling `net.ios.facts` against
-a `linux_server` host passes `validate`, since both speak SSH, and is refused when the
-task runs, before anything reaches the device, with
-`collection method "net.ios.facts" requires capability CiscoIOSCapable, which device "web1" does not have`. The Controller's dispatcher builds its
-admission check from that same two-entry table and checks neither.
-Treat a capability mismatch as an error you find by running, not one `validate` finds
-for you.
+[capability reference](reference/capabilities.md#transports). It also refuses a task
+whose device lacks a capability its method requires, so a runbook calling
+`net.ios.facts` against a `linux_server` host is refused with
+`collection method "net.ios.facts" requires capability CiscoIOSCapable, which device "web1" does not have`.
+The Controller makes the same two checks when a job is launched, for every method
+the runbook names, and skips a device that fails one with that refusal as its
+reason. A method only a Runner loads (an external Collection) is checked by the
+Runner's own preflight instead. On the Walk tier every task still runs against each
+dispatched device, so a device is held to every method in the runbook. A task with
+a `when:` of its own is left out of both checks, since the run may skip it on any
+device; the engine checks it on each device where the condition holds, so a runbook
+choosing `pkg.apt.install` or `pkg.dnf.install` by each host's OS family still
+validates.
 
 **The whole web UI is a mockup, including its job log viewer.** Five of its six
 routes render hardcoded content and make no network request at all. The sixth, an SSE

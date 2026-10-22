@@ -13832,3 +13832,102 @@ out waiting for a result.
 
 **Lesson.** A delivery deadline needs a heartbeat to the thing that enforces it, not only to whatever else the worker
 holds.
+
+## 556. A template's machine credential reached every device in the fan-out, API-only ones included, because the exemption was a list of types (fixed)
+
+**Symptom.** Phase 117b's S1, reasoned 2026-09-28 and measured 2026-10-21 by
+`TestMachineCredentialNeverReachesAnHTTPAPIDevice` on the unfixed tree: a template bound to the switches' machine
+credential, launched against an inventory holding a `generic_http` device, dispatched that device with the switches'
+username and password as its secrets, in place of the device's own stored credential. `http.request` sends them as
+basic or bearer authentication to whatever answers at the device's base URL, so a device record an attacker can write
+receives the switches' login. A Catalyst Center or an AWS account in the same inventory had its own credential
+displaced the same way.
+
+**Root cause.** `ApplyInjection` gave the machine credential to every device unless its type was registered through
+`record.RegisterOwnCredentialType`. That list was an opt-in exemption: Part XVIII 119c added the Kubernetes cluster,
+and later phases the AI provider and the Cloudflare account, but `generic_http`, `generic_grpc`, Catalyst Center and
+the AWS account were never added, and a new API device type would not be either. The question being asked ("is this
+type exempt?") was not the question that matters ("can this device be logged into?").
+
+**Fix.** `record.TakesMachineCredential` is an allowlist derived from the device: the machine credential reaches a
+device only when it has a login capability (SSH, WinRM, Telnet, a serial or console line, NETCONF, a network CLI),
+and never a type registered as using its own credential. It asks `HasCapability`, not the declared list: a vendor
+type unions a record's own capabilities into its declared set, so a Catalyst Center record declaring
+`SSHTransportCapable` lists it, but the type implements no SSH accessor and is still refused
+(`TestTakesMachineCredential_ADeclarationAloneOpensNothing`). The first cut of this fix read the declared list and
+would have let an inventory writer reopen the leak; it was caught before the push, rereading the PR's own claim. A device reached only through an API falls back to its
+own stored credential. The registration stays as an extra refusal. AWX's semantics change, and the changelog says so
+twice (`machine-credential-logins-only.security.md`, `.breaking.md`). Tests: the fan-out test above (fails on the
+unfixed tree, naming both fields), `TestTakesMachineCredential` (a table across device kinds).
+
+**Lesson.** When a secret goes everywhere unless excluded, every new kind of recipient is a leak until someone
+remembers it. Derive who may receive it from what the recipient is, so a new kind is refused by default.
+
+## 557. validate and a Controller's admission checked no Collection method's required capabilities, only the engine did (a repeat of 151) (fixed)
+
+**Symptom.** Phase 117b, re-measured 2026-10-21: `pleiades validate` passed a runbook calling a method that requires
+`SystemdCapable` against a Cisco switch, and a Controller dispatched a WinRM-only Windows server for an SSH-only
+method; each was refused only by the engine, on the Runner, once the run reached the task.
+
+**Root cause.** 151 recorded that nothing read `Manifest.RequiredCapabilities`. Its later fix put the check in the
+engine alone (`checkMethodCapabilities`), while `validate.CapabilityRule` and the Controller's admission
+(`engine.CapabilityAdmits` over `runbook.Runbook.Required`) kept reading `engine.ActionCapability`, a table of the six
+legacy transport actions (`ssh_exec`, `ios_backup`, `serial_exec`, `serialtcp_exec`, `telnet_exec`, `winrm_exec`).
+Phase 75 added transports to validate and the engine, again not to admission. Each fix closed the place it was found
+and no other.
+
+**Fix.** One function, `collection.CheckCapabilities`, beside `CheckTransports`. `CapabilityRule` calls it for every
+Collection method (and refuses a device-less call of a method requiring a capability); the engine calls it directly;
+and admission (`dispatch.methodsAdmit`) calls both checks for every method the runbook names that the Controller has
+registered (`runbook.Runbook.Methods`), leaving an external method to the Runner's preflight. The generic `pkg.*` and
+`svc.*` dispatchers, which had hand-written copies of the loop, call it for the concrete method they pick. A task with a
+`when:` of its own (`engine.DAG.Conditional`) is left out of the plan-time and admission checks, transports included,
+because the engine evaluates the condition before it checks a device: holding it to its method there refused a runbook
+choosing `pkg.apt.install` or `pkg.dnf.install` by OS family on every host, the shape of 249. Tests:
+`TestCapabilityRule_RefusesADeviceWithoutAMethodsCapability` and its siblings, `TestWorker_SkipsADeviceAMethodCannotRunOn`,
+`TestWorker_SkipsADeviceAMethodCannotReach`, `TestCheckCapabilities`.
+
+**Lesson.** A check that exists in three places is three fixes; put it in one function and make every place that
+decides call it, then a test per place proves each still does.
+
+## 558. The reaper's leadership test gave the leader a fixed 60 ms, and a slow machine spent it on the first query (fixed)
+
+**Symptom.** `make pr-check` on the 117b part 1 branch, 2026-10-21: the FreeBSD leg's strict repeat pass failed
+`TestReaper_Run_RepublishesOnlyWhileLeader` once in three runs ("failed to list stale fanning_out jobs: context
+deadline exceeded", then "published 0 events while leader"). The same pass's first run and every other machine passed.
+The branch does not touch the reaper.
+
+**Root cause.** The test ran the reaper as leader under `context.WithTimeout(ctx, 60*time.Millisecond)` and then
+required an event. On the 4 GB FreeBSD VM the first stale-job query outlived the whole window, its context expired
+mid-query, and nothing was published. The test bounded elapsed time where it meant to wait for an outcome.
+
+**Fix.** The leader runs until the capturing bus has an event, or 30 s pass, and is then cancelled and waited for. A
+broken leadership gate still fails, after 30 s rather than 60 ms. The non-leader half keeps its short window, since
+running briefly can only make it pass for the wrong reason, never fail for one.
+
+**Lesson.** A test that waits for something to happen waits for it, with a generous deadline; a short window proves
+only how fast the machine was that day.
+
+## 559. The capability check reached validate with no census of what already validates, and two cmd/pleiades gates failed in CI (a repeat of 550) (fixed)
+
+**Symptom.** Pull request #84's `containers (1)` shard, 2026-10-21: `TestExamples_EveryRunbookBuildsAndValidates`
+failed on `examples/scan_lab`'s `release.yaml` (`scan.*` requires `ContainerEngineCapable`, which `release-box` has
+only once onboarding finds its engine), and `TestMigratePlaybookReleaseGate` failed validating its converted playbook
+(`pkg.apt.install` requires `AptCapable`, and the gate's `web` was a bare `linux_server`). Both failed again alone.
+`make pr-check` had passed, and the pull request said no existing fixture needed a capability added.
+
+**Root cause.** 557's fix made `validate` hold every Collection method to its capabilities. Both runbooks could never
+have run as written (the engine refuses the same calls), so the rule was right and the fixtures were wrong. But
+nothing that would show it ran before the push: pr-check tests the packages a branch changes (`tools/prscope`), and
+the examples and the migrate gate live in `cmd/pleiades`, which the branch did not change. The claim about fixtures
+covered only the container-free importers that were run. 550's lesson (a new plan-time check's first run over
+everything that exists is a census) was written as a sentence, not as a step, so it did not happen.
+
+**Fix.** The migrate gate adds `web` with `--classify linux_server,debian_family,ubuntu`, which declares `AptCapable`
+as an apt host does. `scan_lab` joins the examples validated after onboarding, and
+`TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork` now validates the shipped `release.yaml` against the device it
+onboarded. Both gates and the examples test pass.
+
+**Lesson.** A branch that makes `validate` stricter runs `cmd/pleiades`'s examples and gates, and
+`TestEveryDocumentedExampleValidates`, before the push, whatever pr-check's scope says, because those are where every
+existing runbook is validated. A claim about "every existing fixture" names the packages it ran.

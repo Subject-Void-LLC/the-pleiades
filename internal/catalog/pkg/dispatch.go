@@ -142,16 +142,14 @@ func dispatch(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 
 	// The concrete method's own capability requirement is checked here
 	// too, and skipping it would be a real hole rather than a
-	// duplication. engine.checkMethodCapabilities validated THIS method's
-	// requirement, PackageManagerCapable, before dispatch; invoking the
-	// descriptor directly bypasses the executor, so nothing else would
-	// ever check that the device satisfies the concrete method's
-	// stricter one.
-	for _, required := range desc.Manifest.RequiredCapabilities {
-		if !device.HasCapability(required) {
-			return collection.Result{}, fmt.Errorf("%s: device %q reports package manager %s, but does not have %s, which %s requires",
-				fqcn, device.Name(), name, required, target)
-		}
+	// duplication. The engine checked THIS method's requirement,
+	// PackageManagerCapable, before dispatch (collection.CheckCapabilities);
+	// invoking the descriptor directly bypasses the executor, so nothing
+	// else would ever check that the device satisfies the concrete
+	// method's stricter one. It is the same check, so the two cannot
+	// disagree.
+	if err := collection.CheckCapabilities(device, target, desc.Manifest); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: device %q reports package manager %s: %w", fqcn, device.Name(), name, err)
 	}
 	// And its transports, for the same reason: this method declares the
 	// union of every manager's, and the concrete method speaks its own.

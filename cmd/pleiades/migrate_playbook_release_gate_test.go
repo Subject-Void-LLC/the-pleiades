@@ -123,7 +123,10 @@ func TestMigratePlaybookReleaseGate(t *testing.T) {
 	if out, err := runPleiades(t, dir, "init"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
-	if out, err := runPleiades(t, dir, "add-host", "web", "--type", "linux_server", "--set", "host=10.0.0.5"); err != nil {
+	// An apt host, as the playbook's apt task needs: validate holds the
+	// converted pkg.apt.install to AptCapable, which a Debian-family
+	// classification declares and a bare linux_server does not.
+	if out, err := runPleiades(t, dir, "add-host", "web", "--classify", "linux_server,debian_family,ubuntu", "--set", "host=10.0.0.5"); err != nil {
 		t.Fatalf("add-host: %v\n%s", err, out)
 	}
 

@@ -52,7 +52,7 @@ func TestApplyInjection_ATokenAuthenticatesTheClusterItNames(t *testing.T) {
 	art := kubernetesArtifact(t)
 
 	named := clusterPayload(runbook.Kind, "https://k8s.example.com:6443")
-	ApplyInjection(&named, art)
+	ApplyInjection(&named, art, clusterDevice())
 	if named.Secrets[wire.SecretBearerToken] != "cluster-token-1234" || named.Secrets[wire.SecretClusterCAPEM] != "CA-PEM" {
 		t.Errorf("the named cluster's secrets = %v", named.Secrets)
 	}
@@ -64,13 +64,13 @@ func TestApplyInjection_ATokenAuthenticatesTheClusterItNames(t *testing.T) {
 	}
 
 	other := clusterPayload(runbook.Kind, "https://staging.example.com:6443")
-	ApplyInjection(&other, art)
+	ApplyInjection(&other, art, clusterDevice())
 	if other.Secrets != nil {
 		t.Errorf("a cluster the credential does not name received secrets: %d", len(other.Secrets))
 	}
 
 	server := wire.DispatchPayload{Kind: runbook.Kind, DeviceType: "linux_server"}
-	ApplyInjection(&server, art)
+	ApplyInjection(&server, art, loginDevice())
 	if server.Secrets[wire.SecretPassword] != "ssh-secret" || server.Secrets[wire.SecretBearerToken] != "" {
 		t.Errorf("a server's secrets = %v, want the machine credential alone", server.Secrets)
 	}
@@ -82,7 +82,7 @@ func TestApplyInjection_ATokenAuthenticatesTheClusterItNames(t *testing.T) {
 func TestApplyInjection_TheAnsiblePathGetsAWXsEnvironment(t *testing.T) {
 	art := kubernetesArtifact(t)
 	payload := wire.DispatchPayload{Kind: playbook.Kind, DeviceType: "linux_server"}
-	ApplyInjection(&payload, art)
+	ApplyInjection(&payload, art, loginDevice())
 	if payload.Injected == nil {
 		t.Fatal("a playbook job received no injection")
 	}
@@ -120,7 +120,7 @@ func TestApplyInjection_ARecordDoesNotChooseWhatATemplateTokenTrusts(t *testing.
 		kubernetes.NamespaceProperty: "apps",
 	}
 	named := wire.DispatchPayload{Kind: runbook.Kind, DeviceType: kubernetes.TypeCluster, DeviceProperties: props}
-	ApplyInjection(&named, art)
+	ApplyInjection(&named, art, clusterDevice())
 	if _, kept := named.DeviceProperties[devicetls.CAPEMProperty]; kept {
 		t.Error("the record's authority survived beside the template's token")
 	}
@@ -137,7 +137,7 @@ func TestApplyInjection_ARecordDoesNotChooseWhatATemplateTokenTrusts(t *testing.
 	other := wire.DispatchPayload{Kind: runbook.Kind, DeviceType: kubernetes.TypeCluster, DeviceProperties: map[string]any{
 		kubernetes.APIServerProperty: "https://other.example.com:6443", devicetls.CAPEMProperty: "OWN-CA-PEM",
 	}}
-	ApplyInjection(&other, art)
+	ApplyInjection(&other, art, clusterDevice())
 	if other.DeviceProperties[devicetls.CAPEMProperty] != "OWN-CA-PEM" {
 		t.Error("a cluster the token does not name lost its own pinned authority")
 	}

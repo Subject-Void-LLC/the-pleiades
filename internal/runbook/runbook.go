@@ -47,7 +47,7 @@ type Runbook struct {
 
 	// Required is the deduplicated, order-stable union of
 	// engine.ActionCapability[task.FQCN] across every node in this
-	// runbook's compiled DAG, mirroring
+	// runbook's compiled DAG without a condition of its own, mirroring
 	// internal/validate/capability_rule.go's own per-task lookup exactly.
 	// A task whose FQCN has no ActionCapability entry (e.g. "noop")
 	// contributes nothing. "Order-stable" means deterministic across
@@ -60,6 +60,18 @@ type Runbook struct {
 	// two calls could see spurious differences that have nothing to do
 	// with the runbook itself.
 	Required []capability.Name
+
+	// Methods is the sorted, deduplicated list of every action FQCN this
+	// runbook's compiled DAG names, legacy actions and Collection methods
+	// alike, leaving out a task with a condition of its own: the run may
+	// skip it on any device, so the engine checks it where its condition
+	// holds (engine.DAG.Conditional). The Controller admits a device against each method it knows
+	// (collection.CheckTransports and CheckCapabilities), the same checks the
+	// Runner's preflight and the engine make, so a device that cannot run a
+	// method is skipped at launch rather than failed after dispatch. A
+	// method only a Runner loads (an external Collection) is not known here
+	// and is left to the Runner.
+	Methods []string
 
 	// Interruptible is engine.Metadata.IsInterruptible()'s own resolved
 	// answer for this runbook (dir_source.go's Get applies the default

@@ -144,10 +144,9 @@ A task names its method as its key, with the method's parameters beneath it:
 Older runbooks may write a task as `fqcn:` with a `params:` map. The engine still reads that,
 and `validate` warns on each such task, naming the method key to write instead.
 
-It does not check capabilities for catalog FQCNs. Only the two legacy action names
-`ssh_exec` and `ios_backup` get a device capability check, so a task calling
-`net.catalyst.device_facts` against a Linux host passes `validate` and then fails
-during the run. See
+It checks each task's device against its method: a device must reach one of the
+transports the method uses and carry every capability it requires, so a task calling
+`net.ios.facts` against a Linux host is refused before anything runs. See
 [Implementation status](01-start-here.md#implementation-status).
 
 ### 6. Run it

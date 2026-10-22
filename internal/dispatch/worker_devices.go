@@ -112,7 +112,9 @@ type admission struct {
 
 // admit decides whether device may be dispatched for job: the job's mode
 // must parse, the device's lifecycle must admit that mode, it must carry
-// every capability the definition requires, and it must have an address.
+// every capability the definition requires, it must be reachable by and
+// carry the capabilities of every method the definition names, and it must
+// have an address.
 // The fan-out and a windowed job's pump both ask, through this one
 // function, so the two can never disagree about what admits a device.
 func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventory.InventoryItem) admission {
@@ -131,6 +133,9 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 	if ok, reason := engine.CapabilityAdmits(device, prepared.Required); !ok {
 		return admission{mode: mode, outcome: OutcomeSkipped, reason: reason}
 	}
+	if err := methodsAdmit(device, prepared.Methods); err != nil {
+		return admission{mode: mode, outcome: OutcomeSkipped, reason: err.Error()}
+	}
 
 	// "host", never "ip": every concrete device type in this codebase
 	// populates its management address under this property key
@@ -148,6 +153,36 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 		return admission{mode: mode, outcome: OutcomeSkipped, reason: fmt.Sprintf("device %q has no host property", device.Name())}
 	}
 	return admission{mode: mode, host: host}
+}
+
+// methodsAdmit refuses device when a method in methods cannot run on it: a
+// transport the method needs that the device does not reach, or a
+// capability the method requires that the device lacks. The checks are
+// collection.CheckTransports and CheckCapabilities, which the Runner's
+// preflight (validate's rules) and the engine make again, so admission and
+// execution answer the same question the same way. Until Phase 117b
+// admission asked only engine.ActionCapability, which names two legacy
+// actions, so a device no method could reach was dispatched and failed on
+// the Runner.
+//
+// A method this process has not registered (an external Collection, which
+// only a Runner loads) is left to the Runner's preflight. On the Walk tier
+// every task runs against its one dispatched device, so every method is
+// checked against it; segmented dispatch narrows that per segment.
+func methodsAdmit(device pkginventory.InventoryItem, methods []string) error {
+	for _, fqcn := range methods {
+		desc, ok := collection.Lookup(fqcn)
+		if !ok {
+			continue
+		}
+		if err := collection.CheckCapabilities(device, fqcn, desc.Manifest); err != nil {
+			return err
+		}
+		if err := collection.CheckTransports(device, fqcn, desc.Manifest); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dispatchPayload builds the dispatch payload for a device admit let
@@ -211,17 +246,18 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 
 	// The template's own bound credentials, already rendered for the whole
 	// fan-out, reach the payload first. A machine credential among them
-	// supplies authentication for EVERY device in this dispatch, which is
-	// AWX's semantics: an operator binds one machine credential to a job
-	// template and every host in the inventory is reached with it.
+	// supplies authentication for every device in this dispatch that can be
+	// logged into, AWX's semantics narrowed to logins: a device reached only
+	// through an API never receives it (record.TakesMachineCredential).
 	//
 	// ApplyInjection (inject.go) is where that precedence lives, and its
 	// doc comment carries the reasoning for the ordering, including why the
 	// inverse would be worse.
-	ApplyInjection(&payload, injected)
+	ApplyInjection(&payload, injected, device)
 
-	// The per-device store is the FALLBACK, consulted only when the
-	// template bound no machine credential. It is what keeps every dispatch
+	// The per-device store is the FALLBACK, consulted when nothing the
+	// template bound gave this device its secrets: no machine credential was
+	// bound, or this device does not take one. It is what keeps every dispatch
 	// that exists today working unchanged, including the whole Crawl tier,
 	// which has no template and no binding.
 	//

@@ -77,7 +77,9 @@ func TestInjectionReleaseGate_KubernetesTokenArrivesAsAWXSetsIt(t *testing.T) {
 		Capabilities: []capability.Name{capability.NameCiscoIOS},
 		Secrets:      gateMachineSecrets(),
 	}
-	dispatch.ApplyInjection(&payload, art)
+	// No device: the template binds no machine credential, so there is
+	// nothing for ApplyInjection to decide about this one.
+	dispatch.ApplyInjection(&payload, art, nil)
 	if payload.Secrets[wire.SecretBearerToken] != "" {
 		t.Fatal("a playbook job's device was given the cluster token as its own secret")
 	}

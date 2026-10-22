@@ -40,6 +40,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -161,32 +162,39 @@ func InjectedFrom(art credtype.Artifact) *wire.Injected {
 // # The precedence rule
 //
 // A machine credential bound to the TEMPLATE supplies authentication for
-// every device in the fan-out. The per-device store
-// (credentials.Lookup(device.Name())) is consulted only when the template
-// binds no machine credential.
+// every device in the fan-out that can be logged into (the exception
+// below). The per-device store (credentials.Lookup(device.Name())) is
+// consulted when the template gave the device no secrets: it binds no
+// machine credential, or the device does not take one.
 //
-// That is AWX's semantics and it is the behaviour an operator migrating
-// from AWX expects: they bind one machine credential to a job template and
-// every host in the inventory is reached with it. The per-device store
-// staying as the fallback is what keeps every dispatch that exists today
-// working unchanged, including the whole Crawl tier, which has no template
-// and no binding.
+// For a login that is AWX's semantics, and it is the behaviour an operator
+// migrating from AWX expects: they bind one machine credential to a job
+// template and every host in the inventory is reached with it. AWX gives it
+// to an API host too, and this does not; the exception below says why. The
+// per-device store staying as the fallback is what keeps every dispatch
+// that exists today working unchanged, including the whole Crawl tier,
+// which has no template and no binding.
 //
 // The order matters and the inverse would be worse: a per-device credential
 // winning over an explicit template binding would mean an operator binding
 // a credential, watching the run authenticate as something else, and having
 // nothing in the record to tell them why.
 //
-// One exception: a device type registered as using its own credential (a
-// Kubernetes cluster) is never given the machine credential, and falls
-// back to its own, since an SSH login is not a cluster's identity.
-func ApplyInjection(payload *wire.DispatchPayload, art credtype.Artifact) {
+// One exception: a device that cannot be logged into (an HTTP API, a
+// Kubernetes cluster, a cloud account), or whose type is registered as
+// using its own credential, is never given the machine credential, since an
+// SSH login is not an API's identity. It falls back to its own stored
+// credential, unless the template binds a credential of the device's own
+// kind (a Kubernetes credential naming the cluster's API server,
+// applyKubernetes).
+func ApplyInjection(payload *wire.DispatchPayload, art credtype.Artifact, device pkginventory.InventoryItem) {
 	payload.Injected = InjectedFrom(art)
-	// A device whose type authenticates only with its own credential (a
-	// Kubernetes cluster) never takes the template's machine credential:
-	// that is a login for a machine, and here it would win over the
-	// cluster's own (record.RegisterOwnCredentialType).
-	if machine, ok := art.Machine(); ok && !record.UsesOwnCredential(payload.DeviceType) {
+	// Only a device that can be logged into takes the template's machine
+	// credential. Anything reached through an API alone (an HTTP API, a
+	// cluster, a cloud account) never does: the login would go to whatever
+	// answers at its URL, and would win over the device's own credential
+	// (record.TakesMachineCredential).
+	if machine, ok := art.Machine(); ok && record.TakesMachineCredential(payload.DeviceType, device) {
 		payload.Secrets = machine
 	}
 	// The template's one container registry credential travels beside the

@@ -1149,10 +1149,10 @@ other.
 
 `pleiades validate` checks a runbook without touching a device: it loads the inventory
 and runbook, runs every registered validation rule (lifecycle gating, collection
-reachability, conditional compilation, and more), and reports every finding. Capability
-matching is the one rule that barely runs: it covers only the two legacy action names
-`ssh_exec` and `ios_backup`, never a catalog FQCN, so `validate` passes a task pointed at
-a device that cannot run it. See [Start here](01-start-here.md#implementation-status).
+reachability, conditional compilation, a method's transports and required
+capabilities, and more), and reports every finding. A Controller makes the transport
+and capability checks again when a job is launched, and skips a device that fails one.
+See [Start here](01-start-here.md#implementation-status).
 `pleiades run` always validates first and refuses to execute if validation reports any
 error.
 
@@ -1289,7 +1289,11 @@ Pleiades stores two classes of durable secret.
 The first is device credentials: a username plus a password or an SSH private key,
 keyed by device name, encrypted at rest in a local file. This is the Crawl tier's
 store and it is still what the control plane falls back to when a template binds no
-machine credential.
+machine credential. A device reached only through an API (a `generic_http` or
+`generic_grpc` device, a Catalyst Center, a cloud account, a cluster) never receives
+a template's machine credential: that credential is a login, and sent to such a
+device it would go to whatever answers at the device's URL. It uses this store, or,
+for a cluster, a bound Kubernetes credential naming its API server.
 
 The second is control-plane credentials: a credential of a declared type, holding
 whatever inputs that type declares, encrypted at rest in the database. These are the

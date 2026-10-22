@@ -168,12 +168,24 @@ func TestReaper_Run_RepublishesOnlyWhileLeader(t *testing.T) {
 		t.Fatalf("published %d events while never leader, want 0", got)
 	}
 
-	leaderCtx, cancel2 := context.WithTimeout(ctx, 60*time.Millisecond)
-	reaper.Run(leaderCtx, func() bool { return true })
+	// The leader runs until it publishes, not for a fixed window: a 60 ms
+	// one let a slow machine spend it all on the first list query (its
+	// context expired mid-query) and publish nothing.
+	leaderCtx, cancel2 := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reaper.Run(leaderCtx, func() bool { return true })
+	}()
+	deadline := time.Now().Add(30 * time.Second)
+	for bus.count() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	cancel2()
+	<-done
 
 	if got := bus.count(); got == 0 {
-		t.Fatal("published 0 events while leader with one stale job present, want at least 1")
+		t.Fatal("published 0 events in 30 s while leader with one stale job present, want at least 1")
 	}
 	if topic := bus.lastTopic(); topic != topology.JobRequestedSubject() {
 		t.Errorf("published to topic %q, want %q", topic, topology.JobRequestedSubject())

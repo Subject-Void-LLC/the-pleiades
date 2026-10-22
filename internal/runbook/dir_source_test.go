@@ -23,7 +23,7 @@ import (
 func writeRunbook(t *testing.T, dir, id, fqcn string) string {
 	t.Helper()
 	path := filepath.Join(dir, id+".yaml")
-	content := "id: " + id + "\ntasks:\n  - name: step\n    fqcn: " + fqcn + "\n"
+	content := "id: " + id + "\ntasks:\n  - name: step\n    " + fqcn + ": {}\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write fixture %s: %v", path, err)
 	}
@@ -68,7 +68,7 @@ func TestDirSource_Get_ResolvesInterruptible(t *testing.T) {
 	writeRunbook(t, dir, "default-interruptible", "noop")
 
 	abortPath := filepath.Join(dir, "no-abort.yaml")
-	abortContent := "id: no-abort\nmetadata:\n  interruptible: false\ntasks:\n  - name: step\n    fqcn: noop\n"
+	abortContent := "id: no-abort\nmetadata:\n  interruptible: false\ntasks:\n  - name: step\n    noop: {}\n"
 	if err := os.WriteFile(abortPath, []byte(abortContent), 0o644); err != nil {
 		t.Fatalf("failed to write fixture: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestDirSource_Get_CachePicksUpRealFileChange(t *testing.T) {
 	// later than whatever the first write landed on, explicitly, rather
 	// than trusting the two os.WriteFile calls above and below to land in
 	// different filesystem-clock ticks.
-	newContent := "id: mutable\ntasks:\n  - name: step\n    fqcn: ios_backup\n"
+	newContent := "id: mutable\ntasks:\n  - name: step\n    ios_backup: {}\n"
 	if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
 		t.Fatalf("failed to rewrite fixture: %v", err)
 	}
@@ -352,5 +352,44 @@ func TestDirSource_Get_And_GetDAG_ShareOneCompile(t *testing.T) {
 	}
 	if len(dag.Nodes) != 1 {
 		t.Fatalf("len(dag.Nodes) = %d, want 1", len(dag.Nodes))
+	}
+}
+
+// TestDirSource_Get_LeavesConditionalTasksOutOfAdmission proves Methods and
+// Required name only tasks without a condition of their own: the run may
+// skip a conditional one on any device, so the Controller does not skip a
+// device for it, and the engine checks it where its condition holds. The
+// runbook goes through the real builder, so the condition is compiled as a
+// run compiles it.
+func TestDirSource_Get_LeavesConditionalTasksOutOfAdmission(t *testing.T) {
+	dir := t.TempDir()
+	content := `id: by-os
+tasks:
+  - name: always
+    noop: {}
+  - name: on linux
+    pkg.apt.install:
+      name: nginx
+    when: vars.family == 'debian'
+  - name: on a switch
+    ios_backup: {}
+    when: vars.family == 'ios'
+`
+	if err := os.WriteFile(filepath.Join(dir, "by-os.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatalf("NewDirSource: %v", err)
+	}
+	rb, err := src.Get(context.Background(), "by-os")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(rb.Methods) != 1 || rb.Methods[0] != "noop" {
+		t.Errorf("Methods = %v, want only the unconditional noop", rb.Methods)
+	}
+	if len(rb.Required) != 0 {
+		t.Errorf("Required = %v, want none: ios_backup is conditional", rb.Required)
 	}
 }

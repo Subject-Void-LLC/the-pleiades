@@ -484,6 +484,20 @@ type DAG struct {
 	full *fullGraph
 }
 
+// Conditional reports whether the task at id has a when, when_or or
+// when_cel of its own. Such a task may be skipped on any device, decided
+// only as the run reaches it (prepare evaluates the condition before it
+// resolves a device or checks one), so a check made before the run of what
+// a task needs from its device (its method's capabilities and transports)
+// holds only an unconditional task to it. A conditional one is checked by
+// the engine on each device where its condition holds. Without this, a
+// runbook choosing pkg.apt.install or pkg.dnf.install by each host's OS
+// family was refused before the run on every host, though the run never
+// calls either method where it cannot.
+func (d *DAG) Conditional(id string) bool {
+	return d.Conditions[id] != nil
+}
+
 // EdgeType classifies an Adjacency edge by which of its source node's
 // outcomes it is traversed for, giving PLAN.md Section 22.1's status
 // routing ("Node A dispatches, then traverses to Node B on success or Node

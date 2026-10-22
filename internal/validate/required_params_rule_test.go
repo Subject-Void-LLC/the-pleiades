@@ -3,6 +3,7 @@
 package validate_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,8 +81,10 @@ func TestRequiredParamsRule_RunsInValidateAndOverRollbackSteps(t *testing.T) {
 		t.Fatalf("findings %+v, want the rollback step refused for leaving out lines", report.Findings)
 	}
 
+	// By rule name: the task has no device, so CapabilityRule refuses it too,
+	// and HasErrors alone would pass with this rule gone.
 	missing := validate.Validate(validate.WorldView{DAG: dagWithParams("net.ios.config", map[string]any{"backup": true})})
-	if !missing.HasErrors() {
-		t.Fatal("Validate passed a task leaving out a required parameter")
+	if !slices.ContainsFunc(missing.Findings, func(f validate.Finding) bool { return f.RuleName == "param-required" }) {
+		t.Fatalf("findings %+v, want a param-required one for the task leaving out lines", missing.Findings)
 	}
 }

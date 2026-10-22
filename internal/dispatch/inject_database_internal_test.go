@@ -38,8 +38,8 @@ func TestApplyInjection_CarriesDatabaseConnectionsApart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var payload wire.DispatchPayload
-	ApplyInjection(&payload, art)
+	payload := wire.DispatchPayload{DeviceType: "linux_server"}
+	ApplyInjection(&payload, art, loginDevice())
 	if len(payload.Databases) != 2 {
 		t.Fatalf("payload.Databases = %+v", payload.Databases)
 	}

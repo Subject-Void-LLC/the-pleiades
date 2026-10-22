@@ -21,6 +21,12 @@ type PreparedDefinition struct {
 	// the fleet.
 	Required []capability.Name
 
+	// Methods are the action FQCNs the definition names
+	// (runbook.Runbook.Methods). Each one this process has registered is
+	// checked against every device admitted (methodsAdmit). Empty for a
+	// playbook, which the platform never parses.
+	Methods []string
+
 	// Interruptible is whether the run tolerates being stopped mid-flight,
 	// carried onto every device's dispatch payload.
 	Interruptible bool
@@ -65,7 +71,7 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		}
 		return PreparedDefinition{}, reason, err
 	}
-	return PreparedDefinition{Required: rb.Required, Interruptible: rb.Interruptible}, "", nil
+	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible}, "", nil
 }
 
 // PlaybookGetter is the slice of internal/playbook.Source fan-out needs:
