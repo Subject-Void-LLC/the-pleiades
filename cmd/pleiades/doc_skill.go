@@ -173,11 +173,13 @@ const skillGuide = "## Starting in a project\n\n" +
 	"   device type (`linux_server`, `windows_server`, `cisco_switch`, `container_host`, `generic_ssh` and others);\n" +
 	"   `--tags` are what a runbook's `hosts:` and `adhoc`'s `<hosts>` can name besides the device itself. SSH on\n" +
 	"   another port is `--set port=2222`.\n" +
-	"3. `pleiades add-credential web01 --username <name> --password-stdin` stores its login, encrypted, read from\n" +
-	"   standard input. Get it from the person you work for; never write it into a file or a command line.\n" +
+	"3. `pleiades add-credential web01 --username <name> --password-stdin < <file>` stores its login, encrypted,\n" +
+	"   reading one line from standard input. Get it from the person you work for; never write it into a file of\n" +
+	"   your own or a command line. It lands in `.pleiades/credentials.yaml` beside `.pleiades/master.key`, the key\n" +
+	"   that decrypts it: never commit, copy or share `.pleiades/`.\n" +
 	"4. An SSH device's host key must be trusted before the first connection, and an unknown key is refused.\n" +
-	"   `pleiades trust-host web01 --first-connect` trusts whatever key answers, unverified: ask first. Keys go in\n" +
-	"   `$HOME/.ssh/known_hosts`, not in the project.\n" +
+	"   `pleiades trust-host web01 --first-connect` connects to the device's `host` and `port` and trusts every key\n" +
+	"   it offers, unverified: ask first. Keys go in `$HOME/.ssh/known_hosts`, not in the project.\n" +
 	"5. A `generic_*` device starts discovered and runs nothing until `pleiades onboard <device>` records what it\n" +
 	"   proved it can do.\n" +
 	"6. `pleiades adhoc web01 facts.gather --json` is a safe first call: it reads and changes nothing.\n\n" +
@@ -189,12 +191,14 @@ const skillGuide = "## Starting in a project\n\n" +
 	"3. Check before you change: add `--mode check` to `adhoc` or `run`. It reports what each task would change and\n" +
 	"   changes nothing. A method with no check support is named as unchecked, and an incomplete check exits 3.\n" +
 	"4. Read results from `--json`, one JSON document on standard output whose exit status matches the text view.\n" +
-	"   What each task returned is under `tasks[].stats`.\n" +
-	"5. A run that changed something can usually be undone: `pleiades journal list`, then\n" +
+	"   What each task returned is under `tasks[].stats`, with or without a `register:`.\n" +
+	"5. Target the narrowest set the request allows: a device's own name, not its tag, when the work is about\n" +
+	"   one device.\n" +
+	"6. A run that changed something can usually be undone: `pleiades journal list`, then\n" +
 	"   `pleiades rollback <run-id> --mode check`, then the same without `--mode check`.\n" +
-	"6. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
+	"7. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
 	"   (`pleiades add-credential <device> --username <name> --password-stdin`) and reaches its methods on its own.\n" +
-	"7. `pleiades <command> --help` lists every flag a command takes, and exits 1 after printing it, which is not a\n" +
+	"8. `pleiades <command> --help` lists every flag a command takes, and exits 1 after printing it, which is not a\n" +
 	"   failure. A command that takes a name needs one first: `pleiades add-host x --help` (it adds nothing).\n\n" +
 	"## When something fails\n\n" +
 	"- `outcome.status` in the `--json` report is `complete` only when everything succeeded. Otherwise read\n" +
@@ -215,7 +219,8 @@ const skillGuide = "## Starting in a project\n\n" +
 	"- A list of one item is still written as a list.\n" +
 	"- A command method (`exec.command`, `exec.shell`) cannot tell what its command did, so it reports `changed` on\n" +
 	"  every run, even one that only reads, and a check of it is unchecked. To read a device, prefer a method that\n" +
-	"  only reads, such as `facts.gather` with `filter`; the example below uses commands to show `register`.\n\n" +
+	"  only reads, such as `facts.gather` with a `filter` list naming the facts (`ansible_kernel`,\n" +
+	"  `ansible_distribution*`); a report needs no `register:`. The example below uses commands to show one.\n\n" +
 	"```yaml\n" +
 	skillRunbook +
 	"```\n\n"

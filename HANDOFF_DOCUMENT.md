@@ -27,6 +27,10 @@ pull request at a time; `make pr-check` before every push; the owner merges.
 - 562 (open): `--help` exits 1, and `add-host`/`add-credential`/`trust-host`/`set-host` need a name before `--help`.
 - From the cold-start dry run (2026-10-22): no command lists a device type's properties (the agent guessed
   `--set port=`), and `pleiades init`'s README still says add-credential prompts and mentions `ssh_exec` tasks.
+- **Security finding, the owner's call (2026-10-22):** `pleiades init` writes no `.gitignore`, so committing a project
+  commits `.pleiades/master.key` beside the `credentials.yaml` it decrypts; `docs/02-get-started.md` says both are
+  "gitignored by default". Proposed: its own PR after this one (`internal/inventory/project.go` writes `.gitignore`,
+  the README template fixed, the guide corrected). The skill already tells an agent never to commit `.pleiades/`.
 
 ### Next
 
