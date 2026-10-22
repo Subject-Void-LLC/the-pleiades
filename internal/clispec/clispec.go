@@ -116,6 +116,28 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "grant-capability",
+			Positional: "<device> <capability>",
+			Synopsis:   "assert that a device holds a capability an external program defines, with a reason",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "reason", Type: "string", Default: "", Doc: "why this device holds the capability, recorded with the grant (required)"},
+				{Name: "set", Type: "key=value", Default: "", Doc: "grant property as key=value (repeatable)"},
+			},
+			Examples: []string{
+				`pleiades grant-capability tenancy oci.tenancy_api --set tenancy_ocid=ocid1.tenancy.oc1..aaa --set region=us-ashburn-1 --reason "the lab tenancy"`,
+			},
+		},
+		{
+			Name:       "revoke-capability",
+			Positional: "<device> <capability>",
+			Synopsis:   "take back a device's grant of a capability an external program defines",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+			},
+			Examples: []string{"pleiades revoke-capability tenancy oci.tenancy_api"},
+		},
+		{
 			Name:       "trust-host",
 			Positional: "<device>",
 			Synopsis:   "trust a device's SSH host keys, read from its VM's console or taken on first connect",

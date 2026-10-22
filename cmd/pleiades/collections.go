@@ -31,9 +31,10 @@ const collectionsReadPathsEnv = "PLEIADES_COLLECTIONS_READ_PATHS"
 // collectionsDirEnv names and registers its methods, so the command that
 // called it can validate, document and run them like built-in ones.
 //
-// It is called by the three commands that read the Collection registry
-// (run, validate, doc), before they read it, and by nothing else: a
-// command that never looks a method up has no reason to start a program.
+// It is called by the commands that read the Collection or capability
+// registry (run, validate, doc, and grant-capability, which holds a grant
+// to the definition a program makes), before they read it, and by nothing
+// else: a command that never looks one up has no reason to start a program.
 // projectDir is the project whose .pleiades credential store the loader
 // must keep every program away from.
 //

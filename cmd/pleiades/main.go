@@ -29,6 +29,8 @@ var commands = map[string]commandFunc{
 	"init":                       runInit,
 	"add-host":                   runAddHost,
 	"set-host":                   runSetHost,
+	"grant-capability":           runGrantCapability,
+	"revoke-capability":          runRevokeCapability,
 	"add-credential":             runAddCredential,
 	"seal-key":                   runSealKey,
 	"seal":                       runSeal,
