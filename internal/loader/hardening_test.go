@@ -66,7 +66,7 @@ func TestHardening_HostileMethodNamesAreRefused(t *testing.T) {
 		"acme",
 	} {
 		m := external.DescribedMethod{Name: name, Manifest: implemented(false)}
-		if _, err := validateMethod(m, "dev", nil); err == nil {
+		if _, err := validateMethod(m, "dev", nil, nil); err == nil {
 			t.Errorf("validateMethod accepted the name %q", name)
 		} else if strings.Contains(err.Error(), esc) || strings.Contains(err.Error(), "\n") || strings.Contains(err.Error(), rlo) {
 			t.Errorf("the refusal of %q carries the raw character: %q", name, err.Error())
@@ -89,7 +89,7 @@ func TestHardening_DescriptionTextCannotControlATerminal(t *testing.T) {
 	} {
 		m := implemented(false)
 		set(&m)
-		_, err := validateMethod(external.DescribedMethod{Name: "acme.text.run", Manifest: m}, "dev", nil)
+		_, err := validateMethod(external.DescribedMethod{Name: "acme.text.run", Manifest: m}, "dev", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "a description may not") {
 			t.Errorf("%s: validateMethod = %v, want the description refused", field, err)
 		}
@@ -97,7 +97,7 @@ func TestHardening_DescriptionTextCannotControlATerminal(t *testing.T) {
 	// A newline and a tab in a long description are fine: it has paragraphs.
 	m := implemented(false)
 	m.Doc.Description = "First paragraph.\n\n\tSecond, indented."
-	if _, err := validateMethod(external.DescribedMethod{Name: "acme.text.ok", Manifest: m}, "dev", nil); err != nil {
+	if _, err := validateMethod(external.DescribedMethod{Name: "acme.text.ok", Manifest: m}, "dev", nil, nil); err != nil {
 		t.Errorf("a multi-line description was refused: %v", err)
 	}
 }
@@ -278,9 +278,9 @@ func TestHardening_AReservedParamIsRefusedBeforeAnythingLoads(t *testing.T) {
 	for _, name := range collection.ReservedParams() {
 		m := implemented(false)
 		m.Doc.Params = []collection.Param{{Name: "content", Type: "string"}, {Name: name, Type: "string"}}
-		_, err := validateMethod(external.DescribedMethod{Name: "acme.reserved.run", Manifest: m}, "dev", nil)
+		_, err := validateMethod(external.DescribedMethod{Name: "acme.reserved.run", Manifest: m}, "dev", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "device or tag") {
-			t.Errorf("validateMethod(param %q) = %v, want it refused naming the parameter", name, err)
+			t.Errorf("validateMethod(param %q, nil) = %v, want it refused naming the parameter", name, err)
 		}
 	}
 }

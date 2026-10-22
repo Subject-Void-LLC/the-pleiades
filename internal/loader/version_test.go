@@ -125,7 +125,7 @@ func FuzzParseDescription(f *testing.F) {
 		for _, m := range d.Methods {
 			// validateMethod is the next thing to see a decoded method, so
 			// it must be panic-free on anything the decoder accepted.
-			_, _ = validateMethod(m, "dev", nil)
+			_, _ = validateMethod(m, "dev", nil, nil)
 		}
 	})
 }

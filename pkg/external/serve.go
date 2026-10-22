@@ -67,6 +67,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -106,6 +107,23 @@ type Description struct {
 
 	// Methods lists every method the program provides.
 	Methods []DescribedMethod `json:"methods"`
+
+	// Capabilities lists the capabilities the program defines as data
+	// (capability.DataDefinition), which its methods may require. A loader
+	// that predates them ignores the field, and then refuses any method
+	// requiring one as a capability its build does not define.
+	Capabilities []capability.DataDefinition `json:"capabilities,omitempty"`
+}
+
+// Program is everything an external Collection provides: the capabilities
+// it defines as data and its methods.
+type Program struct {
+	// Capabilities are registered before Methods, so a method may require
+	// one of them.
+	Capabilities []capability.DataDefinition
+
+	// Methods are the program's methods.
+	Methods []collection.Descriptor
 }
 
 // DescribedMethod is one method an external Collection provides.
@@ -139,7 +157,12 @@ type Streams struct {
 // descs for the command the program was run with and exits with Serve's
 // code; it never returns.
 func Main(descs ...collection.Descriptor) {
-	os.Exit(Serve(context.Background(), os.Args[1:], descs, Streams{
+	MainProgram(Program{Methods: descs})
+}
+
+// MainProgram is Main for a program that also defines capabilities.
+func MainProgram(p Program) {
+	os.Exit(ServeProgram(context.Background(), os.Args[1:], p, Streams{
 		In:       os.Stdin,
 		Out:      os.Stdout,
 		Err:      os.Stderr,
@@ -160,10 +183,29 @@ func Main(descs ...collection.Descriptor) {
 // a stub has none. Failing here, on the author's own machine, beats
 // failing in the loader on somebody else's.
 func Serve(ctx context.Context, args []string, descs []collection.Descriptor, s Streams) int {
+	return ServeProgram(ctx, args, Program{Methods: descs}, s)
+}
+
+// ServeProgram is Serve for a program that also defines capabilities. They
+// are checked and registered before any method, so a definition the
+// loader would refuse fails here first, on the author's own machine.
+func ServeProgram(ctx context.Context, args []string, p Program, s Streams) int {
 	if len(args) != 1 || (args[0] != CommandDescribe && args[0] != CommandInvoke) {
 		fmt.Fprintf(s.Err, "usage: %s %s|%s\n\nThis program is an external Collection for The Pleiades. The Pleiades runs it; it is not meant to be run by hand.\n",
 			programName(), CommandDescribe, CommandInvoke)
 		return 2
+	}
+
+	descs := p.Methods
+	if err := CheckCapabilities(p.Capabilities, descs); err != nil {
+		fmt.Fprintln(s.Err, "external collection:", err)
+		return 2
+	}
+	for _, def := range p.Capabilities {
+		if err := capability.RegisterData(def); err != nil {
+			fmt.Fprintln(s.Err, "external collection:", err)
+			return 2
+		}
 	}
 
 	byName := make(map[string]collection.Descriptor, len(descs))
@@ -180,7 +222,7 @@ func Serve(ctx context.Context, args []string, descs []collection.Descriptor, s 
 	}
 
 	if args[0] == CommandDescribe {
-		desc := Description{Protocol: ProtocolVersion, Methods: make([]DescribedMethod, 0, len(descs))}
+		desc := Description{Protocol: ProtocolVersion, Methods: make([]DescribedMethod, 0, len(descs)), Capabilities: p.Capabilities}
 		for _, d := range descs {
 			desc.Methods = append(desc.Methods, DescribedMethod{Name: d.Name, Manifest: d.Manifest})
 		}

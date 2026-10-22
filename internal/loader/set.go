@@ -37,6 +37,10 @@ type Program struct {
 
 	// Methods are the fully-qualified names the program provides, sorted.
 	Methods []string
+
+	// Capabilities are the names of the capabilities the program defines
+	// as data, in the order it described them.
+	Capabilities []string
 }
 
 // newSet builds a Set over programs, which are sorted by path and have

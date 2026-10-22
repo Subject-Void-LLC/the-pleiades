@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 )
@@ -151,10 +152,13 @@ func inspectAndDescribe(ctx context.Context, path string, approved map[string][]
 // happen to sort in is no basis for it.
 func validateCandidates(found []candidate, running string, reserved map[string]bool) (warnings []string, problems []error) {
 	claimedBy := map[string]string{}
+	capabilitiesClaimedBy := map[capability.Name]string{}
 	for _, c := range found {
+		defined, capabilityProblems := validateCapabilities(c, reserved, capabilitiesClaimedBy)
+		problems = append(problems, capabilityProblems...)
 		var unchecked []string
 		for _, m := range c.desc.Methods {
-			versionUnchecked, err := validateMethod(m, running, reserved)
+			versionUnchecked, err := validateMethod(m, running, reserved, defined)
 			if err != nil {
 				problems = append(problems, fmt.Errorf("program %s: %w", c.path, err))
 				continue
@@ -204,6 +208,17 @@ func register(found []candidate, o Options) ([]Program, error) {
 	for _, c := range found {
 		prog := &program{path: c.path, dir: filepath.Dir(c.path), digest: c.digest, opts: o}
 		p := Program{Path: c.path, Digest: c.digest}
+		// The program's capabilities first, so its methods may require them.
+		// The provider is the loader's own name for the program, never the
+		// program's description of itself.
+		for _, def := range c.desc.Capabilities {
+			def.Provider = filepath.Base(c.path)
+			if err := capability.RegisterData(def); err != nil {
+				return nil, fmt.Errorf("external collections: program %s: defining capability %q failed after validation passed, and %d method(s) registered before it stay registered (%s): %w",
+					c.path, def.Name, len(registered), strings.Join(registered, ", "), err)
+			}
+			p.Capabilities = append(p.Capabilities, string(def.Name))
+		}
 		for _, m := range c.desc.Methods {
 			if err := registerMethod(descriptorFor(prog, c, m)); err != nil {
 				return nil, fmt.Errorf("external collections: program %s: registering %q failed after validation passed, and %d method(s) registered before it stay registered (%s): %w",

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -95,7 +96,7 @@ func parseDescription(data []byte) (external.Description, error) {
 // registry offers no way to ask "would you accept this" without also
 // registering it, and registering then failing on a later method would
 // leave a half-loaded directory with no way to take the first half back.
-func validateMethod(m external.DescribedMethod, running string, reserved map[string]bool) (versionUnchecked bool, err error) {
+func validateMethod(m external.DescribedMethod, running string, reserved map[string]bool, defined map[capability.Name]bool) (versionUnchecked bool, err error) {
 	if len(m.Name) > maxMethodName || !methodNamePattern.MatchString(m.Name) {
 		return false, fmt.Errorf("method name %q is not a lowercase, dot-separated name of at least two parts", truncateForMessage(m.Name))
 	}
@@ -130,8 +131,16 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 		}
 	}
 	for _, name := range m.Manifest.RequiredCapabilities {
-		if _, known := capability.Lookup(name); !known {
-			return false, fmt.Errorf("method %q requires capability %q, which this build does not define", m.Name, truncateForMessage(string(name)))
+		if defined[name] {
+			// One of this program's own data capabilities (validateCapabilities).
+			continue
+		}
+		d, known := capability.Lookup(name)
+		switch {
+		case !known:
+			return false, fmt.Errorf("method %q requires capability %q, which this build does not define and the program does not define either", m.Name, truncateForMessage(string(name)))
+		case d.Data != nil:
+			return false, fmt.Errorf("method %q requires capability %q, which another program defines; a program's methods may require only its own capabilities and the ones compiled into The Pleiades", m.Name, name)
 		}
 	}
 	if _, taken := collection.Lookup(m.Name); taken {
@@ -142,6 +151,64 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 		return false, fmt.Errorf("method %q: %w", m.Name, err)
 	}
 	return unchecked, nil
+}
+
+// validateCapabilities checks the capabilities one program defines as data
+// (external.Description.Capabilities) and returns them as a set for its
+// methods' own check, or the problems that refuse them. The program held
+// them to external.CheckCapabilities before describing itself; that is
+// checked again here, since the program is not trusted to have done it,
+// and so is what only the loader can see: a namespace that belongs to The
+// Pleiades, a name this process already defines, a name two programs both
+// define (claimedBy, across the directory), a property whose name reads as
+// a secret (a grant's properties travel in the dispatch payload, and a
+// secret has no business there), and text a terminal would act on.
+func validateCapabilities(c candidate, reserved map[string]bool, claimedBy map[capability.Name]string) (map[capability.Name]bool, []error) {
+	defined := map[capability.Name]bool{}
+	if len(c.desc.Capabilities) == 0 {
+		return defined, nil
+	}
+	methods := make([]collection.Descriptor, 0, len(c.desc.Methods))
+	for _, m := range c.desc.Methods {
+		methods = append(methods, collection.Descriptor{Name: m.Name, Manifest: m.Manifest})
+	}
+	var problems []error
+	fail := func(err error) { problems = append(problems, fmt.Errorf("program %s: %w", c.path, err)) }
+	if err := external.CheckCapabilities(c.desc.Capabilities, methods); err != nil {
+		fail(err)
+		return defined, problems
+	}
+	for _, def := range c.desc.Capabilities {
+		if err := checkManifestText(reflect.ValueOf(def), "capability"); err != nil {
+			fail(fmt.Errorf("capability %q: %w", def.Name, err))
+			continue
+		}
+		if ns := capability.DataNamespace(def.Name); reserved[ns] {
+			fail(fmt.Errorf("capability %q is in the %q namespace, which belongs to The Pleiades itself", def.Name, ns))
+			continue
+		}
+		if _, taken := capability.Lookup(def.Name); taken {
+			fail(fmt.Errorf("capability %q is already defined in this process; a program never replaces one", def.Name))
+			continue
+		}
+		if first, dup := claimedBy[def.Name]; dup {
+			fail(fmt.Errorf("capability %q is defined by both %s and %s; neither was loaded", def.Name, first, c.path))
+			continue
+		}
+		secret := false
+		for _, p := range def.Properties {
+			if redact.SecretName(p.Name) {
+				fail(fmt.Errorf("capability %q declares the property %q, whose name reads as a secret: a grant's properties travel to the program in the clear, so a secret belongs in the device's credential", def.Name, p.Name))
+				secret = true
+			}
+		}
+		if secret {
+			continue
+		}
+		claimedBy[def.Name] = c.path
+		defined[def.Name] = true
+	}
+	return defined, problems
 }
 
 // The longest an untrusted string may be once quoted into an error: a
