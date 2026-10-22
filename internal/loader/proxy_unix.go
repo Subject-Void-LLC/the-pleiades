@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
@@ -61,7 +62,7 @@ func (p *program) invoke(ctx context.Context, fqcn string, mode collection.Mode,
 	}
 	defer func() { _ = prog.Close() }()
 
-	req := buildRequest(fqcn, mode, params, device, rc.InjectSecrets())
+	req := buildRequest(fqcn, mode, params, device, rc.InjectSecrets(), filepath.Base(p.path))
 	secrets := redact.MapValues(req.Secrets)
 	body, err := json.Marshal(&req)
 	if err != nil {
@@ -136,7 +137,9 @@ func (p *program) openVerified() (*os.File, error) {
 // buildRequest builds the one request a call sends. device may be nil for
 // a task with no target. Its address is sent only when the device is
 // reachable over SSH, since that is the only address a method can use.
-func buildRequest(fqcn string, mode collection.Mode, params map[string]any, device inventory.InventoryItem, secrets map[string]string) wire.ChildRequest {
+// Its grants of capabilities program defines are sent too
+// (grantsFor), as the one device property a program reads.
+func buildRequest(fqcn string, mode collection.Mode, params map[string]any, device inventory.InventoryItem, secrets map[string]string, program string) wire.ChildRequest {
 	req := wire.ChildRequest{FQCN: fqcn, Mode: string(mode), Params: params, Secrets: secrets}
 	if device != nil {
 		req.DeviceID = string(device.ID())
@@ -146,8 +149,32 @@ func buildRequest(fqcn string, mode collection.Mode, params map[string]any, devi
 			req.DeviceHost = ssh.SSHHost()
 			req.SSHPort = ssh.SSHPort()
 		}
+		if granted := grantsFor(device, program); granted != nil {
+			req.DeviceProperties = map[string]any{inventory.GrantedProperty: granted}
+		}
 	}
 	return req
+}
+
+// grantsFor is device's grants of the capabilities program defines, each
+// with its source and properties and nothing else (who asserted it and
+// why stay in the inventory), or nil when there are none. A program sees no
+// other program's grants: their properties are that program's business.
+func grantsFor(device inventory.InventoryItem, program string) map[string]any {
+	grants, _, err := inventory.GrantsFrom(device.Properties())
+	if err != nil || len(grants) == 0 {
+		return nil
+	}
+	var own []inventory.Grant
+	for _, g := range grants {
+		if def, ok := capability.DataOf(g.Capability); ok && def.Provider == program && device.HasCapability(g.Capability) {
+			own = append(own, inventory.Grant{Capability: g.Capability, Source: g.Source, Properties: g.Properties, At: g.At})
+		}
+	}
+	if len(own) == 0 {
+		return nil
+	}
+	return inventory.GrantsProperty(own)
 }
 
 // runOutcome is everything one run produced, gathered before any of it is
