@@ -44,10 +44,12 @@ package user
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -57,17 +59,114 @@ import (
 // shell, home, comment (the GECOS field), create_home and system.
 // remove mirrors ansible.builtin.user's own remove parameter (also
 // delete the home directory and mail spool), spent only by Remove.
+// remove_home_if_unchanged is this platform's own: delete the home only
+// while it is still what useradd made, which is what Create's undo asks,
+// and created_home pins which home that is.
 const (
-	paramName       = "name"
-	paramUID        = "uid"
-	paramGroup      = "group"
-	paramShell      = "shell"
-	paramHome       = "home"
-	paramComment    = "comment"
-	paramCreateHome = "create_home"
-	paramSystem     = "system"
-	paramRemove     = "remove"
+	paramName                  = "name"
+	paramUID                   = "uid"
+	paramGroup                 = "group"
+	paramShell                 = "shell"
+	paramHome                  = "home"
+	paramComment               = "comment"
+	paramCreateHome            = "create_home"
+	paramSystem                = "system"
+	paramRemove                = "remove"
+	paramRemoveHomeIfUnchanged = "remove_home_if_unchanged"
+	paramCreatedHome           = "created_home"
 )
+
+// What homeState finds at an account's home directory.
+const (
+	homeAbsent    = "absent"
+	homeUnchanged = "unchanged"
+	homeChanged   = "changed"
+)
+
+// useraddDefaults reads, from useradd -D, the directory a new account's
+// home is made under (HOME) and the skeleton directory its files are
+// copied from (SKEL), falling back to useradd's own /home and /etc/skel
+// for a line it does not print.
+func useraddDefaults(ctx context.Context, conn *remoteexec.Conn) (homeBase, skel string, err error) {
+	result, err := conn.Run(ctx, "useradd -D")
+	if err != nil {
+		return "", "", err
+	}
+	if result.ExitCode != 0 {
+		return "", "", fmt.Errorf("useradd -D exited %d: %s", result.ExitCode, failureDetail(result))
+	}
+	homeBase, skel = "/home", "/etc/skel"
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "HOME="); ok && v != "" {
+			homeBase = v
+		}
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "SKEL="); ok && v != "" {
+			skel = v
+		}
+	}
+	return homeBase, skel, nil
+}
+
+// pathExists reports whether anything, of any type, is at path. test -e
+// answers only 0 (something is there) or 1 (nothing is).
+func pathExists(ctx context.Context, conn *remoteexec.Conn, path string) (bool, error) {
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"test", "-e", path}))
+	if err != nil {
+		return false, err
+	}
+	return result.ExitCode == 0, nil
+}
+
+// homeUseraddWouldMake is the home useradd -m is about to create for
+// name: the task's own home, or useradd's base directory plus the name.
+// It is empty when something is already at that path, since useradd then
+// makes nothing there and an undo must not remove it.
+func homeUseraddWouldMake(ctx context.Context, conn *remoteexec.Conn, name string, d desired) (string, error) {
+	home := ""
+	if d.home != nil {
+		home = *d.home
+	} else {
+		base, _, err := useraddDefaults(ctx, conn)
+		if err != nil {
+			return "", err
+		}
+		home = strings.TrimSuffix(base, "/") + "/" + name
+	}
+	exists, err := pathExists(ctx, conn, home)
+	if err != nil || exists {
+		return "", err
+	}
+	return home, nil
+}
+
+// homeStateScript compares a home ($1) with the skeleton directory ($2)
+// useradd copies into a new one: the same entries of the same types
+// (directory, file, other), and every file byte for byte. It uses find,
+// printf, sort and cmp as POSIX gives them, plus find's -mindepth, which
+// GNU, BSD and BusyBox find all have though POSIX does not, so it reads
+// the same on every system useradd runs on. cd takes -- since a home is
+// whatever passwd says.
+const homeStateScript = `h=$1 s=$2
+[ -d "$h" ] || { echo absent; exit 0; }
+list() { [ -d "$1" ] || return 0; (cd -- "$1" && find . -mindepth 1 \( -type d -exec printf 'd %s\n' {} + \) -o \( -type f -exec printf 'f %s\n' {} + \) -o -exec printf 'o %s\n' {} +) | LC_ALL=C sort; }
+[ "$(list "$h")" = "$(list "$s")" ] || { echo changed; exit 0; }
+[ -d "$s" ] || { echo unchanged; exit 0; }
+cd -- "$s" || exit 2
+if find . -type f -exec sh -c 'for p; do cmp -s "$p" "$0/$p" || exit 1; done' "$h" {} +; then echo unchanged; else echo changed; fi`
+
+// homeState reports whether home is absent, holds exactly what useradd
+// copied into it from skel (unchanged), or anything else (changed).
+func homeState(ctx context.Context, conn *remoteexec.Conn, home, skel string) (string, error) {
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", homeStateScript, "sh", home, skel}))
+	if err != nil {
+		return "", err
+	}
+	answer := strings.TrimSpace(result.Stdout)
+	if result.ExitCode != 0 || (answer != homeAbsent && answer != homeUnchanged && answer != homeChanged) {
+		return "", fmt.Errorf("comparing %s with %s exited %d: %s", home, skel, result.ExitCode, failureDetail(result))
+	}
+	return answer, nil
+}
 
 // statName is the one stat this namespace names directly; every other
 // fact worth reporting lives in the before/after account maps sdk.Diff
@@ -132,6 +231,10 @@ func queryUser(ctx context.Context, conn *remoteexec.Conn, name string) (account
 	return account{exists: true, uid: uid, gid: gid, comment: fields[4], home: fields[5], shell: fields[6]}, nil
 }
 
+// errNoSuchGroup is what resolveGroupGID wraps for a group the device
+// does not have, so a check can tell it from a getent that failed.
+var errNoSuchGroup = errors.New("no such group")
+
 // resolveGroupGID asks getent for the numeric gid a group name or
 // numeric gid string resolves to, so a primary-group drift check
 // compares like with like regardless of which form the runbook wrote:
@@ -143,7 +246,7 @@ func resolveGroupGID(ctx context.Context, conn *remoteexec.Conn, group string) (
 		return 0, err
 	}
 	if result.ExitCode == 2 {
-		return 0, fmt.Errorf("group %q does not exist", group)
+		return 0, fmt.Errorf("group %q does not exist: %w", group, errNoSuchGroup)
 	}
 	if result.ExitCode != 0 {
 		return 0, fmt.Errorf("getent group %s exited %d: %s", group, result.ExitCode, failureDetail(result))
@@ -355,6 +458,44 @@ func predictAccount(ctx context.Context, conn *remoteexec.Conn, current account,
 		after["comment"] = *d.comment
 	}
 	return after, nil
+}
+
+// predictChange is a check's whole decision for an account: whether a
+// real run would change it, and what it would leave.
+//
+// A primary group the device does not have yet makes the call one the
+// check cannot answer (collection.CannotCheck), never a predicted failure
+// or a predicted success. A task before this one in the same run often
+// creates it (identity.group.create), and a check reads the device as it
+// is now, since nothing it predicts is applied; but nothing here can tell
+// that task from a misspelled group name either. So the task is reported
+// unchecked, naming the group, and a real run still refuses a group that
+// is missing when it gets there.
+func predictChange(ctx context.Context, conn *remoteexec.Conn, before account, d desired) (bool, map[string]any, error) {
+	if d.group != nil {
+		if _, err := resolveGroupGID(ctx, conn, *d.group); errors.Is(err, errNoSuchGroup) {
+			return false, nil, collection.CannotCheck(fmt.Sprintf("group %q does not exist on the device yet; a real run "+
+				"fails here unless a task before this one creates it", *d.group))
+		} else if err != nil {
+			return false, nil, err
+		}
+	}
+	changed := !before.exists
+	if before.exists {
+		args, _, err := converge(ctx, conn, before, d)
+		if err != nil {
+			return false, nil, err
+		}
+		changed = len(args) > 0
+	}
+	after := before.Map()
+	if changed {
+		var err error
+		if after, err = predictAccount(ctx, conn, before, d); err != nil {
+			return false, nil, err
+		}
+	}
+	return changed, after, nil
 }
 
 // recordPrediction is recordState for a check, with a predicted after.

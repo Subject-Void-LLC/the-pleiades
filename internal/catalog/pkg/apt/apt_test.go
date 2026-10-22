@@ -79,6 +79,17 @@ type pkgState struct {
 	candidateExit      int    // exit code apt-cache itself returns, default 0
 	noCandidateLine    bool   // apt-cache's output has no Candidate: line at all
 	dpkgStatusOverride string // when set, used verbatim as dpkg-query's Status line, with a successful exit
+
+	// The installed set dpkg-query -W lists, space-separated: listBefore,
+	// then listAfter once the fake apt-get has run an install (default:
+	// listBefore again). listExit fails the listing.
+	listBefore, listAfter string
+	listExit              int
+	// What apt-get -s remove reports it would remove, space-separated:
+	// simAuto with --auto-remove, simPlain without. simExit fails the
+	// first, simPlainExit the second.
+	simAuto, simPlain     string
+	simExit, simPlainExit int
 }
 
 var (
@@ -145,13 +156,34 @@ func newHarnessBudgeted(t *testing.T, state pkgState, budget int) *harness {
 	aptGetScript := `#!/bin/sh
 for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
 printf -- '---\n' >> "$FAKE_RECORD"
+if [ "$1" = "-s" ]; then
+  case " $* " in
+    *" --auto-remove "*) list="$FAKE_SIM_AUTO"; code="${FAKE_SIM_EXIT:-0}" ;;
+    *) list="$FAKE_SIM_PLAIN"; code="${FAKE_SIM_PLAIN_EXIT:-0}" ;;
+  esac
+  printf 'Reading package lists...\n'
+  for p in $list; do printf 'Remv %s [1.0]\n' "$p"; done
+  [ "$code" = "0" ] || printf 'apt-get: E: fake simulation failure\n' >&2
+  exit "$code"
+fi
 exit_code="${FAKE_APT_EXIT:-0}"
 if [ "$exit_code" != "0" ]; then
   printf 'apt-get: E: fake failure acting on %s\n' "$*" >&2
 fi
+case " $* " in *" install "*) [ "$exit_code" = "0" ] && : > "$FAKE_RECORD.installed" ;; esac
 exit "$exit_code"
 `
+	// Two arguments (-W and a format) is the installed listing; three is
+	// one package's status.
 	dpkgQueryScript := `#!/bin/sh
+if [ "$#" = "2" ]; then
+  if [ "${FAKE_LIST_EXIT:-0}" != "0" ]; then printf 'dpkg-query: fake listing failure\n' >&2; exit "$FAKE_LIST_EXIT"; fi
+  list="$FAKE_LIST_BEFORE"
+  [ -e "$FAKE_RECORD.installed" ] && list="$FAKE_LIST_AFTER"
+  printf 'rc removed-not-purged\n'
+  for p in $list; do printf 'ii %s\n' "$p"; done
+  exit 0
+fi
 printf '%s\t%s' "$FAKE_STATUS" "$FAKE_VERSION"
 exit "$FAKE_DPKG_EXIT"
 `
@@ -178,6 +210,19 @@ exit "${FAKE_CANDIDATE_EXIT:-0}"
 	t.Setenv("FAKE_CANDIDATE", candidate)
 	t.Setenv("FAKE_APT_EXIT", strconv.Itoa(state.aptExit))
 	t.Setenv("FAKE_CANDIDATE_EXIT", strconv.Itoa(state.candidateExit))
+	if state.listBefore == "" {
+		state.listBefore = "base-files"
+	}
+	if state.listAfter == "" {
+		state.listAfter = state.listBefore
+	}
+	t.Setenv("FAKE_LIST_BEFORE", state.listBefore)
+	t.Setenv("FAKE_LIST_AFTER", state.listAfter)
+	t.Setenv("FAKE_LIST_EXIT", strconv.Itoa(state.listExit))
+	t.Setenv("FAKE_SIM_AUTO", state.simAuto)
+	t.Setenv("FAKE_SIM_PLAIN", state.simPlain)
+	t.Setenv("FAKE_SIM_EXIT", strconv.Itoa(state.simExit))
+	t.Setenv("FAKE_SIM_PLAIN_EXIT", strconv.Itoa(state.simPlainExit))
 	if state.noCandidateLine {
 		t.Setenv("FAKE_NO_CANDIDATE_LINE", "1")
 	} else {
@@ -563,6 +608,7 @@ printf 'stdout-only failure explanation\n'
 exit 1
 `
 	dpkgQueryScript := `#!/bin/sh
+[ "$#" = "2" ] && exit 0
 printf 'unknown ok not-installed\t'
 exit 1
 `
@@ -599,6 +645,7 @@ printf -- '---\n' >> "$FAKE_RECORD"
 exit 1
 `
 	dpkgQueryScript := `#!/bin/sh
+[ "$#" = "2" ] && exit 0
 printf 'unknown ok not-installed\t'
 exit 1
 `
@@ -665,8 +712,20 @@ func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
 	}
 }
 
+// A fresh install takes five sessions: the query, the installed set
+// before, the install, the installed set after, and the re-query.
+func TestInstall_InstalledSetConnectionFailures(t *testing.T) {
+	for budget, what := range map[int]string{1: "the set before", 3: "the set after"} {
+		h := newHarnessBudgeted(t, absent, budget)
+		_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
+		if err == nil || !strings.Contains(err.Error(), "open session") {
+			t.Errorf("%s: err = %v, want it to mention the session failing to open", what, err)
+		}
+	}
+}
+
 func TestInstall_ApplyConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 1) // the initial query succeeds, the install apply does not
+	h := newHarnessBudgeted(t, absent, 2) // the query and the set before succeed, the install apply does not
 	_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -674,7 +733,7 @@ func TestInstall_ApplyConnectionFailure(t *testing.T) {
 }
 
 func TestInstall_RequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2) // the query and the install succeed, the re-query does not
+	h := newHarnessBudgeted(t, absent, 4) // everything up to the set after succeeds, the re-query does not
 	_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -689,11 +748,16 @@ func TestRemove_InitialQueryConnectionFailure(t *testing.T) {
 	}
 }
 
+// The package is gone by the re-query, so the task fails with its undo
+// already recorded: the removal can still be rolled back.
 func TestRemove_RequeryConnectionFailure(t *testing.T) {
 	h := newHarnessBudgeted(t, installedCurrent, 2) // the query and the remove succeed, the re-query does not
 	_, err := apt.Remove(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
+	}
+	if inv, _ := h.rc.stats[sdk.StatInverse].(map[string]any); inv["fqcn"] != "pkg.apt.install" {
+		t.Errorf("undo = %v, want the pkg.apt.install recorded before the re-query", inv)
 	}
 }
 

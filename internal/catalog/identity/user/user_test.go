@@ -91,6 +91,16 @@ type userState struct {
 	// successful, well-formed fixture can reach.
 	passwdRawLine string
 	groupRawLine  string
+
+	// createdHome, when set, is the home getent passwd reports for the
+	// account once the fake useradd has run, so a test sees the account a
+	// create made (uid and gid 1001) rather than the state it started in.
+	createdHome string
+	// defaultsExit is the exit code of useradd -D, which prints the
+	// harness's own HOME and SKEL; defaultsRaw, when set, replaces what it
+	// prints.
+	defaultsExit int
+	defaultsRaw  string
 }
 
 var (
@@ -107,6 +117,9 @@ type harness struct {
 	rc     *ctxStub
 	device inventory.InventoryItem
 	record string
+	// dir is the harness's own directory: useradd -D reports dir/home as
+	// HOME and dir/skel, holding .bashrc and .config/app.conf, as SKEL.
+	dir string
 }
 
 func newHarness(t *testing.T, state userState) *harness {
@@ -136,6 +149,10 @@ func newHarnessBudgeted(t *testing.T, state userState, budget int) *harness {
 	getentScript := `#!/bin/sh
 db="$1"
 key="$2"
+if [ "$db" = "passwd" ] && [ -n "$FAKE_CREATED_HOME" ] && [ -e "$FAKE_RECORD.created" ]; then
+  printf '%s:x:1001:1001::%s:/bin/sh\n' "$key" "$FAKE_CREATED_HOME"
+  exit 0
+fi
 if [ "$db" = "passwd" ]; then
   exit_code="$FAKE_PASSWD_EXIT"
   if [ "$exit_code" = "0" ]; then
@@ -178,8 +195,41 @@ if [ "$exit_code" != "0" ]; then
 fi
 exit "$exit_code"
 `
+	// useradd -D only reads its defaults, so it is answered here and not
+	// recorded; every other useradd is recorded and marks the account made.
+	useraddScript := `#!/bin/sh
+if [ "$1" = "-D" ]; then
+  if [ -n "$FAKE_DEFAULTS_RAW" ]; then printf '%s\n' "$FAKE_DEFAULTS_RAW"; else printf 'GROUP=100\nHOME=%s\nSKEL=%s\n' "$FAKE_DEFAULT_HOME" "$FAKE_SKEL"; fi
+  [ "${FAKE_DEFAULTS_EXIT:-0}" = "0" ] || printf 'useradd: fake failure reading defaults\n' >&2
+  exit "${FAKE_DEFAULTS_EXIT:-0}"
+fi
+: > "$FAKE_RECORD.created"
+` + strings.TrimPrefix(recorderScript, "#!/bin/sh\n")
 	writeScript(t, dir, "getent", getentScript)
-	writeScript(t, dir, "useradd", recorderScript)
+	writeScript(t, dir, "useradd", useraddScript)
+	if err := os.MkdirAll(filepath.Join(dir, "skel", ".config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{".bashrc": "# skeleton\n", ".config/app.conf": "x=1\n"} {
+		if err := os.WriteFile(filepath.Join(dir, "skel", name), []byte(content), 0o644); err != nil { // #nosec G306 -- a test fixture
+			t.Fatal(err)
+		}
+	}
+	// "@dir/" in a home names a path under this harness's own directory,
+	// which a test cannot know before the harness exists.
+	inDir := func(p string) string {
+		if rest, ok := strings.CutPrefix(p, "@dir/"); ok {
+			return filepath.Join(dir, rest)
+		}
+		return p
+	}
+	state.home, state.createdHome = inDir(state.home), inDir(state.createdHome)
+	t.Setenv("FAKE_HOME", state.home)
+	t.Setenv("FAKE_DEFAULT_HOME", filepath.Join(dir, "home"))
+	t.Setenv("FAKE_SKEL", filepath.Join(dir, "skel"))
+	t.Setenv("FAKE_CREATED_HOME", state.createdHome)
+	t.Setenv("FAKE_DEFAULTS_EXIT", strconv.Itoa(state.defaultsExit))
+	t.Setenv("FAKE_DEFAULTS_RAW", state.defaultsRaw)
 	writeScript(t, dir, "usermod", recorderScript)
 	writeScript(t, dir, "userdel", recorderScript)
 
@@ -216,6 +266,7 @@ exit "$exit_code"
 			host: srv.Host, port: srv.Port,
 		},
 		record: record,
+		dir:    dir,
 	}
 }
 
@@ -561,8 +612,32 @@ func TestCreate_InitialQueryConnectionFailure(t *testing.T) {
 	}
 }
 
-func TestCreate_UseraddConnectionFailure(t *testing.T) {
+// A new account with a home takes five sessions: the account query,
+// useradd -D, test -e on the home, useradd, and the requery.
+func TestCreate_HomeDefaultsConnectionFailure(t *testing.T) {
 	h := newHarnessBudgeted(t, absentUser, 1)
+	_, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", nil))
+	if err == nil {
+		t.Fatal("expected a connection failure reading useradd's defaults")
+	}
+	if calls := h.invocations(t); len(calls) != 0 {
+		t.Errorf("useradd ran after its defaults could not be read: %v", calls)
+	}
+}
+
+func TestCreate_HomeExistsConnectionFailure(t *testing.T) {
+	h := newHarnessBudgeted(t, absentUser, 2)
+	_, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", nil))
+	if err == nil {
+		t.Fatal("expected a connection failure looking for the home")
+	}
+	if calls := h.invocations(t); len(calls) != 0 {
+		t.Errorf("useradd ran before the home was looked for: %v", calls)
+	}
+}
+
+func TestCreate_UseraddConnectionFailure(t *testing.T) {
+	h := newHarnessBudgeted(t, absentUser, 3)
 	_, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", nil))
 	if err == nil {
 		t.Fatal("expected a connection failure on the useradd call")
@@ -570,7 +645,7 @@ func TestCreate_UseraddConnectionFailure(t *testing.T) {
 }
 
 func TestCreate_RequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absentUser, 2)
+	h := newHarnessBudgeted(t, absentUser, 4)
 	_, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", nil))
 	if err == nil {
 		t.Fatal("expected a connection failure on the post-create requery")

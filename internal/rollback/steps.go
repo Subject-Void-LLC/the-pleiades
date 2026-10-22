@@ -9,17 +9,11 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
-
-// maxRecordedText is the journal's own bound on a recorded text value
-// (engine.recordedValue); a longer one did not come from the projection.
-const maxRecordedText = 256
 
 // changesOf returns the entries of run that changed a device, newest
 // first, and those whose effect is unknown: a failed action that was not
@@ -244,17 +238,18 @@ func checkRecorded(e engine.JournalEntry) error {
 			return fmt.Errorf("the journal records a value for undo parameter %q, which %s does not declare recordable for %s, so it is not trusted", p.Key, e.FQCN, e.InverseFQCN)
 		}
 		seen[p.Key] = true
-		if err := checkValue(p); err != nil {
+		if err := checkValue(p, engine.ListParam(e.InverseFQCN, p.Key)); err != nil {
 			return fmt.Errorf("undo parameter %q: %w", p.Key, err)
 		}
 	}
 	return nil
 }
 
-// checkValue holds one recorded value to the projection's own rules.
-func checkValue(p engine.InverseParam) error {
+// checkValue holds one recorded value to the projection's own rules: a
+// list only for a parameter the undo method declares one (asList).
+func checkValue(p engine.InverseParam, asList bool) error {
 	set := 0
-	for _, isSet := range []bool{p.Text != nil, p.Number != nil, p.Bool != nil} {
+	for _, isSet := range []bool{p.Text != nil, p.Number != nil, p.Bool != nil, p.Texts != nil} {
 		if isSet {
 			set++
 		}
@@ -262,8 +257,13 @@ func checkValue(p engine.InverseParam) error {
 	if set != 1 {
 		return fmt.Errorf("holds %d values, want one", set)
 	}
-	if p.Text != nil && (len(*p.Text) > maxRecordedText || !utf8.ValidString(*p.Text) || termsafe.CheckLine(*p.Text) != nil) {
+	if p.Text != nil && !engine.RecordableText(*p.Text) {
 		return fmt.Errorf("holds text the journal would never record")
+	}
+	if p.Texts != nil {
+		if _, ok := engine.RecordableTexts(p.Texts); !ok || !asList {
+			return fmt.Errorf("holds a list the journal would never record")
+		}
 	}
 	if _, ok := p.Value(); !ok {
 		return fmt.Errorf("holds a number that is not one")

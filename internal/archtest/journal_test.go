@@ -493,6 +493,10 @@ var journalStringFields = map[string]journalStringField{
 		kind: journalKindDeclaredIdentifier,
 		why:  "a string undo parameter under a declared key, admitted only at 256 bytes or fewer of valid UTF-8 that termsafe.CheckLine accepts (engine.recordedValue)",
 	},
+	"InverseParams.Texts": {
+		kind: journalKindDeclaredIdentifier,
+		why:  "a list of string undo parameters under a key the undo method's Doc.Params declares a list (engine.ListParam), each item held to Text's rule and the list to 128 items (engine.RecordableTexts): names an undo acts on together, such as the packages an install pulled in",
+	},
 	"InverseParams.Number": {
 		kind: journalKindDeclaredIdentifier,
 		why:  "a numeric undo parameter under a declared key, kept as its JSON text; a number carries no text a terminal could act on",

@@ -113,24 +113,22 @@ func modify(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, fmt.Errorf("%s: %s: no such user", fqcn, name)
 	}
 
-	usermodArgs, oldValues, err := converge(ctx, conn, before, d)
-	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-
-	changed := len(usermodArgs) > 0
 	if mode == collection.ModeCheck {
-		after := before.Map()
-		if changed {
-			if after, err = predictAccount(ctx, conn, before, d); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
+		changed, after, err := predictChange(ctx, conn, before, d)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		if err := recordPrediction(rc, name, before, after); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		return collection.Result{Changed: changed}, nil
 	}
+
+	usermodArgs, oldValues, err := converge(ctx, conn, before, d)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	changed := len(usermodArgs) > 0
 	if changed {
 		if _, err := runUsermod(ctx, conn, name, usermodArgs); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

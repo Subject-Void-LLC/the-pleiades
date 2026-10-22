@@ -381,15 +381,27 @@ type InverseParam struct {
 
 	// Bool is a boolean value (kind 7).
 	Bool *bool `json:"bool,omitempty"`
+
+	// Texts is a list of string values, each held to Text's own rule and
+	// the list to maxRecordedItems (kind 7): identifiers an undo acts on
+	// together, such as the packages an install pulled in.
+	Texts []string `json:"texts,omitempty"`
 }
 
 // Value returns the parameter's value as a runbook task's params carry it:
-// a string, an int64 (or a float64 for a number with a fraction), or a
-// bool; and false when it holds none, or a number that is not one.
+// a string, an int64 (or a float64 for a number with a fraction), a bool,
+// or a list of strings as []any, the shape YAML and JSON give one; and
+// false when it holds none, or a number that is not one.
 func (p InverseParam) Value() (any, bool) {
 	switch {
 	case p.Text != nil:
 		return *p.Text, true
+	case p.Texts != nil:
+		items := make([]any, len(p.Texts))
+		for i, s := range p.Texts {
+			items[i] = s
+		}
+		return items, true
 	case p.Bool != nil:
 		return *p.Bool, true
 	case p.Number != nil:

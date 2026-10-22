@@ -3,10 +3,12 @@ package apt
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -24,14 +26,18 @@ func init() {
 			SupportsCheck: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
-				Notes: "A run that installed an absent package emits a pkg.apt.remove naming it. A run that found it " +
+				Notes: "A run that installed an absent package emits a pkg.apt.remove naming it and the packages the " +
+					"install pulled in with it (dependencies), which the remove takes too while nothing else needs them " +
+					"and removing them takes nothing else with them; any it keeps it names. An install that pulled in " +
+					"more than 128 packages, or whose installed set could not be read afterwards, names the package " +
+					"alone and says so, leaving the rest to apt-get autoremove. A run that found it " +
 					"already present, even at a different version than requested, emits nothing: reinstalling over an " +
 					"existing package is not something removing it would undo correctly, since the version that was " +
 					"already there before this task ran would be lost along with the one this task left. What the " +
 					"inverse cannot restore is anything the package's install scripts did: a service they started, a " +
 					"user they created, a config file they wrote outside dpkg's own tracking.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "pkg.apt.remove", Record: []string{"name"}},
+					{FQCN: "pkg.apt.remove", Record: []string{"name", "dependencies"}},
 				},
 			},
 			Doc: installDoc(),
@@ -125,10 +131,24 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if version != "" {
 			pkgArg = name + "=" + version
 		}
+		var preInstall map[string]bool
+		if !before.installed {
+			if preInstall, err = installedPackages(ctx, conn); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
 		if _, err := runAptGet(ctx, conn, "install", "-y", pkgArg); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true
+		// The package is installed now, so its undo is recorded before
+		// anything else can fail: a read that fails from here on costs the
+		// undo only its list of dependencies, never the undo itself.
+		if !before.installed {
+			if err := recordInstallUndo(ctx, rc, conn, name, preInstall); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
 	}
 
 	after := before
@@ -142,21 +162,59 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
-	// Only a genuine absent-to-present transition gets an inverse. A
-	// version change on a package that was already there cannot safely
-	// undo to "remove it": the version that was already installed before
-	// this task ran is gone the moment apt-get replaces it, so there is
-	// nothing left to name as what removing would restore.
-	if changed && !before.installed {
-		if err := sdk.RecordInverse(rc, sdk.Inverse{
-			FQCN:   "pkg.apt.remove",
-			Params: map[string]any{paramName: name},
-			Description: fmt.Sprintf("Remove %s, which this task installed. Anything its install scripts did beyond "+
-				"placing its own files (a service they started, a user they created) is not undone.", name),
-		}); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
-	}
-
 	return collection.Result{Changed: changed}, nil
+}
+
+// maxUndoDependencies is the most dependencies an undo names: the most
+// values the journal keeps for one list parameter (internal/engine's
+// maxRecordedItems), which refuses a longer list outright and would leave
+// the run's whole undo incomplete.
+const maxUndoDependencies = 128
+
+// recordInstallUndo records the undo of a fresh install of name: a
+// pkg.apt.remove naming it and what the install pulled in, read from
+// dpkg's installed set against preInstall, the set before apt-get ran.
+//
+// Only a genuine absent-to-present transition gets one. A version change
+// on a package that was already there cannot safely undo to "remove it":
+// the version installed before this task ran is gone the moment apt-get
+// replaces it, so there is nothing left to name as what removing would
+// restore.
+//
+// When the installed set cannot be read, or the install pulled in more
+// than an undo can name, the undo names the package alone and a warning
+// says what it leaves: removing the package still works, and
+// apt-get autoremove takes what it pulled in.
+func recordInstallUndo(ctx context.Context, rc sdk.RunbookContext, conn *remoteexec.Conn, name string, preInstall map[string]bool) error {
+	invParams := map[string]any{paramName: name}
+	brought := ""
+	var warnings []string
+	postInstall, err := installedPackages(ctx, conn)
+	pulledIn := newlyInstalled(preInstall, postInstall, name)
+	switch {
+	case err != nil:
+		warnings = append(warnings, fmt.Sprintf("could not read what installing %s pulled in (%v): its undo removes %s alone, "+
+			"and apt-get autoremove takes the rest", name, err, name))
+	case len(pulledIn) > maxUndoDependencies:
+		warnings = append(warnings, fmt.Sprintf("installing %s pulled in %d packages, more than the %d an undo names: its "+
+			"undo removes %s alone, and apt-get autoremove takes the rest", name, len(pulledIn), maxUndoDependencies, name))
+	case len(pulledIn) > 0:
+		// As []any, the shape a list has in a runbook and after the
+		// journal, so the undo reads the same however it is replayed.
+		deps := make([]any, len(pulledIn))
+		for i, dep := range pulledIn {
+			deps[i] = dep
+		}
+		invParams[paramDependencies] = deps
+		brought = fmt.Sprintf(", and %s, which it pulled in, while nothing else needs them", strings.Join(pulledIn, ", "))
+	}
+	if err := sdk.RecordInverse(rc, sdk.Inverse{
+		FQCN:   "pkg.apt.remove",
+		Params: invParams,
+		Description: fmt.Sprintf("Remove %s, which this task installed%s. Anything its install scripts did beyond "+
+			"placing its own files (a service they started, a user they created) is not undone.", name, brought),
+	}); err != nil {
+		return err
+	}
+	return sdk.RecordWarnings(rc, warnings)
 }

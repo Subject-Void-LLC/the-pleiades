@@ -34,6 +34,7 @@ package apt
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -46,12 +47,19 @@ import (
 const (
 	paramName    = "name"
 	paramVersion = "version"
+	// paramDependencies names, on pkg.apt.remove, the packages installing
+	// this one pulled in, which pkg.apt.install's undo passes so that
+	// removing the package removes what came with it.
+	paramDependencies = "dependencies"
 )
 
 // Stat names this namespace emits.
 const (
 	statName    = "name"
 	statVersion = "version"
+	// statDependenciesRemoved is the dependencies a pkg.apt.remove removed
+	// with its package, or would remove, for a check.
+	statDependenciesRemoved = "dependencies_removed"
 )
 
 // state is what dpkg-query reports about one package.
@@ -136,6 +144,131 @@ func predictInstall(ctx context.Context, conn *remoteexec.Conn, name, version st
 		return state{}, fmt.Errorf("APT has no candidate to install for %s, so a real run of this task would fail", name)
 	}
 	return state{installed: true, version: candidate}, nil
+}
+
+// installedPackages is every package dpkg reports installed ("ii"), so
+// an install can tell which packages it pulled in by comparing the set
+// before and after.
+func installedPackages(ctx context.Context, conn *remoteexec.Conn) (map[string]bool, error) {
+	result, err := conn.Run(ctx, "dpkg-query -W -f='${db:Status-Abbrev}${Package}\\n'")
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("dpkg-query -W exited %d: %s", result.ExitCode, failureDetail(result))
+	}
+	installed := map[string]bool{}
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if name, ok := strings.CutPrefix(line, "ii "); ok && strings.TrimSpace(name) != "" {
+			installed[strings.TrimSpace(name)] = true
+		}
+	}
+	return installed, nil
+}
+
+// newlyInstalled is what after holds that before did not, other than
+// name itself, in name order: the dependencies an install pulled in.
+func newlyInstalled(before, after map[string]bool, name string) []string {
+	var added []string
+	for pkg := range after {
+		if !before[pkg] && pkg != name {
+			added = append(added, pkg)
+		}
+	}
+	sort.Strings(added)
+	return added
+}
+
+// simulateRemove asks apt-get, changing nothing (-s), which packages
+// removing pkgs would remove; with autoRemove, also those nothing would
+// need any more. Its "Remv <name> [<version>]" lines are read by name.
+func simulateRemove(ctx context.Context, conn *remoteexec.Conn, autoRemove bool, pkgs ...string) (map[string]bool, error) {
+	args := []string{"-s", "remove"}
+	if autoRemove {
+		args = append(args, "--auto-remove")
+	}
+	result, err := runAptGet(ctx, conn, append(args, pkgs...)...)
+	if err != nil {
+		return nil, err
+	}
+	removed := map[string]bool{}
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "Remv" {
+			pkg, _, _ := strings.Cut(fields[1], ":")
+			removed[pkg] = true
+		}
+	}
+	return removed, nil
+}
+
+// removableDependencies decides which of deps removing name may take with
+// it, and which stay. A dependency is removed only while it is installed,
+// apt would remove it as no longer needed once name is gone (so nothing
+// installed since has come to depend on it, and nobody has installed it
+// on purpose), and removing all of those together removes nothing more:
+// apt removes whatever depends on a package it removes, and a dependency
+// is never worth a package nobody asked to lose. One that fails any of
+// those stays, and is reported as kept. A dependency no longer installed
+// is neither.
+func removableDependencies(ctx context.Context, conn *remoteexec.Conn, name string, deps []string) (remove, keep []string, err error) {
+	if len(deps) == 0 {
+		return nil, nil, nil
+	}
+	installed, err := installedPackages(ctx, conn)
+	if err != nil {
+		return nil, nil, err
+	}
+	unneeded, err := simulateRemove(ctx, conn, true, name)
+	if err != nil {
+		return nil, nil, err
+	}
+	seen := map[string]bool{}
+	for _, dep := range deps {
+		if seen[dep] || !installed[dep] {
+			continue
+		}
+		seen[dep] = true
+		if unneeded[dep] {
+			remove = append(remove, dep)
+		} else {
+			keep = append(keep, dep)
+		}
+	}
+	if len(remove) > 0 {
+		would, err := simulateRemove(ctx, conn, false, append([]string{name}, remove...)...)
+		if err != nil {
+			return nil, nil, err
+		}
+		allowed := map[string]bool{name: true}
+		for _, dep := range remove {
+			allowed[dep] = true
+		}
+		for pkg := range would {
+			if !allowed[pkg] {
+				keep, remove = append(keep, remove...), nil
+				break
+			}
+		}
+	}
+	sort.Strings(remove)
+	sort.Strings(keep)
+	return remove, keep, nil
+}
+
+// recordDependencies records the dependencies a remove takes with its
+// package, and warns about the ones it keeps.
+func recordDependencies(rc sdk.RunbookContext, removed, kept []string) error {
+	if len(removed) > 0 {
+		if err := rc.SetStat(statDependenciesRemoved, removed); err != nil {
+			return err
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return sdk.RecordWarnings(rc, []string{fmt.Sprintf("kept %s: still needed by another installed package, installed "+
+		"on purpose since, or removing it would remove more than this package brought", strings.Join(kept, ", "))})
 }
 
 // runAptGet runs one apt-get invocation non-interactively and treats a
