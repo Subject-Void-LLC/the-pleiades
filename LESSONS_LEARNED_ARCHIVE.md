@@ -5948,3 +5948,25 @@ LESSONS 200 and 300 cap Go builds and size a cap from free memory; neither held 
 build and was started outside `capped`, and a process loop is stopped by a task limit, not by planning memory.
 `docs/02-get-started.md` now asks for a memory and process limit on any agent and everything it starts.
 
+## 309. Before splitting the engine's work into one process per device, list from the code every path that runs a task and every behavior that ties devices together
+
+**Rule.** When work that ran in one process is split into one process per device (the Walk tier's segments), write
+two lists from the code before writing the split rule. First, every caller of the function that prepares a task,
+found by reference (`go_symbol_references` on `run.prepare`: `runNode`, `runGuarded`, `runUndoStep`), not by reasoning
+from the forward walk; each caller is a place a task reads and does things. Second, every engine behavior that couples
+devices: the level barrier's stop on failure, unit block frames (`unit:<block>`), `all_at_plan_time` locks, run-wide
+secret masking, and `singleWriters`' `result` root. Decide for each one whether the split keeps it or refuses the plan,
+and test that decision.
+
+**Why.** 2026-10-22, `feat/segmenter-117b`, both found by one review before any push. FAILURE_PATTERNS 572:
+`engine.TaskReads` left out a task's `rollback:` steps because its list of reads came from the forward walk, and
+`rollback_on_failure` runs those steps in the forward run through `run.prepare`. FAILURE_PATTERNS 573: the first
+segmenter accepted a unit block's handlers and `all_at_plan_time` locks across several devices, both of which hold
+only when every device runs in one process. Both came from the same habit: writing down what a runbook says rather
+than what the engine does with it.
+
+One rule covers both entries, since they share a cause. It is close to LESSONS 281 and 101, which already
+say to list callers by reference; those are about a refusal or a decorator at a shared seam, and neither covered
+answering "what does a task read or do". It also extends LESSONS 174: a single-process fixture hides any behavior that
+couples devices, so the list has to come from the code.
+

@@ -341,6 +341,7 @@ story, per `.AGENTS/AGENTS.md`.
 306. **An agent dry-run harness keeps its grading files outside the agent's sandbox (2026-10-22).**
 307. **A repeat of 255: a check never predicts through missing state with a warning; it answers "could not check", and the convenience is accepting that by name (2026-10-22).**
 308. **A repeat of 200 and 300: an agent CLI runs by absolute path under a memory cap, with no swap and a task limit (2026-10-22).**
+309. **Before splitting the engine's work into one process per device, list from the code every path that runs a task (every caller of `run.prepare`, by reference) and every behavior that ties devices together, and keep or refuse each one (2026-10-22).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
