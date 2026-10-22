@@ -5,9 +5,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -106,24 +108,71 @@ func TestRunDoc_CreateSkillTakesNothingElse(t *testing.T) {
 	}
 }
 
-// TestCreateSkill_ReportsWhatItCannotReadOrWrite covers a SKILL.md that
-// cannot be read (a directory of that name) and a directory that cannot be
-// written, each an error naming the problem rather than a partial file.
-func TestCreateSkill_ReportsWhatItCannotReadOrWrite(t *testing.T) {
+// TestCreateSkill_RefusesWhatIsNotItsOwnRegularFile puts something other
+// than a SKILL.md it wrote in the way: a directory, a link to a skill it
+// wrote (replacing the link would leave that file stale), a dangling link
+// (which reads as nothing there), and somebody's notes that quote the
+// skill's marker further down. Each is refused and left as it was.
+func TestCreateSkill_RefusesWhatIsNotItsOwnRegularFile(t *testing.T) {
 	entries, err := catalogEntries(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, skillFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := createSkill(dir, entries); err == nil || !strings.Contains(err.Error(), "reading") {
-		t.Errorf("SKILL.md as a directory: %v, want a read error", err)
+	if _, err := createSkill(dir, entries); err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+		t.Errorf("SKILL.md as a directory: %v, want a refusal", err)
 	}
 
-	if os.Geteuid() == 0 {
-		t.Skip("root writes into a read-only directory")
+	notes := "# my notes\n\n" + strings.Repeat("a line\n", skillMarkerWithin) + skillMarkdown(entries)
+	dir = t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, skillFile), []byte(notes), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createSkill(dir, entries); err == nil || !strings.Contains(err.Error(), "was not written by --create-skill") {
+		t.Errorf("notes quoting the skill: %v, want a refusal", err)
+	}
+	if body, _ := os.ReadFile(filepath.Join(dir, skillFile)); string(body) != notes {
+		t.Error("the notes were changed")
+	}
+
+	if runtime.GOOS == "windows" {
+		t.Skip("creating a symbolic link needs a privilege Windows does not give a test by default")
+	}
+	dir = t.TempDir()
+	own := filepath.Join(t.TempDir(), skillFile)
+	if _, err := createSkill(filepath.Dir(own), entries); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"a link to its own skill": own, "a dangling link": filepath.Join(dir, "gone.md")} {
+		link := filepath.Join(dir, skillFile)
+		_ = os.Remove(link)
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := createSkill(dir, entries); err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+			t.Errorf("%s: %v, want a refusal", name, err)
+		}
+		if got, err := os.Readlink(link); err != nil || got != target {
+			t.Errorf("%s was replaced: %q, %v", name, got, err)
+		}
+	}
+}
+
+// TestCreateSkill_ReportsADirectoryItCannotWrite is an error naming the
+// problem rather than a partial file.
+func TestCreateSkill_ReportsADirectoryItCannotWrite(t *testing.T) {
+	// A read-only attribute does not stop files being made in a Windows
+	// directory, and root writes anywhere (FAILURE_PATTERNS 544).
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a read-only directory is writable here")
+	}
+	entries, err := catalogEntries(nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 	locked := t.TempDir()
 	if err := os.Chmod(locked, 0o500); err != nil {
@@ -132,6 +181,55 @@ func TestCreateSkill_ReportsWhatItCannotReadOrWrite(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 	if _, err := createSkill(locked, entries); err == nil {
 		t.Error("a read-only directory was written to")
+	}
+}
+
+// TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas reads every
+// `pleiades ...` span the skill's guide names and finds its command, and
+// each --flag after it, in internal/clispec, the tree --help is built
+// from, so a renamed command or flag cannot stay in the skill an agent
+// follows.
+func TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas(t *testing.T) {
+	spans := strings.Split(skillGuide, "`")
+	var checked int
+	for i := 1; i < len(spans); i += 2 {
+		words := strings.Fields(spans[i])
+		if len(words) < 2 || words[0] != "pleiades" {
+			continue
+		}
+		cmd, ok := clispec.Find(clispec.Root, words[1])
+		if !ok {
+			t.Errorf("the skill names `pleiades %s`, which is not a command", words[1])
+			continue
+		}
+		rest := words[2:]
+		// A command with subcommands runs only one of them, so the span
+		// must name a real one (journal list).
+		if len(cmd.Subcommands) > 0 {
+			sub, ok := clispec.Find(cmd, strings.Join(rest[:min(1, len(rest))], ""))
+			if !ok {
+				t.Errorf("the skill names `%s`, but %s runs only through a subcommand it does not name", spans[i], words[1])
+				continue
+			}
+			cmd, rest = sub, rest[1:]
+		}
+		for _, w := range rest {
+			if !strings.HasPrefix(w, "--") {
+				continue
+			}
+			name := strings.TrimPrefix(w, "--")
+			found := false
+			for _, f := range cmd.Flags {
+				found = found || f.Name == name
+			}
+			if !found {
+				t.Errorf("the skill gives `%s` the flag %s, which it does not take", spans[i], w)
+			}
+		}
+		checked++
+	}
+	if checked < 8 {
+		t.Fatalf("only %d pleiades command(s) found in the guide; the parse no longer matches it", checked)
 	}
 }
 

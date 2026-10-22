@@ -102,6 +102,25 @@ func runDoc(args []string) error {
 		fqcn = fs.Arg(0)
 	}
 
+	if *skillFlag {
+		if *listFlag || *snippetFlag || *jsonFlag || fqcn != "" {
+			return fmt.Errorf("--create-skill takes no other flag or fqcn: pleiades doc --create-skill")
+		}
+		// The built-in catalog alone: the skill never lists an external
+		// Collection, so none is loaded, and no third-party program runs
+		// to write a file an agent will follow.
+		entries, err := catalogEntries(nil)
+		if err != nil {
+			return err
+		}
+		path, err := createSkill(".", entries)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s: a skill an AI agent reads to learn The Pleiades\n", path)
+		return nil
+	}
+
 	external, err := loadExternalCollections(context.Background(), ".")
 	if err != nil {
 		return err
@@ -112,16 +131,6 @@ func runDoc(args []string) error {
 	}
 
 	switch {
-	case *skillFlag:
-		if *listFlag || *snippetFlag || *jsonFlag || fqcn != "" {
-			return fmt.Errorf("--create-skill takes no other flag or fqcn: pleiades doc --create-skill")
-		}
-		path, err := createSkill(".", entries)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("wrote %s: a skill an AI agent reads to learn The Pleiades\n", path)
-		return nil
 	case *listFlag:
 		return printDocList(entries, fqcn)
 	case *snippetFlag:

@@ -19,11 +19,17 @@ import (
 // skillFile is the file --create-skill writes, in the current directory.
 const skillFile = "SKILL.md"
 
-// skillMarker is in every SKILL.md this command writes. A SKILL.md without
-// it is somebody else's and is never overwritten; one with it is this
-// command's own and is replaced, since rewriting it after an upgrade is
-// the normal way to keep it current.
+// skillMarker opens a line of every SKILL.md this command writes, just
+// after its frontmatter and title. A SKILL.md without it there is
+// somebody else's and is never overwritten; one with it is this command's
+// own and is replaced, since rewriting it after an upgrade is the normal
+// way to keep it current.
 const skillMarker = "<!-- written by pleiades doc --create-skill"
+
+// skillMarkerWithin is how many lines into the file the marker must start
+// a line. The marker's own place is line 10; anywhere further down, it is
+// most likely the skill's text quoted inside somebody else's file.
+const skillMarkerWithin = 20
 
 // createSkill writes SKILL.md into dir from entries and returns the path
 // it wrote. Only built-in methods are listed: an external Collection's
@@ -32,11 +38,23 @@ const skillMarker = "<!-- written by pleiades doc --create-skill"
 // way to instruct the agent.
 func createSkill(dir string, entries []catalogEntry) (string, error) {
 	path := filepath.Join(dir, skillFile)
-	existing, err := os.ReadFile(path) // #nosec G304 -- a fixed file name in the directory the command was run from
+	// Lstat, not Stat: a link named SKILL.md would be replaced by the rename
+	// below rather than written through, leaving the file it points at
+	// stale while the command said it wrote the skill, and a dangling one
+	// would read as nothing there at all.
+	info, err := os.Lstat(path)
 	switch {
-	case err == nil && !strings.Contains(string(existing), skillMarker):
-		return "", fmt.Errorf("pleiades doc: %s exists and was not written by --create-skill; move it aside first", path)
-	case err != nil && !errors.Is(err, fs.ErrNotExist):
+	case err == nil && !info.Mode().IsRegular():
+		return "", fmt.Errorf("pleiades doc: %s is not a regular file (a link, a directory or a device); move it aside first", path)
+	case err == nil:
+		existing, err := os.ReadFile(path) // #nosec G304 -- a fixed file name in the directory the command was run from
+		if err != nil {
+			return "", fmt.Errorf("pleiades doc: reading %s: %w", path, err)
+		}
+		if !writtenBySkill(string(existing)) {
+			return "", fmt.Errorf("pleiades doc: %s exists and was not written by --create-skill; move it aside first", path)
+		}
+	case !errors.Is(err, fs.ErrNotExist):
 		return "", fmt.Errorf("pleiades doc: reading %s: %w", path, err)
 	}
 	// Write beside the target and rename over it, so a reader never sees
@@ -57,6 +75,24 @@ func createSkill(dir string, entries []catalogEntry) (string, error) {
 		return "", fmt.Errorf("pleiades doc: %w", err)
 	}
 	return path, nil
+}
+
+// writtenBySkill reports whether text is a SKILL.md this command wrote:
+// it opens with this skill's frontmatter and a line near the top starts
+// with the marker. Notes that only quote the skill further down are not.
+func writtenBySkill(text string) bool {
+	if !strings.HasPrefix(text, "---\nname: pleiades\n") {
+		return false
+	}
+	for i, line := range strings.SplitN(text, "\n", skillMarkerWithin+1) {
+		if i == skillMarkerWithin {
+			break
+		}
+		if strings.HasPrefix(line, skillMarker) {
+			return true
+		}
+	}
+	return false
 }
 
 // skillMarkdown renders the skill: a frontmatter an agent's skill loader
@@ -123,9 +159,10 @@ transports it reaches it over, whether it can be checked without changing anythi
 `
 
 // skillGuide is how an agent should work with the CLI, and how a runbook
-// is written. Every command it names is one this binary has, and
-// TestCLI_DocCreateSkillTeachesARunbookThatValidates validates its runbook
-// through the real binary, warnings included.
+// is written. TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas holds
+// every command and flag it names to internal/clispec, and
+// TestCLI_DocCreateSkillTeachesARunbookThatValidatesAndRuns validates its
+// runbook through the real binary, warnings included, and runs it.
 const skillGuide = "## Working safely\n\n" +
 	"1. Read a method before calling it: `pleiades doc <method>` prints its parameters, what it returns and examples;\n" +
 	"   `pleiades doc --json <method>` is the same contract as JSON. Never guess a parameter name.\n" +

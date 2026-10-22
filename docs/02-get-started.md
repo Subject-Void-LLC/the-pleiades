@@ -433,9 +433,10 @@ directory: a skill an AI agent reads to learn The Pleiades. It says which comman
 (`adhoc --json` to call one method, `doc` to read a method's parameters before calling it,
 `--mode check` before changing anything, `rollback` to undo), how a runbook is written,
 with a runbook that validates as written, and lists every method built into the binary
-with whether it can be checked and undone. Put it where your agent loads skills from (for
-Claude Code, `.claude/skills/pleiades/SKILL.md`), and run the command again after an
-upgrade: it replaces a `SKILL.md` it wrote and refuses to touch one it did not. Methods
+with whether it can be checked and undone. Run it in the directory your agent loads skills
+from (for Claude Code, `.claude/skills/pleiades/` in your project), and again there after
+an upgrade: it replaces a `SKILL.md` it wrote and refuses to touch one it did not, or a
+link, since replacing a link would leave the file it points at stale. Methods
 from external Collections are left out on purpose, since a skill is text an agent
 follows and their descriptions are written by somebody else; `pleiades doc --list` shows
 them.
