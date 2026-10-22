@@ -13973,3 +13973,22 @@ to agree, or the test should.
 **Lesson.** Pending the cause. A method that decides by a listing reads a view that can lag the object it describes;
 whether that is true of this daemon is the open question.
 
+## 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (open)
+
+**Symptom.** 2026-10-22, mutation-testing `pleiades doc --create-skill`'s teaching runbook: changing its condition from
+`result.kernel.rc == 0` to `result.kernal.rc == 0`, a register no task writes, still passed `pleiades validate` with no
+finding and no warning. Only the run failed, at that task: "CEL evaluation failed: no such key: kernal".
+
+**Root cause.** 515's fix held a parameter template's reads to the registers some task writes (TemplateRule). Conditions
+are read through `engine.ConditionReads` by two rules only: CheckModeRule (does a real task read a checked one) and
+HandlersRule's `unguardedReads` (`internal/validate/handlers.go`), which flags a register a rescue or always may not
+have written. Neither asks whether any task registers the name at all, so the plain typo goes through. It is the same
+check 515 added for templates, missing at its sibling seam.
+
+**Fix.** None yet. Planned: one rule over `engine.ConditionReads` (a dynamic read skipped) that refuses a condition
+naming a register no task in the runbook registers, built with 117b part 2's single "names an expression reads"
+function so templates and conditions share it. It changes `internal/validate`, so the census runs.
+
+**Lesson.** When a check is added for one way of reading a value, the other ways of reading the same value are the
+sibling sweep (LESSONS 281); templates and conditions both read registers.
+

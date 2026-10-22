@@ -23,6 +23,7 @@ pull request at a time; `make pr-check` before every push; the owner merges.
 ### Open
 
 - 560 and 551, causes unproven.
+- 561 (open): `validate` does not check the register a `when:` condition reads; planned with 117b part 2.
 
 ### Next
 
