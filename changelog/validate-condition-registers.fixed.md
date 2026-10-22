@@ -1,0 +1,1 @@
+`pleiades validate` now refuses a `when`, `when_or` or `when_cel` that reads a register no task in the runbook registers, or only the task itself registers, the way it already refused such a read in a parameter template. A misspelled register used to pass validation and fail only when the run reached that task.
