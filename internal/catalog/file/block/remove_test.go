@@ -347,16 +347,20 @@ func TestRemove_RefusesAnUnreachableDevice(t *testing.T) {
 // is a wrong answer about the device rather than a failure to reach it.
 func TestRemove_ReportsAFailureAtEveryStep(t *testing.T) {
 	tests := []struct {
-		name   string
-		budget int
-		wants  string
+		name      string
+		budget    int
+		wants     string
+		untouched bool
 	}{
 		{name: "the stat that reads what is at the path", budget: 0, wants: "stat "},
 		{name: "the read of the file", budget: 1, wants: "read "},
-		{name: "the write", budget: 2, wants: "write "},
-		{name: "the stat that reads back what the write left", budget: 3, wants: "could not be given back its previous mode"},
-		{name: "the chmod that puts the mode back", budget: 4, wants: "could not be given back its previous mode"},
-		{name: "the read that observes the result", budget: 5, wants: "read "},
+		// Every step up to the rename leaves the file untouched: the new
+		// text is written beside it and given its attributes first.
+		{name: "writing the new text beside the file", budget: 2, wants: "writing beside it", untouched: true},
+		{name: "giving the new file the mode", budget: 3, wants: "chmod", untouched: true},
+		{name: "reading the new file's owner", budget: 4, wants: "stat ", untouched: true},
+		{name: "the rename", budget: 7, wants: "rename over it", untouched: true},
+		{name: "the read that observes the result", budget: 8, wants: "read "},
 	}
 
 	for _, tt := range tests {
@@ -373,6 +377,9 @@ func TestRemove_ReportsAFailureAtEveryStep(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wants) {
 				t.Errorf("error = %q, want it to name the step that failed (%q)", err, tt.wants)
+			}
+			if got, _ := os.ReadFile(path); tt.untouched && string(got) != "alpha\n"+blockTestBegin+"\none\n"+blockTestEnd+"\n" { // #nosec G304 -- a path under this test's own directory
+				t.Errorf("the file holds %q after a failure before the rename, want it untouched", got)
 			}
 		})
 	}

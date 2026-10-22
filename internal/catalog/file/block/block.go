@@ -310,35 +310,25 @@ func blockRequirePlainFile(ctx context.Context, conn *remoteexec.Conn, path, fqc
 	}
 }
 
-// blockRestoreAttributes puts back the mode, owner and group the file
-// carried before it was rewritten.
+// blockWrite replaces the file's text, keeping the mode, owner and group
+// it carried before.
 //
-// THIS IS NOT HOUSEKEEPING, it repairs a real side effect of how a file
-// is written here. remotefile.Write creates a temporary with mktemp,
-// which makes it readable only by its creator, and renames it over the
-// target. The rename carries the temporary's inode, so the file that
-// lands is owned by the account this task connected as and is mode 0600,
-// whatever it was a moment earlier. Left alone, adding a line to
-// /etc/hosts would make it unreadable to every service that reads it,
-// and the task would report success.
-//
-// Ansible's atomic_move solves the same problem the same way, by copying
-// the destination's attributes onto the replacement.
-func blockRestoreAttributes(ctx context.Context, conn *remoteexec.Conn, path string, before remotefile.Info) error {
-	// Read what the write left, rather than assuming mktemp's 0600. The
-	// assumption is probably right and it is not worth being probably
-	// right about the permissions of a file this platform just rewrote.
-	now, err := remotefile.Stat(ctx, conn, path)
-	if err != nil {
-		return err
+// THIS IS NOT HOUSEKEEPING. A rename carries the new file's inode, which
+// starts as mktemp's 0600 owned by the account this task connected as, so
+// adding a line to /etc/hosts that way would make it unreadable to every
+// service that reads it. remotefile.Put keeps what the file was through
+// remotefile.Replace: the new file gets the old attributes before it is
+// renamed over the target, or, when this login may not give a new file
+// the old owner and group, the bytes are copied into the existing file.
+// A write it cannot finish leaves the file as it was. Ansible's
+// atomic_move copies the attributes too, but leaves the file to the
+// connecting account when its chown is refused; this never changes an
+// owner.
+func blockWrite(ctx context.Context, conn *remoteexec.Conn, path, content string, before remotefile.Info) error {
+	put, err := remotefile.Put(ctx, conn, path, []byte(content), before, remotefile.Attributes{})
+	if err != nil && put.Touched {
+		return fmt.Errorf("%w: the file may already hold the new block", err)
 	}
-
-	want := remotefile.Attributes{Mode: before.Mode, Owner: before.Owner, Group: before.Group}
-	// The changed flag is discarded on purpose. It answers "did the
-	// restore have to do anything", and the caller already knows the
-	// answer to the only question a task reports on, which is whether the
-	// CONTENT changed.
-	_, err = remotefile.Apply(ctx, conn, path, want, now)
 	return err
 }
 

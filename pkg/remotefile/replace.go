@@ -50,22 +50,9 @@ func Replace(ctx context.Context, conn *remoteexec.Conn, filePath string, conten
 	if before.Kind != KindFile {
 		return Replaced{}, fmt.Errorf("replace %s: it is a %s, not a regular file", filePath, before.Kind)
 	}
-	dir := path.Dir(filePath)
-	res, err := conn.RunWithStdin(ctx, "set -e; tmp=$(mktemp "+remoteexec.QuoteArg(dir)+"/.pleiades.XXXXXX); cat > \"$tmp\"; printf '%s' \"$tmp\"", strings.NewReader(string(content)))
+	tmp, cleanup, err := writeBeside(ctx, conn, filePath, content)
 	if err != nil {
 		return Replaced{}, fmt.Errorf("replace %s: %w", filePath, err)
-	}
-	tmp := res.Stdout
-	if res.ExitCode != 0 || !strings.HasPrefix(tmp, dir+"/.pleiades.") || strings.ContainsAny(tmp, "\n\r") {
-		return Replaced{}, fmt.Errorf("replace %s: writing beside it: exited %d: %s", filePath, res.ExitCode, firstLine(res.Stderr))
-	}
-	// The new file is removed on a context of its own, so a caller's
-	// cancelled context still cleans up. A session that dropped cannot,
-	// and leaves the file, named .pleiades.*, beside the target.
-	cleanup := func() {
-		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), replaceCleanupTimeout)
-		defer cancel()
-		_, _ = conn.Run(cctx, "rm -f -- "+remoteexec.QuoteArg(tmp))
 	}
 
 	if err := settle(ctx, conn, tmp, before); err != nil {
@@ -98,6 +85,31 @@ func Replace(ctx context.Context, conn *remoteexec.Conn, filePath string, conten
 		return Replaced{InPlace: true, Touched: true}, fmt.Errorf("replace %s in place: %w", filePath, err)
 	}
 	return Replaced{InPlace: true, Touched: true}, nil
+}
+
+// writeBeside writes content to a new file in filePath's own directory,
+// named .pleiades.*, and returns its path and a function that removes it.
+// The new file is mktemp's: 0600, owned by this login.
+//
+// The cleanup runs on a context of its own, so a caller's cancelled
+// context still cleans up. A session that dropped cannot, and leaves the
+// file beside the target.
+func writeBeside(ctx context.Context, conn *remoteexec.Conn, filePath string, content []byte) (string, func(), error) {
+	dir := path.Dir(filePath)
+	res, err := conn.RunWithStdin(ctx, "set -e; tmp=$(mktemp "+remoteexec.QuoteArg(dir)+"/.pleiades.XXXXXX); cat > \"$tmp\"; printf '%s' \"$tmp\"", strings.NewReader(string(content)))
+	if err != nil {
+		return "", nil, fmt.Errorf("writing beside it: %w", err)
+	}
+	tmp := res.Stdout
+	if res.ExitCode != 0 || !strings.HasPrefix(tmp, dir+"/.pleiades.") || strings.ContainsAny(tmp, "\n\r") {
+		return "", nil, fmt.Errorf("writing beside it: exited %d: %s", res.ExitCode, firstLine(res.Stderr))
+	}
+	cleanup := func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), replaceCleanupTimeout)
+		defer cancel()
+		_, _ = conn.Run(cctx, "rm -f -- "+remoteexec.QuoteArg(tmp))
+	}
+	return tmp, cleanup, nil
 }
 
 // settle gives tmp before's mode, and its owner and group as far as this

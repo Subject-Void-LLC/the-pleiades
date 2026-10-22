@@ -145,7 +145,7 @@ func init() {
 func copyDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Writes content, or a file from the project, to a file on the target, only when the bytes there differ.",
-		Description: "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen is atomic: the bytes go to a temporary file in the destination's own directory and are renamed over it, so a reader of the path sees either the whole old file or the whole new one and never a half-written one. The bytes are content, or src: a file in the project directory, read by the command line (pleiades run and adhoc), which holds the project. A Walk-tier Runner is a per-task container that cannot see the project, so there src is refused, naming content as the way to send the bytes. src is a path relative to the project directory that stays inside it, passes through no symbolic link, never reaches the project's .pleiades directory (its credentials and master key), and names a regular file of at most 64 MiB; it is read before anything is sent. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them, matching what Ansible's own atomic move does; a file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
+		Description: "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen goes to a temporary file in the destination's own directory, which is given the mode, owner and group the file is to have and only then renamed over it, so a reader of the path sees either the whole old file or the whole new one, and a write that cannot be finished leaves the destination as it was. The bytes are content, or src: a file in the project directory, read by the command line (pleiades run and adhoc), which holds the project. A Walk-tier Runner is a per-task container that cannot see the project, so there src is refused, naming content as the way to send the bytes. src is a path relative to the project directory that stays inside it, passes through no symbolic link, never reaches the project's .pleiades directory (its credentials and master key), and names a regular file of at most 64 MiB; it is read before anything is sent. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them. When the connecting account may not give a new file that owner or group (a login that is not root replacing a file another account owns), the bytes are copied into the existing file instead, which keeps everything it was, and the run warns that the write was not atomic; a file the account may not write is refused before anything changes. Ansible's atomic move would leave such a file owned by the connecting account: this method never changes an owner or group the task did not name. An owner or group the task names that the connecting account may not give is refused before anything is written, and a check refuses the same. A file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
 		Params: []collection.Param{
 			{Name: copyParamDest, Type: "string", Required: true, Description: "The path to write on the device. Its parent directory must already exist: this method writes a file and never creates the directories above it, which is file.directory's job."},
 			{Name: copyParamContent, Type: "string", Description: "The bytes to write, used verbatim (set content or src, not both): nothing is appended, so a file that should end in a newline needs one in the value. An empty string is a real request and truncates the file to nothing. Quote a value YAML would otherwise read as a number or a boolean, since a non-string is refused rather than rendered."},
@@ -163,6 +163,7 @@ func copyDoc() collection.Doc {
 			{Name: copyParamGroup, Type: "string", Returned: "always", Description: "The group owning the file now."},
 			{Name: copyStatSize, Type: "int", Returned: "always", Description: "The file's size in bytes now."},
 			{Name: sdk.StatDiff, Type: "dict", Returned: "always", Description: "The before and after state of the path, each holding its kind, mode, owner, group, size, modification time and the checksum of its contents. Recorded even when nothing changed, in which case the two halves are identical."},
+			{Name: sdk.StatWarnings, Type: "list of string", Returned: "when the write was not atomic", Description: "Says the new bytes were copied into the existing file rather than renamed over it, because a new file could not be given its owner and group; a reader at that moment could have seen the file part written."},
 			{Name: sdk.StatInverse, Type: "dict", Returned: "when something changed", Description: "The concrete task that undoes this run: a file.remove when this run created the file, or a file.permissions restoring the attributes it found when the file already existed. Absent from a run that changed nothing, which is how the record says undoing it means doing nothing. When the previous content was overwritten, the description says plainly that those bytes are not restored."},
 		},
 		Examples: []collection.Example{
@@ -191,23 +192,23 @@ func copyDoc() collection.Doc {
 // Everything a runbook got wrong is refused before the first packet, so a
 // mistake in a task costs no round trip and names the runbook rather than
 // the device. Then the path is read, then its content is compared by
-// checksum, then a write is sent only if those differ, then only the
-// attributes that differ are applied, and only then is anything recorded.
+// checksum, then a write is sent only if those differ (or, with the same
+// bytes, only the attributes that differ are applied), and only then is
+// anything recorded.
 //
-// # Why the state is read AGAIN after a write
+// # The attributes go on before the rename
 //
-// This is the part that is easy to get wrong and impossible to notice.
-// remotefile.Write is atomic, which means it does not modify the file in
-// place: it creates a temporary, fills it and renames it over the
-// destination. The renamed file is a NEW inode carrying mktemp's
-// attributes, not the destination's, so everything read before the write
-// describes a file that no longer exists. An implementation that then
-// compared the requested mode against that stale read would skip a chmod
-// it genuinely needed and leave a 0644 configuration file at 0600, having
-// reported success. So the write is followed by a fresh read, and the
-// attribute pass compares against that.
+// A write renames a new file over the destination, and a new file starts
+// as mktemp's: 0600, owned by the connecting account. This method used to
+// rename first and chown afterwards, so a login that may not give a file
+// away left the new bytes at 0600 under its own name, with no undo
+// recorded (examples/routing_lab, 2026-10-22). remotefile.Put gives the
+// new file its mode, owner and group beside the destination and renames
+// it only when they all took, or, keeping an existing file's attributes,
+// copies into it in place through remotefile.Replace, so a write this
+// login cannot finish changes nothing.
 //
-// The same rule produces the after half of the diff: it is a real read of
+// The after half of the diff is a real read of
 // the device, never the request echoed back. A method that recorded what
 // it asked for would report a converged file it had failed to change.
 func Copy(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
@@ -280,41 +281,43 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	}
 
 	wrote := found != wanted
+	effective := copyEffective(req.attrs, before)
 	if mode == collection.ModeCheck {
-		return copyCheck(rc, req, before, found, wanted, wrote)
-	}
-	if wrote {
-		if err := remotefile.Write(ctx, conn, req.dest, []byte(req.content)); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		// A check refuses what a real run refuses: a write this login could
+		// not finish with the attributes it needs.
+		if wrote {
+			if err := remotefile.PredictPut(ctx, conn, req.dest, before, effective); err != nil {
+				return collection.Result{}, copyPutError(fqcn, req, err)
+			}
 		}
+		return copyCheck(rc, req, before, found, wanted, wrote)
 	}
 
 	// Whether the TASK changed attributes is decided against what was
-	// found before anything ran, not against what the write left behind.
-	// The write's own attribute churn is this method's doing, not the
-	// runbook's, and reporting it as a change the task made would make
-	// every content update look like a permission change as well.
+	// found before anything ran: attributes the task did not name are
+	// kept, and keeping them is not a change.
 	attrsDiffer := copyAttributesDiffer(req.attrs, before)
 	changed := wrote || attrsDiffer
 
-	current := before
 	if wrote {
-		// See this function's doc comment: after an atomic write, before is
-		// a description of an inode that is gone.
-		if current, err = remotefile.Stat(ctx, conn, req.dest); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w: the content was written before this failed, so %s holds the new bytes with whatever attributes the write left on them", fqcn, err, req.dest)
+		// Put gives the new file its attributes before it takes the
+		// destination's place, so a write it cannot finish (an owner this
+		// login may not give) leaves the destination as it was.
+		put, err := remotefile.Put(ctx, conn, req.dest, []byte(req.content), before, effective)
+		if err != nil {
+			if put.Touched {
+				return collection.Result{}, fmt.Errorf("%s: %w: the content was written before this failed", fqcn, err)
+			}
+			return collection.Result{}, copyPutError(fqcn, req, err)
 		}
-	}
-
-	// Apply's own changed flag is deliberately discarded. It reports
-	// whether a command was sent, which after a write includes putting
-	// back the attributes the write disturbed, and that is not something
-	// the task asked for; attrsDiffer above is the honest answer and is
-	// computed from the same comparison Apply makes.
-	if _, err := remotefile.Apply(ctx, conn, req.dest, copyEffective(req.attrs, before), current); err != nil {
-		if wrote {
-			return collection.Result{}, fmt.Errorf("%s: %w: the content was written before this failed, so %s holds the new bytes but not the attributes the task asked for", fqcn, err, req.dest)
+		if put.InPlace {
+			if err := sdk.RecordWarnings(rc, []string{copyInPlaceWarning(req.dest, before)}); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
 		}
+	} else if _, err := remotefile.Apply(ctx, conn, req.dest, effective, before); err != nil {
+		// Apply's own changed flag is deliberately discarded: attrsDiffer
+		// above is the honest answer, from the same comparison Apply makes.
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
@@ -503,6 +506,32 @@ func copyEffective(want remotefile.Attributes, before remotefile.Info) remotefil
 		effective.Group = before.Group
 	}
 	return effective
+}
+
+// copyPutError says why a write was refused before anything changed, and,
+// when the owner or group refused is one the task left to be kept rather
+// than named, how the task can accept giving the file to this login.
+func copyPutError(fqcn string, req copyRequest, err error) error {
+	var refusal *remotefile.AttributeRefusal
+	if !errors.As(err, &refusal) {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	named := req.attrs.Owner
+	if refusal.Field == "group" {
+		named = req.attrs.Group
+	}
+	if named != "" {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return fmt.Errorf("%s: %w: it belongs to %s %s now, which a file this login writes cannot keep; set %s: %s on the task to give it to this login instead",
+		fqcn, err, refusal.Field, refusal.Value, refusal.Field, refusal.Login)
+}
+
+// copyInPlaceWarning is the warning a run carries when the new bytes were
+// copied into the existing file rather than renamed over it.
+func copyInPlaceWarning(dest string, before remotefile.Info) string {
+	return fmt.Sprintf("%s was written in place, not renamed over: a new file could not be given its owner and group (%s:%s), so the bytes were copied into the existing file, which keeps everything it was; a reader at that moment could have seen it part written",
+		dest, before.Owner, before.Group)
 }
 
 // copyAttributesDiffer reports whether an attribute the task NAMED
