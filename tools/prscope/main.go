@@ -9,10 +9,14 @@
 // .github/) names nothing: pr-check's static checks and its always-run
 // guards read those, and CI's own jobs test everything else.
 //
-// One change also names a package it does not touch: a change that can
-// alter what validation decides about an existing runbook adds
-// cmd/pleiades, which validates every one of them (census.go), and says
-// so on standard error.
+// Some changes also name packages they do not touch: a change that can
+// alter what validation decides about an existing runbook adds the
+// packages that validate and run those runbooks, cmd/pleiades first
+// (census.go), and says so on standard error.
+//
+// A rename names both its old path and its new one, so a file moved out of
+// a package still selects that package, and paths are read NUL-separated,
+// so one holding a space or a character git would quote still matches.
 //
 // Usage:
 //
@@ -53,7 +57,7 @@ func realMain(root string, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if trigger != "" {
-		fmt.Fprintf(stderr, "prscope: %s changes what validation decides, so %s runs too (FAILURE_PATTERNS 559)\n", trigger, censusPackage)
+		fmt.Fprintf(stderr, "prscope: %s changes what validation decides, so %s run too (FAILURE_PATTERNS 559)\n", trigger, strings.Join(censusPackages, ", "))
 	}
 	for _, p := range pkgs {
 		fmt.Fprintln(stdout, p)
@@ -63,18 +67,21 @@ func realMain(root string, args []string, stdout, stderr io.Writer) int {
 
 // changedPackages is every package of the module at root holding a file
 // that differs from the merge base of HEAD and base, sorted, plus the
-// census package when a changed file triggers it; the second result names
-// that file.
+// census packages when a changed file triggers them; the second result
+// names that file.
 func changedPackages(root, base string) ([]string, string, error) {
 	mergeBase, err := run(root, "git", "merge-base", "HEAD", base)
 	if err != nil {
 		return nil, "", fmt.Errorf("finding where HEAD left %s: %w", base, err)
 	}
-	tracked, err := run(root, "git", "diff", "--name-only", strings.TrimSpace(mergeBase))
+	// --no-renames prints a rename's old path beside its new one, and -z
+	// prints each path raw, NUL-terminated, where git would otherwise quote
+	// one holding a space or a non-ASCII character.
+	tracked, err := run(root, "git", "diff", "--name-only", "--no-renames", "-z", strings.TrimSpace(mergeBase))
 	if err != nil {
 		return nil, "", err
 	}
-	untracked, err := run(root, "git", "ls-files", "--others", "--exclude-standard")
+	untracked, err := run(root, "git", "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, "", err
 	}
@@ -82,7 +89,12 @@ func changedPackages(root, base string) ([]string, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	files := strings.Fields(tracked + "\n" + untracked)
+	var files []string
+	for _, file := range strings.Split(tracked+"\x00"+untracked, "\x00") {
+		if file != "" {
+			files = append(files, file)
+		}
+	}
 	found := map[string]bool{}
 	for _, file := range files {
 		for dir := path.Dir(file); ; dir = path.Dir(dir) {

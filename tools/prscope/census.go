@@ -1,6 +1,6 @@
-// The census rule: a change that can alter what `pleiades validate` says
-// about a runbook already in the tree also selects cmd/pleiades, the
-// package that validates every one of them.
+// The census rule: a change that can alter what validation decides about a
+// runbook already in the tree also selects the packages that validate or
+// run those runbooks.
 package main
 
 import (
@@ -8,17 +8,34 @@ import (
 	"strings"
 )
 
-// censusPackage is the package, relative to the module root, holding the
-// census of existing runbooks: the examples test
-// (TestExamples_EveryRunbookBuildsAndValidates), the release gates and the
-// migrate gate, each of which validates or runs real runbooks through the
-// real binary.
-const censusPackage = "cmd/pleiades"
+// censusPackages are the packages, relative to the module root, that hold
+// the census of existing runbooks: each validates or runs runbooks that
+// are already in the tree, through internal/validate.
+//
+//   - cmd/pleiades: the examples test
+//     (TestExamples_EveryRunbookBuildsAndValidates), the release gates and
+//     the migrate gate, through the real binary.
+//   - cmd/runner: its release gates run runbooks through the Runner, which
+//     validates each one before it runs it.
+//   - internal/adapters/native: the Runner's validation itself
+//     (validate.go) and its tests' runbooks.
+//   - internal/forge/playbook: it validates the converted twin under its
+//     testdata.
+//
+// tests/e2e also runs runbooks through the real binaries and is left out
+// on purpose: it takes about fourteen minutes alone and this machine's
+// memory cannot spare it before every push. CI still runs it.
+var censusPackages = []string{
+	"cmd/pleiades",
+	"cmd/runner",
+	"internal/adapters/native",
+	"internal/forge/playbook",
+}
 
 // censusTriggers are the paths, relative to the module root, whose change
 // can alter what validation or a run decides about a runbook that is
-// already in the tree. A change under any of them adds censusPackage to
-// the scope.
+// already in the tree. A change under any of them adds every census
+// package to the scope.
 //
 // prscope selects only the packages a branch changes, so a branch that
 // made validation stricter passed pr-check and failed CI in cmd/pleiades,
@@ -57,7 +74,7 @@ var censusTriggers = []string{
 // censusTrigger returns the first changed file, slash-separated and
 // relative to the module root, that lies under a census trigger, and
 // whether one does. A test file never triggers: no other package compiles
-// it, so it cannot change what cmd/pleiades sees.
+// it, so it cannot change what a census package sees.
 func censusTrigger(files []string) (string, bool) {
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
@@ -72,20 +89,22 @@ func censusTrigger(files []string) (string, bool) {
 	return "", false
 }
 
-// addCensus adds the census package's import path to found when a changed
-// file triggers it, and returns the file that did ("" when none did). A
-// trigger firing in a module with no census package is refused, since
-// that means the package moved and the rule would otherwise stop selecting
-// anything without a word.
+// addCensus adds every census package's import path to found when a
+// changed file triggers the census, and returns the file that did (""
+// when none did). A trigger firing in a module missing a census package is
+// refused, since that means the package moved and the rule would otherwise
+// stop selecting it without a word.
 func addCensus(files []string, packages map[string]string, found map[string]bool) (string, error) {
 	file, ok := censusTrigger(files)
 	if !ok {
 		return "", nil
 	}
-	ip, ok := packages[censusPackage]
-	if !ok {
-		return "", fmt.Errorf("%s changes what validation decides, but %s, which validates every runbook, is not a package here", file, censusPackage)
+	for _, dir := range censusPackages {
+		ip, ok := packages[dir]
+		if !ok {
+			return "", fmt.Errorf("%s changes what validation decides, but %s, which validates existing runbooks, is not a package here", file, dir)
+		}
+		found[ip] = true
 	}
-	found[ip] = true
 	return file, nil
 }

@@ -13933,9 +13933,14 @@ onboarded. Both gates and the examples test pass.
 existing runbook is validated. A claim about "every existing fixture" names the packages it ran.
 
 **Follow-up, 2026-10-22 (`chore/prscope-census`).** The lesson above is now a selection rule, not a step to remember.
-`tools/prscope` adds `cmd/pleiades` to pr-check's scope whenever a branch changes a non-test file under
+`tools/prscope` adds the census to pr-check's scope whenever a branch changes a non-test file under
 `internal/validate`, `internal/engine`, `pkg/collection`, `pkg/capability`, `internal/catalog`,
-`internal/inventory/devices` or `examples/` (`tools/prscope/census.go`), and prints why on standard error. The catalog
+`internal/inventory/devices` or `examples/` (`tools/prscope/census.go`), and prints why on standard error. The census
+is every package that validates or runs existing runbooks through `validate`: `cmd/pleiades`, `cmd/runner` (its gates
+go through the Runner's validation), `internal/adapters/native` and `internal/forge/playbook` (its converted twin).
+`tests/e2e` is left to CI, at about fourteen minutes alone. A rename counts by its old path as well as its new one
+(`git diff --no-renames`), and paths are read NUL-separated, since the review found that a file moved out of a trigger,
+and a path git quotes, both went unseen. The catalog
 and device entries are there because a manifest's required capabilities, transports or parameters, and a device type's
 declared capabilities, shift the same fixtures; a manifest shares its files with its method's body, so no narrower path
 separates them. `examples/` is there because no package sits above an example, so changing one selected nothing at
@@ -13955,7 +13960,7 @@ checks `container.prune` with `what: containers` and the label. The check lists 
 (`internal/catalog/container/prune.go`, `candidates`), and found nothing. The test's own `state` helper, which
 inspects the container, read "exited" in the same assertion. So the list and the inspect disagreed about one
 container within a fraction of a second of its stop. That it failed in the package-alone re-measure too means it is
-not only the whole shard's load.
+not only the other packages in the shard running at the same time; the same runner and daemon served both.
 
 **Root cause.** Unproven. One theory: the daemon answers a list from a replica view of its containers that is updated
 after `stop` returns, while inspect reads the container itself. It has not been reproduced, and no earlier entry
