@@ -644,14 +644,6 @@ func TestCreate_UseraddConnectionFailure(t *testing.T) {
 	}
 }
 
-func TestCreate_RequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absentUser, 4)
-	_, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", nil))
-	if err == nil {
-		t.Fatal("expected a connection failure on the post-create requery")
-	}
-}
-
 func TestCreate_GroupResolutionConnectionFailure(t *testing.T) {
 	h := newHarnessBudgeted(t, presentUser, 1)
 	_, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", map[string]any{"group": "admins"}))

@@ -336,6 +336,11 @@ story, per `.AGENTS/AGENTS.md`.
 301. **A documented example is a runbook, and is held to everything `pleiades validate` checks (2026-10-18).**
 302. **Control flow is checked against an independent interpreter over generated programs (2026-10-20).**
 303. **A repeat of 281: a lesson that failed twice becomes a selection rule in the gate that skipped it, with a test that fails on the gate as it was (2026-10-22).**
+304. **A CLI an agent drives takes its inputs without a shell redirect, and its documented setup stays inside commands an allow list can name (2026-10-22).**
+305. **A secret-at-rest feature states, beside the feature, what it does not hide and from whom (2026-10-22).**
+306. **An agent dry-run harness keeps its grading files outside the agent's sandbox (2026-10-22).**
+307. **A repeat of 255: a check never predicts through missing state with a warning; it answers "could not check", and the convenience is accepting that by name (2026-10-22).**
+308. **A repeat of 200 and 300: an agent CLI runs by absolute path under a memory cap, with no swap and a task limit (2026-10-22).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

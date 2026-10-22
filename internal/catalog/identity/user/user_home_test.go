@@ -303,18 +303,50 @@ func TestRemove_HomeIfUnchangedRefusals(t *testing.T) {
 }
 
 // TestCreate_AReadThatFailsAfterUseraddKeepsItsUndo drops the connection
-// after useradd has made the account: the task fails with its undo already
-// recorded. A fresh create with a home takes five sessions (the account,
-// useradd -D, the test for an existing home, useradd, the re-read).
+// after useradd (or usermod) has changed the account. The task still
+// succeeds, with a warning and its undo, because the engine never journals
+// a failed task's undo. A fresh create with a home takes five sessions (the
+// account, useradd -D, the test for an existing home, useradd, the
+// re-read); converging a present account takes three (the account,
+// usermod, the re-read).
 func TestCreate_AReadThatFailsAfterUseraddKeepsItsUndo(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		state    userState
+		budget   int
+		extra    map[string]any
+		wantCall string
+		wantUndo string
+	}{
+		{"a new account", absentUser, 4, nil, "useradd", "identity.user.remove"},
+		{"a converged account", presentUser, 2, map[string]any{"comment": "Deployer"}, "usermod", "identity.user.modify"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarnessBudgeted(t, tc.state, tc.budget)
+			result, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", tc.extra))
+			if err != nil || !result.Changed {
+				t.Fatalf("changed %v, err %v; want a changed task that succeeds", result.Changed, err)
+			}
+			if calls := h.invocations(t); len(calls) != 1 || !strings.HasPrefix(calls[0], tc.wantCall) {
+				t.Fatalf("calls = %v, want the %s that ran", calls, tc.wantCall)
+			}
+			inv, _ := h.rc.stats[sdk.StatInverse].(map[string]any)
+			if params, _ := inv["params"].(map[string]any); inv["fqcn"] != tc.wantUndo || params["name"] != "deploy" {
+				t.Errorf("undo = %v, want %s naming deploy", inv, tc.wantUndo)
+			}
+			if w, _ := h.rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "could not read the account back") {
+				t.Errorf("warnings = %v, want one saying the account could not be read back", w)
+			}
+		})
+	}
+}
+
+// TestCreate_AWarningThatCannotBeRecordedFailsTheTask: a warning after
+// useradd that cannot be recorded is a failure, not one dropped quietly.
+func TestCreate_AWarningThatCannotBeRecordedFailsTheTask(t *testing.T) {
 	h := newHarnessBudgeted(t, absentUser, 4)
-	if _, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", nil)); err == nil {
-		t.Fatal("Create succeeded with its re-read refused")
-	}
-	if calls := h.invocations(t); len(calls) != 1 || !strings.HasPrefix(calls[0], "useradd") {
-		t.Fatalf("calls = %v, want the useradd that ran", calls)
-	}
-	if params, _ := inverseParams(t, h); params["name"] != "deploy" {
-		t.Errorf("undo params %v, want the account it made", params)
+	h.rc.failOnKey = sdk.StatWarnings
+	if _, err := user.Create(context.Background(), h.rc, h.device, h.params("deploy", nil)); err == nil || !strings.Contains(err.Error(), "identity.user.create") {
+		t.Errorf("err = %v, want the recording failure", err)
 	}
 }

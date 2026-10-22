@@ -257,18 +257,19 @@ func removableDependencies(ctx context.Context, conn *remoteexec.Conn, name stri
 }
 
 // recordDependencies records the dependencies a remove takes with its
-// package, and warns about the ones it keeps.
-func recordDependencies(rc sdk.RunbookContext, removed, kept []string) error {
+// package, and returns the warning about the ones it keeps, for the
+// caller to record with any others.
+func recordDependencies(rc sdk.RunbookContext, removed, kept []string) ([]string, error) {
 	if len(removed) > 0 {
 		if err := rc.SetStat(statDependenciesRemoved, removed); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if len(kept) == 0 {
-		return nil
+		return nil, nil
 	}
-	return sdk.RecordWarnings(rc, []string{fmt.Sprintf("kept %s: still needed by another installed package, installed "+
-		"on purpose since, or removing it would remove more than this package brought", strings.Join(kept, ", "))})
+	return []string{fmt.Sprintf("kept %s: still needed by another installed package, installed "+
+		"on purpose since, or removing it would remove more than this package brought", strings.Join(kept, ", "))}, nil
 }
 
 // runAptGet runs one apt-get invocation non-interactively and treats a

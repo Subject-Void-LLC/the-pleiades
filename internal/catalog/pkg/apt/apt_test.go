@@ -713,9 +713,11 @@ func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
 }
 
 // A fresh install takes five sessions: the query, the installed set
-// before, the install, the installed set after, and the re-query.
+// before, the install, the installed set after, and the re-query. Only the
+// set before can fail the task; the reads after the install are warnings
+// (TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo).
 func TestInstall_InstalledSetConnectionFailures(t *testing.T) {
-	for budget, what := range map[int]string{1: "the set before", 3: "the set after"} {
+	for budget, what := range map[int]string{1: "the set before"} {
 		h := newHarnessBudgeted(t, absent, budget)
 		_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 		if err == nil || !strings.Contains(err.Error(), "open session") {
@@ -732,11 +734,16 @@ func TestInstall_ApplyConnectionFailure(t *testing.T) {
 	}
 }
 
+// A version change on an installed package records no undo, so a re-query
+// that fails after it is the same warning a fresh install gets.
 func TestInstall_RequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 4) // everything up to the set after succeeds, the re-query does not
-	_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
-	if err == nil || !strings.Contains(err.Error(), "open session") {
-		t.Errorf("err = %v, want it to mention the session failing to open", err)
+	h := newHarnessBudgeted(t, installedCurrent, 2) // the query and the install succeed, the re-query does not
+	result, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", map[string]any{"version": "2.0"}))
+	if err != nil || !result.Changed {
+		t.Errorf("changed %v, err %v; want a changed task that succeeds", result.Changed, err)
+	}
+	if w, _ := h.rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "could not read its version back") {
+		t.Errorf("warnings = %v, want one saying the version could not be read back", w)
 	}
 }
 
@@ -748,16 +755,19 @@ func TestRemove_InitialQueryConnectionFailure(t *testing.T) {
 	}
 }
 
-// The package is gone by the re-query, so the task fails with its undo
-// already recorded: the removal can still be rolled back.
+// The package is gone by the re-query, so a failed re-query is a warning
+// and the task succeeds with its undo, which a failed task would lose.
 func TestRemove_RequeryConnectionFailure(t *testing.T) {
 	h := newHarnessBudgeted(t, installedCurrent, 2) // the query and the remove succeed, the re-query does not
-	_, err := apt.Remove(context.Background(), h.rc, h.device, h.params("curl", nil))
-	if err == nil || !strings.Contains(err.Error(), "open session") {
-		t.Errorf("err = %v, want it to mention the session failing to open", err)
+	result, err := apt.Remove(context.Background(), h.rc, h.device, h.params("curl", nil))
+	if err != nil || !result.Changed {
+		t.Errorf("changed %v, err %v; want a changed task that succeeds", result.Changed, err)
 	}
 	if inv, _ := h.rc.stats[sdk.StatInverse].(map[string]any); inv["fqcn"] != "pkg.apt.install" {
-		t.Errorf("undo = %v, want the pkg.apt.install recorded before the re-query", inv)
+		t.Errorf("undo = %v, want the pkg.apt.install recorded", inv)
+	}
+	if w, _ := h.rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "could not read dpkg back") {
+		t.Errorf("warnings = %v, want one saying dpkg could not be read back", w)
 	}
 }
 

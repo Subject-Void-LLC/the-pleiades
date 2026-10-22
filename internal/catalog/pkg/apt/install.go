@@ -126,6 +126,7 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 
 	changed := false
+	var warnings []string
 	if !before.installed || (version != "" && before.version != version) {
 		pkgArg := name
 		if version != "" {
@@ -145,20 +146,29 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		// anything else can fail: a read that fails from here on costs the
 		// undo only its list of dependencies, never the undo itself.
 		if !before.installed {
-			if err := recordInstallUndo(ctx, rc, conn, name, preInstall); err != nil {
+			if warnings, err = recordInstallUndo(ctx, rc, conn, name, preInstall); err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
 		}
 	}
 
+	// Once apt-get has installed the package, a read that fails is a
+	// warning, never the task's failure: a failed task's undo is never
+	// journaled, so failing here would leave an installed package nothing
+	// can roll back (FAILURE_PATTERNS 452).
 	after := before
 	if changed {
-		if after, err = queryDpkg(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		var readErr error
+		if after, readErr = queryDpkg(ctx, conn, name); readErr != nil {
+			after = state{installed: true}
+			warnings = append(warnings, fmt.Sprintf("installed %s, but could not read its version back: %v", name, readErr))
 		}
 	}
 
 	if err := recordState(rc, name, before, after); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
@@ -182,10 +192,10 @@ const maxUndoDependencies = 128
 // restore.
 //
 // When the installed set cannot be read, or the install pulled in more
-// than an undo can name, the undo names the package alone and a warning
-// says what it leaves: removing the package still works, and
+// than an undo can name, the undo names the package alone and the warning
+// it returns says what it leaves: removing the package still works, and
 // apt-get autoremove takes what it pulled in.
-func recordInstallUndo(ctx context.Context, rc sdk.RunbookContext, conn *remoteexec.Conn, name string, preInstall map[string]bool) error {
+func recordInstallUndo(ctx context.Context, rc sdk.RunbookContext, conn *remoteexec.Conn, name string, preInstall map[string]bool) ([]string, error) {
 	invParams := map[string]any{paramName: name}
 	brought := ""
 	var warnings []string
@@ -214,7 +224,7 @@ func recordInstallUndo(ctx context.Context, rc sdk.RunbookContext, conn *remotee
 		Description: fmt.Sprintf("Remove %s, which this task installed%s. Anything its install scripts did beyond "+
 			"placing its own files (a service they started, a user they created) is not undone.", name, brought),
 	}); err != nil {
-		return err
+		return nil, err
 	}
-	return sdk.RecordWarnings(rc, warnings)
+	return warnings, nil
 }

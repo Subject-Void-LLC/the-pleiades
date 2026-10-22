@@ -182,33 +182,50 @@ func TestRemove_DependencyFailures(t *testing.T) {
 }
 
 // TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo drops the
-// connection after apt-get has installed the package: the task fails, but
-// the undo is already recorded, so the change it made can still be rolled
-// back. A fresh install takes five sessions (the query, the installed set
-// before, the install, the set after, the re-query); budget is how many
-// succeed.
+// connection after apt-get has installed the package. The task still
+// succeeds, with a warning, because the engine never journals a failed
+// task's undo: failing here would leave an installed package no rollback
+// could remove. A fresh install takes five sessions (the query, the
+// installed set before, the install, the set after, the re-query); budget
+// is how many succeed.
 func TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo(t *testing.T) {
-	for budget, what := range map[int]string{3: "the set after", 4: "the re-query"} {
+	for budget, wantWarnings := range map[int][]string{
+		3: {"could not read what installing curl pulled in", "installed curl, but could not read its version back"},
+		4: {"installed curl, but could not read its version back"},
+	} {
 		h := newHarnessBudgeted(t, absent, budget)
-		_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
-		if err == nil || !strings.Contains(err.Error(), "open session") {
-			t.Errorf("%s failing: err = %v, want the session failure", what, err)
+		result, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
+		if err != nil || !result.Changed {
+			t.Errorf("budget %d: changed %v, err %v; want a changed task that succeeds", budget, result.Changed, err)
 		}
 		inv, _ := h.rc.stats[sdk.StatInverse].(map[string]any)
 		params, _ := inv["params"].(map[string]any)
 		if inv["fqcn"] != "pkg.apt.remove" || params["name"] != "curl" {
-			t.Errorf("%s failing: undo = %v, want pkg.apt.remove naming curl", what, inv)
+			t.Errorf("budget %d: undo = %v, want pkg.apt.remove naming curl", budget, inv)
 		}
-		if budget != 3 {
-			continue
-		}
-		if _, listed := params["dependencies"]; listed {
+		if _, listed := params["dependencies"]; budget == 3 && listed {
 			t.Errorf("an undo named dependencies nothing read: %v", params)
 		}
 		warnings, _ := h.rc.stats[sdk.StatWarnings].([]string)
-		if len(warnings) != 1 || !strings.Contains(warnings[0], "could not read what installing curl pulled in") {
-			t.Errorf("warnings = %v, want one saying the dependencies could not be read", warnings)
+		if len(warnings) != len(wantWarnings) {
+			t.Fatalf("budget %d: warnings = %v, want %d", budget, warnings, len(wantWarnings))
 		}
+		for i, want := range wantWarnings {
+			if !strings.Contains(warnings[i], want) {
+				t.Errorf("budget %d: warning %d = %q, want one saying %q", budget, i, warnings[i], want)
+			}
+		}
+	}
+}
+
+// TestInstall_AWarningThatCannotBeRecordedFailsTheTask: a warning after
+// the install that cannot be recorded is a failure, not one dropped
+// quietly.
+func TestInstall_AWarningThatCannotBeRecordedFailsTheTask(t *testing.T) {
+	h := newHarnessBudgeted(t, absent, 4)
+	h.rc.failOnKey = sdk.StatWarnings
+	if _, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil)); err == nil || !strings.Contains(err.Error(), "pkg.apt.install") {
+		t.Errorf("err = %v, want the recording failure", err)
 	}
 }
 

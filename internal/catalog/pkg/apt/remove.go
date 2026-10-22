@@ -117,7 +117,11 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if err := recordState(rc, name, before, state{}); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
-		if err := recordDependencies(rc, withDeps, kept); err != nil {
+		warnings, err := recordDependencies(rc, withDeps, kept)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := sdk.RecordWarnings(rc, warnings); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		return collection.Result{Changed: before.installed}, nil
@@ -140,18 +144,27 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}
-	if err := recordDependencies(rc, withDeps, kept); err != nil {
+	warnings, err := recordDependencies(rc, withDeps, kept)
+	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// Once apt-get has removed the package, a read that fails is a
+	// warning, never the task's failure, which would drop the undo just
+	// recorded (FAILURE_PATTERNS 452).
 	after := before
 	if changed {
-		if after, err = queryDpkg(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		var readErr error
+		if after, readErr = queryDpkg(ctx, conn, name); readErr != nil {
+			after = state{}
+			warnings = append(warnings, fmt.Sprintf("removed %s, but could not read dpkg back: %v", name, readErr))
 		}
 	}
 
 	if err := recordState(rc, name, before, after); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 

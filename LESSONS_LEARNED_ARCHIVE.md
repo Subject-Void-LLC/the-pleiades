@@ -5888,3 +5888,63 @@ in `cmd/pleiades`, where every existing runbook is validated. Each time the rule
 under the pressure of a green local run. A gate that chooses what to run can know which changes need which census; a
 person at the end of a branch reliably does not.
 
+## 304. A CLI an agent drives takes its inputs without a shell redirect, and its documented setup stays inside commands an allow list can name
+
+**Rule.** Every input a person might pipe or redirect into a command also has a form an agent's sandbox allows: a
+file argument the command opens itself, such as `add-credential --password-file`. The setup a guide or the generated
+skill teaches uses only commands an allow list can name in advance.
+
+**Why.** 2026-10-22, six rounds of agent dry runs (GitHub Copilot CLI on its auto model, the Antigravity CLI on
+gemini-3.8-flash-medium, and a blind `claude -p` on claude-opus-5-5), each setting up a Debian server from the
+generated `SKILL.md` and undoing it from a fresh conversation. Their allow lists refused every `<` redirect, which a
+person never notices, so `--password-stdin` with a redirected file was out of reach. Antigravity's headless mode went
+further: the first command it was not allowed ended the whole turn, not just that command. The sealed
+`--password-file` exists partly for this, and `docs/02-get-started.md` now tells whoever sets up an agent to give its
+allow list everything the work needs before it starts.
+
+## 305. A secret-at-rest feature states, beside the feature, what it does not hide and from whom
+
+**Rule.** When a feature keeps a secret out of somewhere, its documentation says in the same place where the secret
+still is and who can read it there, so nobody infers a protection the design does not give.
+
+**Why.** 2026-10-22. A sealed password file keeps the password out of command lines, shell history, transcripts and
+logs, and lets it be sealed on another machine. It does not hide the password from an agent that can read the
+project: `.pleiades/master.key` opens the seal key, and `add-credential` stores the password under that same master
+key. An agent given a sealed file could reasonably believe the password was kept from it. `docs/02-get-started.md`
+now says so beside the feature, and points at the only real boundary, keeping `.pleiades/` out of the agent's reach
+(another user, for example).
+
+## 306. An agent dry-run harness keeps its grading files outside the agent's sandbox
+
+**Rule.** Whatever judges an agent's run (a baseline, an expected result, a rubric) lives where the agent cannot
+list or read it, and the harness checks that before the run starts.
+
+**Why.** 2026-10-22, the same dry runs: one agent listed the directory beside its project, found the grader's
+baseline there and tried to read it. A run that can see its answer key measures nothing, and nothing in the result
+would have said so.
+
+## 307. A repeat of 255: a check never predicts through missing state with a warning; it answers "could not check", and the convenience is accepting that by name
+
+**Rule.** When a check meets state it cannot judge (a group an earlier task may create), it returns
+`collection.CannotCheck` with the reason. A prediction with a warning beside it is not a middle ground: it lets the
+whole check pass with full coverage. Whoever needs to proceed accepts the gap by name with `--allow-unchecked
+<method>`.
+
+**Why.** 2026-10-22 (FAILURE_PATTERNS 564). An agent's check of `identity.user.create` refused on a group the device
+did not have yet. To unblock it, the check was made to predict the change with a warning, and a check that would
+fail for real then exited 0. LESSONS 255 already gave the answer; it did not hold because the change was made under
+pressure to get an agent through, and its wording names a predicted failure rather than a predicted success with a
+warning. The honest answer plus `--allow-unchecked identity.user.create` gave the agent the same progress, proven in
+the sixth dry run.
+
+## 308. A repeat of 200 and 300: an agent CLI runs by absolute path under a memory cap, with no swap and a task limit
+
+**Rule.** Start an agent CLI by the absolute path of its real binary, never a wrapper found on `PATH`, inside a cgroup
+that caps its memory, allows no swap and limits its number of tasks. The cap covers everything the agent starts.
+
+**Why.** 2026-10-22. VS Code's Copilot shim finds the real CLI by running `copilot` from `PATH`. With a copy of the
+shim on the agent's `PATH`, it started itself in a loop, used all 9.7 GiB of RAM and 8 GiB of swap, and crashed WSL.
+LESSONS 200 and 300 cap Go builds and size a cap from free memory; neither held here because the agent CLI was not a
+build and was started outside `capped`, and a process loop is stopped by a task limit, not by planning memory.
+`docs/02-get-started.md` now asks for a memory and process limit on any agent and everything it starts.
+

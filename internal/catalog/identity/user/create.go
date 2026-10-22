@@ -201,14 +201,25 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		}
 	}
 
+	// Once useradd or usermod has run, a read that fails is a warning,
+	// never the task's failure: a failed task's undo is never journaled,
+	// so failing here would leave a change nothing can roll back
+	// (FAILURE_PATTERNS 452).
 	after := before
+	var warnings []string
 	if changed {
-		if after, err = queryUser(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		var readErr error
+		if after, readErr = queryUser(ctx, conn, name); readErr != nil {
+			after = before
+			after.exists = true
+			warnings = append(warnings, fmt.Sprintf("changed %s, but could not read the account back: %v", name, readErr))
 		}
 	}
 
 	if err := recordState(rc, name, before, after); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
