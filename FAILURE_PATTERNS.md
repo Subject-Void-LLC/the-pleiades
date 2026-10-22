@@ -564,6 +564,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 559. The capability check reached validate with no census of what already validates, and two cmd/pleiades gates failed in CI (a repeat of 550) (fixed)
 560. A check of container.prune listed no stopped container while inspect said it had exited (open)
 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (open)
+562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

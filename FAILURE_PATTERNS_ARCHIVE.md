@@ -13992,3 +13992,22 @@ function so templates and conditions share it. It changes `internal/validate`, s
 **Lesson.** When a check is added for one way of reading a value, the other ways of reading the same value are the
 sibling sweep (LESSONS 281); templates and conditions both read registers.
 
+## 562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (open)
+
+**Symptom.** 2026-10-22, a fresh agent working only from `pleiades doc --create-skill`'s SKILL.md: every
+`pleiades <command> --help` printed its flags and then `pleiades: flag: help requested`, exiting 1, which an agent that
+checks exit codes reads as a failure. `pleiades add-host --help` and `-h` printed no flags at all, only "usage: pleiades
+add-host <name> ...: missing positional argument"; the flags appeared only with a placeholder name first
+(`add-host x --help`), which adds nothing. The same holds for the other commands parsed through `splitPositional`
+(`add-credential`, `trust-host`, `set-host`).
+
+**Root cause.** Each subcommand parses with `flag.ContinueOnError` and returns `flag.ErrHelp` as an ordinary error,
+which main prints and exits 1 on. Commands with a positional name split it off before the flag set sees `--help`, so a
+missing name is refused first. Not yet traced further; both are read from the run, not from a fix.
+
+**Fix.** None yet. The skill tells an agent both facts in the meantime. Wanted: `--help` exits 0 everywhere, and a
+command that takes a name answers `--help` without one.
+
+**Lesson.** A tool an agent learns from its own help needs that help to succeed, and to be reachable without
+already knowing the command's arguments.
+

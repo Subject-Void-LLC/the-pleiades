@@ -24,6 +24,9 @@ pull request at a time; `make pr-check` before every push; the owner merges.
 
 - 560 and 551, causes unproven.
 - 561 (open): `validate` does not check the register a `when:` condition reads; planned with 117b part 2.
+- 562 (open): `--help` exits 1, and `add-host`/`add-credential`/`trust-host`/`set-host` need a name before `--help`.
+- From the cold-start dry run (2026-10-22): no command lists a device type's properties (the agent guessed
+  `--set port=`), and `pleiades init`'s README still says add-credential prompts and mentions `ssh_exec` tasks.
 
 ### Next
 
