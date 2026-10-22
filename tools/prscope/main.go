@@ -9,6 +9,11 @@
 // .github/) names nothing: pr-check's static checks and its always-run
 // guards read those, and CI's own jobs test everything else.
 //
+// One change also names a package it does not touch: a change that can
+// alter what validation decides about an existing runbook adds
+// cmd/pleiades, which validates every one of them (census.go), and says
+// so on standard error.
+//
 // Usage:
 //
 //	go run ./tools/prscope [-base origin/main]
@@ -42,10 +47,13 @@ func realMain(root string, args []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	pkgs, err := changedPackages(root, *base)
+	pkgs, trigger, err := changedPackages(root, *base)
 	if err != nil {
 		fmt.Fprintln(stderr, "prscope:", err)
 		return 1
+	}
+	if trigger != "" {
+		fmt.Fprintf(stderr, "prscope: %s changes what validation decides, so %s runs too (FAILURE_PATTERNS 559)\n", trigger, censusPackage)
 	}
 	for _, p := range pkgs {
 		fmt.Fprintln(stdout, p)
@@ -54,26 +62,29 @@ func realMain(root string, args []string, stdout, stderr io.Writer) int {
 }
 
 // changedPackages is every package of the module at root holding a file
-// that differs from the merge base of HEAD and base, sorted.
-func changedPackages(root, base string) ([]string, error) {
+// that differs from the merge base of HEAD and base, sorted, plus the
+// census package when a changed file triggers it; the second result names
+// that file.
+func changedPackages(root, base string) ([]string, string, error) {
 	mergeBase, err := run(root, "git", "merge-base", "HEAD", base)
 	if err != nil {
-		return nil, fmt.Errorf("finding where HEAD left %s: %w", base, err)
+		return nil, "", fmt.Errorf("finding where HEAD left %s: %w", base, err)
 	}
 	tracked, err := run(root, "git", "diff", "--name-only", strings.TrimSpace(mergeBase))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	untracked, err := run(root, "git", "ls-files", "--others", "--exclude-standard")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	packages, err := modulePackages(root)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	files := strings.Fields(tracked + "\n" + untracked)
 	found := map[string]bool{}
-	for _, file := range strings.Fields(tracked + "\n" + untracked) {
+	for _, file := range files {
 		for dir := path.Dir(file); ; dir = path.Dir(dir) {
 			if ip, ok := packages[dir]; ok {
 				found[ip] = true
@@ -84,12 +95,16 @@ func changedPackages(root, base string) ([]string, error) {
 			}
 		}
 	}
+	trigger, err := addCensus(files, packages, found)
+	if err != nil {
+		return nil, "", err
+	}
 	out := make([]string, 0, len(found))
 	for ip := range found {
 		out = append(out, ip)
 	}
 	sort.Strings(out)
-	return out, nil
+	return out, trigger, nil
 }
 
 // modulePackages maps each package directory of the module at root,

@@ -388,7 +388,11 @@ pull requests #54 and #55 kept failing CI on checks a local run makes in minutes
 271), and it is enforced rather than remembered: a pass writes a receipt for the commit it
 checked (`.git/pleiades-pr-check.json`, apart from the whole suite's), and `.githooks/pre-push`
 refuses a branch whose tip it does not cover. Run it on a committed, clean tree. It is narrower
-than CI, which still tests every package. Which tier a package belongs
+than CI, which still tests every package. One package it adds unchanged: a branch changing
+`internal/validate`, `internal/engine`, `pkg/collection`, `pkg/capability`, `internal/catalog`,
+`internal/inventory/devices` or `examples/` (a test file alone excepted) also runs `cmd/pleiades`,
+which validates and runs every existing runbook (`tools/prscope/census.go`, FAILURE_PATTERNS 559),
+about fifteen minutes more in the containers pass. Which tier a package belongs
 in is not judgement: `tools/internal/flakegate`'s `TestEveryContainerPackageIsListed`
 follows each test's calls through the module and fails when a package that starts a
 container is missing from `DOCKER_DEPENDENT_PACKAGES`.

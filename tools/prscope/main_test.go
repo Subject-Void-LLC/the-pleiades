@@ -77,7 +77,7 @@ func TestChangedPackages_NamesThePackageAboveEachChange(t *testing.T) {
 	write(t, dir, "docs/guide.md", "# guide, changed\n")
 	write(t, dir, "go.mod", "module example.com/scope\n\ngo 1.23\n")
 
-	got, err := changedPackages(dir, "main")
+	got, _, err := changedPackages(dir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestChangedPackages_NamesThePackageAboveEachChange(t *testing.T) {
 // TestChangedPackages_NothingChangedNamesNothing is a branch with no
 // change of its own.
 func TestChangedPackages_NothingChangedNamesNothing(t *testing.T) {
-	got, err := changedPackages(scratchModule(t), "main")
+	got, _, err := changedPackages(scratchModule(t), "main")
 	if err != nil || len(got) != 0 {
 		t.Errorf("an unchanged branch = %v, %v; want nothing", got, err)
 	}
@@ -99,14 +99,14 @@ func TestChangedPackages_NothingChangedNamesNothing(t *testing.T) {
 // exist, and a directory that is no module.
 func TestChangedPackages_AnUnknownBaseIsRefused(t *testing.T) {
 	dir := scratchModule(t)
-	if _, err := changedPackages(dir, "no-such-ref"); err == nil || !strings.Contains(err.Error(), "no-such-ref") {
+	if _, _, err := changedPackages(dir, "no-such-ref"); err == nil || !strings.Contains(err.Error(), "no-such-ref") {
 		t.Errorf("an unknown base: %v, want a refusal naming it", err)
 	}
 	if err := os.Remove(filepath.Join(dir, "go.mod")); err != nil {
 		t.Fatal(err)
 	}
 	write(t, dir, "a/a.go", "// Package a is changed.\npackage a\n")
-	if _, err := changedPackages(dir, "main"); err == nil || !strings.Contains(err.Error(), "go list") {
+	if _, _, err := changedPackages(dir, "main"); err == nil || !strings.Contains(err.Error(), "go list") {
 		t.Errorf("a directory with no module: %v, want go list's refusal", err)
 	}
 	if _, err := run(dir, "no-such-program-prscope"); err == nil {

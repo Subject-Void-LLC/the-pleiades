@@ -633,7 +633,9 @@ ci-containers:
 # push, for the packages the branch changes: ci-remote's static checks
 # (govulncheck on the Mac when one is ready; CI_REMOTE_STATIC says why); vet
 # for macOS and Windows, which the ci job builds on and this machine does
-# not; then each changed package (tools/prscope) in the tier CI gives it,
+# not; then each changed package (tools/prscope, which also adds
+# cmd/pleiades when a change can alter what validation decides about an
+# existing runbook) in the tier CI gives it,
 # through the same testgate passes, with the container-free ones repeated
 # strictly three times as test-repeat does; and the floors of exactly the
 # packages it measured (coverage-check -scoped). The container-list guard
