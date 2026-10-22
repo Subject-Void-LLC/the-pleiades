@@ -26,7 +26,9 @@ func TestConditionRule(t *testing.T) {
 		{"nodes indexed by a literal", "noop: {}\n    when: nodes['kernal'].rc == 0", `"kernal"`},
 		{"when_or", "noop: {}\n    when_or:\n      - result.kernel.rc == 0\n      - result.kernal.rc == 0", `"kernal"`},
 		{"when_cel", "noop: {}\n    when_cel: result.kernal.rc == 0", `"kernal"`},
-		{"has() on a register nobody writes", "noop: {}\n    when: has(result.kernal)", `"kernal"`},
+		{"has() on a register nobody writes", "noop: {}\n    when: has(result.kernal)", ""},
+		{"in on a register nobody writes", "noop: {}\n    when: \"\\\"kernal\\\" in stat\"", ""},
+		{"has() beside a misspelled read", "noop: {}\n    when: has(result.kernel) && result.kernal.rc == 0", `"kernal"`},
 		{"its own register", "noop: {}\n    register: mine\n    when: result.mine.rc == 0", "this task's own"},
 		{"its own name, written earlier too", "noop: {}\n    register: kernel\n    when: result.kernel.rc == 0", ""},
 		{"a computed index", "noop: {}\n    when: nodes[vars.which].rc == 0", ""},
@@ -44,6 +46,16 @@ func TestConditionRule(t *testing.T) {
 				t.Fatalf("finding %+v does not name its rule and the task", findings[0])
 			}
 		})
+	}
+}
+
+// TestConditionRule_AWriterTagSelectionLeftOut: a register whose only writer
+// is tagged never, read behind has(), runs today and is not refused, though
+// the selected DAG holds no writer (FAILURE_PATTERNS 561's review).
+func TestConditionRule_AWriterTagSelectionLeftOut(t *testing.T) {
+	dag := yamlDAG(t, "id: t\ntasks:\n  - name: debug dump\n    noop: {}\n    register: dump\n    tags: [never]\n  - name: report\n    noop: {}\n    when: has(stat.dump)\n")
+	if findings := validate.ConditionRule(validate.WorldView{DAG: dag}); len(findings) != 0 {
+		t.Fatalf("findings %v for a read written for absence", findings)
 	}
 }
 

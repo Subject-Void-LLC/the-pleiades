@@ -20,8 +20,12 @@ const ConditionRuleName = "condition"
 // order, and a register read before it is written still fails the task
 // when its condition is evaluated. A read no name can be read off (a
 // computed index, a whole root handed to a macro) is left alone, since it
-// names nothing to check. A condition that does not parse is the builder's
-// error, never reaching here from a built runbook.
+// names nothing to check, and so is a name the condition tests for with
+// has() or in: such a condition is written for the register's absence, as
+// HandlersRule reads it, and its only writer may be a task tag selection
+// left out (select.go leaves guarding that read to the author). A condition
+// that does not parse is the builder's error, never reaching here from a
+// built runbook.
 func ConditionRule(world WorldView) []Finding {
 	writers := map[string]int{}
 	for _, task := range world.DAG.Nodes {
@@ -43,9 +47,12 @@ func ConditionRule(world WorldView) []Finding {
 		if err != nil {
 			continue
 		}
+		tested, _ := engine.ConditionTestsPresence(task.Conditional)
 		for _, name := range names {
 			var message string
 			switch {
+			case tested[name]:
+				continue
 			case writers[name] == 0:
 				message = fmt.Sprintf("task %s's condition reads the register %q, and no task in this runbook registers it", taskName(id, task), name)
 			case writers[name] == 1 && task.Register == name:
