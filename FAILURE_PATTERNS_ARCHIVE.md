@@ -13973,7 +13973,7 @@ to agree, or the test should.
 **Lesson.** Pending the cause. A method that decides by a listing reads a view that can lag the object it describes;
 whether that is true of this daemon is the open question.
 
-## 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (open)
+## 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (fixed)
 
 **Symptom.** 2026-10-22, mutation-testing `pleiades doc --create-skill`'s teaching runbook: changing its condition from
 `result.kernel.rc == 0` to `result.kernal.rc == 0`, a register no task writes, still passed `pleiades validate` with no
@@ -13988,6 +13988,19 @@ check 515 added for templates, missing at its sibling seam.
 **Fix.** None yet. Planned: one rule over `engine.ConditionReads` (a dynamic read skipped) that refuses a condition
 naming a register no task in the runbook registers, built with 117b part 2's single "names an expression reads"
 function so templates and conditions share it. It changes `internal/validate`, so the census runs.
+
+**Resolved 2026-10-22, on `feat/segmenter-117b` (`e2bf8a2a`, `c187fbb5`).** `internal/validate/condition_rule.go`'s
+`ConditionRule` (rule name `condition`) refuses a `when`, `when_or` or `when_cel` that names a register no task in the
+runbook registers, or one only the task itself registers. A dynamic read is skipped. So is a name the condition tests
+with `has()` or `"name" in stat|nodes|result` (`engine.ConditionTestsPresence`), as HandlersRule already does, because
+the only writer may be a task a tag selection left out (tagged `never`), and such a condition is written for the
+register's absence. Tests: `TestConditionRule`, `TestConditionRule_AWriterTagSelectionLeftOut`,
+`TestConditionRule_RunsInValidate`. Changelog: `changelog/validate-condition-registers.fixed.md`.
+
+What the plan above said and what was built differ, and the difference matters: the single shared read function was
+built (`engine.TaskReads`, `internal/engine/register_reads.go`), but validate's rules still each read their own seam
+(TemplateRule templates, ConditionRule conditions, SecretMaskRule `secret_mask`). Only the segmenter calls `TaskReads`.
+Entry 574 is what that left room for. Entry 572 is a gap in `TaskReads`' own first draft.
 
 **Lesson.** When a check is added for one way of reading a value, the other ways of reading the same value are the
 sibling sweep (LESSONS 281); templates and conditions both read registers.
@@ -14199,4 +14212,84 @@ it.
 
 **Lesson.** A comment that claims a refusal is checked by a test of that refusal; if there is none, write it or cut
 the claim.
+
+## 572. engine.TaskReads' first draft left out a task's rollback: steps, which rollback_on_failure runs and renders inside the forward run (a repeat of 561) (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent, 2026-10-22, before any push of `feat/segmenter-117b`. The first draft of
+`engine.TaskReads` (`internal/engine/register_reads.go`, `1410e15e`) said in its doc comment that "a rollback: list is
+left out: it never runs in the forward run", and a test pinned that. It is false. A block's `rollback_on_failure`
+runs a task's authored `rollback:` steps inside the forward run, before the rescue, and prepares each one through
+`run.prepare` (`internal/engine/rollback_on_failure.go`, `runUndoStep`), which renders its params against `nodes` and
+`result`. Had it shipped, the segmenter (`internal/segment`) would not have carried a register an undo step reads
+into that step's segment, so on the Walk tier the undo's render would fail with an undefined-variable error at the one
+moment the undo is needed.
+
+**Root cause.** The list of places a task reads a register was written from the forward walk (a condition, the
+params' templates, `secret_mask`), not from the code that prepares a task. `run.prepare` has three callers
+(`runNode`, `runGuarded`, `runUndoStep`), and the third was not on the list. The premise is also older than the code:
+until `88e5ba65` (2026-10-20) an authored `rollback:` list ran only in a later `pleiades rollback`, so "never in the
+forward run" was once true, the stale-claim shape of 539 and 547.
+
+**Why 561's fix did not prevent it.** 561 is the same class: a register read missed by a check of register reads. Its
+lesson named the sibling sweep and its two known members, templates and conditions. This branch built the shared read
+function 561 planned, and the sweep for it again listed the ways of reading from memory of the forward run, so a
+third reader (an undo step) was missed in the very function meant to end the class.
+
+**Fix.** `8fe2cdd0`: `TaskReads` recurses into `task.Rollback`, and its doc comment now names `runUndoStep` as the
+reason. `TestSplit_CarriesWhatAnUndoStepReads` covers it; a mutation that skips the recursion fails it.
+
+**Lesson.** To answer "what does a task read or do", list every caller of the function that prepares a task
+(`go_symbol_references` on `run.prepare`), not the steps of the forward walk. LESSONS 309.
+
+## 573. The first segmenter accepted two plans one device's dispatch cannot keep, and refused a third it could (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent, 2026-10-22, before any push. The first draft of `internal/segment`
+(`9d2bdb57`), which splits a runbook into the segments the Walk tier will dispatch one device at a time, had three
+defects:
+- It accepted a "unit" block (`engine.DAG.Units`: a block holding a task with its own target) with `rescue`, `always`
+  or `rollback_on_failure` on several devices. On the Crawl tier a failure on one device fails such a block on all of
+  them (its frames are keyed `unit:<block>`), but one device's dispatch cannot learn of another device's failure.
+- It accepted `lock_acquisition: all_at_plan_time` on several devices. That strategy promises all locks or none, and
+  the promise cannot hold when each device's dispatch locks only its own.
+- It refused a guarded block whose first child is a parallel group that comes after a task on another target. The
+  group's structural fan-out node landed in the earlier segment and was counted toward the block's span, so the block
+  looked split when it was not.
+
+**Root cause.** The split rule was written from what a runbook says (targets, blocks, registers) rather than from the
+engine behaviors that tie one device's run to another's. Crawl runs every device in one process, so those ties are
+free there and nothing in a single-process test shows them. For (c), the span check counted every node in a block,
+structural ones included, when only nodes that run on a device decide where a block lies.
+
+**Fix.** `1433bac6`: (a) and (b) are refused with messages that say why; (c) structural nodes are not counted toward a
+block's span. Tests: `TestSplit_RefusesWhatOneDevicesDispatchCannotKeep`, `TestSplit_AParallelGroupOpensAGuardedBlock`;
+each fix's mutation fails its test. `FuzzSplit` now also asserts that an accepted plan keeps every guarded block (one
+with rescue, always or rollback) inside one segment.
+
+No earlier entry is this class. The nearest are 539 and 542, which built the cross-device behavior of blocks (a block
+reaching other devices runs as one unit; `always:` is a promise to every device) that the split had to keep.
+
+**Lesson.** When work moves from one process to one process per device, list every engine behavior that couples
+devices before writing the split rule, and refuse or keep each one. LESSONS 309.
+
+## 574. validate holds a rollback: step to three of the rules a task meets, not TemplateRule, so a misspelled register in an undo step passes (a repeat of 561) (open)
+
+**Symptom.** Review by the fp-reviewer agent, 2026-10-22, reasoned from the code and not reproduced. `validate`'s
+`RollbackRule` (`internal/validate/rollback_rule.go`) runs only CollectionRule, ParamsRule and RequiredParamsRule over
+a task's `rollback:` steps. TemplateRule never sees a step's templates. So a misspelled register in an undo step's
+params passes `pleiades validate`, and fails only when `rollback_on_failure`, or a later `pleiades rollback`, renders
+it. That is the moment a typo in an undo costs the most.
+
+**Root cause.** The same class as 561: a register read checked at one seam (a task's params, by TemplateRule) and not
+at another (an undo step's params). `RollbackRule`'s doc comment says a step "can never pass something a task would
+not", which claims more than its three rules do (the shape of 228).
+
+**Why 561's fix did not prevent it.** 561 was fixed by adding a rule for conditions over the runbook's own tasks.
+Validate's rules still each read their own seam rather than the shared `engine.TaskReads`, which does count undo
+steps (572), so the rules that walk the runbook's tasks never reach a step.
+
+**Fix.** None yet; not fixed on this branch. Planned: hold each step to TemplateRule with the runbook's registers. It
+changes `internal/validate`, so the census runs.
+
+**Lesson.** A comment saying one rule holds X to "exactly what" another thing is held to is a list of rules to check
+against the full list, not a summary to trust.
 

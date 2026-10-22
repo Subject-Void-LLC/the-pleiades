@@ -91,6 +91,13 @@ func collectReads(root celast.Expr, seen map[string]bool) (dynamic bool) {
 						named++
 					}
 				}
+			case operators.In:
+				// "name" in stat, the converter's spelling of Ansible's
+				// is defined, names the register it tests.
+				if key, ok := inLiteral(call); ok {
+					seen[key] = true
+					named++
+				}
 			}
 		}
 	}))
@@ -111,12 +118,19 @@ func ConditionUsesRoot(c Conditional, root string) (bool, error) {
 }
 
 // ConditionTestsPresence returns the register names c tests for with
-// has(stat.<name>), has(nodes.<name>) or has(result.<name>): a condition that
+// has(stat.<name>), has(nodes.<name>) or has(result.<name>), or with
+// "<name>" in stat, nodes or result: a condition that
 // does is written for the register's absence, and validation lets it read a
 // register that may not exist.
 func ConditionTestsPresence(c Conditional) (map[string]bool, error) {
 	tested := map[string]bool{}
 	err := eachConditionExpr(c, func(e celast.Expr) {
+		if e.Kind() == celast.CallKind && e.AsCall().FunctionName() == operators.In {
+			if key, ok := inLiteral(e.AsCall()); ok {
+				tested[key] = true
+			}
+			return
+		}
 		if e.Kind() != celast.SelectKind {
 			return
 		}
@@ -126,6 +140,17 @@ func ConditionTestsPresence(c Conditional) (map[string]bool, error) {
 		}
 	})
 	return tested, err
+}
+
+// inLiteral returns the register a call of the in operator tests for, when
+// it is "name" in stat, nodes or result with a literal name.
+func inLiteral(call celast.CallExpr) (string, bool) {
+	args := call.Args()
+	if len(args) != 2 || args[0].Kind() != celast.LiteralKind || args[1].Kind() != celast.IdentKind || !registerVariables[args[1].AsIdent()] {
+		return "", false
+	}
+	key, ok := args[0].AsLiteral().(types.String)
+	return string(key), ok
 }
 
 // eachConditionExpr parses each of c's expressions and visits every node of

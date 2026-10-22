@@ -506,6 +506,12 @@ func TestConditionRoots(t *testing.T) {
 	if err != nil || !tested["probe"] || tested["other"] {
 		t.Errorf("tested %v %v", tested, err)
 	}
+	// "name" in a root tests presence as has() does; a name in another
+	// variable, or a computed name, does not.
+	tested, err = engine.ConditionTestsPresence(engine.Conditional{WhenCEL: `"seen" in stat && "x" in vars && vars.k in nodes`})
+	if err != nil || !tested["seen"] || tested["x"] || len(tested) != 1 {
+		t.Errorf("tested with in: %v %v", tested, err)
+	}
 	bad := engine.Conditional{WhenCEL: "has("}
 	if _, err := engine.ConditionUsesRoot(bad, "error"); err == nil {
 		t.Error("an unparsable condition was read")
