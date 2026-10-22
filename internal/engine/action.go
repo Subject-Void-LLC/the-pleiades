@@ -62,17 +62,19 @@ func TaskTarget(dag *DAG, task *Task) string {
 		}
 		return target
 	}
-	if !callNeedsDevice(task) {
+	if !TaskNeedsDevice(task) {
 		return ""
 	}
 	return dag.Hosts
 }
 
-// callNeedsDevice reports whether task's call acts on a device, by its
+// TaskNeedsDevice reports whether task's call acts on a device, by its
 // method's declared execution context. A name that is not a registered
 // Collection method (an engine builtin such as noop) keeps the behavior
-// every task had before the execution context existed: it needs one.
-func callNeedsDevice(task *Task) bool {
+// every task had before the execution context existed: it needs one. The
+// segmenter (internal/segment) reads it to tell a device-less call from a
+// task under a runbook with no hosts:, which TaskTarget reports alike.
+func TaskNeedsDevice(task *Task) bool {
 	desc, ok := collection.Lookup(task.FQCN)
 	if !ok {
 		return true
