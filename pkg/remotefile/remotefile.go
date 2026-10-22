@@ -170,7 +170,7 @@ func (i Info) Map() map[string]any {
 // as 755 and a task asking for 0755 never cleared it (measured on FreeBSD
 // 15.1, FAILURE_PATTERNS 375).
 func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error) {
-	quoted := remoteexec.QuoteArg(path)
+	quoted := remoteexec.QuoteArg(operand(path))
 
 	// Test for existence with -e OR -L, because a symlink pointing at
 	// nothing fails -e and is still very much there: a method that
@@ -210,6 +210,17 @@ func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error)
 		}
 	}
 	return info, nil
+}
+
+// operand is path as an argument to stat or readlink: a relative path
+// starting with a dash gets ./ before it, which names the same file and
+// can never be read as an option. Not every stat and readlink takes --
+// alike (BSD's differ from GNU's), and ./ needs none of them to.
+func operand(path string) string {
+	if strings.HasPrefix(path, "-") {
+		return "./" + path
+	}
+	return path
 }
 
 // DirectoryEmpty reports whether the directory at dirPath has no entries.
