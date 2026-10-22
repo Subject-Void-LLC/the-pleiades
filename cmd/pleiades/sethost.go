@@ -31,7 +31,7 @@ func (k *keyList) Set(s string) error {
 		return errors.New("--unset expects a property name")
 	}
 	if inventory.IsReservedProperty(s) {
-		return fmt.Errorf("--unset cannot remove property %s: only onboarding writes it (pleiades onboard)", s)
+		return fmt.Errorf("--unset cannot remove property %s: only %s writes it", s, inventory.ReservedPropertyWriter(s))
 	}
 	k.keys = append(k.keys, s)
 	return nil

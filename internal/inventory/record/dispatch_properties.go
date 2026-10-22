@@ -11,7 +11,7 @@ import (
 
 // dispatchProperties holds, per device type, the property keys its
 // accessors and constructor read. The Controller puts exactly these on a
-// dispatch (plus the discovered property onboarding writes), so a Runner
+// dispatch (plus the discovered and granted properties), so a Runner
 // rebuilds the real type and every accessor answers there as it does on
 // the Controller, while no other property (an operator may keep anything
 // in one) ever reaches the message stream.
@@ -36,8 +36,10 @@ func DispatchProperties(deviceType string) ([]string, bool) {
 }
 
 // Dispatched returns item's type and the properties a Runner needs to
-// rebuild it as that type: the keys the type declares its accessors read
-// and its discovery, and nothing else of its record. An item that reports
+// rebuild it as that type: the keys the type declares its accessors read,
+// its discovery and its grants, and nothing else of its record. A grant's
+// properties cannot name a secret (the loader refuses a definition that
+// would), so none rides the message stream this way. An item that reports
 // no type, or whose type declares nothing, yields no properties, and the
 // Runner then falls back to a device built from its address alone.
 func Dispatched(item inventory.InventoryItem) (string, map[string]any) {
@@ -52,7 +54,7 @@ func Dispatched(item inventory.InventoryItem) (string, map[string]any) {
 	}
 	raw := item.Properties().Raw()
 	props := make(map[string]any, len(keys)+1)
-	for _, k := range append(keys, inventory.DiscoveredProperty) {
+	for _, k := range append(keys, inventory.DiscoveredProperty, inventory.GrantedProperty) {
 		if v, present := raw[k]; present {
 			props[k] = v
 		}

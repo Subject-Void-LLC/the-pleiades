@@ -26,9 +26,20 @@ import (
 const DiscoveredProperty = "discovered"
 
 // IsReservedProperty reports whether key is written only by the platform,
-// never by a person or a sync plugin.
+// never by a person or a sync plugin as a property: DiscoveredProperty,
+// written by onboarding, and GrantedProperty, written by a program's probe
+// or an operator's scoped assertion through their own commands.
 func IsReservedProperty(key string) bool {
-	return key == DiscoveredProperty
+	return key == DiscoveredProperty || key == GrantedProperty
+}
+
+// ReservedPropertyWriter names, for an error message, what writes the
+// reserved property key.
+func ReservedPropertyWriter(key string) string {
+	if key == GrantedProperty {
+		return "pleiades onboard (a program's probe) and pleiades grant-capability"
+	}
+	return "onboarding"
 }
 
 // Discovery is what one onboarding proved: the protocol it spoke, the

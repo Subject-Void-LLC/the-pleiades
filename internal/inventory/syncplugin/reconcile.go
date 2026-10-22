@@ -206,7 +206,7 @@ func createDevice(
 ) (Outcome, string, error) {
 	for key := range raw.Properties {
 		if inventory.IsReservedProperty(key) {
-			return "", "", fmt.Errorf("sync plugin %q: %s sets property %s, which only onboarding writes", cfg.Name, raw.Name, key)
+			return "", "", fmt.Errorf("sync plugin %q: %s sets property %s, which only %s writes", cfg.Name, raw.Name, key, inventory.ReservedPropertyWriter(key))
 		}
 	}
 	rec := raw

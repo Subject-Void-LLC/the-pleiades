@@ -127,8 +127,8 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 			entry.SourceSyncedAt = &syncedAt
 		}
 	}
-	var hostProperties map[string]any
-	hostProperties, entry.Discovered = splitDiscovered(item.Properties().Raw())
+	hostProperties, held := splitReserved(item.Properties().Raw())
+	entry.Discovered, entry.Granted = held.discovered, held.granted
 	if entryIdx == -1 {
 		sidecar.Hosts = append(sidecar.Hosts, entry)
 	} else {

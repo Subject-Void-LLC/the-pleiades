@@ -57,6 +57,10 @@ type sidecarEntry struct {
 	// does: hosts.yaml is the hand-edited file, and a host there naming the
 	// property is refused (refuseReservedProperties).
 	Discovered map[string]any `yaml:"discovered,omitempty"`
+	// Granted is the device's inventory.GrantedProperty, kept here for the
+	// same reason: a program's probe and pleiades grant-capability write it,
+	// and no person writes it in hosts.yaml.
+	Granted map[string]any `yaml:"granted,omitempty"`
 }
 
 // sidecarRevision is the on-disk form of inventory.Revision.
@@ -178,30 +182,42 @@ func fromRevisions(revs []inventory.Revision) []sidecarRevision {
 
 // refuseReservedProperties refuses a hosts.yaml host that sets a property
 // only the platform writes. Such a host was written by hand, and the
-// property it names grants capabilities only onboarding may grant.
+// property it names grants capabilities only onboarding, a program's probe
+// or an operator's scoped assertion may grant.
 func refuseReservedProperties(h HostSpec) error {
 	for key := range h.Properties {
 		if inventory.IsReservedProperty(key) {
-			return fmt.Errorf("host %s: property %s is written only by onboarding (pleiades onboard), never in %s", h.Name, key, DefaultInventoryFilename)
+			return fmt.Errorf("host %s: property %s is written only by %s, never in %s", h.Name, key, inventory.ReservedPropertyWriter(key), DefaultInventoryFilename)
 		}
 	}
 	return nil
 }
 
-// splitDiscovered returns props without inventory.DiscoveredProperty, for
-// hosts.yaml, and that property's value, for the sidecar. The value is nil
-// when props does not carry it.
-func splitDiscovered(props map[string]any) (map[string]any, map[string]any) {
-	value, ok := props[inventory.DiscoveredProperty]
-	if !ok {
-		return props, nil
-	}
-	rest := make(map[string]any, len(props)-1)
+// reserved holds the values of the reserved properties a device carries,
+// which live in the sidecar rather than in hosts.yaml. Each is nil when the
+// device does not carry it.
+type reserved struct {
+	discovered map[string]any
+	granted    map[string]any
+}
+
+// empty reports whether the device carries none of them.
+func (r reserved) empty() bool { return r.discovered == nil && r.granted == nil }
+
+// splitReserved returns props without the reserved properties, for
+// hosts.yaml, and their values, for the sidecar.
+func splitReserved(props map[string]any) (map[string]any, reserved) {
+	var out reserved
+	rest := make(map[string]any, len(props))
 	for k, v := range props {
-		if k != inventory.DiscoveredProperty {
+		switch k {
+		case inventory.DiscoveredProperty:
+			out.discovered, _ = v.(map[string]any)
+		case inventory.GrantedProperty:
+			out.granted, _ = v.(map[string]any)
+		default:
 			rest[k] = v
 		}
 	}
-	discovered, _ := value.(map[string]any)
-	return rest, discovered
+	return rest, out
 }
