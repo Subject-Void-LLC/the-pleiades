@@ -123,11 +123,13 @@ var packagesCollections = []collectionscaffold.Config{
 			Description: "Makes sure a package is absent from a Debian-family host, removing it if it is present. This is ansible.builtin.apt with state=absent. Installed state is read from dpkg before anything is sent, so a package that is already absent reports no change and no command reaches the device. This removes the package but does not purge it (apt-get remove, not apt-get purge), so its configuration files are left on disk; there is no separate purge parameter today.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The APT package name to remove."},
+				{Name: "dependencies", Type: "list", Description: "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The package this task acted on."},
 				{Name: "version", Type: "string", Returned: "always", Description: "Always empty after a successful run: a removed package has no installed version, and a package that was already absent had none either."},
+				{Name: "dependencies_removed", Type: "list", Returned: "when dependencies names one the run removes", Description: "The dependencies removed with the package, or that a check predicts would be."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What dpkg reported about the package before this task and after it, each holding installed and version."},
 			},
 			Examples: []collection.Example{

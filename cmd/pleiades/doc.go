@@ -75,19 +75,22 @@ func catalogEntries(external *loader.Set) ([]catalogEntry, error) {
 	return entries, nil
 }
 
-const docUsage = "usage: pleiades doc [--list [namespace]] [--snippet <fqcn>] [--json] [fqcn]"
+const docUsage = "usage: pleiades doc [--list [namespace]] [--snippet <fqcn>] [--json] [--create-skill] [fqcn]"
 
-// runDoc dispatches the doc subcommand's four modes: --list, --snippet,
-// --json, and a bare fqcn lookup. They are mutually exclusive except that
-// --json accepts an optional fqcn narrowing it to one Manifest instead of
-// the whole catalog, checked in the order listed so a combination like
-// `--list --json` (not a supported shape) fails on --list first rather
-// than silently picking one.
+// runDoc dispatches the doc subcommand's five modes: --create-skill,
+// --list, --snippet, --json, and a bare fqcn lookup. They are mutually
+// exclusive except that --json accepts an optional fqcn narrowing it to
+// one Manifest instead of the whole catalog, checked in the order listed
+// so a combination like `--list --json` (not a supported shape) fails on
+// --list first rather than silently picking one. --create-skill takes
+// nothing else at all, since it writes a file and a stray flag beside it
+// most likely meant a different command.
 func runDoc(args []string) error {
 	fs := flag.NewFlagSet("doc", flag.ContinueOnError)
 	listFlag := fs.Bool("list", false, "list every registered FQCN, or those in one namespace if fqcn is given as a prefix")
 	snippetFlag := fs.Bool("snippet", false, "print a paste-ready runbook task stanza for fqcn")
 	jsonFlag := fs.Bool("json", false, "print the full catalog, or one fqcn's Manifest, as JSON")
+	skillFlag := fs.Bool("create-skill", false, "create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -97,6 +100,25 @@ func runDoc(args []string) error {
 	var fqcn string
 	if fs.NArg() == 1 {
 		fqcn = fs.Arg(0)
+	}
+
+	if *skillFlag {
+		if *listFlag || *snippetFlag || *jsonFlag || fqcn != "" {
+			return fmt.Errorf("--create-skill takes no other flag or fqcn: pleiades doc --create-skill")
+		}
+		// The built-in catalog alone: the skill never lists an external
+		// Collection, so none is loaded, and no third-party program runs
+		// to write a file an agent will follow.
+		entries, err := catalogEntries(nil)
+		if err != nil {
+			return err
+		}
+		path, err := createSkill(".", entries)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s: a skill an AI agent reads to learn The Pleiades\n", path)
+		return nil
 	}
 
 	external, err := loadExternalCollections(context.Background(), ".")

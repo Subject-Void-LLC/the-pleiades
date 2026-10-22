@@ -27,14 +27,16 @@ func init() {
 			EndsLoginSession: true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
-				Notes: "A run that created an absent account emits an identity.user.remove naming it. A run that " +
+				Notes: "A run that created an absent account emits an identity.user.remove naming it, which also " +
+					"removes the home directory the run made (none was there before) while that still holds only " +
+					"what useradd copied into it; a home in use since is kept, and the undo says so. A run that " +
 					"found the account already present but converged one or more attributes (uid, group, shell, " +
 					"home or comment) emits an identity.user.modify pinned to exactly the old values of the " +
 					"attributes it changed, which is a real, restorable inverse. A run that found the account " +
 					"already exactly as requested emits nothing. What no inverse here can restore is the account's " +
 					"password, or anything a login shell or profile script did while the account existed.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "identity.user.remove", Record: []string{"name"}},
+					{FQCN: "identity.user.remove", Record: []string{"name", "remove_home_if_unchanged", "created_home"}},
 					{FQCN: "identity.user.modify", Record: []string{"name", "uid", "group", "shell", "home"}, Withhold: []string{"comment"}},
 				},
 			},
@@ -132,19 +134,9 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 
 	if mode == collection.ModeCheck {
-		changed := !before.exists
-		if before.exists {
-			args, _, err := converge(ctx, conn, before, d)
-			if err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
-			changed = len(args) > 0
-		}
-		after := before.Map()
-		if changed {
-			if after, err = predictAccount(ctx, conn, before, d); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
+		changed, after, err := predictChange(ctx, conn, before, d)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		if err := recordPrediction(rc, name, before, after); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -155,11 +147,38 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	var changed bool
 	var usermodArgs []string
 	var oldValues map[string]any
+	// homeToMake is the home useradd is about to create, when nothing is
+	// there yet: the undo removes only a home this run made.
+	var homeToMake string
 	if !before.exists {
+		if createHome {
+			if homeToMake, err = homeUseraddWouldMake(ctx, conn, name, d); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
 		if _, err := runUseradd(ctx, conn, useraddArgs(name, d, createHome, system)...); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true
+		// The account exists now, so its undo is recorded before anything
+		// else can fail. The home it names is the path useradd was to make;
+		// the remove judges that path only while the account still has it,
+		// so a guess that missed costs a kept home, never a wrong one.
+		invParams := map[string]any{paramName: name}
+		home := ""
+		if homeToMake != "" {
+			invParams[paramRemoveHomeIfUnchanged] = true
+			invParams[paramCreatedHome] = homeToMake
+			home = fmt.Sprintf(", and the home directory %s it made, while that holds nothing but what useradd put there", homeToMake)
+		}
+		if err := sdk.RecordInverse(rc, sdk.Inverse{
+			FQCN:   "identity.user.remove",
+			Params: invParams,
+			Description: fmt.Sprintf("Remove %s, which this task created%s. Its password (never set by this "+
+				"task) and anything a login shell or profile script did while it existed are not undone.", name, home),
+		}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	} else {
 		if usermodArgs, oldValues, err = converge(ctx, conn, before, d); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -169,31 +188,6 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
 			changed = true
-		}
-	}
-
-	after := before
-	if changed {
-		if after, err = queryUser(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
-	}
-
-	if err := recordState(rc, name, before, after); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-
-	if changed {
-		if !before.exists {
-			if err := sdk.RecordInverse(rc, sdk.Inverse{
-				FQCN:   "identity.user.remove",
-				Params: map[string]any{paramName: name},
-				Description: fmt.Sprintf("Remove %s, which this task created. Its password (never set by this "+
-					"task) and anything a login shell or profile script did while it existed are not undone.", name),
-			}); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
-		} else {
 			invParams := oldValues
 			invParams[paramName] = name
 			if err := sdk.RecordInverse(rc, sdk.Inverse{
@@ -205,6 +199,28 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
 		}
+	}
+
+	// Once useradd or usermod has run, a read that fails is a warning,
+	// never the task's failure: a failed task's undo is never journaled,
+	// so failing here would leave a change nothing can roll back
+	// (FAILURE_PATTERNS 452).
+	after := before
+	var warnings []string
+	if changed {
+		var readErr error
+		if after, readErr = queryUser(ctx, conn, name); readErr != nil {
+			after = before
+			after.exists = true
+			warnings = append(warnings, fmt.Sprintf("changed %s, but could not read the account back: %v", name, readErr))
+		}
+	}
+
+	if err := recordState(rc, name, before, after); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
 	return collection.Result{Changed: changed}, nil

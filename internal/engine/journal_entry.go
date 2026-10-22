@@ -562,7 +562,7 @@ func projectInverse(entry *JournalEntry, stats map[string]interface{}, emitter *
 	}
 	complete := !inverse.Unresolved && entry.UndeclaredInverseParamCount == 0
 	for _, key := range sortedParamKeys(params) {
-		value, ok := recordedValue(key, params[key])
+		value, ok := recordedValue(key, params[key], ListParam(inverse.Name, key))
 		if !ok || !slices.Contains(spec.Record, key) || !inverse.paramKeys[key] {
 			complete = false
 			continue
@@ -598,21 +598,87 @@ func declaredUndo(emitter *collection.Descriptor, inverse resolvedFQCN) (sdk.Inv
 // content than an identifier, and is left out rather than cut short.
 const maxRecordedText = 256
 
+// maxRecordedItems bounds a recorded list. A set of names an undo acts on
+// together (the packages one install pulled in) fits well inside it.
+const maxRecordedItems = 128
+
+// RecordableText reports whether s is text the journal may hold: at most
+// maxRecordedText bytes of valid UTF-8 with nothing a terminal would act
+// on and no line break. The projection, the rollback planner reading an
+// entry back, and its check of a runbook's own undo all apply it.
+func RecordableText(s string) bool {
+	return len(s) <= maxRecordedText && utf8.ValidString(s) && termsafe.CheckLine(s) == nil
+}
+
+// RecordableTexts returns items as strings when they are a list the
+// journal may hold: one to maxRecordedItems strings, each RecordableText.
+// It takes the []string a method records and the []any the same list
+// becomes after YAML or JSON.
+func RecordableTexts(items any) ([]string, bool) {
+	var out []string
+	switch v := items.(type) {
+	case []string:
+		out = append([]string(nil), v...)
+	case []any:
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+	default:
+		return nil, false
+	}
+	if len(out) == 0 || len(out) > maxRecordedItems {
+		return nil, false
+	}
+	for _, s := range out {
+		if !RecordableText(s) {
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// ListParam reports whether method fqcn declares parameter key a list
+// (Type "list"). Only there may the journal hold a list, so a list never
+// stands in for a value a method takes as one piece of text.
+func ListParam(fqcn, key string) bool {
+	desc, ok := collection.Lookup(fqcn)
+	if !ok {
+		return false
+	}
+	for _, p := range desc.Manifest.Doc.Params {
+		if p.Name == key {
+			return p.Type == "list"
+		}
+	}
+	return false
+}
+
 // recordedValue returns value as an InverseParam when it is one the
-// journal may hold: a boolean, a whole or fractional number, or text of at
-// most maxRecordedText bytes of valid UTF-8 with nothing a terminal would
-// act on and no line break. Anything else (a map, a list, nil, oversized
-// or unsafe text) is refused, and the caller marks the undo incomplete.
-func recordedValue(key string, value interface{}) (InverseParam, bool) {
+// journal may hold: a boolean, a whole or fractional number, RecordableText,
+// or, for a parameter the undo method declares a list (asList), a list
+// RecordableTexts accepts. Anything else (a map, nil, a list where one
+// piece of text belongs, oversized or unsafe text) is refused, and the
+// caller marks the undo incomplete.
+func recordedValue(key string, value interface{}, asList bool) (InverseParam, bool) {
 	p := InverseParam{Key: key}
 	switch v := value.(type) {
 	case bool:
 		p.Bool = &v
 	case string:
-		if len(v) > maxRecordedText || !utf8.ValidString(v) || termsafe.CheckLine(v) != nil {
+		if !RecordableText(v) {
 			return InverseParam{}, false
 		}
 		p.Text = &v
+	case []string, []any:
+		texts, ok := RecordableTexts(v)
+		if !ok || !asList {
+			return InverseParam{}, false
+		}
+		p.Texts = texts
 	case int:
 		n := json.Number(strconv.FormatInt(int64(v), 10))
 		p.Number = &n

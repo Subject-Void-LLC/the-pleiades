@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -225,7 +226,7 @@ func TestSaveFileStore_TightensPreexistingDirPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat %s: %v", pleiadesDir, err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o700 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o700 { // Windows has no POSIX modes
 		t.Errorf(".pleiades directory mode = %o, want 0700 even though it pre-existed with looser permissions", perm)
 	}
 }

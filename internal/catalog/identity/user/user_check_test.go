@@ -95,8 +95,9 @@ func TestUserChecks(t *testing.T) {
 // run does, rather than predicting from a gid it never resolved or
 // reporting a decision with no diff behind it. The group cases fail at
 // each place a check reads a group: converging an existing account, and
-// predicting a new or changed one. The last group read is reached by
-// letting the SSH server refuse every session after the first two.
+// predicting a new or changed one. The last group read, the fourth
+// session (account, the check's own group lookup, converge, prediction),
+// is reached by letting the SSH server refuse every session after three.
 func TestUserChecks_FailWhenTheyCannotReadOrRecord(t *testing.T) {
 	groupFails := presentUser
 	groupFails.groupExitOverride = 1
@@ -116,7 +117,8 @@ func TestUserChecks_FailWhenTheyCannotReadOrRecord(t *testing.T) {
 	}{
 		{"create, present, the group cannot be read", "identity.user.create", groupFails, -1, "", map[string]any{"group": "admins"}, "getent group"},
 		{"create, absent, the group cannot be read", "identity.user.create", absentGroupFails, -1, "", map[string]any{"group": "admins"}, "getent group"},
-		{"modify, the predicted group cannot be read", "identity.user.modify", otherGroup, 2, "", map[string]any{"group": "admins"}, "identity.user.modify"},
+		{"modify, the converged group cannot be read", "identity.user.modify", otherGroup, 2, "", map[string]any{"group": "admins"}, "identity.user.modify"},
+		{"modify, the predicted group cannot be read", "identity.user.modify", otherGroup, 3, "", map[string]any{"group": "admins"}, "identity.user.modify"},
 		{"create, the name cannot be recorded", "identity.user.create", absentUser, -1, "name", nil, `injected failure recording "name"`},
 		{"modify, the diff cannot be recorded", "identity.user.modify", presentUser, -1, sdk.StatDiff, map[string]any{"comment": "Deployer"}, fmt.Sprintf("injected failure recording %q", sdk.StatDiff)},
 		{"remove, the name cannot be recorded", "identity.user.remove", presentUser, -1, "name", nil, `injected failure recording "name"`},

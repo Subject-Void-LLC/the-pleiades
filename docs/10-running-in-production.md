@@ -596,7 +596,7 @@ These are what `pleiades rollback` and a Controller rollback are planned from.
 
 | Field | Meaning |
 |---|---|
-| `inverse_params` | The undo's parameter values the method declares recordable, each a key and one text, number or true/false. Only those: a value the method withholds, or one too long or holding control characters, leaves its key out, and the undo is then incomplete. |
+| `inverse_params` | The undo's parameter values the method declares recordable, each a key and one text, number or true/false, or, for a parameter the undo method declares a list, up to 128 such texts (the packages an install pulled in). Only those: a value the method withholds, or one too long or holding control characters, leaves its key out, and the undo is then incomplete. |
 | `inverse_complete` | True when every parameter the undo takes has its value here, so it can be replayed exactly. |
 | `inverse_partial` | True when the undo does not put back everything the task overwrote, such as a file copied over another, whose earlier content is not kept. A rollback runs one only when told to. |
 | `action_changed` | True when the task changed the device, even if a later step of the same task failed. |

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -94,7 +95,8 @@ func TestResolveMasterKey_GenerateThenReuse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected master key file to be created: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	// Windows has no POSIX modes to hold it to.
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("master key file mode = %o, want 0600", perm)
 	}
 
@@ -133,7 +135,7 @@ func TestResolveMasterKey_TightensPreexistingDirPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat %s: %v", pleiadesDir, err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o700 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o700 {
 		t.Errorf(".pleiades directory mode = %o, want 0700 even though it pre-existed with looser permissions", perm)
 	}
 }

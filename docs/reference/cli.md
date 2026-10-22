@@ -81,11 +81,12 @@ store an encrypted credential for a device
 | --username | `string` | - | account name to authenticate as |
 | --password | `string` | - | password to authenticate with (prompted interactively if --key is also absent and this is empty) |
 | --password-stdin | `bool` | `false` | read the password to authenticate with as one line on standard input |
+| --password-file | `string` | - | path to a file `pleiades seal` wrote holding the password, opened with this project's seal key or, sealed to a passphrase, with --passphrase or --passphrase-stdin |
 | --key | `string` | - | path to a PEM private key file to authenticate with |
 | --certificate | `string` | - | path to a PEM client certificate to present, which requires --key |
 | --pfx | `string` | - | path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key |
-| --passphrase | `bool` | `false` | prompt for the private key's or the bundle's passphrase |
-| --passphrase-stdin | `bool` | `false` | read the private key's or the bundle's passphrase as one line on standard input |
+| --passphrase | `bool` | `false` | prompt for the passphrase of the private key, the bundle or a passphrase-sealed --password-file |
+| --passphrase-stdin | `bool` | `false` | read the passphrase of the private key, the bundle or a passphrase-sealed --password-file as one line on standard input |
 | --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
 | --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key) |
@@ -97,6 +98,42 @@ store an encrypted credential for a device
 `pleiades add-credential cluster1 --token-stdin < token`
 
 `pleiades add-credential ubuntu-lab --username root --generate`
+
+`pleiades add-credential web01 --username root --password-file web01.sealed`
+
+## pleiades seal-key
+
+print this project's public seal key, making the key pair on first use
+
+`pleiades seal-key [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades seal-key`
+
+## pleiades seal
+
+seal a secret into a file only one project's key, or a passphrase, opens
+
+`pleiades seal [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --to | `string` | - | the public seal key to seal to, as `pleiades seal-key` prints it, or @file holding it |
+| --passphrase | `bool` | `false` | seal to a passphrase, typed at a prompt, instead of a key |
+| --passphrase-stdin | `bool` | `false` | seal to a passphrase read as one line on standard input |
+| --secret-stdin | `bool` | `false` | read the secret as one line on standard input instead of a prompt |
+| --purpose | `string` | `password` | what the secret is for |
+| --out | `string` | - | the file to write, which must not exist |
+
+`pleiades seal --to "$(pleiades seal-key --dir web-proj)" --out web01.sealed`
+
+`pleiades seal --to @web-proj.sealkey --out web01.sealed`
+
+`pleiades seal --passphrase --out web01.sealed`
 
 ## pleiades add-registry-credential
 
@@ -671,6 +708,9 @@ look up a Collection method's reference from the live registry (see 'pleiades do
 | --list | `bool` | `false` | list every registered FQCN, or those in one namespace if fqcn is given as a prefix |
 | --snippet | `bool` | `false` | print a paste-ready runbook task stanza for fqcn |
 | --json | `bool` | `false` | print the full catalog, or one fqcn's Manifest, as JSON |
+| --create-skill | `bool` | `false` | create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method |
+
+`pleiades doc --create-skill`
 
 `pleiades doc --list`
 

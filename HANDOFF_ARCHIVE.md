@@ -1,5 +1,89 @@
 # Handoff Document Archive
 
+## Previous session, 2026-10-22: `pleiades doc --create-skill`, first pass
+
+*Superseded on 2026-10-22: the same branch went on to sealed password files, `file.stat`, the account and package undos, and six rounds of agent dry runs, before any push.*
+
+### Status as it was
+
+**2026-10-22. Branch `feat/doc-create-skill`, off `main` at `f5a0a22a` (#85, the prscope census, merged green).** One
+pull request at a time; `make pr-check` before every push; the owner merges.
+
+#### On this branch
+
+- **`pleiades doc --create-skill`** (the owner asked 2026-10-22): writes `SKILL.md` in the current directory, a skill an
+  AI agent reads to learn The Pleiades: the commands to use, the runbook rules, a runbook that validates as written,
+  and every implemented built-in method with its check and undo support (`cmd/pleiades/doc_skill.go`).
+  - External Collections are left out: a skill is text an agent follows, and their descriptions are a third party's.
+  - It replaces a `SKILL.md` carrying its marker and refuses any other; it writes through a temporary file and a
+    rename.
+  - `TestCLI_DocCreateSkillTeachesARunbookThatValidates` validates the skill's runbook through the real binary
+    against a tagged `linux_server`, warnings counted; five mutations each fail their own test.
+- Docs: `docs/02-get-started.md` (Teaching an AI agent), the regenerated `docs/reference/cli.md`, CLAUDE.md, a
+  changelog fragment.
+
+#### Open
+
+- 560 and 551, causes unproven.
+- 561 (open): `validate` does not check the register a `when:` condition reads; planned with 117b part 2.
+- 562 (open): `--help` exits 1, and `add-host`/`add-credential`/`trust-host`/`set-host` need a name before `--help`.
+- From the cold-start dry run (2026-10-22): no command lists a device type's properties (the agent guessed
+  `--set port=`), and `pleiades init`'s README still says add-credential prompts and mentions `ssh_exec` tasks.
+- **Security finding, the owner's call (2026-10-22):** `pleiades init` writes no `.gitignore`, so committing a project
+  commits `.pleiades/master.key` beside the `credentials.yaml` it decrypts; `docs/02-get-started.md` says both are
+  "gitignored by default". Proposed: its own PR after this one (`internal/inventory/project.go` writes `.gitignore`,
+  the README template fixed, the guide corrected). The skill already tells an agent never to commit `.pleiades/`.
+
+#### Next
+
+1. This PR: fp-reviewer, `make pr-check`, push, CI, the owner merges.
+2. 117b part 2, the segmenter (`feat/segmenter-117b`), which triggers the census.
+3. 117b part 3, segmented dispatch.
+
+#### Lab state
+
+Unchanged: `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved.
+
+## Previous session, 2026-10-22: the prscope census (#85)
+
+*Superseded on 2026-10-22: #85 merged green at `f5a0a22a`; `pleiades doc --create-skill` followed on `feat/doc-create-skill`.*
+
+### Status as it was
+
+**2026-10-22. Branch `chore/prscope-census`, off `main` at `14b64c16` (#84, 117b part 1, merged green).** One pull
+request at a time; `make pr-check` before every push; the owner merges.
+
+#### On this branch
+
+- **`tools/prscope` census (559, a repeat of 550; LESSONS 303):** a non-test change under `internal/validate`,
+  `internal/engine`, `pkg/collection`, `pkg/capability`, `internal/catalog`, `internal/inventory/devices` or
+  `examples/` adds the census (`cmd/pleiades`, `cmd/runner`, `internal/adapters/native`, `internal/forge/playbook`),
+  and says why on standard error. Renames count by both paths; paths are read NUL-separated. A trigger with a census
+  package missing is refused. `TestCensus_*` fail on the old prscope and under each fix's mutation.
+- **Claude hooks (local, not in the repository):** `~/.claude/hooks/pleiades-guards.py`, registered in
+  `.claude/settings.local.json`: blocks AI credit in commits and PR bodies, tracked edits and git writes while
+  `make pr-check` runs, `pkill -f`/`killall`, an added em dash, an `fqcn:` runbook key and two gh 2.4.0 forms, and
+  warns on an uncapped heavy run. `no-grep-go.py` no longer reads a quoted alternation as a Go path; it still misses a
+  Go grep that follows a heredoc in the same command.
+- **Records:** part 1's handoff entry; FAILURE_PATTERNS 560 (open), the prune check that listed nothing while
+  inspect said "exited".
+
+#### Open
+
+- 560 and 551, causes unproven.
+- A triggered pr-check runs about 20 minutes longer (the census in the containers pass).
+
+#### Next
+
+1. This PR's CI, then the owner merges.
+2. 117b part 2, the segmenter (`feat/segmenter-117b`); its `internal/engine` change will put `cmd/pleiades` in
+   scope through this rule.
+3. 117b part 3, segmented dispatch.
+
+#### Lab state
+
+Unchanged: `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved.
+
 ## Previous session, 2026-10-21: Phase 117b part 1 (#84)
 
 *Superseded on 2026-10-22: #84 merged green at `14b64c16`; the prscope census followed on `chore/prscope-census`.*

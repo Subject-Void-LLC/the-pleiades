@@ -73,6 +73,8 @@ func undo(e engine.JournalEntry, fqcn string, params map[string]any) engine.Jour
 			p.Number = &n
 		case bool:
 			p.Bool = &v
+		case []string:
+			p.Texts = v
 		}
 		e.InverseParams = append(e.InverseParams, p)
 	}

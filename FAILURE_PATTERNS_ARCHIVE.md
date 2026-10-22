@@ -13973,3 +13973,230 @@ to agree, or the test should.
 **Lesson.** Pending the cause. A method that decides by a listing reads a view that can lag the object it describes;
 whether that is true of this daemon is the open question.
 
+## 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (open)
+
+**Symptom.** 2026-10-22, mutation-testing `pleiades doc --create-skill`'s teaching runbook: changing its condition from
+`result.kernel.rc == 0` to `result.kernal.rc == 0`, a register no task writes, still passed `pleiades validate` with no
+finding and no warning. Only the run failed, at that task: "CEL evaluation failed: no such key: kernal".
+
+**Root cause.** 515's fix held a parameter template's reads to the registers some task writes (TemplateRule). Conditions
+are read through `engine.ConditionReads` by two rules only: CheckModeRule (does a real task read a checked one) and
+HandlersRule's `unguardedReads` (`internal/validate/handlers.go`), which flags a register a rescue or always may not
+have written. Neither asks whether any task registers the name at all, so the plain typo goes through. It is the same
+check 515 added for templates, missing at its sibling seam.
+
+**Fix.** None yet. Planned: one rule over `engine.ConditionReads` (a dynamic read skipped) that refuses a condition
+naming a register no task in the runbook registers, built with 117b part 2's single "names an expression reads"
+function so templates and conditions share it. It changes `internal/validate`, so the census runs.
+
+**Lesson.** When a check is added for one way of reading a value, the other ways of reading the same value are the
+sibling sweep (LESSONS 281); templates and conditions both read registers.
+
+## 562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (open)
+
+**Symptom.** 2026-10-22, a fresh agent working only from `pleiades doc --create-skill`'s SKILL.md: every
+`pleiades <command> --help` printed its flags and then `pleiades: flag: help requested`, exiting 1, which an agent that
+checks exit codes reads as a failure. `pleiades add-host --help` and `-h` printed no flags at all, only "usage: pleiades
+add-host <name> ...: missing positional argument"; the flags appeared only with a placeholder name first
+(`add-host x --help`), which adds nothing. The same holds for the other commands parsed through `splitPositional`
+(`add-credential`, `trust-host`, `set-host`).
+
+**Root cause.** Each subcommand parses with `flag.ContinueOnError` and returns `flag.ErrHelp` as an ordinary error,
+which main prints and exits 1 on. Commands with a positional name split it off before the flag set sees `--help`, so a
+missing name is refused first. Not yet traced further; both are read from the run, not from a fix.
+
+**Fix.** None yet. The skill tells an agent both facts in the meantime. Wanted: `--help` exits 0 everywhere, and a
+command that takes a name answers `--help` without one.
+
+**Lesson.** A tool an agent learns from its own help needs that help to succeed, and to be reachable without
+already knowing the command's arguments.
+
+## 563. Four methods recorded their undo only after reads that can fail, and a failed task's undo never reaches the journal (a repeat of 452 and 487) (fixed)
+
+**Symptom.** 2026-10-22, the review of `feat/doc-create-skill`: `pkg.apt.install` (its read of the installed set and
+its dpkg re-query), `pkg.apt.remove` (its `recordDependencies` step and its re-query), `identity.user.create` (its
+re-read of the account) and `identity.user.remove` each called `sdk.RecordInverse` only after reads that follow the
+change. A connection dropped after `apt-get` or `useradd` had succeeded made one of those reads fail, the method
+returned before it recorded anything, and a change that did happen was left with no undo. `main` has this order in
+all four methods; the branch did not introduce it.
+
+**Root cause.** 452's class. Each method treated "the change worked" and "the change is described" as one step, and
+put reads that can fail between the two.
+
+**Fix.** Two steps, the second found while writing this entry. First, each method records its undo right after the
+changing command succeeds (`recordInstallUndo` in `internal/catalog/pkg/apt/install.go`, `remove.go`,
+`internal/catalog/identity/user/create.go`, `remove.go`). That alone was not enough: each method still returned the
+later read's error, and the engine leaves a failed method's undo out before anything is journaled (`failedStats` in
+`internal/engine/collection_action.go`, "a failed task is journaled with none"; 507 and LESSONS 294 keep that rule),
+so through a real run the journal still held no undo. Second, 452's other half: once the change has completed, a read
+that fails is a warning and the method returns success, so the engine journals the undo with it. `pkg.apt.install`
+records "installed X, but could not read its version back", `pkg.apt.remove` "removed X, but could not read dpkg
+back", `identity.user.create` "changed X, but could not read the account back"; `recordInstallUndo` returns its own
+warning (dependencies unreadable or past 128) for one combined record, and `recordDependencies` likewise, since
+`sdk.RecordWarnings` replaces rather than appends. Tests drop the connection right after each change and require a
+changed task that succeeds with its undo and the warning: `TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo`,
+`TestInstall_RequeryConnectionFailure`, `TestRemove_RequeryConnectionFailure`,
+`TestCreate_AReadThatFailsAfterUseraddKeepsItsUndo` (a new and a converged account); a warning that cannot be
+recorded still fails the task. Since the method now succeeds, the engine's ordinary success path journals the undo;
+no test injects the fault on a real device through the journal.
+
+**Why 452's and 487's fixes did not prevent it.** 452 fixed `container.docker.run`, and 487 fixed
+`build.digests.refresh`; each fix was made inside its own method, and no sweep looked for other methods that record an
+undo after a read. 452's fix also had a second half that was not carried here: a failed read back after a completed
+change became a warning, not a failure, because its lesson already said that whatever a method records is dropped
+with its failure. The new tests read the undo below the engine, at the one boundary that drops it, so they pass either
+way (RULE 0).
+
+**Lesson.** An undo is proven where a rollback reads it, the journal (529's lesson). A test that reads it from the
+method's context skips the step that throws it away.
+
+## 564. A check of an account naming a group the device lacks predicted the change with a warning, so the check passed in full where the run fails (a repeat of 385) (fixed before push)
+
+**Symptom.** 2026-10-22, during this branch's agent dry runs: a check of `identity.user.create` or `modify` naming a
+primary group the device did not have refused, which stopped an agent's check. To unblock it, the check was changed,
+before any commit, to predict the change with a warning. That let a whole check exit 0 with full coverage while the
+real run fails at that task, unless an earlier task creates the group.
+
+**Root cause.** LESSONS 255: a check reads the device as it is now, and for state an earlier task may change it
+answers "could not check". 385 fixed `virt.vbox.vm.delete` and the lesson states the rule. It did not hold because
+the change was made to get an agent through, and a warning beside a prediction read as an honest middle ground. The
+rule's wording speaks of a predicted failure, not a predicted success with a warning, and nothing tests every check
+against "predicts through missing state".
+
+**Fix.** `predictChange` in `internal/catalog/identity/user/user.go` returns `collection.CannotCheck` naming the
+group, telling a missing group (`errNoSuchGroup`) from a `getent` that failed; a real run still refuses a group that is
+missing when it gets there (`TestUserChecks_AGroupNotYetMadeCannotBeChecked`). An agent then
+accepts the task by name with `--allow-unchecked identity.user.create`, proven in the sixth dry run.
+
+**Lesson.** A check that cannot know says so; the convenience a person or an agent needs is accepting that one gap by
+name, which already exists (LESSONS 307).
+
+## 565. pkg.apt.install's undo could name more dependencies than the journal keeps, which would leave the run's whole undo incomplete (a repeat of 529) (fixed before push)
+
+**Symptom.** Review, 2026-10-22: `pkg.apt.install`'s new undo names the packages an install pulled in, with no bound.
+The journal refuses a list longer than 128 values (`engine.maxRecordedItems`), so an install that pulled in more
+would have left that undo, and with it the run's undo, incomplete.
+
+**Root cause.** 529's class: an undo built from values the journal cannot keep. 529's fix changed one method's lists
+to comma-separated strings and its test held that one method; this branch let the journal keep a list for a
+parameter the undo method declares a list, with a length limit the new list's producer was never tied to.
+
+**Fix.** Over 128, the undo names the package alone and a warning says `apt-get autoremove` takes the rest
+(`maxUndoDependencies` in `internal/catalog/pkg/apt/install.go`).
+`TestInstall_AnUndoNamesNoMoreDependenciesThanTheJournalHolds` checks 128 and 129 against the journal's own
+`engine.RecordableTexts`, so the two limits cannot drift apart.
+
+**Lesson.** A list an undo carries is bounded by what the journal keeps, and the test asks the journal, not a copy of
+its number.
+
+## 566. seal.key was created empty and then written, so a concurrent first use could read an empty key and a crash left one that refuses forever (a repeat of 46) (fixed before push)
+
+**Symptom.** Review, 2026-10-22: `credential.SealKey` created `.pleiades/seal.key` with `O_EXCL` and then wrote the
+key. A second first use at the same moment got `ErrExist`, read the file, and could find it empty. A crash between
+the create and the write left an empty `seal.key`, which every later call refuses as "not a seal key" and never
+replaces.
+
+**Root cause.** 46's exact class (LESSONS 47): `O_EXCL` makes a file's existence atomic, not its content. 46's fix,
+a temporary file linked into place, was made in `internal/crypto`'s key resolution. `internal/credential/seal_key.go`
+was new code that wrote its own first-use create instead of following it. LESSONS 119 and 124 (end on a read; make
+the result atomic and let callers race) say the same.
+
+**Fix.** The key is written whole to a synced temporary file beside it and `os.Link`ed into place, which never
+replaces a file; a caller that loses reads the winner's key. `TestSealKey_ConcurrentFirstUsesAgreeOnOneKey` runs
+eight first uses at once under `-race`: one makes the key, all get it, and no temporary file is left.
+
+**Lesson.** Creating a key file once is a solved problem in this repository; new code that makes one starts from
+that solution, and its first test is concurrent first use.
+
+## 567. New internal/credential tests assumed POSIX file modes, directory mode bits and unprivileged symbolic links, in a package the Windows leg runs (a repeat of 544) (fixed before push)
+
+**Symptom.** Review, 2026-10-22: `TestSealKey_IsMadeOnceAndKeptEncrypted` required mode 0600,
+`TestSealKey_RefusesWhatItCannotUse` relied on a 0500 directory refusing writes, and
+`TestSealKey_NeverWritesThroughALink` made a symbolic link, none guarded, in `internal/credential`, a container-free
+package that `make pr-check`'s Windows leg runs.
+
+**Root cause.** 505's, 510's and 544's class. Each of those fixed the tests the Windows or FreeBSD leg had already
+found. New tests are written on Linux, nothing at write time flags an unguarded mode check, and the Windows leg runs
+a package only when a branch changes it, after the tests exist. 544's lesson predicted exactly this.
+
+**Fix.** Each check is guarded with `runtime.GOOS`: the mode checks skip on Windows, the unwritable directory also
+skips as root, and the link test skips on Windows when making a link needs a privilege. The branch's
+pr-check Windows leg (`9687e4e3`) then failed three existing tests the package had never run there: two mode checks in
+`master_key_test.go`, now guarded the same way, and `TestFileStore_LookupReadErrorWhenPleiadesDirIsAFile`, which was a
+real difference: Windows reports a path through a regular file as not found, so a `.pleiades` that is a file read as
+"no credential stored". `readCredentialsDocument` now looks at the parent before believing a missing file, so both
+platforms report "is not a directory".
+
+**Lesson.** A test that asserts a file mode or makes a link is written with its Windows guard from the start, in
+any container-free package.
+
+## 568. run's and adhoc's hand-written usage lines had lost --allow-unchecked and --fail-on-rescue (a repeat of 145) (fixed)
+
+**Symptom.** 2026-10-22: `pleiades rollback`'s usage line was found missing flags it parses and was fixed earlier on
+this branch. Later, `run`'s and `adhoc`'s usage lines turned out to lack `--allow-unchecked` and `--fail-on-rescue`,
+both of which they parse. An agent learning the CLI from its usage text would not know either flag exists.
+
+**Root cause.** A usage line written by hand is a second copy of the flag set, with no test comparing the two: 145's
+class and LESSONS 134's rule. 145's fix was a test for catalog documentation only, and the rule stayed a sentence, so
+CLI usage strings were never swept. On this branch, the rollback fix covered one command and not its siblings
+(LESSONS 281).
+
+**Fix.** All three lines are built by `usageLine(command, fs)` (`cmd/pleiades/rollback.go`) from the `FlagSet` each
+command parses. `TestRunAndAdhocUsage_NameTheFlagsTheyParse` and `TestRollbackUsage_NamesEveryFlagItParses` hold
+them to it. Other subcommands still write their usage by hand (`seal-key` and `seal` in `cmd/pleiades/seal.go`, for
+two).
+
+**Lesson.** A usage line is generated from the flags it describes, or tested against them, from the day it is
+written.
+
+## 569. remotefile.Stat passed a path to stat and readlink with no end of options, and file.stat takes the whole path from a task (a repeat of 148 and 450) (fixed)
+
+**Symptom.** Review, 2026-10-22: `pkg/remotefile.Stat` quoted its path and passed it to `stat` and `readlink` as an
+operand with nothing ending their options, so a path such as `-L` or `--format=%n` would be read as an option. The new
+`file.stat` takes that whole path from a task parameter.
+
+**Root cause.** Quoting stops the shell, not option parsing (LESSONS 137). 148 fixed one `cd`; 450 fixed the docker
+methods and said the sweep must search by what code does, not by a shell string's shape. That sweep did not reach
+`pkg/remotefile`, and adding a method that hands it a caller's whole path is what exposed it.
+
+**Fix.** `operand` in `pkg/remotefile/remotefile.go` passes a path that starts with a dash as `./path`, the same
+file, rather than adding `--`, since BSD's and GNU's `stat` and `readlink` differ on it (494).
+`TestOperand_ADashNeverReachesStatAsAnOption`.
+
+**Lesson.** A new method that takes a caller's value whole is the moment to check each command the value reaches for
+option parsing, in the shared package as well as the method.
+
+## 570. The account undo judged whatever home passwd named at undo time, so a home moved since could be deleted in place of the one made (fixed before push)
+
+**Symptom.** Review, 2026-10-22, of this branch's new undo for `identity.user.create`, which removes the home the
+account was made with while it still holds only what `useradd` copied from the skeleton directory. It read the home
+from passwd when the undo ran. After a later `identity.user.modify` with `home:` pointing at a new, empty directory,
+the undo would have judged that directory unchanged and deleted it, and left the home it made.
+
+**Root cause.** The undo identified its target by what the device says at undo time, not by what the change made. It
+is the class 2f7c2a4c guarded for VMs and containers (an undo pinned to a `uuid` or `id`), and near LESSONS 147
+(build an undo from the value captured when deciding, not from a later read).
+
+**Fix.** `identity.user.create`'s undo records the home it made as `created_home`, and `identity.user.remove` keeps a
+home whose path differs from it, with a warning (`TestRemove_AHomeMovedSinceIsKept`).
+
+**Lesson.** An undo that deletes names what it made, recorded at the change, and refuses anything else under the
+same name or path.
+
+## 571. Four comments, help texts and skill sentences claimed more than the code does, one of them a sealed file's refusal of surrounding text (a repeat of 228) (fixed before push)
+
+**Symptom.** Review, 2026-10-22: a comment called `find -mindepth` POSIX, which it is not; `sealed.Parse`'s comment
+said it refuses data around the sealed block, but `pem.Decode` skipped leading text, so text before the block was
+accepted; `add-credential`'s `--passphrase` flag text did not mention the sealed file it applies to; and a skill
+sentence said `file.copy` writes files 0600, when only a file it creates gets that mode.
+
+**Root cause.** 228's class: a comment or help text describes what was meant, and nothing re-reads it against the
+code. The `sealed.Parse` one is the shape 228 called worst, a security claim naming the function that should enforce
+it.
+
+**Fix.** Each text now says what is true, and `sealed.Parse` refuses text before the block as well as after it
+(`TestParse_RefusesWhatThisVersionDoesNotWrite`, rows "data before the block" and "a broken block before it").
+
+**Lesson.** A comment that claims a refusal is checked by a test of that refusal; if there is none, write it or cut
+the claim.
+

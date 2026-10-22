@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -70,7 +68,7 @@ func verifyRecorded(s Step) error {
 		if collection.IsReservedParam(k) || !slices.Contains(spec.Record, k) || !declared[k] {
 			return fmt.Errorf("the undo of %s through %s carries parameter %q, which %s does not declare recordable", s.Emitter, s.FQCN, k, s.Emitter)
 		}
-		if !recordableValue(v) {
+		if !recordableValue(v, engine.ListParam(s.FQCN, k)) {
 			return fmt.Errorf("the undo of %s through %s carries a value for %q the journal would never hold", s.Emitter, s.FQCN, k)
 		}
 	}
@@ -103,11 +101,15 @@ func declaredUndo(emitter, target string) (*sdk.InverseSpec, collection.Descript
 }
 
 // recordableValue reports whether v is a value the journal's projection
-// could have recorded, as it arrives after a trip through JSON or YAML.
-func recordableValue(v any) bool {
+// could have recorded, as it arrives after a trip through JSON or YAML; a
+// list only for a parameter the undo method declares one (asList).
+func recordableValue(v any, asList bool) bool {
 	switch v := v.(type) {
 	case string:
-		return len(v) <= maxRecordedText && utf8.ValidString(v) && termsafe.CheckLine(v) == nil
+		return engine.RecordableText(v)
+	case []string, []any:
+		_, ok := engine.RecordableTexts(v)
+		return ok && asList
 	case bool, int, int64, float64, json.Number:
 		return true
 	default:

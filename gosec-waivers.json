@@ -168,6 +168,18 @@
       "line": "32",
       "rule_id": "G101",
       "reason": "Owned by Phase 119c (the Kubernetes credential kind). This is K8sAuthAPIKey, the string \"K8S_AUTH_API_KEY\": the NAME of the environment variable AWX's kubernetes_bearer_token injector sets for kubernetes.core, which the Ansible path sets to the bound token at dispatch. It holds no credential; G101 matches the \"APIKey\" in the identifier and the literal."
+    },
+    {
+      "file": "internal/sealed/passphrase.go",
+      "line": "74",
+      "rule_id": "G115",
+      "reason": "parseArgon2id converts the parsed Argon2id header values to the uint32 and uint8 argon2.IDKey takes, on the line right after the bounds check above it refuses anything outside t 1-10, m 8192-262144 KiB and p 1-16 (each value was also parsed with a 32-bit limit), so no conversion can overflow. The check runs before any memory is set aside for a derivation, which is the point of the bounds (a crafted file cannot exhaust the machine); TestParse_RefusesWhatThisVersionDoesNotWrite covers each bound."
+    },
+    {
+      "file": "internal/sealed/sealed.go",
+      "line": "51",
+      "rule_id": "G101",
+      "reason": "This is MethodPassphrase, the string \"argon2id-aes256gcm\": the NAME of the sealing method written into a sealed file's Method header. It holds no credential; G101 matches the \"Passphrase\" in the identifier."
     }
   ]
 }

@@ -27,8 +27,9 @@ func init() {
 				Notes: "A run that removed a present package emits a pkg.apt.install pinned to the exact version this " +
 					"run captured before removing it, which is a real, restorable inverse: reinstalling that version " +
 					"undoes exactly what this run did to the package database. A run that found the package already " +
-					"absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer " +
-					"scripts did beyond deleting the package's files.",
+					"absent emits nothing. Reinstalling brings back the dependencies it removed with the package, at " +
+					"whatever version APT then picks. What the inverse cannot restore is anything the removal's own " +
+					"maintainer scripts did beyond deleting the package's files.",
 				Inverses: []sdk.InverseSpec{
 					{FQCN: "pkg.apt.install", Record: []string{"name", "version"}},
 				},
@@ -46,11 +47,13 @@ func removeDoc() collection.Doc {
 		Description: "Makes sure a package is absent from a Debian-family host, removing it if it is present. This is ansible.builtin.apt with state=absent. Installed state is read from dpkg before anything is sent, so a package that is already absent reports no change and no command reaches the device. This removes the package but does not purge it (apt-get remove, not apt-get purge), so its configuration files are left on disk; there is no separate purge parameter today.",
 		Params: []collection.Param{
 			{Name: paramName, Type: "string", Required: true, Description: "The APT package name to remove."},
+			{Name: paramDependencies, Type: "list", Description: "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
 			{Name: statName, Type: "string", Returned: "always", Description: "The package this task acted on."},
 			{Name: statVersion, Type: "string", Returned: "always", Description: "Always empty after a successful run: a removed package has no installed version, and a package that was already absent had none either."},
+			{Name: statDependenciesRemoved, Type: "list", Returned: "when dependencies names one the run removes", Description: "The dependencies removed with the package, or that a check predicts would be."},
 			{Name: sdk.StatDiff, Type: "dict", Returned: "always", Description: "What dpkg reported about the package before this task and after it, each holding installed and version."},
 		},
 		Examples: []collection.Example{
@@ -85,6 +88,10 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	deps, _, err := sdk.StringSlice(params, paramDependencies)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, paramDependencies, err)
+	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
@@ -97,8 +104,24 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// A package already absent takes nothing with it: its dependencies
+	// are left as they are, as the package itself is.
+	var withDeps, kept []string
+	if before.installed {
+		if withDeps, kept, err = removableDependencies(ctx, conn, name, deps); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+
 	if mode == collection.ModeCheck {
 		if err := recordState(rc, name, before, state{}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		warnings, err := recordDependencies(rc, withDeps, kept)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := sdk.RecordWarnings(rc, warnings); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		return collection.Result{Changed: before.installed}, nil
@@ -106,24 +129,12 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 
 	changed := false
 	if before.installed {
-		if _, err := runAptGet(ctx, conn, "remove", "-y", name); err != nil {
+		if _, err := runAptGet(ctx, conn, append([]string{"remove", "-y", name}, withDeps...)...); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true
-	}
-
-	after := before
-	if changed {
-		if after, err = queryDpkg(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
-	}
-
-	if err := recordState(rc, name, before, after); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-
-	if changed {
+		// The package is gone now, so its undo is recorded before anything
+		// else can fail and leave the removal with no way back.
 		if err := sdk.RecordInverse(rc, sdk.Inverse{
 			FQCN:   "pkg.apt.install",
 			Params: map[string]any{paramName: name, paramVersion: before.version},
@@ -132,6 +143,29 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		}); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
+	}
+	warnings, err := recordDependencies(rc, withDeps, kept)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	// Once apt-get has removed the package, a read that fails is a
+	// warning, never the task's failure, which would drop the undo just
+	// recorded (FAILURE_PATTERNS 452).
+	after := before
+	if changed {
+		var readErr error
+		if after, readErr = queryDpkg(ctx, conn, name); readErr != nil {
+			after = state{}
+			warnings = append(warnings, fmt.Sprintf("removed %s, but could not read dpkg back: %v", name, readErr))
+		}
+	}
+
+	if err := recordState(rc, name, before, after); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
 	return collection.Result{Changed: changed}, nil

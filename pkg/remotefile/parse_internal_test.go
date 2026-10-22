@@ -123,3 +123,21 @@ func TestFirstLine_KeepsAnErrorMessageShort(t *testing.T) {
 		})
 	}
 }
+
+// TestOperand_ADashNeverReachesStatAsAnOption: a path starting with a dash
+// gets ./ before it, naming the same file, and every other path is left
+// exactly as it was given.
+func TestOperand_ADashNeverReachesStatAsAnOption(t *testing.T) {
+	for in, want := range map[string]string{
+		"-L":            "./-L",
+		"--format=%n":   "./--format=%n",
+		"/srv/app":      "/srv/app",
+		"relative/path": "relative/path",
+		"./-x":          "./-x",
+		"":              "",
+	} {
+		if got := operand(in); got != want {
+			t.Errorf("operand(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

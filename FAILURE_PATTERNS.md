@@ -563,6 +563,17 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 558. The reaper's leadership test gave the leader a fixed 60 ms, and a slow machine spent it on the first query (fixed)
 559. The capability check reached validate with no census of what already validates, and two cmd/pleiades gates failed in CI (a repeat of 550) (fixed)
 560. A check of container.prune listed no stopped container while inspect said it had exited (open)
+561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (open)
+562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (open)
+563. Four methods recorded their undo only after reads that can fail, and a failed task's undo never reaches the journal (a repeat of 452 and 487) (fixed)
+564. A check of an account naming a group the device lacks predicted the change with a warning, so the check passed in full where the run fails (a repeat of 385) (fixed before push)
+565. pkg.apt.install's undo could name more dependencies than the journal keeps, which would leave the run's whole undo incomplete (a repeat of 529) (fixed before push)
+566. seal.key was created empty and then written, so a concurrent first use could read an empty key and a crash left one that refuses forever (a repeat of 46) (fixed before push)
+567. New internal/credential tests assumed POSIX file modes, directory mode bits and unprivileged symbolic links, in a package the Windows leg runs (a repeat of 544) (fixed before push)
+568. run's and adhoc's hand-written usage lines had lost --allow-unchecked and --fail-on-rescue (a repeat of 145) (fixed)
+569. remotefile.Stat passed a path to stat and readlink with no end of options, and file.stat takes the whole path from a task (a repeat of 148 and 450) (fixed)
+570. The account undo judged whatever home passwd named at undo time, so a home moved since could be deleted in place of the one made (fixed before push)
+571. Four comments, help texts and skill sentences claimed more than the code does, one of them a sealed file's refusal of surrounding text (a repeat of 228) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

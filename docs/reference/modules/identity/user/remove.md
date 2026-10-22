@@ -25,6 +25,8 @@ Makes sure a user account is absent from the target, removing it if present. Thi
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The account name to remove. |
 | `remove` | `bool` | no | `false` | Also delete the home directory and mail spool (userdel -r). Left false, they are left on disk. |
+| `remove_home_if_unchanged` | `bool` | no | `false` | Delete the home directory and mail spool only while the home holds exactly what useradd copied into it from the skeleton directory, every file unchanged; otherwise keep it and say so in a warning. identity.user.create's undo sets it for a home that run made. Not with remove. |
+| `created_home` | `string` | no | - | With remove_home_if_unchanged, the home the account was made with: the home is deleted only while the account's home is still this path, so a home moved since (identity.user.modify) is never judged in its place. identity.user.create's undo sets it. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

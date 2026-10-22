@@ -57,6 +57,38 @@ var filesCollections = []collectionscaffold.Config{
 		},
 	},
 	{
+		Name:          "file.stat",
+		Capabilities:  []capability.Name{capability.NamePOSIXFileSystem},
+		Transports:    []string{"ssh"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Reports what is at a path on the target, and changes nothing.",
+			Description: "Reads what is at a path and reports it: whether anything is there, what it is (a file, a directory, a symlink or something else), its mode, owner and group, a symlink's target, its size and its modification time. This is ansible.builtin.stat. It only reads, so it never reports a change, records no undo, and its check is the same read. An absent path is an answer (exists is false), not a failure. Use it to look at a path before or after a change instead of a shell command, which reports changed on every run because it cannot tell what its command did.",
+			Params: []collection.Param{
+				{Name: "path", Type: "string", Required: true, Description: "The path to look at. A symlink is reported as the link itself, with its target, not as what it points to."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "path", Type: "string", Returned: "always", Description: "The path this task looked at."},
+				{Name: "exists", Type: "bool", Returned: "always", Description: "Whether anything is at the path."},
+				{Name: "kind", Type: "string", Returned: "always", Description: "What is there: file, directory, symlink, other, or absent."},
+				{Name: "mode", Type: "string", Returned: "when it exists", Description: "The permission bits in octal, such as 0755, with the setuid, setgid and sticky digit when one is set."},
+				{Name: "owner", Type: "string", Returned: "when it exists", Description: "The owning user's name."},
+				{Name: "group", Type: "string", Returned: "when it exists", Description: "The owning group's name."},
+				{Name: "size", Type: "int", Returned: "when it exists", Description: "The size in bytes."},
+				{Name: "mtime", Type: "int", Returned: "when it exists", Description: "The modification time, as a Unix timestamp."},
+				{Name: "target", Type: "string", Returned: "when it is a symlink", Description: "Where the symlink points."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Look at a directory before changing it",
+					RunbookYAML: "- name: See what is at the app directory\n  file.stat:\n    path: /srv/app\n  register: app_dir\n",
+				},
+			},
+			SeeAlso: []string{"file.directory", "file.permissions", "facts.gather"},
+		},
+	},
+	{
 		Name:          "file.template",
 		Capabilities:  []capability.Name{capability.NamePOSIXFileSystem},
 		Transports:    []string{"ssh"},

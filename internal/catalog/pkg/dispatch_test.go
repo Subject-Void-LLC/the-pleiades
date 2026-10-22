@@ -108,7 +108,10 @@ for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
 printf -- '---\n' >> "$FAKE_RECORD"
 exit 0
 `
+	// Two arguments is apt's listing of the installed set, which these
+	// dispatch tests leave empty.
 	dpkgScript := `#!/bin/sh
+[ "$#" = "2" ] && exit 0
 printf '` + status + `\t` + version + `'
 exit ` + boolExit(state.installed) + `
 `

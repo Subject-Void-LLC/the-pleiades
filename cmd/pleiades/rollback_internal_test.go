@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -308,5 +309,50 @@ func TestRollbackOutcome_AnUnknownMakesACompleteRollbackIncomplete(t *testing.T)
 	failed := runOutcome{Status: "failed", ExitCode: 1}
 	if got := rollbackOutcome(failed, &rollbackReport{UnacceptedUnknown: 1}); got.Status != "failed" || got.ExitCode != 1 {
 		t.Errorf("a failed rollback stays failed: %+v", got)
+	}
+}
+
+// TestRollbackUsage_NamesEveryFlagItParses holds rollback's usage line to
+// the flags it parses, so a flag added to run or to rollback appears in it.
+func TestRollbackUsage_NamesEveryFlagItParses(t *testing.T) {
+	fs, _, _ := newRollbackFlags()
+	line := usageLine("rollback <run-id>", fs)
+	fs.VisitAll(func(f *flag.Flag) {
+		if len(f.Name) > 1 && !strings.Contains(line, "--"+f.Name+" ") && !strings.Contains(line, "--"+f.Name+"]") {
+			t.Errorf("the usage line leaves out --%s: %s", f.Name, line)
+		}
+	})
+	for _, want := range []string{"[--json]", "[--forks X]", "[--allow-unchecked X]", "[--despite-run X]"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the usage line has no %s: %s", want, line)
+		}
+	}
+	err := runRollback(nil)
+	if err == nil || !strings.Contains(err.Error(), "[--allow-unchecked X]") {
+		t.Errorf("rollback with no run id = %v, want the full usage line", err)
+	}
+}
+
+// TestRunAndAdhocUsage_NameTheFlagsTheyParse holds run's and adhoc's usage
+// lines to their flags the same way: both used to be written by hand, and
+// both had lost --allow-unchecked and --fail-on-rescue.
+func TestRunAndAdhocUsage_NameTheFlagsTheyParse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func([]string) error
+		want []string
+	}{
+		{"run", runRunbook, []string{"usage: pleiades run <runbook.yaml>", "[--allow-unchecked X]", "[--fail-on-rescue]", "[--extra-vars X]", "[--tags X]"}},
+		{"adhoc", runAdhoc, []string{"usage: pleiades adhoc <hosts> <method>", "[--allow-unchecked X]", "[--fail-on-rescue]", "[--timeout X]"}},
+	} {
+		err := tc.run(nil)
+		if err == nil {
+			t.Fatalf("%s with no arguments succeeded", tc.name)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s's usage line has no %s: %v", tc.name, want, err)
+			}
+		}
 	}
 }

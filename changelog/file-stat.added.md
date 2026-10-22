@@ -1,0 +1,1 @@
+New `file.stat` reports what is at a path on a device (whether anything is there, its kind, mode, owner, group, size, modification time and a symlink's target) and changes nothing. Use it to look at a path instead of a shell command, which reports a change on every run.
