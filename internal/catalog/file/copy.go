@@ -124,8 +124,8 @@ func init() {
 					"the new content lands the old content is gone. The emitted instruction says so in its own description rather than " +
 					"leaving a rollback to discover it. A run that changed nothing emits nothing.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "file.remove", Record: []string{"path"}},
-					{FQCN: "file.permissions", Record: []string{"path", "mode", "owner", "group"}, MayBePartial: true},
+					{FQCN: "file.remove", Record: []string{"path"}, MayKeepOnFailure: true},
+					{FQCN: "file.permissions", Record: []string{"path", "mode", "owner", "group"}, MayBePartial: true, MayKeepOnFailure: true},
 				},
 			},
 			Doc: copyDoc(),
@@ -321,6 +321,19 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// Only a run that really changed something emits an inverse. The
+	// absence on a converged run is the record saying "undoing this means
+	// doing nothing", which is a different statement from "nothing was
+	// recorded" and the reason it must not be emitted unconditionally. It is
+	// recorded the moment the change is confirmed, and kept through a
+	// failure after it (the read-back losing its connection), so a rollback
+	// can still undo a change this task made and then could not report.
+	if changed {
+		if err := copyRecordInverse(rc, req.dest, before, wrote); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+
 	after, afterSum := before, found
 	if changed {
 		if after, afterSum, err = copyReadBack(ctx, conn, req.dest); err != nil {
@@ -333,15 +346,6 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		After:  copyState(after, afterSum),
 	}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	// Only a run that really changed something emits an inverse. The
-	// absence on a converged run is the record saying "undoing this means
-	// doing nothing", which is a different statement from "nothing was
-	// recorded" and the reason it must not be emitted unconditionally.
-	if changed {
-		if err := copyRecordInverse(rc, req.dest, before, wrote); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
 	}
 	if err := copyRecordStats(rc, req.dest, after, afterSum); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -623,9 +627,10 @@ func copyState(info remotefile.Info, sum string) map[string]any {
 func copyRecordInverse(rc sdk.RunbookContext, dest string, before remotefile.Info, wrote bool) error {
 	if !before.Exists() {
 		return sdk.RecordInverse(rc, sdk.Inverse{
-			FQCN:        copyInverseRemove,
-			Params:      map[string]any{"path": dest},
-			Description: "Removes " + dest + ", which this run created. Nothing was at that path beforehand, so this destroys nothing the run did not make.",
+			FQCN:          copyInverseRemove,
+			Params:        map[string]any{"path": dest},
+			Description:   "Removes " + dest + ", which this run created. Nothing was at that path beforehand, so this destroys nothing the run did not make.",
+			KeepOnFailure: true,
 		})
 	}
 
@@ -644,7 +649,8 @@ func copyRecordInverse(rc sdk.RunbookContext, dest string, before remotefile.Inf
 			"owner": before.Owner,
 			"group": before.Group,
 		},
-		Description: description,
+		Description:   description,
+		KeepOnFailure: true,
 	})
 }
 

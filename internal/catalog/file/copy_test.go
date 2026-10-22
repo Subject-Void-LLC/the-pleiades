@@ -1271,6 +1271,35 @@ func TestCopy_ReadBackStatFailureIsReported(t *testing.T) {
 	}
 }
 
+// TestCopy_AReadBackLostAfterTheRenameKeepsItsUndo: the content is in
+// place when the read-back loses its connection, so the undo recorded the
+// moment the change was confirmed is kept through the failure
+// (sdk.Inverse.KeepOnFailure), and a rollback of the run can still restore
+// the file's attributes. The engine keeps it only because file.copy's
+// manifest allows it, which is asserted here too.
+func TestCopy_AReadBackLostAfterTheRenameKeepsItsUndo(t *testing.T) {
+	server := startCopyServerWithSessionBudget(t, 8)
+	rc := newCopyContext(server)
+	dest := copyExistingFile(t, "old\n", 0o644)
+
+	if _, err := file.Copy(context.Background(), rc, newCopyTarget(server), copyParams(dest, "new\n")); err == nil {
+		t.Fatal("a failed read-back was reported as success")
+	}
+	record, ok := rc.stats[sdk.StatInverse].(map[string]any)
+	if !ok {
+		t.Fatalf("no undo recorded for a change that landed: %v", rc.stats)
+	}
+	if record[sdk.InverseFQCNKey] != "file.permissions" || record[sdk.InverseKeepOnFailureKey] != true {
+		t.Errorf("undo = %v, want file.permissions kept through the failure", record)
+	}
+	d, _ := collection.Lookup("file.copy")
+	for _, spec := range d.Manifest.Reversibility.Inverses {
+		if !spec.MayKeepOnFailure {
+			t.Errorf("file.copy's undo through %s may not be kept through a failure, so the engine would drop it", spec.FQCN)
+		}
+	}
+}
+
 // TestCopy_ReadBackChecksumFailureIsReported covers the second half of
 // the read-back, which the stat failure above can never reach.
 //
@@ -1313,8 +1342,10 @@ func TestCopy_DiffRecordFailureIsReported(t *testing.T) {
 }
 
 // TestCopy_InverseRecordFailureIsReported covers the same swallowing
-// question at the second recording call site, which only a run that
-// really changed something reaches.
+// question at the inverse's recording call site, which only a run that
+// really changed something reaches. The inverse is recorded the moment the
+// change is confirmed, before the read-back and the diff, so a read-back
+// that fails still leaves an undo (TestCopy_AReadBackLostAfterTheRenameKeepsItsUndo).
 func TestCopy_InverseRecordFailureIsReported(t *testing.T) {
 	server := startCopyServer(t)
 	rc := newCopyContext(server)
@@ -1327,8 +1358,8 @@ func TestCopy_InverseRecordFailureIsReported(t *testing.T) {
 	if !errors.Is(err, errCopyStat) {
 		t.Errorf("error = %q, want it to carry what recording returned", err)
 	}
-	if _, recorded := rc.stats["diff"]; !recorded {
-		t.Error("the diff was not recorded before the inverse, so the two call sites ran in the wrong order")
+	if _, recorded := rc.stats["diff"]; recorded {
+		t.Error("the diff was recorded before the inverse, so a read-back that failed after the change would leave no undo")
 	}
 }
 
