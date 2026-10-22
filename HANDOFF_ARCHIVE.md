@@ -1,5 +1,74 @@
 # Handoff Document Archive
 
+## Previous session, 2026-10-21: Phase 117b part 1 (#84)
+
+*Superseded on 2026-10-22: #84 merged green at `14b64c16`; the prscope census followed on `chore/prscope-census`.*
+
+### Status as it was
+
+**2026-10-21. Branch `feat/segmented-dispatch-117b`, PR #84, green on every required check at `b1277fb3`.** Part 1
+of three for Phase 117b (Segmented Walk Dispatch): the admission fixes segmented dispatch needs, which change Walk
+behavior today.
+
+- **S1 (556):** a template's machine credential reaches only devices whose `HasCapability` reports a login
+  (`record.TakesMachineCredential`), an allowlist from the device rather than an exemption list of types. A
+  `generic_http` device had received the switches' credential and `http.request` sent it.
+- **One capability check (557, a repeat of 151):** `collection.CheckCapabilities`, called by validate's
+  `CapabilityRule`, the engine, the Controller's admission (`dispatch.methodsAdmit`, with `CheckTransports`) and the
+  `svc.*`/`pkg.*` dispatchers.
+- **`engine.DAG.Conditional`:** a task with its own `when:` is left out of plan-time and admission device checks,
+  transports included, and checked by the engine where its condition holds.
+- **Fixtures (559, a repeat of 550):** CI failed in `cmd/pleiades`, which pr-check had not run: the migrate gate's
+  `web` is now classified as an apt host, and `scan_lab` is validated after onboarding.
+- **Timing (558):** the reaper's leadership test waits for its event instead of a 60 ms window.
+- The full GPLv3 `LICENSE`.
+- **CI:** attempt 1 of run 39697697589 failed `TestPrune_RemovesWhatItsCheckListed` in `containers (5)` on an
+  untouched package (recorded as 560, open); attempt 2 passed.
+
+### Next, as it was
+
+1. The `tools/prscope` census PR. 2. 117b part 2, the segmenter. 3. 117b part 3, segmented dispatch.
+
+## Previous session, 2026-10-21: Phase 103a queue resilience (#82)
+
+*Superseded on 2026-10-21: 103a merged; 117b part 1 followed on `feat/segmented-dispatch-117b`.*
+
+### Status as it was
+
+**2026-10-21. Branch `feat/queue-resilience-103a`, off `main` at `f54df9a2` (#81 merged green).** One pull request
+at a time; `make pr-check` before every push; the owner merges.
+
+#### On this branch
+
+- **Phase 103a, done (12/12):**
+  - the Controller's result dead-letter grant, derived from its subscriptions (553);
+  - dead letters hold identifiers only, the reason masked (554);
+  - a lease records its owner, and contention names it (`lock.HeldError`);
+  - a busy device ends with "device busy: held by job <id>" after about 5.5 minutes;
+  - running work is reported in progress, so it is not redelivered (555).
+  - FAILURE_PATTERNS 496 resolved: not a fixture stall but 396's busy-device hang, read from the nightly's
+    uploaded Runner log.
+  - Proof: `TestBusyDeviceReleaseGate_*` against real NATS, its lock bucket and sshd, with mutation checks.
+- **Records:** 551's evidence and the clock gap; Phase 40a planned (rollback ordered without clocks).
+
+#### Open
+
+- 551, cause unproven; Phase 40a planned, not built.
+- `main`'s nightly failed on 2026-10-21 (496, fixed here) and `winrm` failed too, its log unreadable then
+  ("Egress is over the account limit"); look again after merge.
+- Memory: other sessions' `gopls` processes held about 4.5 GB this session; heavy runs were capped near 500 MB to
+  1.6 GB, one compile at a time.
+- Carried: the converter blocks `cli_command`'s `prompt`/`answer`; `TestLiveIOSDialogs` needs DevNet credentials.
+
+#### Next
+
+1. `make pr-check`, then open the pull request.
+2. Then, by 122f's order: Phase 105's remaining prerequisites (117b, 117c), or 122b's streaming output.
+
+#### Lab state
+
+Unchanged: `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved.
+
 ## Previous session, 2026-10-20: rollback_on_failure and the IOS dialogs (#81)
 
 *Superseded on 2026-10-21: #81 merged green with the IOS work, go1.26.10 and govulncheck on the Mac; 551 recorded further on `fix/rollback-run-order`.*

@@ -5874,3 +5874,17 @@ first, and one device's fatal stop skipped another device's always:. Each needed
 hand-written fixture neutralizes by design (lesson 174); a generator holds them by default. Different shapes matter:
 a second stack machine would likely share the first one's bookkeeping mistakes, and recursion has no bookkeeping to
 share.
+
+## 303. A repeat of 281: a lesson that failed twice becomes a selection rule in the gate that skipped it
+
+**Rule.** When a lesson about what to run before a push fails a second time, encode it where the run is chosen (here,
+`tools/prscope` adding `cmd/pleiades` for any change that can alter what validation decides), with a test that fails
+on the gate as it was, rather than writing the sentence again.
+
+**Why.** 2026-10-22 (FAILURE_PATTERNS 550, 559). Lesson 281 said a refusal added at a shared seam changes every
+caller, so run each caller's package. 550 broke it once, and 559's lesson restated it. PR #84 broke it again: the
+branch made `validate` stricter, pr-check passed because it selects only the packages a branch changes, and CI failed
+in `cmd/pleiades`, where every existing runbook is validated. Each time the rule was known and the step was skipped
+under the pressure of a green local run. A gate that chooses what to run can know which changes need which census; a
+person at the end of a branch reliably does not.
+
