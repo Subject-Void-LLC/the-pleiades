@@ -14120,9 +14120,12 @@ found. New tests are written on Linux, nothing at write time flags an unguarded 
 a package only when a branch changes it, after the tests exist. 544's lesson predicted exactly this.
 
 **Fix.** Each check is guarded with `runtime.GOOS`: the mode checks skip on Windows, the unwritable directory also
-skips as root, and the link test skips on Windows when making a link needs a privilege. The existing
-`internal/credential/master_key_test.go` has the same unguarded mode checks and was not changed; this branch's
-pr-check Windows leg will show whether they fail.
+skips as root, and the link test skips on Windows when making a link needs a privilege. The branch's
+pr-check Windows leg (`9687e4e3`) then failed three existing tests the package had never run there: two mode checks in
+`master_key_test.go`, now guarded the same way, and `TestFileStore_LookupReadErrorWhenPleiadesDirIsAFile`, which was a
+real difference: Windows reports a path through a regular file as not found, so a `.pleiades` that is a file read as
+"no credential stored". `readCredentialsDocument` now looks at the parent before believing a missing file, so both
+platforms report "is not a directory".
 
 **Lesson.** A test that asserts a file mode or makes a link is written with its Windows guard from the start, in
 any container-free package.

@@ -32,7 +32,8 @@ pull request at a time; `make pr-check` before every push; the owner merges.
 
 - 560, 551 and 561 as before; 562 as written. On `adhoc --help`, two reviews recommended exit 0 with its flags; the
   owner decided no change (2026-10-22).
-- 567: `internal/credential/master_key_test.go` has unguarded POSIX mode checks; pr-check's Windows leg will show.
+- 567: settled. The Windows leg failed three old `internal/credential` tests; two mode checks are guarded, and a
+  `.pleiades` that is a file is now a read error on Windows too (it read as no credential).
 - `add-registry-credential` and `add-database-connection` take no sealed file (a scope note, not a defect).
 - Agents left read-only `adhoc` run ids out of `AGENT_JOURNAL.md` in 4 of 6 rounds; harmless for undo; skill unchanged.
 - The dry-run report is a Claude Doc, "Agent CLI Dry Runs", with a Markdown copy outside the repository.

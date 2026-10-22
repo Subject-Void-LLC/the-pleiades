@@ -207,9 +207,17 @@ func (s *fileStore) decryptField(encoded string) ([]byte, error) {
 // (Devices left nil): see Lookup's comment above for why unifying these
 // two cases into one code path matters. Any other read failure, or a
 // parse failure once the file is read, is returned as a real error.
+//
+// A directory in the path that is a regular file is such a failure. POSIX
+// reports it as ENOTDIR, but Windows reports the path as not found, so the
+// parent is looked at before a missing file is believed, and both say the
+// same thing.
 func readCredentialsDocument(path string) (credentialsDocument, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the CLI's own configured project directory, not untrusted input
 	if err != nil {
+		if info, statErr := os.Stat(filepath.Dir(path)); statErr == nil && !info.IsDir() {
+			return credentialsDocument{}, fmt.Errorf("failed to read credential file %s: %s is not a directory", path, filepath.Dir(path))
+		}
 		if os.IsNotExist(err) {
 			return credentialsDocument{}, nil
 		}
