@@ -194,7 +194,8 @@ func TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas(t *testing.T) {
 	var checked int
 	for i := 1; i < len(spans); i += 2 {
 		words := strings.Fields(spans[i])
-		if len(words) < 2 || words[0] != "pleiades" {
+		// `pleiades <command> --help` names no command of its own.
+		if len(words) < 2 || words[0] != "pleiades" || strings.HasPrefix(words[1], "<") {
 			continue
 		}
 		cmd, ok := clispec.Find(clispec.Root, words[1])
@@ -218,7 +219,8 @@ func TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas(t *testing.T) {
 				continue
 			}
 			name := strings.TrimPrefix(w, "--")
-			found := false
+			// Every command's flag set answers --help.
+			found := name == "help"
 			for _, f := range cmd.Flags {
 				found = found || f.Name == name
 			}

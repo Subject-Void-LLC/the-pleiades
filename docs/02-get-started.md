@@ -429,9 +429,11 @@ as `\u` escapes, so the document is safe to print.
 runs goes through a saved template.
 
 **Teaching an AI agent.** `pleiades doc --create-skill` writes `SKILL.md` in the current
-directory: a skill an AI agent reads to learn The Pleiades. It says which commands to use
-(`adhoc --json` to call one method, `doc` to read a method's parameters before calling it,
-`--mode check` before changing anything, `rollback` to undo), how a runbook is written,
+directory: a skill an AI agent reads to learn The Pleiades. It says how to set up a project
+(`init`, `add-host`, `add-credential --password-stdin`, `trust-host`, `onboard`), which commands
+to use (`adhoc --json` to call one method, `doc` to read a method's parameters before calling it,
+`--mode check` before changing anything, `rollback` to undo), how to read a failed run's
+report, how a runbook is written,
 with a runbook that validates as written, and lists every method built into the binary
 with whether it can be checked and undone. Run it in the directory your agent loads skills
 from (for Claude Code, `.claude/skills/pleiades/` in your project), and again there after

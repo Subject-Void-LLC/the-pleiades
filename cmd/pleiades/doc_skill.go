@@ -102,6 +102,9 @@ func skillMarkdown(entries []catalogEntry) string {
 	var b strings.Builder
 	b.WriteString(skillIntro)
 	fmt.Fprintf(&b, "%s from pleiades %s. Run it again after an upgrade; it replaces this file. -->\n\n", skillMarker, version)
+	// The version check an agent can make itself: the skill describes the
+	// binary that wrote it, and a different binary may differ.
+	fmt.Fprintf(&b, "This skill describes pleiades %s. If `pleiades version` prints another version, run\n`pleiades doc --create-skill` again in this file's directory before relying on it.\n\n", version)
 	b.WriteString(skillGuide)
 
 	methods := make([]catalogEntry, 0, len(entries))
@@ -163,7 +166,20 @@ transports it reaches it over, whether it can be checked without changing anythi
 // every command and flag it names to internal/clispec, and
 // TestCLI_DocCreateSkillTeachesARunbookThatValidatesAndRuns validates its
 // runbook through the real binary, warnings included, and runs it.
-const skillGuide = "## Working safely\n\n" +
+const skillGuide = "## Starting in a project\n\n" +
+	"A command works on the project in the current directory, or the one its `--dir` names.\n\n" +
+	"1. `pleiades init` makes a project: `inventory.yaml`, a `runbooks/` directory and a README.\n" +
+	"2. `pleiades add-host web01 --type linux_server --tags web --set host=10.0.0.5` adds a device. `--type` is its\n" +
+	"   device type (`linux_server`, `windows_server`, `cisco_switch`, `container_host`, `generic_ssh` and others);\n" +
+	"   `--tags` are what a runbook's `hosts:` and `adhoc`'s `<hosts>` can name besides the device itself.\n" +
+	"3. `pleiades add-credential web01 --username <name> --password-stdin` stores its login, encrypted, read from\n" +
+	"   standard input. Get it from the person you work for; never write it into a file or a command line.\n" +
+	"4. An SSH device's host key must be trusted before the first connection, and an unknown key is refused.\n" +
+	"   `pleiades trust-host web01 --first-connect` trusts whatever key answers, unverified: ask first.\n" +
+	"5. A `generic_*` device starts discovered and runs nothing until `pleiades onboard <device>` records what it\n" +
+	"   proved it can do.\n" +
+	"6. `pleiades adhoc web01 facts.gather --json` is a safe first call: it reads and changes nothing.\n\n" +
+	"## Working safely\n\n" +
 	"1. Read a method before calling it: `pleiades doc <method>` prints its parameters, what it returns and examples;\n" +
 	"   `pleiades doc --json <method>` is the same contract as JSON. Never guess a parameter name.\n" +
 	"2. Call one method once with `pleiades adhoc <hosts> <method> key=value ... --json`. `key:=yaml` passes a typed\n" +
@@ -175,7 +191,16 @@ const skillGuide = "## Working safely\n\n" +
 	"   `pleiades rollback <run-id> --mode check`, then the same without `--mode check`.\n" +
 	"6. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
 	"   (`pleiades add-credential <device> --username <name> --password-stdin`) and reaches its methods on its own.\n" +
-	"7. A generic device starts discovered and runs nothing until `pleiades onboard <device>` records what it proved.\n\n" +
+	"7. `pleiades <command> --help` lists every flag a command takes.\n\n" +
+	"## When something fails\n\n" +
+	"- `outcome.status` in the `--json` report is `complete` only when everything succeeded. Otherwise read\n" +
+	"  `outcome.message`, the `validation` list (what stopped the run before it started) and each task's `error`.\n" +
+	"- A failed task with `\"unreached\": true` never reached its device: nothing ran there, so running it again is\n" +
+	"  safe. A refused login is not unreached; fix the credential instead of retrying.\n" +
+	"- A task's `status` is one of `ok`, `changed`, `would_change`, `checked_only`, `failed`, `held`, `skipped` and\n" +
+	"  `unchecked`. `held` waits for a person's decision; do not work around it.\n" +
+	"- A check that could not cover every task exits 3 and names the unchecked tasks. Treat their effect as unknown.\n" +
+	"- After a failed run, `pleiades journal show <run-id>` says what each task did, and what can be undone.\n\n" +
 	"## Runbooks\n\n" +
 	"A runbook is a YAML file under `runbooks/`. Validate it with `pleiades validate runbooks/<file>.yaml`, then run it\n" +
 	"with `pleiades run runbooks/<file>.yaml --json`. How a runbook is written (`pleiades validate` warns when one\n" +
