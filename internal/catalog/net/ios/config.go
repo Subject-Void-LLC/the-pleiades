@@ -84,7 +84,8 @@ func init() {
 				"offers no way to ask without applying it",
 			Doc: configDoc(),
 		},
-		Invoke: Config,
+		Invoke:   Config,
+		UndoCall: configUndoCall,
 	})
 }
 
@@ -115,6 +116,18 @@ func configDoc() collection.Doc {
 		},
 		SeeAlso: []string{"net.ios.replace", "net.ios.parse", "net.cli.command", "net.cli.config"},
 	}
+}
+
+// configUndoCall is net.ios.config's answer, from a call alone, to whether
+// it records an undo: a call with checkpoint anything but true (false, or a
+// template whose value is not known before the run) records none. A device
+// with nowhere to keep a checkpoint records none either, which only the
+// run can find; the undo then stops naming the task.
+func configUndoCall(params map[string]any) string {
+	if v, present := params[paramCheckpoint]; present && v != true {
+		return "checkpoint is not true, so no checkpoint is kept and the undo is lines only shown, never recorded"
+	}
+	return ""
 }
 
 // Config implements the "net.ios.config" collection method.

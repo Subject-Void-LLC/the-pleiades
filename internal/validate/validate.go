@@ -45,6 +45,11 @@ type WorldView struct {
 	// the render at dispatch remains the check.
 	Variables      map[string]any
 	VariablesKnown bool
+	// VariablesFlag is how the caller's command supplies a variable (the
+	// CLI's "--extra-vars", on run and validate), which VarsRule names in
+	// its advice. Empty means the command takes none (adhoc, rollback), and
+	// the advice says so rather than naming a flag it does not have.
+	VariablesFlag string
 
 	// resolveCache memoizes Resolve by target string. Unexported and
 	// unset by every caller that builds a WorldView directly (Resolve is

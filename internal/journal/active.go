@@ -51,8 +51,9 @@ const (
 	// few hundred bytes each.
 	maxActiveBytes = 1 << 20
 	// staleAfter is how old an unheld record must be before it is
-	// removed: a record is created and then locked, and one this young
-	// may be in that instant rather than left by a dead run.
+	// removed: BeginActive locks the lock file first and then writes the
+	// record, so a record this young may belong to a run that died in
+	// that instant or is still writing it, rather than one long dead.
 	staleAfter = time.Minute
 )
 
@@ -208,7 +209,10 @@ func OtherActive(root, self string, deviceIDs []string) ([]ActiveRun, error) {
 func readActive(dir, id string) (ActiveRun, bool) {
 	path := filepath.Join(dir, id+activeExtension)
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 || info.Size() > maxActiveBytes {
+	// othersMayWrite is the Unix group and world write bits, and nothing on
+	// a system whose modes are not Unix ones (reader_other.go), where every
+	// writable file reads back as 0666 and the directory's ACL decides.
+	if err != nil || !info.Mode().IsRegular() || othersMayWrite(info) || info.Size() > maxActiveBytes {
 		return ActiveRun{}, false
 	}
 	if activeLocks && !heldByLiveRun(filepath.Join(dir, id+lockExtension)) {

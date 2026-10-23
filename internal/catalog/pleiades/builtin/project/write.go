@@ -60,6 +60,10 @@ const defaultMode fs.FileMode = 0o600
 // quoted so YAML does not read it as a decimal number.
 var octalMode = regexp.MustCompile(`^0?[0-7]{3}$`)
 
+// executeBits are the owner, group and other execute bits, none of which a
+// written file may carry.
+const executeBits fs.FileMode = 0o111
+
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: fqcn,
@@ -96,11 +100,11 @@ func init() {
 func writeDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Writes text a run produced, such as a router's running configuration, to a file in the project.",
-		Description: "Writes content to path, a file in the project directory, so a value a task read (a registered result's running_config) can be kept, edited and used as a candidate: net.frr.config's src and net.batfish.check's src read such a file. The path is held to the rules a method reading the project is held to: relative, never leaving the project, never through a symbolic link, never into the project's .pleiades directory, and a regular file or none yet. A missing directory on the way is created inside the project. The file is written whole to a temporary file beside it and renamed over it, so it is never seen half written, and the task reports changed only when the bytes or the mode differ. A check reads the file and predicts the same answer. It runs on the command line only (pleiades run and adhoc), which holds the project; a Walk-tier Runner refuses it. It acts on no device and needs no hosts. A configuration read by net.frr.facts or net.ios.* is masked: each secret in it is a pleiades-masked- placeholder, and net.frr.config refuses a candidate holding one, so put each secret back before applying the file. It cannot be undone by a rollback: the file's earlier content is never journaled, since the project is the author's working copy, kept under version control.",
+		Description: "Writes content to path, a file in the project directory, so a value a task read (a registered result's running_config) can be kept, edited and used as a candidate: net.frr.config's src and net.batfish.check's src read such a file. The path is held to the rules a method reading the project is held to: relative, never leaving the project, never through a symbolic link, never into the project's .pleiades directory (matched by the directory itself, not only its name), and a regular file or none yet. It also never replaces the project's inventory (inventory.yaml and its generated state file), or an external Collections directory or anything in one (its programs and its approval list). The path is the author's choice: an expression in it may read only vars, never a registered result, so a device's output cannot choose which file is replaced. A missing directory on the way is created inside the project. The file is written whole to a temporary file beside it and renamed over it, so it is never seen half written, and the task reports changed only when the bytes or the mode differ. A check reads the file and predicts the same answer. It runs on the command line only (pleiades run and adhoc), which holds the project; a Walk-tier Runner refuses it. It acts on no device and needs no hosts. A configuration read by net.frr.facts or net.ios.* is masked: each secret in it is a pleiades-masked- placeholder, and net.frr.config refuses a candidate holding one, so put each secret back before applying the file. It cannot be undone by a rollback: the file's earlier content is never journaled, since the project is the author's working copy, kept under version control.",
 		Params: []collection.Param{
-			{Name: paramPath, Type: "string", Required: true, Description: "The file to write, a slash-separated path relative to the project directory, such as configs/r3.running.frr.conf."},
+			{Name: paramPath, Type: "string", Required: true, Description: "The file to write, a slash-separated path relative to the project directory, such as configs/r3.running.frr.conf. An expression in it may read only vars, such as configs/{{ vars.site }}.conf, never nodes, result or error.", Format: collection.ParamFormatProjectPath},
 			{Name: paramContent, Type: "string", Required: true, Description: "The text to write, usually rendered from a registered result, such as \"{{ result.r3.running_config }}\". An empty string writes an empty file."},
-			{Name: paramMode, Type: "string", Default: "0600", Description: "The file's permission bits as a quoted octal string, such as \"0640\". Only the owner can read the default, since a configuration can hold more than its masked secrets."},
+			{Name: paramMode, Type: "string", Default: "0600", Description: "The file's permission bits as a quoted octal string, such as \"0640\". Only the owner can read the default, since a configuration can hold more than its masked secrets. An execute bit is refused: the file holds text a run read, which is never made a program."},
 		},
 		Returns: []collection.ReturnField{
 			{Name: "path", Type: "string", Returned: "always", Description: "The file written, as given."},
@@ -157,6 +161,11 @@ func readRequest(params map[string]any) (request, error) {
 			return r, fmt.Errorf("%s %q: %w", paramMode, mode, err)
 		}
 		r.mode = fs.FileMode(bits)
+	}
+	// What a run writes here is text a device returned, so it is never
+	// made a program: an execute bit would let that text run as one.
+	if r.mode&executeBits != 0 {
+		return r, fmt.Errorf("%s %04o sets an execute bit; a file this method writes holds text a run read, which is never made executable", paramMode, uint32(r.mode))
 	}
 	return r, nil
 }

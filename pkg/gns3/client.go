@@ -114,7 +114,9 @@ func (c *Client) login(ctx context.Context) error {
 		return fmt.Errorf("gns3: the server refused the login of %q", c.creds.Username)
 	}
 	if status/100 != 2 {
-		return fmt.Errorf("gns3: POST /v3/access/users/login: %d: %s", status, firstLine(string(out)))
+		// The answer to a login is never quoted: a validation error (FastAPI's
+		// 422) echoes the request, password included.
+		return fmt.Errorf("gns3: POST /v3/access/users/login: %d (the answer is not shown, since it can echo the login)", status)
 	}
 	var t struct {
 		AccessToken string `json:"access_token"`

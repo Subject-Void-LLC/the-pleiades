@@ -490,3 +490,62 @@ func TestConfig_RefusesAMaskedSecret(t *testing.T) {
 		t.Fatalf("err = %v, want the masked secret refused", err)
 	}
 }
+
+// TestConfigUndoCall: a call keeping a checkpoint records an undo; one with
+// checkpoint anything but true (false, or a template) records none.
+func TestConfigUndoCall(t *testing.T) {
+	for params, want := range map[*map[string]any]bool{
+		&map[string]any{paramLines: []any{"x"}}:                                     false,
+		&map[string]any{paramLines: []any{"x"}, paramCheckpoint: true}:              false,
+		&map[string]any{paramLines: []any{"x"}, paramCheckpoint: false}:             true,
+		&map[string]any{paramLines: []any{"x"}, paramCheckpoint: "{{ vars.keep }}"}: true,
+	} {
+		if got := configUndoCall(*params) != ""; got != want {
+			t.Errorf("configUndoCall(%v) records none = %v, want %v", *params, got, want)
+		}
+	}
+}
+
+// TestReplace_NeverDeletesAFileItDidNotMake: returning to the saved
+// configuration replaces from nvram:startup-config and leaves it there.
+func TestReplace_NeverDeletesAFileItDidNotMake(t *testing.T) {
+	dev := newConfigDevice()
+	swapOpenSession(t, dev.open)
+	dev.files["nvram:startup-config"] = iosBase
+	dev.files["unix:golden.cfg"] = iosBase
+	if err := dev.Config(context.Background(), []string{"hostname core-1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"nvram:startup-config", "unix:golden.cfg"} {
+		if _, err := Replace(context.Background(), newStubContext(), nil, map[string]any{"checkpoint": path}); err != nil {
+			t.Fatalf("Replace %s: %v", path, err)
+		}
+		if _, kept := dev.files[path]; !kept {
+			t.Errorf("Replace deleted %s, a file it did not make", path)
+		}
+	}
+	for _, minted := range []string{"unix:pleiades-0123456789ab.cfg", "flash:pleiades-0123456789ab-after.cfg"} {
+		if !mintedCheckpoint.MatchString(minted) {
+			t.Errorf("%s is a checkpoint net.ios.config makes", minted)
+		}
+	}
+	for _, other := range []string{"nvram:startup-config", "unix:pleiades-x.cfg", "flash:pleiades-0123456789ab.cfg.bak", "unix:dir/pleiades-0123456789ab.cfg"} {
+		if mintedCheckpoint.MatchString(other) {
+			t.Errorf("%s would be deleted", other)
+		}
+	}
+}
+
+// TestShownDifferences: an error quotes at most ten difference lines.
+func TestShownDifferences(t *testing.T) {
+	many := make([]string, 25)
+	for i := range many {
+		many[i] = fmt.Sprintf("+line %d", i)
+	}
+	if got := shownDifferences(many); !strings.HasSuffix(got, "+line 9; and 15 more") || strings.Contains(got, "+line 10") {
+		t.Errorf("shownDifferences = %q", got)
+	}
+	if got := shownDifferences(many[:2]); got != "+line 0; +line 1" {
+		t.Errorf("shownDifferences of two = %q", got)
+	}
+}

@@ -42,6 +42,13 @@ type CallShape struct {
 // and capabilities in place of its own (and no shapes). The first shape
 // given wins; a method whose shapes cannot combine refuses a call giving
 // two itself.
+//
+// A parameter is given when it is present and not null, whatever its value:
+// an empty string selects the shape too, since a template rendering empty
+// is not known to be empty when validation reads it. A method selecting by
+// a text parameter must therefore refuse an empty one itself (net.trace's
+// container does), never fall back to its manifest's own shape, which the
+// call was not held to.
 func (m Manifest) For(params map[string]any) Manifest {
 	for _, s := range m.Shapes {
 		if v, ok := params[s.Param]; ok && v != nil {

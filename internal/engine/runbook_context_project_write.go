@@ -24,7 +24,9 @@ const projectDirMode = 0o700
 // WriteProjectFile implements sdk.ProjectFileWriter. name is held to
 // ReadProjectFile's rules (projectRelative, then no symbolic link on any
 // component, checked through an os.Root on the project directory so
-// nothing it names escapes it). A missing parent directory is created
+// nothing it names escapes it), and may be neither .pleiades nor any path
+// WithProjectFiles guards, nor inside one, matched by identity as well as
+// by name (refuseGuarded). A missing parent directory is created
 // inside the project; an existing component that is not a directory, or a
 // target that is not a regular file, is refused. The write goes to a
 // temporary file beside the target, which is renamed over it, so the
@@ -48,6 +50,19 @@ func (c *runbookContext) WriteProjectFile(name string, data []byte, perm fs.File
 		return false, fmt.Errorf("opening the project directory: %w", err)
 	}
 	defer func() { _ = root.Close() }()
+	// .pleiades and each guarded path, by identity and by name, so no other
+	// spelling of one reaches it and a missing one is never created here.
+	secrets, err := secretsGuard(root)
+	if err != nil {
+		return false, err
+	}
+	guards, err := writeGuards(c.projectDir, c.projectGuards)
+	if err != nil {
+		return false, err
+	}
+	if err := refuseGuarded(root, name, clean, append(guards, secrets)); err != nil {
+		return false, err
+	}
 
 	parts := strings.Split(clean, "/")
 	// Every parent: a directory, never a link; one that is missing is
@@ -110,7 +125,9 @@ func projectFileHolds(root *os.Root, name, clean string, data []byte, perm fs.Fi
 	if !info.Mode().IsRegular() {
 		return false, fmt.Errorf("%s is not a regular file", name)
 	}
-	if info.Mode().Perm() != perm || info.Size() != int64(len(data)) {
+	// modeHolds compares only what this system keeps of a mode: every
+	// permission bit on Unix, the read-only bit alone on Windows.
+	if !modeHolds(info.Mode(), perm) || info.Size() != int64(len(data)) {
 		return false, nil
 	}
 	f, err := root.Open(clean)

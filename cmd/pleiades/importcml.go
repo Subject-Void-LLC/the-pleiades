@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"net/netip"
 	"net/url"
 	"os"
@@ -51,7 +52,9 @@ func cmlSpec(n cml.Node, addr netip.Addr, via string) (string, map[string]pkginv
 		if via == "telnet" {
 			return t, map[string]pkginventory.PropertyValue{"host": host, "transport": "telnet"}
 		}
-		return t, map[string]pkginventory.PropertyValue{"host": host, "port": 22}
+		// transport is written either way, so a node imported again over
+		// SSH with --replace stops being reached over Telnet.
+		return t, map[string]pkginventory.PropertyValue{"host": host, "port": 22, "transport": "ssh"}
 	}
 	if via == "telnet" {
 		return gns3DeviceType, map[string]pkginventory.PropertyValue{"telnet_host": host, "telnet_port": 23}
@@ -262,7 +265,7 @@ func runImportCML(args []string) error {
 	for _, w := range res.Warnings {
 		fmt.Fprintln(os.Stderr, w)
 	}
-	fmt.Printf("CML %s at %s, lab %q\n", res.Version, res.Server, res.Lab)
+	fmt.Printf("CML %s at %s, lab %q\n", termsafe.EscapeLine(res.Version), res.Server, res.Lab)
 	for _, n := range res.Nodes {
 		// Every word from the controller is quoted: a control character in
 		// a label or a definition is shown, not sent to the terminal.
@@ -270,7 +273,7 @@ func runImportCML(args []string) error {
 			fmt.Printf("skipped %q (%q): %s\n", n.Device, n.NodeDefinition, n.Skipped)
 			continue
 		}
-		fmt.Printf("imported %s (%q, %s) as a %s at %s over %s, from %s\n", n.Device, n.NodeDefinition, n.State, n.Type, n.Host, n.Via, n.Address)
+		fmt.Printf("imported %s (%q, %s) as a %s at %s over %s, from %s\n", n.Device, n.NodeDefinition, termsafe.EscapeLine(n.State), n.Type, n.Host, n.Via, termsafe.EscapeLine(n.Address))
 	}
 	if follow != nil {
 		return follow

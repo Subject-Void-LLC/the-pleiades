@@ -53,12 +53,12 @@ func init() {
 func replaceDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Replaces a Cisco IOS device's running configuration with a checkpoint file on the device.",
-		Description: "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files are deleted afterwards unless keep is true. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
+		Description: "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files net.ios.config made (named pleiades-<id>.cfg) are deleted afterwards unless keep is true; any other file, such as nvram:startup-config or a configuration kept on flash:, is never deleted. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
 		Params: []collection.Param{
 			{Name: paramReplaceCheckpoint, Type: "string", Required: true, Description: "The checkpoint to return to, a file on the device such as unix:pleiades-3f2a.cfg or flash:pleiades-3f2a.cfg."},
 			{Name: paramReplaceExpect, Type: "string", Description: "A checkpoint the running configuration must still match before anything is replaced, refusing otherwise: the configuration as the change left it."},
 			{Name: paramReplaceForce, Type: "bool", Default: "false", Description: "Replace even when the running configuration no longer matches expect, undoing whatever changed since along with the change."},
-			{Name: paramReplaceKeep, Type: "bool", Default: "false", Description: "Keep the checkpoint files on the device after a replace that leaves no differences, rather than deleting them."},
+			{Name: paramReplaceKeep, Type: "bool", Default: "false", Description: "Keep the checkpoint files net.ios.config made on the device after a replace that leaves no differences, rather than deleting them. A file it did not make is never deleted."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 		},
@@ -136,7 +136,7 @@ func replace(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		if len(since) > 0 {
-			return collection.Result{}, fmt.Errorf("%s: the device has changed since %s was kept, and configure replace would undo that too: %s; undo or keep it first, or set force: true to replace anyway", fqcn, plan.expect, strings.Join(since, "; "))
+			return collection.Result{}, fmt.Errorf("%s: the device has changed since %s was kept, and configure replace would undo that too: %s; undo or keep it first, or set force: true to replace anyway", fqcn, plan.expect, shownDifferences(since))
 		}
 	}
 	pending, err := differences(ctx, session, runningConfig, plan.checkpoint)
@@ -162,12 +162,15 @@ func replace(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 			return collection.Result{}, fmt.Errorf("%s: after the replace: %w", fqcn, err)
 		}
 		if len(left) > 0 {
-			return collection.Result{}, fmt.Errorf("%s: after configure replace the device still differs from %s: %s", fqcn, plan.checkpoint, strings.Join(left, "; "))
+			return collection.Result{}, fmt.Errorf("%s: after configure replace the device still differs from %s: %s", fqcn, plan.checkpoint, shownDifferences(left))
 		}
 	}
 	if !plan.keep {
 		for _, path := range []string{plan.checkpoint, plan.expect} {
-			if path == "" {
+			// Only a checkpoint net.ios.config made is deleted: any other
+			// file (nvram:startup-config, a golden configuration on flash:)
+			// was the operator's before this ran, and stays.
+			if !mintedCheckpoint.MatchString(path) {
 				continue
 			}
 			if err := deleteFile(ctx, session, path); err != nil {
@@ -176,4 +179,17 @@ func replace(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		}
 	}
 	return collection.Result{Changed: len(pending) > 0}, nil
+}
+
+// errorDifferences bounds how many difference lines an error quotes; the
+// whole list is the differences stat's.
+const errorDifferences = 10
+
+// shownDifferences is lines as an error quotes them: the first
+// errorDifferences, and how many more there are.
+func shownDifferences(lines []string) string {
+	if len(lines) <= errorDifferences {
+		return strings.Join(lines, "; ")
+	}
+	return fmt.Sprintf("%s; and %d more", strings.Join(lines[:errorDifferences], "; "), len(lines)-errorDifferences)
 }

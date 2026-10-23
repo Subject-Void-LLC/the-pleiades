@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"net"
 	"net/url"
 	"os"
@@ -154,15 +155,15 @@ func runImportGNS3(args []string) error {
 	for _, w := range res.Warnings {
 		fmt.Fprintln(os.Stderr, w)
 	}
-	fmt.Printf("GNS3 %s (API %s) at %s, project %q\n", res.Version, res.API, res.Server, res.Project)
+	fmt.Printf("GNS3 %s (API %s) at %s, project %q\n", termsafe.EscapeLine(res.Version), termsafe.EscapeLine(res.API), res.Server, res.Project)
 	for _, n := range res.Nodes {
-		// Every word from the server is quoted: a control character in a
+		// Every word from the server is quoted or escaped (termsafe): a control character in a
 		// name or a type is shown, not sent to the terminal.
 		if n.Skipped != "" {
 			fmt.Printf("skipped %q (%q): %s\n", n.Device, n.NodeType, n.Skipped)
 			continue
 		}
-		fmt.Printf("imported %s (%q, %s) at telnet %s:%d\n", n.Device, n.NodeType, n.Status, n.Host, n.Port)
+		fmt.Printf("imported %s (%q, %s) at telnet %s:%d\n", n.Device, n.NodeType, termsafe.EscapeLine(n.Status), termsafe.EscapeLine(n.Host), n.Port)
 	}
 	fmt.Println("each is reached with telnet_exec, given insecure_telnet: true among its parameters; Telnet is unencrypted, so keep it on the lab's own network")
 	return nil

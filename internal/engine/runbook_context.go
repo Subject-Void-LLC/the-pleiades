@@ -53,6 +53,10 @@ type runbookContext struct {
 	// (sdk.ProjectFiles), "" where the run has none on this machine; see
 	// WithProjectFiles.
 	projectDir string
+	// projectGuards are the files and directories, besides .pleiades, that
+	// a write into the project may not replace or write into; see
+	// WithProjectFiles.
+	projectGuards []string
 	// ai, when set, is the run's project for the ai methods
 	// (sdk.AIProject); nil answers sdk.ErrNoAIProject.
 	ai *aiProject

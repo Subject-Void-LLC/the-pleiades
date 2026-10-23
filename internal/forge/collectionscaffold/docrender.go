@@ -69,6 +69,8 @@ func renderDoc(doc collection.Doc) string {
 				fields = append(fields, "Format: collection.ParamFormatURL")
 			case collection.ParamFormatKubernetesManifest:
 				fields = append(fields, "Format: collection.ParamFormatKubernetesManifest")
+			case collection.ParamFormatProjectPath:
+				fields = append(fields, "Format: collection.ParamFormatProjectPath")
 			}
 			// Risk likewise, and one with no constant yet is kept by value
 			// rather than dropped: a dropped risk is a host escape the

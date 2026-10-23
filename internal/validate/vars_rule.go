@@ -25,22 +25,23 @@ const defaultFilter = "default"
 // It applies only when the caller knows every variable the run will have
 // (WorldView.VariablesKnown); otherwise it finds nothing. A task with a
 // when: of its own is left to the engine, as TransportRule leaves it: its
-// condition may skip it, and a skipped task reads no parameter.
+// condition may skip it, and a skipped task reads no parameter. Each
+// task's rollback: steps are read too (named <node>.rollback[<i>]), since
+// they render with the same variables when rollback_on_failure undoes the
+// task, and with none at all when `pleiades rollback` replays them; a step
+// of a conditional task is left to the engine with its task.
+//
+// The advice names how to supply a value only where the caller takes one
+// (WorldView.VariablesFlag); a command that takes none is told so.
 func VarsRule(world WorldView) []Finding {
 	if !world.VariablesKnown {
 		return nil
 	}
 	eng := render.New()
-	ids := make([]string, 0, len(world.DAG.Nodes))
-	for id := range world.DAG.Nodes {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
 	var findings []Finding
-	for _, id := range ids {
-		task := world.DAG.Nodes[id]
-		if world.DAG.Conditional(id) || !engine.HasTemplate(task.Params) {
+	for _, pt := range paramTasks(world.DAG) {
+		task := pt.task
+		if world.DAG.Conditional(pt.node) || !engine.HasTemplate(task.Params) {
 			continue
 		}
 		keys := make([]string, 0, len(task.Params))
@@ -52,14 +53,24 @@ func VarsRule(world WorldView) []Finding {
 			for _, name := range missingVars(eng, task.Params[key], world.Variables) {
 				findings = append(findings, Finding{
 					RuleName: "vars",
-					Node:     id,
-					Message: fmt.Sprintf("task %s, parameter %s: no value is supplied for vars.%s; give it with --extra-vars %s=<value>, or make it optional with | default(...)",
-						taskName(id, task), key, name, name),
+					Node:     pt.id,
+					Message: fmt.Sprintf("task %s, parameter %s: no value is supplied for vars.%s; %s",
+						taskName(pt.id, task), key, name, varsAdvice(world.VariablesFlag, name)),
 				})
 			}
 		}
 	}
 	return findings
+}
+
+// varsAdvice is how to fix a missing vars.<name>: give it with flag, where
+// the command takes one, or otherwise write the value or a default, since
+// nothing this command does can supply it.
+func varsAdvice(flag, name string) string {
+	if flag == "" {
+		return "this command takes no variables, so write the value itself, or make it optional with | default(...)"
+	}
+	return fmt.Sprintf("give it with %s %s=<value>, or make it optional with | default(...)", flag, name)
 }
 
 // missingVars returns, once each and in the order first read, the names of

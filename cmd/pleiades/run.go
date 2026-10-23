@@ -58,6 +58,9 @@ func runRunbook(args []string) error {
 	if opts.variables, err = extraVars.variables(); err != nil {
 		return err
 	}
+	// run takes --extra-vars, so validation's advice for a missing variable
+	// may name it; adhoc and rollback take none and leave this empty.
+	opts.variablesFlag = extraVarsFlagName
 	return runPipeline(opts, runSource{label: runbook, path: runbook, selection: *selection})
 }
 

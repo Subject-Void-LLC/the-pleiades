@@ -73,3 +73,55 @@ func TestVarsRule(t *testing.T) {
 		t.Errorf("Validate does not run VarsRule:\n%s", report.String())
 	}
 }
+
+// varsRollbackRunbook undoes a change with a step reading vars.undo_to, and
+// a conditional task with one reading vars.never, which is left to the
+// engine with its task.
+const varsRollbackRunbook = `id: vars-rollback
+tasks:
+  - name: change
+    noop:
+      msg: plain
+    rollback:
+      - noop:
+          to: "{{ vars.undo_to }}"
+  - name: maybe
+    when: vars.flag == 'x'
+    noop:
+      msg: plain
+    rollback:
+      - noop:
+          to: "{{ vars.never }}"
+`
+
+// TestVarsRule_ReadsRollbackStepsAndAdvisesOnlyAFlagTheCommandHas: a
+// rollback: step reading a variable nobody supplied is found, under the
+// step's own name, since it renders with the run's variables when the task
+// is undone; a step of a conditional task is not. The advice names
+// --extra-vars only for a command that takes it (run, validate) and tells a
+// command with none (adhoc, rollback) to write the value or a default.
+func TestVarsRule_ReadsRollbackStepsAndAdvisesOnlyAFlagTheCommandHas(t *testing.T) {
+	dag := yamlDAG(t, varsRollbackRunbook)
+	withFlag := validate.VarsRule(validate.WorldView{DAG: dag, VariablesKnown: true, VariablesFlag: "--extra-vars"})
+	if len(withFlag) != 1 || withFlag[0].Node != "tasks[0].rollback[0]" || !strings.Contains(withFlag[0].Message, "no value is supplied for vars.undo_to; give it with --extra-vars undo_to=<value>") {
+		t.Fatalf("with --extra-vars: findings %+v, want one on tasks[0].rollback[0] naming the flag", withFlag)
+	}
+	without := validate.VarsRule(validate.WorldView{DAG: dag, VariablesKnown: true})
+	if len(without) != 1 || !strings.Contains(without[0].Message, "this command takes no variables") || strings.Contains(without[0].Message, "--extra-vars") {
+		t.Fatalf("with no flag: findings %+v, want advice that names no flag", without)
+	}
+	if got := validate.VarsRule(validate.WorldView{DAG: dag, VariablesKnown: true, Variables: map[string]any{"undo_to": "a"}}); len(got) != 0 {
+		t.Errorf("a supplied step variable was refused: %+v", got)
+	}
+
+	// The same advice for a task's own parameter, as adhoc would meet it.
+	adhoc := validate.VarsRule(validate.WorldView{DAG: yamlDAG(t, varsRunbook), VariablesKnown: true})
+	for _, f := range adhoc {
+		if strings.Contains(f.Message, "--extra-vars") {
+			t.Errorf("a command with no --extra-vars was told to use it: %s", f.Message)
+		}
+	}
+	if len(adhoc) == 0 {
+		t.Error("no finding for a command with no variables")
+	}
+}

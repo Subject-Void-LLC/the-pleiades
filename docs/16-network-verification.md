@@ -263,7 +263,10 @@ tasks:
 
 The write acts on no device, so it runs once whatever the runbook's `hosts:` names. Its path is held
 to the rules every project file is: relative, inside the project, never through a symbolic link and
-never into `.pleiades`. The file is written whole and renamed into place, owner-only (`mode` changes
+never into `.pleiades`. It never replaces the project's inventory or its state file, or writes into an
+external Collections directory. The path is the author's: it may render from `vars`
+(`configs/{{ vars.site }}.conf`, given with `--extra-vars`), never from a registered result, so a
+device's output cannot choose which file is replaced. `mode` may not set an execute bit. The file is written whole and renamed into place, owner-only (`mode` changes
 that), and the task reports `changed` only when the bytes or the mode differ. It runs on the command
 line, which holds the project; a Walk-tier Runner refuses it.
 

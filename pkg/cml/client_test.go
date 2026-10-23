@@ -112,6 +112,19 @@ func TestConnect_RefusesWhatItCannotUse(t *testing.T) {
 	if _, err := client(t, refused, cml.Credentials{}).Connect(ctx); err == nil || !strings.Contains(err.Error(), "without a login") {
 		t.Errorf("no username = %v", err)
 	}
+	// A validation error echoes the request, password included, so the
+	// answer to a login is never quoted.
+	echoes := controller(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v0/authenticate" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"detail":[{"input":{"password":"x-ECHOED-SECRET"}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"version":"2.7.2","ready":true}`))
+	})
+	if _, err := client(t, echoes, cml.Credentials{Username: "u", Password: "x-ECHOED-SECRET"}).Connect(ctx); err == nil || !strings.Contains(err.Error(), "422") || strings.Contains(err.Error(), "ECHOED-SECRET") {
+		t.Errorf("a login answer echoing the password = %v", err)
+	}
 	empty := controller(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`""`)) })
 	if _, err := client(t, empty, cml.Credentials{Username: "u"}).Connect(ctx); err == nil || !strings.Contains(err.Error(), "no token") {
 		t.Errorf("an empty token = %v", err)

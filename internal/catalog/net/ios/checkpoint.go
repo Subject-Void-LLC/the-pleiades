@@ -24,6 +24,11 @@ const runningConfig = "system:running-config"
 // commands the device runs.
 var checkpointPath = regexp.MustCompile(`^[a-z][a-z0-9]*:[A-Za-z0-9._/-]+$`)
 
+// mintedCheckpoint is the name newCheckpointNames gives a checkpoint, and
+// the only kind of file net.ios.replace deletes: a replace pointed at
+// nvram:startup-config or an image on flash: must never erase it.
+var mintedCheckpoint = regexp.MustCompile(`^[a-z][a-z0-9]*:pleiades-[0-9a-f]{12}(-after)?\.cfg$`)
+
 // errNoCheckpoint is what checkpointFileSystem and takeCheckpoint return
 // when the device has nowhere to keep a checkpoint, or no configure
 // replace to return to one with, so net.ios.config falls back to undo

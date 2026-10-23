@@ -77,8 +77,13 @@ func (c *Client) Connect(ctx context.Context) (string, error) {
 	var token string
 	if err := c.call(ctx, http.MethodPost, "/authenticate", body, &token); err != nil {
 		var se *StatusError
-		if errors.As(err, &se) && (se.Status == http.StatusForbidden || se.Status == http.StatusUnauthorized) {
+		switch {
+		case errors.As(err, &se) && (se.Status == http.StatusForbidden || se.Status == http.StatusUnauthorized):
 			return "", fmt.Errorf("cml: the controller refused the login of %q", c.creds.Username)
+		case se != nil:
+			// The answer to a login is never quoted: a validation error
+			// (FastAPI's 422) echoes the request, password included.
+			return "", fmt.Errorf("cml: %s /api/v0/authenticate: %d (the answer is not shown, since it can echo the login)", http.MethodPost, se.Status)
 		}
 		return "", err
 	}

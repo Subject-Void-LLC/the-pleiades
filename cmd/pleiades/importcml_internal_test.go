@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
 )
@@ -103,5 +104,25 @@ func TestAddressFlags_OneAddressPerNode(t *testing.T) {
 	}
 	if !strings.Contains(a.String(), "R1") {
 		t.Errorf("String = %q", a.String())
+	}
+}
+
+// TestCMLSpec_AReplaceOverSSHUndoesTelnet: a Cisco node imported over
+// Telnet and then again over SSH with --replace is reached over SSH.
+func TestCMLSpec_AReplaceOverSSHUndoesTelnet(t *testing.T) {
+	n := cml.Node{Label: "R1", NodeDefinition: "iol-xe"}
+	at := addr("10.10.20.171")
+	typ, props := cmlSpec(n, at, "telnet")
+	hosts, err := labPlace(nil, inventory.HostSpec{ID: "r1", Name: "R1", Type: typ, Properties: props}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, props = cmlSpec(n, at, "ssh")
+	hosts, err = labPlace(hosts, inventory.HostSpec{Name: "R1", Type: typ, Properties: props}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hosts[0].Properties["transport"]; got != "ssh" {
+		t.Errorf("transport after replacing over SSH = %v, want ssh", got)
 	}
 }

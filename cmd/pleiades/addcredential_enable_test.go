@@ -76,6 +76,27 @@ func TestCLI_AddCredentialStoresAnEnableSecret(t *testing.T) {
 		t.Errorf("a key and an enable secret: key %d bytes, enable %q", len(c.PrivateKeyPEM), c.EnablePassword)
 	}
 
+	// A passphrase and an enable secret both piped: one reader, the
+	// passphrase first, so neither line is lost to the other's buffer.
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte("k3y-pass"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealedKey := filepath.Join(t.TempDir(), "id_sealed")
+	if err := os.WriteFile(sealedKey, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runPleiadesWithStdin(t, dir, "k3y-pass\nen4ble\n", "add-credential", "r4", "--username", "cisco", "--key", sealedKey, "--passphrase-stdin", "--enable-password-stdin"); err != nil {
+		t.Fatalf("add-credential with a passphrase and an enable secret piped: %v\n%s", err, out)
+	}
+	if c := storedCredential(t, dir, "r4"); c.Passphrase != "k3y-pass" || c.EnablePassword != "en4ble" {
+		t.Errorf("piped passphrase kept %v, enable %q; want both lines kept apart", c.Passphrase == "k3y-pass", c.EnablePassword)
+	}
+
 	for name, args := range map[string][]string{
 		"with a token":    {"add-credential", "r3", "--token-stdin", "--enable-password-stdin"},
 		"with --generate": {"add-credential", "r3", "--username", "u", "--generate", "--enable-password-stdin"},

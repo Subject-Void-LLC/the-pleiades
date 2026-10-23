@@ -65,7 +65,7 @@ func TestWrite_PassesThePathBytesAndModeThrough(t *testing.T) {
 	if err != nil || res.Changed || c.write || c.perm != 0o640 || len(c.data) != 0 {
 		t.Errorf("Check = %v, %v; asked %#o write=%v data %q", res, err, c.perm, c.write, c.data)
 	}
-	if _, err := Check(ctx, c, nil, map[string]any{"path": "x", "content": "a", "mode": "755"}); err != nil || c.perm != 0o755 {
+	if _, err := Check(ctx, c, nil, map[string]any{"path": "x", "content": "a", "mode": "644"}); err != nil || c.perm != 0o644 {
 		t.Errorf("a three-digit mode: %v, %#o", err, c.perm)
 	}
 }
@@ -85,9 +85,10 @@ func TestWrite_WarnsAboutAMaskedConfiguration(t *testing.T) {
 }
 
 // TestWrite_RefusesBeforeWriting: a missing path or content, content that
-// is not text, a mode that is unquoted, not octal or beyond permission
-// bits, a context with no project and the writer's own refusal are each
-// an error naming the method, and nothing is written for the first six.
+// is not text, a mode that is unquoted, not octal, beyond permission bits
+// or with any execute bit (owner, group or other), a context with no
+// project and the writer's own refusal are each an error naming the
+// method, and nothing reaches the writer for any of the first ones.
 func TestWrite_RefusesBeforeWriting(t *testing.T) {
 	ctx := context.Background()
 	for params, want := range map[*map[string]any]string{
@@ -98,6 +99,9 @@ func TestWrite_RefusesBeforeWriting(t *testing.T) {
 		{"path": "x", "content": "x", "mode": 420}:    "quote it",
 		{"path": "x", "content": "x", "mode": "rw"}:   "is not an octal mode",
 		{"path": "x", "content": "x", "mode": "4755"}: "is not an octal mode",
+		{"path": "x", "content": "x", "mode": "0755"}: "sets an execute bit",
+		{"path": "x", "content": "x", "mode": "0610"}: "sets an execute bit",
+		{"path": "x", "content": "x", "mode": "601"}:  "sets an execute bit",
 	} {
 		w := &writerContext{recorder: recorder{stats: map[string]any{}}}
 		if _, err := Write(ctx, w, nil, *params); err == nil || !strings.Contains(err.Error(), want) || !strings.HasPrefix(err.Error(), fqcn) {

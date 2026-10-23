@@ -39,10 +39,23 @@ var (
 	loginRefusal = regexp.MustCompile(`(?i)(login invalid|login incorrect|authentication failed|access denied|bad passwords?)`)
 )
 
-// maxLoginSteps bounds the questions a login answers: a name, a password,
-// and a second password some devices ask for an enable secret are all a
-// login needs; a device that keeps asking is refused.
-const maxLoginSteps = 4
+// maxLoginSteps bounds the questions a login answers: a name and a
+// password are all a login needs (an enable secret is netcli's, after the
+// login); a device that keeps asking is refused.
+const maxLoginSteps = 3
+
+// maxQuotedPrompt bounds how much of a device's question an error quotes.
+const maxQuotedPrompt = 80
+
+// quotedPrompt is the question a device asked, as an error quotes it: at
+// most maxQuotedPrompt bytes, since the line can be anything the device
+// sent.
+func quotedPrompt(tail string) string {
+	if len(tail) > maxQuotedPrompt {
+		return strconv.Quote(tail[:maxQuotedPrompt]) + "..."
+	}
+	return strconv.Quote(tail)
+}
 
 // Session is one Telnet connection, its option negotiation answered (every
 // option refused) and its login done. Its WriteLine, ReadUntil and Close
@@ -77,7 +90,8 @@ func Dial(ctx context.Context, host string, port int, opts Options, login Login)
 
 // Open reads conn's opening negotiation and banner and, when the device
 // asks, logs in: a name prompt is answered with login's Username, a
-// password prompt with its Password, each once. Everything read after the
+// password prompt with its Password, each once: a name or a password asked
+// for again is the login refused. Everything read after the
 // login is kept for the first ReadUntil, so a prompt the device printed
 // then is not lost. The Session owns conn once Open succeeds.
 func Open(ctx context.Context, conn net.Conn, opts Options, login Login) (*Session, error) {
@@ -99,12 +113,19 @@ func Open(ctx context.Context, conn net.Conn, opts Options, login Login) (*Sessi
 				return nil, fmt.Errorf("%w at %s: it asked for the name again", ErrLoginRefused, s.addr)
 			}
 			if login.Username == "" {
-				return nil, fmt.Errorf("%w (%s asked %q)", ErrLoginNeeded, s.addr, tail)
+				return nil, fmt.Errorf("%w (%s asked %s)", ErrLoginNeeded, s.addr, quotedPrompt(tail))
 			}
 			answer = login.Username
 		case passwordPrompt.MatchString(tail):
+			// A password asked for again is the last one refused: IOS
+			// re-prompts a wrong line password with no refusal text, and
+			// sending it again would count another failure against the
+			// device's lockout.
+			if sentPassword {
+				return nil, fmt.Errorf("%w at %s: it asked for the password again", ErrLoginRefused, s.addr)
+			}
 			if login.Password == "" && login.Username == "" {
-				return nil, fmt.Errorf("%w (%s asked %q)", ErrLoginNeeded, s.addr, tail)
+				return nil, fmt.Errorf("%w (%s asked %s)", ErrLoginNeeded, s.addr, quotedPrompt(tail))
 			}
 			answer, sentPassword = login.Password, true
 		default:
@@ -145,7 +166,7 @@ func (s *Session) answer(ctx context.Context) ([]byte, error) {
 // quiet reads until the device goes quiet, bounded by the session's
 // output limit.
 func (s *Session) quiet(ctx context.Context) ([]byte, error) {
-	out, err := readUntilQuiet(ctx, s.conn, s.f, s.opts.ReadTimeout, s.opts.MaxOutputBytes)
+	out, err := readUntilQuiet(ctx, s.conn, s.f, s.opts.ReadTimeout, s.opts.MaxOutputBytes, s.opts.MaxReadDuration)
 	if err != nil {
 		return nil, fmt.Errorf("telnetexec: reading from %s: %w", s.addr, err)
 	}
@@ -211,6 +232,8 @@ func (s *Session) ReadUntil(ctx context.Context, pattern *regexp.Regexp, maxByte
 	buf := s.carry
 	s.carry = nil
 	chunk := make([]byte, 4096)
+	raw := 0
+	deadline := time.Now().Add(s.opts.MaxReadDuration)
 	fail := func(err error) (string, error) {
 		_ = s.conn.Close()
 		return "", &ReadError{Partial: buf, err: err}
@@ -226,11 +249,17 @@ func (s *Session) ReadUntil(ctx context.Context, pattern *regexp.Regexp, maxByte
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}
+		if time.Now().After(deadline) {
+			return fail(fmt.Errorf("telnetexec: %s: still reading after %s without matching %s", s.addr, s.opts.MaxReadDuration, pattern))
+		}
 		if err := s.conn.SetReadDeadline(time.Now().Add(readSlice)); err != nil {
 			return fail(fmt.Errorf("telnetexec: %s: %w", s.addr, err))
 		}
 		n, err := s.conn.Read(chunk)
 		if n > 0 {
+			if raw += n; raw > rawBound(maxBytes) {
+				return fail(fmt.Errorf("telnetexec: %s: sent %d bytes, negotiation included, without matching %s", s.addr, raw, pattern))
+			}
 			data, ferr := s.f.feed(s.conn, chunk[:n])
 			if ferr != nil {
 				return fail(fmt.Errorf("telnetexec: answering %s's negotiation: %w", s.addr, ferr))
@@ -268,6 +297,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.LoginTimeout <= 0 {
 		o.LoginTimeout = DefaultLoginTimeout
+	}
+	if o.MaxReadDuration <= 0 {
+		o.MaxReadDuration = DefaultMaxReadDuration
 	}
 	return o
 }

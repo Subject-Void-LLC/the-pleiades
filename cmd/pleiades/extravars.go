@@ -11,6 +11,11 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// extraVarsFlagName is the flag as a person types it, which validation's
+// advice names (validate.WorldView.VariablesFlag) on the commands that
+// register it.
+const extraVarsFlagName = "--extra-vars"
+
 // extraVarsFlag collects run's repeatable --extra-vars (and -e), as Ansible
 // spells them: key=value, key:=yaml, or @file.yaml for a file holding a
 // mapping.

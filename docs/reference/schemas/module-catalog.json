@@ -11325,7 +11325,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Replaces a Cisco IOS device's running configuration with a checkpoint file on the device.",
-      "description": "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files are deleted afterwards unless keep is true. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
+      "description": "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files net.ios.config made (named pleiades-<id>.cfg) are deleted afterwards unless keep is true; any other file, such as nvram:startup-config or a configuration kept on flash:, is never deleted. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
       "params": [
         {
           "name": "checkpoint",
@@ -11348,7 +11348,7 @@
           "name": "keep",
           "type": "bool",
           "default": "false",
-          "description": "Keep the checkpoint files on the device after a replace that leaves no differences, rather than deleting them."
+          "description": "Keep the checkpoint files net.ios.config made on the device after a replace that leaves no differences, rather than deleting them. A file it did not make is never deleted."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -11841,7 +11841,7 @@
         {
           "name": "container",
           "type": "string",
-          "description": "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux."
+          "description": "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux. An empty value is refused rather than read as none: leave container out to trace from the device."
         },
         {
           "name": "engine",
@@ -12676,13 +12676,14 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Writes text a run produced, such as a router's running configuration, to a file in the project.",
-      "description": "Writes content to path, a file in the project directory, so a value a task read (a registered result's running_config) can be kept, edited and used as a candidate: net.frr.config's src and net.batfish.check's src read such a file. The path is held to the rules a method reading the project is held to: relative, never leaving the project, never through a symbolic link, never into the project's .pleiades directory, and a regular file or none yet. A missing directory on the way is created inside the project. The file is written whole to a temporary file beside it and renamed over it, so it is never seen half written, and the task reports changed only when the bytes or the mode differ. A check reads the file and predicts the same answer. It runs on the command line only (pleiades run and adhoc), which holds the project; a Walk-tier Runner refuses it. It acts on no device and needs no hosts. A configuration read by net.frr.facts or net.ios.* is masked: each secret in it is a pleiades-masked- placeholder, and net.frr.config refuses a candidate holding one, so put each secret back before applying the file. It cannot be undone by a rollback: the file's earlier content is never journaled, since the project is the author's working copy, kept under version control.",
+      "description": "Writes content to path, a file in the project directory, so a value a task read (a registered result's running_config) can be kept, edited and used as a candidate: net.frr.config's src and net.batfish.check's src read such a file. The path is held to the rules a method reading the project is held to: relative, never leaving the project, never through a symbolic link, never into the project's .pleiades directory (matched by the directory itself, not only its name), and a regular file or none yet. It also never replaces the project's inventory (inventory.yaml and its generated state file), or an external Collections directory or anything in one (its programs and its approval list). The path is the author's choice: an expression in it may read only vars, never a registered result, so a device's output cannot choose which file is replaced. A missing directory on the way is created inside the project. The file is written whole to a temporary file beside it and renamed over it, so it is never seen half written, and the task reports changed only when the bytes or the mode differ. A check reads the file and predicts the same answer. It runs on the command line only (pleiades run and adhoc), which holds the project; a Walk-tier Runner refuses it. It acts on no device and needs no hosts. A configuration read by net.frr.facts or net.ios.* is masked: each secret in it is a pleiades-masked- placeholder, and net.frr.config refuses a candidate holding one, so put each secret back before applying the file. It cannot be undone by a rollback: the file's earlier content is never journaled, since the project is the author's working copy, kept under version control.",
       "params": [
         {
           "name": "path",
           "type": "string",
           "required": true,
-          "description": "The file to write, a slash-separated path relative to the project directory, such as configs/r3.running.frr.conf."
+          "description": "The file to write, a slash-separated path relative to the project directory, such as configs/r3.running.frr.conf. An expression in it may read only vars, such as configs/{{ vars.site }}.conf, never nodes, result or error.",
+          "format": "project_path"
         },
         {
           "name": "content",
@@ -12694,7 +12695,7 @@
           "name": "mode",
           "type": "string",
           "default": "0600",
-          "description": "The file's permission bits as a quoted octal string, such as \"0640\". Only the owner can read the default, since a configuration can hold more than its masked secrets."
+          "description": "The file's permission bits as a quoted octal string, such as \"0640\". Only the owner can read the default, since a configuration can hold more than its masked secrets. An execute bit is refused: the file holds text a run read, which is never made a program."
         }
       ],
       "returns": [

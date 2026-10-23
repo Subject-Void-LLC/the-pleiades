@@ -20,10 +20,15 @@ import (
 const projectSecretsDir = ".pleiades"
 
 // WithProjectFiles makes every context next builds answer sdk.ProjectFiles
-// from dir, the project directory. Only the command line wraps its
-// contexts so: a Walk-tier Runner holds no project, and its contexts
-// answer sdk.ErrNoProjectFiles.
-func WithProjectFiles(next RunbookContextFunc, dir string) RunbookContextFunc {
+// and sdk.ProjectFileWriter from dir, the project directory. Only the
+// command line wraps its contexts so: a Walk-tier Runner holds no project,
+// and its contexts answer sdk.ErrNoProjectFiles.
+//
+// guarded are files and directories, absolute or relative to dir, that a
+// write may never replace or write into, beside .pleiades, which is always
+// guarded: the command line names the project's inventory files and an
+// external Collections directory.
+func WithProjectFiles(next RunbookContextFunc, dir string, guarded ...string) RunbookContextFunc {
 	return func(ctx context.Context, device inventory.InventoryItem) (sdk.RunbookContext, error) {
 		rc, err := next(ctx, device)
 		if err != nil {
@@ -31,6 +36,7 @@ func WithProjectFiles(next RunbookContextFunc, dir string) RunbookContextFunc {
 		}
 		if c, ok := rc.(*runbookContext); ok {
 			c.projectDir = dir
+			c.projectGuards = guarded
 		}
 		return rc, nil
 	}
@@ -41,8 +47,10 @@ func WithProjectFiles(next RunbookContextFunc, dir string) RunbookContextFunc {
 // on the project directory, so nothing it names escapes it, and no
 // component may be a symbolic link, since a link that stays inside the
 // project could still point into .pleiades, which is refused by name
-// (case-insensitively: macOS's file system is). The file must be regular
-// and at most max bytes, measured and enforced while reading.
+// (case-insensitively: macOS's file system is) and by identity, so a name
+// the system resolves to it some other way (a Windows 8.3 short name) is
+// refused too (refuseGuarded). The file must be regular and at most max
+// bytes, measured and enforced while reading.
 func (c *runbookContext) ReadProjectFile(name string, max int64) ([]byte, error) {
 	if c.projectDir == "" {
 		return nil, sdk.ErrNoProjectFiles
@@ -56,6 +64,15 @@ func (c *runbookContext) ReadProjectFile(name string, max int64) ([]byte, error)
 		return nil, fmt.Errorf("opening the project directory: %w", err)
 	}
 	defer func() { _ = root.Close() }()
+	// .pleiades by identity too: the name check above cannot see another
+	// spelling of it (a Windows short name, a trailing dot).
+	secrets, err := secretsGuard(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := refuseGuarded(root, name, clean, []guardedPath{secrets}); err != nil {
+		return nil, err
+	}
 
 	parts := strings.Split(clean, "/")
 	for i := range parts {

@@ -54,18 +54,19 @@ func TestConnect_RefusesWhatItCannotRead(t *testing.T) {
 		answers map[string][2]string
 		want    string
 	}{
-		"no GNS3 at all":        {map[string][2]string{}, "neither /v3/version nor /v2/version"},
-		"a version naming none": {map[string][2]string{"GET /v3/version": {"200", `{}`}}, "names no version"},
-		"a broken version":      {map[string][2]string{"GET /v2/version": {"500", "boom\x1b[2J\nmore"}}, `500: "boom\x1b[2J"`},
-		"a login with no token": {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"200", `{}`}}, "no access token"},
-		"a login that fails":    {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"503", "down"}}, "503"},
+		"no GNS3 at all":                          {map[string][2]string{}, "neither /v3/version nor /v2/version"},
+		"a version naming none":                   {map[string][2]string{"GET /v3/version": {"200", `{}`}}, "names no version"},
+		"a broken version":                        {map[string][2]string{"GET /v2/version": {"500", "boom\x1b[2J\nmore"}}, `500: "boom\x1b[2J"`},
+		"a login with no token":                   {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"200", `{}`}}, "no access token"},
+		"a login that fails":                      {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"503", "down"}}, "503"},
+		"a login answer that echoes the password": {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"422", `{"detail":[{"input":{"password":"x-ECHOED-SECRET"}}]}`}}, "422 (the answer is not shown"},
 	} {
 		c, err := gns3.New(serve(t, tc.answers), nil, creds)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := c.Connect(ctx); err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%s: Connect = %v, want it to say %q", name, err, tc.want)
+		if _, err := c.Connect(ctx); err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "ECHOED-SECRET") {
+			t.Errorf("%s: Connect = %v, want it to say %q and never the login", name, err, tc.want)
 		}
 	}
 	c, _ := gns3.New("http://127.0.0.1:1", nil, creds)

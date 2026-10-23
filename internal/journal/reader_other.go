@@ -32,6 +32,14 @@ func openPrivate(path string, limit int64) (*os.File, error) {
 	return os.Open(path)
 }
 
+// othersMayWrite reports false: Windows has no group or world bits, and Go
+// reports every writable file as 0666, so the Unix test would skip every
+// active-run record and never clean one up. Who may write the record is the
+// record directory's ACL's to decide, as it is for the journal itself.
+func othersMayWrite(os.FileInfo) bool {
+	return false
+}
+
 // checkJournalDir refuses a journal directory that is a link or not a
 // directory.
 func checkJournalDir(dir string) error {

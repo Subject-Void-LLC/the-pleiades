@@ -78,7 +78,7 @@ func traceDoc() collection.Doc {
 			{Name: "dest", Type: "string", Required: true, Description: "The address to trace to.", Format: collection.ParamFormatCommand},
 			{Name: "max_hops", Type: "int", Default: "30", Description: "The most hops to try."},
 			{Name: "expect", Type: "dict", Description: "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."},
-			{Name: traceContainer, Type: "string", Description: "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux."},
+			{Name: traceContainer, Type: "string", Description: "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux. An empty value is refused rather than read as none: leave container out to trace from the device."},
 			{Name: containerengine.ParamEngine, Type: "string", Description: "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."},
 			{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
@@ -127,6 +127,13 @@ func Trace(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	from, err := sdk.OptionalStringParam(params, traceContainer)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", traceFQCN, err)
+	}
+	// Validation, the engine and admission held this call to the container
+	// shape because container is present (collection.Manifest.For), so an
+	// empty one (written so, or rendered so) is refused rather than traced
+	// over SSH, a shape nothing checked this device for.
+	if v, present := params[traceContainer]; present && v != nil && from == "" {
+		return collection.Result{}, fmt.Errorf("%s: container is empty; name the container to trace from, or leave container out to trace from the device itself", traceFQCN)
 	}
 	cmd := remoteexec.QuoteCommand([]string{"tracepath", "-n", "-m", strconv.Itoa(maxHops), dest})
 	var res remoteexec.Result

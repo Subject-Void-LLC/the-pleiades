@@ -80,7 +80,8 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 
 	// The console ports are published at their own numbers, found free a
 	// moment before Docker binds them; another test can take one in that
-	// moment (seen under make pr-check: "address already in use"), so a
+	// moment (seen under make pr-check: "address already in use", or
+	// "port is already allocated" when the taker is a container), so a
 	// start that loses that race picks a fresh range and starts again.
 	var c testcontainers.Container
 	var ports []int
@@ -96,7 +97,7 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 			logs = containerLogTail(c, 30)
 			_ = c.Terminate(context.Background())
 		}
-		if !strings.Contains(err.Error(), "address already in use") || attempt == gns3StartAttempts {
+		if !lostPortRace(err) || attempt == gns3StartAttempts {
 			tb.Fatalf("starting GNS3 %s: %v\nits log:\n%s", version, err, logs)
 		}
 	}
@@ -110,6 +111,13 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 		s.login(tb)
 	}
 	return s
+}
+
+// lostPortRace reports whether a start failed because another process
+// took one of its console ports first: the kernel says so when a process
+// holds it, Docker when another container does.
+func lostPortRace(err error) bool {
+	return strings.Contains(err.Error(), "address already in use") || strings.Contains(err.Error(), "port is already allocated")
 }
 
 // gns3StartAttempts bounds how many fresh console port ranges a start tries

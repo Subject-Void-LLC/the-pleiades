@@ -1,0 +1,1 @@
+`pleiades validate` refuses `reversible: true`, and a block's `rollback_on_failure`, over a `net.ios.config` call with `checkpoint: false`, which records no undo, rather than letting the undo stop halfway through the run.

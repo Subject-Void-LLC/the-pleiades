@@ -12,6 +12,7 @@ import (
 	"net"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -258,9 +259,35 @@ func TestSession_LoginsThatGoWrong(t *testing.T) {
 	if _, err := telnetexec.Dial(ctx, "127.0.0.1", again, short, telnetexec.Login{Username: "u", Password: "p"}); !errors.Is(err, telnetexec.ErrLoginRefused) || !strings.Contains(err.Error(), "name again") {
 		t.Errorf("asked for the name again = %v", err)
 	}
-	forever := asks("Password: ", func(int) string { return "\r\nPassword: " })
-	if _, err := telnetexec.Dial(ctx, "127.0.0.1", forever, short, telnetexec.Login{Password: "p"}); !errors.Is(err, telnetexec.ErrLoginRefused) || !strings.Contains(err.Error(), "kept asking") {
+	// IOS re-prompts a wrong line password with no refusal text: the
+	// password is sent once and the second question is the refusal, so a
+	// login never counts twice against the device's lockout.
+	var passwords atomic.Int32
+	reprompt := telnetServer(t, func(conn net.Conn) {
+		defer conn.Close()
+		lr := lineReader{bufio.NewReader(conn)}
+		_, _ = conn.Write([]byte("Password: "))
+		for {
+			if _, err := lr.line(); err != nil {
+				return
+			}
+			passwords.Add(1)
+			_, _ = conn.Write([]byte("\r\nPassword: "))
+		}
+	})
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", reprompt, short, telnetexec.Login{Password: "p"}); !errors.Is(err, telnetexec.ErrLoginRefused) || !strings.Contains(err.Error(), "password again") {
+		t.Errorf("a password asked for again = %v", err)
+	}
+	if n := passwords.Load(); n != 1 {
+		t.Errorf("the password was sent %d times, want once", n)
+	}
+	forever := asks("Username: ", func(int) string { return "\r\nUsername: " })
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", forever, short, telnetexec.Login{Username: "u", Password: "p"}); !errors.Is(err, telnetexec.ErrLoginRefused) || !strings.Contains(err.Error(), "kept asking") {
 		t.Errorf("a device that keeps asking = %v", err)
+	}
+	long := asks(strings.Repeat("x", 500)+" Username: ", func(int) string { return "" })
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", long, short, telnetexec.Login{}); !errors.Is(err, telnetexec.ErrLoginNeeded) || len(err.Error()) > 300 {
+		t.Errorf("a long question is quoted whole: %d bytes: %v", len(err.Error()), err)
 	}
 
 	hangup := telnetServer(t, func(conn net.Conn) {
@@ -280,5 +307,65 @@ func TestSession_LoginsThatGoWrong(t *testing.T) {
 	}
 	if _, err := s.ReadUntil(ctx, regexp.MustCompile(`never`), 1<<16); err == nil {
 		t.Error("a closed session was read")
+	}
+}
+
+// TestSession_ADeviceThatNeverGoesQuietIsCutOff: a device sending only
+// negotiation never adds to the output, and one sending a byte at a time
+// never goes quiet; both are ended by the raw byte bound or the phase's
+// own deadline, at login and while reading to a prompt, rather than holding
+// the run for as long as its context allows.
+func TestSession_ADeviceThatNeverGoesQuietIsCutOff(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	negotiates := func(prompt string) int {
+		return telnetServer(t, func(conn net.Conn) {
+			defer conn.Close()
+			if prompt != "" {
+				_, _ = conn.Write([]byte(prompt))
+				time.Sleep(400 * time.Millisecond)
+			}
+			for {
+				// IAC WILL ECHO, over and over: refused each time, never data.
+				if _, err := conn.Write([]byte{0xFF, 0xFB, 0x01}); err != nil {
+					return
+				}
+			}
+		})
+	}
+	dribbles := func(prompt string) int {
+		return telnetServer(t, func(conn net.Conn) {
+			defer conn.Close()
+			if prompt != "" {
+				_, _ = conn.Write([]byte(prompt))
+				time.Sleep(400 * time.Millisecond)
+			}
+			for {
+				if _, err := conn.Write([]byte("x")); err != nil {
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		})
+	}
+	small := telnetexec.Options{ReadTimeout: 200 * time.Millisecond, MaxOutputBytes: 256, MaxReadDuration: 1500 * time.Millisecond}
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", negotiates(""), small, telnetexec.Login{}); err == nil || !strings.Contains(err.Error(), "negotiation included") {
+		t.Errorf("negotiation without end at login = %v", err)
+	}
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", dribbles(""), small, telnetexec.Login{}); err == nil || !strings.Contains(err.Error(), "without going quiet") {
+		t.Errorf("a dribble at login = %v", err)
+	}
+	prompt := regexp.MustCompile(`R1#\s*$`)
+	for name, port := range map[string]int{"negotiation": negotiates("R1> "), "a dribble": dribbles("R1> ")} {
+		s, err := telnetexec.Dial(ctx, "127.0.0.1", port, small, telnetexec.Login{})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		start := time.Now()
+		_, err = s.ReadUntil(ctx, prompt, 256)
+		if err == nil || time.Since(start) > 10*time.Second {
+			t.Errorf("%s while reading to a prompt = %v after %s", name, err, time.Since(start))
+		}
+		_ = s.Close()
 	}
 }

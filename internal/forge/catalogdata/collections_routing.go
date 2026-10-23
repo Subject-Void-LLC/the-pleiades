@@ -242,7 +242,7 @@ var traceDoc = collection.Doc{
 		{Name: "dest", Type: "string", Required: true, Description: "The address to trace to.", Format: collection.ParamFormatCommand},
 		{Name: "max_hops", Type: "int", Default: "30", Description: "The most hops to try."},
 		{Name: "expect", Type: "dict", Description: "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."},
-		{Name: "container", Type: "string", Description: "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux."},
+		{Name: "container", Type: "string", Description: "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux. An empty value is refused rather than read as none: leave container out to trace from the device."},
 		{Name: "engine", Type: "string", Description: "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."},
 		hostKeyParam,
 	},

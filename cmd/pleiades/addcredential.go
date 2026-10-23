@@ -169,8 +169,21 @@ func runAddCredential(args []string) error {
 	// entered automatically when stdin is not a terminal, for the reason
 	// internal/prompt states: an automatic fallback means the same command
 	// echoes a secret on some machines and not others.
+	// A passphrase and an enable secret both from standard input are read
+	// by one reader, the passphrase first: two readers of one pipe would
+	// lose the second line to the first one's buffer.
+	var piped []string
+	if *stdinPassphrase && *stdinEnable {
+		read, err := prompt.SecretsFromStdin(2)
+		if err != nil {
+			return err
+		}
+		piped = read
+	}
 	readPassphrase := func(promptText string) (string, error) {
 		switch {
+		case piped != nil:
+			return piped[0], nil
 		case *stdinPassphrase:
 			return prompt.SecretFromStdin()
 		case *promptPassphrase:
@@ -252,6 +265,8 @@ func runAddCredential(args []string) error {
 
 	switch {
 	case cred.EnablePassword != "":
+	case piped != nil:
+		cred.EnablePassword = piped[1]
 	case *stdinEnable:
 		read, err := prompt.SecretFromStdin()
 		if err != nil {
