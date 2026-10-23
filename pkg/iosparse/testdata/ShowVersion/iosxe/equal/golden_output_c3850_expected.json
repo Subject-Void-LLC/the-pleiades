@@ -1,0 +1,179 @@
+{
+ "version": {
+  "bootldr": "CAT3K_CAA Boot Loader (CAT3K_CAA-HBOOT-M) Version 4.318, engineering software (D)",
+  "build_label": "BLD_V164_THROTTLE_LATEST_20170410_174845",
+  "chassis": "WS-C3850-24P",
+  "chassis_sn": "FCW1932D0LB",
+  "compiled_by": "mcpre",
+  "compiled_date": "Mon 10-Apr-17 13:02",
+  "copyright_years": "1986-2017",
+  "curr_config_register": "0x102",
+  "disks": {
+   "crashinfo-2:.": {
+    "disk_size": "250456",
+    "type_of_disk": "Crash Files"
+   },
+   "crashinfo-3:.": {
+    "disk_size": "250456",
+    "type_of_disk": "Crash Files"
+   },
+   "crashinfo-4:.": {
+    "disk_size": "250456",
+    "type_of_disk": "Crash Files"
+   },
+   "crashinfo-5:.": {
+    "disk_size": "250456",
+    "type_of_disk": "Crash Files"
+   },
+   "crashinfo:.": {
+    "disk_size": "262143",
+    "type_of_disk": "Crash Files"
+   },
+   "flash-2:.": {
+    "disk_size": "1609272",
+    "type_of_disk": "Flash"
+   },
+   "flash-3:.": {
+    "disk_size": "1609272",
+    "type_of_disk": "Flash"
+   },
+   "flash-4:.": {
+    "disk_size": "1609272",
+    "type_of_disk": "Flash"
+   },
+   "flash-5:.": {
+    "disk_size": "1609272",
+    "type_of_disk": "Flash"
+   },
+   "flash:.": {
+    "disk_size": "1586119",
+    "type_of_disk": "Flash"
+   },
+   "webui:.": {
+    "disk_size": "0",
+    "type_of_disk": ""
+   }
+  },
+  "hostname": "R1",
+  "image_id": "CAT3K_CAA-UNIVERSALK9-M",
+  "image_type": "developer image",
+  "label": "[v164_throttle-BLD-BLD_V164_THROTTLE_LATEST_20170410_174845 105]",
+  "last_reload_reason": "Admin reload CLI",
+  "license_level": "ipservicesk9",
+  "license_package": {
+   "ipservicesk9": {
+    "license_level": "ipservicesk9",
+    "license_type": "Permanent",
+    "next_reload_license_level": "ipservicesk9"
+   }
+  },
+  "license_type": "Permanent",
+  "location": "Everest",
+  "main_mem": "862498",
+  "mem_size": {
+   "non-volatile configuration": "2048",
+   "physical": "4194304"
+  },
+  "next_reload_license_level": "ipservicesk9",
+  "number_of_intfs": {
+   "Gigabit Ethernet": "140",
+   "Ten Gigabit Ethernet": "20",
+   "Virtual Ethernet": "13"
+  },
+  "os": "IOS-XE",
+  "platform": "Catalyst L3 Switch",
+  "processor_type": "MIPS",
+  "returned_to_rom_at": "17:05:27 UTC Mon Apr 10 2017",
+  "returned_to_rom_by": "reload",
+  "rom": "IOS-XE ROMMON",
+  "rtr_type": "Edison",
+  "switch_num": {
+   "1": {
+    "active": true,
+    "mac_address": "38:20:56:ff:ef:f2",
+    "mb_assembly_num": "73-15805-04",
+    "mb_rev_num": "A0",
+    "mb_sn": "FOC19315RWV",
+    "mode": "BUNDLE",
+    "model": "WS-C3850-24P",
+    "model_num": "WS-C3850-24P",
+    "model_rev_num": "U0",
+    "ports": "32",
+    "sw_image": "CAT3K_CAA-UNIVERSALK9",
+    "sw_ver": "16.4.2",
+    "system_sn": "FCW1932D0LB",
+    "uptime": "1 hour, 27 minutes"
+   },
+   "2": {
+    "active": false,
+    "mac_address": "38:20:56:ff:a4:29",
+    "mb_assembly_num": "73-15805-04",
+    "mb_rev_num": "A0",
+    "mb_sn": "FOC19315SCE",
+    "mode": "BUNDLE",
+    "model": "WS-C3850-24P",
+    "model_num": "WS-C3850-24P",
+    "model_rev_num": "U0",
+    "ports": "32",
+    "sw_image": "CAT3K_CAA-UNIVERSALK9",
+    "sw_ver": "16.4.2",
+    "system_sn": "FOC1932X0K1",
+    "uptime": "1 hour, 27 minutes"
+   },
+   "3": {
+    "active": false,
+    "mac_address": "38:20:56:ff:1b:72",
+    "mb_assembly_num": "73-15805-04",
+    "mb_rev_num": "A0",
+    "mb_sn": "FOC193182KD",
+    "mode": "BUNDLE",
+    "model": "WS-C3850-24P",
+    "model_num": "WS-C3850-24P",
+    "model_rev_num": "U0",
+    "ports": "32",
+    "sw_image": "CAT3K_CAA-UNIVERSALK9",
+    "sw_ver": "16.4.2",
+    "system_sn": "FCW1932C0MA",
+    "uptime": "1 hour, 27 minutes"
+   },
+   "4": {
+    "active": false,
+    "mac_address": "38:20:56:ff:c0:29",
+    "mb_assembly_num": "73-15805-04",
+    "mb_rev_num": "A0",
+    "mb_sn": "FOC193182KG",
+    "mode": "BUNDLE",
+    "model": "WS-C3850-24P",
+    "model_num": "WS-C3850-24P",
+    "model_rev_num": "U0",
+    "ports": "32",
+    "sw_image": "CAT3K_CAA-UNIVERSALK9",
+    "sw_ver": "16.4.2",
+    "system_sn": "FCW1932D0L0",
+    "uptime": "1 hour, 27 minutes"
+   },
+   "5": {
+    "active": false,
+    "mac_address": "38:20:56:ff:72:29",
+    "mb_assembly_num": "73-15805-04",
+    "mb_rev_num": "A0",
+    "mb_sn": "FOC193182KB",
+    "mode": "BUNDLE",
+    "model": "WS-C3850-24P",
+    "model_num": "WS-C3850-24P",
+    "model_rev_num": "U0",
+    "ports": "32",
+    "sw_image": "CAT3K_CAA-UNIVERSALK9",
+    "sw_ver": "16.4.2",
+    "system_sn": "FOC1932X0F9",
+    "uptime": "1 hour, 27 minutes"
+   }
+  },
+  "system_image": "tftp://10.1.6.241//auto/tftp-ssr/Edison/cat3k_caa-universalk9.BLD_V164_THROTTLE_LATEST_20170410_174845.SSA.bin",
+  "system_restarted_at": "17:23:53 UTC Mon Apr 10 2017",
+  "uptime": "1 hour, 24 minutes",
+  "uptime_this_cp": "1 hour, 27 minutes",
+  "version": "16.4.20170410:165034",
+  "version_short": "16.4"
+ }
+}

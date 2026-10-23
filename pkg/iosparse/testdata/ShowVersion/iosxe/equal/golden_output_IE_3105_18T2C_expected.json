@@ -1,0 +1,80 @@
+{
+ "version": {
+  "bootldr": "Version 0.0.24 [DEVELOPMENT SOFTWARE] crashkernel=64M",
+  "build_label": "BLD_V1710_THROTTLE_LATEST_20221030_072056",
+  "chassis": "IE-3105-18T2C",
+  "chassis_sn": "FDO2629J8ZN",
+  "compiled_by": "mcpre",
+  "compiled_date": "Sun 30-Oct-22 01:02",
+  "copyright_years": "1986-2022",
+  "curr_config_register": "0x102",
+  "disks": {
+   "crashinfo:.": {
+    "disk_size": "524288",
+    "type_of_disk": "crashinfo"
+   },
+   "flash:.": {
+    "disk_size": "1946624",
+    "type_of_disk": "Flash"
+   },
+   "sdflash:.": {
+    "disk_size": "15557120",
+    "type_of_disk": "SD Flash "
+   }
+  },
+  "hostname": "IE-3105-18T2C",
+  "image_id": "IE31xx-UNIVERSALK9-M",
+  "image_type": "developer image",
+  "label": "[BLD_V1710_THROTTLE_LATEST_20221030_072056:/nobackup/mcpre/s2c-build-ws 101]",
+  "last_reload_reason": "Reload Command",
+  "license_package": {
+   "None": {
+    "license_level": "None",
+    "license_type": "Subscription Smart License",
+    "next_reload_license_level": "None"
+   },
+   "network-essentials": {
+    "license_level": "network-essentials",
+    "license_type": "Smart License",
+    "next_reload_license_level": "None"
+   }
+  },
+  "location": "Dublin",
+  "main_mem": "634623",
+  "mem_size": {
+   "non-volatile configuration": "4096",
+   "physical": "3491840"
+  },
+  "number_of_intfs": {
+   "Gigabit Ethernet": "20",
+   "Virtual Ethernet": "2"
+  },
+  "os": "IOS-XE",
+  "platform": "IE31xx Switch",
+  "processor_type": "ARM",
+  "returned_to_rom_by": "Reload Command",
+  "rom": "IOS-XE ROMMON",
+  "rtr_type": "IE-3105-18T2C",
+  "switch_num": {
+   "1": {
+    "mac_address": "3c:8b:7f:ff:dd:80",
+    "mb_assembly_num": "73-105757-03",
+    "mb_rev_num": "3",
+    "mb_sn": "FDO262304QG",
+    "model_num": "IE-3105-18T2C",
+    "model_rev_num": "V00",
+    "system_fpga_version": "0.2.14",
+    "system_sn": "FDO2629J8ZN",
+    "top_assembly_part_num": "68-103582-03",
+    "top_assembly_rev_num": "05"
+   }
+  },
+  "system_image": "flash:test_image",
+  "system_restarted_at": "13:40:54 UTC Mon Oct 31 2022",
+  "uptime": "6 hours, 17 minutes",
+  "uptime_this_cp": "6 hours, 19 minutes",
+  "version": "17.10.20221030:080207",
+  "version_short": "17.10",
+  "xe_version": "BLD_V1710_THROTTLE_LATEST_20221030_072056"
+ }
+}

@@ -1,0 +1,155 @@
+{
+ "GigabitEthernet0": {
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "8c1e.8068.9f61",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "8c1e.8068.9f61",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "RP management port"
+ },
+ "TenGigabitEthernet0/1/0": {
+  "bandwidth": 10000000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "8c1e.8068.9f70",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "8c1e.8068.9f70",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "BUILT-IN-2x10GE-C"
+ },
+ "TenGigabitEthernet0/1/1": {
+  "bandwidth": 10000000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "8c1e.8068.9f71",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "8c1e.8068.9f71",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "BUILT-IN-2x10GE-C"
+ },
+ "TwoGigabitEthernet0/0/0": {
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "8c1e.8068.9f6c",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "8c1e.8068.9f6c",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "BUILT-IN-4x2_5GE"
+ },
+ "TwoGigabitEthernet0/0/1": {
+  "bandwidth": 2500000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "8c1e.8068.9f6d",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "8c1e.8068.9f6d",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "BUILT-IN-4x2_5GE"
+ },
+ "TwoGigabitEthernet0/0/2": {
+  "bandwidth": 2500000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "8c1e.8068.9f6e",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "8c1e.8068.9f6e",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "BUILT-IN-4x2_5GE"
+ },
+ "TwoGigabitEthernet0/0/3": {
+  "bandwidth": 2500000,
+  "delay": 10,
+  "enabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "8c1e.8068.9f6f",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "8c1e.8068.9f6f",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "BUILT-IN-4x2_5GE"
+ },
+ "Vlan1": {
+  "autostate": true,
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "8c1e.8068.9f6b",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "8c1e.8068.9f6b",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "Ethernet SVI"
+ },
+ "Vlan195": {
+  "autostate": true,
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "8c1e.8068.9f6b",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "8c1e.8068.9f6b",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "Ethernet SVI"
+ },
+ "Vlan855": {
+  "autostate": true,
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": true,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "8c1e.8068.9f6b",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "8c1e.8068.9f6b",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "Ethernet SVI"
+ }
+}

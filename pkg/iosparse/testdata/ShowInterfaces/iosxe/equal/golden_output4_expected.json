@@ -1,0 +1,119 @@
+{
+ "GigabitEthernet0/0/0.2": {
+  "arp_timeout": "04:00:00",
+  "arp_type": "arpa",
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": false,
+  "encapsulations": {
+   "encapsulation": "arpa"
+  },
+  "is_deleted": true,
+  "line_protocol": "down",
+  "mac_address": "00b7.71e7.0200",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "00b7.71e7.0200",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "reliability": "255/255",
+  "rxload": "1/255",
+  "txload": "1/255",
+  "type": "C1111-2x1GE"
+ },
+ "GigabitEthernet0/0/1": {
+  "arp_timeout": "04:00:00",
+  "arp_type": "arpa",
+  "auto_negotiate": true,
+  "bandwidth": 1000000,
+  "counters": {
+   "in_broadcast_pkts": 3,
+   "in_crc_errors": 0,
+   "in_errors": 0,
+   "in_frame": 0,
+   "in_giants": 0,
+   "in_ignored": 0,
+   "in_mac_pause_frames": 0,
+   "in_multicast_pkts": 0,
+   "in_no_buffer": 0,
+   "in_octets": 785742018801,
+   "in_overrun": 0,
+   "in_pkts": 624993764,
+   "in_runts": 0,
+   "in_throttles": 0,
+   "in_watchdog": 0,
+   "last_clear": "never",
+   "out_babble": 0,
+   "out_broadcast_pkts": 2,
+   "out_buffer_failure": 0,
+   "out_buffers_swapped": 0,
+   "out_collision": 0,
+   "out_deferred": 0,
+   "out_errors": 0,
+   "out_interface_resets": 1,
+   "out_late_collision": 0,
+   "out_lost_carrier": 0,
+   "out_mac_pause_frames": 0,
+   "out_multicast_pkts": 0,
+   "out_no_carrier": 0,
+   "out_octets": 94269500291,
+   "out_pkts": 297833811,
+   "out_underruns": 0,
+   "out_unknown_protocl_drops": 0,
+   "rate": {
+    "in_rate": 3000,
+    "in_rate_pkts": 6,
+    "load_interval": 300,
+    "out_rate": 58000,
+    "out_rate_pkts": 8
+   }
+  },
+  "delay": 10,
+  "description": "Outside interface to Core-PL-R1",
+  "duplex_mode": "full",
+  "enabled": true,
+  "encapsulations": {
+   "encapsulation": "arpa"
+  },
+  "flow_control": {
+   "receive": false,
+   "send": false
+  },
+  "ipv4": {
+   "10.0.50.5/29": {
+    "ip": "10.0.50.5",
+    "prefix_length": "29"
+   }
+  },
+  "is_deleted": false,
+  "last_input": "00:00:00",
+  "last_output": "00:00:00",
+  "line_protocol": "up",
+  "link_type": "auto",
+  "mac_address": "00b7.71e7.0201",
+  "media_type": "RJ45",
+  "mtu": 1500,
+  "oper_status": "up",
+  "output_hang": "never",
+  "phys_address": "00b7.71e7.0201",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "port_speed": "1000mbps",
+  "queues": {
+   "input_queue_drops": 0,
+   "input_queue_flushes": 0,
+   "input_queue_max": 375,
+   "input_queue_size": 0,
+   "output_queue_max": 40,
+   "output_queue_size": 0,
+   "queue_strategy": "fifo",
+   "total_output_drop": 0
+  },
+  "reliability": "255/255",
+  "rxload": "1/255",
+  "txload": "1/255",
+  "type": "C1111-2x1GE"
+ }
+}

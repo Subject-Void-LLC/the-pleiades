@@ -1,0 +1,62 @@
+{
+ "GigabitEthernet0/0/0": {
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "70ea.1ab5.49b0",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "70ea.1ab5.49b0",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "ISR4221-2x1GE"
+ },
+ "GigabitEthernet0/0/1": {
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "70ea.1ab5.49b1",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "70ea.1ab5.49b1",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "ISR4221-2x1GE"
+ },
+ "GigabitEthernet0/1/0": {
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "70ea.1ab5.49b8",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "70ea.1ab5.49b8",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "NIM-1GE-CU-SFP"
+ },
+ "GigabitEthernet0/2/0": {
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "70ea.1ab5.49c0",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "70ea.1ab5.49c0",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "NIM-1GE-CU-SFP"
+ }
+}

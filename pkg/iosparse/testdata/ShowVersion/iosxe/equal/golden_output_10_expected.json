@@ -1,0 +1,47 @@
+{
+ "version": {
+  "build_label": "BLD_POLARIS_DEV_LATEST_20241125_002711",
+  "chassis": "C8230X-8M2X",
+  "chassis_sn": "FGL2833L73L",
+  "compiled_by": "mcpre",
+  "compiled_date": "Sun 24-Nov-24 16:57",
+  "copyright_years": "1986-2024",
+  "curr_config_register": "0x1822",
+  "disks": {
+   "bootflash:.": {
+    "disk_size": "20249599",
+    "type_of_disk": "flash memory"
+   }
+  },
+  "hostname": "Arata1",
+  "image_id": "ARMV8EL_LINUX_IOSD-UNIVERSALK9-M",
+  "image_type": "developer image",
+  "label": "[BLD_POLARIS_DEV_LATEST_20241125_002711:/nobackup/mcpre/s2c-build-ws 101]",
+  "last_reload_reason": "LocalSoft",
+  "location": "IOSXE",
+  "main_mem": "7806679",
+  "mem_size": {
+   "non-volatile configuration": "32768",
+   "physical": "16777216"
+  },
+  "next_config_register": "0x3922",
+  "number_of_intfs": {
+   "2.5 Gigabit Ethernet": "8",
+   "Ten Gigabit Ethernet": "2",
+   "Virtual Ethernet": "1"
+  },
+  "os": "IOS-XE",
+  "platform": "c8k30be",
+  "processor_type": "1RU",
+  "returned_to_rom_by": "LocalSoft",
+  "rom": null,
+  "router_operating_mode": "Autonomous",
+  "rtr_type": "C8230X-8M2X",
+  "system_image": "bootflash:c8k30be-universalk9.BLD_POLARIS_DEV_LATEST_20241125_002711.SSA.bin",
+  "uptime": "1 hour, 58 minutes",
+  "uptime_this_cp": "1 hour, 59 minutes",
+  "version": "17.17.20241125:005549",
+  "version_short": "17.17",
+  "xe_version": "BLD_POLARIS_DEV_LATEST_20241125_002711"
+ }
+}

@@ -120,24 +120,30 @@ var networkCollections = []collectionscaffold.Config{
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
-			Summary:     "Applies configuration lines to a Cisco IOS device, with an optional pre-change backup.",
-			Description: "Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, configuration-mode and error conventions (verified directly against a real Cisco IOS XE device, not assumed), and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (a real IOS \"% ...\" error), still leaving configuration mode before returning that error. When backup is true, runs \"show running-config\" before applying anything and records it under the backup stat, giving an operator something to restore from by hand; this platform does not attempt an automatic rollback (see this method's own Reversibility notes for why). Reports changed whenever every line reaches the device without error: a configuration line's effect cannot be inspected before it runs, the same reasoning exec.command and net.cli.command both apply.",
+			Summary: "Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly.",
+			Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. " +
+				"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
+				"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
 			Params: []collection.Param{
 				{Name: "lines", Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.", Format: collection.ParamFormatCommand},
+				{Name: "checkpoint", Type: "bool", Default: "true", Description: "Keep a checkpoint of the running configuration on the device before the change, which its undo returns to exactly. false records no undo, and reports the lines that would undo the change for the task's rollback: list."},
 				{Name: "backup", Type: "bool", Default: "false", Description: "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 				{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 			},
 			Returns: []collection.ReturnField{
+				{Name: "checkpoint", Type: "string", Returned: "when a checkpoint was kept and the lines changed the configuration", Description: "The checkpoint file on the device holding the configuration before the change, which the undo returns to."},
+				{Name: "differences", Type: "list of string", Returned: "when a checkpoint was kept", Description: "The device's own contextual differences the change made (+ added, - removed), masked."},
+				{Name: "undo_lines", Type: "list of string", Returned: "when no checkpoint was kept and the lines changed the configuration", Description: "The configuration lines that would undo the change, masked; copy them into the task's rollback: list, putting each masked secret back."},
 				{Name: "backup", Type: "string", Returned: "when backup is true", Description: "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
 			},
 			Examples: []collection.Example{
 				{
-					Name:        "Create a loopback interface with a backup",
-					RunbookYAML: "- name: Add a loopback interface\n  net.ios.config:\n    backup: true\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n",
+					Name:        "Create a loopback interface, undoable by pleiades rollback",
+					RunbookYAML: "- name: Add a loopback interface\n  net.ios.config:\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n",
 				},
 			},
-			SeeAlso: []string{"net.cli.command", "net.cli.config"},
+			SeeAlso: []string{"net.ios.replace", "net.ios.parse", "net.cli.command", "net.cli.config"},
 		},
 	},
 	{
@@ -248,6 +254,62 @@ var networkCollections = []collectionscaffold.Config{
 				},
 			},
 			SeeAlso: []string{"net.ios.config"},
+		},
+	},
+	{
+		Name:          "net.ios.replace",
+		Capabilities:  []capability.Name{capability.NameCiscoIOS},
+		Transports:    []string{"ssh", "telnet"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Replaces a Cisco IOS device's running configuration with a checkpoint file on the device.",
+			Description: "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files are deleted afterwards unless keep is true. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
+			Params: []collection.Param{
+				{Name: "checkpoint", Type: "string", Required: true, Description: "The checkpoint to return to, a file on the device such as unix:pleiades-3f2a.cfg or flash:pleiades-3f2a.cfg."},
+				{Name: "expect", Type: "string", Description: "A checkpoint the running configuration must still match before anything is replaced, refusing otherwise: the configuration as the change left it."},
+				{Name: "force", Type: "bool", Default: "false", Description: "Replace even when the running configuration no longer matches expect, undoing whatever changed since along with the change."},
+				{Name: "keep", Type: "bool", Default: "false", Description: "Keep the checkpoint files on the device after a replace that leaves no differences, rather than deleting them."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+				{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "differences", Type: "list of string", Returned: "always", Description: "The device's own contextual differences between the running configuration and the checkpoint before the replace, masked: what the replace changes, or would change in a check."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Return a device to a checkpoint a change left",
+					RunbookYAML: "- name: Undo the loopback change\n  net.ios.replace:\n    checkpoint: unix:pleiades-3f2a.cfg\n    expect: unix:pleiades-3f2a-after.cfg\n",
+				},
+			},
+			SeeAlso: []string{"net.ios.config", "net.ios.parse"},
+		},
+	},
+	{
+		Name:          "net.ios.parse",
+		Capabilities:  []capability.Name{capability.NameCiscoIOS},
+		Transports:    []string{"ssh", "telnet"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Runs a show command on a Cisco IOS or IOS XE device and returns its output parsed into Genie's schema.",
+			Description: "Runs one show command over the same session net.ios.command opens and parses its output with a parser ported from Cisco's Genie (genieparser, Apache License 2.0), returning the same nested structure Genie returns for that command, so Genie's own schema documentation describes the result and a later task can compare two reads field by field, such as the state before a change and after its rollback. Each parser is held to every one of genieparser's own recorded device outputs and expected results for the command forms it covers. Output in which the parser finds nothing (no OSPF neighbors yet) is an empty result with empty true, not a failure, so a before and after can compare it; a command the device refuses (% BGP not active) fails the task. A command no parser covers is refused before the device is reached, naming the commands that are covered. It only reads, so it reports unchanged, and a check runs it as a real run does.",
+			Params: []collection.Param{
+				{Name: "command", Type: "string", Required: true, Description: "The show command to run and parse, one of the commands a parser covers (pleiades doc net.ios.parse lists them), for example \"show ip interface brief\" or \"show ip route\". IOS's abbreviations are not accepted: write the command in full."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+				{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "parsed", Type: "dict", Returned: "always", Description: "The command's output in Genie's schema for it: for show ip interface brief, interface, keyed by interface name, each with ip_address, interface_is_ok, method, status and protocol."},
+				{Name: "parser", Type: "string", Returned: "always", Description: "The Genie parser class whose port parsed it, such as ShowIpInterfaceBrief."},
+				{Name: "empty", Type: "bool", Returned: "always", Description: "Whether the parser found nothing in the output, parsed then being empty."},
+				{Name: "stdout", Type: "string", Returned: "always", Description: "The command's output as the device printed it, except that the secrets in show archive config differences (a password, secret, key or SNMP community) are masked, as net.ios.replace masks them, before it is parsed or recorded."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Read the interfaces before a change, to compare after its rollback",
+					RunbookYAML: "- name: Read the interfaces\n  net.ios.parse:\n    command: show ip interface brief\n  register: interfaces_before\n",
+				},
+			},
+			SeeAlso: []string{"net.ios.command", "net.ios.facts", "net.ios.replace"},
 		},
 	},
 	{

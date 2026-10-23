@@ -1,0 +1,101 @@
+{
+ "main": {
+  "FourHundredGigE1/0/15": {
+   "QSFP-100G-CU2M": {
+    "descr": "QSFP 100GE CU2M",
+    "name": "FourHundredGigE1/0/15",
+    "pid": "QSFP-100G-CU2M",
+    "sn": "APF2303003L-A",
+    "vid": "V01"
+   }
+  },
+  "FourHundredGigE2/0/15": {
+   "QSFP-100G-CU2M": {
+    "descr": "QSFP 100GE CU2M",
+    "name": "FourHundredGigE2/0/15",
+    "pid": "QSFP-100G-CU2M",
+    "sn": "APF2303003L-B",
+    "vid": "V01"
+   }
+  },
+  "HundredGigE1/0/1": {
+   "QSFP-100G-CU3M": {
+    "descr": "QSFP 100GE CU3M",
+    "name": "HundredGigE1/0/1",
+    "pid": "QSFP-100G-CU3M",
+    "sn": "APF25020BCA-B",
+    "vid": "V01"
+   }
+  },
+  "HundredGigE2/0/1": {
+   "QSFP-100G-CU3M": {
+    "descr": "QSFP 100GE CU3M",
+    "name": "HundredGigE2/0/1",
+    "pid": "QSFP-100G-CU3M",
+    "sn": "APF25020BCA-A",
+    "vid": "V01"
+   }
+  },
+  "chassis": {
+   "C9500X-28C8D": {
+    "descr": "Cisco Catalyst Series C9500X-28C8D Chassis",
+    "name": "Switch 2 Chassis",
+    "pid": "C9500X-28C8D",
+    "sn": "FDO25130VEC",
+    "vid": "V00"
+   }
+  }
+ },
+ "slot": {
+  "1": {
+   "other": {
+    "C9500X-28C8D": {
+     "descr": "Cisco Catalyst 9500X-28C8D Switch",
+     "name": "Switch 1 Slot 1 Supervisor",
+     "pid": "C9500X-28C8D",
+     "sn": "FDO24460AE5",
+     "vid": "V00"
+    },
+    "C9K-FAN-1U-R": {
+     "descr": "Cisco Catalyst Series C9500 1RU Reverse Air Flow",
+     "name": "Switch 1 Fan Tray 6",
+     "pid": "C9K-FAN-1U-R",
+     "sn": "ACI24460UFX",
+     "vid": "V00"
+    },
+    "C9K-PWR-1500WAC-R": {
+     "descr": "Cisco Catalyst Series C9500 1.5KW-AC Reverse Air Flow  Power Supply",
+     "name": "Switch 1 Power Supply Module 2",
+     "pid": "C9K-PWR-1500WAC-R",
+     "sn": "QCS2502614B",
+     "vid": "V00"
+    }
+   }
+  },
+  "2": {
+   "other": {
+    "C9500X-28C8D": {
+     "descr": "Cisco Catalyst 9500X-28C8D Switch",
+     "name": "Switch 2 Slot 1 Supervisor",
+     "pid": "C9500X-28C8D",
+     "sn": "FDO25130VEC",
+     "vid": "V00"
+    },
+    "C9K-FAN-1U-R": {
+     "descr": "Cisco Catalyst Series C9500 1RU Reverse Air Flow",
+     "name": "Switch 2 Fan Tray 6",
+     "pid": "C9K-FAN-1U-R",
+     "sn": "ACI251110EQ",
+     "vid": "V00"
+    },
+    "C9K-PWR-1500WAC-R": {
+     "descr": "Cisco Catalyst Series C9500 1.5KW-AC Reverse Air Flow  Power Supply",
+     "name": "Switch 2 Power Supply Module 2",
+     "pid": "C9K-PWR-1500WAC-R",
+     "sn": "QCS25146149",
+     "vid": "V00"
+    }
+   }
+  }
+ }
+}

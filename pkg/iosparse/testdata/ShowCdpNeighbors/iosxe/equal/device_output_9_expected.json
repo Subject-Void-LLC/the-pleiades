@@ -1,0 +1,15 @@
+{
+ "cdp": {
+  "index": {
+   "1": {
+    "capability": "H P M  IP",
+    "device_id": "SEPD824BDBBB7F9",
+    "hold_time": 155,
+    "local_interface": "GigabitEthernet4/0/3",
+    "platform": "Phone",
+    "port_id": "Port1"
+   }
+  },
+  "total_entries": 1
+ }
+}

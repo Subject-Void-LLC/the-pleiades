@@ -1,0 +1,152 @@
+{
+ "main": {
+  "chassis": {
+   "ISR4461/K9": {
+    "descr": "Cisco ISR4461 Chassis",
+    "name": "Chassis",
+    "pid": "ISR4461/K9",
+    "sn": "FDO2151A2HJ",
+    "vid": "V00"
+   }
+  }
+ },
+ "slot": {
+  "0": {
+   "lc": {
+    "ISR4461/K9": {
+     "descr": "Cisco ISR4461 Built-In NIM controller",
+     "name": "module 0",
+     "pid": "ISR4461/K9",
+     "sn": "",
+     "subslot": {
+      "0": {
+       "ISR4461-4x1G-2xTG": {
+        "descr": "Front Panel 6 ports Ten/Gigabitethernet Module",
+        "name": "NIM subslot 0/0",
+        "pid": "ISR4461-4x1G-2xTG",
+        "sn": "",
+        "vid": "V01"
+       }
+      },
+      "0 transceiver 5": {
+       "SFP-10G-SR-S": {
+        "descr": "SFP+ 10GBASE-SR",
+        "name": "subslot 0/0 transceiver 5",
+        "pid": "SFP-10G-SR-S",
+        "sn": "FNS22030KVN",
+        "vid": "V01"
+       }
+      },
+      "1": {
+       "NIM-2GE-CU-SFP": {
+        "descr": "NIM-2GE-CU-SFP",
+        "name": "NIM subslot 0/1",
+        "pid": "NIM-2GE-CU-SFP",
+        "sn": "FOC22010WTB",
+        "vid": "V02"
+       }
+      }
+     },
+     "vid": ""
+    }
+   }
+  },
+  "1": {
+   "lc": {
+    "ISR4461/K9": {
+     "descr": "Cisco ISR4461 Built-In SM controller",
+     "name": "module 1",
+     "pid": "ISR4461/K9",
+     "sn": "",
+     "subslot": {
+      "0": {
+       "SM-X-6X1G": {
+        "descr": "SM-X-6X1G",
+        "name": "SM subslot 1/0",
+        "pid": "SM-X-6X1G",
+        "sn": "FOC22032B37",
+        "vid": "V02"
+       }
+      },
+      "0 transceiver 2": {
+       "GLC-SX-MMD": {
+        "descr": "GE SX",
+        "name": "subslot 1/0 transceiver 2",
+        "pid": "GLC-SX-MMD",
+        "sn": "FNS1742149W",
+        "vid": "V01"
+       }
+      }
+     },
+     "vid": ""
+    }
+   }
+  },
+  "2": {
+   "lc": {
+    "ISR4461/K9": {
+     "descr": "Cisco ISR4461 Built-In SM controller",
+     "name": "module 2",
+     "pid": "ISR4461/K9",
+     "sn": "",
+     "vid": ""
+    }
+   }
+  },
+  "3": {
+   "lc": {
+    "ISR4461/K9": {
+     "descr": "Cisco ISR4461 Built-In SM controller",
+     "name": "module 3",
+     "pid": "ISR4461/K9",
+     "sn": "",
+     "vid": ""
+    }
+   }
+  },
+  "F0": {
+   "other": {
+    "ISR4461/K9": {
+     "descr": "Cisco ISR4461 Forwarding Processor",
+     "name": "module F0",
+     "pid": "ISR4461/K9",
+     "sn": "",
+     "vid": ""
+    }
+   }
+  },
+  "Fan_Tray": {
+   "other": {
+    "ACS-4460-FANASSY": {
+     "descr": "Cisco ISR4460 Forward-flow Fan Assembly",
+     "name": "Fan Tray",
+     "pid": "ACS-4460-FANASSY",
+     "sn": "",
+     "vid": ""
+    }
+   }
+  },
+  "P0": {
+   "other": {
+    "PWR-4450-1000W-AC": {
+     "descr": "1000W AC Power Supply for Cisco ISR4450, ISR4460, VG450",
+     "name": "Power Supply Module 0",
+     "pid": "PWR-4450-1000W-AC",
+     "sn": "DCA2128Y07N",
+     "vid": "V02"
+    }
+   }
+  },
+  "R0": {
+   "rp": {
+    "ISR4461/K9": {
+     "descr": "Cisco ISR4461 Route Processor",
+     "name": "module R0",
+     "pid": "ISR4461/K9",
+     "sn": "FDO21481BWN",
+     "vid": "V00"
+    }
+   }
+  }
+ }
+}

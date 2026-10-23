@@ -1,0 +1,447 @@
+{
+ "vrf": {
+  "default": {
+   "address_family": {
+    "ipv4": {
+     "routes": {
+      "0.0.0.0/0": {
+       "active": true,
+       "metric": 10,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         },
+         "2": {
+          "index": 2,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "0.0.0.0/0",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i*L2"
+      },
+      "172.20.190.100/30": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "TenGigabitEthernet1/1/3": {
+          "outgoing_interface": "TenGigabitEthernet1/1/3"
+         }
+        }
+       },
+       "route": "172.20.190.100/30",
+       "source_protocol": "connected",
+       "source_protocol_codes": "C"
+      },
+      "172.20.190.102/32": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "TenGigabitEthernet1/1/3": {
+          "outgoing_interface": "TenGigabitEthernet1/1/3"
+         }
+        }
+       },
+       "route": "172.20.190.102/32",
+       "source_protocol": "local",
+       "source_protocol_codes": "L"
+      },
+      "172.20.190.104/30": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.104/30",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.108/30": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "TenGigabitEthernet1/1/4": {
+          "outgoing_interface": "TenGigabitEthernet1/1/4"
+         }
+        }
+       },
+       "route": "172.20.190.108/30",
+       "source_protocol": "connected",
+       "source_protocol_codes": "C"
+      },
+      "172.20.190.109/32": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "TenGigabitEthernet1/1/4": {
+          "outgoing_interface": "TenGigabitEthernet1/1/4"
+         }
+        }
+       },
+       "route": "172.20.190.109/32",
+       "source_protocol": "local",
+       "source_protocol_codes": "L"
+      },
+      "172.20.190.112/30": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.112/30",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.65/32": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         },
+         "2": {
+          "index": 2,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.65/32",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.66/32": {
+       "active": true,
+       "metric": 30,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         },
+         "2": {
+          "index": 2,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.66/32",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.67/32": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "Loopback0": {
+          "outgoing_interface": "Loopback0"
+         }
+        }
+       },
+       "route": "172.20.190.67/32",
+       "source_protocol": "connected",
+       "source_protocol_codes": "C"
+      },
+      "172.20.190.68/32": {
+       "active": true,
+       "metric": 30,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.68/32",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.69/32": {
+       "active": true,
+       "metric": 30,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.69/32",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.70/31": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.70/31",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.72/32": {
+       "active": true,
+       "metric": 30,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.72/32",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.74/31": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.74/31",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.190.96/30": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.190.96/30",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.199.0/27": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "Vlan1036": {
+          "outgoing_interface": "Vlan1036"
+         }
+        }
+       },
+       "route": "172.20.199.0/27",
+       "source_protocol": "connected",
+       "source_protocol_codes": "C"
+      },
+      "172.20.199.1/32": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "Vlan1036": {
+          "outgoing_interface": "Vlan1036"
+         }
+        }
+       },
+       "route": "172.20.199.1/32",
+       "source_protocol": "local",
+       "source_protocol_codes": "L"
+      },
+      "172.20.199.128/27": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "Vlan1038": {
+          "outgoing_interface": "Vlan1038"
+         }
+        }
+       },
+       "route": "172.20.199.128/27",
+       "source_protocol": "connected",
+       "source_protocol_codes": "C"
+      },
+      "172.20.199.129/32": {
+       "active": true,
+       "next_hop": {
+        "outgoing_interface": {
+         "Vlan1038": {
+          "outgoing_interface": "Vlan1038"
+         }
+        }
+       },
+       "route": "172.20.199.129/32",
+       "source_protocol": "local",
+       "source_protocol_codes": "L"
+      },
+      "172.20.199.24/32": {
+       "active": true,
+       "metric": 1,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.199.24",
+          "outgoing_interface": "Vlan1036",
+          "updated": "20:11:13"
+         }
+        }
+       },
+       "route": "172.20.199.24/32",
+       "route_preference": 10,
+       "source_protocol": "lisp",
+       "source_protocol_codes": "l"
+      },
+      "172.20.2.253/32": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.2.253/32",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.2.254/32": {
+       "active": true,
+       "metric": 20,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.2.254/32",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L1"
+      },
+      "172.20.2.32/27": {
+       "active": true,
+       "metric": 5565,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         },
+         "2": {
+          "index": 2,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.2.32/27",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L2"
+      },
+      "172.20.30.0/24": {
+       "active": true,
+       "metric": 5565,
+       "next_hop": {
+        "next_hop_list": {
+         "1": {
+          "index": 1,
+          "next_hop": "172.20.190.110",
+          "outgoing_interface": "TenGigabitEthernet1/1/4",
+          "updated": "5w6d"
+         },
+         "2": {
+          "index": 2,
+          "next_hop": "172.20.190.101",
+          "outgoing_interface": "TenGigabitEthernet1/1/3",
+          "updated": "5w6d"
+         }
+        }
+       },
+       "route": "172.20.30.0/24",
+       "route_preference": 115,
+       "source_protocol": "isis",
+       "source_protocol_codes": "i L2"
+      }
+     }
+    }
+   }
+  }
+ }
+}

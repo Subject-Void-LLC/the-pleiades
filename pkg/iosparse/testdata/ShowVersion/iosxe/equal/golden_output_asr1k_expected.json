@@ -1,0 +1,57 @@
+{
+ "version": {
+  "build_label": "BLD_V163_MR_THROTTLE_LATEST_20170410_093453",
+  "chassis": "ASR1006",
+  "chassis_sn": "FOX1444GPXU",
+  "compiled_by": "mcpre",
+  "compiled_date": "Mon 10-Apr-17 04:35",
+  "copyright_years": "1986-2017",
+  "curr_config_register": "0x2000",
+  "disks": {
+   "bootflash:.": {
+    "disk_size": "1925119",
+    "type_of_disk": "eUSB flash"
+   },
+   "harddisk:.": {
+    "disk_size": "78085207",
+    "type_of_disk": "SATA hard disk"
+   },
+   "webui:.": {
+    "disk_size": "0",
+    "type_of_disk": ""
+   }
+  },
+  "hostname": "PE1",
+  "image_id": "X86_64_LINUX_IOSD-UNIVERSALK9-M",
+  "image_type": "developer image",
+  "label": "[v163_mr_throttle-BLD-BLD_V163_MR_THROTTLE_LATEST_20170410_093453 118]",
+  "last_reload_reason": "Reload Command",
+  "license_level": "advipservices",
+  "license_type": "RightToUse",
+  "location": "Denali",
+  "main_mem": "4138965",
+  "mem_size": {
+   "non-volatile configuration": "32768",
+   "physical": "8388608"
+  },
+  "next_config_register": "0x2002",
+  "next_reload_license_level": "advipservices",
+  "number_of_intfs": {
+   "Gigabit Ethernet": "5"
+  },
+  "os": "IOS-XE",
+  "platform": "ASR1000",
+  "processor_type": "RP2",
+  "returned_to_rom_at": "02:14:51 PDT Mon Apr 10 2017",
+  "returned_to_rom_by": "reload",
+  "rom": "IOS-XE ROMMON",
+  "rtr_type": "ASR1K",
+  "system_image": "harddisk:test-image-PE1-13113029",
+  "system_restarted_at": "09:08:57 PDT Mon Apr 10 2017",
+  "uptime": "32 minutes",
+  "uptime_this_cp": "34 minutes",
+  "version": "16.3.20170410:103306",
+  "version_short": "16.3",
+  "xe_version": "BLD_V163_MR_THROTTLE_LATEST_20170410_093453_V16_3_3_24"
+ }
+}

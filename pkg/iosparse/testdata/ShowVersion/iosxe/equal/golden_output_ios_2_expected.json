@@ -1,0 +1,31 @@
+{
+ "version": {
+  "chassis": "AS2511-RJ",
+  "chassis_sn": "11857685",
+  "compiled_by": "tej",
+  "compiled_date": "Mon 07-Apr-97 12:10",
+  "copyright_years": "1986-1997",
+  "curr_config_register": "0x2102",
+  "hostname": "CS12-19-4",
+  "image": {
+   "data_base": "0x00001000",
+   "text_base": "0x0303E4C8"
+  },
+  "image_id": "C2500-J-L",
+  "image_type": "developer image",
+  "main_mem": "6144",
+  "mem_size": {
+   "non-volatile configuration": "32"
+  },
+  "os": "IOS",
+  "platform": "2500",
+  "processor_board_flash": "8192K",
+  "processor_type": "68030",
+  "rom": "3000 Bootstrap Software (IGS-BOOT-R), Version 11.0(10c)XB1, PLATFORM SPECIFIC RELEASE SOFTWARE (fc1)",
+  "rtr_type": "AS2511-RJ",
+  "system_image": "flash:c2500-j-l.112-5.P",
+  "uptime": "2 weeks, 1 day, 9 hours, 17 minutes",
+  "version": "11.2(5)P",
+  "version_short": "11.2"
+ }
+}
