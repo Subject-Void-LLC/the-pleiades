@@ -144,15 +144,15 @@ func newScriptedSession(t *testing.T, s *scriptedIOS, dialect netcli.Dialect) *n
 	return session
 }
 
-func TestOpen_DisablesPagingWhenDialectNamesOne(t *testing.T) {
+func TestOpen_DisablesPagingAndWrappingWhenDialectNamesThem(t *testing.T) {
 	s := &scriptedIOS{hostname: "Cat8kv", mode: "exec"}
 	newScriptedSession(t, s, netcli.IOS)
 
 	if !s.pagingDisabled {
 		t.Error("Open did not send the dialect's DisablePaging command")
 	}
-	if len(s.commands) != 1 || s.commands[0] != "terminal length 0" {
-		t.Errorf("commands received = %v, want exactly [\"terminal length 0\"]", s.commands)
+	if strings.Join(s.commands, "|") != "terminal length 0|terminal width 512" {
+		t.Errorf("commands received = %v, want exactly [\"terminal length 0\" \"terminal width 512\"]", s.commands)
 	}
 }
 
@@ -204,7 +204,7 @@ func TestConfig_ReadsTheConfigModePromptNotTheExecPrompt(t *testing.T) {
 		t.Fatalf("Config: %v", err)
 	}
 
-	want := []string{"terminal length 0", "configure terminal", "interface Loopback8986", "description pleiades-test", "exit", "end"}
+	want := []string{"terminal length 0", "terminal width 512", "configure terminal", "interface Loopback8986", "description pleiades-test", "exit", "end"}
 	if strings.Join(s.commands, ",") != strings.Join(want, ",") {
 		t.Errorf("commands received = %v, want %v", s.commands, want)
 	}
@@ -231,7 +231,7 @@ func TestConfig_AbortsAndStillExitsConfigModeOnRejection(t *testing.T) {
 		t.Errorf("error = %v, want it to name the rejected line", err)
 	}
 
-	want := []string{"terminal length 0", "configure terminal", "this-is-not-a-real-command", "end"}
+	want := []string{"terminal length 0", "terminal width 512", "configure terminal", "this-is-not-a-real-command", "end"}
 	if strings.Join(s.commands, ",") != strings.Join(want, ",") {
 		t.Errorf("commands received = %v, want %v (the second line must never be sent, and end must still run)", s.commands, want)
 	}

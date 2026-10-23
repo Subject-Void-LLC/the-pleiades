@@ -45,6 +45,15 @@ type Dialect struct {
 	// and Open sends nothing.
 	DisablePaging string
 
+	// DisableWrapping is the command Open sends after DisablePaging to
+	// stop the device wrapping a long line at the terminal's width. IOS
+	// otherwise echoes a command longer than 80 columns scrolled
+	// sideways, "show archive config differences unix:a.cfg system:runn$",
+	// so the echo no longer matches the line sent and is left in the
+	// output (measured on IOS XE 17.15, 2026-10-23). Empty means Open
+	// sends nothing.
+	DisableWrapping string
+
 	// EnterConfigMode and ExitConfigMode are the commands Config sends
 	// to bracket a batch of configuration lines. Both empty means this
 	// Dialect has no configuration-mode convention to drive; Config
@@ -123,6 +132,7 @@ var IOS = Dialect{
 		return iosExecPrompt
 	},
 	DisablePaging:   "terminal length 0",
+	DisableWrapping: "terminal width 512",
 	EnterConfigMode: "configure terminal",
 	ExitConfigMode:  "end",
 	ErrorPattern:    iosErrorPattern,
@@ -240,6 +250,11 @@ func Open(ctx context.Context, shell Shell, dialect Dialect, opts Options) (*Ses
 	if dialect.DisablePaging != "" {
 		if _, err := s.Command(ctx, dialect.DisablePaging); err != nil {
 			return nil, fmt.Errorf("netcli: disabling paging on %s: %w", dialectName(dialect), err)
+		}
+	}
+	if dialect.DisableWrapping != "" {
+		if _, err := s.Command(ctx, dialect.DisableWrapping); err != nil {
+			return nil, fmt.Errorf("netcli: disabling line wrapping on %s: %w", dialectName(dialect), err)
 		}
 	}
 

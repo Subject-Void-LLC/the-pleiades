@@ -72,7 +72,7 @@ func TestCommand_AnswersTheQuestionsACommandAsks(t *testing.T) {
 	if err != nil || !result.Changed {
 		t.Fatalf("result %+v, err %v", result, err)
 	}
-	if got := srv.Commands(); strings.Join(got, "|") != "terminal length 0|"+copyLine+"||" {
+	if got := srv.Commands(); strings.Join(got, "|") != "terminal length 0|terminal width 512|"+copyLine+"||" {
 		t.Errorf("the device received %q: the command, then Enter for each question", got)
 	}
 	if out, _ := rc.stats[statCommandStdout].(string); !strings.Contains(out, "bytes copied") || strings.Contains(out, "sw1#") {
@@ -95,7 +95,7 @@ func TestCommand_ARefusedQuestionFailsAndIsNotAnswered(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if got := srv.Commands(); len(got) != 3 {
+	if got := srv.Commands(); len(got) != 4 {
 		t.Errorf("the device received %q: nothing may answer the refused question", got)
 	}
 	if _, set := rc.stats[statCommandStdout]; set {
@@ -219,7 +219,7 @@ func TestCommand_AHeldModelAnswerAbandonsTheCommand(t *testing.T) {
 		t.Fatalf("err %v, want held", err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if got := srv.Commands(); len(got) != 3 {
+	if got := srv.Commands(); len(got) != 4 {
 		t.Errorf("the device received %q: a held answer is never typed", got)
 	}
 }
