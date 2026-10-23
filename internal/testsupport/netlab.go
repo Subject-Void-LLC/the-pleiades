@@ -66,7 +66,8 @@ type NetLabLink struct {
 	// Subnet is the link's network, small and fixed so a test knows every
 	// address on it.
 	Subnet netip.Prefix
-	// Ends maps each node on the link to its address there.
+	// Ends maps each node on the link to its address there, never the
+	// subnet's first address, which Docker gives the link's gateway.
 	Ends map[string]netip.Addr
 }
 

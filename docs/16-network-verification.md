@@ -164,8 +164,8 @@ It fails closed in five cases:
 - a line or feature the model does not use was not accepted by name.
 
 FRR in a container writes `domainname localdomain` into its running configuration, which Batfish does not
-recognise, so a gate over such routers accepts it: `{text: domainname localdomain, reason: the DNS search domain,
-not routing}`.
+recognise, so a gate over such routers accepts it: `{text: domainname localdomain, reason: "the DNS search domain,
+not routing"}`.
 
 The model's result reports three things separately:
 

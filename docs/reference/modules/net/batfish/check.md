@@ -85,7 +85,7 @@ Check a candidate and a link failure first:
         assertions:
           - reach: {from: "r1[eth3]", dst: 10.3.3.10, through: [r3]}
     accept_unrecognized:
-      - {text: domainname localdomain, reason: DNS search domain, not routing}
+      - {text: domainname localdomain, reason: "DNS search domain, not routing"}
   register: gate
 ```
 

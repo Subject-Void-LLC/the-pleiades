@@ -89,6 +89,7 @@ func TestExternalCollectionReleaseGate_TheRunnerRunsAnApprovedProgram(t *testing
 		t.Skip("skipping the Walk-tier external Collection Release Gate container test in short mode")
 	}
 	t.Cleanup(collection.SnapshotForTest())
+	t.Cleanup(capability.SnapshotForTest())
 
 	collections := buildApprovedExample(t)
 	if _, err := loader.Load(context.Background(), collections, loader.Options{}); err != nil {
@@ -96,7 +97,7 @@ func TestExternalCollectionReleaseGate_TheRunnerRunsAnApprovedProgram(t *testing
 	}
 
 	h := newReleaseGateHarnessFor(t, knownHostsInEnvironment, map[string]string{
-		"note.yaml": "id: note\ntasks:\n  - name: leave-a-note\n    fqcn: example.note.write\n    params:\n" +
+		"note.yaml": "id: note\ntasks:\n  - name: leave-a-note\n    example.note.write:\n" +
 			"      path: " + runnerExternalPath + "\n      content: \"" + runnerExternalContent + "\"\n",
 	})
 	addr := net.JoinHostPort(h.sshHost, strconv.Itoa(h.sshPort))

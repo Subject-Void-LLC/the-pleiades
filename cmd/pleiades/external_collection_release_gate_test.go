@@ -133,8 +133,7 @@ func TestCLI_ExternalCollectionRunsAgainstARealDevice(t *testing.T) {
 	runbook := "id: external-collection-release-gate\n" +
 		"tasks:\n" +
 		"  - name: leave-a-note\n" +
-		"    fqcn: example.note.write\n" +
-		"    params:\n" +
+		"    example.note.write:\n" +
 		"      target: container1\n" +
 		"      path: " + externalGatePath + "\n" +
 		"      content: \"" + externalGateContent + "\"\n"
