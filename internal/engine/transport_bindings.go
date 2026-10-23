@@ -60,22 +60,22 @@ func NewDefaultTransportBindings(sshTransport, serialTransport, serialtcpTranspo
 		Capability: ActionCapability["serial_exec"],
 		Transport:  serialTransport,
 		Target:     SerialTarget,
-		// A serial line carries no login.
-		Unauthenticated: true,
+		// A serial line carries no login of its own.
+		CredentialOptional: true,
 	})
 	bindings.MustRegister("serialtcp_exec", TransportBinding{
-		Capability:        ActionCapability["serialtcp_exec"],
-		Transport:         serialtcpTransport,
-		Target:            RawPassthroughTarget,
-		RequireOptInParam: ParamInsecureRawPassthrough,
-		Unauthenticated:   true,
+		Capability:         ActionCapability["serialtcp_exec"],
+		Transport:          serialtcpTransport,
+		Target:             RawPassthroughTarget,
+		RequireOptInParam:  ParamInsecureRawPassthrough,
+		CredentialOptional: true,
 	})
 	bindings.MustRegister("telnet_exec", TransportBinding{
-		Capability:        ActionCapability["telnet_exec"],
-		Transport:         telnetTransport,
-		Target:            TelnetTarget,
-		RequireOptInParam: ParamInsecureTelnet,
-		Unauthenticated:   true,
+		Capability:         ActionCapability["telnet_exec"],
+		Transport:          telnetTransport,
+		Target:             TelnetTarget,
+		RequireOptInParam:  ParamInsecureTelnet,
+		CredentialOptional: true,
 	})
 	bindings.MustRegister("winrm_exec", TransportBinding{
 		Capability: ActionCapability["winrm_exec"],

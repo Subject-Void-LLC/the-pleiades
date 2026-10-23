@@ -88,10 +88,15 @@ func (t *telnetTransport) Exec(ctx context.Context, target transport.Target, cre
 		return transport.Result{}, fmt.Errorf("telnet: target endpoint is %T, not a transport.NetworkEndpoint", target.Endpoint)
 	}
 
+	// The device's credential answers its login prompts, when it asks;
+	// one that asks nothing (a lab console) needs none.
+	opts := t.opts
+	opts.Login = realtelnetexec.Login{Username: cred.Username, Password: cred.Password}
+
 	var result realtelnetexec.Result
 	var err error
 	if len(target.Route) == 0 {
-		result, err = realtelnetexec.Exec(ctx, ep.Host, ep.Port, t.opts, command)
+		result, err = realtelnetexec.Exec(ctx, ep.Host, ep.Port, opts, command)
 	} else {
 		hops, hopErr := hopchain.Convert(target.Route)
 		if hopErr != nil {
@@ -102,7 +107,7 @@ func (t *telnetTransport) Exec(ctx context.Context, target transport.Target, cre
 			return transport.Result{}, fmt.Errorf("telnet: %w", dialErr)
 		}
 		defer func() { _ = conn.Close() }()
-		result, err = realtelnetexec.ExecOverConn(ctx, conn, t.opts, command)
+		result, err = realtelnetexec.ExecOverConn(ctx, conn, opts, command)
 	}
 	if err != nil {
 		return transport.Result{}, fmt.Errorf("telnet: %w", err)

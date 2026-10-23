@@ -34,12 +34,40 @@ const cmlPasswordEnv = "PLEIADES_CML_PASSWORD"
 // lab's links, never a login.
 var cmlUnmanaged = map[string]bool{"external_connector": true, "unmanaged_switch": true}
 
+// cmlCiscoTypes maps the CML node definitions that run IOS or IOS XE to
+// the Cisco device type each becomes, so net.ios.* reaches them. A node
+// definition not named here is a generic device.
+var cmlCiscoTypes = map[string]string{
+	"iol-xe": "cisco_router", "iosv": "cisco_router", "csr1000v": "cisco_router", "cat8000v": "cisco_router",
+	"ioll2-xe": "cisco_switch", "iosvl2": "cisco_switch", "cat9000v-q200": "cisco_switch", "cat9000v-uadp": "cisco_switch",
+}
+
+// cmlSpec is the device type and properties a node becomes at addr: a
+// Cisco type for an IOS node definition, else a generic one; reached over
+// SSH, or over Telnet with via "telnet" (a lab whose nodes run no SSH).
+func cmlSpec(n cml.Node, addr netip.Addr, via string) (string, map[string]pkginventory.PropertyValue) {
+	host := addr.String()
+	if t, ok := cmlCiscoTypes[n.NodeDefinition]; ok {
+		if via == "telnet" {
+			return t, map[string]pkginventory.PropertyValue{"host": host, "transport": "telnet"}
+		}
+		return t, map[string]pkginventory.PropertyValue{"host": host, "port": 22}
+	}
+	if via == "telnet" {
+		return gns3DeviceType, map[string]pkginventory.PropertyValue{"telnet_host": host, "telnet_port": 23}
+	}
+	return generic.TypeSSH, map[string]pkginventory.PropertyValue{"host": host, "port": 22}
+}
+
 // cmlImported is one node as the import reports it.
 type cmlImported struct {
 	Device         string `json:"device"`
 	NodeDefinition string `json:"node_definition"`
 	State          string `json:"state"`
 	Host           string `json:"host,omitempty"`
+	// Type is the device type the node became, and Via how it is reached.
+	Type string `json:"type,omitempty"`
+	Via  string `json:"via,omitempty"`
 	// Address says where the host came from: "--address" or "observed".
 	Address string `json:"address,omitempty"`
 	// Skipped says why a node was not imported.
@@ -94,7 +122,8 @@ func runImportCML(args []string) error {
 	allowPlaintext := fs.Bool("allow-plaintext", false, "send the password over plain HTTP to a controller that is not this machine")
 	trust := fs.Bool("trust-first-connect", false, "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does")
 	onboardNodes := fs.Bool("onboard", false, "onboard each node once it is imported (needs a credential and trusted host keys)")
-	replace := fs.Bool("replace", false, "replace the address of a node already in the inventory as a generic_ssh device")
+	via := fs.String("via", "ssh", "how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext)")
+	replace := fs.Bool("replace", false, "replace the address of a node already in the inventory as the same device type")
 	asJSON := fs.Bool("json", false, "print the result as one JSON document")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -104,6 +133,12 @@ func runImportCML(args []string) error {
 	}
 	if *server == "" || *lab == "" || *username == "" {
 		return errors.New("--server, --lab and --username are all required: the import logs in to the controller it names and reads the lab it names")
+	}
+	if *via != "ssh" && *via != "telnet" {
+		return fmt.Errorf("--via is ssh or telnet, not %q", *via)
+	}
+	if *via == "telnet" && (*trust || *onboardNodes) {
+		return errors.New("--trust-first-connect and --onboard are SSH's; a node reached over Telnet has no host key and is used as imported")
 	}
 	if *fingerprint != "" && *caFile != "" {
 		return errors.New("give --tls-fingerprint or --tls-ca, not both: a pinned certificate needs no CA")
@@ -182,12 +217,12 @@ func runImportCML(args []string) error {
 			res.Nodes = append(res.Nodes, out)
 			continue
 		}
-		spec := inventory.HostSpec{ID: uuid.New().String(), Name: n.Label, Type: generic.TypeSSH, Tags: tags,
-			Properties: map[string]pkginventory.PropertyValue{"host": addr.String(), "port": 22}}
+		deviceType, props := cmlSpec(n, addr, *via)
+		spec := inventory.HostSpec{ID: uuid.New().String(), Name: n.Label, Type: deviceType, Tags: tags, Properties: props}
 		if hosts, err = labPlace(hosts, spec, *replace); err != nil {
 			return err
 		}
-		out.Host, out.Address = addr.String(), from
+		out.Host, out.Address, out.Type, out.Via = addr.String(), from, deviceType, *via
 		res.Nodes = append(res.Nodes, out)
 	}
 	if err := inventory.WriteHosts(invPath, hosts); err != nil {
@@ -235,12 +270,15 @@ func runImportCML(args []string) error {
 			fmt.Printf("skipped %q (%q): %s\n", n.Device, n.NodeDefinition, n.Skipped)
 			continue
 		}
-		fmt.Printf("imported %s (%q, %s) at %s, from %s\n", n.Device, n.NodeDefinition, n.State, n.Host, n.Address)
+		fmt.Printf("imported %s (%q, %s) as a %s at %s over %s, from %s\n", n.Device, n.NodeDefinition, n.State, n.Type, n.Host, n.Via, n.Address)
 	}
 	if follow != nil {
 		return follow
 	}
-	if !*trust || !*onboardNodes {
+	switch {
+	case *via == "telnet":
+		fmt.Println("next, for each node: pleiades add-credential (with --enable-password for a router's enable secret); each task reaching one sets insecure_telnet: true")
+	case !*trust || !*onboardNodes:
 		fmt.Println("next, for each node: pleiades add-credential, pleiades trust-host, pleiades onboard")
 	}
 	return nil

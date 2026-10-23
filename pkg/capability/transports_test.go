@@ -47,6 +47,7 @@ func TestReachedBy_TheRows(t *testing.T) {
 		capability.TransportEngineStdio:  {capability.NameEngineStdio},
 		capability.TransportEngineTLS:    {capability.NameEngineTLS},
 		capability.TransportKubernetes:   {capability.NameKubernetes},
+		capability.TransportTelnet:       {capability.NameTelnet},
 	}
 	if got := capability.Transports(); len(got) != len(want) {
 		t.Fatalf("Transports() = %v, want exactly %d", got, len(want))

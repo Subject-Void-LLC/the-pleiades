@@ -14,8 +14,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // paramLines and paramBackup match cisco.ios.ios_config's own parameter
@@ -37,6 +37,7 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
 				"ssh",
+				"telnet",
 			},
 			RequiredCapabilities: []capability.Name{
 				capability.NameCiscoIOS,
@@ -77,6 +78,7 @@ func configDoc() collection.Doc {
 			{Name: paramLines, Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.", Format: collection.ParamFormatCommand},
 			{Name: paramBackup, Type: "bool", Default: "false", Description: "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 		},
 		Returns: []collection.ReturnField{
 			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
@@ -146,50 +148,20 @@ type iosSession interface {
 // package, so a separate small seam rather than a shared one.
 var openSession = realOpenSession
 
+// realOpenSession opens the device's CLI over SSH, or over Telnet with the
+// task's opt-in (sdk.OpenShell), in IOS's dialect. The Session's Close ends
+// the connection as well, so a method closes one thing.
 func realOpenSession(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (iosSession, error) {
-	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
+	shell, err := sdk.OpenShell(ctx, rc, device, params, fqcn)
 	if err != nil {
 		return nil, err
 	}
-
-	shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("%s: %w", fqcn, err)
-	}
-
-	session, err := netcli.Open(ctx, shell, netcli.IOS, netcli.Options{})
+	// The enable secret, when the credential holds one, takes an account
+	// that lands in user mode ("R1>") to privileged mode.
+	session, err := netcli.Open(ctx, shell, netcli.IOS, netcli.Options{EnableSecret: rc.InjectSecrets()[wire.SecretEnablePassword]})
 	if err != nil {
 		_ = shell.Close()
-		_ = conn.Close()
 		return nil, fmt.Errorf("%s: %w", fqcn, err)
 	}
-
-	return &sessionAndConn{Session: session, conn: conn}, nil
-}
-
-// sessionAndConn embeds a *netcli.Session (promoting Command and
-// Config) but overrides Close so one call releases the Session's own
-// PTY session AND the underlying *remoteexec.Conn it was opened on. See
-// internal/catalog/net/cli's identically-named, independently-declared
-// type for the full reasoning.
-//
-// This type and the openSession seam above are both duplicated rather
-// than shared, for a reason the build enforces: a Collection package
-// may import only pkg/ (internal/archtest's
-// TestCatalogPackagesImportOnlyPkg), so these two packages cannot share
-// an internal/ helper, and moving the seam into pkg/netcli would export
-// test scaffolding into a public API surface.
-type sessionAndConn struct {
-	*netcli.Session
-	conn *remoteexec.Conn
-}
-
-func (s *sessionAndConn) Close() error {
-	sessErr := s.Session.Close()
-	connErr := s.conn.Close()
-	if sessErr != nil {
-		return sessErr
-	}
-	return connErr
+	return session, nil
 }

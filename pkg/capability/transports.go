@@ -40,6 +40,11 @@ const (
 	// TransportKubernetes is a Kubernetes cluster's API server
 	// (KubernetesCapable).
 	TransportKubernetes = "kubernetes"
+
+	// TransportTelnet is a terminal over bare Telnet (TelnetCapable), its
+	// login answered at the terminal, in cleartext. A method that takes it
+	// is reached over it only with the task's explicit opt-in.
+	TransportTelnet = "telnet"
 )
 
 // EngineTransports lists the container engine transports, in the order a
@@ -73,6 +78,7 @@ var reachedBy = map[string][]Name{
 	TransportEngineStdio:  {NameEngineStdio},
 	TransportEngineTLS:    {NameEngineTLS},
 	TransportKubernetes:   {NameKubernetes},
+	TransportTelnet:       {NameTelnet},
 }
 
 // ReachedBy returns the capabilities that reach transport, any one of

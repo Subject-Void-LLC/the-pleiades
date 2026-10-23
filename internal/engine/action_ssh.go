@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -82,13 +83,13 @@ type TransportBinding struct {
 	// before Phase 73 keeps unedited.
 	RequireOptInParam string
 
-	// Unauthenticated marks a protocol that carries no login (bare Telnet,
-	// raw TCP passthrough, a local serial line): no credential is looked
-	// up for the device, since its transport would never send one, and
-	// requiring one stored made a device with no login unreachable (a
-	// GNS3 node's console, Phase 127c). A route's hops keep their own
-	// credentials.
-	Unauthenticated bool
+	// CredentialOptional marks a protocol with no login of its own (bare
+	// Telnet, raw TCP passthrough, a local serial line): the device's
+	// stored credential is used when there is one, to answer a login the
+	// device asks for at its terminal, and a device with none is still
+	// reached, as a lab console that asks nothing is (a GNS3 node, Phase
+	// 127c). A route's hops keep their own credentials.
+	CredentialOptional bool
 }
 
 // SSHTarget is the TransportBinding.Target function for any fqcn bound to
@@ -265,12 +266,9 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 		return ActionResult{}, fmt.Errorf("fqcn %q requires a non-empty string params.command", task.FQCN)
 	}
 
-	var cred credential.Credential
-	if !binding.Unauthenticated {
-		var err error
-		if cred, err = e.credentials.Lookup(ctx, device.Name()); err != nil {
-			return ActionResult{}, fmt.Errorf("fqcn %q: %w", task.FQCN, err)
-		}
+	cred, err := e.credentials.Lookup(ctx, device.Name())
+	if err != nil && !(binding.CredentialOptional && errors.Is(err, credential.ErrNotFound)) {
+		return ActionResult{}, fmt.Errorf("fqcn %q: %w", task.FQCN, err)
 	}
 
 	// Every secret this credential actually carries, computed once, up

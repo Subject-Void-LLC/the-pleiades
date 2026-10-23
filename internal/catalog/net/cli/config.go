@@ -22,6 +22,7 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
 				"ssh",
+				"telnet",
 			},
 			RequiredCapabilities: []capability.Name{
 				capability.NameNetworkCLI,
@@ -53,6 +54,7 @@ func configDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: paramConfig, Type: "string", Required: true, Description: "The configuration lines to send, one per line. Blank lines are skipped. Include any vendor-specific mode commands (e.g. \"configure terminal\" and \"end\") this device needs, since this method sends none on its own.", Format: collection.ParamFormatCommand},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 		},
 		Examples: []collection.Example{
 			{

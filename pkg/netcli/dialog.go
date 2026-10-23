@@ -18,8 +18,6 @@ import (
 	"io"
 	"regexp"
 	"strings"
-
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // Prompt is one question a command may ask, and what to do about it.
@@ -176,9 +174,9 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 		raw, err := s.shell.ReadUntil(ctx, until, s.maxBytes)
 		if err != nil {
 			var partial []byte
-			var re *remoteexec.ReadError
+			var re partialReader
 			if errors.As(err, &re) {
-				partial = re.Partial
+				partial = re.PartialRead()
 			}
 			if opts.ExpectDisconnect && len(res.Exchanges) > 0 && errors.Is(err, io.EOF) {
 				transcript.Write(partial)

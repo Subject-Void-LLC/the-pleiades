@@ -69,6 +69,10 @@ type Credential struct {
 	// Token is a bearer token, for a device whose API authenticates one
 	// (a Kubernetes cluster's ServiceAccount token), or empty. Phase 119c.
 	Token string
+	// EnablePassword is the secret a network device asks for to enter
+	// privileged mode when this account lands in user mode (Cisco's
+	// enable), or empty. Phase 127c.
+	EnablePassword string
 }
 
 // redactedMarker replaces a secret field's real value in Credential's
@@ -104,7 +108,7 @@ const publicSetMarker = "<set, not secret>"
 func (c Credential) String() string {
 	return fmt.Sprintf(
 		"credential.Credential{Username:%q, Password:%s, PrivateKeyPEM:%s, Passphrase:%s, "+
-			"CertificatePEM:%s, PFXBase64:%s, Token:%s}",
+			"CertificatePEM:%s, PFXBase64:%s, Token:%s, EnablePassword:%s}",
 		c.Username,
 		setMarker(c.Password != ""),
 		setMarker(len(c.PrivateKeyPEM) != 0),
@@ -112,6 +116,7 @@ func (c Credential) String() string {
 		publicMarker(len(c.CertificatePEM) != 0),
 		setMarker(c.PFXBase64 != ""),
 		setMarker(c.Token != ""),
+		setMarker(c.EnablePassword != ""),
 	)
 }
 
@@ -141,6 +146,7 @@ func (c Credential) MarshalJSON() ([]byte, error) {
 		CertificatePEM string
 		PFXBase64      string
 		Token          string
+		EnablePassword string
 	}{
 		Username:       c.Username,
 		Password:       setMarker(c.Password != ""),
@@ -149,6 +155,7 @@ func (c Credential) MarshalJSON() ([]byte, error) {
 		CertificatePEM: publicMarker(len(c.CertificatePEM) != 0),
 		PFXBase64:      setMarker(c.PFXBase64 != ""),
 		Token:          setMarker(c.Token != ""),
+		EnablePassword: setMarker(c.EnablePassword != ""),
 	})
 }
 

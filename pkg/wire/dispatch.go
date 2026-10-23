@@ -125,6 +125,11 @@ const (
 	// sent as an Authorization header and nowhere else.
 	SecretBearerToken = "bearer_token"
 
+	// SecretEnablePassword is the secret a network device asks for to
+	// enter privileged mode (Cisco's enable, AWX's authorize_password),
+	// when the account lands in user mode. It is never a login password.
+	SecretEnablePassword = "enable_password"
+
 	// SecretClusterCAPEM is the authority a template's Kubernetes credential
 	// carries (its ssl_ca_cert), for a cluster whose own record pins none.
 	// A record's pinned authority always wins over it.

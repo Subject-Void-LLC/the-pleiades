@@ -107,6 +107,10 @@ type Options struct {
 	// takes DefaultMaxOutputBytes. The combined Stdout returned by Exec
 	// can therefore be up to twice this value.
 	MaxOutputBytes int
+
+	// Login answers the device's login prompts, when it asks (Open). The
+	// zero Login answers none, and a device that asks is then refused.
+	Login Login
 }
 
 const (
@@ -142,9 +146,10 @@ type Result struct {
 // reads back whatever the far end writes until output goes quiet, ctx is
 // canceled, or opts.MaxOutputBytes is reached.
 //
-// There is no authentication of any kind at the transport level: see
-// this package's own doc comment for why Telnet's cleartext nature is a
-// fact about the protocol this package cannot change, not an oversight.
+// Telnet has no authentication of its own. A device that asks for a
+// login at the terminal is answered from opts.Login, in cleartext like
+// everything else on the connection; see this package's own doc comment
+// for why that is a fact about the protocol, not an oversight.
 func Exec(ctx context.Context, host string, port int, opts Options, command string) (Result, error) {
 	dialTimeout := opts.DialTimeout
 	if dialTimeout <= 0 {
@@ -177,31 +182,18 @@ func Exec(ctx context.Context, host string, port int, opts Options, command stri
 // caller that owns it (Exec, or whoever built the tunnel) is
 // responsible for closing it once this call returns.
 func ExecOverConn(ctx context.Context, conn net.Conn, opts Options, command string) (Result, error) {
-	readTimeout := opts.ReadTimeout
-	if readTimeout <= 0 {
-		readTimeout = DefaultReadTimeout
-	}
-	maxOutput := opts.MaxOutputBytes
-	if maxOutput <= 0 {
-		maxOutput = DefaultMaxOutputBytes
-	}
-
-	f := &iacFilter{}
-
-	banner, err := readUntilQuiet(ctx, conn, f, readTimeout, maxOutput)
+	session, err := Open(ctx, conn, opts, opts.Login)
 	if err != nil {
-		return Result{}, fmt.Errorf("telnetexec: %w", err)
+		return Result{}, err
 	}
-
+	banner := session.carry
 	if err := writeData(conn, []byte(command+"\r\n")); err != nil {
 		return Result{}, fmt.Errorf("telnetexec: writing command: %w", err)
 	}
-
-	rest, err := readUntilQuiet(ctx, conn, f, readTimeout, maxOutput)
+	rest, err := session.quiet(ctx)
 	if err != nil {
-		return Result{}, fmt.Errorf("telnetexec: %w", err)
+		return Result{}, err
 	}
-
 	output := append(banner, rest...)
 	return Result{Stdout: string(output), ExitStatusUnknown: true}, nil
 }

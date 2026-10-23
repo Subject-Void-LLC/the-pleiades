@@ -26,7 +26,7 @@ func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "net.ios.command",
 		Manifest: collection.Manifest{
-			SupportedTransports:  []string{"ssh"},
+			SupportedTransports:  []string{"ssh", "telnet"},
 			RequiredCapabilities: []capability.Name{capability.NameCiscoIOS},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
@@ -53,6 +53,7 @@ func commandDoc() collection.Doc {
 	params := []collection.Param{{Name: paramCommand, Type: "string", Required: true, Description: "The single exec-mode line to run, e.g. \"show version\" or \"copy http://192.0.2.5/x.bin flash:x.bin\".", Format: collection.ParamFormatCommand}}
 	params = append(params, clidialog.Params()...)
 	params = append(params, collection.Param{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."})
+	params = append(params, collection.Param{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."})
 	returns := []collection.ReturnField{{Name: statCommandStdout, Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed."}}
 	return collection.Doc{
 		Summary: "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
