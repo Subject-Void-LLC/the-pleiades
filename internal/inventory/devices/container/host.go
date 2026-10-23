@@ -101,13 +101,16 @@ func NewHost(rec record.Record) (inventory.InventoryItem, error) {
 		return nil, fmt.Errorf("%s %s: %w", TypeHost, rec.Name, err)
 	}
 	classified := engines.WithoutGrants(rec.Capabilities)
-	baseline := policy.UnionSlices(
-		[]capability.Name{
-			capability.NameSSHTransport,
-			capability.NameNetworkAddressable,
-		},
-		classified,
-	)
+	// A host with an address is reached over SSH at it. One with none is
+	// the machine pleiades runs on, reached through its own engine socket:
+	// it has no SSH and no address, so a method that needs either (wait.port,
+	// exec.command) is refused at validate rather than failing at run time
+	// asking for a credential it could not use (GAPS G6, 2026-10-22).
+	var reached []capability.Name
+	if host, _ := rec.Properties["host"].(string); host != "" {
+		reached = []capability.Name{capability.NameSSHTransport, capability.NameNetworkAddressable}
+	}
+	baseline := policy.UnionSlices(reached, classified)
 	caps, stale, err := record.Declared(TypeHost, rec, baseline)
 	if err != nil {
 		return nil, err

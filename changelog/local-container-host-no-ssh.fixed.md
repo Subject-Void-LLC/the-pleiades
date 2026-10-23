@@ -1,0 +1,1 @@
+Fixed a `container_host` with no `host` (the machine pleiades runs on, reached through its own engine socket) claiming SSH and a network address: `pleiades validate` passed an SSH method such as `pleiades.builtin.wait.port` on it, and the run then failed asking for a credential no SSH login could use. Validation now refuses such a task by name.

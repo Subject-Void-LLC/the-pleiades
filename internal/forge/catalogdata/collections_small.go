@@ -75,6 +75,38 @@ var smallCollections = []collectionscaffold.Config{
 		},
 	},
 	{
+		Name:          "http.wait",
+		Site:          collection.SiteController,
+		Device:        collection.DeviceNone,
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Waits, from the machine pleiades runs on, until a URL answers with the expected status, and optionally body.",
+			Description: "Repeats http.check's request and its tests until they pass: the status is one of status_code, and the body contains body_contains or matches body_matches. A refused connection, a timeout or an answer that does not pass all mean not yet. It runs once with no target device, from the machine pleiades runs on, so it waits for a service published there (a container's port on 127.0.0.1) that wait.port, which looks from a device over SSH, cannot see. Each attempt is bounded by 10 seconds or by what is left of the timeout, and running out of time fails the task naming the last answer, or the last error. What it returns is http.check's, never the body: the last answer's status and final URL, how many attempts were made and how long the wait took. A URL carrying a user name or password is refused, a redirect from https to http is not followed, and certificates are verified unless validate_certs is false.",
+			Params: []collection.Param{
+				{Name: "url", Type: "string", Required: true, Description: "The http or https URL to request."},
+				{Name: "status_code", Type: "int or list of int", Default: "200", Description: "The status, or statuses, that pass."},
+				{Name: "body_contains", Type: "string", Description: "Text the body must contain."},
+				{Name: "body_matches", Type: "string", Description: "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."},
+				{Name: "method", Type: "string", Default: "GET", Choices: []string{"GET", "HEAD"}, Description: "GET, or HEAD for the status alone."},
+				{Name: "max_redirects", Type: "int", Default: "5", Description: "How many redirects to follow, 0 to 10."},
+				{Name: "validate_certs", Type: "bool", Default: "true", Description: "Verify the server's certificate. False is set per task, never by a setting, and is visible in the runbook that sets it."},
+				{Name: "timeout", Type: "int", Default: "300", Description: "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0, and at most 86400."},
+				{Name: "delay", Type: "int", Default: "0", Description: "How many seconds to wait before the first request. Must be shorter than the timeout, which it is spent out of."},
+				{Name: "sleep", Type: "int", Default: "1", Description: "How many seconds to wait between requests. Must be more than 0."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "status", Type: "int", Returned: "when the server answered", Description: "The last answer's status."},
+				{Name: "final_url", Type: "string", Returned: "when the server answered", Description: "The URL that answered last, without query or fragment."},
+				{Name: "attempts", Type: "int", Returned: "always", Description: "How many requests were made."},
+				{Name: "elapsed", Type: "int", Returned: "always", Description: "How many whole seconds the task waited, including the delay."},
+			},
+			Examples: []collection.Example{
+				{Name: "Wait for a service this machine runs to answer", RunbookYAML: "- name: Wait for Batfish's API\n  http.wait:\n    url: http://127.0.0.1:9996/v2/version\n    timeout: 180\n    sleep: 3\n"},
+			},
+			SeeAlso: []string{"http.check", "pleiades.builtin.wait.port"},
+		},
+	},
+	{
 		Name:          "http.check",
 		Site:          collection.SiteController,
 		Device:        collection.DeviceNone,

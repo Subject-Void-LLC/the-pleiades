@@ -152,6 +152,24 @@ func Check(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 	if err != nil {
 		return fail(err)
 	}
+	stats, err := checkOnce(ctx, s)
+	for k, v := range stats {
+		if recErr := rc.SetStat(k, v); recErr != nil {
+			return fail(recErr)
+		}
+	}
+	if err != nil {
+		return fail(err)
+	}
+	return collection.Result{}, nil
+}
+
+// checkOnce makes s's request once and holds the answer to s's tests. It
+// returns what the answer shows (nil when there was none) and why it did
+// not pass, if it did not: a request that failed, or an answer whose
+// status or body is not the one wanted. http.check makes it once and
+// http.wait until it passes.
+func checkOnce(ctx context.Context, s checkSpec) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	transport := nethttp.DefaultTransport.(*nethttp.Transport).Clone()
@@ -184,12 +202,12 @@ func Check(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		return fail(fmt.Errorf("%s %s: %w", s.method, shown(s.url), stripURL(err)))
+		return nil, fmt.Errorf("%s %s: %w", s.method, shown(s.url), stripURL(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, checkMaxBody+1))
 	if err != nil {
-		return fail(fmt.Errorf("reading the answer: %w", err))
+		return nil, fmt.Errorf("reading the answer: %w", err)
 	}
 	elapsed := time.Since(start)
 	over := len(body) > checkMaxBody
@@ -208,21 +226,16 @@ func Check(ctx context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 		matched = &m
 		stats["matched"] = m
 	}
-	for k, v := range stats {
-		if err := rc.SetStat(k, v); err != nil {
-			return fail(err)
-		}
-	}
 	bodyText := fmt.Sprintf("the body: %d bytes, sha256 %s", len(body), digest)
 	switch {
 	case !(requestSpec{statusCodes: s.statusCodes}).accepts(resp.StatusCode):
-		return fail(fmt.Errorf("%s %s answered %d, wanted %s; %s", s.method, shown(s.url), resp.StatusCode, (requestSpec{statusCodes: s.statusCodes}).wanted(), bodyText))
+		return stats, fmt.Errorf("%s %s answered %d, wanted %s; %s", s.method, shown(s.url), resp.StatusCode, (requestSpec{statusCodes: s.statusCodes}).wanted(), bodyText)
 	case matched != nil && over:
-		return fail(fmt.Errorf("%s is over %d bytes, and is not matched against part of it", bodyText, checkMaxBody))
+		return stats, fmt.Errorf("%s is over %d bytes, and is not matched against part of it", bodyText, checkMaxBody)
 	case matched != nil && !*matched:
-		return fail(fmt.Errorf("%s does not match", bodyText))
+		return stats, fmt.Errorf("%s does not match", bodyText)
 	}
-	return collection.Result{}, nil
+	return stats, nil
 }
 
 // stripURL removes the URL a transport error quotes, which can hold a

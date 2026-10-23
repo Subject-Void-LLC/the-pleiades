@@ -37,24 +37,36 @@ func TestNewHost_ConstructsFromRecord(t *testing.T) {
 }
 
 // TestNewHost_BaselineCapabilities proves what a container host holds
-// before onboarding: its SSH login and address, which the record states,
-// and nothing about its engine, which only onboarding may grant.
+// before onboarding: its SSH login and address when the record states a
+// host, nothing of either when it does not (the machine pleiades runs on,
+// reached through its own socket), and nothing about its engine, which
+// only onboarding may grant.
 func TestNewHost_BaselineCapabilities(t *testing.T) {
-	item, err := container.NewHost(record.Record{ID: "t1", Name: "t1", Type: "container_host"})
+	remote, err := container.NewHost(record.Record{ID: "t1", Name: "t1", Type: "container_host", Properties: map[string]any{"host": "10.0.0.5"}})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-
-	if !item.HasCapability(capability.NameSSHTransport) {
-		t.Error("expected the vendor baseline to include SSHTransportCapable")
+	local, err := container.NewHost(record.Record{ID: "t2", Name: "t2", Type: "container_host"})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
 	}
-	for _, c := range engines.Grants {
-		if item.HasCapability(c) {
-			t.Errorf("a container host holds %s before onboarding proved it", c)
+	for _, c := range []capability.Name{capability.NameSSHTransport, capability.NameNetworkAddressable} {
+		if !remote.HasCapability(c) {
+			t.Errorf("a host with an address lacks %s", c)
+		}
+		if local.HasCapability(c) {
+			t.Errorf("the local host, with no address, holds %s, so validate would pass an SSH method on it", c)
 		}
 	}
-	if item.HasCapability(capability.NameApt) {
-		t.Error("expected no capability beyond the vendor baseline with no classification data")
+	for _, item := range []inventory.InventoryItem{remote, local} {
+		for _, c := range engines.Grants {
+			if item.HasCapability(c) {
+				t.Errorf("a container host holds %s before onboarding proved it", c)
+			}
+		}
+		if item.HasCapability(capability.NameApt) {
+			t.Error("expected no capability beyond the vendor baseline with no classification data")
+		}
 	}
 }
 
