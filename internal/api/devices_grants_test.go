@@ -20,7 +20,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -189,12 +188,11 @@ func TestGrantRoutes_AnInventoryWriterIsRefused(t *testing.T) {
 	}
 }
 
-// TestGrantRoutes_RefuseABadRequestAndReportAFailedWrite: a name over the
-// bound, a body that is not JSON, a revoke of a name that is no data
-// capability's or of an unknown device, and a stored grant that cannot be
-// read or saved each answer with their own status, and nothing changes.
-func TestGrantRoutes_RefuseABadRequestAndReportAFailedWrite(t *testing.T) {
-	router, path := grantRouter(t)
+// TestGrantRoutes_RefuseABadRequest: a name over the bound, a body that is
+// not JSON, and a revoke of a name that is no data capability's or of an
+// unknown device each answer with their own status.
+func TestGrantRoutes_RefuseABadRequest(t *testing.T) {
+	router, _ := grantRouter(t)
 	long := strings.Repeat("w", 300)
 	for _, tc := range []struct {
 		name, method, target, body string
@@ -211,24 +209,6 @@ func TestGrantRoutes_RefuseABadRequestAndReportAFailedWrite(t *testing.T) {
 		}
 	}
 
-	// A save that fails: the inventory's directory turns read only once the
-	// grant to revoke is there.
-	grant := `{"capability":"acme.widget_api","reason":"the lab controller"}`
-	if rec := serveGrant(router, http.MethodPost, "/inventory/devices/w1/capabilities", grant); rec.Code != http.StatusOK {
-		t.Fatalf("grant = %d %s", rec.Code, rec.Body.String())
-	}
-	need.Require(t, "non-root", os.Geteuid() != 0, "root writes a read-only directory")
-	dir := filepath.Dir(path)
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-	if rec := serveGrant(router, http.MethodPost, "/inventory/devices/w1/capabilities", grant); rec.Code < 500 {
-		t.Errorf("a grant whose save failed = %d, want a server error", rec.Code)
-	}
-	if rec := serveGrant(router, http.MethodDelete, "/inventory/devices/w1/capabilities/acme.widget_api", ""); rec.Code < 500 {
-		t.Errorf("a revoke whose save failed = %d, want a server error", rec.Code)
-	}
 }
 
 // TestGrantRoutes_AMalformedStoredGrantIsNotWrittenOver: a stored device
@@ -248,17 +228,18 @@ func TestGrantRoutes_AMalformedStoredGrantIsNotWrittenOver(t *testing.T) {
 	}
 }
 
-// oneItemRepo answers every read with item and every save with nil.
+// oneItemRepo answers every read with item and every save with saveErr.
 type oneItemRepo struct {
 	api.DeviceRepository
-	item pkginventory.InventoryItem
+	item    pkginventory.InventoryItem
+	saveErr error
 }
 
 func (r oneItemRepo) GetByName(context.Context, string) (pkginventory.InventoryItem, error) {
 	return r.item, nil
 }
 
-func (r oneItemRepo) Save(context.Context, pkginventory.InventoryItem) error { return nil }
+func (r oneItemRepo) Save(context.Context, pkginventory.InventoryItem) error { return r.saveErr }
 
 // grantHolder is a device that takes grants, failing each write with err,
 // and holding props.
@@ -275,12 +256,14 @@ func newGrantHolder(err error, props map[string]pkginventory.PropertyValue) gran
 
 // TestGrantRoutes_ADeviceThatCannotTakeTheGrant: a device type with no
 // grant to hold refuses a grant and has none to revoke; a write that fails
-// is a server error naming nothing internal; and a grant recorded on a
+// is a server error naming nothing internal, as is a save that fails;
+// and a grant recorded on a
 // device whose grants cannot then be read answers with none, with no
 // caller on the request named as its author.
 func TestGrantRoutes_ADeviceThatCannotTakeTheGrant(t *testing.T) {
+	var saveErr error
 	serve := func(item pkginventory.InventoryItem, method, target, body string) *httptest.ResponseRecorder {
-		handler := api.NewDeviceHandler(oneItemRepo{item: item}, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		handler := api.NewDeviceHandler(oneItemRepo{item: item, saveErr: saveErr}, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 		router := chi.NewRouter()
 		router.Post("/inventory/devices/{name}/capabilities", handler.GrantCapability)
 		router.Delete("/inventory/devices/{name}/capabilities/{capability}", handler.RevokeCapability)
@@ -308,6 +291,18 @@ func TestGrantRoutes_ADeviceThatCannotTakeTheGrant(t *testing.T) {
 			t.Errorf("a failed write = %d %s, want 500 naming nothing internal", rec.Code, rec.Body.String())
 		}
 	}
+
+	saveErr = errors.New("store: /var/lib/pleiades/inventory.yaml read only")
+	unsaved := newGrantHolder(nil, nil)
+	for _, rec := range []*httptest.ResponseRecorder{
+		serve(unsaved, http.MethodPost, "/inventory/devices/w1/capabilities", grant),
+		serve(unsaved, http.MethodDelete, revoke, ""),
+	} {
+		if rec.Code < 500 || strings.Contains(rec.Body.String(), "inventory.yaml") {
+			t.Errorf("a failed save = %d %s, want a server error naming nothing internal", rec.Code, rec.Body.String())
+		}
+	}
+	saveErr = nil
 
 	unreadable := newGrantHolder(nil, map[string]pkginventory.PropertyValue{pkginventory.GrantedProperty: "acme.widget_api"})
 	rec := serve(unreadable, http.MethodPost, "/inventory/devices/w1/capabilities", grant)
