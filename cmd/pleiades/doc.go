@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/loader"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -141,6 +142,14 @@ func runDoc(args []string) error {
 	case *jsonFlag:
 		return printDocJSON(entries, fqcn)
 	case fqcn != "":
+		// A loaded program's capability is looked up by its name too, so
+		// a method's requirement can be read where it is defined.
+		if _, err := lookupEntry(entries, fqcn); err != nil {
+			if def, ok := capability.DataOf(capability.Name(fqcn)); ok {
+				printCapability(def)
+				return nil
+			}
+		}
 		return printDocEntry(entries, fqcn)
 	default:
 		return fmt.Errorf("%s", docUsage)
@@ -253,6 +262,12 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 		fmt.Printf("  engine version      %s%s\n", m.EngineVersion, engineVersionNote(e.Origin != ""))
 	}
 
+	for _, c := range m.RequiredCapabilities {
+		if def, ok := capability.DataOf(c); ok {
+			fmt.Printf("\n%s is defined by %s, not by The Pleiades: pleiades doc %s\n", c, def.Provider, c)
+		}
+	}
+
 	if m.Status == collection.StatusImplemented {
 		printParams(m.Doc)
 		printReturns(m.Doc)
@@ -272,6 +287,40 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 		}
 	}
 	return nil
+}
+
+// printCapability prints a capability a loaded program defines: what it
+// says a device can do, what else the device must hold, how a device comes
+// to hold it, and the properties a grant carries.
+func printCapability(def capability.DataDefinition) {
+	fmt.Println(def.Name)
+	fmt.Println(strings.Repeat("=", len(def.Name)))
+	fmt.Println()
+	if def.Doc != "" {
+		fmt.Println(def.Doc)
+		fmt.Println()
+	}
+	fmt.Printf("defined by: %s (an external Collection, not The Pleiades)\n", def.Provider)
+	requires := make([]string, len(def.Requires))
+	for i, r := range def.Requires {
+		requires[i] = string(r)
+	}
+	fmt.Printf("requires:   %s\n", joinOrDash(requires))
+	fmt.Println("granted by:")
+	if def.Probe != "" {
+		fmt.Printf("  its probe %s, which pleiades onboard <device> runs\n", def.Probe)
+	}
+	fmt.Printf("  an assertion: pleiades grant-capability <device> %s --reason <why>\n", def.Name)
+	if len(def.Properties) > 0 {
+		fmt.Println("\nproperties:")
+		for _, p := range def.Properties {
+			req := ""
+			if p.Required {
+				req = ", required"
+			}
+			fmt.Printf("  %-20s %s%s\n    %s\n", p.Name, p.Type, req, p.Description)
+		}
+	}
 }
 
 func printParams(doc collection.Doc) {
