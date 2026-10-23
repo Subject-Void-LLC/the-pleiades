@@ -45,6 +45,12 @@ var handWrittenDevices = []struct {
 	TypeKey      string
 	Capabilities []string
 	Conditional  []conditionalCapability
+	// Origin is the page's word for where the type came from; empty is
+	// "hand-written, predates the Forge".
+	Origin string
+	// Required are the properties the type's constructor refuses a record
+	// without, which the completeness test builds it with.
+	Required map[string]any
 }{
 	{
 		Vendor: "cisco", TypeKey: "cisco_router",
@@ -62,6 +68,12 @@ var handWrittenDevices = []struct {
 			{Name: "FileTransferCapable", Property: "file_transfer_root", Value: "/srv/xfer"},
 			{Name: "FirewalldCapable", Property: "firewalld", Value: true},
 		},
+	},
+	{
+		Vendor: "batfish", TypeKey: "batfish",
+		Capabilities: []string{"NetworkAddressableCapable", "BatfishAPICapable"},
+		Origin:       "hand-written, a service the network model runs in",
+		Required:     map[string]any{"api_base": "http://127.0.0.1:9996"},
 	},
 }
 
@@ -97,7 +109,11 @@ func generateDevices(outDir string) error {
 		}
 		caps, marked := markConditional(d.TypeKey, names)
 		conditional = conditional || marked
-		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), caps, "hand-written, predates the Forge"})
+		origin := d.Origin
+		if origin == "" {
+			origin = "hand-written, predates the Forge"
+		}
+		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), caps, origin})
 	}
 	generic, err := genericDeviceRows()
 	if err != nil {
