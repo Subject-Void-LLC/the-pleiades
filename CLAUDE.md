@@ -64,12 +64,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 178 registered FQCNs; 175 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 187 registered FQCNs; 184 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 19, `ai` 11,
-  `svc` 16, `net` 13, `file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3, `archive` 2, `fs` 2, `gate` 2,
+  `svc` 16, `net` 21, `file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
   `http` 2, `pleiades` 2, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -157,7 +157,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 164 of the 175 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 172 of the 184 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -168,8 +168,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The eleven methods with no check (`exec.winrm.shell`, `container.exec`,
-  `net.cli.*`, `net.ios.command`, `net.ios.config`, `net.netconf.config`, the four waits) each carry
+  call. The twelve methods with no check (`exec.winrm.shell`, `container.exec`,
+  `net.cli.*`, `net.ios.command`, `net.ios.config`, `net.netconf.config`, the five waits) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
   Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a
@@ -197,6 +197,20 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `predicted: true` (`sdk.StatPredicted`, and `sdk.DiffPredicted` in the diff) on every
   check result and refuses it on a real one; an incomplete check exits 3 and
   `--allow-unchecked <method>` accepts named gaps.
+- **Network change verification is real on the Crawl tier (Phase 127b).** `net.batfish.check` holds candidate
+  configurations (`frr`, `cisco_ios`; masked by `pkg/netcfg` first) to a `batfish` device's model through
+  `pkg/batfish` (Batfish's REST API from Go), with assertions, link-down scenarios and a fail-closed refusal of
+  every unrecognised line and every feature measured to be parsed but not modelled (`coverage.go`: Cisco GLBP,
+  IP SLA, SLA tracking, BFD), each accepted only by name with a reason. `net.frr.*` (through `vtysh` and
+  `frr-reload.py`), `wait.routes`, `net.trace` and `net.ovs.*` apply and verify; `pleiades import-containerlab`
+  reads a lab's `topology-data.json`. FRR and Open vSwitch are `generic_ssh` devices granted `FRRCapable` and
+  `OpenVSwitchCapable` by onboarding. Proven against real FRR, Open vSwitch and Batfish containers
+  (`testsupport.StartNetLab`, whose networks are named so the management one sorts first: Docker Desktop
+  forwards a published port through the first-named network). Arista EOS and Junos formats wait for Phase 74d.
+- **An external Collection defines capabilities as data (Phase 127a).** `pkg/capability.DataDefinition`,
+  registered by the loader, granted by the program's read-only probe at onboarding (Crawl tier only) or by an
+  admin's assertion (`pleiades grant-capability`, `POST /inventory/devices/{name}/capabilities`, scope
+  `inventory:assert`), and recorded in the one reserved `granted` property.
 - **SSH connections persist between a device's tasks by default.** `pkg/remoteexec.Pool`
   lends connections through `sdk.Connect` whenever the method's `RunbookContext` implements
   `sdk.ConnectionPooler`, so no Collection changes to take part. Crawl: `pleiades run

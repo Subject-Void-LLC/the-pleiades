@@ -137,6 +137,9 @@ mkdir my-project && cd my-project
 - [`docs/15-performance.md`](docs/15-performance.md): the same work through Ansible and
   The Pleiades on 1 to 200 hosts, with time, CPU, memory, threads, logins, network and disk
   measured, and how to rerun it.
+- [`docs/16-network-verification.md`](docs/16-network-verification.md): checking a routing
+  change against Batfish's model before it is made, applying it to FRRouting routers so it
+  undoes itself on failure, and verifying it live; what the model does and does not see.
 - [`docs/reference/`](docs/reference/index.md): the generated reference: module catalog,
   capability vocabulary, device types, sync plugins, runbook and task keys, the CLI
   ([`docs/reference/cli.md`](docs/reference/cli.md)), JSON Schemas, the OpenAPI document
