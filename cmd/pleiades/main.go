@@ -38,6 +38,7 @@ var commands = map[string]commandFunc{
 	"add-database-connection":    runAddDatabaseConnection,
 	"list-database-connections":  runListDatabaseConnections,
 	"remove-database-connection": runRemoveDatabaseConnection,
+	"import-containerlab":        runImportContainerlab,
 	"import-kubeconfig":          runImportKubeconfig,
 	"onboard":                    runOnboard,
 	"trust-host":                 runTrustHost,

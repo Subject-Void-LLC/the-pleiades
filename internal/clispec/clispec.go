@@ -278,6 +278,26 @@ var Root = Command{
 			},
 		},
 		{
+			Name:     "import-containerlab",
+			Synopsis: "make a containerlab lab's nodes generic_ssh devices, from the topology-data.json it wrote on deploy, refusing any node that is not the named lab's",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "topology", Type: "string", Default: "", Doc: "containerlab's topology-data.json for the lab, written on deploy"},
+				{Name: "lab", Type: "string", Default: "", Doc: "the lab's name, which the file must be for"},
+				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
+				{Name: "username", Type: "string", Default: "", Doc: "with --key, the account every node is reached as"},
+				{Name: "key", Type: "string", Default: "", Doc: "a private key file stored as every imported node's credential"},
+				{Name: "trust-first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does"},
+				{Name: "onboard", Type: "bool", Default: "false", Doc: "onboard each node once it is imported (needs a credential and trusted host keys)"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the address of a node already in the inventory as a generic_ssh device"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as one JSON document"},
+			},
+			Examples: []string{
+				"pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --username netops --key keys/id_ed25519 --trust-first-connect --onboard",
+				"pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --nodes r1,r2 --replace --json",
+			},
+		},
+		{
 			Name:       "onboard",
 			Positional: "<device>",
 			Synopsis:   "probe a device over its protocol and record what it proved: a generic device's capabilities, the container engines a host runs, or what a Kubernetes cluster serves",
