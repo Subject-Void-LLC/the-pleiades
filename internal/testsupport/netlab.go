@@ -12,8 +12,10 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,13 @@ import (
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // The images a net lab starts. The two base images are pulled; the router
@@ -139,7 +148,11 @@ func StartNetLab(tb testing.TB, routers, switches []string, links []NetLabLink) 
 	tb.Cleanup(func() { _ = mgmt.Remove(context.Background()) })
 	linkNets := map[string]*testcontainers.DockerNetwork{}
 	for _, l := range links {
-		nw, err := network.New(ctx, network.WithInternal(), network.WithIPAM(&mobynetwork.IPAM{
+		// Not internal: Docker drops a bridged packet on an internal network
+		// whose destination is outside the subnet, and OSPF's hellos go to
+		// 224.0.0.5, so no adjacency ever formed. The management network
+		// keeps the default route (its gateway priority).
+		nw, err := network.New(ctx, network.WithIPAM(&mobynetwork.IPAM{
 			Config: []mobynetwork.IPAMConfig{{Subnet: l.Subnet}},
 		}))
 		if err != nil {
@@ -239,6 +252,48 @@ func netLabHostKey(tb testing.TB, node *NetLabNode, signer ssh.Signer) ssh.Publi
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// TrustHostKeys writes every node's host key to a known_hosts file of the
+// test's own and points remoteexec at it for the rest of tb, so a method
+// under test verifies each node's key as it would a real device's.
+func (l *NetLab) TrustHostKeys(tb testing.TB) {
+	tb.Helper()
+	var lines []byte
+	for _, n := range l.Nodes {
+		lines = append(lines, []byte(knownhosts.Line([]string{net.JoinHostPort(n.Host, strconv.Itoa(n.Port))}, n.HostKey)+"\n")...)
+	}
+	path := filepath.Join(tb.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, lines, 0o600); err != nil {
+		tb.Fatal(err)
+	}
+	tb.Setenv(remoteexec.KnownHostsEnv, path)
+}
+
+// Secrets is the credential every node accepts, as a run injects one.
+func (l *NetLab) Secrets() map[string]string {
+	return map[string]string{wire.SecretUsername: NetLabUser, wire.SecretPrivateKeyPEM: string(l.PrivateKeyPEM)}
+}
+
+// NetLabDevice is a node as a device: the shared inventory stub, holding
+// the capabilities a test names, plus the SSH accessors Connect reads.
+type NetLabDevice struct {
+	*inventorytest.Stub
+	host string
+	port int
+}
+
+// SSHHost returns the node's published SSH address.
+func (d *NetLabDevice) SSHHost() string { return d.host }
+
+// SSHPort returns the node's published SSH port.
+func (d *NetLabDevice) SSHPort() int { return d.port }
+
+// Device returns the node as an active device holding caps.
+func (n *NetLabNode) Device(caps ...capability.Name) inventory.InventoryItem {
+	return &NetLabDevice{Stub: &inventorytest.Stub{
+		StubID: inventory.DeviceID(n.Name), StubName: n.Name, StubState: inventory.StateActive, Caps: caps,
+	}, host: n.Host, port: n.Port}
 }
 
 // Exec runs argv in node's container as root, for a test's own setup and

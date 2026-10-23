@@ -72,10 +72,12 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// win.capability.install and remove, and win.reboot. win.firewall.rule
 	// is the 174th, win.firewall.profile the 175th,
 	// win.archive.extract the 176th, net.ios.command the 177th, and
-	// file.stat the 178th.
+	// file.stat the 178th. Network verification (Phase 127b) added the
+	// 179th through 186th: net.frr.config, interface, facts and command,
+	// wait.routes, net.trace, and net.ovs.bridge and port.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 178
+	const wantCollections = 186
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}
