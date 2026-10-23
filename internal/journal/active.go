@@ -177,10 +177,7 @@ func (a *Active) End() error {
 // others may write, one too large, one not yet written) is skipped.
 func OtherActive(root, self string, deviceIDs []string) ([]ActiveRun, error) {
 	dir := activeDir(root)
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
+	entries, err := readDirIfAny(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list %s: %w", dir, err)
 	}
@@ -306,10 +303,7 @@ type ConcurrentChange struct {
 // and if it still cannot be, named in unread rather than failing the rest.
 func ChangesDuring(root, self string, deviceIDs []string, since, until time.Time) (changes []ConcurrentChange, unread []string, err error) {
 	dir := filepath.Join(root, pleiadesDirName, journalDirName)
-	names, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
-	}
+	names, err := readDirIfAny(dir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to list %s: %w", dir, err)
 	}
@@ -362,4 +356,25 @@ func ChangesDuring(root, self string, deviceIDs []string, since, until time.Time
 		changes = append(changes, f.change)
 	}
 	return changes, unread, nil
+}
+
+// readDirIfAny lists dir, nil when there is no dir yet. Something else at
+// dir's path, a file where the directory belongs, is an error on every
+// system: Windows reports a file opened as a directory as a path not found,
+// which read as "no directory yet" there and as an error everywhere else.
+func readDirIfAny(dir string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(dir)
+	if !errors.Is(err, fs.ErrNotExist) {
+		return entries, err
+	}
+	info, statErr := os.Lstat(dir)
+	switch {
+	case errors.Is(statErr, fs.ErrNotExist):
+		return nil, nil
+	case statErr != nil:
+		return nil, statErr
+	case !info.IsDir():
+		return nil, fmt.Errorf("%s is not a directory", dir)
+	}
+	return nil, err
 }

@@ -15410,3 +15410,24 @@ error quoted the device's unexpected question up to the read bound, 1 MiB.
 needs its own bound, and nothing finds one that lacks it.
 
 **Lesson.** Bound and escape remote text where it enters an error, every time (LESSONS 266).
+
+## 628. Windows: a file standing where the active-run or journal directory belongs read as "no directory yet", because Windows reports a file opened as a directory as a path not found (a sibling of 615) (fixed before push)
+
+**Symptom.** `make pr-check`'s Windows leg, 2026-10-23, at `5dfb5361`: `TestActive_FailuresSayWhatFailed` failed on
+win-check only ("a record directory that is a file was listed", "a journal directory that is a file was read"). Linux,
+macOS and FreeBSD passed.
+
+**Root cause.** `OtherActive` and `ChangesDuring` (`internal/journal/active.go`) treated `fs.ErrNotExist` from
+`os.ReadDir` as "nothing recorded yet". On Unix, reading a file as a directory fails with ENOTDIR, which is not
+`ErrNotExist`, so the error surfaced. On Windows the same read fails with "the system cannot find the path specified",
+which Go maps to `ErrNotExist`, so a file in the directory's place silently read as an empty directory.
+
+**Fix.** `readDirIfAny`: when a read reports not-exist, `os.Lstat` the path; absent is no entries, anything else
+standing there is an error. Test `TestReadDirIfAny_TellsAMissingDirectoryFromSomethingElse` (a dangling link reaches
+the same branch on Linux); the Windows leg of the next pr-check runs the original test.
+
+**Why 615's fix did not prevent it.** 615 fixed the mode bits Windows reports; this is a different Windows answer, to
+a different question (what a failed directory read means), in the same new file.
+
+**Lesson.** On Windows, "not found" from a directory read does not mean nothing is there. Confirm absence with
+`Lstat` before treating it as empty, wherever a file in the wrong place must be an error.

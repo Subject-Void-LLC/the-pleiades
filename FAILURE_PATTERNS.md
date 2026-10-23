@@ -630,6 +630,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 625. net.trace chose its container path by a non-empty value while Manifest.For chose the call's shape by presence, so container: "" was checked as a container call and ran over SSH (a sibling of 115) (fixed before push)
 626. A CML or GNS3 login error could quote the response body, which a 422 echoes with the password (a repeat of 457) (fixed before push)
 627. net.ios.replace quoted every difference line in its errors, and telnetexec quoted up to 1 MiB of a device's question (a repeat of 431) (fixed before push)
+628. Windows: a file standing where the active-run or journal directory belongs read as "no directory yet", because Windows reports a file opened as a directory as a path not found (a sibling of 615) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
