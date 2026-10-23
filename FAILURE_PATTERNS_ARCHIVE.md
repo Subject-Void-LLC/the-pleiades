@@ -15431,3 +15431,23 @@ a different question (what a failed directory read means), in the same new file.
 
 **Lesson.** On Windows, "not found" from a directory read does not mean nothing is there. Confirm absence with
 `Lstat` before treating it as empty, wherever a file in the wrong place must be an error.
+
+## 629. The GNS3 fixture's image build failed when Docker Desktop's credential helper did, under make pr-check, though the image needed no credential (a sibling of 601 and 622) (fixed before push)
+
+**Symptom.** `make pr-check` at `c2d7b8a6`, 2026-10-23: `TestCLI_ImportGNS3ReachesANodesConsole/2.2.61` failed in the
+containers pass with `ERROR: failed to build: failed to solve: error getting credentials - err: exit status 1`, then
+passed re-run alone. The same pass's `TestCLI_NetworkChangeIsGatedAppliedAndUndone` also passed alone after Docker
+Desktop never forwarded a lab router's published SSH port within two minutes (the 575 family, contention).
+
+**Root cause.** `docker build` asks the configured credential helper (Docker Desktop's, through WSL) for the base
+image's registry even when the image is cached and public, and that helper fails now and then under load. The
+fixture took the helper's failure for the build's.
+
+**Fix.** `StartGNS3` retries the build, up to three times, only when its output says `error getting credentials`.
+Any other build failure fails at once.
+
+**Why 601's and 622's fixes did not prevent it.** They retried the container's start on a lost port; this is the build
+before it, a different external step with its own transient failure.
+
+**Lesson.** Every step of a fixture that leans on Docker Desktop (build, pull, start, port publishing) has its own
+transient failure under load; retry each on its own named error and nothing else.

@@ -69,9 +69,20 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 	}
 	tag := "pleiades/gns3:" + version
 	src := filepath.Join(RepoRoot(tb), "internal", "testsupport", "testdata", "gns3")
-	build := exec.Command("docker", "build", "--build-arg", "BASE="+GNS3BaseImage, "--build-arg", "GNS3_VERSION="+version, "-t", tag, src) // #nosec G204 -- fixed arguments and a path in this repository
-	if out, err := build.CombinedOutput(); err != nil {
-		tb.Fatalf("building %s: %v\n%s", tag, err, out)
+	// Docker Desktop's credential helper fails now and then under WSL
+	// ("error getting credentials", seen under make pr-check while the image
+	// was cached), which is the helper's failure and not the build's, so
+	// that one error is retried.
+	for attempt := 1; ; attempt++ {
+		build := exec.Command("docker", "build", "--build-arg", "BASE="+GNS3BaseImage, "--build-arg", "GNS3_VERSION="+version, "-t", tag, src) // #nosec G204 -- fixed arguments and a path in this repository
+		out, err := build.CombinedOutput()
+		if err == nil {
+			break
+		}
+		if !strings.Contains(string(out), "error getting credentials") || attempt == gns3BuildAttempts {
+			tb.Fatalf("building %s: %v\n%s", tag, err, out)
+		}
+		time.Sleep(2 * time.Second)
 	}
 	api := "v3"
 	if strings.HasPrefix(version, "2.") {
@@ -119,6 +130,10 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 func lostPortRace(err error) bool {
 	return strings.Contains(err.Error(), "address already in use") || strings.Contains(err.Error(), "port is already allocated")
 }
+
+// gns3BuildAttempts bounds how many times a build is tried when the
+// credential helper, not the build, fails.
+const gns3BuildAttempts = 3
 
 // gns3StartAttempts bounds how many fresh console port ranges a start tries
 // after losing one to another process.
