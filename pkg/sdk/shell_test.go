@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -73,6 +74,7 @@ var r1Prompt = regexp.MustCompile(`(?m)^R1[>#]\s*$`)
 // a Telnet-only device gets a logged-in Telnet session, with the task's
 // opt-in.
 func TestOpenShell_PicksTheCarrierTheDeviceIsReachedBy(t *testing.T) {
+	need.POSIXShell(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	srv, err := remoteexectest.Start(remoteexectest.Options{Device: &remoteexectest.Device{Prompt: "R1#"}})
@@ -133,6 +135,7 @@ func TestOpenShell_Refusals(t *testing.T) {
 // refuses each fail naming the task; a shell closed twice reports the
 // second close.
 func TestOpenShell_FailuresAfterTheChoice(t *testing.T) {
+	need.POSIXShell(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	skip := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}

@@ -1,7 +1,9 @@
-// Tests of the Telnet session against a real telnetd and a real /bin/login
-// (BusyBox's, in a container): the login answered, a CLI dialect carried
-// over the session, and a wrong or missing login refused.
-package telnetexec_test
+// Tests of pkg/telnetexec's session against a real telnetd and a real
+// /bin/login (BusyBox's, in a container): the login answered, a CLI dialect
+// carried over the session, and a wrong or missing login refused. They live
+// here, not beside the session, because pkg/telnetexec is part of the
+// external SDK, whose tests may not import internal/testsupport.
+package telnet_test
 
 import (
 	"context"

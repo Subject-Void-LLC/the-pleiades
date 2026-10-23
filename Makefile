@@ -416,11 +416,11 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/testsupport \
 	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
+	github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/batfish \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/gns3 \
-	github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660 \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
