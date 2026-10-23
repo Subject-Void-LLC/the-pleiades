@@ -23,23 +23,28 @@ func widgetGrant(props map[string]any) inventory.Grant {
 
 // recordWith is a record whose granted property holds grants.
 func recordWith(grants ...inventory.Grant) record.Record {
-	return record.Record{Name: "w1", Properties: map[string]inventory.PropertyValue{
+	return record.Record{Name: "w1", Type: grantTypeName, Properties: map[string]inventory.PropertyValue{
 		"host":                    "10.0.0.1",
 		inventory.GrantedProperty: inventory.GrantsProperty(grants),
 	}}
 }
 
-// TestDeclared_AddsWhatARecordIsGranted: a grant of a capability this
+// capsOf is what a device built on rec with baseline declares, as every
+// device type builds its capabilities (record.NewBase).
+func capsOf(rec record.Record, baseline []capability.Name) []capability.Name {
+	return record.NewBase(rec, baseline).Capabilities()
+}
+
+// TestNewBase_AddsWhatARecordIsGranted: a grant of a capability this
 // process does not define is kept by name (a Controller loads no program);
 // one it defines counts only with properties that fit and the compiled
 // capabilities it requires.
-func TestDeclared_AddsWhatARecordIsGranted(t *testing.T) {
+func TestNewBase_AddsWhatARecordIsGranted(t *testing.T) {
 	baseline := []capability.Name{capability.NameSSHTransport}
 	ok := map[string]any{"endpoint": "https://widgets.example"}
 
-	caps, _, err := record.Declared(grantTypeName, recordWith(widgetGrant(ok)), baseline)
-	if err != nil || !slices.Contains(caps, "acme.widget_api") {
-		t.Fatalf("undefined: Declared = %v, %v; want the grant kept by name", caps, err)
+	if caps := capsOf(recordWith(widgetGrant(ok)), baseline); !slices.Contains(caps, "acme.widget_api") {
+		t.Fatalf("undefined: caps = %v; want the grant kept by name", caps)
 	}
 
 	t.Cleanup(capability.SnapshotForTest())
@@ -61,27 +66,24 @@ func TestDeclared_AddsWhatARecordIsGranted(t *testing.T) {
 		{"an undeclared property", map[string]any{"endpoint": "x", "zone": "y"}, baseline, false},
 		{"no compiled capability it requires", ok, nil, false},
 	} {
-		caps, _, err := record.Declared(grantTypeName, recordWith(widgetGrant(tc.props)), tc.baseline)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.name, err)
-		}
+		caps := capsOf(recordWith(widgetGrant(tc.props)), tc.baseline)
 		if got := slices.Contains(caps, "acme.widget_api"); got != tc.want {
 			t.Errorf("%s: granted %v, want %v (caps %v)", tc.name, got, tc.want, caps)
 		}
 	}
 }
 
-// TestDeclared_RefusesAMalformedGrant: a grant of a name that is not a data
-// capability's, or with an unknown source, is a corrupted record and is
-// refused rather than read as granting nothing.
-func TestDeclared_RefusesAMalformedGrant(t *testing.T) {
+// TestNewBase_AMalformedGrantGrantsNothing: a grant of a name that is not
+// a data capability's, or with an unknown source, was not written by
+// RecordGrant, so the record grants nothing at all: failing closed.
+func TestNewBase_AMalformedGrantGrantsNothing(t *testing.T) {
 	for name, granted := range map[string]map[string]any{
 		"a compiled name":   {string(capability.NameSSHTransport): map[string]any{"source": "assertion"}},
 		"an unknown source": {"acme.widget_api": map[string]any{"source": "rumour"}},
 	} {
-		rec := record.Record{Name: "w1", Properties: map[string]inventory.PropertyValue{inventory.GrantedProperty: granted}}
-		if _, _, err := record.Declared(grantTypeName, rec, nil); err == nil {
-			t.Errorf("%s: Declared accepted a malformed grant", name)
+		rec := record.Record{Name: "w1", Type: grantTypeName, Properties: map[string]inventory.PropertyValue{inventory.GrantedProperty: granted}}
+		if caps := capsOf(rec, nil); len(caps) != 0 {
+			t.Errorf("%s: a malformed grant declared %v", name, caps)
 		}
 	}
 }

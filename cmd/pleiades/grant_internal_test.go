@@ -33,6 +33,8 @@ func grantProject(t *testing.T) string {
 	t.Helper()
 	t.Cleanup(collection.SnapshotForTest())
 	t.Cleanup(capability.SnapshotForTest())
+	resetLoadedCollections()
+	t.Cleanup(resetLoadedCollections)
 	programs := t.TempDir()
 	if err := os.Chmod(programs, 0o700); err != nil {
 		t.Fatal(err)
@@ -111,7 +113,7 @@ func TestGrantCapability_RefusesWhatItCannotRecordHonestly(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"no reason", []string{"w1", "clitest.widget_api", "--set", "endpoint=https://w"}, "--reason is required"},
+		{"no reason", []string{"w1", "clitest.widget_api", "--set", "endpoint=https://w"}, "a reason is required"},
 		{"a compiled capability", []string{"w1", string(capability.NameSSHTransport), "--reason", "x"}, "only onboarding grants"},
 		{"an undefined capability", []string{"w1", "clitest.nothing", "--reason", "x"}, "no loaded program defines"},
 		{"a missing property", []string{"w1", "clitest.widget_api", "--reason", "x"}, "needs the property"},
@@ -122,6 +124,7 @@ func TestGrantCapability_RefusesWhatItCannotRecordHonestly(t *testing.T) {
 			// process of its own.
 			t.Cleanup(collection.SnapshotForTest())
 			t.Cleanup(capability.SnapshotForTest())
+			t.Cleanup(resetLoadedCollections)
 			var out string
 			err := captureRun(t, &out, func() error { return runGrantCapability(append(tc.args, "--dir", dir)) })
 			if err != nil && strings.Contains(err.Error(), "Landlock") {

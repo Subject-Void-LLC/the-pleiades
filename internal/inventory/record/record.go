@@ -113,6 +113,7 @@ type Base struct {
 // returns a pointer, and concrete types embed that pointer rather than a
 // value, so the embedded sync.RWMutex is never copied.
 func NewBase(rec Record, caps []capability.Name) *Base {
+	caps = withGrants(rec, caps)
 	props := make(map[string]inventory.PropertyValue, len(rec.Properties))
 	for k, v := range rec.Properties {
 		props[k] = v

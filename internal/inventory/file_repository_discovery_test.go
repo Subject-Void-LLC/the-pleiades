@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -104,5 +106,43 @@ func TestFileRepository_KeepsAGrantInTheStateFile(t *testing.T) {
 	}
 	if _, err := NewFileRepository(byHand, NewItemFactory()).GetByName(context.Background(), "web2"); err == nil || !strings.Contains(err.Error(), inventory.GrantedProperty) {
 		t.Fatalf("a hand-written grant: err %v, want a refusal naming %s", err, inventory.GrantedProperty)
+	}
+}
+
+// TestGrant_AProbedGrantLapsesWhenTheDeviceIsRepointed: a probed grant on a
+// generic_http device holds while the properties its type binds are as the
+// probe found them, and grants nothing once the device points elsewhere,
+// so a program never sends its credential to an address nobody probed.
+func TestGrant_AProbedGrantLapsesWhenTheDeviceIsRepointed(t *testing.T) {
+	// The program's definition, as the loader registers it: a grant of a
+	// capability this process does not define grants nothing anywhere.
+	t.Cleanup(capability.SnapshotForTest())
+	if err := capability.RegisterData(capability.DataDefinition{Name: "acme.widget_api", Provider: "widgets"}); err != nil {
+		t.Fatal(err)
+	}
+	props := map[string]inventory.PropertyValue{"base_url": "https://api.example.test"}
+	binding := record.DiscoveryBinding("generic_http", inventory.NewProperties(props))
+	if binding == "" {
+		t.Fatal("generic_http binds nothing, so this test proves nothing")
+	}
+	build := func(baseURL string) inventory.InventoryItem {
+		t.Helper()
+		p := map[string]inventory.PropertyValue{
+			"base_url": baseURL,
+			inventory.GrantedProperty: inventory.GrantsProperty([]inventory.Grant{{
+				Capability: "acme.widget_api", Source: inventory.GrantProbed, Program: "widgets", Binding: binding,
+			}}),
+		}
+		item, err := NewItemFactory().Build(record.Record{ID: "h1", Name: "api1", Type: "generic_http", Properties: p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return item
+	}
+	if item := build("https://api.example.test"); !item.HasCapability("acme.widget_api") {
+		t.Error("the probed grant does not hold on the device the probe found")
+	}
+	if item := build("https://elsewhere.example.test"); item.HasCapability("acme.widget_api") {
+		t.Error("the probed grant still holds after the device was repointed")
 	}
 }

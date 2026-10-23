@@ -100,6 +100,28 @@ type Result struct {
 	// ciphers or a plain-HTTP credential.
 	Warnings []string `json:"warnings"`
 	Error    string   `json:"error,omitempty"`
+	// Grants is what each loaded external program's probe did for the
+	// capability it probes (the command line runs them after its own
+	// probe; a Controller runs none, since it loads no program).
+	Grants []ProbedGrant `json:"grants,omitempty"`
+}
+
+// ProbedGrant is what one program's probe did for one capability it
+// defines.
+type ProbedGrant struct {
+	// Capability is the data capability probed.
+	Capability string `json:"capability"`
+	// Program is the program that defines it and ran the probe.
+	Program string `json:"program"`
+	// Probe is the probe method.
+	Probe string `json:"probe"`
+	// Granted says the device answered the probe and now holds it.
+	Granted bool `json:"granted"`
+	// Withdrawn says the probe found the device no longer answering, and
+	// the grant an earlier probe made was taken back.
+	Withdrawn bool `json:"withdrawn,omitempty"`
+	// Error is why the probe could not decide.
+	Error string `json:"error,omitempty"`
 }
 
 // discoveryWriter and stateChanger are the mutators every item the factory

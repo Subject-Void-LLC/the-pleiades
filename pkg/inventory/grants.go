@@ -55,6 +55,12 @@ type Grant struct {
 
 	// At is when it was granted.
 	At time.Time
+
+	// Binding is, for a probed grant on a device type that binds what its
+	// probes trust (record.DiscoveryBinding), the digest of those
+	// properties when the probe ran; a grant whose binding no longer
+	// matches grants nothing, as a stale discovery does.
+	Binding string
 }
 
 // GrantsProperty encodes grants as the value GrantedProperty holds, keyed
@@ -79,6 +85,9 @@ func GrantsProperty(grants []Grant) map[string]any {
 		}
 		if g.Reason != "" {
 			entry["reason"] = g.Reason
+		}
+		if g.Binding != "" {
+			entry["binding"] = g.Binding
 		}
 		out[string(g.Capability)] = entry
 	}
@@ -122,6 +131,7 @@ func GrantsFrom(props Properties) ([]Grant, bool, error) {
 		g.Program, _ = entry["program"].(string)
 		g.By, _ = entry["by"].(string)
 		g.Reason, _ = entry["reason"].(string)
+		g.Binding, _ = entry["binding"].(string)
 		if at, ok := entry["at"].(string); ok {
 			if t, err := time.Parse(time.RFC3339, at); err == nil {
 				g.At = t
