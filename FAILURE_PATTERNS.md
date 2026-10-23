@@ -599,6 +599,12 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 594. A Telnet login answered by a delayed refusal was taken as accepted, because the session read 500 ms of quiet as the answer (a sibling of 149) (fixed before push)
 595. trust-host reported a refused connection as a host that presented no host key (fixed before push)
 596. The generic CLI prompt pattern allowed only whitespace after the prompt, so a shell's terminal query hid it (fixed before push)
+597. A tag change was recorded as a revision and never written to hosts.yaml, because the file repository's Save wrote properties only (a repeat of 261 and 274) (fixed before push)
+598. An unknown flag before set-host's name took the name as its value, so the command said the name was missing (a repeat of 50) (fixed before push in set-host; open in the other commands)
+599. net.ios.command reported a read-only show command as changed, so a second run could not prove it changed nothing (fixed before push)
+600. The insecure_telnet advice said to set it "on the task", and an agent wrote it as a task key the builder refused (a repeat of 270 and 488) (fixed before push)
+601. The GNS3 fixture found console ports free and then let Docker bind them, and another test took one in between (a sibling of 123) (fixed before push)
+602. The GNS3 2.2.61 container's API did not answer within two minutes once, with the machine idle, and answers in about 5 s every other time (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -6038,3 +6038,38 @@ This is LESSONS 247 (a captured request proves what was asked, not what happened
 held. It is recorded because the next configuration method (EOS, Junos, IOS) will meet the same thing in other
 forms, and a gate that hashed the candidate (`expect_sha256`) proves only what was sent.
 
+## 314. An IOS change records no undo, so read what it will replace first, write the task's rollback: list from that read, and rehearse both on a lab device
+
+**Rule.** Before changing a Cisco IOS device with `net.ios.config`, `net.cli.config` or a configuring
+`net.ios.command`, read what the change will replace with a show command. Give the task a `rollback:` list written
+from that read: the `no` form of a line that adds something, the old line for one that replaces something. These
+methods have no check mode, so rehearse the change and its rollback on a lab device running the same image before
+relying on the list. The skill and the docs teach an agent exactly this.
+
+**Why.** 2026-10-23, Phase 127c. The owner had an agent change a Cisco router through pleiades (the "turn B" scenario:
+make a change, then undo it). `net.ios.config` records no undo, because an IOS device cannot say what a line replaced,
+so `pleiades rollback` refuses such a run until the change is left by name with `--leave`. Nothing told the agent how
+to make the change undoable, so the undo depended on the agent guessing. The same session gave three of the friction
+points in FAILURE_PATTERNS 598 to 600.
+
+The skill (`skillNetwork` in `cmd/pleiades/doc_skill.go`) and `docs/16-network-verification.md` ("Undoing an IOS
+change") now teach the read, the `rollback:` list and the rehearsal. It is proven on the DevNet CML sandbox router:
+`TestCLI_ImportCMLReachesIOSOverTelnet` runs a runbook that adds Loopback199 with a `rollback:` list, then `pleiades
+rollback <run-id>`, and reads the router back to find Loopback199 gone.
+
+## 315. A repeat of 189: never load a secrets .env file by sourcing it with the shell; read it with a parser
+
+**Rule.** Never load a file holding secrets with `.`, `source` or `set -a; . file`. Read it with a parser that treats
+each value as data: a few lines of Python, or the test's own loader for that file. This holds for any `.env` under
+`tests/` and for any other file of credentials.
+
+**Why.** 2026-10-23, Phase 127c. Loading `tests/cml/.env` with `set -a; . tests/cml/.env`, a value containing `&`
+split its line: the shell ran the part before it in the background and tried to execute the part after it as a
+command. The error output put two fragments of the sandbox VPN password into the session's tool output. No part of
+it is written here.
+
+189 covered a presence check whose expansion printed the value, and its rule is about probing. It did not cover
+loading, and `. file` looks like loading rather than printing. What happened is 245's fact: the shell parses a
+sourced file as shell, so a value is data only if the shell never parses it. 189's second rule applies as written:
+a secret that has been displayed is rotated, not deleted, because a transcript and a provider's logs are not ours to
+delete. Whether to rotate or end the sandbox reservation early is the owner's decision.

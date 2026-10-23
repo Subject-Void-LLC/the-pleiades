@@ -346,6 +346,8 @@ story, per `.AGENTS/AGENTS.md`.
 311. **A repeat of 257: before calling a device-changing feature done, have a builder with only the docs and the CLI build its example from a clean slate, and remove any access the tests' fixtures grant that the docs never mention (2026-10-22).**
 312. **A repeat of 291: after green tests, the branch-wide failure-pattern review still found 17 real defects, five of them secret exposure; run it before the pull request, not after CI (2026-10-22).**
 313. **A configuration method re-reads the device after applying and fails on any difference from what it sent, because a device can change lines as it accepts them (2026-10-22).**
+314. **An IOS change records no undo: read what it will replace with a show command, write the task's rollback: list from that read, and rehearse both on a lab device, since these methods have no check mode (2026-10-23).**
+315. **A repeat of 189: never load a secrets .env file by sourcing it with the shell, since a value holding a shell character runs as a command and prints the rest; read it with a parser (2026-10-23).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

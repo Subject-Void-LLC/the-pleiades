@@ -14781,3 +14781,121 @@ printed `lab$ ` followed by `ESC[6n`, a cursor position query.
 **Fix.** The generic pattern also allows CSI control sequences after the prompt (`TestSession_AgainstARealTelnetd`).
 
 **Lesson.** A terminal session carries the terminal's own traffic; a pattern for where output ends allows it.
+
+## 597. A tag change was recorded as a revision and never written to hosts.yaml, because the file repository's Save wrote properties only (a repeat of 261 and 274) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, while adding `--tag` and `--untag` to `pleiades set-host`: a tag change
+moved the host's version and recorded a revision under `tags` in the sidecar, and `hosts.yaml` still held the old
+tags. The command reported success. Nothing could change a host's tags from the CLI before, so nothing had shown it.
+
+**Root cause.** `fileRepository.Save` (`internal/inventory/file_repository_save.go`) wrote the version, state, history
+and reserved properties to the sidecar, and wrote back to `hosts.yaml` only `hosts[hostIdx].Properties`. Tags live in
+`hosts.yaml` beside the properties, and Save never set them.
+
+**Fix.** Save also writes `hosts[hostIdx].Tags = tagsToStrings(item.Tags())`.
+`TestSetHost_TagsAndUntagsAndRecordsIt` (`cmd/pleiades/sethost_test.go`) tags and untags through `runSetHost`, reads
+the host back through the repository and reads `hosts.yaml` itself with `inv.ReadHosts`, and checks that the `tags`
+key disappears when the last tag is removed.
+
+**Why 261 and 274 did not prevent it.** 261's fix added `record.Base.ChangeTags`, which bumps the version and records
+the revision, and proved it through the API handler against the real ent repository. The Crawl tier's file repository
+is a second store, and no path put a tag change through it until now. 274's lesson says to treat every place a type's
+fields are enumerated as a place that must change; `Save`'s list of what goes back to `hosts.yaml` was such a place,
+and nobody looked at it when `ChangeTags` was added, because the lesson depends on someone remembering it.
+
+**Lesson.** A change method on a record (`ChangeTags`, `ChangeState`, `AddInfo`) is proven once per repository, by
+reading back the store's own file or table, not the record in memory.
+
+## 598. An unknown flag before set-host's name took the name as its value, so the command said the name was missing (a repeat of 50) (fixed before push in set-host; open in the other commands)
+
+**Symptom.** 2026-10-23, found when the owner had an agent change a Cisco router through pleiades: a call like
+`pleiades set-host --label r1` (a flag set-host does not define, placed before the name) failed with "missing
+positional argument", which sent the agent looking for a missing name instead of a wrong flag. The agent's own calls
+used `--tag`, which set-host did not define until this branch added it (597 is what adding it exposed).
+
+**Root cause.** `splitPositional` (`cmd/pleiades/addhost.go`) assumes every `-` token it does not know as boolean takes
+the next token as its value. An undefined flag took the host name, so no positional was left, and set-host checked the
+positional count before the flag set ever saw the flag.
+
+**Fix.** set-host splits with `splitPositionals` and calls `fs.Parse` before it checks how many positionals it got, so
+the flag set reports "flag provided but not defined: -label" (`TestSetHost_AnUnknownFlagIsNamed`, with the flag both
+before and after the name). Still open: `add-host` and the other commands that split with `splitPositional` check the
+positional first and would report the same wrong thing.
+
+**Why 50 did not prevent it.** 50's fix kept the premise and exempted the boolean flags each caller names. An unknown
+flag is one no caller can name, so the premise still fails for it. Only the flag set knows what a flag takes. 562
+(open) has the same ordering at its root: a missing name is refused before the flag set sees `--help`.
+
+**Lesson.** Let the flag set parse before any count of positionals is checked; a splitter that guesses which tokens
+are values will guess wrong for the flag nobody defined, which is the one a user most needs named.
+
+## 599. net.ios.command reported a read-only show command as changed, so a second run could not prove it changed nothing (fixed before push)
+
+**Symptom.** 2026-10-23, found when the owner had an agent change a Cisco router through pleiades: the agent's proof
+that a second run changed nothing failed on `net.ios.command` with `show version`, which reported changed every time.
+
+**Root cause.** `net.ios.command` returned `Changed: true` for every command that ran without error, as
+`net.cli.command` and `exec.command` do, because a command's effect cannot be inspected. A show command is the one case
+whose effect is known.
+
+**Fix.** `iosShow` (`internal/catalog/net/ios/command.go`) reports unchanged for a line whose first word is `show` or
+an IOS abbreviation of it (at least two letters), unless one of its pipes is `redirect`, `append` or `tee` (or an
+abbreviation), which write a file. `TestIOSShow_OnlyAShowThatWritesNoFile` covers the abbreviations and the pipes; on
+the DevNet CML sandbox router, `TestCLI_ImportCMLReachesIOSOverTelnet` asserts `show ip interface brief` returns status
+`ok`. The method's documentation says so.
+
+**Lesson.** "Cannot be inspected, so changed" is right for a command in general and wrong for the commands a device
+documents as reads; an agent proving idempotence runs reads, so name them.
+
+## 600. The insecure_telnet advice said to set it "on the task", and an agent wrote it as a task key the builder refused (a repeat of 270 and 488) (fixed before push)
+
+**Symptom.** 2026-10-23, found when the owner had an agent change a Cisco router through pleiades: following the
+refusal "set insecure_telnet: true on the task to accept that", the agent wrote `insecure_telnet: true` beside the
+task's `name:`, and the runbook builder refused it as an unknown task key.
+
+**Root cause.** `insecure_telnet` is a method parameter (`sdk.ParamInsecureTelnet`, read from the method's params by
+`sdk.OpenShell`). "On the task" reads as a task key to anyone who knows tasks have keys of their own. The same wording
+was in `pkg/sdk/shell.go`'s refusal, `docs/16-network-verification.md`, the skill (`cmd/pleiades/doc_skill.go`), the
+next-step lines `import-cml` and `import-gns3` print, and the `telnet-login` changelog fragment.
+
+**Fix.** Each now says to pass it among the method's parameters, beside its other parameters, not as a task key; docs/16
+shows `net.ios.facts: {insecure_telnet: true}`.
+
+**Why 270 and 488 did not prevent it.** 270 says to follow an instruction once before shipping it, and 488 says a
+refusal naming a parameter needs a test that sets it through the whole path. The CML gate does set `insecure_telnet`
+among the parameters and passes, so the parameter was right. What no test can check is where a reader puts it: the
+author placed it correctly because the author knew. An agent reading only the message is what found it, as LESSONS 311
+found for docs.
+
+**Lesson.** Advice that names a key says where it goes in the runbook's own terms (a method parameter, a task key, a
+runbook key); "on the task" is not one of them.
+
+## 601. The GNS3 fixture found console ports free and then let Docker bind them, and another test took one in between (a sibling of 123) (fixed before push)
+
+**Symptom.** 2026-10-23, under `make pr-check`: starting the GNS3 container failed with "address already in use" on a
+console port.
+
+**Root cause.** `freeConsoleRange` (`internal/testsupport/gns3.go`) finds free ports by listening on them and closing
+the listeners; Docker binds them a moment later. A closed listener reserves nothing, so a test running beside it could
+take one first. 123 met the other half of the same fact: a released port is neither unused nor reserved.
+
+**Fix.** `StartGNS3` retries with a fresh range, up to `gns3StartAttempts` (5), and only when the error says "address
+already in use"; any other failure stops at once, now with the container's last 30 log lines.
+
+**Lesson.** A port found free is a guess until it is bound. When the binder is another process, retry on the bind
+error rather than trusting the guess.
+
+## 602. The GNS3 2.2.61 container's API did not answer within two minutes once, with the machine idle, and answers in about 5 s every other time (open)
+
+**Symptom.** 2026-10-23, once, outside `make pr-check` (load average about 2): the fixture's wait for `/v2/version` on
+the 2.2.61 container timed out after two minutes. Run by hand, the same container answered in about 5 s, and the next
+five runs passed in 4 to 5 s.
+
+**Root cause.** Not known. No log of the failed container was kept. It has the outward shape of 470, 471 and 481 (a
+fixture's server never answering within the wait), but those were seen under load, and nothing ties this one to them.
+
+**Fix.** Diagnosis only: a failed start now prints the container's last 30 log lines (601's change), so the next
+occurrence shows what the server was doing.
+
+**Lesson.** When a failure cannot be reproduced, the fix is to make the next one explain itself, and the record says
+the cause is unknown.
