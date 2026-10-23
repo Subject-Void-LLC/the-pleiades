@@ -2,6 +2,7 @@
 package batfish
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"sort"
@@ -140,4 +141,25 @@ func dedupe(list []string) []string {
 		}
 	}
 	return out
+}
+
+// renderCell is a cell, or an expected value, as text: a string as it is,
+// a whole number without a fraction, anything else as JSON.
+func renderCell(v any) string {
+	switch c := v.(type) {
+	case string:
+		return c
+	case float64:
+		if c == float64(int64(c)) {
+			return fmt.Sprint(int64(c))
+		}
+		return fmt.Sprint(c)
+	case int, int64, bool:
+		return fmt.Sprint(c)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
 }

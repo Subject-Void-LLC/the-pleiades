@@ -4,11 +4,15 @@ package batfish
 import (
 	"fmt"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
+
+// questionName is what a Batfish question's name may be.
+var questionName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{1,63}$`)
 
 // readAssertions reads a list of assertions, each a map of one kind.
 func readAssertions(params map[string]any, key string, nodes map[string]bool) ([]assertion, error) {
@@ -50,9 +54,10 @@ func readAssertion(kind string, v any, nodes map[string]bool) (assertion, error)
 		kindNoRoute:     {"node", "prefix"},
 		kindReach:       {"from", "dst", "delivered", "through", "avoids", "accepted_by"},
 		kindRoutesMatch: {"node", "routes", "ignore"},
+		kindQuestion:    {"name", "variables", "where", "min_rows", "max_rows"},
 	}[kind]
 	if allowed == nil {
-		return a, fmt.Errorf("no assertion %q: one of %s, %s, %s, %s, %s or %s", kind, kindOSPF, kindBGP, kindRoute, kindNoRoute, kindReach, kindRoutesMatch)
+		return a, fmt.Errorf("no assertion %q: one of %s, %s, %s, %s, %s, %s or %s", kind, kindOSPF, kindBGP, kindRoute, kindNoRoute, kindReach, kindRoutesMatch, kindQuestion)
 	}
 	for k := range m {
 		if !slices.Contains(allowed, k) {
@@ -131,6 +136,45 @@ func readAssertion(kind string, v any, nodes map[string]bool) (assertion, error)
 				}
 				*into = append(*into, strings.ToLower(n))
 			}
+		}
+	case kindQuestion:
+		a.question, _ = m["name"].(string)
+		if !questionName.MatchString(a.question) {
+			return a, fmt.Errorf("question.name must be a Batfish question's name, e.g. hsrpProperties, got %q", a.question)
+		}
+		for key, into := range map[string]*map[string]any{"variables": &a.variables, "where": &a.where} {
+			if v, present := m[key]; present {
+				mm, ok := v.(map[string]any)
+				if !ok {
+					return a, fmt.Errorf("question.%s must be a map", key)
+				}
+				*into = mm
+			}
+		}
+		for col, v := range a.where {
+			switch v.(type) {
+			case string, bool, int, int64, float64:
+			default:
+				return a, fmt.Errorf("question.where.%s must be a string, number or boolean", col)
+			}
+		}
+		minRows, hasMin, err := sdk.IntParam(m, "min_rows")
+		if err != nil {
+			return a, err
+		}
+		maxRows, hasMax, err := sdk.IntParam(m, "max_rows")
+		if err != nil {
+			return a, err
+		}
+		a.minRows, a.maxRows = 1, -1
+		if hasMin {
+			a.minRows = minRows
+		}
+		if hasMax {
+			a.maxRows = maxRows
+		}
+		if a.minRows < 0 || (hasMax && a.maxRows < a.minRows) {
+			return a, fmt.Errorf("question: min_rows must be at least 0 and max_rows at least min_rows")
 		}
 	case kindRoutesMatch:
 		if a.node, err = node("node"); err != nil {

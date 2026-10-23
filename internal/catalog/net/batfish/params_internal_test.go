@@ -41,6 +41,13 @@ func TestReadParams_Refusals(t *testing.T) {
 		"a scenario with no assertions": {"devices": dev(nil), "scenarios": []any{map[string]any{"name": "s", "down_nodes": []any{"r1"}}}},
 		"down a stranger's interface":   {"devices": dev(nil), "scenarios": []any{map[string]any{"name": "s", "down_interfaces": []any{"r9[eth1]"}, "assertions": ok}}},
 		"an acceptance with no reason":  {"devices": dev(nil), "assertions": ok, "accept_unrecognized": []any{map[string]any{"text": "exit"}}},
+		"an unknown feature":            {"devices": dev(nil), "assertions": ok, "accept_unrecognized": []any{map[string]any{"feature": "vxlan", "reason": "r"}}},
+		"a text and a feature":          {"devices": dev(nil), "assertions": ok, "accept_unrecognized": []any{map[string]any{"feature": "glbp", "text": "x", "reason": "r"}}},
+		"a question with no name":       {"devices": dev(nil), "assertions": []any{map[string]any{"question": map[string]any{}}}},
+		"a question name as a path":     {"devices": dev(nil), "assertions": []any{map[string]any{"question": map[string]any{"name": "../routes"}}}},
+		"a where holding a map":         {"devices": dev(nil), "assertions": []any{map[string]any{"question": map[string]any{"name": "routes", "where": map[string]any{"Node": map[string]any{}}}}}},
+		"max_rows under min_rows":       {"devices": dev(nil), "assertions": []any{map[string]any{"question": map[string]any{"name": "routes", "min_rows": 2, "max_rows": 1}}}},
+		"accepted_by on a drop":         {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": "r1", "dst": "10.0.0.1", "delivered": false, "accepted_by": "r1"}}}},
 	} {
 		if _, err := readParams(nil, p); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -73,5 +80,21 @@ func TestProtocolFamilyAndSecrets(t *testing.T) {
 	}
 	if !strings.Contains(fileDevice("snapshot/configs/r1.cfg"), "r1") || fileDevice("configs/r2.cfg") != "r2" {
 		t.Error("fileDevice")
+	}
+}
+
+// TestUnmodelledIn finds each unmodelled feature a Cisco configuration
+// uses, once, at its first line, and nothing in another format.
+func TestUnmodelledIn(t *testing.T) {
+	config := "hostname r1\nip sla 1\n icmp-echo 10.0.0.9\ntrack 1 ip sla 1 reachability\ninterface Gi1\n glbp 6 ip 10.0.0.253\n glbp 6 priority 200\n bfd interval 300 min_rx 300 multiplier 3\n"
+	uses := unmodelledIn(formatCiscoIOS, config)
+	if len(uses) != 4 || uses["glbp"].line != 6 || uses["ip_sla"].line != 2 || uses["sla_tracking"].line != 4 || uses["bfd"].text == "" {
+		t.Errorf("uses = %+v", uses)
+	}
+	if len(unmodelledIn(formatFRR, config)) != 0 {
+		t.Error("a Cisco feature was found in an FRR configuration")
+	}
+	if renderCell(5.0) != "5" || renderCell(5) != "5" || renderCell(true) != "true" || renderCell([]any{"a"}) != `["a"]` {
+		t.Error("renderCell")
 	}
 }

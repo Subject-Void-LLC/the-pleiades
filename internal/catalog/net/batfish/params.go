@@ -30,10 +30,11 @@ var interfaceRef = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,62})\[([A-Z
 
 // request is the task, read.
 type request struct {
-	devices    []deviceConfig
-	assertions []assertion
-	scenarios  []scenario
-	accept     map[string]string
+	devices       []deviceConfig
+	assertions    []assertion
+	scenarios     []scenario
+	accept        map[string]string
+	acceptFeature map[string]string
 }
 
 // deviceConfig is one device's configuration.
@@ -57,6 +58,7 @@ const (
 	kindNoRoute     = "no_route"
 	kindReach       = "reach"
 	kindRoutesMatch = "routes_match"
+	kindQuestion    = "question"
 )
 
 // assertion is one thing that must hold of a snapshot.
@@ -70,6 +72,10 @@ type assertion struct {
 	through, avoids        []string
 	liveRoutes             map[string]any
 	ignore                 []string
+	question               string
+	variables              map[string]any
+	where                  map[string]any
+	minRows, maxRows       int
 }
 
 // readParams reads the task.
@@ -122,14 +128,21 @@ func readParams(rc sdk.RunbookContext, params map[string]any) (request, error) {
 	if err != nil {
 		return req, err
 	}
-	req.accept = map[string]string{}
+	req.accept, req.acceptFeature = map[string]string{}, map[string]string{}
 	for i, a := range accepts {
 		text, _ := a["text"].(string)
+		feature, _ := a["feature"].(string)
 		reason, _ := a["reason"].(string)
-		if strings.TrimSpace(text) == "" || strings.TrimSpace(reason) == "" || len(a) != 2 {
-			return req, fmt.Errorf("%s: accept_unrecognized[%d] must be text and reason, both given", checkFQCN, i)
+		switch {
+		case len(a) != 2 || strings.TrimSpace(reason) == "" || (strings.TrimSpace(text) == "") == (feature == ""):
+			return req, fmt.Errorf("%s: accept_unrecognized[%d] must be a text or a feature, and a reason", checkFQCN, i)
+		case feature != "" && coverageWhy(feature) == "":
+			return req, fmt.Errorf("%s: accept_unrecognized[%d]: no unmodelled feature %q", checkFQCN, i, feature)
+		case feature != "":
+			req.acceptFeature[feature] = strings.TrimSpace(reason)
+		default:
+			req.accept[strings.TrimSpace(text)] = strings.TrimSpace(reason)
 		}
-		req.accept[strings.TrimSpace(text)] = strings.TrimSpace(reason)
 	}
 	return req, nil
 }

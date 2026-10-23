@@ -20,7 +20,7 @@ import (
 // secret in it.
 func ios(name, lan, priority, uplink string) string {
 	return "hostname " + name + "\n!\nenable secret 9 $9$notarealhash\n!\n" +
-		"interface GigabitEthernet1\n ip address " + lan + " 255.255.255.0\n standby version 2\n standby 5 ip 10.0.12.254\n standby 5 priority " + priority + "\n standby 5 preempt\n no shutdown\n!\n" +
+		"interface GigabitEthernet1\n ip address " + lan + " 255.255.255.0\n standby version 2\n standby 5 ip 10.0.12.254\n standby 5 priority " + priority + "\n standby 5 preempt\n glbp 6 ip 10.0.12.253\n no shutdown\n!\n" +
 		"interface GigabitEthernet2\n ip address " + uplink + " 255.255.255.0\n no shutdown\n!\nend\n"
 }
 
@@ -44,18 +44,30 @@ func TestCheck_CiscoHSRPFailover(t *testing.T) {
 	vip := func(owner string) []any {
 		return []any{map[string]any{"reach": map[string]any{"from": "r2[GigabitEthernet2]", "dst": "10.0.12.254", "accepted_by": owner}}}
 	}
+	glbp := []any{map[string]any{"feature": "glbp", "reason": "the GLBP group is not part of this change"}}
+	if _, err := batfish.Check(context.Background(), &statContext{stats: map[string]any{}}, svc, map[string]any{
+		"devices": devices, "assertions": vip("r1"),
+	}); err == nil || !strings.Contains(err.Error(), "uses glbp") {
+		t.Fatalf("GLBP not accepted: err %v", err)
+	}
 	rc := &statContext{stats: map[string]any{}}
 	if _, err := batfish.Check(context.Background(), rc, svc, map[string]any{
-		"devices":    devices,
-		"assertions": vip("r1"),
+		"devices": devices,
+		"assertions": append(vip("r1"), map[string]any{"question": map[string]any{
+			"name": "hsrpProperties", "where": map[string]any{"Group_Id": 5, "Priority": 200}, "min_rows": 1, "max_rows": 1,
+		}}),
+		"accept_unrecognized": glbp,
 		"scenarios": []any{map[string]any{
 			"name": "r1's LAN down", "down_interfaces": []any{"r1[GigabitEthernet1]"}, "assertions": vip("r2"),
 		}},
 	}); err != nil {
 		t.Fatalf("%v\n%v", err, rc.stats["assertions"])
 	}
+	if nm := strings.Join(rc.stats["not_modelled"].([]string), " "); !strings.Contains(nm, "uses glbp") {
+		t.Errorf("not_modelled = %s", nm)
+	}
 	if _, err := batfish.Check(context.Background(), &statContext{stats: map[string]any{}}, svc, map[string]any{
-		"devices": devices, "assertions": vip("r2"),
+		"devices": devices, "assertions": vip("r2"), "accept_unrecognized": glbp,
 	}); err == nil || !strings.Contains(err.Error(), "not answered by r2") {
 		t.Errorf("the standby as owner with both up: err %v", err)
 	}

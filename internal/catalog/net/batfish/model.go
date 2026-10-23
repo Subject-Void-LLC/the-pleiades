@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	bf "github.com/Subject-Void-LLC/the-pleiades/pkg/batfish"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 )
 
 // model is one run's network on the service.
@@ -72,6 +73,23 @@ func (m *model) consistency(ctx context.Context, req request) (parse, unrecogniz
 			refused = append(refused, fmt.Sprintf("%s line %d (%q) was not recognised by the model, and accept_unrecognized does not accept it", device, line, text))
 		}
 		unrecognized = append(unrecognized, entry)
+	}
+	for _, d := range req.devices {
+		uses := unmodelledIn(d.format, d.config)
+		features := make([]string, 0, len(uses))
+		for f := range uses {
+			features = append(features, f)
+		}
+		sort.Strings(features)
+		for _, f := range features {
+			use := uses[f]
+			text := netcfg.Mask(use.text)
+			if reason, ok := req.acceptFeature[f]; ok {
+				notModelled = append(notModelled, fmt.Sprintf("%s uses %s (line %d: %s): %s (%s)", d.name, f, use.line, text, coverageWhy(f), reason))
+				continue
+			}
+			refused = append(refused, fmt.Sprintf("%s uses %s (line %d: %q), which the model does not model: %s; accept it by name in accept_unrecognized with a reason", d.name, f, use.line, text, coverageWhy(f)))
+		}
 	}
 	issues, err := m.ask(ctx, baseSnapshot, "initIssues", nil)
 	if err != nil {
@@ -143,6 +161,8 @@ func (m *model) hold(ctx context.Context, snapshot string, a assertion) (bool, s
 		return m.holdReach(ctx, snapshot, a)
 	case kindRoutesMatch:
 		return m.holdRoutesMatch(ctx, snapshot, a)
+	case kindQuestion:
+		return m.holdQuestion(ctx, snapshot, a)
 	}
 	return false, "", fmt.Errorf("%s: no assertion %q", checkFQCN, a.kind)
 }
@@ -334,4 +354,35 @@ func (m *model) ask(ctx context.Context, snapshot, question string, vars map[str
 		return bf.Table{}, fmt.Errorf("%s: the model could not answer %s, so nothing is known: %w", checkFQCN, question, err)
 	}
 	return t, nil
+}
+
+// holdQuestion: the rows of a Batfish question whose cells equal where's
+// number between min_rows and max_rows.
+func (m *model) holdQuestion(ctx context.Context, snapshot string, a assertion) (bool, string, error) {
+	t, err := m.ask(ctx, snapshot, a.question, a.variables)
+	if err != nil {
+		return false, "", err
+	}
+	matched := 0
+	for _, r := range t.Rows {
+		ok := true
+		for col, want := range a.where {
+			if renderCell(r[col]) != renderCell(want) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			matched++
+		}
+	}
+	detail := fmt.Sprintf("%d of %s's %d rows match", matched, a.question, len(t.Rows))
+	if matched < a.minRows || (a.maxRows >= 0 && matched > a.maxRows) {
+		want := fmt.Sprintf("at least %d", a.minRows)
+		if a.maxRows >= 0 {
+			want = fmt.Sprintf("%d to %d", a.minRows, a.maxRows)
+		}
+		return false, detail + ", want " + want, nil
+	}
+	return true, detail, nil
 }
