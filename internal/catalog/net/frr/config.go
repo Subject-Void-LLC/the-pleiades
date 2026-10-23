@@ -204,6 +204,14 @@ func (s *session) apply(ctx context.Context, rc sdk.RunbookContext, dir, text st
 		return collection.Result{}, err
 	}
 	runChange := len(deleted)+len(added) > 0
+	if runChange {
+		// Checked in a check too: frr-reload --test needs no write access,
+		// so without this a check passed a change the account could not
+		// make (the clean-slate lab's G3).
+		if err := s.canReload(ctx); err != nil {
+			return collection.Result{}, err
+		}
+	}
 
 	confBefore, err := remotefile.Stat(ctx, s.conn, frrConf)
 	if err != nil {

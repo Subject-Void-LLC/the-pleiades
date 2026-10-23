@@ -85,6 +85,7 @@ var routingCollections = []collectionscaffold.Config{
 				{Name: "ospf_neighbors", Type: "dict", Returned: "always", Description: "show ip ospf neighbor json, empty when OSPF is not running."},
 				{Name: "routes", Type: "dict", Returned: "always", Description: "show ip route json: every route by prefix."},
 				{Name: "bgp_summary", Type: "dict", Returned: "always", Description: "show bgp summary json, empty when BGP is not running."},
+				{Name: "config_sha256", Type: "string", Returned: "always", Description: "The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file."},
 				{Name: "running_config", Type: "string", Returned: "with include_config", Description: "The running configuration with its secrets replaced."},
 			},
 			Examples: []collection.Example{

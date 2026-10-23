@@ -4,6 +4,7 @@ package frr
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -48,5 +49,17 @@ func TestParseVersion(t *testing.T) {
 		if _, _, err := parseVersion(bad); err == nil {
 			t.Errorf("%q was read as FRR", bad)
 		}
+	}
+}
+
+// TestReloadError names frr-reload's own error, masked, not its logging.
+func TestReloadError(t *testing.T) {
+	out := "2026-10-23 02:24:40,920  INFO: Called via \"Namespace(...)\"\nTraceback (most recent call last):\n  File \"x\"\nPermissionError: [Errno 13] Permission denied: '/var/run/frr/reload-U81GG8.txt'\n neighbor 10.0.0.2 password zebra\n"
+	got := reloadError(out)
+	if !strings.Contains(got, "PermissionError") || strings.Contains(got, "INFO") || strings.Contains(got, "zebra") {
+		t.Errorf("reloadError = %q", got)
+	}
+	if reloadError("x INFO: y\n") != "it printed nothing but logging" {
+		t.Error("logging only")
 	}
 }

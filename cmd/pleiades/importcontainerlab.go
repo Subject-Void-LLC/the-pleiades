@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -23,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // maxTopologyRead bounds the topology file read.
@@ -62,6 +64,8 @@ type clabImported struct {
 	Address   string `json:"address"`
 	Trusted   bool   `json:"trusted"`
 	Onboarded bool   `json:"onboarded"`
+	// Capabilities are what the device holds once onboarded.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // clabResult is what the command reports.
@@ -97,6 +101,12 @@ func runImportContainerlab(args []string) error {
 	}
 	if (*username == "") != (*keyPath == "") {
 		return errors.New("--username and --key go together")
+	}
+	if *trust && os.Getenv(remoteexec.KnownHostsEnv) == "" {
+		// A lab makes new host keys on every deploy, at the same
+		// addresses, so its keys belong in a file of the lab's own, never
+		// in the user's (the clean-slate lab's G7).
+		return fmt.Errorf("--trust-first-connect needs %s set to a known_hosts file of the lab's own, e.g. export %s=$PWD/known_hosts: a lab makes new host keys on every deploy, so they must not go in your own ~/.ssh/known_hosts", remoteexec.KnownHostsEnv, remoteexec.KnownHostsEnv)
 	}
 	topo, err := readTopology(*path)
 	if err != nil {
@@ -189,6 +199,12 @@ func runImportContainerlab(args []string) error {
 					return
 				}
 				res.Nodes[i].Onboarded = true
+				repo := inventory.NewFileRepository(invPath, inventory.NewItemFactory())
+				if item, err := repo.GetByName(context.Background(), n.Device); err == nil {
+					for _, c := range item.Capabilities() {
+						res.Nodes[i].Capabilities = append(res.Nodes[i].Capabilities, string(c))
+					}
+				}
 			}
 		}
 	})

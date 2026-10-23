@@ -4,6 +4,8 @@ package frr
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"slices"
@@ -44,6 +46,7 @@ func init() {
 					{Name: "ospf_neighbors", Type: "dict", Returned: "always", Description: "show ip ospf neighbor json, empty when OSPF is not running."},
 					{Name: "routes", Type: "dict", Returned: "always", Description: "show ip route json: every route by prefix."},
 					{Name: "bgp_summary", Type: "dict", Returned: "always", Description: "show bgp summary json, empty when BGP is not running."},
+					{Name: "config_sha256", Type: "string", Returned: "always", Description: "The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file."},
 					{Name: "running_config", Type: "string", Returned: "with include_config", Description: "The running configuration with its secrets replaced."},
 				},
 				Examples: []collection.Example{
@@ -100,14 +103,19 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		}
 		stats[r.stat] = data
 	}
+	config, err := s.runningConfig(ctx)
+	if err != nil {
+		return collection.Result{}, err
+	}
+	// The digest of the configuration as it runs, secrets and all, so it
+	// compares with a candidate file's (net.frr.config's sha256) while the
+	// text a reader sees stays masked.
+	sum := sha256.Sum256([]byte(config))
+	stats["config_sha256"] = hex.EncodeToString(sum[:])
 	if sdk.BoolParam(params, "include_config") {
-		config, err := s.runningConfig(ctx)
-		if err != nil {
-			return collection.Result{}, err
-		}
 		stats["running_config"] = netcfg.Mask(config)
 	}
-	for _, k := range []string{"version", "hostname", "interfaces", "routes", "ospf_neighbors", "bgp_summary", "running_config"} {
+	for _, k := range []string{"version", "hostname", "interfaces", "routes", "ospf_neighbors", "bgp_summary", "config_sha256", "running_config"} {
 		if v, ok := stats[k]; ok {
 			if err := rc.SetStat(k, v); err != nil {
 				return collection.Result{}, err

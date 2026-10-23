@@ -91,13 +91,14 @@ func TestImportContainerlab_WritesEachNodeAndRefusesOtherLabs(t *testing.T) {
 		"..": clabNodeJSON("..", "lab2", "172.20.30.21", "", 0),
 	})
 	for name, args := range map[string][]string{
-		"another lab's file":         {"--topology", topo, "--lab", "lab2"},
-		"a node labelled elsewhere":  {"--topology", other, "--lab", "lab2", "--nodes", "x1"},
-		"a node that is not a name":  {"--topology", other, "--lab", "lab2", "--nodes", ".."},
-		"a node the lab has not got": {"--topology", other, "--lab", "lab2", "--nodes", "r8"},
-		"a node already imported":    {"--topology", topo, "--lab", "lab1", "--nodes", "r1"},
-		"a key with no username":     {"--topology", topo, "--lab", "lab1", "--key", keyPath},
-		"no lab":                     {"--topology", topo},
+		"another lab's file":            {"--topology", topo, "--lab", "lab2"},
+		"a node labelled elsewhere":     {"--topology", other, "--lab", "lab2", "--nodes", "x1"},
+		"a node that is not a name":     {"--topology", other, "--lab", "lab2", "--nodes", ".."},
+		"a node the lab has not got":    {"--topology", other, "--lab", "lab2", "--nodes", "r8"},
+		"a node already imported":       {"--topology", topo, "--lab", "lab1", "--nodes", "r1"},
+		"a key with no username":        {"--topology", topo, "--lab", "lab1", "--key", keyPath},
+		"trust with no lab known_hosts": {"--topology", topo, "--lab", "lab1", "--nodes", "r2", "--replace", "--trust-first-connect"},
+		"no lab":                        {"--topology", topo},
 	} {
 		if err := runImportContainerlab(append(args, "--dir", dir)); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -150,6 +151,9 @@ func TestImportContainerlab_TrustsAndOnboardsRealRouters(t *testing.T) {
 	}
 	for _, name := range []string{"r1", "r2"} {
 		item := buildHost(t, dir, name)
+		if !strings.Contains(onboardOut, `"FRRCapable"`) && !strings.Contains(onboardOut, "FRRCapable") {
+			t.Errorf("the import did not report %s's capabilities", name)
+		}
 		if !item.HasCapability(capability.NameFRR) {
 			t.Errorf("%s was not granted FRRCapable: %v\n%s", name, item.Capabilities(), onboardOut)
 		}

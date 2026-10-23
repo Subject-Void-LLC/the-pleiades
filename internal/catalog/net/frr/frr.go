@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -153,10 +154,55 @@ func (s *session) diff(ctx context.Context, path string) (deleted, added []strin
 	return deleted, added, nil
 }
 
-// reload makes the running configuration the file at path.
+// runDir is FRR's run directory, where frr-reload writes its reload files.
+const runDir = "/var/run/frr"
+
+// canReload refuses, before anything is sent, an account that cannot write
+// runDir: frr-reload applies its deletions first and fails on the
+// additions, so a reload that cannot write there leaves the router in
+// neither configuration (the clean-slate lab's G1 and G2).
+func (s *session) canReload(ctx context.Context) error {
+	res, err := s.conn.Run(ctx, remoteexec.QuoteCommand([]string{"test", "-w", runDir}))
+	if err != nil {
+		return fmt.Errorf("%s: checking %s: %w", s.fqcn, runDir, err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("%s: the connecting account cannot write %s, where frr-reload writes its reload files, so a configuration cannot be applied; nothing was changed. Make it writable to the account's group, e.g. chgrp frrvty %s and chmod 2775 %s", s.fqcn, runDir, runDir, runDir)
+	}
+	return nil
+}
+
+// reload makes the running configuration the file at path. A failure names
+// what frr-reload said, its secrets masked, not its first log line.
 func (s *session) reload(ctx context.Context, path string) error {
-	_, err := s.run(ctx, "python3", reloadScript, "--reload", "--stdout", path)
-	return err
+	res, err := s.conn.Run(ctx, remoteexec.QuoteCommand([]string{"python3", reloadScript, "--reload", "--stdout", path}))
+	if err != nil {
+		return fmt.Errorf("%s: frr-reload: %w", s.fqcn, err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("%s: frr-reload exited %d, and the router may already run part of the change (it deletes before it adds): %s", s.fqcn, res.ExitCode, reloadError(res.Stdout+"\n"+res.Stderr))
+	}
+	return nil
+}
+
+// reloadError is what frr-reload said that explains a failure: its last
+// lines that are not INFO logging, masked, at most six.
+func reloadError(out string) string {
+	var lines []string
+	for _, line := range strings.Split(out, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.Contains(line, " INFO: ") {
+			continue
+		}
+		lines = append(lines, netcfg.Mask(t))
+	}
+	if len(lines) > 6 {
+		lines = lines[len(lines)-6:]
+	}
+	if len(lines) == 0 {
+		return "it printed nothing but logging"
+	}
+	return strings.Join(lines, " | ")
 }
 
 // parseReloadTest reads frr-reload.py --test's two sections, "Lines To

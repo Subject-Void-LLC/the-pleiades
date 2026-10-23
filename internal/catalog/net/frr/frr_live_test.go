@@ -150,6 +150,9 @@ func testFacts(t *testing.T, l *lab) {
 	if _, ok := rc.stats["ospf_neighbors"].(map[string]any); !ok {
 		t.Errorf("ospf_neighbors is %T, want a map", rc.stats["ospf_neighbors"])
 	}
+	if d, _ := rc.stats["config_sha256"].(string); len(d) != 64 {
+		t.Errorf("config_sha256 = %q", d)
+	}
 	config, _ := rc.stats["running_config"].(string)
 	if strings.Contains(config, "facts-secret") || !strings.Contains(config, "ip ospf authentication-key pleiades-masked-") {
 		t.Errorf("running_config does not mask the key:\n%s", config)
@@ -348,6 +351,30 @@ func testConfig(t *testing.T, l *lab) {
 	if got := l.running(t, "r2"); got != baseline {
 		t.Errorf("the kept undo did not bring back the configuration:\n%s", got)
 	}
+
+	// An account that cannot write FRR's run directory is refused before
+	// anything is sent, by a check as by a real run.
+	r2.Exec(t, "chmod", "g-w", "/var/run/frr")
+	t.Cleanup(func() { r2.Exec(t, "chmod", "g+w", "/var/run/frr") })
+	held := l.running(t, "r2")
+	for name, run := range map[string]func() error{
+		"check": func() error {
+			_, err := frr.CheckConfig(ctx, l.rc(), l.device("r2"), map[string]any{"config": good})
+			return err
+		},
+		"run": func() error {
+			_, err := frr.Config(ctx, l.rc(), l.device("r2"), map[string]any{"config": good})
+			return err
+		},
+	} {
+		if err := run(); err == nil || !strings.Contains(err.Error(), "cannot write /var/run/frr") {
+			t.Errorf("%s with the run directory unwritable: err %v", name, err)
+		}
+	}
+	if l.running(t, "r2") != held {
+		t.Error("a refused reload changed the router")
+	}
+	r2.Exec(t, "chmod", "g+w", "/var/run/frr")
 
 	for _, p := range []map[string]any{
 		{"restore": "/etc/frr/frr.conf"},
