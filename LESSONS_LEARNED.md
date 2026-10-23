@@ -353,6 +353,7 @@ story, per `.AGENTS/AGENTS.md`.
 318. **A port of Apache-2.0 code is a derived work: keep the license verbatim, a notice with source, commit and copyright, a changed-file header in each ported file, no trademark-named identifiers, and ship the license in release archives (2026-10-23).**
 319. **An empty parse is a state to compare, not a failure: a before-and-after parser returns an empty result marked empty (2026-10-23).**
 320. **When every node of a CML sandbox lab stops answering while its controller answers, stop and start the lab through the CML API before reading the failure as code (2026-10-23).**
+321. **Run a whole-branch failure-pattern review before every pull request, and ask of each new destructive device command what happens if its argument names the operator's own file (2026-10-23).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

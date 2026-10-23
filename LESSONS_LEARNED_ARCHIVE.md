@@ -6153,3 +6153,19 @@ answering for all nodes while the controller stayed up. Stopping and starting th
 and `TestCLI_ImportCMLReachesIOSOverTelnet` then passed (102.5 s for the test, 140.8 s for the package). The cause was
 the sandbox, not the code; LESSONS 129 is why a removed or dead piece of infrastructure must be ruled out before a
 failure is called a defect.
+
+## 321. Run a whole-branch failure-pattern review before every pull request, and ask of each new destructive device command what happens if its argument names the operator's own file
+
+**Rule.** Before a branch's pull request, review the whole branch diff against every failure pattern title, even when
+each change was already reviewed and tested on its own. For each new command that deletes, replaces or erases
+something on a device, ask what happens if its argument names a file the operator owns, such as the saved
+configuration, and make the method touch only what it made.
+
+**Why.** 2026-10-23, feat/lab-importers. The fp-reviewer agent's pass over the whole branch, after its records commit
+`56e83fb7`, found fifteen defects (FAILURE_PATTERNS 613 to 627) in code that three agents and the main session had
+written and tested. Three were security-relevant: `net.ios.replace` would have run `delete /force` on
+`nvram:startup-config` if a call named it (613), `project.write`'s path could be chosen by a device's output and the
+`.pleiades` guard passed a Windows 8.3 short name (618), and a CML or GNS3 login error could quote a body echoing the
+password (626). Two were Windows-only (615, 616), which no Linux test could show. Twelve of the fifteen repeat an
+entry already in the archive and one more is a sibling of one, so the archive knew those classes; the per-change
+reviews did not ask it of the whole branch. `01cdbb70` fixed all fifteen, apart from 618's hard-link residual.
