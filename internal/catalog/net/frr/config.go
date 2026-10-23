@@ -149,11 +149,13 @@ func config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		}
 		text = string(b)
 	}
-	if restore == "" && strings.Contains(text, netcfg.MaskPrefix) {
+	if restore == "" {
 		// A configuration read through net.frr.facts has its secrets masked;
 		// applied, it would set every key to its placeholder and drop every
 		// authenticated session (the branch review's F5).
-		return collection.Result{}, fmt.Errorf("%s: the candidate holds a masked secret (%s...), so it is a configuration as read, not one to apply; nothing was sent. Write the candidate with its real secrets in a project file", configFQCN, netcfg.MaskPrefix)
+		if err := netcfg.RefuseMasked("the candidate", text); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
+		}
 	}
 	if restore == "" {
 		sum := sha256.Sum256([]byte(text))

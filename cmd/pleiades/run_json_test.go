@@ -33,6 +33,7 @@ type jsonReport struct {
 		Rule    string `json:"rule"`
 		Node    string `json:"node"`
 		Device  string `json:"device"`
+		Host    string `json:"host"`
 		Message string `json:"message"`
 	} `json:"validation"`
 	Tasks []struct {
@@ -57,6 +58,15 @@ type jsonReport struct {
 	Metadata map[string]any `json:"metadata"`
 	RunID    string         `json:"run_id"`
 	Journal  string         `json:"journal"`
+	Warnings []struct {
+		Kind    string   `json:"kind"`
+		When    string   `json:"when"`
+		Message string   `json:"message"`
+		RunID   string   `json:"run_id"`
+		Runbook string   `json:"runbook"`
+		PID     int      `json:"pid"`
+		Devices []string `json:"devices"`
+	} `json:"warnings"`
 	// Rollback is a rollback's own part of the report, kept raw: the
 	// rollback gates decode what they read from it themselves.
 	Rollback json.RawMessage `json:"rollback"`

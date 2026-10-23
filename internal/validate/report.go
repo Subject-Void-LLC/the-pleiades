@@ -37,10 +37,13 @@ type Report struct {
 // Route is how one task will reach one device: the transport, and the
 // detail behind it in runbook terms (for a container method, which engine).
 type Route struct {
-	Node      string
-	Device    inventory.DeviceID
-	Transport string
-	Detail    string
+	Node string
+	// Device is the device's inventory id; DeviceName is the name a person
+	// reads, and the one the report prints when it is set.
+	Device     inventory.DeviceID
+	DeviceName string
+	Transport  string
+	Detail     string
 }
 
 // HasErrors reports whether any rule produced a Finding. A warning is not
@@ -63,7 +66,11 @@ func (r Report) String() string {
 		fmt.Fprintf(&b, "[warning] %s: %s\n", w.RuleName, w.Message)
 	}
 	for _, rt := range r.Routes {
-		fmt.Fprintf(&b, "[route] node %q on %s: %s, %s\n", rt.Node, rt.Device, rt.Transport, rt.Detail)
+		device := rt.DeviceName
+		if device == "" {
+			device = string(rt.Device)
+		}
+		fmt.Fprintf(&b, "[route] node %q on %s: %s, %s\n", rt.Node, device, rt.Transport, rt.Detail)
 	}
 	return b.String()
 }

@@ -67,15 +67,21 @@ func runValidate(args []string) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	selection := tagFlags(fs)
+	// The same flag, and the same parser, as run's, so a runbook is
+	// validated against exactly the variables a run would render.
+	extraVars := addExtraVarsFlag(fs)
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("usage: pleiades validate [runbook.yaml ...] [--tags a,b] [--skip-tags c] [--dir .]")
+		return fmt.Errorf("usage: pleiades validate [runbook.yaml ...] [--tags a,b] [--skip-tags c] [--extra-vars key=value] [--dir .]")
+	}
+	variables, err := extraVars.variables()
+	if err != nil {
+		return err
 	}
 
 	if len(paths) == 0 {
-		var err error
 		if paths, err = projectRunbooks(*dir); err != nil {
 			return err
 		}
@@ -123,7 +129,10 @@ func runValidate(args []string) error {
 	}
 	for i := range checks {
 		if checks[i].dag != nil {
-			checks[i].report = validate.Validate(validate.WorldView{Items: items, DAG: checks[i].dag})
+			// Validated as run would validate it: --extra-vars are every
+			// variable the run would have, so a template reading one none
+			// of them gives is reported here.
+			checks[i].report = validate.Validate(validate.WorldView{Items: items, DAG: checks[i].dag, Variables: variables, VariablesKnown: true})
 			checks[i].report.Warnings = checks[i].warnings
 		}
 	}

@@ -111,3 +111,21 @@ func TestTrace_OnARealRouter(t *testing.T) {
 		}
 	}
 }
+
+// TestTrace_FromAContainerRefusesBeforeTheEngine: a container name no
+// engine allows is refused before any engine is reached, and a device that
+// is not a container host is refused by the engine session, naming the
+// method. The trace itself, through a real engine and router, is
+// cmd/pleiades's TestCLI_NetTraceFromAContainerThroughARouter.
+func TestTrace_FromAContainerRefusesBeforeTheEngine(t *testing.T) {
+	rc := &statContext{stats: map[string]any{}}
+	if _, err := Trace(context.Background(), rc, nil, map[string]any{"dest": "10.0.0.1", "container": "h1; reboot"}); err == nil || !strings.Contains(err.Error(), "no engine allows") {
+		t.Errorf("a bad container name: %v", err)
+	}
+	if _, err := Trace(context.Background(), rc, nil, map[string]any{"dest": "10.0.0.1", "container": "h1"}); err == nil || !strings.HasPrefix(err.Error(), traceFQCN) {
+		t.Errorf("no container host: %v", err)
+	}
+	if _, err := Trace(context.Background(), rc, nil, map[string]any{"dest": "10.0.0.1", "container": 7}); err == nil || !strings.HasPrefix(err.Error(), traceFQCN) {
+		t.Errorf("a container that is not text: %v", err)
+	}
+}

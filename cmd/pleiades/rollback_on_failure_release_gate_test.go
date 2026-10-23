@@ -1,10 +1,12 @@
 // Release Gate for a block's rollback_on_failure through the real binary
 // against a real sshd: two changes the block made are undone on the device
 // when its third task fails for real, before the rescue runs, and a later
-// `pleiades rollback` of the run finds them already undone.
+// `pleiades rollback` of the run finds them already undone, saying why in
+// its --json too; `pleiades journal` says the run undid its own changes.
 package main_test
 
 import (
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -107,9 +109,40 @@ func TestCLI_RollbackOnFailureUndoesTheBlockBeforeTheRescue(t *testing.T) {
 		t.Errorf("the task after the block left %q", got)
 	}
 
-	out, err := runPleiadesWithHome(t, dir, home, "rollback", rep.RunID,
-		"--leave", "tasks[0].rescue[0]", "--leave", "tasks[1]", "--allow-unknown", "tasks[0].block[2]")
+	rollbackArgs := []string{"rollback", rep.RunID, "--leave", "tasks[0].rescue[0]", "--leave", "tasks[1]", "--allow-unknown", "tasks[0].block[2]"}
+	out, err := runPleiadesWithHome(t, dir, home, rollbackArgs...)
 	if err == nil || !strings.Contains(out, "already been undone, by the run itself") {
 		t.Errorf("rollback of the run: %v\n%s", err, out)
+	}
+
+	// The refusal's --json says why, as the text view does: each problem in
+	// rollback.problems, and its reason in the outcome's message too.
+	refused, raw, code := runPleiadesJSONWithHome(t, dir, home, append(rollbackArgs, "--mode", "check")...)
+	var plan struct {
+		Problems []struct {
+			Reason string `json:"reason"`
+		} `json:"problems"`
+	}
+	if err := json.Unmarshal(refused.Rollback, &plan); err != nil || code != 1 || refused.Outcome.Status != "invalid" ||
+		len(plan.Problems) != 1 || !strings.Contains(plan.Problems[0].Reason, "already been undone, by the run itself") ||
+		!strings.Contains(refused.Outcome.Message, "already been undone, by the run itself") {
+		t.Errorf("rollback --json refusal (%v), exit %d:\n%s", err, code, raw)
+	}
+
+	// The journal says the run undid its own changes, and shows no undo
+	// under an undo step: a rollback never undoes an undo.
+	out, err = runPleiadesWithHome(t, dir, home, "journal", "list")
+	if err != nil || !strings.Contains(out, rep.RunID) || !strings.Contains(out, "undid its own change in the run (2 undo step(s), rollback_on_failure)") {
+		t.Errorf("journal list: %v\n%s", err, out)
+	}
+	out, err = runPleiadesWithHome(t, dir, home, "journal", "show", rep.RunID)
+	if err != nil || !strings.Contains(out, "undoes: tasks[0].block[0], inside this run (rollback_on_failure)") {
+		t.Errorf("journal show: %v\n%s", err, out)
+	}
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, ".undo[") && i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "undo:") {
+			t.Errorf("journal show lists an undo under the undo step %q:\n%s", line, out)
+		}
 	}
 }

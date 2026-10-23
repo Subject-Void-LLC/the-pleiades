@@ -30,7 +30,12 @@ func TransportRule(world WorldView) []Finding {
 			continue
 		}
 		desc, ok := collection.Lookup(task.FQCN)
-		if !ok || len(desc.Manifest.SupportedTransports) == 0 {
+		if !ok {
+			continue
+		}
+		// The shape the call's parameters select (collection.Manifest.For).
+		shaped := desc.Manifest.For(task.Params)
+		if len(shaped.SupportedTransports) == 0 {
 			continue
 		}
 		_, devices := world.taskDevices(task)
@@ -41,7 +46,7 @@ func TransportRule(world WorldView) []Finding {
 		}
 
 		for _, dev := range devices {
-			if err := collection.CheckTransports(dev, task.FQCN, desc.Manifest); err != nil {
+			if err := collection.CheckTransports(dev, task.FQCN, shaped); err != nil {
 				findings = append(findings, Finding{
 					RuleName: "transport",
 					Node:     id,

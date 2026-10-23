@@ -37,6 +37,15 @@ type WorldView struct {
 	// with no target is controller-side and reaches no device.
 	Resolver engine.TargetResolver
 
+	// Variables are the values the run's vars root will hold (the CLI's
+	// --extra-vars), and VariablesKnown says the caller knows every one of
+	// them, so VarsRule may refuse a template reading a name none of them
+	// supplies. Left false (the Controller and the Runner, whose launch
+	// variables this view does not carry), nothing is refused for it, and
+	// the render at dispatch remains the check.
+	Variables      map[string]any
+	VariablesKnown bool
+
 	// resolveCache memoizes Resolve by target string. Unexported and
 	// unset by every caller that builds a WorldView directly (Resolve is
 	// nil-safe and falls back to computing directly), so this changes

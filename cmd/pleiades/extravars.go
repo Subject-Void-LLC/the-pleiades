@@ -3,6 +3,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -18,6 +19,17 @@ type extraVarsFlag struct {
 	// key=value are merged in that order and a name given twice is caught
 	// wherever it appears.
 	given []string
+}
+
+// addExtraVarsFlag registers --extra-vars and its shorthand -e on fs, for
+// run and for validate, which must read the same values the same way: a
+// runbook validated with the variables a run will be given is checked
+// against exactly what that run renders.
+func addExtraVarsFlag(fs *flag.FlagSet) *extraVarsFlag {
+	extraVars := &extraVarsFlag{}
+	fs.Var(extraVars, "extra-vars", "a variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.<name>")
+	fs.Var(extraVars, "e", "shorthand for --extra-vars")
+	return extraVars
 }
 
 // String implements flag.Value.

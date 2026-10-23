@@ -104,6 +104,10 @@ func runPipeline(opts runOptions, src runSource) error {
 	}
 	if err != nil && rep.Outcome.Status == "" {
 		rep.Outcome = runOutcome{Status: "error", Message: err.Error(), ExitCode: 1}
+		// A run that stopped after its plan and before its first task (the
+		// project's runs were busy, its journal could not be opened) still
+		// names every task it never ran.
+		rep.addNotRun(notRunNotStarted)
 	}
 	if writeErr := writeJSON(os.Stdout, rep); writeErr != nil {
 		return writeErr
@@ -133,10 +137,14 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	mode := engine.TaskMode(opts.mode, dag, nil)
 	checking := mode == collection.ModeCheck
 
-	world := validate.WorldView{Items: items, DAG: dag, Mode: mode}
+	// The run's variables are all known here (--extra-vars, and nothing
+	// else feeds vars), so a template reading one nobody gave is refused
+	// now, before any device is contacted, rather than at its task.
+	world := validate.WorldView{Items: items, DAG: dag, Mode: mode, Variables: opts.variables, VariablesKnown: true}
 	rep := planReport(src.label, items, dag, mode, world)
 	if report := validate.Validate(world); report.HasErrors() {
-		rep.Validation = validationIssues(report)
+		rep.Validation = validationIssues(report, items)
+		rep.addNotRun(notRunRefused)
 		rep.Outcome = runOutcome{Status: "invalid", Message: "validation failed, not executing", ExitCode: 1}
 		if !opts.asJSON {
 			fmt.Print(report.String())
@@ -196,7 +204,18 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		sink = store
 	}
 
+	// A run that changes devices records itself as active on the devices
+	// its plan targets, and warns about another live run on any of them,
+	// without waiting for it or refusing: running two at once can be the
+	// point (run_concurrent.go). The record goes on every path out.
+	var conc *concurrency
+	if !checking {
+		conc, rep.Warnings = beginConcurrency(opts.dir, src.label, validate.CalculateBlastRadius(world).Devices)
+		defer conc.release()
+	}
+
 	if !opts.asJSON {
+		printRunWarnings(rep, "start")
 		printPlan(rep)
 	}
 
@@ -212,12 +231,20 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// precedent (load.go).
 	result, err := executor.Run(context.Background(), dag)
 	sealRun(store, rep, result.RunID)
+	// What another run changed on these devices while this one worked, read
+	// from the journals once this run's own is complete.
+	if conc != nil {
+		rep.Warnings = append(rep.Warnings, conc.end(result.RunID)...)
+	}
+	// What ran is reported on every path, the aborted one too: a run cut
+	// off partway may already have changed devices.
+	rep.Tasks = taskReports(dag, &result, items, opts.allowUnchecked)
 	if err != nil {
+		rep.addNotRun(notRunAborted)
 		rep.Outcome = runOutcome{Status: "error", Message: "execution aborted: " + redact.Text(result.Secrets, err.Error()), ExitCode: 1}
 		return rep, fmt.Errorf("execution aborted: %w", err)
 	}
-
-	rep.Tasks = taskReports(dag, &result, items, opts.allowUnchecked)
+	rep.addNotRun(stoppedReason(rep.Tasks))
 	if len(result.Metadata) > 0 {
 		rep.Metadata, _ = redact.Value(result.Secrets, result.Metadata).(map[string]any)
 	}

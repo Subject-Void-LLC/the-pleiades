@@ -37,6 +37,7 @@ func TestConfig_RefusesAParameterItCannotRead(t *testing.T) {
 	}{
 		{name: "a backup flag that is not a bool", params: map[string]any{"content": "<config/>", "backup": "maybe"}, says: "net.netconf.config"},
 		{name: "a commit flag that is not a bool", params: map[string]any{"content": "<config/>", "commit": "later"}, says: "net.netconf.config"},
+		{name: "content holding a masked secret", params: map[string]any{"content": "<config><key>pleiades-masked-0123456789abcdef</key></config>"}, says: "holds a masked secret"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dialed := false

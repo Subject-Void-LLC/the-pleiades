@@ -1,7 +1,8 @@
 // This file holds the catalog's session-control methods: native-only
-// methods that act on how the platform reaches a device rather than on
-// the device itself. pleiades.builtin.connection.reset is Ansible's
-// `meta: reset_connection`.
+// methods that act on the platform's own side of a run rather than on a
+// device. pleiades.builtin.connection.reset is Ansible's
+// `meta: reset_connection`; pleiades.builtin.project.write keeps a value
+// a run read as a file in the project.
 package catalogdata
 
 import (
@@ -28,4 +29,32 @@ var sessionCollections = []collectionscaffold.Config{
 			SeeAlso: []string{"identity.user.modify", "identity.group.modify", "exec.command"},
 		},
 	},
+	{
+		Name:          "pleiades.builtin.project.write",
+		Site:          collection.SiteController,
+		Device:        collection.DeviceNone,
+		EngineVersion: engineVersion,
+		Doc:           projectWriteDoc,
+	},
+}
+
+// projectWriteDoc is pleiades.builtin.project.write's reference
+// documentation, identical to the copy its implementation registers.
+var projectWriteDoc = collection.Doc{
+	Summary:     "Writes text a run produced, such as a router's running configuration, to a file in the project.",
+	Description: "Writes content to path, a file in the project directory, so a value a task read (a registered result's running_config) can be kept, edited and used as a candidate: net.frr.config's src and net.batfish.check's src read such a file. The path is held to the rules a method reading the project is held to: relative, never leaving the project, never through a symbolic link, never into the project's .pleiades directory, and a regular file or none yet. A missing directory on the way is created inside the project. The file is written whole to a temporary file beside it and renamed over it, so it is never seen half written, and the task reports changed only when the bytes or the mode differ. A check reads the file and predicts the same answer. It runs on the command line only (pleiades run and adhoc), which holds the project; a Walk-tier Runner refuses it. It acts on no device and needs no hosts. A configuration read by net.frr.facts or net.ios.* is masked: each secret in it is a pleiades-masked- placeholder, and net.frr.config refuses a candidate holding one, so put each secret back before applying the file. It cannot be undone by a rollback: the file's earlier content is never journaled, since the project is the author's working copy, kept under version control.",
+	Params: []collection.Param{
+		{Name: "path", Type: "string", Required: true, Description: "The file to write, a slash-separated path relative to the project directory, such as configs/r3.running.frr.conf."},
+		{Name: "content", Type: "string", Required: true, Description: "The text to write, usually rendered from a registered result, such as \"{{ result.r3.running_config }}\". An empty string writes an empty file."},
+		{Name: "mode", Type: "string", Default: "0600", Description: "The file's permission bits as a quoted octal string, such as \"0640\". Only the owner can read the default, since a configuration can hold more than its masked secrets."},
+	},
+	Returns: []collection.ReturnField{
+		{Name: "path", Type: "string", Returned: "always", Description: "The file written, as given."},
+		{Name: "sha256", Type: "string", Returned: "always", Description: "The SHA-256 of the content, in hex: the digest net.batfish.check reports for the same bytes."},
+		{Name: "size", Type: "int", Returned: "always", Description: "The content's length in bytes."},
+	},
+	Examples: []collection.Example{
+		{Name: "Keep r3's running configuration as a candidate file", RunbookYAML: "- name: Read r3 as it runs\n  net.frr.facts:\n    target: r3\n    include_config: true\n  register: r3\n- name: Keep it in the project, to edit into a candidate\n  pleiades.builtin.project.write:\n    path: configs/r3.running.frr.conf\n    content: \"{{ result.r3.running_config }}\"\n"},
+	},
+	SeeAlso: []string{"net.frr.facts", "net.frr.config", "net.batfish.check", "file.copy"},
 }

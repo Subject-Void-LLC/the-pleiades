@@ -228,8 +228,11 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  `outcome.message`, the `validation` list (what stopped the run before it started) and each task's `error`.\n" +
 	"- A failed task with `\"unreached\": true` never reached its device: nothing ran there, so running it again is\n" +
 	"  safe. A refused login is not unreached; fix the credential instead of retrying.\n" +
-	"- A task's `status` is one of `ok`, `changed`, `would_change`, `checked_only`, `failed`, `held`, `skipped` and\n" +
-	"  `unchecked`. `held` waits for a person's decision; do not work around it.\n" +
+	"- A task's `status` is one of `ok`, `changed`, `would_change`, `checked_only`, `failed`, `held`, `skipped`,\n" +
+	"  `unchecked`, `conditional_skip` and `not_run`. `held` waits for a person's decision; do not work around it.\n" +
+	"  `skipped` was reached and passed over by its `when:`; `not_run` was never reached (validation refused the\n" +
+	"  runbook, or an earlier failure stopped the run), and its `reason` says which. A task's `host` is its device's\n" +
+	"  name and `device` that device's id.\n" +
 	"- A check that could not cover every task exits 3 and names the unchecked tasks. Treat their effect as unknown.\n" +
 	"- After a failed run, `pleiades journal show <run-id>` says what each task did, and what can be undone.\n\n" +
 	"## Keep a journal\n\n" +
@@ -247,8 +250,9 @@ const skillGuide = "## Starting in a project\n\n" +
 	"   `pleiades journal list` is pleiades' own record of what ran; yours records why, and what comes next.\n\n" +
 	"## Runbooks\n\n" +
 	"A runbook is a YAML file under `runbooks/`. Validate it with `pleiades validate runbooks/<file>.yaml`, then run it\n" +
-	"with `pleiades run runbooks/<file>.yaml --json`. How a runbook is written (`pleiades validate` warns when one\n" +
-	"breaks either of the first two):\n\n" +
+	"with `pleiades run runbooks/<file>.yaml --json`. A runbook that reads `vars.<name>` takes it as `-e name=value` on\n" +
+	"both commands; validate and run refuse one that no `-e` gives. How a runbook is written (`pleiades validate` warns\n" +
+	"when one breaks either of the first two):\n\n" +
 	"- A task names its method as its key, with the parameters under it. Never `fqcn:` with `params:`.\n" +
 	"- The file opens with a comment saying what it does, its blast radius, what it changes, and how to undo it.\n" +
 	"- `register: <name>` keeps a task's result; a later `when:` reads it as `result.<name>`.\n" +
@@ -272,7 +276,9 @@ const skillNetwork = "## Changing a network\n\n" +
 	"A routing or switching change goes through three lines of defence, in this order, whatever the network runs on\n" +
 	"(real devices, containerlab, GNS3, CML2):\n\n" +
 	"1. The model. Read each router as it runs (`net.frr.facts` with `include_config: true`, registered), write the\n" +
-	"   candidate as a whole configuration file in the project, and run `net.batfish.check` on a `batfish` device with\n" +
+	"   candidate as a whole configuration file in the project (`pleiades.builtin.project.write` keeps a registered\n" +
+	"   `running_config` as a file to edit from; its secrets are masked placeholders, which `net.frr.config` refuses,\n" +
+	"   so the person puts each secret back), and run `net.batfish.check` on a `batfish` device with\n" +
 	"   the running configurations, the candidate, assertions (`ospf_established`, `bgp_established`, `route`,\n" +
 	"   `no_route`, `reach` with `accepted_by` for a virtual address, `routes_match`, `question`) and scenarios with\n" +
 	"   links or nodes down. `pleiades doc net.batfish.check` has the whole contract. A failed check stops the change:\n" +
@@ -289,6 +295,11 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  and none of what its result lists under `not_modelled`, so the rehearsal and the live verification still run.\n" +
 	"- Accept an unrecognised line or an unmodelled feature (`accept_unrecognized`) only with a reason the person\n" +
 	"  would agree with, never to make a check pass.\n" +
+	"- `net.trace` with `container:` traces from a container on a `container_host` device (a containerlab end host\n" +
+	"  with no SSH of its own) through the host's engine.\n" +
+	"- A run that changes devices warns (`warnings` in `--json`) when another run is changing the same devices as it\n" +
+	"  starts, or changed them while it worked. Nothing stops either run: report it to the person, since the second\n" +
+	"  change may be what made yours fail or pass.\n" +
 	"- `pleiades add-host batfish --type batfish --set api_base=http://127.0.0.1:9996` adds the service.\n" +
 	"  `pleiades import-containerlab --topology <lab dir>/topology-data.json --lab <name>` adds a containerlab lab's\n" +
 	"  nodes; with `--username`, `--key`, `--trust-first-connect` and `--onboard` it also stores their login, trusts\n" +
@@ -303,13 +314,13 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  key) only when the person has accepted that for that device; never add it to make a task pass. The device's\n" +
 	"  login and enable secret are stored with `pleiades add-credential` (`--enable-password-stdin` for the enable\n" +
 	"  secret), never written in a runbook.\n" +
-	"- A Cisco IOS change (`net.ios.config`, `net.cli.config`, a configuring `net.ios.command`) records no undo: the\n" +
-	"  device cannot say what a line replaced. Read what you are about to change first (`net.ios.command` with a\n" +
-	"  `show` command reads only and reports unchanged), then give the task a `rollback:` list that restores it,\n" +
-	"  written from what you read: the `no` form of a line that added something, the old line for one that\n" +
-	"  replaced something. Without one, `pleiades rollback` refuses the run until the change is left by name\n" +
-	"  with `--leave`. These methods have no check mode, so rehearse the change and its rollback on a lab device\n" +
-	"  running the same image before relying on the list.\n" +
+	"- `net.ios.config` keeps a checkpoint of the running configuration on the device and records an exact undo\n" +
+	"  (`net.ios.replace`), so `pleiades rollback` and a block's `rollback_on_failure` work with no `rollback:` list,\n" +
+	"  and a second run of the same lines reports unchanged. When its result warns that no undo was recorded (a\n" +
+	"  device with no writable file system), and for `net.cli.config` or a configuring `net.ios.command`, give the\n" +
+	"  task a `rollback:` list: `undo_lines` in the result has the lines, masked; put each masked secret back. Read a\n" +
+	"  device's state before and after with `net.ios.parse` (structured) or a `show` through `net.ios.command`, both\n" +
+	"  unchanged reads, and rehearse the change and its undo on a lab device running the same image.\n" +
 	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
 	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
 	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +

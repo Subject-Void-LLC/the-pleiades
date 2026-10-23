@@ -368,8 +368,10 @@ var Root = Command{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "tags", Type: "string", Default: "", Doc: "run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named"},
 				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
+				{Name: "extra-vars", Type: "string", Default: "", Doc: "a variable the run will start with, read exactly as run reads it (key=value, key:=yaml or @file.yaml, repeatable); a parameter reading vars.<name> that none of these gives, with no | default(...), is reported"},
+				{Name: "e", Type: "string", Default: "", Doc: "shorthand for --extra-vars"},
 			},
-			Examples: []string{"pleiades validate", "pleiades validate runbooks/site.yaml", "pleiades validate runbooks/*.yaml --tags web"},
+			Examples: []string{"pleiades validate", "pleiades validate runbooks/site.yaml", "pleiades validate runbooks/*.yaml --tags web", "pleiades validate runbooks/change.yaml -e candidate=configs/r3.conf"},
 		},
 		{
 			Name:       "run",
@@ -386,7 +388,7 @@ var Root = Command{
 				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
 				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000; the default is Ansible's own"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says"},
-				{Name: "extra-vars", Type: "string", Default: "", Doc: "a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, and a name given twice is refused"},
+				{Name: "extra-vars", Type: "string", Default: "", Doc: "a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, a name given twice is refused, and a runbook reading one none of these gives is refused before any task runs"},
 				{Name: "e", Type: "string", Default: "", Doc: "shorthand for --extra-vars"},
 			},
 			Examples: []string{

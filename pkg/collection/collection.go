@@ -193,6 +193,10 @@ func Register(d Descriptor) error {
 		return err
 	}
 
+	if err := checkShapes(d); err != nil {
+		return err
+	}
+
 	// A method claiming to be implemented must carry an implementation.
 	// Catching it here turns what would be a nil-pointer panic partway
 	// through a runbook into a refusal at process start, which is the same

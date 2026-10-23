@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -109,6 +110,12 @@ func configLines(params map[string]any) ([]string, error) {
 	}
 	if len(lines) == 0 {
 		return nil, fmt.Errorf("%s has no non-blank lines to send", paramConfig)
+	}
+	// Lines copied from a masked read (net.ios.config's undo_lines, a
+	// configuration net.frr.facts returned) would set each secret to its
+	// placeholder; refused here, before the device is reached.
+	if err := netcfg.RefuseMasked(paramConfig, raw); err != nil {
+		return nil, err
 	}
 	return lines, nil
 }

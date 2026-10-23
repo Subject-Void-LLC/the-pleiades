@@ -77,7 +77,10 @@ func TestCLI_RoutingLabExampleValidatesOnRealRouters(t *testing.T) {
 	}
 	for _, rb := range runbooks {
 		rel := filepath.Join("runbooks", filepath.Base(rb))
-		out, err := runPleiadesWithEnv(t, dir, env, "validate", rel)
+		// change_r3 reads vars.candidate, which validate refuses unless the
+		// run's variables give it, as the README's validate step does; a
+		// variable a runbook does not read changes nothing for the others.
+		out, err := runPleiadesWithEnv(t, dir, env, "validate", rel, "-e", "candidate=configs/r3.good.frr.conf")
 		if err != nil || !strings.Contains(out, "no issues found") || strings.Contains(out, "[warning]") {
 			t.Errorf("validate %s: %v\n%s", rel, err, out)
 		}

@@ -307,11 +307,18 @@ func finishWithoutRun(opts runOptions, label string, report *rollbackReport) err
 }
 
 // refuseRollback ends a rollback that ran nothing. With --json the refusal
-// is still one report on standard output, carrying the problems.
+// is still one report on standard output, carrying the problems: each in
+// rollback.problems (node, device name and id, reason, and the flag that
+// accepts it), and their text in outcome.message too, so a reader of the
+// outcome alone learns why, as the text view's reader does.
 func refuseRollback(opts runOptions, label string, report *rollbackReport, why error) error {
 	if opts.asJSON {
+		message := why.Error()
+		if len(report.Problems) > 0 {
+			message += ": " + strings.Join(problemLines(report.Problems), "; ")
+		}
 		rep := &runReport{Runbook: label, Mode: opts.mode, Rollback: report,
-			Outcome: runOutcome{Status: "invalid", Message: why.Error(), ExitCode: 1}}
+			Outcome: runOutcome{Status: "invalid", Message: message, ExitCode: 1}}
 		if err := writeJSON(os.Stdout, rep); err != nil {
 			return err
 		}
@@ -323,19 +330,38 @@ func refuseRollback(opts runOptions, label string, report *rollbackReport, why e
 func printRefusal(runID string, problems []rollback.Problem) {
 	fmt.Printf("rollback of run %s refused, before any device was contacted:\n", runID)
 	for _, p := range problems {
-		where := p.Node
-		if p.DeviceName != "" {
-			where += " on " + p.DeviceName
-		}
-		if where != "" {
-			fmt.Printf("  %s: %s\n", termsafe.EscapeLine(where), termsafe.EscapeLine(p.Reason))
-		} else {
-			fmt.Printf("  %s\n", termsafe.EscapeLine(p.Reason))
-		}
+		fmt.Printf("  %s\n", problemText(p))
 		if p.Accept != "" {
 			fmt.Printf("    accept it with %s\n", p.Accept)
 		}
 	}
+}
+
+// problemText is one problem as both views write it: where (its node, on
+// its device by name), then why, escaped for a terminal.
+func problemText(p rollback.Problem) string {
+	where := p.Node
+	if p.DeviceName != "" {
+		where += " on " + p.DeviceName
+	}
+	if where == "" {
+		return termsafe.EscapeLine(p.Reason)
+	}
+	return termsafe.EscapeLine(where) + ": " + termsafe.EscapeLine(p.Reason)
+}
+
+// problemLines is each problem as one line, with the flag that accepts it,
+// for the --json outcome's message.
+func problemLines(problems []rollback.Problem) []string {
+	out := make([]string, 0, len(problems))
+	for _, p := range problems {
+		line := problemText(p)
+		if p.Accept != "" {
+			line += " (accept it with " + p.Accept + ")"
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 // printGaps prints what the plan leaves, before the run's own plan.
