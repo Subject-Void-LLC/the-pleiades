@@ -121,7 +121,7 @@ func TestOpenShell_Refusals(t *testing.T) {
 	}{
 		"no device":       {nil, optIn, nil, "no target device"},
 		"neither carrier": {newCLIDevice("127.0.0.1", 22, 23, capability.NameNetworkAddressable), optIn, nil, "neither SSH nor Telnet"},
-		"no opt-in":       {newCLIDevice("127.0.0.1", 0, 23, capability.NameTelnet), nil, nil, "set insecure_telnet: true"},
+		"no opt-in":       {newCLIDevice("127.0.0.1", 0, 23, capability.NameTelnet), nil, nil, "insecure_telnet: true among the method's parameters"},
 		"no credential":   {newCLIDevice("127.0.0.1", 0, telnetLogin(t), capability.NameTelnet), optIn, map[string]string{}, "pleiades add-credential"},
 	} {
 		if _, err := sdk.OpenShell(ctx, newSecretContext(tc.secrets), tc.device, tc.params, "test.cli"); err == nil || !strings.Contains(err.Error(), tc.want) {

@@ -299,9 +299,17 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  `PLEIADES_GNS3_PASSWORD`/`PLEIADES_CML_PASSWORD`, never a flag. `import-cml` takes a node's address only from\n" +
 	"  what the controller observed or from `--address NODE=IP`: never guess one from a configuration, ask.\n" +
 	"- A device with no SSH (a GNS3 console, a lab router before SSH is enabled) is reached over Telnet, which sends\n" +
-	"  its login in cleartext: a task sets `insecure_telnet: true` only when the person has accepted that for that\n" +
-	"  device; never add it to make a task pass. The device's login and enable secret are stored with\n" +
-	"  `pleiades add-credential` (`--enable-password-stdin` for the enable secret), never written in a runbook.\n" +
+	"  its login in cleartext: a method gets `insecure_telnet: true` (a parameter, beside its others, never a task\n" +
+	"  key) only when the person has accepted that for that device; never add it to make a task pass. The device's\n" +
+	"  login and enable secret are stored with `pleiades add-credential` (`--enable-password-stdin` for the enable\n" +
+	"  secret), never written in a runbook.\n" +
+	"- A Cisco IOS change (`net.ios.config`, `net.cli.config`, a configuring `net.ios.command`) records no undo: the\n" +
+	"  device cannot say what a line replaced. Read what you are about to change first (`net.ios.command` with a\n" +
+	"  `show` command reads only and reports unchanged), then give the task a `rollback:` list that restores it,\n" +
+	"  written from what you read: the `no` form of a line that added something, the old line for one that\n" +
+	"  replaced something. Without one, `pleiades rollback` refuses the run until the change is left by name\n" +
+	"  with `--leave`. These methods have no check mode, so rehearse the change and its rollback on a lab device\n" +
+	"  running the same image before relying on the list.\n" +
 	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
 	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
 	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +

@@ -78,10 +78,52 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 		api = "v2"
 	}
 
-	ports := freeConsoleRange(tb)
+	// The console ports are published at their own numbers, found free a
+	// moment before Docker binds them; another test can take one in that
+	// moment (seen under make pr-check: "address already in use"), so a
+	// start that loses that race picks a fresh range and starts again.
+	var c testcontainers.Container
+	var ports []int
+	var err error
+	for attempt := 1; ; attempt++ {
+		ports = freeConsoleRange(tb)
+		c, err = startGNS3Container(tb, tag, api, ports)
+		if err == nil {
+			break
+		}
+		logs := "(no container was created)"
+		if c != nil {
+			logs = containerLogTail(c, 30)
+			_ = c.Terminate(context.Background())
+		}
+		if !strings.Contains(err.Error(), "address already in use") || attempt == gns3StartAttempts {
+			tb.Fatalf("starting GNS3 %s: %v\nits log:\n%s", version, err, logs)
+		}
+	}
+	tb.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	mapped, err := c.MappedPort(context.Background(), "3080/tcp")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	s := &GNS3Server{URL: "http://127.0.0.1:" + strconv.Itoa(int(mapped.Num())), API: api, ConsolePorts: ports}
+	if api == "v3" {
+		s.login(tb)
+	}
+	return s
+}
+
+// gns3StartAttempts bounds how many fresh console port ranges a start tries
+// after losing one to another process.
+const gns3StartAttempts = 5
+
+// startGNS3Container starts the built image with its console ports
+// published at their own numbers and the server's console range set to
+// them, returning once its API answers.
+func startGNS3Container(tb testing.TB, tag, api string, ports []int) (testcontainers.Container, error) {
+	tb.Helper()
 	conf := filepath.Join(tb.TempDir(), "gns3_server.conf")
 	if err := os.WriteFile(conf, fmt.Appendf(nil, "[Server]\nconsole_start_port_range = %d\nconsole_end_port_range = %d\n", ports[0], ports[len(ports)-1]), 0o644); err != nil { // #nosec G306 -- the server reads it as another user inside the container
-		tb.Fatal(err)
+		return nil, err
 	}
 	exposed := []string{"3080/tcp"}
 	bindings := mobynetwork.PortMap{}
@@ -90,8 +132,7 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 		exposed = append(exposed, port.String())
 		bindings[port] = []mobynetwork.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: strconv.Itoa(p)}}
 	}
-	ctx := context.Background()
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	return testcontainers.GenericContainer(context.Background(), testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        tag,
 			Cmd:          []string{"--config", "/etc/gns3_server.conf"},
@@ -111,22 +152,6 @@ func StartGNS3(tb testing.TB, version string) *GNS3Server {
 		},
 		Started: true,
 	})
-	if err != nil {
-		if c != nil {
-			_ = c.Terminate(context.Background())
-		}
-		tb.Fatalf("starting GNS3 %s: %v", version, err)
-	}
-	tb.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	mapped, err := c.MappedPort(ctx, "3080/tcp")
-	if err != nil {
-		tb.Fatal(err)
-	}
-	s := &GNS3Server{URL: "http://127.0.0.1:" + strconv.Itoa(int(mapped.Num())), API: api, ConsolePorts: ports}
-	if api == "v3" {
-		s.login(tb)
-	}
-	return s
 }
 
 // freeConsoleRange returns gns3ConsolePorts consecutive ports free on this

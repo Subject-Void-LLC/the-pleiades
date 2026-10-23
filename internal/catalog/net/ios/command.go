@@ -59,7 +59,7 @@ func commandDoc() collection.Doc {
 		Summary: "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
 		Description: "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task. " +
 			"A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. " +
-			"It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed. A command cannot be inspected, so it reports changed every time it runs without error.",
+			"It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed. A show command (its first word show, or IOS's abbreviation of it) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command cannot be inspected, so it reports changed every time it runs without error.",
 		Params:   params,
 		Returns:  append(returns, clidialog.Returns()...),
 		Examples: commandExamples(),
@@ -126,7 +126,32 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 			}
 		}
 	}
-	// Reported changed unconditionally, as net.cli.command and exec.command
-	// report it: a command's effect cannot be inspected.
-	return collection.Result{Changed: true}, nil
+	// A show command reads; every other command's effect cannot be
+	// inspected, so it reports changed, as net.cli.command and exec.command
+	// do. A second run of a read-only task then proves nothing changed.
+	return collection.Result{Changed: !iosShow(line)}, nil
+}
+
+// iosShow reports whether line is an IOS show command that writes nothing:
+// its first word is show or an abbreviation IOS accepts for it (sh, sho),
+// and none of its output pipes writes a file (redirect, append, tee, or
+// their abbreviations; re, ap and te name nothing else after a pipe).
+func iosShow(line string) bool {
+	pipes := strings.Split(strings.ToLower(line), "|")
+	if !iosAbbreviates(pipes[0], "show") {
+		return false
+	}
+	for _, pipe := range pipes[1:] {
+		if iosAbbreviates(pipe, "redirect") || iosAbbreviates(pipe, "append") || iosAbbreviates(pipe, "tee") {
+			return false
+		}
+	}
+	return true
+}
+
+// iosAbbreviates reports whether text's first word is word or an IOS
+// abbreviation of it, at least two letters long.
+func iosAbbreviates(text, word string) bool {
+	fields := strings.Fields(text)
+	return len(fields) > 0 && len(fields[0]) >= 2 && strings.HasPrefix(word, fields[0])
 }

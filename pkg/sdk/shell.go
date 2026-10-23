@@ -24,8 +24,9 @@ const ParamInsecureTelnet = "insecure_telnet"
 // OpenShell opens an interactive CLI session on device for a method that
 // speaks a device's CLI through pkg/netcli: over SSH when the device is
 // reachable over SSH, else over Telnet when it is reachable over Telnet
-// and the task sets insecure_telnet: true, its login answered with the
-// task's credential. The shell's Close ends the connection under it too.
+// and the method is given insecure_telnet: true among its parameters, its
+// login answered with the task's credential. The shell's Close ends the
+// connection under it too.
 func OpenShell(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (netcli.Shell, error) {
 	if device == nil {
 		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
@@ -47,7 +48,7 @@ func OpenShell(ctx context.Context, rc RunbookContext, device inventory.Inventor
 		return nil, fmt.Errorf("%s: device %q is reachable over neither SSH nor Telnet", fqcn, device.Name())
 	}
 	if !BoolParam(params, ParamInsecureTelnet) {
-		return nil, fmt.Errorf("%s: device %q is reached over Telnet, whose login crosses the network in cleartext; set %s: true on the task to accept that", fqcn, device.Name(), ParamInsecureTelnet)
+		return nil, fmt.Errorf("%s: device %q is reached over Telnet, whose login crosses the network in cleartext; pass %s: true among the method's parameters (beside its other parameters, not as a task key) to accept that", fqcn, device.Name(), ParamInsecureTelnet)
 	}
 	secrets := rc.InjectSecrets()
 	login := telnetexec.Login{Username: secrets[wire.SecretUsername], Password: secrets[wire.SecretPassword]}

@@ -102,7 +102,8 @@ is given, and then warn. A password is read from standard input (`--password-std
 
 Many lab images, and older devices, answer only Telnet until someone enables SSH on them. Telnet carries
 the login and everything after it in cleartext, so a task reaches a device over it only with
-`insecure_telnet: true` written on the task. A Cisco device reached that way has `transport: telnet` in
+`insecure_telnet: true` among the method's parameters, written beside its other parameters
+(`net.ios.facts: {insecure_telnet: true}`), not as a task key. A Cisco device reached that way has `transport: telnet` in
 its record (`import-cml --via telnet` writes it); `net.ios.*` and `net.cli.*` then run over Telnet, and
 `telnet_exec` runs one command.
 
@@ -118,6 +119,31 @@ printf 'login-password\nenable-secret\n' | pleiades add-credential R1 --username
 ```
 
 A wrong enable secret is refused by name, and the secret appears in no result or error.
+
+### Undoing an IOS change
+
+`net.ios.config`, `net.cli.config` and a configuring `net.ios.command` record no undo, since an IOS
+device cannot say what a line replaced, so `pleiades rollback` refuses such a run until the change is
+left by name (`--leave`). Read what the change will replace first (`net.ios.command` with a `show`
+command reads only and reports unchanged), then give the task a `rollback:` list written from it: the
+`no` form of a line that added something, the old line for one that replaced something.
+
+```yaml
+  - name: Describe the uplink
+    net.ios.config:
+      lines:
+        - interface GigabitEthernet0/1
+        - description uplink to core
+    rollback:
+      - name: Put the old description back
+        net.ios.config:
+          lines:
+            - interface GigabitEthernet0/1
+            - description spare
+```
+
+None of these methods has a check mode, so rehearse the change and its rollback on a lab device
+running the same image first.
 
 ## Running Batfish
 

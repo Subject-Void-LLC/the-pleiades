@@ -164,7 +164,7 @@ func runImportGNS3(args []string) error {
 		}
 		fmt.Printf("imported %s (%q, %s) at telnet %s:%d\n", n.Device, n.NodeType, n.Status, n.Host, n.Port)
 	}
-	fmt.Println("each is reached with telnet_exec and insecure_telnet: true; Telnet is unencrypted, so keep it on the lab's own network")
+	fmt.Println("each is reached with telnet_exec, given insecure_telnet: true among its parameters; Telnet is unencrypted, so keep it on the lab's own network")
 	return nil
 }
 

@@ -277,7 +277,7 @@ func runImportCML(args []string) error {
 	}
 	switch {
 	case *via == "telnet":
-		fmt.Println("next, for each node: pleiades add-credential (with --enable-password for a router's enable secret); each task reaching one sets insecure_telnet: true")
+		fmt.Println("next, for each node: pleiades add-credential (with --enable-password for a router's enable secret); every method reaching one takes insecure_telnet: true among its parameters")
 	case !*trust || !*onboardNodes:
 		fmt.Println("next, for each node: pleiades add-credential, pleiades trust-host, pleiades onboard")
 	}

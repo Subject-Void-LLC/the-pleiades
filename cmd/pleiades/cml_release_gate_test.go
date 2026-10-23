@@ -8,6 +8,7 @@ package main_test
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -72,6 +73,11 @@ func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
 	if stats, _ := brief["stats"].(map[string]any); !strings.Contains(stats["stdout"].(string), env["PLEIADES_CML_NODE_ADDRESS"]) {
 		t.Errorf("show ip interface brief does not list the address the node was imported at: %v", stats["stdout"])
 	}
+	// A show command reads only, so a second run of a runbook built on one
+	// can prove it changes nothing.
+	if brief["status"] != "ok" {
+		t.Errorf("a show command reported %v, want ok (unchanged)", brief["status"])
+	}
 	loopback := `lines:=["interface Loopback199","description pleiades-release-gate"]`
 	if refused := task("adhoc", node, "net.ios.config", loopback); refused["status"] != "failed" || !strings.Contains(refused["error"].(string), "--enable-password") {
 		t.Fatalf("net.ios.config in user mode = %v, want refused naming the enable secret", refused)
@@ -92,6 +98,45 @@ func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
 	}
 	if removed := task("adhoc", node, "net.ios.config", `lines:=["no interface Loopback199"]`); removed["status"] != "changed" {
 		t.Errorf("removing it = %v", removed)
+	}
+
+	// The same change from a runbook whose task carries a rollback: list,
+	// which pleiades rollback replays, since net.ios.config records no
+	// undo of its own.
+	if err := os.MkdirAll(filepath.Join(dir, "runbooks"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "runbooks", "loopback.yaml"), []byte(`# What this does: adds Loopback199 with a description.
+# Blast radius: the one CML node.
+# Changes: one loopback interface.
+# Undo: pleiades rollback <run-id>, through the task's rollback: list.
+id: cml_loopback
+hosts: `+node+`
+tasks:
+  - name: Add Loopback199
+    net.ios.config:
+      insecure_telnet: true
+      lines:
+        - interface Loopback199
+        - description pleiades-release-gate
+    rollback:
+      - name: Remove Loopback199
+        net.ios.config:
+          insecure_telnet: true
+          lines:
+            - no interface Loopback199
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run("", "run", "runbooks/loopback.yaml", "--json")
+	var ran struct {
+		RunID string `json:"run_id"`
+	}
+	if err != nil || json.NewDecoder(strings.NewReader(out[max(strings.Index(out, "{"), 0):])).Decode(&ran) != nil || ran.RunID == "" {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	if out, err := run("", "rollback", ran.RunID); err != nil {
+		t.Fatalf("rollback through the task's rollback: list: %v\n%s", err, out)
 	}
 	gone := task("adhoc", node, "net.ios.command", "command=show ip interface brief | include Loopback199")
 	if stats, _ := gone["stats"].(map[string]any); strings.TrimSpace(stats["stdout"].(string)) != "" {
