@@ -16,6 +16,7 @@ package inventory
 import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/ai"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/aws"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/batfish"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cloudflare"
