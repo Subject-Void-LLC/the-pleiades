@@ -154,7 +154,11 @@ func FromPrompt(prompt string) Dialect {
 	if prompt == "" {
 		return Dialect{Name: "generic"}
 	}
-	pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prompt) + `\s*$`)
+	// A terminal control sequence may follow the prompt: BusyBox's ash,
+	// behind a real telnetd, prints "lab$ " and then ESC[6n, asking where
+	// its cursor is (measured 2026-10-23). It is the shell talking to the
+	// terminal, not output, so it does not keep the prompt from matching.
+	pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prompt) + `\s*(?:\x1b\[[0-9;?]*[A-Za-z]\s*)*$`)
 	return Dialect{
 		Name: "generic",
 		Prompt: func(configMode bool) *regexp.Regexp {

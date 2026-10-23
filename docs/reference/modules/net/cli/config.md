@@ -13,7 +13,7 @@ Splits config into non-blank lines and sends each one through the same generic s
 |  |  |
 | --- | --- |
 | Capabilities | `NetworkCLICapable` |
-| Transports | `ssh` |
+| Transports | `ssh`, `telnet` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what a configuration line changes is decided by the device's own parser as it applies the line, and a CLI offers no way to ask without applying it |
@@ -25,6 +25,7 @@ Splits config into non-blank lines and sends each one through the same generic s
 | --- | --- | --- | --- | --- |
 | `config` | `string` | yes | - | The configuration lines to send, one per line. Blank lines are skipped. Include any vendor-specific mode commands (e.g. "configure terminal" and "end") this device needs, since this method sends none on its own. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
+| `insecure_telnet` | `bool` | no | `false` | Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 
 ## Undoing this
 

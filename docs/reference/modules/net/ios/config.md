@@ -13,7 +13,7 @@ Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, c
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh` |
+| Transports | `ssh`, `telnet` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS offers no way to ask without applying it |
@@ -26,6 +26,7 @@ Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, c
 | `lines` | `list of string` | yes | - | The configuration lines to apply, in order, WITHOUT "configure terminal" or "end": this method supplies both itself. |
 | `backup` | `bool` | no | `false` | Capture the device's running-config with "show running-config" before applying any line, recorded under the backup stat. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
+| `insecure_telnet` | `bool` | no | `false` | Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 
 ## Returns
 

@@ -113,6 +113,8 @@ store an encrypted credential for a device
 | --pfx | `string` | - | path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key |
 | --passphrase | `bool` | `false` | prompt for the passphrase of the private key, the bundle or a passphrase-sealed --password-file |
 | --passphrase-stdin | `bool` | `false` | read the passphrase of the private key, the bundle or a passphrase-sealed --password-file as one line on standard input |
+| --enable-password | `bool` | `false` | prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode |
+| --enable-password-stdin | `bool` | `false` | read that enable secret as one line on standard input; with --password-stdin it is the second line |
 | --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
 | --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key) |
@@ -285,9 +287,10 @@ make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management a
 | --tls-fingerprint | `string` | - | trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates |
 | --tls-ca | `string` | - | a PEM file of the CAs the controller's certificate must chain to |
 | --allow-plaintext | `bool` | `false` | send the password over plain HTTP to a controller that is not this machine |
+| --via | `string` | `ssh` | how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext) |
 | --trust-first-connect | `bool` | `false` | trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does |
 | --onboard | `bool` | `false` | onboard each node once it is imported (needs a credential and trusted host keys) |
-| --replace | `bool` | `false` | replace the address of a node already in the inventory as a generic_ssh device |
+| --replace | `bool` | `false` | replace the address of a node already in the inventory as the same device type |
 | --json | `bool` | `false` | print the result as one JSON document |
 
 `pleiades import-cml --server https://10.10.20.161 --lab default-lab --username developer --password-stdin --tls-fingerprint sha256:8e57dd2f... < cml.pw`

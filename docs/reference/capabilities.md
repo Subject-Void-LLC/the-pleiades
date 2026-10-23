@@ -74,4 +74,5 @@ How a method's work reaches its device. A method lists the transports it uses; a
 | `kubernetes` | `KubernetesCapable` |
 | `netconf` | `NetconfCapable` |
 | `ssh` | `SSHTransportCapable` |
+| `telnet` | `TelnetCapable` |
 | `winrm` | `WinRMCapable` |

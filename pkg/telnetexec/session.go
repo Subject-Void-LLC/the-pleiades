@@ -114,11 +114,32 @@ func Open(ctx context.Context, conn net.Conn, opts Options, login Login) (*Sessi
 		if err := writeData(conn, []byte(answer+"\r\n")); err != nil {
 			return nil, fmt.Errorf("telnetexec: answering the login at %s: %w", s.addr, err)
 		}
-		if seen, err = s.quiet(ctx); err != nil {
+		if seen, err = s.answer(ctx); err != nil {
 			return nil, err
 		}
 	}
 	return nil, fmt.Errorf("%w at %s: it kept asking", ErrLoginRefused, s.addr)
+}
+
+// answer reads the device's reply to a login answer: until it has said
+// something besides blank lines, for up to the login timeout, and then
+// until it goes quiet. A login checker may wait seconds before answering
+// (BusyBox's login waits about three before "Login incorrect", measured
+// 2026-10-23), and a read that took that silence for a quiet device took
+// a refused login for an accepted one.
+func (s *Session) answer(ctx context.Context) ([]byte, error) {
+	deadline := time.Now().Add(s.opts.LoginTimeout)
+	var seen []byte
+	for {
+		more, err := s.quiet(ctx)
+		if err != nil {
+			return nil, err
+		}
+		seen = append(seen, more...)
+		if len(bytes.TrimSpace(seen)) > 0 || time.Now().After(deadline) {
+			return seen, nil
+		}
+	}
 }
 
 // quiet reads until the device goes quiet, bounded by the session's
@@ -244,6 +265,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.MaxOutputBytes <= 0 {
 		o.MaxOutputBytes = DefaultMaxOutputBytes
+	}
+	if o.LoginTimeout <= 0 {
+		o.LoginTimeout = DefaultLoginTimeout
 	}
 	return o
 }

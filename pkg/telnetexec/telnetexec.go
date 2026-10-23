@@ -111,6 +111,10 @@ type Options struct {
 	// Login answers the device's login prompts, when it asks (Open). The
 	// zero Login answers none, and a device that asks is then refused.
 	Login Login
+
+	// LoginTimeout bounds how long a login answer waits for the device to
+	// reply. Zero takes DefaultLoginTimeout.
+	LoginTimeout time.Duration
 }
 
 const (
@@ -126,6 +130,10 @@ const (
 	// MiB, the same order of magnitude pkg/sdk's own structured-input
 	// caps use elsewhere in this module for document-shaped content.
 	DefaultMaxOutputBytes = 1 << 20
+	// DefaultLoginTimeout is how long a login answer waits for a reply: a
+	// login checker that delays a refusal (BusyBox's, about three seconds)
+	// answers well within it.
+	DefaultLoginTimeout = 20 * time.Second
 )
 
 // Result is what running one command over a Telnet session produced.

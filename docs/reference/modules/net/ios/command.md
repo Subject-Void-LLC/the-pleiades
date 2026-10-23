@@ -13,7 +13,7 @@ Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt 
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh` |
+| Transports | `ssh`, `telnet` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since an arbitrary command can be anything the device accepts, and what it changes, if anything, is known only once the device has run it |
@@ -28,6 +28,7 @@ Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt 
 | `ask` | `dict` | no | - | A model for questions no prompts entry matches, on the Crawl tier: choices, a list of {id, answer, means} the model picks from by id (it never types its own answer, and may refuse, which fails the task, or say the line was no question); max, how many it may answer (1 to 10, default 3); shape, the RE2 a waiting line must match to be asked about (default: ending in ?, ] or ]:); and ai.chat's own provider, model, residency, prompt or prompt_file (a built-in prompt when neither), signing, review, usage_sink and call options. Its provider is resolved before the device is reached. A held answer fails the task as held, which abandons the command; decided with pleiades ai review, running again reuses the decision for that same question. |
 | `expect_disconnect` | `bool` | no | `false` | Count the device closing the session after at least one answer as success, which is how a reload ends. A close before any answer still fails. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
+| `insecure_telnet` | `bool` | no | `false` | Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 
 ## Returns
 

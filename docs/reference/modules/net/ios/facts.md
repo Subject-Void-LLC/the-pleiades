@@ -13,7 +13,7 @@ Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco dev
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh` |
+| Transports | `ssh`, `telnet` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
@@ -25,6 +25,7 @@ Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco dev
 | --- | --- | --- | --- | --- |
 | `gather_subset` | `list of string` | no | `["min"]` | Which subsets to gather: "min" (hostname, version, model, serial number, image, uptime, from "show version" and "show inventory"), "interfaces" (from "show ip interface brief"), or "all" for both. An unrecognized subset is refused rather than skipped. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
+| `insecure_telnet` | `bool` | no | `false` | Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 
 ## Returns
 
