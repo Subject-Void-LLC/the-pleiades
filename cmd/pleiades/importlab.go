@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -91,11 +92,13 @@ func labPlaintext(u *url.URL, withPassword, allow bool) (string, error) {
 }
 
 // labHTTPClient bounds every step of a call to a lab server: the dial,
-// the TLS handshake, waiting for an answer, and the whole call.
-func labHTTPClient() *http.Client {
+// the TLS handshake, waiting for an answer, and the whole call. tlsConfig
+// is nil for the system's CAs.
+func labHTTPClient(tlsConfig *tls.Config) *http.Client {
 	return &http.Client{
 		Timeout: 2 * time.Minute,
 		Transport: &http.Transport{
+			TLSClientConfig:       tlsConfig,
 			Proxy:                 http.ProxyFromEnvironment,
 			DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 			TLSHandshakeTimeout:   30 * time.Second,

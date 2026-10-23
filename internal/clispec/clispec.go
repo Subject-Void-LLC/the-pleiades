@@ -298,6 +298,30 @@ var Root = Command{
 			},
 		},
 		{
+			Name:     "import-cml",
+			Synopsis: "make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management addresses, read from the controller's API; an address is the one the controller observed or one --address gives, never one guessed from a configuration",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "server", Type: "string", Default: "", Doc: "the CML controller's base URL, e.g. https://cml.lab"},
+				{Name: "lab", Type: "string", Default: "", Doc: "the lab to import, by title or id"},
+				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
+				{Name: "address", Type: "string", Default: "", Doc: "NODE=IP: the node's management address, where the controller observed none or several (repeatable)"},
+				{Name: "username", Type: "string", Default: "", Doc: "the controller account to log in as"},
+				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD"},
+				{Name: "tls-fingerprint", Type: "string", Default: "", Doc: "trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates"},
+				{Name: "tls-ca", Type: "string", Default: "", Doc: "a PEM file of the CAs the controller's certificate must chain to"},
+				{Name: "allow-plaintext", Type: "bool", Default: "false", Doc: "send the password over plain HTTP to a controller that is not this machine"},
+				{Name: "trust-first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does"},
+				{Name: "onboard", Type: "bool", Default: "false", Doc: "onboard each node once it is imported (needs a credential and trusted host keys)"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the address of a node already in the inventory as a generic_ssh device"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as one JSON document"},
+			},
+			Examples: []string{
+				"pleiades import-cml --server https://10.10.20.161 --lab default-lab --username developer --password-stdin --tls-fingerprint sha256:8e57dd2f... < cml.pw",
+				"pleiades import-cml --server https://cml.lab --lab routing --username admin --tls-ca cml-ca.pem --address R1=10.10.20.171 --nodes R1 --json",
+			},
+		},
+		{
 			Name:     "import-gns3",
 			Synopsis: "make a GNS3 project's nodes console_device devices at their telnet consoles, read from the server's own API (3.x or 2.2), skipping any node without a telnet console",
 			Flags: []Flag{

@@ -43,6 +43,8 @@ obj/
 # The DevNet CML sandbox import-cml is proven against: its VPN and controller
 # logins (tests/cml/.env.example).
 /tests/cml/.env
+/tests/cml/.bin/
+/tests/cml/.work/
 /backups/
 
 # The throwaway serving certificate `make dev-cert` writes. It holds a real

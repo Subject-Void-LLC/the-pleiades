@@ -419,6 +419,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/batfish \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/gns3 \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660 \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \

@@ -137,8 +137,27 @@ func TestScan(t *testing.T) {
 	if srv.Logins() != 0 {
 		t.Error("the scan logged in")
 	}
-	if _, err := Scan(context.Background(), refusing.Addr(t), time.Second); err == nil {
-		t.Error("a closed port gave keys")
+	if _, err := Scan(context.Background(), refusing.Addr(t), time.Second); err == nil || !strings.Contains(err.Error(), "could not be reached") {
+		t.Errorf("a closed port = %v, want it named unreachable", err)
+	}
+	// A listener that speaks something else answers, but with no key.
+	notSSH, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer notSSH.Close()
+	go func() {
+		for {
+			c, err := notSSH.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = c.Write([]byte("User Access Verification\r\n\r\nUsername: "))
+			_ = c.Close()
+		}
+	}()
+	if _, err := Scan(context.Background(), notSSH.Addr().String(), time.Second); err == nil || !strings.Contains(err.Error(), "presented no host key:") {
+		t.Errorf("a listener that is not SSH = %v, want no host key and the cause", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

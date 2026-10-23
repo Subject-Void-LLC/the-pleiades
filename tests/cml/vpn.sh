@@ -6,12 +6,21 @@
 # goes to openconnect on its standard input, never on a command line.
 #
 #   tests/cml/vpn.sh up | down | status
+#
+# Where this machine cannot run openconnect as root, --container runs it in
+# a container instead (Docker holds the privileges), and the CML tests run
+# in containers on that one's network:
+#
+#   tests/cml/vpn.sh up --container | down --container | status --container
+#   tests/cml/vpn.sh run <command...>    # on the VPN's network; the repo is /src
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 env_file="$here/.env"
 pid_file=/run/pleiades-cml-vpn.pid
 iface=plcml0
+container=pleiades-cml-vpn
+image=pleiades/cml-vpn:1
 
 die() { echo "vpn.sh: $*" >&2; exit 1; }
 
@@ -87,9 +96,79 @@ status() {
 	fi
 }
 
-case "${1:-}" in
-up) up ;;
-down) down ;;
-status) status ;;
-*) die "usage: tests/cml/vpn.sh up|down|status" ;;
+# The container mode: openconnect in a container holding its own tunnel.
+container_up() {
+	load
+	if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" = true ]; then
+		echo "vpn.sh: already up in container $container"
+		return 0
+	fi
+	docker rm -f "$container" >/dev/null 2>&1 || true
+	docker build -q -t "$image" "$here" >/dev/null
+	# The env file is mounted read only, so the password reaches
+	# openconnect's standard input inside the container and no command line.
+	docker run -d --name "$container" --cap-add NET_ADMIN --device /dev/net/tun \
+		-v "$env_file:/run/cml.env:ro" "$image" >/dev/null
+	for _ in $(seq 1 30); do
+		docker exec "$container" ip link show "$iface" >/dev/null 2>&1 && break
+		[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" = true ] || break
+		sleep 1
+	done
+	container_status
+}
+
+container_down() {
+	docker rm -f "$container" >/dev/null 2>&1 && echo "vpn.sh: down" || echo "vpn.sh: not up"
+}
+
+container_status() {
+	load
+	if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" != true ]; then
+		echo "vpn.sh: container $container is not running; its last words:"
+		docker logs --tail 15 "$container" 2>&1 | sed 's/^/  /' || true
+		return 1
+	fi
+	if docker exec "$container" ip -brief address show "$iface" 2>/dev/null; then
+		echo "vpn.sh: tunnel $iface is up in $container; routes through it:"
+		docker exec "$container" ip route show dev "$iface" | sed 's/^/  /'
+	else
+		echo "vpn.sh: tunnel $iface is not up yet in $container"
+	fi
+	if [ -n "$cml_url" ]; then
+		# As status above: no credential is sent and nothing is trusted.
+		local code
+		code="$(docker exec "$container" curl -sk --connect-timeout 5 -o /dev/null -w '%{http_code}' "$cml_url/api/v0/system_information" || true)"
+		echo "vpn.sh: $cml_url/api/v0/system_information answered ${code:-nothing}"
+	fi
+}
+
+# run runs a command in a throwaway container on the VPN container's
+# network, with the repository at /src.
+run_on_vpn() {
+	[ "$#" -gt 0 ] || die "usage: tests/cml/vpn.sh run <command...>"
+	local repo
+	repo="$(cd "$here/../.." && pwd)"
+	# The controller's settings reach the command by name (-e NAME, the value
+	# from this process's environment, never a command line); the VPN's
+	# own login does not reach it at all.
+	load
+	local key pass=()
+	for key in PLEIADES_CML_URL PLEIADES_CML_USERNAME PLEIADES_CML_PASSWORD PLEIADES_CML_TLS_FINGERPRINT; do
+		export "$key=$(setting "$key" || true)"
+		pass+=(-e "$key")
+	done
+	docker run --rm --network "container:$container" -v "$repo:/src" -w /src \
+		-e HOME=/tmp "${pass[@]}" --user "$(id -u):$(id -g)" --entrypoint "$1" "$image" "${@:2}"
+}
+
+mode="${2:-}"
+case "${1:-}:$mode" in
+up:) up ;;
+down:) down ;;
+status:) status ;;
+up:--container) container_up ;;
+down:--container) container_down ;;
+status:--container) container_status ;;
+run:*) shift; run_on_vpn "$@" ;;
+*) die "usage: tests/cml/vpn.sh up|down|status [--container], or run <command...>" ;;
 esac

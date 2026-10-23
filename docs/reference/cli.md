@@ -267,6 +267,55 @@ make a containerlab lab's nodes generic_ssh devices, from the topology-data.json
 
 `pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --nodes r1,r2 --replace --json`
 
+## pleiades import-cml
+
+make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management addresses, read from the controller's API; an address is the one the controller observed or one --address gives, never one guessed from a configuration
+
+`pleiades import-cml [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --server | `string` | - | the CML controller's base URL, e.g. https://cml.lab |
+| --lab | `string` | - | the lab to import, by title or id |
+| --nodes | `string` | - | comma-separated nodes to import; every node when empty |
+| --address | `string` | - | NODE=IP: the node's management address, where the controller observed none or several (repeatable) |
+| --username | `string` | - | the controller account to log in as |
+| --password-stdin | `bool` | `false` | read the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD |
+| --tls-fingerprint | `string` | - | trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates |
+| --tls-ca | `string` | - | a PEM file of the CAs the controller's certificate must chain to |
+| --allow-plaintext | `bool` | `false` | send the password over plain HTTP to a controller that is not this machine |
+| --trust-first-connect | `bool` | `false` | trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does |
+| --onboard | `bool` | `false` | onboard each node once it is imported (needs a credential and trusted host keys) |
+| --replace | `bool` | `false` | replace the address of a node already in the inventory as a generic_ssh device |
+| --json | `bool` | `false` | print the result as one JSON document |
+
+`pleiades import-cml --server https://10.10.20.161 --lab default-lab --username developer --password-stdin --tls-fingerprint sha256:8e57dd2f... < cml.pw`
+
+`pleiades import-cml --server https://cml.lab --lab routing --username admin --tls-ca cml-ca.pem --address R1=10.10.20.171 --nodes R1 --json`
+
+## pleiades import-gns3
+
+make a GNS3 project's nodes console_device devices at their telnet consoles, read from the server's own API (3.x or 2.2), skipping any node without a telnet console
+
+`pleiades import-gns3 [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --server | `string` | - | the GNS3 server's base URL, e.g. http://gns3.lab:3080 |
+| --project | `string` | - | the project to import, by name or id |
+| --nodes | `string` | - | comma-separated nodes to import; every node when empty |
+| --username | `string` | - | the account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth) |
+| --password-stdin | `bool` | `false` | read the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD |
+| --allow-plaintext | `bool` | `false` | send the password over plain HTTP to a server that is not this machine |
+| --replace | `bool` | `false` | replace the console address of a node already in the inventory as a console_device |
+| --json | `bool` | `false` | print the result as one JSON document |
+
+`pleiades import-gns3 --server http://127.0.0.1:3080 --project routing-lab --username admin --password-stdin < gns3.pw`
+
+`pleiades import-gns3 --server https://gns3.lab:3080 --project routing-lab --nodes r1,r2 --replace --json`
+
 ## pleiades onboard
 
 probe a device over its protocol and record what it proved: a generic device's capabilities, the container engines a host runs, or what a Kubernetes cluster serves

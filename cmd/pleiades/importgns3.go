@@ -90,7 +90,7 @@ func runImportGNS3(args []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := gns3.New(*server, labHTTPClient(), gns3.Credentials{Username: *username, Password: password})
+	client, err := gns3.New(*server, labHTTPClient(nil), gns3.Credentials{Username: *username, Password: password})
 	if err != nil {
 		return err
 	}
