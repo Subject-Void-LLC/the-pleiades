@@ -7145,7 +7145,8 @@
           "fqcn": "file.remove",
           "record": [
             "path"
-          ]
+          ],
+          "mayKeepOnFailure": true
         },
         {
           "fqcn": "file.permissions",
@@ -7155,14 +7156,15 @@
             "owner",
             "group"
           ],
-          "mayBePartial": true
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
         }
       ]
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Writes content, or a file from the project, to a file on the target, only when the bytes there differ.",
-      "description": "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen is atomic: the bytes go to a temporary file in the destination's own directory and are renamed over it, so a reader of the path sees either the whole old file or the whole new one and never a half-written one. The bytes are content, or src: a file in the project directory, read by the command line (pleiades run and adhoc), which holds the project. A Walk-tier Runner is a per-task container that cannot see the project, so there src is refused, naming content as the way to send the bytes. src is a path relative to the project directory that stays inside it, passes through no symbolic link, never reaches the project's .pleiades directory (its credentials and master key), and names a regular file of at most 64 MiB; it is read before anything is sent. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them, matching what Ansible's own atomic move does; a file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
+      "description": "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen goes to a temporary file in the destination's own directory, which is given the mode, owner and group the file is to have and only then renamed over it, so a reader of the path sees either the whole old file or the whole new one, and a write that cannot be finished leaves the destination as it was. The bytes are content, or src: a file in the project directory, read by the command line (pleiades run and adhoc), which holds the project. A Walk-tier Runner is a per-task container that cannot see the project, so there src is refused, naming content as the way to send the bytes. src is a path relative to the project directory that stays inside it, passes through no symbolic link, never reaches the project's .pleiades directory (its credentials and master key), and names a regular file of at most 64 MiB; it is read before anything is sent. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them. When the connecting account may not give a new file that owner or group (a login that is not root replacing a file another account owns), the bytes are copied into the existing file instead, which keeps everything it was, and the run warns that the write was not atomic; a file the account may not write is refused before anything changes. Ansible's atomic move would leave such a file owned by the connecting account: this method never changes an owner or group the task did not name. An owner or group the task names that the connecting account may not give is refused before anything is written, and a check refuses the same. A file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
       "params": [
         {
           "name": "dest",
@@ -7244,6 +7246,12 @@
           "type": "dict",
           "returned": "always",
           "description": "The before and after state of the path, each holding its kind, mode, owner, group, size, modification time and the checksum of its contents. Recorded even when nothing changed, in which case the two halves are identical."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "when the write was not atomic",
+          "description": "Says the new bytes were copied into the existing file rather than renamed over it, because a new file could not be given its owner and group; a reader at that moment could have seen the file part written."
         },
         {
           "name": "inverse",
@@ -9825,6 +9833,103 @@
       ]
     }
   },
+  "net.batfish.check": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "BatfishAPICapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It asks Batfish about configurations and changes no device; the snapshot it uploads is removed when the task ends.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Checks configurations against Batfish's model of the network before any of them is applied, and fails closed.",
+      "description": "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). Recognising a line is not modelling it, so a feature measured to be parsed and then ignored (on Cisco IOS: GLBP, IP SLA, SLA tracking, BFD) is refused the same way until accepted by name: the model cannot predict its failover, and a passing gate must not imply that it did. The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
+      "params": [
+        {
+          "name": "devices",
+          "type": "list of dict",
+          "required": true,
+          "description": "Each device's whole configuration: name (the node's name, which a Cisco configuration's hostname must match), format (frr, the default, or cisco_ios), and config (the text, e.g. a registered net.frr.facts result's running_config) or src (a file in the project, read by the command line only)."
+        },
+        {
+          "name": "assertions",
+          "type": "list of dict",
+          "description": "What must hold of the configurations as given, each one of: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol}; no_route: {node, prefix}; reach: {from (node or node[interface]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network)}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."
+        },
+        {
+          "name": "scenarios",
+          "type": "list of dict",
+          "description": "Each a name, down_interfaces (node[interface], e.g. r1[eth2]) and down_nodes, and its own assertions, checked on the snapshot with those down."
+        },
+        {
+          "name": "accept_unrecognized",
+          "type": "list of dict",
+          "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd), and a reason (why the model may ignore it). Every other unrecognised line fails the task."
+        }
+      ],
+      "returns": [
+        {
+          "name": "passed",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether every assertion held and nothing went unrecognised unaccepted."
+        },
+        {
+          "name": "sha256",
+          "type": "dict",
+          "returned": "always",
+          "description": "Each device's configuration's SHA-256, in hex, over the bytes as given."
+        },
+        {
+          "name": "parse",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each file's parse status (device, status)."
+        },
+        {
+          "name": "unrecognized",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each unrecognised line (device, line, text) and, when accepted, why."
+        },
+        {
+          "name": "assertions",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each assertion (scenario, kind, passed, detail)."
+        },
+        {
+          "name": "not_modelled",
+          "type": "list of string",
+          "returned": "always",
+          "description": "What the model ignores: each accepted line, with its reason."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Check a candidate and a link failure first",
+          "runbookYaml": "- name: Read r1 as it runs\n  net.frr.facts:\n    target: r1\n    include_config: true\n  register: r1\n- name: Read r2 as it runs\n  net.frr.facts:\n    target: r2\n    include_config: true\n  register: r2\n- name: The model routes both LANs with r3's change, and without r1's link to r2\n  net.batfish.check:\n    target: batfish\n    devices:\n      - {name: r1, config: \"{{ result.r1.running_config }}\"}\n      - {name: r2, config: \"{{ result.r2.running_config }}\"}\n      - {name: r3, src: configs/r3.frr.conf}\n    assertions:\n      - ospf_established: true\n      - route: {node: r1, prefix: 10.3.3.0/24}\n    scenarios:\n      - name: r1-r2 down\n        down_interfaces: [\"r1[eth1]\"]\n        assertions:\n          - reach: {from: \"r1[eth3]\", dst: 10.3.3.10, through: [r3]}\n    accept_unrecognized:\n      - {text: domainname localdomain, reason: DNS search domain, not routing}\n  register: gate\n"
+        }
+      ],
+      "seeAlso": [
+        "net.frr.config",
+        "net.frr.facts",
+        "wait.routes",
+        "net.trace"
+      ]
+    }
+  },
   "net.catalyst.device_facts": {
     "supportedTransports": [
       "https"
@@ -10195,6 +10300,358 @@
     "supportsCheck": false,
     "doc": {
       "summary": "Applies configuration to an Arista EOS device."
+    }
+  },
+  "net.frr.command": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "FRRCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Runs only show commands, which change nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Runs one FRRouting show command through vtysh and returns its output.",
+      "description": "Only show commands are accepted, so it changes nothing. A command ending in json returns its output parsed as data too.",
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "required": true,
+          "description": "The show command, e.g. \"show ip ospf neighbor\".",
+          "format": "command"
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "always",
+          "description": "What vtysh printed."
+        },
+        {
+          "name": "data",
+          "type": "dict",
+          "returned": "when the command ends in json",
+          "description": "stdout parsed."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read OSPF neighbours",
+          "runbookYaml": "- name: OSPF neighbours\n  net.frr.command:\n    command: show ip ospf neighbor\n"
+        }
+      ],
+      "seeAlso": [
+        "net.frr.facts"
+      ]
+    }
+  },
+  "net.frr.config": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "FRRCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo restores the running configuration saved on the router before the change (and frr.conf, when the change saved), named by the backup's path alone, and refuses when the router has been changed since unless forced.",
+      "inverses": [
+        {
+          "fqcn": "net.frr.config",
+          "record": [
+            "restore",
+            "save"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes an FRRouting router run exactly the configuration given, and saves what it ran before so the change can be undone.",
+      "description": "Takes the whole intended configuration (config, or src: a file in the project) and applies only what differs, through FRR's own frr-reload.py. The candidate is first checked with vtysh -m -f, and a line vtysh refuses fails the task before anything reaches the router: frr-reload reads a file vtysh cannot parse as an empty configuration and would delete everything. The difference comes from frr-reload.py --test; an empty one is no change, and a check returns it as the prediction. A real run saves the running configuration to a file on the router (0600, under the connecting account's ~/.pleiades-frr), reloads, confirms the running configuration now matches the candidate, and saves the result beside the backup. Its undo names only that backup, so no configuration text, and no secret in one, reaches the journal; the undo restores exactly the configuration that was running, and refuses when the router no longer runs what this change left, unless its step names force. The undo is recorded before the reload and kept if the reload then fails, since restoring a backup when nothing changed is itself no change. With save, the running configuration is also written to frr.conf, keeping that file's owner and mode, so it survives a restart; the backup then keeps frr.conf as it was too, and the undo puts it back (where there was none, the undo writes the configuration it restores). expect_sha256 refuses a candidate whose bytes are not the ones a model check analysed.",
+      "params": [
+        {
+          "name": "config",
+          "type": "string",
+          "description": "The whole intended configuration, as frr.conf text. Set config or src, not both. Lines not in it are removed from the running configuration."
+        },
+        {
+          "name": "src",
+          "type": "string",
+          "description": "A file in the project directory holding the whole intended configuration, read by the command line; refused on a Walk-tier Runner, where config is the way. Set config or src, not both."
+        },
+        {
+          "name": "save",
+          "type": "bool",
+          "default": "false",
+          "description": "Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was."
+        },
+        {
+          "name": "expect_sha256",
+          "type": "string",
+          "description": "Refuse unless the candidate's SHA-256 is this, in hex: the digest net.batfish.check returned for the bytes it analysed, so the change applied is the change checked."
+        },
+        {
+          "name": "restore",
+          "type": "string",
+          "description": "Restore the configuration this method saved before an earlier change, by the path its undo recorded. Set by an undo; with restore, config and src are not given."
+        },
+        {
+          "name": "force",
+          "type": "bool",
+          "default": "false",
+          "description": "With restore, restore even though the router no longer runs what the earlier change left (someone changed it since)."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "lines_added",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The configuration lines frr-reload added, as it reported them."
+        },
+        {
+          "name": "lines_deleted",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The configuration lines frr-reload removed."
+        },
+        {
+          "name": "sha256",
+          "type": "string",
+          "returned": "always",
+          "description": "The SHA-256 of the configuration applied, in hex."
+        },
+        {
+          "name": "backup",
+          "type": "string",
+          "returned": "when something changed",
+          "description": "The path of the running configuration saved before the change, on the router."
+        },
+        {
+          "name": "inverse",
+          "type": "dict",
+          "returned": "when something changed",
+          "description": "The undo: this method with restore set to backup (and save when the change saved), held whole in the journal."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Apply a router's intended configuration",
+          "runbookYaml": "- name: r1 runs its intended configuration\n  net.frr.config:\n    target: r1\n    src: configs/r1.frr.conf\n    save: true\n"
+        }
+      ],
+      "seeAlso": [
+        "net.frr.facts",
+        "net.frr.interface",
+        "net.batfish.check",
+        "wait.routes"
+      ]
+    }
+  },
+  "net.frr.facts": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "FRRCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Runs only show commands, which change nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
+      "description": "Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
+      "params": [
+        {
+          "name": "include_config",
+          "type": "bool",
+          "default": "false",
+          "description": "Also return the running configuration, its secrets replaced."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The FRR version."
+        },
+        {
+          "name": "hostname",
+          "type": "string",
+          "returned": "always",
+          "description": "The router's hostname as FRR knows it."
+        },
+        {
+          "name": "interfaces",
+          "type": "dict",
+          "returned": "always",
+          "description": "Each interface, from show interface json."
+        },
+        {
+          "name": "ospf_neighbors",
+          "type": "dict",
+          "returned": "always",
+          "description": "show ip ospf neighbor json, empty when OSPF is not running."
+        },
+        {
+          "name": "routes",
+          "type": "dict",
+          "returned": "always",
+          "description": "show ip route json: every route by prefix."
+        },
+        {
+          "name": "bgp_summary",
+          "type": "dict",
+          "returned": "always",
+          "description": "show bgp summary json, empty when BGP is not running."
+        },
+        {
+          "name": "running_config",
+          "type": "string",
+          "returned": "with include_config",
+          "description": "The running configuration with its secrets replaced."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a router for a model",
+          "runbookYaml": "- name: Read r1\n  net.frr.facts:\n    include_config: true\n  register: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "net.frr.command",
+        "net.batfish.check"
+      ]
+    }
+  },
+  "net.frr.interface": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "FRRCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo sets the administrative state the interface had before the run, recorded from the router, never simply the opposite of the change.",
+      "inverses": [
+        {
+          "fqcn": "net.frr.interface",
+          "record": [
+            "name",
+            "enabled"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets an FRRouting interface administratively up or down, recording the state it found.",
+      "description": "Reads the interface's administrative state through vtysh, and changes it only when it differs (shutdown or no shutdown in the running configuration, not frr.conf). Its undo sets the state it found, never simply the opposite, so undoing a run against an interface that was already down leaves it down.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The interface, as FRR names it (eth1, ens3)."
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "required": true,
+          "description": "true for up (no shutdown), false for down (shutdown)."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "enabled",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the interface is administratively up now."
+        },
+        {
+          "name": "inverse",
+          "type": "dict",
+          "returned": "when something changed",
+          "description": "The undo: this method with the state found."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Take a link down",
+          "runbookYaml": "- name: Shut r1's link to r3\n  net.frr.interface:\n    name: eth2\n    enabled: false\n"
+        }
+      ],
+      "seeAlso": [
+        "net.frr.config",
+        "wait.routes"
+      ]
     }
   },
   "net.ios.command": {
@@ -10728,6 +11185,192 @@
       ]
     }
   },
+  "net.ovs.bridge": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "OpenVSwitchCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo puts back what it found: a created bridge is removed, a changed datapath set back, and a removed bridge recreated without its ports, which that undo says by being partial.",
+      "inverses": [
+        {
+          "fqcn": "net.ovs.bridge",
+          "record": [
+            "name",
+            "state",
+            "datapath_type"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes an Open vSwitch bridge exist with the datapath given, or not exist.",
+      "description": "Reads the bridge through ovs-vsctl and changes only what differs. Its undo puts back what it found: a bridge it created is removed, a datapath it changed is set back. Removing a bridge also removes its ports, which its undo does not recreate, so that undo is partial and says so.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The bridge."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "description": "present or absent."
+        },
+        {
+          "name": "datapath_type",
+          "type": "string",
+          "description": "system (the kernel datapath) or netdev (userspace). Left unset, an existing bridge keeps its own and a new one gets Open vSwitch's default."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the bridge exists now."
+        },
+        {
+          "name": "datapath_type",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "Its datapath now."
+        },
+        {
+          "name": "inverse",
+          "type": "dict",
+          "returned": "when something changed",
+          "description": "The undo."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A userspace bridge",
+          "runbookYaml": "- name: br0 exists\n  net.ovs.bridge:\n    name: br0\n    datapath_type: netdev\n"
+        }
+      ],
+      "seeAlso": [
+        "net.ovs.port"
+      ]
+    }
+  },
+  "net.ovs.port": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "OpenVSwitchCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag, a moved one moved back, and a changed tag set back.",
+      "inverses": [
+        {
+          "fqcn": "net.ovs.port",
+          "record": [
+            "bridge",
+            "name",
+            "state",
+            "tag"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a port exist on an Open vSwitch bridge with the VLAN tag given, or not exist.",
+      "description": "Reads the port through ovs-vsctl and changes only what differs. Its undo puts back what it found: a port it added is removed, one it removed is added back on the bridge it was on, and a tag it changed is set back.",
+      "params": [
+        {
+          "name": "bridge",
+          "type": "string",
+          "required": true,
+          "description": "The bridge the port belongs on."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The port, usually an interface name (eth1)."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "description": "present or absent."
+        },
+        {
+          "name": "tag",
+          "type": "int",
+          "description": "An access VLAN, 1 to 4094; 0 removes the tag. Left unset, an existing port keeps its own."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the port exists now."
+        },
+        {
+          "name": "tag",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "Its access VLAN now, 0 for none."
+        },
+        {
+          "name": "inverse",
+          "type": "dict",
+          "returned": "when something changed",
+          "description": "The undo."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A port on br0",
+          "runbookYaml": "- name: h1's port is on br0\n  net.ovs.port:\n    bridge: br0\n    name: eth2\n"
+        }
+      ],
+      "seeAlso": [
+        "net.ovs.bridge"
+      ]
+    }
+  },
   "net.ssh.ping": {
     "supportedTransports": [
       "ssh"
@@ -10763,6 +11406,81 @@
           "name": "Check a device is reachable over SSH",
           "runbookYaml": "- name: Ping the device\n  net.ssh.ping:\n  register: reachability\n"
         }
+      ]
+    }
+  },
+  "net.trace": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "LinuxCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It sends probes and reads their answers, changing nothing.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Traces the path from a Linux device to an address, and fails when it is not the path expected.",
+      "description": "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
+      "params": [
+        {
+          "name": "dest",
+          "type": "string",
+          "required": true,
+          "description": "The address to trace to.",
+          "format": "command"
+        },
+        {
+          "name": "max_hops",
+          "type": "int",
+          "default": "30",
+          "description": "The most hops to try."
+        },
+        {
+          "name": "expect",
+          "type": "dict",
+          "description": "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "hops",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Each hop's address, in order, the destination last when reached."
+        },
+        {
+          "name": "reached",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the destination answered."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Expect a path through r2",
+          "runbookYaml": "- name: h1's LAN reaches h2 through r2\n  net.trace:\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.0.12.1]\n"
+        }
+      ],
+      "seeAlso": [
+        "wait.routes",
+        "net.batfish.check"
       ]
     }
   },
@@ -14897,6 +15615,87 @@
       "seeAlso": [
         "wait.search",
         "pleiades.builtin.wait.port"
+      ]
+    }
+  },
+  "wait.routes": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "FRRCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "This method reads the routing table and changes nothing, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": false,
+    "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
+    "doc": {
+      "summary": "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
+      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing.",
+      "params": [
+        {
+          "name": "prefixes",
+          "type": "list of string",
+          "required": true,
+          "description": "The prefixes that must each have a selected route, e.g. 10.3.3.0/24."
+        },
+        {
+          "name": "next_hops",
+          "type": "dict",
+          "description": "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}."
+        },
+        {
+          "name": "stable_for",
+          "type": "int",
+          "default": "5",
+          "description": "Seconds the routing table must stay unchanged."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "120",
+          "description": "Seconds to wait in all."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "waited",
+          "type": "float",
+          "returned": "always",
+          "description": "Seconds waited."
+        },
+        {
+          "name": "routes",
+          "type": "dict",
+          "returned": "always",
+          "description": "Each prefix given, with the next hops its route used."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Wait for OSPF to settle",
+          "runbookYaml": "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"
+        }
+      ],
+      "seeAlso": [
+        "net.frr.config",
+        "net.trace"
       ]
     }
   },

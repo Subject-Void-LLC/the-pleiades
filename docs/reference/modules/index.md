@@ -23,15 +23,15 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 2 | 2 |
 | `identity` | 6 | 6 |
-| `net` | 15 | 13 |
+| `net` | 23 | 21 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 2 | 2 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
-| `wait` | 3 | 3 |
+| `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **178** | **175** |
+| **total** | **187** | **184** |
 
 ## All methods
 
@@ -136,6 +136,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [identity.user.create](identity/user/create.md) | implemented | Makes sure a POSIX user account exists on the target. |
 | [identity.user.modify](identity/user/modify.md) | implemented | Changes attributes of an existing POSIX user account on the target. |
 | [identity.user.remove](identity/user/remove.md) | implemented | Removes a POSIX user account from the target. |
+| [net.batfish.check](net/batfish/check.md) | implemented | Checks configurations against Batfish's model of the network before any of them is applied, and fails closed. |
 | [net.catalyst.device_facts](net/catalyst/device_facts.md) | implemented | Gathers every device a Cisco Catalyst Center manages, as facts. |
 | [net.catalyst.reachability](net/catalyst/reachability.md) | implemented | Reports which devices a Cisco Catalyst Center can currently reach and manage. |
 | [net.catalyst.site_facts](net/catalyst/site_facts.md) | implemented | Gathers a Cisco Catalyst Center's site hierarchy, as facts. |
@@ -143,6 +144,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.cli.command](net/cli/command.md) | implemented | Runs one show/exec-mode command against a network device's CLI. |
 | [net.cli.config](net/cli/config.md) | implemented | Applies configuration lines to a network device over its CLI. |
 | [net.eos.config](net/eos/config.md) | declared | Applies configuration to an Arista EOS device. |
+| [net.frr.command](net/frr/command.md) | implemented | Runs one FRRouting show command through vtysh and returns its output. |
+| [net.frr.config](net/frr/config.md) | implemented | Makes an FRRouting router run exactly the configuration given, and saves what it ran before so the change can be undone. |
+| [net.frr.facts](net/frr/facts.md) | implemented | Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data. |
+| [net.frr.interface](net/frr/interface.md) | implemented | Sets an FRRouting interface administratively up or down, recording the state it found. |
 | [net.ios.command](net/ios/command.md) | implemented | Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says. |
 | [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, with an optional pre-change backup. |
 | [net.ios.facts](net/ios/facts.md) | implemented | Gathers structured facts from a Cisco IOS device over its CLI. |
@@ -150,7 +155,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.ios.save](net/ios/save.md) | implemented | Saves a Cisco IOS device's running configuration to startup. |
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
 | [net.netconf.config](net/netconf/config.md) | implemented | Applies a configuration document to a device over NETCONF, with an optional pre-change backup. |
+| [net.ovs.bridge](net/ovs/bridge.md) | implemented | Makes an Open vSwitch bridge exist with the datapath given, or not exist. |
+| [net.ovs.port](net/ovs/port.md) | implemented | Makes a port exist on an Open vSwitch bridge with the VLAN tag given, or not exist. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
+| [net.trace](net/trace.md) | implemented | Traces the path from a Linux device to an address, and fails when it is not the path expected. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
 | [pkg.apt.remove](pkg/apt/remove.md) | implemented | Removes a package via APT. |
 | [pkg.apt.upgrade](pkg/apt/upgrade.md) | implemented | Makes sure a package is at its newest available version via APT. |
@@ -202,6 +210,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
+| [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given and its routing table has stopped changing. |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.archive.extract](win/archive/extract.md) | implemented | Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM. |
 | [win.capability.install](win/capability/install.md) | implemented | Installs a Windows capability (a feature on demand) with DISM, run as SYSTEM so Windows Update will serve it. |

@@ -14,6 +14,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `AWSAPICapable` | - | - |
 | `AptCapable` | `PackageManagerCapable` | - |
 | `AristaEOSCapable` | `NetworkCLICapable` | - |
+| `BatfishAPICapable` | - | - |
 | `CatalystAPICapable` | - | - |
 | `CiscoIOSCapable` | `NetworkCLICapable` | - |
 | `CloudflareAPICapable` | - | - |
@@ -25,6 +26,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `EngineSocketCapable` | - | - |
 | `EngineStdioCapable` | - | - |
 | `EngineTLSCapable` | - | - |
+| `FRRCapable` | - | - |
 | `FactGathererCapable` | - | - |
 | `FileTransferCapable` | - | - |
 | `FirewalldCapable` | `SystemdCapable` | - |
@@ -36,6 +38,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `NetconfCapable` | - | - |
 | `NetworkAddressableCapable` | - | - |
 | `NetworkCLICapable` | - | `AristaEOSCapable`, `CiscoIOSCapable`, `JunosCapable` |
+| `OpenVSwitchCapable` | - | - |
 | `POSIXFileSystemCapable` | - | - |
 | `PackageManagerCapable` | - | `AptCapable`, `DnfCapable` |
 | `PodmanCapable` | `ContainerEngineCapable` | - |
@@ -55,7 +58,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 | `WindowsShellCapable` | `CommandExecCapable` | - |
 
-44 capabilities registered.
+47 capabilities registered.
 
 ## Transports
 
@@ -67,7 +70,7 @@ How a method's work reaches its device. A method lists the transports it uses; a
 | `engine_socket` | `EngineSocketCapable` |
 | `engine_stdio` | `EngineStdioCapable` |
 | `engine_tls` | `EngineTLSCapable` |
-| `https` | `HTTPAPICapable`, `CatalystAPICapable`, `AIProviderCapable`, `CloudflareAPICapable` |
+| `https` | `HTTPAPICapable`, `CatalystAPICapable`, `AIProviderCapable`, `CloudflareAPICapable`, `BatfishAPICapable` |
 | `kubernetes` | `KubernetesCapable` |
 | `netconf` | `NetconfCapable` |
 | `ssh` | `SSHTransportCapable` |

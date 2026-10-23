@@ -13,7 +13,7 @@ Every registered inventory device type, its vendor package, and the capabilities
 | `generic_grpc` | `generic` | `NetworkAddressableCapable`; discovered: `GRPCCapable` | discovered at onboarding |
 | `generic_http` | `generic` | `NetworkAddressableCapable`; discovered: `HTTPAPICapable` | discovered at onboarding |
 | `generic_netconf` | `generic` | `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `NetconfCapable` | discovered at onboarding |
-| `generic_ssh` | `generic` | `CommandExecCapable`, `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `ShellExecCapable`, `LinuxCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable`, `FirewalldCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable`, `ContainerEngineCapable`, `DockerCapable`, `PodmanCapable`, `EngineSocketCapable`, `EngineStdioCapable` | discovered at onboarding |
+| `generic_ssh` | `generic` | `CommandExecCapable`, `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `ShellExecCapable`, `LinuxCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable`, `FirewalldCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable`, `ContainerEngineCapable`, `DockerCapable`, `PodmanCapable`, `EngineSocketCapable`, `EngineStdioCapable`, `FRRCapable`, `OpenVSwitchCapable` | discovered at onboarding |
 | `kubernetes_cluster` | `kubernetes` | -; discovered: `KubernetesCapable` | discovered at onboarding |
 | `ai_provider` | `ai` | `NetworkAddressableCapable`; discovered: `AIProviderCapable` | discovered at onboarding |
 | `cloudflare_account` | `cloudflare` | `NetworkAddressableCapable`; discovered: `CloudflareAPICapable` | discovered at onboarding |

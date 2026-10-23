@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**175 of 178 methods are implemented.**
+**184 of 187 methods are implemented.**
 
 ## Implemented
 
@@ -185,6 +185,15 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [win.firewall.rule](modules/win/firewall/rule.md)
 - [win.firewall.profile](modules/win/firewall/profile.md)
 - [win.archive.extract](modules/win/archive/extract.md)
+- [net.frr.config](modules/net/frr/config.md)
+- [net.frr.interface](modules/net/frr/interface.md)
+- [net.frr.facts](modules/net/frr/facts.md)
+- [net.frr.command](modules/net/frr/command.md)
+- [wait.routes](modules/wait/routes.md)
+- [net.trace](modules/net/trace.md)
+- [net.ovs.bridge](modules/net/ovs/bridge.md)
+- [net.ovs.port](modules/net/ovs/port.md)
+- [net.batfish.check](modules/net/batfish/check.md)
 
 ## Declared, not yet implemented
 
