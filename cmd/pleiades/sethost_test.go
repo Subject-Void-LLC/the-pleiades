@@ -11,13 +11,16 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -118,12 +121,14 @@ func TestSetHost_RefusesWhatTheTypeRefuses(t *testing.T) {
 func TestSetHost_Refusals(t *testing.T) {
 	dir := windowsProject(t)
 	for name, args := range map[string][]string{
-		"nothing to change":      {"w", "--dir", dir},
-		"both set and unset":     {"w", "--dir", dir, "--set", "port=1", "--unset", "port"},
-		"a reserved property":    {"w", "--dir", dir, "--unset", inventory.DiscoveredProperty},
-		"a missing property":     {"w", "--dir", dir, "--unset", "nothere"},
-		"a host that is not one": {"nobody", "--dir", dir, "--set", "port=1"},
-		"no name":                {"--dir", dir, "--set", "port=1"},
+		"nothing to change":        {"w", "--dir", dir},
+		"both set and unset":       {"w", "--dir", dir, "--set", "port=1", "--unset", "port"},
+		"a reserved property":      {"w", "--dir", dir, "--unset", inventory.DiscoveredProperty},
+		"a missing property":       {"w", "--dir", dir, "--unset", "nothere"},
+		"a host that is not one":   {"nobody", "--dir", dir, "--set", "port=1"},
+		"no name":                  {"--dir", dir, "--set", "port=1"},
+		"both tagged and untagged": {"w", "--dir", dir, "--tag", "core", "--untag", "core"},
+		"an empty tag":             {"w", "--dir", dir, "--tag", "core,"},
 	} {
 		if err := runSetHost(args); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -131,6 +136,69 @@ func TestSetHost_Refusals(t *testing.T) {
 	}
 	if v := loadHost(t, dir, "w").Version(); v != 0 {
 		t.Errorf("a refused call moved the version to %d", v)
+	}
+}
+
+// TestSetHost_TagsAndUntagsAndRecordsIt proves --tag and --untag reach
+// hosts.yaml, read back through the repository run loads from, each change
+// a revision under the tags field, and that a tag already held, or one
+// to remove that is not held, changes nothing.
+func TestSetHost_TagsAndUntagsAndRecordsIt(t *testing.T) {
+	dir := windowsProject(t)
+	if err := runSetHost([]string{"w", "--dir", dir, "--tag", "core,lab", "--tag", "edge"}); err != nil {
+		t.Fatalf("set-host --tag: %v", err)
+	}
+	item := loadHost(t, dir, "w")
+	if got := fmt.Sprint(item.Tags()); got != "[core lab edge]" || item.Version() != 1 {
+		t.Fatalf("tags %s at version %d, want [core lab edge] at 1", got, item.Version())
+	}
+	if h := item.History(); len(h) != 1 || h[0].Field != record.RevisionFieldTags {
+		t.Errorf("history %+v, want one revision under %s", h, record.RevisionFieldTags)
+	}
+
+	if err := runSetHost([]string{"w", "--dir", dir, "--tag", "core", "--untag", "gone"}); err != nil {
+		t.Fatalf("set-host with nothing new: %v", err)
+	}
+	if v := loadHost(t, dir, "w").Version(); v != 1 {
+		t.Errorf("a tag already held moved the version to %d", v)
+	}
+
+	if err := runSetHost([]string{"w", "--dir", dir, "--untag", "lab,core", "--set", "port=5986"}); err != nil {
+		t.Fatalf("set-host --untag: %v", err)
+	}
+	hosts, err := inv.ReadHosts(filepath.Join(dir, inv.DefaultInventoryFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 || fmt.Sprint(hosts[0].Tags) != "[edge]" {
+		t.Errorf("hosts.yaml holds %+v, want the one host tagged [edge]", hosts)
+	}
+
+	if err := runSetHost([]string{"w", "--dir", dir, "--untag", "edge"}); err != nil {
+		t.Fatalf("set-host --untag the last tag: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, inv.DefaultInventoryFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "tags:") {
+		t.Errorf("a host with no tags left still writes a tags key:\n%s", data)
+	}
+}
+
+// TestSetHost_AnUnknownFlagIsNamed is the report an agent got wrong: a flag
+// set-host does not define took the host name as its value, and the
+// command said the name was missing instead of naming the flag.
+func TestSetHost_AnUnknownFlagIsNamed(t *testing.T) {
+	dir := windowsProject(t)
+	for _, args := range [][]string{
+		{"--dir", dir, "--label", "w"},
+		{"w", "--dir", dir, "--label", "core"},
+	} {
+		err := runSetHost(args)
+		if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -label") {
+			t.Errorf("set-host %v: err = %v, want the unknown flag named", args, err)
+		}
 	}
 }
 

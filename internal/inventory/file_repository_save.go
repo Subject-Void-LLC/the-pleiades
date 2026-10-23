@@ -142,6 +142,10 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 	}
 
 	hosts[hostIdx].Properties = hostProperties
+	// Tags live in hosts.yaml beside the properties. Leaving them out
+	// here dropped a tag change in silence: the version moved and the
+	// revision was recorded, while the file kept the old tags.
+	hosts[hostIdx].Tags = tagsToStrings(item.Tags())
 	if err := writeHostsAtomic(r.hostsPath, original, hosts); err != nil {
 		return fmt.Errorf("failed to write inventory for %s: %w", item.Name(), err)
 	}

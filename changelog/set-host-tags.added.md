@@ -1,0 +1,1 @@
+Added `--tag` and `--untag` to `pleiades set-host`, each repeatable and taking several tags separated by commas; each change is a revision under `tags`. A flag `set-host` does not define is now reported by name, rather than as a missing host name because the flag took the name as its value.

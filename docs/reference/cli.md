@@ -36,7 +36,7 @@ add a host to the static inventory
 
 ## pleiades set-host
 
-change an existing host's properties
+change an existing host's properties and tags
 
 `pleiades set-host <name> [flags]`
 
@@ -45,8 +45,12 @@ change an existing host's properties
 | --dir | `string` | `.` | project directory |
 | --set | `key=value` | - | device property to add or replace, as key=value (repeatable) |
 | --unset | `string` | - | device property to remove (repeatable) |
+| --tag | `string` | - | tag to add, or several separated by commas (repeatable) |
+| --untag | `string` | - | tag to remove, or several separated by commas (repeatable) |
 
 `pleiades set-host web01 --set port=2222`
+
+`pleiades set-host r1 --tag core --untag staging`
 
 `pleiades set-host win01 --set "tls_ca_pem=$(cat ca.pem)"`
 

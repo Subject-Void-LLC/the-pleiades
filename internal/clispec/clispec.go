@@ -104,14 +104,17 @@ var Root = Command{
 		{
 			Name:       "set-host",
 			Positional: "<name>",
-			Synopsis:   "change an existing host's properties",
+			Synopsis:   "change an existing host's properties and tags",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "set", Type: "key=value", Default: "", Doc: "device property to add or replace, as key=value (repeatable)"},
 				{Name: "unset", Type: "string", Default: "", Doc: "device property to remove (repeatable)"},
+				{Name: "tag", Type: "string", Default: "", Doc: "tag to add, or several separated by commas (repeatable)"},
+				{Name: "untag", Type: "string", Default: "", Doc: "tag to remove, or several separated by commas (repeatable)"},
 			},
 			Examples: []string{
 				"pleiades set-host web01 --set port=2222",
+				"pleiades set-host r1 --tag core --untag staging",
 				`pleiades set-host win01 --set "tls_ca_pem=$(cat ca.pem)"`,
 			},
 		},
