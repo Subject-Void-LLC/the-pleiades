@@ -292,7 +292,12 @@ const skillNetwork = "## Changing a network\n\n" +
 	"- `pleiades add-host batfish --type batfish --set api_base=http://127.0.0.1:9996` adds the service.\n" +
 	"  `pleiades import-containerlab --topology <lab dir>/topology-data.json --lab <name>` adds a containerlab lab's\n" +
 	"  nodes; with `--username`, `--key`, `--trust-first-connect` and `--onboard` it also stores their login, trusts\n" +
-	"  their host keys unverified (ask first) and onboards them.\n\n"
+	"  their host keys unverified (ask first) and onboards them. A lab makes new host keys on every deploy, so set\n" +
+	"  `PLEIADES_KNOWN_HOSTS` to a file of the lab's own first, in every shell; the import refuses without it.\n" +
+	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
+	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
+	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +
+	"  checks that before any change, and says so when it is missing.\n\n"
 
 // skillRunbook is the runbook the skill teaches by. It reads only, so a
 // reader who runs it as written changes nothing.

@@ -30,7 +30,7 @@ would agree with.
 
 | Device | Type | How it is reached | What grants its methods |
 | --- | --- | --- | --- |
-| An FRRouting router | `generic_ssh` | SSH, as an unprivileged account allowed to use `vtysh` (the `frrvty` group) | `pleiades onboard` grants `FRRCapable` only after `vtysh -c 'show version'` succeeds as that account |
+| An FRRouting router | `generic_ssh` | SSH, as an unprivileged account allowed to use `vtysh` (the `frrvty` group) and to write FRR's run directory, `/var/run/frr`, where `frr-reload.py` writes its reload files (for example `chgrp frrvty /var/run/frr; chmod 2775 /var/run/frr`) | `pleiades onboard` grants `FRRCapable` only after `vtysh -c 'show version'` succeeds as that account; `net.frr.config` checks the write access itself before any change, in a check too |
 | An Open vSwitch switch | `generic_ssh` | SSH, as an account allowed to use the OVS database | `pleiades onboard` grants `OpenVSwitchCapable` only after `ovs-vsctl show` succeeds as that account |
 | A Batfish service | `batfish` | Its REST API (`api_base`, e.g. `http://127.0.0.1:9996`) | Declared by the type: `BatfishAPICapable` |
 
@@ -56,7 +56,46 @@ pleiades import-containerlab --topology clab-routing-lab/topology-data.json --la
 
 Each node becomes a `generic_ssh` device at its published SSH port, or else at its management
 address. `--trust-first-connect` trusts whatever host keys answer, unverified, as
-`trust-host --first-connect` does.
+`trust-host --first-connect` does. A lab makes new host keys on every deploy, at the same addresses, so
+they go in a file of the lab's own, never your `~/.ssh/known_hosts`: the import refuses
+`--trust-first-connect` unless `PLEIADES_KNOWN_HOSTS` names one (`export PLEIADES_KNOWN_HOSTS=$PWD/known_hosts`),
+and every later command reads the same variable.
+
+## Running Batfish
+
+Batfish runs as a container on a machine you choose; this runbook runs it on the machine `pleiades`
+runs on, through a `container_host` device with no `host` (its local engine socket). Its API is
+published on loopback only, since Batfish has no authentication, and it is held to 2 GiB, since the image
+otherwise sizes its heap to the machine.
+
+```yaml
+# What this does: runs the Batfish service net.batfish.check asks, its API on 127.0.0.1:9996 only.
+# Blast radius: this machine's container engine; one new container, batfish. No device is touched.
+# Changes: pulls the pinned image if absent, creates and starts the container.
+# Undo: pleiades rollback <run-id> removes it.
+id: batfish_up
+hosts: dockerhost
+tasks:
+  - name: Batfish runs, its API on loopback only
+    container.run:
+      name: batfish
+      image: batfish/batfish:2026.08.27.3685
+      network: bridge
+      ports: ["127.0.0.1:9996:9996"]
+      memory: 2g
+      memory_swap: 2g
+```
+
+```console
+pleiades add-host dockerhost --type container_host
+pleiades onboard dockerhost
+pleiades run runbooks/batfish_up.yaml
+until pleiades adhoc batfish http.check url=http://127.0.0.1:9996/v2/version status_code:=200 >/dev/null; do sleep 5; done
+pleiades add-host batfish --type batfish --set api_base=http://127.0.0.1:9996
+```
+
+Batfish takes a minute or two to answer after it starts; the loop above waits for it. An agent never
+runs this without the person's say-so.
 
 ## The methods
 
@@ -116,12 +155,17 @@ A scenario is a fork of the snapshot with interfaces or nodes down (`down_interf
 `down_nodes: [r3]`), checked against its own assertions. That is how a link failure is checked
 before it happens.
 
-It fails closed in four cases:
+It fails closed in five cases:
 
 - an assertion does not hold;
 - a file did not parse;
 - a question could not be answered;
+- Batfish reports a convert error, so part of a device is missing from the model, and the task did not accept it by its text;
 - a line or feature the model does not use was not accepted by name.
+
+FRR in a container writes `domainname localdomain` into its running configuration, which Batfish does not
+recognise, so a gate over such routers accepts it: `{text: domainname localdomain, reason: the DNS search domain,
+not routing}`.
 
 The model's result reports three things separately:
 
@@ -157,6 +201,8 @@ real devices.
 # Undo: the block undoes the change itself if any step after it fails; pleiades rollback undoes it later.
 id: r3_change
 hosts: r3
+metadata:
+  service_effecting: true
 tasks:
   - name: Read r1
     net.frr.facts: {target: r1, include_config: true}
@@ -195,6 +241,10 @@ tasks:
 ```
 
 ## Limits
+
+- A run holds a device only while one of its tasks works on it, so nothing stops another run changing a
+  neighbouring router while a change is verified. The verification notices only what it checks; run one
+  change to a network at a time.
 
 - `src` is read by the command line only. A Walk-tier Runner runs each task against its one
   dispatched device, so a gate that reads several routers' registered facts runs on the command line

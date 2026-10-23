@@ -252,7 +252,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 178 registered methods across 23 namespaces; 175 are
+**The module catalog has 187 registered methods across 23 namespaces; 184 are
 implemented and 3 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
@@ -260,8 +260,8 @@ that is NOT implemented, all three of them: `file.template`, `net.junos.config` 
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `container` 37, `virt` 19, `ai` 11, `svc` 16, `net` 13,
-`file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 3,
+is ever entered. By namespace, implemented: `container` 37, `virt` 19, `ai` 11, `svc` 16, `net` 21,
+`file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4,
 `archive` 2, `fs` 2, `gate` 2, `http` 2, `pleiades` 2, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
 over any hand-written tally including this one. `exec.command` is the first method
@@ -278,6 +278,13 @@ keeps, needs a `rollback:` list in its runbook or is left in place by name. See
 [Rolling a run back](10-running-in-production.md#rolling-a-run-back), and the
 [module catalog](reference/modules/index.md) for each method's undo. See the
 [module catalog](reference/modules/index.md) for every method, by namespace.
+
+**A routing change can be checked before it is made.** `net.batfish.check` holds candidate
+configurations (FRRouting and Cisco IOS) to Batfish's model of the network, and `net.frr.*`,
+`net.ovs.*`, `wait.routes` and `net.trace` apply and verify the change on FRRouting routers and
+Open vSwitch switches, undone on failure. `pleiades import-containerlab` brings a containerlab lab's
+nodes in. See [Verifying a network change](16-network-verification.md), which says what the model
+does and does not see.
 
 **Check mode is real, for the methods that declare it.** `pleiades run --mode check`
 reports what each task would change and changes nothing. Sixty-nine of the seventy-eight
