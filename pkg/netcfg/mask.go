@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // MaskPrefix begins every placeholder.
@@ -71,12 +72,15 @@ type word struct {
 	start int
 }
 
-// words splits line at spaces and tabs, keeping each word's offset.
+// words splits line at every Unicode space, as strings.Fields does,
+// keeping each word's offset. Splitting at fewer (spaces and tabs only)
+// let "password\vzebra" pass as one word to a reader that splits at all of
+// them (found by FuzzMask).
 func words(line string) []word {
 	var out []word
 	start := -1
 	for i, r := range line {
-		blank := r == ' ' || r == '\t'
+		blank := unicode.IsSpace(r)
 		switch {
 		case !blank && start < 0:
 			start = i

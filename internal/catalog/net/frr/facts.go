@@ -5,6 +5,7 @@ package frr
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -123,8 +124,15 @@ func parseVersion(out string) (version, hostname string, err error) {
 	if len(fields) < 3 || fields[0] != "FRRouting" || !strings.HasPrefix(fields[2], "(") || !strings.HasSuffix(fields[2], ")") {
 		return "", "", fmt.Errorf("%s: show version did not answer as FRRouting does: %q", factsFQCN, firstLine(out))
 	}
-	return fields[1], strings.Trim(fields[2], "()"), nil
+	hostname = fields[2][1 : len(fields[2])-1]
+	if !hostnameWord.MatchString(hostname) {
+		return "", "", fmt.Errorf("%s: show version names the hostname %q, which is not one", factsFQCN, hostname)
+	}
+	return fields[1], hostname, nil
 }
+
+// hostnameWord is what a hostname show version prints may be.
+var hostnameWord = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
 
 // daemons returns the FRR daemons running, from show daemons.
 func (s *session) daemons(ctx context.Context) ([]string, error) {
