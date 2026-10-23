@@ -96,9 +96,23 @@ func (m *model) consistency(ctx context.Context, req request) (parse, unrecogniz
 		return nil, nil, nil, nil, err
 	}
 	for _, r := range issues.Rows {
-		if t := str(r["Type"]); t != "Parse warning" {
-			notModelled = append(notModelled, fmt.Sprintf("%s: %s", t, str(r["Details"])))
+		t, details := str(r["Type"]), strings.TrimSpace(str(r["Details"]))
+		if t == "Parse warning" {
+			continue
 		}
+		// A convert error or red flag means part of a device is missing
+		// from the model (a route map that did not convert), so the gate
+		// cannot stand on it unaccepted (the branch review's F12).
+		lower := strings.ToLower(t)
+		if strings.Contains(lower, "error") || strings.Contains(lower, "redflag") {
+			if reason, ok := req.accept[details]; ok {
+				notModelled = append(notModelled, fmt.Sprintf("%s: %s (%s)", t, details, reason))
+			} else {
+				refused = append(refused, fmt.Sprintf("Batfish reports %s: %q, so part of the network is not in the model; accept it by that text in accept_unrecognized with a reason", t, details))
+			}
+			continue
+		}
+		notModelled = append(notModelled, fmt.Sprintf("%s: %s", t, details))
 	}
 	if parse == nil {
 		parse = []any{}

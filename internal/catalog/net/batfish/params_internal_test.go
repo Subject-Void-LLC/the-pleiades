@@ -91,6 +91,9 @@ func TestUnmodelledIn(t *testing.T) {
 	if len(uses) != 4 || uses["glbp"].line != 6 || uses["ip_sla"].line != 2 || uses["sla_tracking"].line != 4 || uses["bfd"].text == "" {
 		t.Errorf("uses = %+v", uses)
 	}
+	if u := unmodelledIn(formatCiscoIOS, "router bgp 1\n neighbor 10.0.0.2 fall-over bfd\n"); u["bfd"].line != 2 {
+		t.Errorf("fall-over bfd = %+v", u)
+	}
 	if len(unmodelledIn(formatFRR, config)) != 0 {
 		t.Error("a Cisco feature was found in an FRR configuration")
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -79,6 +80,16 @@ func (h *DeviceHandler) GrantCapability(w http.ResponseWriter, r *http.Request) 
 	if err := capability.ValidateGrantShape(req.Properties); err != nil {
 		RespondError(w, r, http.StatusUnprocessableEntity, "malformed grant properties")
 		return
+	}
+	// The Controller holds no definition to refuse a secret-named property
+	// by, as the loader does, and a grant rides every dispatch to the
+	// device, so a credential put here would travel the message stream
+	// (the branch review's F4).
+	for k := range req.Properties {
+		if redact.SecretName(k) {
+			RespondError(w, r, http.StatusUnprocessableEntity, "a grant's property never holds a secret; the device's credential reaches a method on its own")
+			return
+		}
 	}
 
 	item, err := h.repo.GetByName(r.Context(), name)

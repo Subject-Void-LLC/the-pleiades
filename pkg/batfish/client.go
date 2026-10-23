@@ -46,6 +46,10 @@ const maxResponse = 64 << 20
 // pollInterval is how often a work item is polled.
 const pollInterval = 250 * time.Millisecond
 
+// maxWork bounds one work item: parsing a large network, or answering a
+// question of one, takes minutes, not hours.
+const maxWork = 30 * time.Minute
+
 // Client talks to one Batfish service.
 type Client struct {
 	base *url.URL
@@ -190,7 +194,14 @@ func (c *Client) work(ctx context.Context, network, snapshot string, params map[
 	if _, err := c.do(ctx, http.MethodPost, path, nil, body, "application/json"); err != nil {
 		return err
 	}
+	// A status this client does not know is polled again, never read as
+	// an end, so the poll is bounded on its own as well as by ctx.
+	deadline := time.Now().Add(maxWork)
+	last := ""
 	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("batfish: work on %s did not end within %s (last status %q)", snapshot, maxWork, last)
+		}
 		out, err := c.do(ctx, http.MethodGet, path+"/"+id, nil, nil, "")
 		if err != nil {
 			return err
@@ -202,6 +213,7 @@ func (c *Client) work(ctx context.Context, network, snapshot string, params map[
 		if err := json.Unmarshal(out, &status); err != nil {
 			return fmt.Errorf("batfish: a work item's status is not JSON: %w", err)
 		}
+		last = status.Code
 		switch {
 		case workDone[status.Code]:
 			return nil

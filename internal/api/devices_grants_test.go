@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -22,6 +23,13 @@ import (
 // grantRouter mounts both grant routes over a file inventory holding the
 // linux_server w1, and returns the router and the inventory's path.
 func grantRouter(t *testing.T) (http.Handler, string) {
+	t.Helper()
+	return grantRouterWith(t, alwaysAuthenticated, &fakeAdmitter{})
+}
+
+// grantRouterWith is grantRouter with the authentication and admission
+// given.
+func grantRouterWith(t *testing.T, authenticate func(http.Handler) http.Handler, admission api.Admitter) (http.Handler, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), inventory.DefaultInventoryFilename)
 	if err := os.WriteFile(path, []byte("hosts:\n  - id: h1\n    name: w1\n    type: linux_server\n    properties: {host: 10.0.0.1}\n"), 0o600); err != nil {
@@ -37,8 +45,8 @@ func grantRouter(t *testing.T) (http.Handler, string) {
 	}
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Auth:      alwaysAuthenticated,
-		Admission: &fakeAdmitter{},
+		Auth:      authenticate,
+		Admission: admission,
 		HATEOAS:   allowAllGenerator(t),
 		Routes:    routes,
 	})
@@ -98,6 +106,7 @@ func TestGrantRoutes_RefuseWhatTheyCannotRecord(t *testing.T) {
 		{"no reason", "w1", `{"capability":"acme.widget_api"}`, http.StatusUnprocessableEntity},
 		{"a malformed property", "w1", `{"capability":"acme.widget_api","reason":"x","properties":{"Bad-Name":"y"}}`, http.StatusUnprocessableEntity},
 		{"a nested property", "w1", `{"capability":"acme.widget_api","reason":"x","properties":{"list":["a"]}}`, http.StatusUnprocessableEntity},
+		{"a secret-named property", "w1", `{"capability":"acme.widget_api","reason":"x","properties":{"api_token":"t0ken"}}`, http.StatusUnprocessableEntity},
 		{"an unknown device", "nobody", `{"capability":"acme.widget_api","reason":"x"}`, http.StatusNotFound},
 	} {
 		if rec := serveGrant(router, http.MethodPost, "/inventory/devices/"+tc.target+"/capabilities", tc.body); rec.Code != tc.status {
@@ -136,5 +145,40 @@ func TestGrantRoutes_ScopeIsAdminsAlone(t *testing.T) {
 	}
 	if !found {
 		t.Error("admin's scope list does not record inventory:assert")
+	}
+}
+
+// TestGrantRoutes_AnInventoryWriterIsRefused: through the mounted routes,
+// the real token authentication and the real scope rule, a caller holding
+// inventory:write and inventory:onboard but not inventory:assert is
+// refused both, and nothing is written; an admin is allowed.
+func TestGrantRoutes_AnInventoryWriterIsRefused(t *testing.T) {
+	issuer := authtest.New(t, "grant-test-issuer", "grant-test-audience")
+	router, path := grantRouterWith(t, api.AuthMiddleware(issuer.Evaluator()), auth.Admission{Chain: auth.AdmissionChain{auth.NewTokenScopeRule(issuer.Evaluator())}})
+	send := func(id *auth.Identity, method, target, body string) int {
+		req := httptest.NewRequest(method, api.APIVersionPrefix+target, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", issuer.BearerToken(t, id))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	writer := &auth.Identity{Subject: "writer", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeInventoryWrite, auth.ScopeInventoryOnboard}}
+	if code := send(writer, http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x"}`); code != http.StatusForbidden {
+		t.Errorf("grant by an inventory writer = %d, want 403", code)
+	}
+	if code := send(writer, http.MethodDelete, "/inventory/devices/w1/capabilities/acme.widget_api", ""); code != http.StatusForbidden {
+		t.Errorf("revoke by an inventory writer = %d, want 403", code)
+	}
+	item, err := inventory.NewFileRepository(path, inventory.NewItemFactory()).GetByName(context.Background(), "w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := item.Properties().Raw()[pkginventory.GrantedProperty]; present {
+		t.Error("a refused grant was written")
+	}
+	admin := &auth.Identity{Subject: "admin", Role: auth.RoleAdmin, Scopes: auth.ScopesForRole(auth.RoleAdmin)}
+	if code := send(admin, http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x"}`); code != http.StatusOK {
+		t.Errorf("grant by an admin = %d, want 200", code)
 	}
 }

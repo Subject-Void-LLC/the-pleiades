@@ -90,7 +90,9 @@ type ChildResponse struct {
 	// its one invocation, collected once after Invoke returns. Beside an
 	// Error it is what the method recorded before it failed (a failed
 	// command's exit status and output), which the parent reports with the
-	// failure and never registers or journals; it is never sent with
+	// failure and never registers or journals, save an undo the method kept
+	// through the failure (sdk.Inverse.KeepOnFailure), which the engine
+	// journals with the failed task; it is never sent with
 	// CannotCheck. A parent that predates this ignores it, as it always
 	// ignored Facts beside an Error.
 	Facts map[string]any `json:"facts,omitempty"`

@@ -26,7 +26,7 @@ func init() {
 			Status:               collection.StatusImplemented,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
-				Notes:      "Its undo puts back what it found: a created bridge is removed, a changed datapath set back, and a removed bridge recreated without its ports, which that undo says by being partial.",
+				Notes:      "Its undo puts back what it found: a created bridge is removed, a changed datapath set back, and a removed bridge recreated without its ports or settings such as a fail mode or a controller, which that undo says by being partial.",
 				Inverses: []sdk.InverseSpec{
 					{FQCN: bridgeFQCN, Record: []string{"name", "state", "datapath_type"}, MayBePartial: true, MayKeepOnFailure: true},
 				},
@@ -116,6 +116,14 @@ func bridge(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			undo.Partial = true
 			undo.Description += " Its ports (" + strings.Join(ports, ", ") + ") are not added back."
 		}
+		set, err := s.nonDefault(ctx, "Bridge", name, map[string][]string{"fail_mode": {"[]"}, "protocols": {"[]"}, "other_config": {"{}"}, "controller": {"[]"}})
+		if err != nil {
+			return collection.Result{}, err
+		}
+		if len(set) > 0 {
+			undo.Partial = true
+			undo.Description += " Its " + strings.Join(set, ", ") + " are not put back."
+		}
 	}
 	if args == nil || mode == collection.ModeCheck {
 		if err := setBridgeStats(rc, present, datapathAfter(present, exists, datapath, was)); err != nil {
@@ -183,7 +191,7 @@ func (s *session) readBridge(ctx context.Context, name string) (bool, string, []
 		return false, "", nil, nil
 	case 0:
 	default:
-		return false, "", nil, fmt.Errorf("%s: ovs-vsctl br-exists exited %d: %s", bridgeFQCN, code, out)
+		return false, "", nil, fmt.Errorf("%s: ovs-vsctl br-exists exited %d: %s", bridgeFQCN, code, bounded(out))
 	}
 	dp, err := s.must(ctx, "get", "Bridge", name, "datapath_type")
 	if err != nil {

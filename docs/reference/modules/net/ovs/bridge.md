@@ -40,7 +40,7 @@ Reads the bridge through ovs-vsctl and changes only what differs. Its undo puts 
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-Its undo puts back what it found: a created bridge is removed, a changed datapath set back, and a removed bridge recreated without its ports, which that undo says by being partial.
+Its undo puts back what it found: a created bridge is removed, a changed datapath set back, and a removed bridge recreated without its ports or settings such as a fail mode or a controller, which that undo says by being partial.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 

@@ -102,10 +102,11 @@ func withGrants(rec Record, caps []capability.Name) []capability.Name {
 	binding := DiscoveryBinding(deviceType, inventory.NewProperties(rec.Properties))
 	var granted []capability.Name
 	for _, g := range grants {
-		// A probed grant on a bound type holds only while the properties
-		// the probe trusted are as they were (a repointed device is probed
-		// again before a program sends its credential anywhere new).
-		if g.Source == inventory.GrantProbed && binding != "" && g.Binding != binding {
+		// A grant on a bound type, probed or asserted, holds only while the
+		// properties it was made against are as they were (a repointed
+		// device is probed or vouched for again before a program sends its
+		// credential anywhere new).
+		if binding != "" && g.Binding != binding {
 			continue
 		}
 		if def, defined := capability.DataOf(g.Capability); defined {

@@ -116,6 +116,22 @@ func TestBridgeAndPort_OnARealSwitch(t *testing.T) {
 	}
 	run(ovs.Port, map[string]any{"bridge": "br9", "name": ethB})
 
+	// A port carrying more than a tag (trunks here): a move would drop
+	// them, so it is refused; a removal's undo cannot put them back, so it
+	// says it is partial.
+	vsctl("set", "Port", ethB, "trunks=10,20")
+	if _, err := ovs.Port(ctx, rc(), dev, map[string]any{"bridge": "br8", "name": ethB}); err == nil || !strings.Contains(err.Error(), "trunks") {
+		t.Errorf("moving a trunk port: err %v", err)
+	}
+	if vsctl("port-to-br", ethB) != "br9" {
+		t.Error("a refused move moved the port")
+	}
+	trunk, _ := run(ovs.Port, map[string]any{"bridge": "br9", "name": ethB, "state": "absent"})
+	if undo, partial := undoOf(t, trunk); !partial || !strings.Contains(trunk.stats[sdk.StatInverse].(map[string]any)["description"].(string), "trunks") {
+		t.Errorf("a trunk port's removal: undo %v partial %v", undo, partial)
+	}
+	run(ovs.Port, map[string]any{"bridge": "br9", "name": ethB})
+
 	// Removing a port is undone with its tag; removing a bridge with ports
 	// is a partial undo, and the undo brings the bridge back.
 	removed, _ := run(ovs.Port, map[string]any{"bridge": "br9", "name": ethA, "state": "absent"})

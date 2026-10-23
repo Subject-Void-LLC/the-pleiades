@@ -23,7 +23,7 @@ A full OSPF adjacency is not convergence: shortest paths are computed after it, 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `prefixes` | `list of string` | yes | - | The prefixes that must each have a selected route, e.g. 10.3.3.0/24. |
+| `prefixes` | `list of string` | yes | - | The IPv4 prefixes that must each have a selected route, e.g. 10.3.3.0/24; the IPv4 routing table is the one read. |
 | `next_hops` | `dict` | no | - | Per prefix, the next-hop addresses its route must use, e.g. {"10.3.3.0/24": ["10.0.12.1"]}. |
 | `stable_for` | `int` | no | `5` | Seconds the routing table must stay unchanged. |
 | `timeout` | `int` | no | `120` | Seconds to wait in all. |

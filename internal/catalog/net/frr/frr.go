@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
@@ -70,7 +71,7 @@ func (s *session) vtysh(ctx context.Context, commands ...string) (string, error)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "% ") {
-			return "", fmt.Errorf("%s: vtysh refused %q: %s", s.fqcn, strings.Join(commands, "; "), strings.TrimSpace(line))
+			return "", fmt.Errorf("%s: vtysh refused %q: %s", s.fqcn, netcfg.Mask(strings.Join(commands, "; ")), firstLine(line))
 		}
 	}
 	return out, nil
@@ -124,7 +125,9 @@ func (s *session) writeTemp(ctx context.Context, content string) (string, func()
 		return "", nil, fmt.Errorf("%s: writing the candidate: exited %d: %s", s.fqcn, res.ExitCode, firstLine(res.Stderr))
 	}
 	cleanup := func() {
-		_, _ = s.conn.Run(context.WithoutCancel(ctx), remoteexec.QuoteCommand([]string{"rm", "-f", "--", path}))
+		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		_, _ = s.conn.Run(c, remoteexec.QuoteCommand([]string{"rm", "-f", "--", path}))
 	}
 	return path, cleanup, nil
 }
@@ -231,10 +234,23 @@ func parseReloadTest(out string) (deleted, added []string) {
 	return deleted, added
 }
 
-// firstLine returns s's first non-empty line, trimmed.
+// cleanupTimeout bounds work done after a task's context has ended: a
+// session that hangs then must not hold the task forever.
+const cleanupTimeout = 30 * time.Second
+
+// maxErrorText bounds the device's words in an error.
+const maxErrorText = 300
+
+// firstLine returns s's first non-empty line, trimmed, masked and bounded:
+// vtysh names the line it refuses, and a configuration line can hold a
+// secret (the branch review's F3).
 func firstLine(s string) string {
 	for _, line := range strings.Split(s, "\n") {
 		if t := strings.TrimSpace(line); t != "" {
+			t = netcfg.Mask(t)
+			if len(t) > maxErrorText {
+				t = t[:maxErrorText] + "..."
+			}
 			return t
 		}
 	}

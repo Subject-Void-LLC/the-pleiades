@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -26,9 +27,9 @@ func init() {
 			Status:               collection.StatusImplemented,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
-				Notes:      "Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag, a moved one moved back, and a changed tag set back.",
+				Notes:      "Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag (partial when it carried more, such as an interface type or trunks), a moved one moved back, and a changed tag set back.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: portFQCN, Record: []string{"bridge", "name", "state", "tag"}, MayKeepOnFailure: true},
+					{FQCN: portFQCN, Record: []string{"bridge", "name", "state", "tag"}, MayBePartial: true, MayKeepOnFailure: true},
 				},
 			},
 			SupportsCheck: true,
@@ -119,6 +120,13 @@ func port(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		args = append(args, setTag(name, wantTag)...)
 		undo = sdk.Inverse{FQCN: portFQCN, Params: map[string]any{"bridge": br, "name": name, "state": "absent"}, Description: fmt.Sprintf("Removes the port %s from %s, which this run added.", name, br)}
 	case present && onBridge != br:
+		// A move removes the port and adds it again, which drops whatever
+		// it carries beyond its tag.
+		if set, err := s.portSettings(ctx, name); err != nil {
+			return collection.Result{}, err
+		} else if len(set) > 0 {
+			return collection.Result{}, fmt.Errorf("%s: moving %s from %s would drop its %s; nothing was changed", portFQCN, name, onBridge, strings.Join(set, ", "))
+		}
 		args = append([]string{"del-port", onBridge, name, "--", "add-port", br, name}, setTag(name, wantTag)...)
 		undo = sdk.Inverse{FQCN: portFQCN, Params: map[string]any{"bridge": onBridge, "name": name, "tag": wasTag}, Description: fmt.Sprintf("Moves %s back to %s with tag %d.", name, onBridge, wasTag)}
 	case present && wantTag != wasTag:
@@ -127,6 +135,14 @@ func port(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	case !present && onBridge == br:
 		args = []string{"del-port", br, name}
 		undo = sdk.Inverse{FQCN: portFQCN, Params: map[string]any{"bridge": br, "name": name, "state": "present", "tag": wasTag}, Description: fmt.Sprintf("Adds %s back to %s with tag %d.", name, br, wasTag)}
+		set, err := s.portSettings(ctx, name)
+		if err != nil {
+			return collection.Result{}, err
+		}
+		if len(set) > 0 {
+			undo.Partial = true
+			undo.Description += " Its " + strings.Join(set, ", ") + " are not put back."
+		}
 	}
 	if args == nil || mode == collection.ModeCheck {
 		if err := setPortStats(rc, present, wantTag); err != nil {
@@ -153,6 +169,20 @@ func port(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return collection.Result{}, err
 	}
 	return collection.Result{Changed: true}, nil
+}
+
+// portSettings returns what a port and its interface carry beyond a plain
+// port with a tag, which re-adding it would not restore.
+func (s *session) portSettings(ctx context.Context, name string) ([]string, error) {
+	set, err := s.nonDefault(ctx, "Interface", name, map[string][]string{"type": {`""`, "system"}, "options": {"{}"}})
+	if err != nil {
+		return nil, err
+	}
+	more, err := s.nonDefault(ctx, "Port", name, map[string][]string{"trunks": {"[]"}, "vlan_mode": {"[]"}})
+	if err != nil {
+		return nil, err
+	}
+	return append(set, more...), nil
 }
 
 // setTag returns the ovs-vsctl arguments, after a "--", that give name's
@@ -183,12 +213,13 @@ func (s *session) readPort(ctx context.Context, name string) (string, int, error
 		return "", 0, err
 	}
 	if code != 0 {
-		// ovs-vsctl exits 1 for a port it has never heard of; anything
-		// else is a failure to read, not an absence.
-		if code == 1 {
+		// ovs-vsctl exits 1 for a port it has never heard of, and for every
+		// other fatal error too (a database it cannot reach, permission
+		// refused), so only its own words make an absence.
+		if code == 1 && strings.Contains(out, "no port named") {
 			return "", 0, nil
 		}
-		return "", 0, fmt.Errorf("%s: ovs-vsctl port-to-br exited %d: %s", portFQCN, code, out)
+		return "", 0, fmt.Errorf("%s: ovs-vsctl port-to-br exited %d: %s", portFQCN, code, bounded(out))
 	}
 	t, err := s.must(ctx, "get", "Port", name, "tag")
 	if err != nil {
@@ -216,5 +247,5 @@ func (s *session) bridgeExists(ctx context.Context, br string) (bool, error) {
 	case 2:
 		return false, nil
 	}
-	return false, fmt.Errorf("%s: ovs-vsctl br-exists exited %d: %s", portFQCN, code, out)
+	return false, fmt.Errorf("%s: ovs-vsctl br-exists exited %d: %s", portFQCN, code, bounded(out))
 }

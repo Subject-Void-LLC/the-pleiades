@@ -268,9 +268,10 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 // records its exit status and output, then fails on a non-zero one), kept so
 // the failed task's report shows them, as Ansible's does. The undo it
 // recorded is left out unless keepsUndo says the method kept it through the
-// failure: a rollback plans only from changes that happened, and an undo a
-// method recorded before its change was confirmed may undo one that never
-// did. Nil when nothing is left.
+// failure: a rollback plans only from changes that may have happened, and an
+// undo a method recorded before its change may undo one that never did. A
+// kept undo is one whose method says running it where nothing changed is a
+// no-op. Nil when nothing is left.
 func failedStats(fqcn string, mode collection.Mode, stats map[string]interface{}) map[string]interface{} {
 	keep := keepsUndo(fqcn, mode, stats)
 	out := make(map[string]interface{}, len(stats))
@@ -287,7 +288,7 @@ func failedStats(fqcn string, mode collection.Mode, stats map[string]interface{}
 
 // keepsUndo reports whether a failed task's stats hold an undo that stands
 // through the failure: one its method marked kept (sdk.Inverse.KeepOnFailure)
-// after confirming the change, in a real run, through a method whose own
+// once its change may be on the device, in a real run, through a method whose own
 // manifest allows it for that undo (sdk.InverseSpec.MayKeepOnFailure). An
 // external Collection program's declaration is not honored, as the journal
 // honors none of its declarations.

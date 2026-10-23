@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,7 +45,7 @@ func init() {
 				Summary:     "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
 				Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing.",
 				Params: []collection.Param{
-					{Name: "prefixes", Type: "list of string", Required: true, Description: "The prefixes that must each have a selected route, e.g. 10.3.3.0/24."},
+					{Name: "prefixes", Type: "list of string", Required: true, Description: "The IPv4 prefixes that must each have a selected route, e.g. 10.3.3.0/24; the IPv4 routing table is the one read."},
 					{Name: "next_hops", Type: "dict", Description: "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}."},
 					{Name: "stable_for", Type: "int", Default: "5", Description: "Seconds the routing table must stay unchanged."},
 					{Name: "timeout", Type: "int", Default: "120", Description: "Seconds to wait in all."},
@@ -142,6 +143,11 @@ func routesParams(params map[string]any) (routesWant, error) {
 		if err != nil {
 			return w, fmt.Errorf("%s: prefixes: %q is not a prefix: %w", routesFQCN, p, err)
 		}
+		if !pfx.Addr().Is4() {
+			// show ip route json holds IPv4 routes only, so a wait for an
+			// IPv6 prefix could only time out.
+			return w, fmt.Errorf("%s: prefixes: %q is IPv6, and this method reads the IPv4 routing table only", routesFQCN, p)
+		}
 		w.prefixes = append(w.prefixes, pfx.Masked().String())
 	}
 	w.nextHops = map[string][]string{}
@@ -213,7 +219,7 @@ func readRoutes(ctx context.Context, conn *remoteexec.Conn) (map[string][]route,
 		return nil, fmt.Errorf("%s: reading the routing table: %w", routesFQCN, err)
 	}
 	if res.ExitCode != 0 {
-		return nil, fmt.Errorf("%s: vtysh exited %d: %s", routesFQCN, res.ExitCode, strings.TrimSpace(res.Stderr+res.Stdout))
+		return nil, fmt.Errorf("%s: vtysh exited %d: %s", routesFQCN, res.ExitCode, deviceText(res.Stderr+res.Stdout))
 	}
 	var table map[string][]route
 	if err := json.Unmarshal([]byte(res.Stdout), &table); err != nil {
@@ -282,4 +288,14 @@ func (w routesWant) satisfied(table map[string][]route) (map[string][]string, []
 		}
 	}
 	return used, missing
+}
+
+// deviceText is a device's words fit for an error: trimmed, at most 300
+// bytes, quoted so a control character is shown rather than acted on.
+func deviceText(text string) string {
+	text = strings.TrimSpace(text)
+	if len(text) > 300 {
+		text = text[:300] + "..."
+	}
+	return strconv.Quote(text)
 }

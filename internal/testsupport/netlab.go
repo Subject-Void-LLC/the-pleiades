@@ -257,7 +257,7 @@ func netLabHostKey(tb testing.TB, node *NetLabNode, signer ssh.Signer) ssh.Publi
 	addr := net.JoinHostPort(node.Host, fmt.Sprint(node.Port))
 	deadline := time.Now().Add(SSHDStartupTimeout)
 	for {
-		client, err := ssh.Dial("tcp", addr, cfg)
+		client, err := dialBounded(addr, cfg)
 		if err == nil {
 			_ = client.Close()
 			return key
@@ -309,6 +309,27 @@ func (n *NetLabNode) Device(caps ...capability.Name) inventory.InventoryItem {
 	return &NetLabDevice{Stub: &inventorytest.Stub{
 		StubID: inventory.DeviceID(n.Name), StubName: n.Name, StubState: inventory.StateActive, Caps: caps,
 	}, host: n.Host, port: n.Port}
+}
+
+// dialBounded is ssh.Dial with the handshake bounded too: ClientConfig's
+// Timeout bounds only the TCP connect, and a server that accepts and then
+// says nothing would otherwise hold the test.
+func dialBounded(addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	conn, err := net.DialTimeout("tcp", addr, cfg.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	if err := conn.SetDeadline(time.Now().Add(cfg.Timeout)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return ssh.NewClient(c, chans, reqs), nil
 }
 
 // Exec runs argv in node's container as root, for a test's own setup and

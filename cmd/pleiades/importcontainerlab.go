@@ -217,7 +217,9 @@ func runImportContainerlab(args []string) error {
 		return follow
 	}
 	for _, n := range res.Nodes {
-		fmt.Printf("imported %s (%s) at %s:%d, from its %s\n", n.Device, n.Kind, n.Host, n.Port, n.Address)
+		// The kind is the topology file's word, so it is quoted: a control
+		// character in it is shown, not sent to the terminal.
+		fmt.Printf("imported %s (kind %q) at %s:%d, from its %s\n", n.Device, n.Kind, n.Host, n.Port, n.Address)
 	}
 	if follow != nil {
 		return follow

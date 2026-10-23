@@ -103,11 +103,11 @@ func Trace(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{}, fmt.Errorf("%s: %w", traceFQCN, err)
 	}
 	if res.ExitCode == 127 {
-		return collection.Result{}, fmt.Errorf("%s: the device has no tracepath (iputils): %s", traceFQCN, strings.TrimSpace(res.Stderr))
+		return collection.Result{}, fmt.Errorf("%s: the device has no tracepath (iputils): %s", traceFQCN, deviceText(res.Stderr))
 	}
 	hops, reached := parseTracepath(res.Stdout)
 	if len(hops) == 0 && !reached {
-		return collection.Result{}, fmt.Errorf("%s: tracepath exited %d with no hops: %s", traceFQCN, res.ExitCode, strings.TrimSpace(res.Stderr+res.Stdout))
+		return collection.Result{}, fmt.Errorf("%s: tracepath exited %d with no hops: %s", traceFQCN, res.ExitCode, deviceText(res.Stderr+res.Stdout))
 	}
 	if err := rc.SetStat("hops", hops); err != nil {
 		return collection.Result{}, err
@@ -208,4 +208,14 @@ func parseTracepath(out string) (hops []string, reached bool) {
 		hops = append(hops, addr)
 	}
 	return hops, reached
+}
+
+// deviceText is a device's words fit for an error: trimmed, at most 300
+// bytes, quoted so a control character is shown rather than acted on.
+func deviceText(text string) string {
+	text = strings.TrimSpace(text)
+	if len(text) > 300 {
+		text = text[:300] + "..."
+	}
+	return strconv.Quote(text)
 }

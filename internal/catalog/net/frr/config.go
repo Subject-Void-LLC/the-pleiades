@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -67,7 +68,7 @@ func init() {
 				Params: []collection.Param{
 					{Name: "config", Type: "string", Description: "The whole intended configuration, as frr.conf text. Set config or src, not both. Lines not in it are removed from the running configuration."},
 					{Name: "src", Type: "string", Description: "A file in the project directory holding the whole intended configuration, read by the command line; refused on a Walk-tier Runner, where config is the way. Set config or src, not both."},
-					{Name: "save", Type: "bool", Default: "false", Description: "Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was."},
+					{Name: "save", Type: "bool", Default: "false", Description: "Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was, or, where there was none, writes the configuration it restores."},
 					{Name: "expect_sha256", Type: "string", Description: "Refuse unless the candidate's SHA-256 is this, in hex: the digest net.batfish.check returned for the bytes it analysed, so the change applied is the change checked."},
 					{Name: "restore", Type: "string", Description: "Restore the configuration this method saved before an earlier change, by the path its undo recorded. Set by an undo; with restore, config and src are not given."},
 					{Name: "force", Type: "bool", Default: "false", Description: "With restore, restore even though the router no longer runs what the earlier change left (someone changed it since)."},
@@ -147,6 +148,12 @@ func config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			return collection.Result{}, fmt.Errorf("%s: src: %w", configFQCN, err)
 		}
 		text = string(b)
+	}
+	if restore == "" && strings.Contains(text, netcfg.MaskPrefix) {
+		// A configuration read through net.frr.facts has its secrets masked;
+		// applied, it would set every key to its placeholder and drop every
+		// authenticated session (the branch review's F5).
+		return collection.Result{}, fmt.Errorf("%s: the candidate holds a masked secret (%s...), so it is a configuration as read, not one to apply; nothing was sent. Write the candidate with its real secrets in a project file", configFQCN, netcfg.MaskPrefix)
 	}
 	if restore == "" {
 		sum := sha256.Sum256([]byte(text))
@@ -235,12 +242,15 @@ func (s *session) apply(ctx context.Context, rc sdk.RunbookContext, dir, text st
 	if !runChange && !saveChange {
 		return collection.Result{}, nil
 	}
-	if mode == collection.ModeCheck {
-		if saveChange && !confBefore.Exists() {
-			if err := remotefile.PredictPut(ctx, s.conn, frrConf, confBefore, remotefile.Attributes{}); err != nil {
-				return collection.Result{}, err
-			}
+	// Whether frr.conf can be written is asked before the reload, in a
+	// check as in a real run: a save refused after the reload would leave the
+	// router changed and the task failed (the branch review's F8).
+	if saveChange {
+		if err := s.canSave(ctx, confBefore); err != nil {
+			return collection.Result{}, err
 		}
+	}
+	if mode == collection.ModeCheck {
 		return collection.Result{Changed: true}, nil
 	}
 
@@ -265,8 +275,10 @@ func (s *session) apply(ctx context.Context, rc sdk.RunbookContext, dir, text st
 	if err != nil {
 		// What the change left, so its undo can tell a router changed since
 		// from one this run left part way.
-		if now, rerr := s.runningConfig(context.WithoutCancel(ctx)); rerr == nil {
-			_ = s.writePrivate(context.WithoutCancel(ctx), backup+afterSuffix, now)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		if now, rerr := s.runningConfig(cleanup); rerr == nil {
+			_ = s.writePrivate(cleanup, backup+afterSuffix, now)
 		}
 		return collection.Result{}, err
 	}
@@ -305,6 +317,22 @@ func (s *session) reloadAndSave(ctx context.Context, candidate, backup string, s
 		}
 	}
 	return collection.Result{Changed: true}, nil
+}
+
+// canSave refuses a save this login cannot make: an existing frr.conf it
+// may not write, or a new one Put would refuse.
+func (s *session) canSave(ctx context.Context, before remotefile.Info) error {
+	if !before.Exists() {
+		return remotefile.PredictPut(ctx, s.conn, frrConf, before, remotefile.Attributes{})
+	}
+	res, err := s.conn.Run(ctx, remoteexec.QuoteCommand([]string{"test", "-w", frrConf}))
+	if err != nil {
+		return fmt.Errorf("%s: checking %s: %w", configFQCN, frrConf, err)
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("%s: the connecting account cannot write %s, so save cannot keep the change; nothing was changed", configFQCN, frrConf)
+	}
+	return nil
 }
 
 // wantSaved is what frr.conf should hold: the file a restore puts back, or

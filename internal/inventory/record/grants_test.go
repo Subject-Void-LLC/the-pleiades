@@ -119,3 +119,33 @@ func TestBase_GrantsAreWrittenOnlyThroughTheirOwnMethods(t *testing.T) {
 		t.Errorf("history has %d revisions, want 3 (two grants and a revoke)", len(b.History()))
 	}
 }
+
+// boundGrantType is a device type whose host its grants are bound to.
+const boundGrantType = "grants_bound_test_type"
+
+func init() {
+	record.RegisterDiscoveryRules(boundGrantType, record.DiscoveryRules{Bound: []string{"host"}})
+}
+
+// TestRecordGrant_AnAssertionFollowsNoRepointedDevice: an assertion is
+// bound to the properties its type binds, as a probe's grant is, so the
+// device repointed holds nothing until someone vouches again.
+func TestRecordGrant_AnAssertionFollowsNoRepointedDevice(t *testing.T) {
+	rec := record.Record{Name: "w1", Type: boundGrantType, Properties: map[string]inventory.PropertyValue{"host": "10.0.0.1"}}
+	base := record.NewBase(rec, nil)
+	if err := base.RecordGrant(widgetGrant(map[string]any{"endpoint": "https://widgets.example"})); err != nil {
+		t.Fatal(err)
+	}
+	props := base.Properties().Raw()
+	if caps := capsOf(record.Record{Name: "w1", Type: boundGrantType, Properties: props}, nil); !slices.Contains(caps, "acme.widget_api") {
+		t.Fatalf("the device as vouched for: caps = %v", caps)
+	}
+	moved := map[string]inventory.PropertyValue{}
+	for k, v := range props {
+		moved[k] = v
+	}
+	moved["host"] = "10.0.0.2"
+	if caps := capsOf(record.Record{Name: "w1", Type: boundGrantType, Properties: moved}, nil); slices.Contains(caps, "acme.widget_api") {
+		t.Errorf("the repointed device still holds the assertion: %v", caps)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -66,7 +67,9 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return collection.Result{}, err
 	}
-	if err := rc.SetStat("stdout", out); err != nil {
+	// show running-config is a show command, so its secrets are masked
+	// here as net.frr.facts masks them (the branch review's F1).
+	if err := rc.SetStat("stdout", netcfg.Mask(out)); err != nil {
 		return collection.Result{}, err
 	}
 	if strings.HasSuffix(command, " json") {
@@ -74,9 +77,28 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if err := json.Unmarshal([]byte(out), &data); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %q did not answer JSON: %w", commandFQCN, command, err)
 		}
-		if err := rc.SetStat("data", data); err != nil {
+		if err := rc.SetStat("data", maskValue(data)); err != nil {
 			return collection.Result{}, err
 		}
 	}
 	return collection.Result{}, nil
+}
+
+// maskValue masks every string inside v.
+func maskValue(v any) any {
+	switch t := v.(type) {
+	case string:
+		return netcfg.Mask(t)
+	case map[string]any:
+		for k, x := range t {
+			t[k] = maskValue(x)
+		}
+		return t
+	case []any:
+		for i, x := range t {
+			t[i] = maskValue(x)
+		}
+		return t
+	}
+	return v
 }

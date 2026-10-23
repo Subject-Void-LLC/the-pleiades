@@ -41,7 +41,7 @@ Reads the port through ovs-vsctl and changes only what differs. Its undo puts ba
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag, a moved one moved back, and a changed tag set back.
+Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag (partial when it carried more, such as an interface type or trunks), a moved one moved back, and a changed tag set back.
 
 Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
 

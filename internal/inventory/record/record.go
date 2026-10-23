@@ -293,6 +293,12 @@ func (b *Base) RecordGrant(g inventory.Grant) error {
 			kept = append(kept, existing)
 		}
 	}
+	// An assertion is bound as a probe's grant is: a person vouched for
+	// the device as it was then, so a repointed device holds nothing until
+	// someone vouches again (the branch review's F15).
+	if g.Binding == "" {
+		g.Binding = DiscoveryBinding(b.deviceType, inventory.NewProperties(b.props))
+	}
 	b.writeGrants(append(kept, g))
 	return nil
 }

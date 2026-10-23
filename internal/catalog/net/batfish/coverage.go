@@ -29,7 +29,7 @@ var coverage = []unmodelled{
 	{"glbp", formatCiscoIOS, regexp.MustCompile(`^\s*glbp\s`), "Batfish parses GLBP and elects no forwarder: a GLBP virtual address is answered by nobody in the model"},
 	{"ip_sla", formatCiscoIOS, regexp.MustCompile(`^ip sla\s`), "an IP SLA probe's result is runtime state; the model has none"},
 	{"sla_tracking", formatCiscoIOS, regexp.MustCompile(`^track\s+\d+\s+ip\s+sla\s`), "the model treats an SLA track as always up, so a route or priority it guards never fails over in a scenario"},
-	{"bfd", formatCiscoIOS, regexp.MustCompile(`^\s*bfd\s`), "BFD changes how fast a failure is detected, and the model is steady state"},
+	{"bfd", formatCiscoIOS, regexp.MustCompile(`(^|\s)bfd(\s|$)`), "BFD changes how fast a failure is detected, and the model is steady state"},
 }
 
 // unmodelledIn returns, for each unmodelled feature config uses, the first

@@ -25,7 +25,7 @@ Takes the whole intended configuration (config, or src: a file in the project) a
 | --- | --- | --- | --- | --- |
 | `config` | `string` | no | - | The whole intended configuration, as frr.conf text. Set config or src, not both. Lines not in it are removed from the running configuration. |
 | `src` | `string` | no | - | A file in the project directory holding the whole intended configuration, read by the command line; refused on a Walk-tier Runner, where config is the way. Set config or src, not both. |
-| `save` | `bool` | no | `false` | Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was. |
+| `save` | `bool` | no | `false` | Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was, or, where there was none, writes the configuration it restores. |
 | `expect_sha256` | `string` | no | - | Refuse unless the candidate's SHA-256 is this, in hex: the digest net.batfish.check returned for the bytes it analysed, so the change applied is the change checked. |
 | `restore` | `string` | no | - | Restore the configuration this method saved before an earlier change, by the path its undo recorded. Set by an undo; with restore, config and src are not given. |
 | `force` | `bool` | no | `false` | With restore, restore even though the router no longer runs what the earlier change left (someone changed it since). |

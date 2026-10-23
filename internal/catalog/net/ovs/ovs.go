@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -56,9 +58,46 @@ func (s *session) must(ctx context.Context, args ...string) (string, error) {
 		return "", err
 	}
 	if code != 0 {
-		return "", fmt.Errorf("%s: ovs-vsctl %s exited %d: %s", s.fqcn, args[0], code, out)
+		return "", fmt.Errorf("%s: ovs-vsctl %s exited %d: %s", s.fqcn, args[0], code, bounded(out))
 	}
 	return out, nil
+}
+
+// bounded is device text fit for an error: at most 300 bytes, quoted so a
+// control character is shown rather than acted on.
+func bounded(text string) string {
+	if len(text) > 300 {
+		text = text[:300] + "..."
+	}
+	return strconv.Quote(text)
+}
+
+// nonDefault returns, of the settings named (each table, record column and
+// its default value as ovs-vsctl get prints it), those a record holds set,
+// as column=value: what an undo that recreates the record would not put
+// back.
+func (s *session) nonDefault(ctx context.Context, table, record string, columns map[string][]string) ([]string, error) {
+	var set []string
+	for _, col := range sortedKeys(columns) {
+		v, err := s.must(ctx, "get", table, record, col)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Contains(columns[col], v) {
+			set = append(set, col+"="+v)
+		}
+	}
+	return set, nil
+}
+
+// sortedKeys returns m's keys, sorted.
+func sortedKeys(m map[string][]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // checkName refuses a name that is not an interface name.

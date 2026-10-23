@@ -49,6 +49,7 @@ func TestRoutes_ParamsAreCheckedFirst(t *testing.T) {
 		{"prefixes": []any{"10.1.0.0/24"}, "next_hops": []any{"10.0.0.1"}},
 		{"prefixes": []any{"10.1.0.0/24"}, "stable_for": 10, "timeout": 10},
 		{"prefixes": []any{"10.1.0.0/24"}, "timeout": 0},
+		{"prefixes": []any{"2001:db8::/64"}},
 	} {
 		if _, err := routesParams(p); err == nil {
 			t.Errorf("%v was accepted", p)

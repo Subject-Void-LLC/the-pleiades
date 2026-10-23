@@ -9854,7 +9854,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Checks configurations against Batfish's model of the network before any of them is applied, and fails closed.",
-      "description": "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). Recognising a line is not modelling it, so a feature measured to be parsed and then ignored (on Cisco IOS: GLBP, IP SLA, SLA tracking, BFD) is refused the same way until accepted by name: the model cannot predict its failover, and a passing gate must not imply that it did. The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
+      "description": "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, a convert error Batfish reports (part of a device missing from the model), or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). Recognising a line is not modelling it, so a feature measured to be parsed and then ignored (on Cisco IOS: GLBP, IP SLA, SLA tracking, BFD) is refused the same way until accepted by name: the model cannot predict its failover, and a passing gate must not imply that it did. The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
       "params": [
         {
           "name": "devices",
@@ -10412,7 +10412,7 @@
           "name": "save",
           "type": "bool",
           "default": "false",
-          "description": "Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was."
+          "description": "Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was, or, where there was none, writes the configuration it restores."
         },
         {
           "name": "expect_sha256",
@@ -11207,7 +11207,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "Its undo puts back what it found: a created bridge is removed, a changed datapath set back, and a removed bridge recreated without its ports, which that undo says by being partial.",
+      "notes": "Its undo puts back what it found: a created bridge is removed, a changed datapath set back, and a removed bridge recreated without its ports or settings such as a fail mode or a controller, which that undo says by being partial.",
       "inverses": [
         {
           "fqcn": "net.ovs.bridge",
@@ -11297,7 +11297,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag, a moved one moved back, and a changed tag set back.",
+      "notes": "Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag (partial when it carried more, such as an interface type or trunks), a moved one moved back, and a changed tag set back.",
       "inverses": [
         {
           "fqcn": "net.ovs.port",
@@ -11307,6 +11307,7 @@
             "state",
             "tag"
           ],
+          "mayBePartial": true,
           "mayKeepOnFailure": true
         }
       ]
@@ -15653,7 +15654,7 @@
           "name": "prefixes",
           "type": "list of string",
           "required": true,
-          "description": "The prefixes that must each have a selected route, e.g. 10.3.3.0/24."
+          "description": "The IPv4 prefixes that must each have a selected route, e.g. 10.3.3.0/24; the IPv4 routing table is the one read."
         },
         {
           "name": "next_hops",

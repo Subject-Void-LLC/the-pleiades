@@ -38,8 +38,10 @@ func DispatchProperties(deviceType string) ([]string, bool) {
 // Dispatched returns item's type and the properties a Runner needs to
 // rebuild it as that type: the keys the type declares its accessors read,
 // its discovery and its grants, and nothing else of its record. A grant's
-// properties cannot name a secret (the loader refuses a definition that
-// would), so none rides the message stream this way. An item that reports
+// properties cannot name a secret: the loader refuses a definition that
+// would, a person's assertion is held to that definition on the command
+// line, and the Controller's grant route refuses a secret-named property by
+// name, since it holds no definition. An item that reports
 // no type, or whose type declares nothing, yields no properties, and the
 // Runner then falls back to a device built from its address alone.
 func Dispatched(item inventory.InventoryItem) (string, map[string]any) {

@@ -94,8 +94,13 @@ type Inverse struct {
 	// undo is otherwise dropped, since its change may never have happened;
 	// one kept this way is journaled with the failed task, and a rollback,
 	// or the block's rollback_on_failure, undoes it like any other. A
-	// method sets it only once the change is confirmed, and only for a
-	// target its InverseSpec marks MayKeepOnFailure.
+	// method sets it once its change may be on the device: after the
+	// command that makes it succeeded, or before one that can fail part
+	// way (frr-reload deletes before it adds), and then only when running
+	// the undo where nothing changed changes nothing. A failed task can
+	// therefore journal an undo of a change that did not happen, and that
+	// undo is a no-op. Only for a target its InverseSpec marks
+	// MayKeepOnFailure.
 	KeepOnFailure bool `json:"keepOnFailure,omitempty"`
 }
 

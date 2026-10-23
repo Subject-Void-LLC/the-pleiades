@@ -101,17 +101,17 @@ func setInterface(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	if want {
 		line = "no shutdown"
 	}
-	// Recorded first and kept through a failure: an undo setting the state
-	// that was there changes nothing if the change never happened.
+	if _, err := s.vtysh(ctx, "configure terminal", "interface "+name, line); err != nil {
+		return collection.Result{}, err
+	}
+	// Recorded once vtysh took the change, and kept if the read-back after
+	// it fails: the change is on the router by then.
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:          interfaceFQCN,
 		Params:        map[string]any{"name": name, "enabled": was},
 		Description:   fmt.Sprintf("Sets %s administratively %s again, as it was before this run.", name, upDown(was)),
 		KeepOnFailure: true,
 	}); err != nil {
-		return collection.Result{}, err
-	}
-	if _, err := s.vtysh(ctx, "configure terminal", "interface "+name, line); err != nil {
 		return collection.Result{}, err
 	}
 	now, err := s.adminUp(ctx, name)
