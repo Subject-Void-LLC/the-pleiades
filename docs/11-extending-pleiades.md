@@ -805,6 +805,65 @@ The program never runs on a managed device. It runs beside The Pleiades and reac
 device the way a built-in method does, through `sdk.Connect` and the credential in the
 request.
 
+### Capabilities a program defines
+
+A method says what a device must be able to do through its required capabilities. The
+built-in capabilities are compiled into The Pleiades, and a program needing one that does
+not exist (a cloud tenancy, an appliance's own API) would otherwise wait for a release. A
+program can define capabilities of its own instead, as data:
+
+```go
+func main() {
+    external.MainProgram(external.Program{
+        Capabilities: []capability.DataDefinition{{
+            Name:     "acme.appliance",
+            Doc:      "An Acme appliance whose API this account may call.",
+            Requires: []capability.Name{capability.NameHTTPAPI},
+            Properties: []capability.DataProperty{
+                {Name: "model", Type: "string", Required: true, Description: "The appliance model."},
+            },
+            Probe: "acme.appliance.probe",
+        }},
+        Methods: []collection.Descriptor{probeDescriptor(), configDescriptor()},
+    })
+}
+```
+
+- **The name** is `<namespace>.<name>`, in a namespace the program's own methods use. A
+  name another program or a built-in capability holds is refused when the directory loads.
+- **`Requires`** names the compiled capabilities a device must also hold. A grant on a
+  device without them grants nothing.
+- **`Properties`** are what a grant carries and the program's methods read, through
+  `external.Granted(device, name)`. They are plain, bounded values (`string`, `int`,
+  `bool`), never a secret: a property whose name reads as a secret's is refused, and a
+  credential reaches a method the usual way.
+- **`Probe`**, when set, names one of the program's own read-only methods.
+  `pleiades onboard` runs it against the device, under the program's approval and
+  confinement and with the device's credential. When it sets the stat `granted` to
+  `true`, the capability is granted with the properties it sets under `properties`. A
+  probe may not require the capability it decides.
+
+A device holds a grant in one reserved property, `granted`, which no other write path
+(`add-host --set`, `set-host`, an inventory sync) can change. Each grant says how it was
+made:
+
+- **A probe's grant** is bound to the properties the device's type binds, as a discovery
+  is. A device repointed after its probe (a new `host` or `base_url`) holds nothing until
+  it is onboarded again.
+- **An assertion** is a person saying so, with a reason:
+  `pleiades grant-capability <device> <capability> --set model=x9 --reason "<why>"`, and
+  `pleiades revoke-capability`. On the Controller these are `POST` and
+  `DELETE /inventory/devices/{name}/capabilities`, under the scope `inventory:assert`,
+  which only `admin` holds and `inventory:write` does not imply. A built-in capability
+  cannot be asserted: only onboarding grants one.
+
+A Runner loads the program, so it checks each grant against the definition before a method
+runs. The Controller loads no program: it ships the grants with each dispatch, and checks
+only their shape. Probes run on the command line (`pleiades onboard`).
+
+`pleiades forge new-external --capability <name>` scaffolds a program with one capability
+and its probe beside a method.
+
 ### The trust model and its limits
 
 An external Collection runs with the same privileges as the `pleiades` process that
