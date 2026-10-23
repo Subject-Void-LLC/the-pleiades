@@ -29,7 +29,7 @@ const gns3DeviceType = "console_device"
 
 // gns3PasswordEnv names the environment variable a password is read from
 // when --password-stdin is not given.
-const gns3PasswordEnv = "PLEIADES_GNS3_PASSWORD"
+const gns3PasswordEnv = "PLEIADES_GNS3_PASSWORD" // #nosec G101 -- the name of an environment variable, not a credential
 
 // gns3Imported is one node as the import reports it.
 type gns3Imported struct {

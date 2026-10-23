@@ -153,9 +153,9 @@
     },
     {
       "file": "pkg/wire/dispatch.go",
-      "line": "131",
+      "line": "136",
       "rule_id": "G101",
-      "reason": "Owned by Phase 119c (the Kubernetes credential kind). This is the SecretClusterCAPEM constant, the string \"cluster_ca_pem\", and it is the NAME of a key in wire.DispatchPayload.Secrets, where a template's Kubernetes credential puts the authority it carries for a cluster whose record pins none. It holds no credential: the identifier begins with Secret because every key of that map does, which is the pattern G101 matches, exactly as for SecretPFXBase64 above it. The value under it is a public CA certificate, never a key."
+      "reason": "Owned by Phase 119c (the Kubernetes credential kind). This is the SecretClusterCAPEM constant, the string \"cluster_ca_pem\", and it is the NAME of a key in wire.DispatchPayload.Secrets, where a template's Kubernetes credential puts the authority it carries for a cluster whose record pins none. It holds no credential: the identifier begins with Secret because every key of that map does, which is the pattern G101 matches, exactly as for SecretPFXBase64 above it. The value under it is a public CA certificate, never a key. Re-reviewed 2026-10-23 when SecretEnablePassword, inserted above it, moved it from line 131 to 136: the same constant and the same reason."
     },
     {
       "file": "pkg/awscloud/eks.go",

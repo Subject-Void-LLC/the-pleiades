@@ -28,7 +28,7 @@ import (
 
 // cmlPasswordEnv names the environment variable the controller's password
 // is read from when --password-stdin is not given.
-const cmlPasswordEnv = "PLEIADES_CML_PASSWORD"
+const cmlPasswordEnv = "PLEIADES_CML_PASSWORD" // #nosec G101 -- the name of an environment variable, not a credential
 
 // cmlUnmanaged are node definitions with no management side: they carry a
 // lab's links, never a login.
