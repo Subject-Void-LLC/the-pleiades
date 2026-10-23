@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/moby/moby/api/types/container"
 	mobynetwork "github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
-	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -141,25 +141,23 @@ func StartNetLab(tb testing.TB, routers, switches []string, links []NetLabLink) 
 	}
 	lab := &NetLab{Nodes: map[string]*NetLabNode{}, Links: links, PrivateKeyPEM: pem.EncodeToMemory(block)}
 
-	mgmt, err := network.New(ctx)
-	if err != nil {
-		tb.Fatalf("creating the management network: %v", err)
-	}
-	tb.Cleanup(func() { _ = mgmt.Remove(context.Background()) })
+	// Each network is named so the management network sorts first: Docker
+	// Desktop forwards a published port through the container's network
+	// whose name sorts first, whatever its gateway priority or network mode
+	// (measured 2026-10-22). With random names, half the labs reached a node
+	// over a link, so taking that link down cut the test's own SSH session,
+	// and an internal link's address refused it.
+	run := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	mgmt := netLabNetwork(tb, "netlab-"+run+"-0-mgmt", nil)
 	linkNets := map[string]*testcontainers.DockerNetwork{}
 	for _, l := range links {
 		// Not internal: Docker drops a bridged packet on an internal network
 		// whose destination is outside the subnet, and OSPF's hellos go to
 		// 224.0.0.5, so no adjacency ever formed. The management network
 		// keeps the default route (its gateway priority).
-		nw, err := network.New(ctx, network.WithIPAM(&mobynetwork.IPAM{
+		linkNets[l.Name] = netLabNetwork(tb, "netlab-"+run+"-1-"+l.Name, &mobynetwork.IPAM{
 			Config: []mobynetwork.IPAMConfig{{Subnet: l.Subnet}},
-		}))
-		if err != nil {
-			tb.Fatalf("creating link %s: %v", l.Name, err)
-		}
-		tb.Cleanup(func() { _ = nw.Remove(context.Background()) })
-		linkNets[l.Name] = nw
+		})
 	}
 
 	authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
@@ -222,6 +220,23 @@ func StartNetLab(tb testing.TB, routers, switches []string, links []NetLabLink) 
 		start(s, netLabSwitchTag, "netlab switch ready", false)
 	}
 	return lab
+}
+
+// netLabNetwork creates a bridge network named name, removed when tb
+// ends. network.New names every network with a fresh UUID, and the order
+// of the names is what decides the path a published port takes.
+func netLabNetwork(tb testing.TB, name string, ipam *mobynetwork.IPAM) *testcontainers.DockerNetwork {
+	tb.Helper()
+	//nolint:staticcheck // NetworkRequest is the one way to choose a network's name
+	n, err := testcontainers.GenericNetwork(context.Background(), testcontainers.GenericNetworkRequest{
+		NetworkRequest: testcontainers.NetworkRequest{Name: name, Driver: "bridge", Labels: testcontainers.GenericLabels(), IPAM: ipam},
+	})
+	if err != nil {
+		tb.Fatalf("creating network %s: %v", name, err)
+	}
+	nw := n.(*testcontainers.DockerNetwork)
+	tb.Cleanup(func() { _ = nw.Remove(context.Background()) })
+	return nw
 }
 
 // netLabHostKey logs in once as NetLabUser and returns the host key the
