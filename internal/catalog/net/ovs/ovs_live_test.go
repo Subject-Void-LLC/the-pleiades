@@ -158,6 +158,16 @@ func TestBridgeAndPort_OnARealSwitch(t *testing.T) {
 		t.Error("the create's undo left br9")
 	}
 
+	// A database the account cannot reach is a failure, never an absence:
+	// ovs-vsctl exits 1 for both, and only its own words say which.
+	mode := strings.TrimSpace(sw.Exec(t, "stat", "-c", "%a", "/var/run/openvswitch/db.sock"))
+	sw.Exec(t, "chmod", "000", "/var/run/openvswitch/db.sock")
+	t.Cleanup(func() { sw.Exec(t, "chmod", mode, "/var/run/openvswitch/db.sock") })
+	if _, err := ovs.Port(ctx, rc(), dev, map[string]any{"bridge": "br8", "name": ethB, "state": "absent"}); err == nil {
+		t.Error("a port read from an unreachable database was taken as absent")
+	}
+	sw.Exec(t, "chmod", mode, "/var/run/openvswitch/db.sock")
+
 	for _, tc := range []struct {
 		m      method
 		params map[string]any

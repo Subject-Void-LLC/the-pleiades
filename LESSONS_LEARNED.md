@@ -342,6 +342,10 @@ story, per `.AGENTS/AGENTS.md`.
 307. **A repeat of 255: a check never predicts through missing state with a warning; it answers "could not check", and the convenience is accepting that by name (2026-10-22).**
 308. **A repeat of 200 and 300: an agent CLI runs by absolute path under a memory cap, with no swap and a task limit (2026-10-22).**
 309. **Before splitting the engine's work into one process per device, list from the code every path that runs a task (every caller of `run.prepare`, by reference) and every behavior that ties devices together, and keep or refuse each one (2026-10-22).**
+310. **A repeat of 234 and 297: a model's parse is not its behavior; measure what it models feature by feature with a spike (configurations in, behavior out) and refuse what it parses and ignores, never inferring coverage from parse warnings (2026-10-22).**
+311. **A repeat of 257: before calling a device-changing feature done, have a builder with only the docs and the CLI build its example from a clean slate, and remove any access the tests' fixtures grant that the docs never mention (2026-10-22).**
+312. **A repeat of 291: after green tests, the branch-wide failure-pattern review still found 17 real defects, five of them secret exposure; run it before the pull request, not after CI (2026-10-22).**
+313. **A configuration method re-reads the device after applying and fails on any difference from what it sent, because a device can change lines as it accepts them (2026-10-22).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

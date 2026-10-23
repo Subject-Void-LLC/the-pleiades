@@ -170,6 +170,18 @@ func testCommand(t *testing.T, l *lab) {
 	if data, _ := rc.stats["data"].(map[string]any); data["10.202.0.0/29"] == nil {
 		t.Errorf("data has no connected route: %v", rc.stats["data"])
 	}
+	// show running-config is a show command, so its secrets are masked.
+	l.Nodes["r1"].Exec(t, "vtysh", "-c", "configure terminal", "-c", "interface "+l.link["r1"], "-c", "ip ospf authentication-key cmdkey1")
+	t.Cleanup(func() {
+		l.Nodes["r1"].Exec(t, "vtysh", "-c", "configure terminal", "-c", "interface "+l.link["r1"], "-c", "no ip ospf authentication-key")
+	})
+	shown := l.rc()
+	if _, err := frr.Command(context.Background(), shown, l.device("r1"), map[string]any{"command": "show running-config"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := shown.stats["stdout"].(string); strings.Contains(out, "cmdkey1") || !strings.Contains(out, "pleiades-masked-") {
+		t.Errorf("show running-config's secret was not masked:\n%s", out)
+	}
 	before := l.running(t, "r1")
 	for _, c := range []string{"configure terminal", "show version; reboot", "show version\nconfigure terminal", "write memory"} {
 		if _, err := frr.Command(context.Background(), l.rc(), l.device("r1"), map[string]any{"command": c}); err == nil {
@@ -351,6 +363,28 @@ func testConfig(t *testing.T, l *lab) {
 	if got := l.running(t, "r2"); got != baseline {
 		t.Errorf("the kept undo did not bring back the configuration:\n%s", got)
 	}
+
+	// A configuration as net.frr.facts reads it, its secrets masked, is
+	// refused before the router is reached: applied, it would set every key
+	// to its placeholder.
+	if _, err := frr.Config(ctx, l.rc(), l.device("r2"), map[string]any{"config": good + "! pleiades-masked-0123456789abcdef\n"}); err == nil || !strings.Contains(err.Error(), "masked secret") {
+		t.Errorf("a masked candidate: err %v", err)
+	}
+
+	// A save the account cannot make is refused before the reload, by a
+	// check as by a real run.
+	r2.Exec(t, "chmod", "0444", "/etc/frr/frr.conf")
+	t.Cleanup(func() { r2.Exec(t, "chmod", "0664", "/etc/frr/frr.conf") })
+	unsaved := l.running(t, "r2")
+	for name, call := range map[string]func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error){"check": frr.CheckConfig, "run": frr.Config} {
+		if _, err := call(ctx, l.rc(), l.device("r2"), map[string]any{"config": good, "save": true}); err == nil || !strings.Contains(err.Error(), "cannot write /etc/frr/frr.conf") {
+			t.Errorf("%s of a save to an unwritable frr.conf: err %v", name, err)
+		}
+	}
+	if l.running(t, "r2") != unsaved {
+		t.Error("a refused save changed the running configuration")
+	}
+	r2.Exec(t, "chmod", "0664", "/etc/frr/frr.conf")
 
 	// An account that cannot write FRR's run directory is refused before
 	// anything is sent, by a check as by a real run.

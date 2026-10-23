@@ -5970,3 +5970,71 @@ say to list callers by reference; those are about a refusal or a decorator at a 
 answering "what does a task read or do". It also extends LESSONS 174: a single-process fixture hides any behavior that
 couples devices, so the list has to come from the code.
 
+## 310. A repeat of 234 and 297: a model's parse is not its behavior; measure what it models, feature by feature, with configurations in and behavior out
+
+**Rule.** Before a gate trusts a model (Batfish, or any analyzer that reads configurations), measure its coverage one
+feature at a time with a small spike: a configuration using the feature goes in, and the question a user relies on
+comes out (who answers a virtual address, whether a tracked route fails over, whether a session drops). Record the
+features it parses and does not model, and refuse them until a task accepts each by name. Never infer coverage from
+the model's parse warnings.
+
+**Why.** 2026-10-22, Phase 127b (FAILURE_PATTERNS 585). `net.batfish.check`'s first form refused any line Batfish
+reported unrecognised, which looked like failing closed. Measured against the pinned Batfish, Cisco GLBP, IP SLA,
+SLA-tracked routes and BFD all parse with no warning and are not modelled: a GLBP virtual address is answered by
+nobody, and a tracked route stays installed as if its probe always answered. HSRP with interface tracking is
+modelled, failover included. Only the spike told the two apart; the parse warnings said the same nothing for both.
+
+LESSONS 234 says to test a "does what X does" claim against X on the outcome a user relies on, and 297 says to test a
+vendor's claim of support live. Neither held at first because the parse warnings looked like a measurement rather
+than a claim. They are the model's claim about its grammar, and say nothing about its behavior.
+
+## 311. A repeat of 257: a clean-slate build by someone with only the docs and the CLI finds what green tests cannot, including fixtures that grant what the docs never mention
+
+**Rule.** Before calling a feature that changes devices done, have someone with none of the session's files or context
+build its example from the shipped docs and CLI alone, in a fresh directory, and record every gap they hit. Then
+compare the tests' own fixtures (images, accounts, groups, file modes) with what the docs tell a user to set up, and
+remove any access the docs do not mention.
+
+**Why.** 2026-10-22, Phase 127b. With every test green, a fresh agent built `examples/routing_lab` in
+`~/pleiades-routing-lab` from the docs and CLI only. It took 24.8 minutes and found 17 gaps (its `GAPS.md`). Three
+(G1 to G3) were one real defect: `net.frr.config`'s check passed a change the account could not make, and a failed
+reload left the router in neither configuration (FAILURE_PATTERNS 579). The tests had never met it because the test
+images granted the test account write access to `/var/run/frr`, which the docs never told a user to grant. Another
+gap (G7) was the known_hosts write of FAILURE_PATTERNS 586.
+
+LESSONS 257 already says to walk a feature on real infrastructure as a user would. It did not prevent this because
+the infrastructure here was real (real FRR routers), but it was set up by the same author who wrote the code and the
+tests, so it carried that author's assumptions. What found the defect was a builder who had only what a user has.
+
+## 312. A repeat of 291: after green tests, the branch-wide failure-pattern review still finds real defects; run it before the pull request, not after CI
+
+**Rule.** LESSONS 289 and 291 stand as written: before opening a pull request, review the whole branch diff against
+every failure-pattern class, as an adversary would, and prove each finding before fixing it. Do it before the pull
+request and its CI run, not after, and give secret exposure its own pass.
+
+**Why.** 2026-10-22, Phase 127b. With every test green, the fp-reviewer agent's review of the branch found 17 real
+findings, all fixed in `26dca552` before any push. Five were secret exposure: unmasked `show running-config` output,
+gaps in the mask, secrets in device errors, secret-named grant properties at the Controller, and a masked candidate
+that could be applied (FAILURE_PATTERNS 577, 578, 580). Others were a failed read taken as absence (581), undos
+recorded as exact (582), and authorization tests that never ran the scope rule (583).
+
+This is not a new rule. 291's rule was followed and held: every finding was caught before a push. What repeats is
+the shape 291 recorded (green gates, many real findings), now measured again on a larger branch, which is the
+evidence that the review cannot be dropped as the gates grow.
+
+## 313. A configuration method re-reads the device after applying and compares with what it sent, because a device can change lines as it accepts them
+
+**Rule.** After a method applies a configuration, it reads the running configuration back and compares it with the
+candidate, line by line. A difference fails the task, names the lines, and keeps the undo. Never report success from
+the apply command's exit status alone.
+
+**Why.** 2026-10-22, Phase 127b. FRR silently keeps only the first eight characters of an OSPF simple authentication
+key. A candidate holding a longer key applies with no error, and the router then runs something other than the
+candidate. `net.frr.config` re-diffs after the reload, and that re-diff caught it: the task fails as "does not run
+the candidate", with the secret masked in the error, and the kept undo puts the baseline back (`testConfig` in
+`internal/catalog/net/frr/frr_live_test.go`; `docs/16-network-verification.md` says so to users).
+
+This is LESSONS 247 (a captured request proves what was asked, not what happened) applied to a device, and here it
+held. It is recorded because the next configuration method (EOS, Junos, IOS) will meet the same thing in other
+forms, and a gate that hashed the candidate (`expect_sha256`) proves only what was sent.
+
