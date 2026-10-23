@@ -215,4 +215,32 @@ var routingCollections = []collectionscaffold.Config{
 			SeeAlso: []string{"net.ovs.bridge"},
 		},
 	},
+	{
+		Name:          "net.batfish.check",
+		Capabilities:  []capability.Name{capability.NameBatfishAPI},
+		Transports:    []string{"https"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Checks configurations against Batfish's model of the network before any of them is applied, and fails closed.",
+			Description: "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
+			Params: []collection.Param{
+				{Name: "devices", Type: "list of dict", Required: true, Description: "Each device's whole configuration: name (the node's name, which a Cisco configuration's hostname must match), format (frr, the default, or cisco_ios), and config (the text, e.g. a registered net.frr.facts result's running_config) or src (a file in the project, read by the command line only)."},
+				{Name: "assertions", Type: "list of dict", Description: "What must hold of the configurations as given, each one of: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol}; no_route: {node, prefix}; reach: {from (node or node[interface]), dst (an address), delivered (default true), through (nodes), avoids (nodes)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network)}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop."},
+				{Name: "scenarios", Type: "list of dict", Description: "Each a name, down_interfaces (node[interface], e.g. r1[eth2]) and down_nodes, and its own assertions, checked on the snapshot with those down."},
+				{Name: "accept_unrecognized", Type: "list of dict", Description: "Lines Batfish did not recognise that the task accepts, each text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) and reason (why the model may ignore it). Every other unrecognised line fails the task."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "passed", Type: "bool", Returned: "always", Description: "Whether every assertion held and nothing went unrecognised unaccepted."},
+				{Name: "sha256", Type: "dict", Returned: "always", Description: "Each device's configuration's SHA-256, in hex, over the bytes as given."},
+				{Name: "parse", Type: "list of dict", Returned: "always", Description: "Each file's parse status (device, status)."},
+				{Name: "unrecognized", Type: "list of dict", Returned: "always", Description: "Each unrecognised line (device, line, text) and, when accepted, why."},
+				{Name: "assertions", Type: "list of dict", Returned: "always", Description: "Each assertion (scenario, kind, passed, detail)."},
+				{Name: "not_modelled", Type: "list of string", Returned: "always", Description: "What the model ignores: each accepted line, with its reason."},
+			},
+			Examples: []collection.Example{
+				{Name: "Check a candidate and a link failure first", RunbookYAML: "- name: Read r1 as it runs\n  net.frr.facts:\n    target: r1\n    include_config: true\n  register: r1\n- name: Read r2 as it runs\n  net.frr.facts:\n    target: r2\n    include_config: true\n  register: r2\n- name: The model routes both LANs with r3's change, and without r1's link to r2\n  net.batfish.check:\n    target: batfish\n    devices:\n      - {name: r1, config: \"{{ result.r1.running_config }}\"}\n      - {name: r2, config: \"{{ result.r2.running_config }}\"}\n      - {name: r3, src: configs/r3.frr.conf}\n    assertions:\n      - ospf_established: true\n      - route: {node: r1, prefix: 10.3.3.0/24}\n    scenarios:\n      - name: r1-r2 down\n        down_interfaces: [\"r1[eth1]\"]\n        assertions:\n          - reach: {from: \"r1[eth3]\", dst: 10.3.3.10, through: [r3]}\n    accept_unrecognized:\n      - {text: domainname localdomain, reason: DNS search domain, not routing}\n  register: gate\n"},
+			},
+			SeeAlso: []string{"net.frr.config", "net.frr.facts", "wait.routes", "net.trace"},
+		},
+	},
 }

@@ -39,6 +39,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/identity/group"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/identity/user"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/batfish"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/catalyst"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/eos"

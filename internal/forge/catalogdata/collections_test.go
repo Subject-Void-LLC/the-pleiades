@@ -74,10 +74,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// win.archive.extract the 176th, net.ios.command the 177th, and
 	// file.stat the 178th. Network verification (Phase 127b) added the
 	// 179th through 186th: net.frr.config, interface, facts and command,
-	// wait.routes, net.trace, and net.ovs.bridge and port.
+	// wait.routes, net.trace, and net.ovs.bridge and port; net.batfish.check
+	// is the 187th.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 186
+	const wantCollections = 187
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

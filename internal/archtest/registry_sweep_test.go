@@ -30,6 +30,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/ai"
+	bfdevice "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/batfish"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cloudflare"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
@@ -676,6 +677,11 @@ func describeDocDiff(want, got collection.Doc) string {
 // requires. The question stays the one the sweep asks: could onboarding
 // ever make this capability true.
 func genericProbeProperties(typeKey string) map[string]inventory.PropertyValue {
+	// A batfish device declares its capabilities and needs only its
+	// address.
+	if typeKey == bfdevice.TypeService {
+		return map[string]inventory.PropertyValue{bfdevice.APIBaseProperty: "https://archtest.invalid"}
+	}
 	grants := generic.Discoverable(typeKey)
 	if grants == nil {
 		return nil
