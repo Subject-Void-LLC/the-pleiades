@@ -58,7 +58,7 @@ func TestGenerate(t *testing.T) {
 			cfg:       externalscaffold.Config{Name: "acme.motd.read"},
 			wantPaths: []string{"main.go", "read.go", "read_test.go", "README.md", "go.mod"},
 			wantInFiles: map[string][]string{
-				"main.go": {"package main", "external.Main(ReadDescriptor())", `"acme.motd.read"`},
+				"main.go": {"package main", "external.MainProgram(program())", "ReadDescriptor(),", `"acme.motd.read"`},
 				"read.go": {
 					"package main",
 					`const readFQCN = "acme.motd.read"`,
@@ -89,7 +89,7 @@ func TestGenerate(t *testing.T) {
 			cfg:       externalscaffold.Config{Name: "acme.probe"},
 			wantPaths: []string{"main.go", "probe.go", "probe_test.go", "README.md", "go.mod"},
 			wantInFiles: map[string][]string{
-				"main.go":  {"external.Main(ProbeDescriptor())"},
+				"main.go":  {"external.MainProgram(program())", "ProbeDescriptor(),"},
 				"probe.go": {`const probeFQCN = "acme.probe"`},
 			},
 		},
@@ -102,6 +102,19 @@ func TestGenerate(t *testing.T) {
 				"README.md":        {"`daemon-reload.go`"},
 			},
 		},
+		{
+			name:      "a capability the program defines",
+			cfg:       externalscaffold.Config{Name: "acme.motd.read", Capability: "acme.motd_host"},
+			wantPaths: []string{"main.go", "read.go", "read_test.go", "README.md", "capability.go", "go.mod"},
+			wantInFiles: map[string][]string{
+				"main.go":       {"Capabilities: []capability.DataDefinition{readCapability()}", "ReadProbeDescriptor(),"},
+				"read.go":       {"capability.NameSSHTransport, readCapabilityName"},
+				"capability.go": {`const readCapabilityName capability.Name = "acme.motd_host"`, `const readProbeFQCN = "acme.motd.read_probe"`, "ReadOnly: true", "Name:     readCapabilityName", "readProbeFQCN,"},
+				"README.md":     {"pleiades grant-capability <device> acme.motd_host", "pleiades onboard <device>"},
+			},
+		},
+		{name: "a capability in another namespace rejected", cfg: externalscaffold.Config{Name: "acme.motd.read", Capability: "other.motd_host"}, wantErr: "own namespaces"},
+		{name: "a malformed capability rejected", cfg: externalscaffold.Config{Name: "acme.motd.read", Capability: "MotdHostCapable"}, wantErr: "<namespace>.<name>"},
 		{name: "single segment rejected", cfg: externalscaffold.Config{Name: "read"}, wantErr: "not namespaced"},
 		{name: "empty name rejected", cfg: externalscaffold.Config{Name: ""}, wantErr: "not namespaced"},
 		{name: "empty segment rejected", cfg: externalscaffold.Config{Name: "acme..read"}, wantErr: "invalid name"},

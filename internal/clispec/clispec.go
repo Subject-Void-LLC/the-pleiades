@@ -635,8 +635,9 @@ var Root = Command{
 					Flags: []Flag{
 						{Name: "dir", Type: "string", Default: "", Doc: "directory to write the program into (default: the method name with its dots as hyphens)"},
 						{Name: "no-go-mod", Type: "bool", Default: "false", Doc: "write no go.mod, so the program joins the Go module around it instead of being a module of its own"},
+						{Name: "capability", Type: "string", Default: "", Doc: "a capability the program defines as data, <namespace>.<name> in the method's namespace: its definition and a probe that grants it are written, and the method requires it"},
 					},
-					Examples: []string{"pleiades forge new-external acme.motd.read"},
+					Examples: []string{"pleiades forge new-external acme.motd.read", "pleiades forge new-external acme.motd.read --capability acme.motd_host"},
 				},
 				{
 					Name:       "new-filter",

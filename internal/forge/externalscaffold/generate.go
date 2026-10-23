@@ -50,6 +50,13 @@ type templateData struct {
 	// ">=" and the generating build's release, or empty on a development
 	// build, in which case the manifest states none (Config.Engine).
 	EngineConstraint string
+
+	// Capability, ProbeName and CapabilityFile are set when the program
+	// defines a capability (Config.Capability): its name, its probe's
+	// method name, and the base name of the file defining both.
+	Capability     string
+	ProbeName      string
+	CapabilityFile string
 }
 
 // funcMap is shared by every template. quote is how a name reaches Go
@@ -63,11 +70,12 @@ var funcMap = template.FuncMap{
 }
 
 var (
-	mainTemplate   = template.Must(template.New("main").Funcs(funcMap).Parse(mainTemplateSource))
-	methodTemplate = template.Must(template.New("method").Funcs(funcMap).Parse(methodTemplateSource))
-	testTemplate   = template.Must(template.New("method_test").Funcs(funcMap).Parse(methodTestTemplateSource))
-	readmeTemplate = template.Must(template.New("readme").Funcs(funcMap).Parse(readmeTemplateSource))
-	goModTemplate  = template.Must(template.New("go.mod").Parse(goModTemplateSource))
+	mainTemplate       = template.Must(template.New("main").Funcs(funcMap).Parse(mainTemplateSource))
+	methodTemplate     = template.Must(template.New("method").Funcs(funcMap).Parse(methodTemplateSource))
+	testTemplate       = template.Must(template.New("method_test").Funcs(funcMap).Parse(methodTestTemplateSource))
+	readmeTemplate     = template.Must(template.New("readme").Funcs(funcMap).Parse(readmeTemplateSource))
+	capabilityTemplate = template.Must(template.New("capability").Funcs(funcMap).Parse(capabilityTemplateSource))
+	goModTemplate      = template.Must(template.New("go.mod").Parse(goModTemplateSource))
 )
 
 // goDirective is the go line a generated go.mod carries: the one in
@@ -116,6 +124,9 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 	if release, ok := buildinfo.Release(cfg.Engine); ok {
 		data.EngineConstraint = ">=" + release
 	}
+	if cfg.Capability != "" {
+		data.Capability, data.ProbeName, data.CapabilityFile = cfg.Capability, cfg.ProbeName(), "capability"
+	}
 
 	// Each entry pairs a template with the path it renders to and
 	// whether go/format applies. README.md and go.mod are the files that
@@ -126,6 +137,9 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		{path: data.FileBase + ".go", tmpl: methodTemplate, goSource: true},
 		{path: data.FileBase + "_test.go", tmpl: testTemplate, goSource: true},
 		{path: "README.md", tmpl: readmeTemplate},
+	}
+	if cfg.Capability != "" {
+		outputs = append(outputs, output{path: data.CapabilityFile + ".go", tmpl: capabilityTemplate, goSource: true})
 	}
 	if !cfg.NoGoMod {
 		outputs = append(outputs, output{path: "go.mod", tmpl: goModTemplate})

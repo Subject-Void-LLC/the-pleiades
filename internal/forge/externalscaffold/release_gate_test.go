@@ -185,7 +185,14 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 // go.mod that needed more than a module and a go line, fails here.
 func buildOutOfTree(t *testing.T, name string) string {
 	t.Helper()
-	files, err := externalscaffold.Generate(externalscaffold.Config{Name: name})
+	return buildConfigOutOfTree(t, externalscaffold.Config{Name: name})
+}
+
+// buildConfigOutOfTree is buildOutOfTree for any Config.
+func buildConfigOutOfTree(t *testing.T, cfg externalscaffold.Config) string {
+	t.Helper()
+	name := cfg.Name
+	files, err := externalscaffold.Generate(cfg)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -361,5 +368,59 @@ func runGo(t *testing.T, dir string, args ...string) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go %v failed: %v\n%s", args, err, out)
+	}
+}
+
+// TestGenerate_ReleaseGateWithACapability: a program generated with
+// --capability builds, its own test passes, describe lists the capability
+// beside both methods, and its probe, run against a real SSH server over
+// the real process boundary, grants the capability with the kernel the
+// server's own uname -s names.
+func TestGenerate_ReleaseGateWithACapability(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping release gate test in -short mode")
+	}
+	need.POSIXShell(t)
+
+	ns := fmt.Sprintf("relgate%d", os.Getpid())
+	cfg := externalscaffold.Config{Name: ns + ".motd.read", Capability: ns + ".motd_host"}
+	bin := buildConfigOutOfTree(t, cfg)
+
+	out, err := exec.Command(bin, external.CommandDescribe).Output() // #nosec G204 -- the program this test built
+	if err != nil {
+		t.Fatalf("describe: %v", err)
+	}
+	var desc external.Description
+	if err := json.Unmarshal(out, &desc); err != nil {
+		t.Fatalf("describe printed %q: %v", out, err)
+	}
+	if len(desc.Capabilities) != 1 || string(desc.Capabilities[0].Name) != cfg.Capability || desc.Capabilities[0].Probe != cfg.ProbeName() || len(desc.Methods) != 2 {
+		t.Fatalf("description = %+v, want the capability, its probe and both methods", desc)
+	}
+
+	srv, err := remoteexectest.Start(remoteexectest.Options{})
+	if err != nil {
+		t.Fatalf("starting the SSH server: %v", err)
+	}
+	t.Cleanup(srv.Close)
+	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(knownHosts, []byte(knownhosts.Line([]string{srv.Addr()}, srv.HostKey)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	kernel, err := exec.Command("uname", "-s").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := invokeOverFD3(t, bin, wire.ChildRequest{
+		FQCN: cfg.ProbeName(), Mode: string(collection.ModeExecute),
+		DeviceID: "relgate-device", DeviceName: "relgate-device", DeviceHost: srv.Host, SSHPort: srv.Port,
+		Capabilities: []capability.Name{capability.NameSSHTransport}, Secrets: srv.Secrets(),
+	}, []string{remoteexec.KnownHostsEnv + "=" + knownHosts})
+	if resp.Error != "" {
+		t.Fatalf("the probe failed: %s", resp.Error)
+	}
+	props, _ := resp.Facts["properties"].(map[string]any)
+	if resp.Facts["granted"] != true || props["kernel"] != strings.TrimSpace(string(kernel)) {
+		t.Errorf("the probe answered %v, want it granted with kernel %q", resp.Facts, strings.TrimSpace(string(kernel)))
 	}
 }

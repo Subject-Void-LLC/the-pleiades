@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/genutil"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // Config is the input to Generate: everything needed to emit one external
@@ -41,6 +42,19 @@ type Config struct {
 	// inside another checkout (this one included) out of that checkout's
 	// ./... and its builds.
 	NoGoMod bool
+
+	// Capability, when set, is a capability the program defines as data
+	// (<namespace>.<name>, in the method's own namespace): the program gets
+	// its definition and a read-only probe that grants it, and the method
+	// requires it.
+	Capability string
+}
+
+// ProbeName is the probe method's name when the program defines a
+// capability: the method's own name with "_probe" appended, in its own
+// namespace.
+func (c Config) ProbeName() string {
+	return c.Name + "_probe"
 }
 
 // segments splits Name on every dot.
@@ -121,6 +135,15 @@ func (c Config) Validate() error {
 	}
 	if c.MethodSegment() == "main" {
 		return fmt.Errorf("externalscaffold: invalid name %q: the method segment %q would collide with the program's own main.go", c.Name, "main")
+	}
+	if c.Capability != "" {
+		name := capability.Name(c.Capability)
+		if !capability.IsDataName(name) {
+			return fmt.Errorf("externalscaffold: capability %q is not <namespace>.<name>, lower case", c.Capability)
+		}
+		if ns := capability.DataNamespace(name); ns != segs[0] {
+			return fmt.Errorf("externalscaffold: capability %q is in the namespace %q, and the method's is %q: a program defines capabilities only in its own namespaces", c.Capability, ns, segs[0])
+		}
 	}
 	return nil
 }
