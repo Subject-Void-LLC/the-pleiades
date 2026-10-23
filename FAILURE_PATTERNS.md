@@ -589,6 +589,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 584. The documented accept_unrecognized example split at an unquoted comma in a YAML flow mapping, and validate passed it (a repeat of 548) (fixed before push)
 585. Batfish parses Cisco GLBP, IP SLA, SLA tracking and BFD without a warning and does not model them, so a gate that refused only unrecognised lines would pass them (a sibling of 252 and 539) (fixed before push)
 586. import-containerlab --trust-first-connect wrote an ephemeral lab's host keys into the user's own known_hosts (a repeat of 442) (fixed before push)
+587. Net lab nodes still reached SSH over a link 2 starts in 10, after the networks were named so management sorted first (a repeat of 575) (fixed before push)
+588. PredictPut refused, on FreeBSD, a group the file Put writes takes from its directory without a chgrp (a repeat of 521) (fixed before push)
+589. A test left doctest's capability registered, so a later onboard ran its probe, and the re-run alone called it contention (a repeat of 188) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

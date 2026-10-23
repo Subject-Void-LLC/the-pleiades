@@ -14589,3 +14589,70 @@ why and how. `TestImportContainerlab_WritesEachNodeAndRefusesOtherLabs`' "trust 
 **Lesson.** A command that trusts keys it has never seen writes them only to a file the user named for that purpose,
 never to the user's own known_hosts by default.
 
+
+## 587. Net lab nodes still reached SSH over a link 2 starts in 10, after the networks were named so management sorted first (a repeat of 575) (fixed before push)
+
+**Symptom.** 2026-10-23, the fourth `make pr-check` on feat/network-verification-127, re-measuring `cmd/pleiades` alone:
+`TestCLI_NetworkChangeIsGatedAppliedAndUndone` failed at its third run, the one taking r3's link to r1 down out of band.
+Every SSH handshake to r3 then failed ("use of closed network connection", three attempts over 34 seconds), so
+`net.frr.config` never reached r3 and the report showed no undo. The gate had passed in the full pass of the same run,
+and passed again alone.
+
+**Root cause.** Docker Desktop's choice of network for a published port is not name order. Measured on this machine
+with one container on a management network and a link, management sorting first: 2 of 10 starts forwarded over the
+link. 575's rule came from one two-network experiment, swapped once each way, which a coin toss weighted this way
+passes as often as not.
+
+**Why 575's fix did not hold.** It pinned the rule it inferred, not the behaviour: no test took every other network
+down across many starts, which its own lesson asked for.
+
+**Fix.** `3203fbf3`: `StartNetLab` starts each node on the management network alone and connects its links with
+`docker network connect` once it runs. Measured: 20 of 20 starts with one late link, and 20 of 20 with two late links
+both taken down, kept SSH on management; the gate then passed three times in a row (191.8 s) and every net lab package
+passed.
+
+**Lesson.** A rule about another program's choice, inferred from one A/B, is a guess. Measure it across enough starts
+for a minority outcome to show, and prefer a setup that leaves the program no choice to make.
+
+## 588. PredictPut refused, on FreeBSD, a group the file Put writes takes from its directory without a chgrp (a repeat of 521) (fixed before push)
+
+**Symptom.** 2026-10-23, the fourth `make pr-check`'s bsd leg: `TestPredictPut_AgreesWithPutWhenItWrites`, "a mode
+change": `PredictPut = put .../Dockerfile: this login (pleiades) may not give a file the group wheel, so nothing was
+written`. The file was in a directory whose group is wheel, which the login is not in.
+
+**Root cause.** `Put` writes the new file beside the target, and on FreeBSD a new file takes its directory's group, so
+it already has wheel and no chgrp is sent. `PredictPut` asked only whether the login is in the target group.
+
+**Why 521's fix did not hold.** 521 taught `PredictWrite` that a new file's group is the directory's on FreeBSD and the
+account's on Linux, in that function's own doc comment. `PredictPut`, new on this branch, wrote its own group check from
+the login's groups without reading it. Its test, meanwhile, only called `PredictPut` and never `Put`, so "agrees with
+Put" was never compared on any system.
+
+**Fix.** `3203fbf3`: `whoAmI` also reads `uname -s` and the login's primary group, and `identity.newFileGroup` gives the
+group a new file starts with: the directory's outside Linux, the directory's under a setgid directory on Linux, else
+the login's. A target group equal to it is not a refusal. The test now runs `Put` on a fixture of its own for each
+case, and `TestNewFileGroup_FollowsEachKernelsRule` covers each rule. `pkg/remotefile` passed on bsd-check
+(`tools/bsdcheck`, 1m18s).
+
+**Lesson.** A prediction that names what it agrees with has to run that thing in its test, on every system it claims.
+
+## 589. A test left doctest's capability registered, so a later onboard ran its probe, and the re-run alone called it contention (a repeat of 188) (fixed before push)
+
+**Symptom.** 2026-10-23, the fourth `make pr-check`: `TestOnboard_AProgramsProbeGrantsItsCapability` failed with a
+second grant in its report, `doctest.widget`, whose probe failed. Re-run alone it passed, and testgate reported it as a
+test that "lost a race".
+
+**Root cause.** `TestDoc_RendersAProgramsCapability` registered `doctest.widget`, with a probe, into the process-wide
+capability vocabulary and never restored it. Onboarding runs every registered capability's probe, so every later test
+in the binary saw it. Running the two tests together failed every time; neither alone did.
+
+**Why 188's fix did not hold.** 188's guard is `make test-repeat`, which repeats each test in a container-free package.
+`cmd/pleiades` is a container package, and this leak crossed from one test to another, which repeating either alone
+cannot show. The tolerant re-run then ran the failing test alone, without the test that leaked, and passed it.
+
+**Fix.** `3203fbf3`: the doc test restores the vocabulary with `t.Cleanup(capability.SnapshotForTest())`. Proven by
+running both tests together, failing before and passing after. No other test function in the module registers a data
+capability without a snapshot.
+
+**Lesson.** A failure that passes alone has passed without the tests that ran before it. Before calling it contention,
+run it with the tests that preceded it.
