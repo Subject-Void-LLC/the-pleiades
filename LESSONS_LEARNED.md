@@ -346,8 +346,13 @@ story, per `.AGENTS/AGENTS.md`.
 311. **A repeat of 257: before calling a device-changing feature done, have a builder with only the docs and the CLI build its example from a clean slate, and remove any access the tests' fixtures grant that the docs never mention (2026-10-22).**
 312. **A repeat of 291: after green tests, the branch-wide failure-pattern review still found 17 real defects, five of them secret exposure; run it before the pull request, not after CI (2026-10-22).**
 313. **A configuration method re-reads the device after applying and fails on any difference from what it sent, because a device can change lines as it accepts them (2026-10-22).**
-314. **An IOS change records no undo: read what it will replace with a show command, write the task's rollback: list from that read, and rehearse both on a lab device, since these methods have no check mode (2026-10-23).**
+314. **An IOS change records no undo: read what it will replace with a show command, write the task's rollback: list from that read, and rehearse both on a lab device, since these methods have no check mode (2026-10-23).** Narrowed by 316: net.ios.config now records an exact undo through a checkpoint on a device that can keep one.
 315. **A repeat of 189: never load a secrets .env file by sourcing it with the shell, since a value holding a shell character runs as a command and prints the rest; read it with a parser (2026-10-23).**
+316. **A device's own undo beats an inverse the platform writes: keep a checkpoint on the device, journal only its path, and treat diff-derived inverse lines as a masked fallback that is never journaled (2026-10-23).**
+317. **Measure a pasted claim about another project's code at a pinned commit before building on it; Genie's regexes were 99.8% RE2-compatible, and the real cost was translating imperative parsers (2026-10-23).**
+318. **A port of Apache-2.0 code is a derived work: keep the license verbatim, a notice with source, commit and copyright, a changed-file header in each ported file, no trademark-named identifiers, and ship the license in release archives (2026-10-23).**
+319. **An empty parse is a state to compare, not a failure: a before-and-after parser returns an empty result marked empty (2026-10-23).**
+320. **When every node of a CML sandbox lab stops answering while its controller answers, stop and start the lab through the CML API before reading the failure as code (2026-10-23).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

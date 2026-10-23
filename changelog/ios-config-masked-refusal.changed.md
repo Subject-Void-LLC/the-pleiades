@@ -1,0 +1,1 @@
+`net.ios.config` now refuses a line holding a `pleiades-masked-` placeholder before reaching the device, as `net.frr.config`, `net.cli.config` and `net.netconf.config` do, since lines copied unchanged from its masked `undo_lines` would set each secret on the device to the placeholder.

@@ -14899,3 +14899,198 @@ occurrence shows what the server was doing.
 
 **Lesson.** When a failure cannot be reproduced, the fix is to make the next one explain itself, and the record says
 the cause is unknown.
+
+## 603. net.ios.config's first fallback recorded its undo lines as a Go []string, which the method's own reader refuses (a sibling of 529 and 534) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push: the first draft of `net.ios.config`'s fallback (a device
+that cannot keep a checkpoint) recorded an undo whose `lines` were a Go `[]string`. `sdk.StringSlice`, which reads
+`lines`, accepts only `[]any`, the shape YAML and JSON decode a list into, so replaying that undo would have failed
+with "lines must be a list of strings". The test of the no-checkpoint path (now
+`TestConfig_WithoutACheckpointTheUndoLinesAreShownNotRecorded`) caught it.
+
+**Root cause.** A method built a value for its own later use in the Go type it had at hand, not in the shape a task's
+params arrive in. Params only ever reach a method after decoding, so a value that skipped decoding met a reader that
+had never seen its type.
+
+**Fix.** Overtaken by 604: the fallback records no undo at all. It reports the masked lines under `undo_lines` for the
+task's `rollback:` list, and the test now requires that no undo is recorded.
+
+**Why 529 and 534 did not prevent it.** 529 found an undo whose values the journal cannot keep, and its guard
+(`TestFirewallRule_UndoIsJournalable`) holds that one method's undo. 534 found a value of the wrong type reaching a
+method's reader and fixed it for rendered and literal params. Neither reaches a new method that builds its own undo
+params in Go.
+
+**Lesson.** A value a method writes for a later task to read is written in the shape that task's params will have
+after decoding (`[]any`, `map[string]any`, `float64` or `int`), and a test replays it through the method's own reader.
+
+## 604. Withholding net.ios.config's fallback undo made validate refuse rollback_on_failure on every net.ios.config task, and the docs said the in-run undo would replay the withheld lines (a repeat of 228 and 571) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push. A draft declared an `sdk.InverseSpec` for the fallback undo
+with its lines under `Withhold`, since they are configuration read off the device. Two things followed. `pleiades
+validate` refused `rollback_on_failure` over every `net.ios.config` task, because it refuses that key over a task whose
+undo is not exact. And the method's description and the docs said a block's `rollback_on_failure` would replay the
+withheld lines inside the run. It would not: the engine's in-run undo (`internal/engine/rollback_on_failure.go`)
+replays only an undo the journal holds exactly.
+
+**Root cause.** The text described what the author meant the fallback to do, not what the engine does with a withheld
+parameter. No test ran `rollback_on_failure` over the fallback, so nothing held the claim to the code. Declaring the
+spec also changed what validate allows for every call of the method, the checkpoint calls included.
+
+**Fix.** The fallback records no undo and reports its lines, masked, under `undo_lines`, with a warning to copy them
+into the task's `rollback:` list. `net.ios.replace` (checkpoint and expect paths, and the Telnet opt-in, nothing else)
+is the method's only declared undo. The description, docs/16 and the changelog say so. The CML gate
+(`TestCLI_ImportCMLReachesIOSOverTelnet`) runs a `rollback_on_failure` block on the sandbox router and proves the
+change undone through the checkpoint.
+
+**Why 228 and 571 did not prevent them.** Both found text claiming more than the code does, and 571's lesson says a
+claim of behavior is checked by a test of that behavior or cut. The claim here was written in the same draft as the
+code, before the gate that tests it existed, and nothing makes the test come first.
+
+**Lesson.** Before a doc or description says what `rollback_on_failure` or `pleiades rollback` does with a method's
+undo, run it, and check what declaring an `InverseSpec` does to validate for every call of the method.
+
+## 605. A container_host with no host declared SSH and a network address, so validate passed wait.port on it and the run asked for a credential (a sibling of 316 and 345) (fixed)
+
+**Symptom.** 2026-10-22, routing lab gap G6 (`examples/routing_lab/GAPS.md`): a `container_host` with no `host`, which
+is the machine pleiades runs on reached through its own engine socket, passed `pleiades validate` for
+`pleiades.builtin.wait.port`, an SSH method. The run then failed asking for a credential that no SSH login could use.
+
+**Root cause.** `container.NewHost` (`internal/inventory/devices/container/host.go`) put `SSHTransport` and
+`NetworkAddressable` in every host's baseline, whether or not the record named a host. The existing test asserted the
+claim on a bare record with no host ("expected the vendor baseline to include SSHTransportCapable"), so the test
+pinned the defect, the tell 273 describes.
+
+**Fix.** Both capabilities are declared only when the record's `host` property is set (`b53d4db2`).
+`TestNewHost_BaselineCapabilities` requires both on a host with an address and neither on one without. Waiting for a
+service on this machine is `http.wait`'s job now.
+
+**Why 345 and 316 did not prevent it.** 345 removed one capability edge a device could not serve and 316 taught the
+generated reference to show a conditional capability. Neither checks that a type's static baseline holds for every
+record the type accepts.
+
+**Lesson.** A capability a type declares for every record must hold for every record the type accepts. When it
+depends on a property, declare it from that property, and test the record without it.
+
+## 606. IOS scrolled a command longer than 80 columns sideways in its echo, so the echo was not stripped and stayed in the output (a sibling of 596) (fixed)
+
+**Symptom.** 2026-10-23, on the DevNet CML sandbox's IOS XE 17.15 IOL router: the new checkpoint commands (`copy
+running-config unix:...`, `show archive config differences unix:... system:running-config`) are longer than 80
+columns. IOS echoed each one scrolled sideways, with a `$` where it cut the line, and the session's output kept that
+garbled echo.
+
+**Root cause.** `stripEcho` in `pkg/netcli` removes an echo only when it matches the line sent. The IOS dialect set
+`terminal length 0` and left the terminal width at its default, so any long command, the checkpoint's or a user's,
+came back changed.
+
+**Fix.** `Dialect.DisableWrapping`: IOS's dialect sends `terminal width 512` after `terminal length 0`
+(`TestOpen_DisablesPagingAndWrappingWhenDialectNamesThem`). The CML gate runs the long checkpoint commands on the
+sandbox router.
+
+**Why 596 did not prevent it.** 596 fixed the prompt pattern for the terminal's own traffic after a prompt. The echo is
+a second place a terminal rewrites what the session expects, and nothing had sent a command that long.
+
+**Lesson.** A terminal session sets every terminal property that changes what it reads (paging and width), and a
+test sends a command longer than the default width.
+
+## 607. http.wait's not-ready test closed a listener and reused its port, and the released-port guard refused it (a repeat of 123, 177, 183 and 478) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push: `internal/archtest`'s `TestNoReleasedPortIsUsedAsAnAddress`
+refused the first draft of `TestWait_AServiceThatIsNotReadyYet`, which closed a listener and then used its address for
+a service that "starts later".
+
+**Root cause.** The construction 123 named: a released port is anyone's, so another test can take it before the
+service starts, and the wait then measures the wrong server. 601 met the same fact in the GNS3 fixture on the same
+branch.
+
+**Fix.** The test holds its port the whole time: `droppingListener` accepts and closes every connection until the
+service is "ready", then serves it, so the wait sees dropped connections first and an answer later.
+
+**Why 478's fix did not prevent it.** It did its job: 478 added the guard, and the guard caught this before push. The
+construction is still the first one a test author reaches for.
+
+**Lesson.** To imitate a service that is not ready yet, hold its port and drop connections; never release it.
+
+## 608. VarsRule refused a task with its own when:, which the run may skip (a repeat of 557) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push: the new validate rule `VarsRule` (routing lab gap G11)
+refused a task whose params read a `vars.<name>` no `--extra-vars` supplied, even when the task had a `when:` of its
+own that would skip it.
+
+**Root cause.** 557 settled that a task with its own `when:` (`engine.DAG.Conditional`) is left out of the plan-time
+checks, because the engine decides the condition first. That decision lives in each rule (`TransportRule`,
+`CapabilityRule`), and a new rule starts without it.
+
+**Fix.** `VarsRule` leaves a conditional task to the run, as `TransportRule` does (`TestVarsRule`). The
+`validate-extra-vars` changelog fragment says so.
+
+**Why 557 did not prevent it.** 557's fix is a check in each existing rule, not a property of the rule framework, so
+every new rule has to remember it.
+
+**Lesson.** A new validate rule starts by asking what the existing rules skip (conditional tasks, device-less calls,
+`rollback:` steps), and copies each answer or says why not.
+
+## 609. net.ios.config, net.cli.config and net.netconf.config applied lines holding a masked placeholder, and net.ios.config's new undo_lines would hand an author such lines (a repeat of 580) (fixed)
+
+**Symptom.** Found by an agent's review, 2026-10-23, on feat/lab-importers: `net.ios.config`'s fallback reports its
+undo lines masked under `undo_lines`, and the docs tell an author to paste them into a `rollback:` list. Pasted
+unchanged, each `pleiades-masked-` placeholder would have been applied, setting each secret on the device to the
+placeholder. `net.ios.config` did not refuse such a line. Neither did `net.cli.config` or `net.netconf.config` on
+`main`.
+
+**Root cause.** 580's class: a masked copy of data accepted where the real data is.
+
+**Fix.** `netcfg.RefuseMasked` (`pkg/netcfg/refuse.go`, `TestRefuseMasked`) is the one refusal, now called by
+`net.frr.config`, `net.cli.config`, `net.netconf.config` and `net.ios.config` before the device is reached
+(`TestConfig_RefusesAMaskedSecret` in `internal/catalog/net/ios`, `TestConfig_RefusesAMaskedSecretBeforeTheDevice` in
+`internal/catalog/net/cli`).
+
+**Why 580 did not prevent it.** 580's fix was in `net.frr.config` alone. Its lesson says the method that writes the same
+kind of data refuses the mask's marker, but nothing lists those methods, and this branch added a masked output that
+feeds one of them.
+
+**Lesson.** When a method starts emitting masked configuration, every method that applies configuration of that kind
+calls the one shared refusal; a new configuration writer calls it from its first draft.
+
+## 610. pkg/iosparse's ShowInterfaces keeps genieparser's failure on an "Encapsulation X, medium is Y" line (open)
+
+**Symptom.** Found 2026-10-23 while porting genieparser's `ShowInterfaces` (`pkg/iosparse`, `67a70f8e`). Not met on the
+CML sandbox's IOL router.
+
+**Root cause.** genieparser's own parser reads the medium from the wrong match on an "Encapsulation X, medium is Y"
+line and raises `KeyError`. The port keeps genieparser's behavior so its fixtures hold the port to upstream, and
+returns a `*ParserError` where genieparser raises. `pkg/iosparse/doc.go` lists this among the port's known
+differences.
+
+**Fix.** None yet. A fix would make the port differ from genieparser on that line and would need a fixture of its own.
+
+**Lesson.** A port held to upstream fixtures inherits upstream's defects. Name each one where users read about the
+port, and fix it as a deliberate, tested difference.
+
+## 611. pkg/iosparse's ShowVlan joins wrapped lines quadratically on pathological output, bounded only by netcli's read limit (a sibling of 48) (open)
+
+**Symptom.** Found 2026-10-23 while porting genieparser's `ShowVlan` (`pkg/iosparse/show_vlan.go`). No real device's
+output has shown it.
+
+**Root cause.** The port joins a wrapped line onto the text before it the way genieparser does, which costs time
+quadratic in the number of continuation lines. The only bound on that input is `pkg/netcli`'s limit on how much a read
+takes from the device.
+
+**Fix.** None yet.
+
+**Lesson.** As 48 found, a loop that rebuilds its accumulated text on every step needs either a builder or a bound on
+its input, and a read limit sized for transport is not a bound sized for a parser.
+
+## 612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (open)
+
+**Symptom.** 2026-10-23, by design of `9ab84fe4`: each `net.ios.config` run that changes the configuration leaves two
+files on the device's default writable file system (the checkpoint before and the configuration after), named
+`pleiades-...`. `net.ios.replace` deletes both when it runs. A change that is never undone keeps its files.
+
+**Root cause.** The checkpoint is the undo, and the undo may be run at any later time, so the method cannot know when
+the files are no longer needed.
+
+**Fix.** None yet. `docs/16-network-verification.md` ("Undoing an IOS change") tells users the files stay until the
+undo runs, and how to delete them by hand with `net.ios.command` once the undo is no longer wanted.
+
+**Lesson.** An undo that keeps state on a device owes a way to list and prune that state, or a limit on how much of it
+builds up.

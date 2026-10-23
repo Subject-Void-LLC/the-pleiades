@@ -605,6 +605,16 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 600. The insecure_telnet advice said to set it "on the task", and an agent wrote it as a task key the builder refused (a repeat of 270 and 488) (fixed before push)
 601. The GNS3 fixture found console ports free and then let Docker bind them, and another test took one in between (a sibling of 123) (fixed before push)
 602. The GNS3 2.2.61 container's API did not answer within two minutes once, with the machine idle, and answers in about 5 s every other time (open)
+603. net.ios.config's first fallback recorded its undo lines as a Go []string, which the method's own reader refuses (a sibling of 529 and 534) (fixed before push)
+604. Withholding net.ios.config's fallback undo made validate refuse rollback_on_failure on every net.ios.config task, and the docs said the in-run undo would replay the withheld lines (a repeat of 228 and 571) (fixed before push)
+605. A container_host with no host declared SSH and a network address, so validate passed wait.port on it and the run asked for a credential (a sibling of 316 and 345) (fixed)
+606. IOS scrolled a command longer than 80 columns sideways in its echo, so the echo was not stripped and stayed in the output (a sibling of 596) (fixed)
+607. http.wait's not-ready test closed a listener and reused its port, and the released-port guard refused it (a repeat of 123, 177, 183 and 478) (fixed before push)
+608. VarsRule refused a task with its own when:, which the run may skip (a repeat of 557) (fixed before push)
+609. net.ios.config, net.cli.config and net.netconf.config applied lines holding a masked placeholder, and net.ios.config's new undo_lines would hand an author such lines (a repeat of 580) (fixed)
+610. pkg/iosparse's ShowInterfaces keeps genieparser's failure on an "Encapsulation X, medium is Y" line (open)
+611. pkg/iosparse's ShowVlan joins wrapped lines quadratically on pathological output, bounded only by netcli's read limit (a sibling of 48) (open)
+612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
