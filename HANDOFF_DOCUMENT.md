@@ -6,7 +6,7 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 **2026-10-23. Branch `feat/network-verification-127`, off `main` at `d6ceedb8` (PR #87's merge); tip after this
 session's records commit.** Phases 127a (data capabilities for external Collections) and 127b (network verification:
-FRR, Open vSwitch, a Batfish change gate), in one pull request by the owner's decision. Not pushed; no pull request yet.
+FRR, Open vSwitch, a Batfish change gate), in one pull request by the owner's decision. Pushed; PR #88 open.
 
 ### Built and proven
 
@@ -24,7 +24,7 @@ FRR, Open vSwitch, a Batfish change gate), in one pull request by the owner's de
   `internal/catalog/wait` (65 s) against real containers; fuzz targets in `8a03adc1`.
 - `examples/routing_lab`, built from a clean slate by a fresh agent from the docs and CLI only (24.8 min, 17 gaps in
   its `GAPS.md`), gated by `TestCLI_RoutingLabExampleValidatesOnRealRouters` (10.4 s).
-- Records: FAILURE_PATTERNS 575 to 590, LESSONS 310 to 313. Changelog fragments: `network-verification.added.md`,
+- Records: FAILURE_PATTERNS 575 to 591, LESSONS 310 to 313. Changelog fragments: `network-verification.added.md`,
   `import-containerlab.added.md`, `data-capabilities.added.md`, `undo-kept-after-a-confirmed-change.fixed.md`,
   `container-memory-limit.added.md`. Roadmap (`implementation.py`): 127a 10 of 19, 127b 15 of 24; both still list the
   Pattern Entry, Fuzz/Stress, Adversarial, Schema/Injection, Release Gate and Commit Message gates open, and 127b the
@@ -59,7 +59,7 @@ minutes (the open 470/471 class) and passed alone. bsd-check's disk was cleared 
 
 ### Next
 
-1. `make pr-check` (the seventh) with `PR_CHECK_PARALLELISM=1` on this machine, under the memory cap.
+1. The seventh `make pr-check` passed and PR #88 was opened; its CI failed only `TestCheck_RealRoutersAgainstRealBatfish` (591). After the fix, `make pr-check` with `PR_CHECK_PARALLELISM=1` on this machine, under the memory cap.
 2. Push and open the pull request. No AI attribution anywhere: not in commits, the PR body or its footer.
 3. Watch CI until green; the owner merges.
 4. Then the release tooling PR, then the GNS3 and CML2 importers.

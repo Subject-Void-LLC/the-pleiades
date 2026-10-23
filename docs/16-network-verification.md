@@ -163,9 +163,10 @@ It fails closed in five cases:
 - Batfish reports a convert error, so part of a device is missing from the model, and the task did not accept it by its text;
 - a line or feature the model does not use was not accepted by name.
 
-FRR in a container writes `domainname localdomain` into its running configuration, which Batfish does not
-recognise, so a gate over such routers accepts it: `{text: domainname localdomain, reason: "the DNS search domain,
-not routing"}`.
+FRR in a container writes `domainname localdomain` into its running configuration when the container's resolver
+has that search domain (Docker Desktop gives it one; a plain Linux Docker daemon may not). Batfish does not recognise
+the line, so a gate over such routers accepts it: `{text: domainname localdomain, reason: "the DNS search domain,
+not routing"}`. Accepting a line a configuration does not hold changes nothing.
 
 The model's result reports three things separately:
 

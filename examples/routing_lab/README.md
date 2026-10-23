@@ -148,8 +148,9 @@ routes_match true r3's 8 routes match the model
 ```
 
 Each router's live routes are in the report under `tasks[0..2].stats.routes`. FRR adds
-`domainname localdomain` to a container's running configuration, which Batfish does not recognise;
-every gate accepts that one line by name with a reason, and the report lists it under `not_modelled`.
+`domainname localdomain` to a container's running configuration when the container's resolver has that
+search domain (Docker Desktop's does), and Batfish does not recognise it; every gate accepts that one line
+by name with a reason, and the report lists it under `not_modelled` wherever it appears.
 
 The candidates were written from r3's running configuration as read here
 (`configs/r3.running.frr.conf`, identical to the report's `tasks[2].stats.running_config`):

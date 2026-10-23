@@ -138,7 +138,10 @@ func TestCheck_RealRoutersAgainstRealBatfish(t *testing.T) {
 	if rc.stats["sha256"].(map[string]any)["r2"] != hex.EncodeToString(sum[:]) {
 		t.Errorf("sha256 = %v", rc.stats["sha256"])
 	}
-	if nm := rc.stats["not_modelled"].([]string); len(nm) == 0 || !strings.Contains(strings.Join(nm, " "), "domainname") {
+	// The routers' own OSPF key, not "domainname localdomain", which FRR
+	// writes only when the Docker host gives the container a search domain
+	// (this machine's Docker Desktop does; GitHub's runners do not).
+	if nm := rc.stats["not_modelled"].([]string); len(nm) == 0 || !strings.Contains(strings.Join(nm, " "), "ip ospf authentication-key") {
 		t.Errorf("not_modelled = %v", nm)
 	}
 
@@ -161,7 +164,7 @@ func TestCheck_RealRoutersAgainstRealBatfish(t *testing.T) {
 	if _, err = run(map[string]any{
 		"devices":    devices(config("r2")),
 		"assertions": []any{map[string]any{"ospf_established": true}},
-	}); err == nil || !strings.Contains(err.Error(), "domainname localdomain") {
+	}); err == nil || !strings.Contains(err.Error(), "no bgp ebgp-requires-policy") {
 		t.Errorf("an unaccepted unrecognised line: err %v", err)
 	}
 }

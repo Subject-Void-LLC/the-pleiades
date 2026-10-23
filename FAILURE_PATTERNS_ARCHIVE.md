@@ -14686,3 +14686,24 @@ three times.
 
 **Lesson.** A fix that moves work onto a goroutine moves its ordering too. Say what must have happened before the
 goroutine starts, and test the empty case against the real server.
+
+## 591. A Batfish live test required "domainname localdomain", which FRR writes only where the Docker host gives a search domain (a repeat of 426) (fixed)
+
+**Symptom.** 2026-10-23, PR #88's `containers (5)` (run 39932132697, job 120342742453):
+`TestCheck_RealRoutersAgainstRealBatfish` failed `check_live_test.go:142` (`not_modelled` named no `domainname`) and
+`:165` (the refusal of an unaccepted line did not name `domainname localdomain`), and failed again re-run alone. Its
+other assertions held. A local `make pr-check` at the same commit had passed it.
+
+**Root cause.** FRR copies the container's DNS search domain into its running configuration as `domainname`. Docker
+Desktop on this machine gives the container `localdomain`; the runners' Docker Engine gives none, so the routers there
+had no such line, and the test asserted one.
+
+**Why 426's lesson did not prevent it.** 426 named a fixture's login stack as part of its environment; the same holds
+for its resolver, and nothing tied a test's expected device output to what the host contributes to it.
+
+**Fix.** The test requires the lines the routers' own configuration always holds (`ip ospf authentication-key` in
+`not_modelled`, `no bgp ebgp-requires-policy` in the refusal). The accept entries for `domainname localdomain` stay in
+the test, the network gate and the routing lab, since accepting a line a configuration lacks changes nothing (the
+gate passed in CI with it). docs/16 and the routing lab's README say when FRR writes the line.
+
+**Lesson.** A live test asserts what the device's own configuration put there, never a line the container host adds.
