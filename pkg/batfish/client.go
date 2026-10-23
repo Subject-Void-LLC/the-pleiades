@@ -29,7 +29,7 @@ import (
 
 // The headers every request carries.
 const (
-	apiKeyHeader  = "X-Batfish-Apikey"
+	apiKeyHeader  = "X-Batfish-Apikey" // #nosec G101 -- a header's name, not a credential
 	versionHeader = "X-Batfish-Version"
 	// defaultAPIKey is the key pybatfish sends when none is set; Batfish
 	// does not check it.
