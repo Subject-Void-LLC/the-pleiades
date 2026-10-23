@@ -277,10 +277,7 @@ func syncFstab(ctx context.Context, conn *remoteexec.Conn, fstabPath, mountpoint
 	// leaves fstab as it was.
 	put, err := remotefile.Put(ctx, conn, fstabPath, []byte(newContent), info, remotefile.Attributes{})
 	if err != nil {
-		if put.Touched {
-			return false, fmt.Errorf("%w: fstab may already hold the new text, so fix the cause and re-run rather than expecting it untouched", err)
-		}
-		return false, err
+		return false, put.Failure(err, "fstab may already hold the new text, so fix the cause and re-run rather than expecting it untouched")
 	}
 	return true, nil
 }

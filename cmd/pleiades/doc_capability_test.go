@@ -14,6 +14,8 @@ import (
 // with how a device comes to hold it, and a method requiring it points
 // there.
 func TestDoc_RendersAProgramsCapability(t *testing.T) {
+	// Restored, or every later onboard in this binary runs doctest's probe.
+	t.Cleanup(capability.SnapshotForTest())
 	def := capability.DataDefinition{
 		Name: "doctest.widget", Provider: "doctest", Doc: "A widget this account may turn.",
 		Requires:   []capability.Name{capability.NameSSHTransport},

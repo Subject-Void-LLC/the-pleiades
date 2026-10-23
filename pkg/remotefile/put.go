@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -111,9 +112,15 @@ func PredictPut(ctx context.Context, conn *remoteexec.Conn, filePath string, bef
 	if who.root {
 		return nil
 	}
+	dir, err := Stat(ctx, conn, path.Dir(filePath))
+	if err != nil {
+		return fmt.Errorf("put %s: %w", filePath, err)
+	}
+	newGroup := who.newFileGroup(dir)
+	canGive := func(group string) bool { return group == newGroup || slices.Contains(who.groups, group) }
 	target := putTarget(want, before)
 	if before.Kind == KindFile && sameAttributes(target, before) {
-		if target.Owner == who.login && slices.Contains(who.groups, target.Group) {
+		if target.Owner == who.login && canGive(target.Group) {
 			return nil
 		}
 		if !who.fileWritable {
@@ -124,7 +131,7 @@ func PredictPut(ctx context.Context, conn *remoteexec.Conn, filePath string, bef
 	switch {
 	case target.Owner != "" && target.Owner != who.login:
 		return &AttributeRefusal{Path: filePath, Login: who.login, Field: "owner", Value: target.Owner}
-	case target.Group != "" && !slices.Contains(who.groups, target.Group):
+	case target.Group != "" && !canGive(target.Group):
 		return &AttributeRefusal{Path: filePath, Login: who.login, Field: "group", Value: target.Group}
 	}
 	return nil
@@ -173,6 +180,26 @@ type identity struct {
 	root         bool
 	dirWritable  bool
 	fileWritable bool
+	// kernel is uname -s, and primaryGroup the login's own group: together
+	// with the directory they decide the group a new file starts with.
+	kernel       string
+	primaryGroup string
+}
+
+// newFileGroup is the group a file this login makes in dir starts with,
+// which Put's file beside the target keeps without a chgrp: dir's own on
+// FreeBSD and macOS, and on Linux dir's own when dir is setgid, else the
+// login's. On bsd-check a mode change in a wheel directory was refused
+// here as a group the login could not give, while Put wrote it
+// (2026-10-23).
+func (w identity) newFileGroup(dir Info) string {
+	if w.kernel != "Linux" {
+		return dir.Group
+	}
+	if m, err := strconv.ParseUint(NormalizeMode(dir.Mode), 8, 32); err == nil && m&0o2000 != 0 {
+		return dir.Group
+	}
+	return w.primaryGroup
 }
 
 // whoAmI reads the session's login, its groups, whether it is root, and
@@ -182,13 +209,14 @@ func whoAmI(ctx context.Context, conn *remoteexec.Conn, filePath string) (identi
 	file := remoteexec.QuoteArg(filePath)
 	cmd := "id -u; id -un; id -Gn; " +
 		"if [ -w " + dir + " ]; then echo yes; else echo no; fi; " +
-		"if [ -w " + file + " ]; then echo yes; else echo no; fi"
+		"if [ -w " + file + " ]; then echo yes; else echo no; fi; " +
+		"uname -s; id -gn"
 	res, err := conn.Run(ctx, cmd)
 	if err != nil {
 		return identity{}, fmt.Errorf("reading this login: %w", err)
 	}
 	lines := strings.Split(strings.TrimRight(res.Stdout, "\n"), "\n")
-	if res.ExitCode != 0 || len(lines) != 5 {
+	if res.ExitCode != 0 || len(lines) != 7 {
 		return identity{}, fmt.Errorf("reading this login: exited %d: %s", res.ExitCode, firstLine(res.Stderr))
 	}
 	return identity{
@@ -197,5 +225,7 @@ func whoAmI(ctx context.Context, conn *remoteexec.Conn, filePath string) (identi
 		groups:       strings.Fields(lines[2]),
 		dirWritable:  lines[3] == "yes",
 		fileWritable: lines[4] == "yes",
+		kernel:       strings.TrimSpace(lines[5]),
+		primaryGroup: strings.TrimSpace(lines[6]),
 	}, nil
 }

@@ -142,27 +142,36 @@ func TestPut_AnOwnerItCannotGiveIsRefusedUntouched(t *testing.T) {
 
 // TestPredictPut_AgreesWithPutWhenItWrites: a check answers nil exactly
 // where a real write succeeds: a new file, a mode change on a file this
-// login owns, and keeping a file it owns.
+// login owns, and keeping a file it owns. Each case then runs Put on its
+// own fixture, in a directory whose group (wheel on FreeBSD) a new file
+// takes there.
 func TestPredictPut_AgreesWithPutWhenItWrites(t *testing.T) {
 	conn := connect(t)
-	dir, p := replaceFixture(t, "old\n", 0o640)
-	before, err := remotefile.Stat(context.Background(), conn, p)
-	if err != nil {
-		t.Fatal(err)
-	}
 	cases := []struct {
-		name   string
-		path   string
-		before remotefile.Info
-		want   remotefile.Attributes
+		name     string
+		existing bool
+		want     remotefile.Attributes
 	}{
-		{"a new file", filepath.Join(dir, "new"), remotefile.Info{Kind: remotefile.KindAbsent}, remotefile.Attributes{Mode: "0600"}},
-		{"a mode change", p, before, remotefile.Attributes{Mode: "0600"}},
-		{"keeping the file", p, before, remotefile.Attributes{}},
+		{"a new file", false, remotefile.Attributes{Mode: "0600"}},
+		{"a mode change", true, remotefile.Attributes{Mode: "0600"}},
+		{"keeping the file", true, remotefile.Attributes{}},
 	}
 	for _, c := range cases {
-		if err := remotefile.PredictPut(context.Background(), conn, c.path, c.before, c.want); err != nil {
+		dir, p := replaceFixture(t, "old\n", 0o640)
+		before := remotefile.Info{Kind: remotefile.KindAbsent}
+		if c.existing {
+			var err error
+			if before, err = remotefile.Stat(context.Background(), conn, p); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			p = filepath.Join(dir, "new")
+		}
+		if err := remotefile.PredictPut(context.Background(), conn, p, before, c.want); err != nil {
 			t.Errorf("%s: PredictPut = %v", c.name, err)
+		}
+		if _, err := remotefile.Put(context.Background(), conn, p, []byte("new\n"), before, c.want); err != nil {
+			t.Errorf("%s: Put = %v", c.name, err)
 		}
 	}
 }

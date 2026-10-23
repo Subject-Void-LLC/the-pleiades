@@ -142,12 +142,13 @@ func StartNetLab(tb testing.TB, routers, switches []string, links []NetLabLink) 
 	}
 	lab := &NetLab{Nodes: map[string]*NetLabNode{}, Links: links, PrivateKeyPEM: pem.EncodeToMemory(block)}
 
-	// Each network is named so the management network sorts first: Docker
-	// Desktop forwards a published port through the container's network
-	// whose name sorts first, whatever its gateway priority or network mode
-	// (measured 2026-10-22). With random names, half the labs reached a node
-	// over a link, so taking that link down cut the test's own SSH session,
-	// and an internal link's address refused it.
+	// A node starts on the management network alone and its links are
+	// connected once it runs: Docker Desktop forwards a published port
+	// through a network of its own choosing among those the container
+	// starts on, whatever their gateway priority, network mode or names
+	// (measured 2026-10-23: 2 of 10 starts went over a link that sorted
+	// last). A test that took that link down cut its own SSH session.
+	// Started on one network, 40 of 40 kept management.
 	run := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 	mgmt := netLabNetwork(tb, "netlab-"+run+"-0-mgmt", nil)
 	linkNets := map[string]*testcontainers.DockerNetwork{}
@@ -163,32 +164,19 @@ func StartNetLab(tb testing.TB, routers, switches []string, links []NetLabLink) 
 
 	authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
 	start := func(name, image, ready string, privileged bool) {
-		networks := []string{mgmt.Name}
-		addrs := map[string]netip.Addr{}
-		for _, l := range links {
-			if a, ok := l.Ends[name]; ok {
-				networks = append(networks, linkNets[l.Name].Name)
-				addrs[linkNets[l.Name].Name] = a
-			}
-		}
 		c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Image:        image,
 				Name:         fmt.Sprintf("netlab-%s-%d", name, time.Now().UnixNano()),
-				Networks:     networks,
+				Networks:     []string{mgmt.Name},
 				ExposedPorts: []string{"22/tcp"},
 				Env:          map[string]string{"NETOPS_AUTHORIZED_KEY": authorized},
 				HostConfigModifier: func(hc *container.HostConfig) {
 					hc.Privileged = privileged
 				},
 				EndpointSettingsModifier: func(eps map[string]*mobynetwork.EndpointSettings) {
-					for netName, ep := range eps {
-						if a, ok := addrs[netName]; ok {
-							ep.IPAMConfig = &mobynetwork.EndpointIPAMConfig{IPv4Address: a}
-						}
-						if netName == mgmt.Name {
-							ep.GwPriority = 100
-						}
+					if ep, ok := eps[mgmt.Name]; ok {
+						ep.GwPriority = 100
 					}
 				},
 				WaitingFor: wait.ForAll(wait.ForLog(ready).WithStartupTimeout(ContainerStartupTimeout), SSHGreeting("22/tcp")),
@@ -202,6 +190,11 @@ func StartNetLab(tb testing.TB, routers, switches []string, links []NetLabLink) 
 			tb.Fatalf("starting %s: %v", name, err)
 		}
 		tb.Cleanup(func() { _ = c.Terminate(context.Background()) })
+		for _, l := range links {
+			if a, ok := l.Ends[name]; ok {
+				connectNetLabLink(tb, linkNets[l.Name].Name, c.GetContainerID(), a)
+			}
+		}
 		host, err := c.Host(ctx)
 		if err != nil {
 			tb.Fatal(err)
@@ -223,9 +216,18 @@ func StartNetLab(tb testing.TB, routers, switches []string, links []NetLabLink) 
 	return lab
 }
 
+// connectNetLabLink connects a running container to a link network at
+// addr, through the docker CLI as buildNetLabImage builds.
+func connectNetLabLink(tb testing.TB, network, id string, addr netip.Addr) {
+	tb.Helper()
+	cmd := exec.Command("docker", "network", "connect", "--ip", addr.String(), network, id) // #nosec G204 -- names this lab created and an address the test fixed
+	if out, err := cmd.CombinedOutput(); err != nil {
+		tb.Fatalf("connecting %s to %s: %v\n%s", id, network, err, out)
+	}
+}
+
 // netLabNetwork creates a bridge network named name, removed when tb
-// ends. network.New names every network with a fresh UUID, and the order
-// of the names is what decides the path a published port takes.
+// ends. The run's prefix keeps two labs' networks apart.
 func netLabNetwork(tb testing.TB, name string, ipam *mobynetwork.IPAM) *testcontainers.DockerNetwork {
 	tb.Helper()
 	//nolint:staticcheck // NetworkRequest is the one way to choose a network's name

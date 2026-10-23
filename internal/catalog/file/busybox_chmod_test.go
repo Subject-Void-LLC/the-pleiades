@@ -57,6 +57,20 @@ var busyboxApplet = chmodApplet{
 func chmodTarget(t *testing.T, applet chmodApplet) dirServer {
 	t.Helper()
 	ctx := context.Background()
+	server, container := startFileSSHD(t)
+	applet.install(t, container)
+	if code, _, err := container.Exec(ctx, []string{"ln", "-sf", applet.path, "/usr/local/bin/chmod"}); err != nil || code != 0 {
+		t.Fatalf("putting %s's chmod first: exit %d, %v", applet.name, code, err)
+	}
+	return server
+}
+
+// startFileSSHD starts the Alpine sshd container, whose login
+// (busyboxSSHUser, uid 1000) is not root, and returns the server and the
+// container, whose Exec runs as root.
+func startFileSSHD(t *testing.T) (dirServer, testcontainers.Container) {
+	t.Helper()
+	ctx := context.Background()
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        testsupport.SSHDImage,
@@ -78,10 +92,6 @@ func chmodTarget(t *testing.T, applet chmodApplet) dirServer {
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
 
-	applet.install(t, container)
-	if code, _, err := container.Exec(ctx, []string{"ln", "-sf", applet.path, "/usr/local/bin/chmod"}); err != nil || code != 0 {
-		t.Fatalf("putting %s's chmod first: exit %d, %v", applet.name, code, err)
-	}
 	host, err := container.Host(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +100,7 @@ func chmodTarget(t *testing.T, applet chmodApplet) dirServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return dirServer{host: host, port: int(port.Num()), username: busyboxSSHUser, password: busyboxSSHPassword}
+	return dirServer{host: host, port: int(port.Num()), username: busyboxSSHUser, password: busyboxSSHPassword}, container
 }
 
 // runOn runs command on the target over its own SSH connection and

@@ -655,11 +655,14 @@ func TestMount_ConnectionDiesRenamingFstab(t *testing.T) {
 
 func TestMount_ConnectionDiesInAfterQuery(t *testing.T) {
 	existing := "/dev/stale\t/data\text4\tro\t0\t0\n"
-	h := newHarnessBudgeted(t, mounted, existing, 9)
-	if _, err := fsmod.Mount(context.Background(), h.rc, h.device, h.params("/data", map[string]any{
+	// Twelve sessions reach the findmnt after fstab is written (Put's
+	// write beside, attributes and rename take seven).
+	h := newHarnessBudgeted(t, mounted, existing, 12)
+	_, err := fsmod.Mount(context.Background(), h.rc, h.device, h.params("/data", map[string]any{
 		"src": mounted.source, "fstype": mounted.fstype,
-	})); err == nil {
-		t.Fatal("expected a connection failure re-querying state after the change")
+	}))
+	if err == nil || strings.Contains(err.Error(), "replace ") {
+		t.Fatalf("Mount = %v, want a connection failure re-querying state after the change", err)
 	}
 }
 
@@ -826,9 +829,11 @@ func TestUnmount_ConnectionDiesInSyncFstab(t *testing.T) {
 
 func TestUnmount_ConnectionDiesInAfterQuery(t *testing.T) {
 	existing := mounted.source + "\t/data\t" + mounted.fstype + "\t" + mounted.options + "\t0\t0\n"
-	h := newHarnessBudgeted(t, mounted, existing, 10)
-	if _, err := fsmod.Unmount(context.Background(), h.rc, h.device, h.params("/data", nil)); err == nil {
-		t.Fatal("expected a connection failure re-querying state after the change")
+	// Thirteen sessions reach the findmnt after umount and the fstab write.
+	h := newHarnessBudgeted(t, mounted, existing, 13)
+	_, err := fsmod.Unmount(context.Background(), h.rc, h.device, h.params("/data", nil))
+	if err == nil || strings.Contains(err.Error(), "replace ") {
+		t.Fatalf("Unmount = %v, want a connection failure re-querying state after the change", err)
 	}
 }
 

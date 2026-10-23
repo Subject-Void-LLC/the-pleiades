@@ -2,6 +2,7 @@
 package capability_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -69,6 +70,15 @@ func TestRegisterData_RefusesWhatCouldWeakenTheVocabulary(t *testing.T) {
 		"a property name":            func(d *capability.DataDefinition) { d.Properties[0].Name = "Tenancy-OCID" },
 		"a property twice":           func(d *capability.DataDefinition) { d.Properties[1].Name = "tenancy_ocid" },
 		"a control character in doc": func(d *capability.DataDefinition) { d.Doc = "reaches\x1b[2Jthe API" },
+		"too many requirements": func(d *capability.DataDefinition) {
+			d.Requires = make([]capability.Name, capability.MaxDataRequires+1)
+		},
+		"too many properties": func(d *capability.DataDefinition) {
+			for i := 0; i <= capability.MaxDataProperties; i++ {
+				d.Properties = append(d.Properties, capability.DataProperty{Name: fmt.Sprintf("p%d", i), Type: "string"})
+			}
+		},
+		"a control character in a property's description": func(d *capability.DataDefinition) { d.Properties[0].Description = "the\x07OCID" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -97,6 +107,10 @@ func TestValidateGrant_HoldsAGrantToItsDefinition(t *testing.T) {
 		"a wrong type":                {"tenancy_ocid": 7, "region": "y"},
 		"a fractional int":            {"tenancy_ocid": "x", "region": "y", "max_ocpus": 1.5},
 		"a control character":         {"tenancy_ocid": "x\n", "region": "y"},
+		"a bool that is not":          {"tenancy_ocid": "x", "region": "y", "free_tier": "yes"},
+		"an int that is text":         {"tenancy_ocid": "x", "region": "y", "max_ocpus": "two"},
+		"a string too long":           {"tenancy_ocid": strings.Repeat("x", capability.MaxDataPropertyLength+1), "region": "y"},
+		"a string not UTF-8":          {"tenancy_ocid": "x\xff", "region": "y"},
 	} {
 		if err := capability.ValidateGrant(def, props); err == nil {
 			t.Errorf("ValidateGrant accepted %s", name)
@@ -114,5 +128,30 @@ func TestIsDataName_NeverMatchesACompiledName(t *testing.T) {
 	}
 	if !capability.IsDataName("frr.vtysh") || capability.DataNamespace("frr.vtysh") != "frr" {
 		t.Error("a data name was not recognised")
+	}
+}
+
+// TestValidateGrantShape_HoldsAGrantWithNoDefinition: where no definition
+// is held, a grant's properties are still bounded snake case names
+// holding a plain string, a bool or a whole number.
+func TestValidateGrantShape_HoldsAGrantWithNoDefinition(t *testing.T) {
+	ok := map[string]any{"region": "us-ashburn-1", "free_tier": true, "max_ocpus": 2, "cores": int64(4), "read_back": float64(8)}
+	if err := capability.ValidateGrantShape(ok); err != nil {
+		t.Fatalf("a well-formed grant was refused: %v", err)
+	}
+	many := map[string]any{}
+	for i := 0; i <= capability.MaxDataProperties; i++ {
+		many[fmt.Sprintf("p%d", i)] = "x"
+	}
+	for name, props := range map[string]map[string]any{
+		"too many properties": many,
+		"a name not snake":    {"Region": "x"},
+		"a list":              {"zones": []any{"a"}},
+		"a fractional number": {"max_ocpus": 1.5},
+		"a control character": {"region": "x\x1b"},
+	} {
+		if err := capability.ValidateGrantShape(props); err == nil {
+			t.Errorf("ValidateGrantShape accepted %s", name)
+		}
 	}
 }

@@ -326,10 +326,7 @@ func blockRequirePlainFile(ctx context.Context, conn *remoteexec.Conn, path, fqc
 // owner.
 func blockWrite(ctx context.Context, conn *remoteexec.Conn, path, content string, before remotefile.Info) error {
 	put, err := remotefile.Put(ctx, conn, path, []byte(content), before, remotefile.Attributes{})
-	if err != nil && put.Touched {
-		return fmt.Errorf("%w: the file may already hold the new block", err)
-	}
-	return err
+	return put.Failure(err, "the file may already hold the new block")
 }
 
 // blockRecordStats writes the stats both methods return.

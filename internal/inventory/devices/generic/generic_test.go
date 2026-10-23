@@ -195,6 +195,26 @@ func TestSSH_ReadsWhatOnboardingLearned(t *testing.T) {
 	}
 }
 
+// TestSSH_ReadsTheRoutingToolsOnboardingFound: FRR's and Open vSwitch's
+// versions come from the probe's facts, and each capability is granted
+// only by that discovery.
+func TestSSH_ReadsTheRoutingToolsOnboardingFound(t *testing.T) {
+	d := inventory.Discovery{Protocol: "ssh", Capabilities: []capability.Name{capability.NameFRR, capability.NameOpenVSwitch},
+		Facts: map[string]any{generic.FactFRRVersion: "10.1.1", generic.FactOVSVersion: "3.3.0"}}
+	item, err := buildWith(t, generic.TypeSSH, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: d.Property()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.HasCapability(capability.NameFRR) || !item.HasCapability(capability.NameOpenVSwitch) {
+		t.Fatalf("capabilities = %v, want FRR and Open vSwitch granted", item.Capabilities())
+	}
+	frr := item.(capability.FRRCapable)
+	ovs := item.(capability.OpenVSwitchCapable)
+	if frr.FRRVersion() != "10.1.1" || ovs.OVSVersion() != "3.3.0" {
+		t.Errorf("FRR %q, Open vSwitch %q", frr.FRRVersion(), ovs.OVSVersion())
+	}
+}
+
 // TestAccessors reads each type's address and settings back from its
 // record, with their defaults.
 func TestAccessors(t *testing.T) {

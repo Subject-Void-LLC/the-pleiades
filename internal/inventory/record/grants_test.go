@@ -149,3 +149,30 @@ func TestRecordGrant_AnAssertionFollowsNoRepointedDevice(t *testing.T) {
 		t.Errorf("the repointed device still holds the assertion: %v", caps)
 	}
 }
+
+// TestBase_AGrantLeavesTheOthersAndAMalformedOneIsRefused: granting or
+// revoking one capability keeps every other grant, and a granted property
+// RecordGrant did not write is neither added to nor revoked from.
+func TestBase_AGrantLeavesTheOthersAndAMalformedOneIsRefused(t *testing.T) {
+	other := widgetGrant(nil)
+	other.Capability = "acme.other"
+	b := record.NewBase(recordWith(other), nil)
+	if err := b.RecordGrant(widgetGrant(map[string]any{"endpoint": "a"})); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := b.RevokeGrant("acme.widget_api"); err != nil || !removed {
+		t.Fatalf("RevokeGrant = %v, %v", removed, err)
+	}
+	grants, _, err := inventory.GrantsFrom(b.Properties())
+	if err != nil || len(grants) != 1 || grants[0].Capability != "acme.other" {
+		t.Fatalf("grants = %+v, %v; want acme.other kept through a grant and a revoke", grants, err)
+	}
+
+	bad := record.NewBase(record.Record{Name: "w1", Type: grantTypeName, Properties: map[string]inventory.PropertyValue{inventory.GrantedProperty: "acme.widget_api"}}, nil)
+	if err := bad.RecordGrant(widgetGrant(nil)); err == nil {
+		t.Error("RecordGrant over a malformed granted property succeeded")
+	}
+	if _, err := bad.RevokeGrant("acme.widget_api"); err == nil {
+		t.Error("RevokeGrant over a malformed granted property succeeded")
+	}
+}

@@ -28,6 +28,17 @@ type Replaced struct {
 	Touched bool
 }
 
+// Failure is err as a caller of Put or Replace reports it: with note
+// added when Touched says the new bytes may already be in the file, so
+// the person reading it knows the file is not as it was. A nil err stays
+// nil.
+func (r Replaced) Failure(err error, note string) error {
+	if err == nil || !r.Touched {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, note)
+}
+
 // Replace writes content over the regular file at filePath and leaves the
 // file what it was: the mode, owner and group before (as Stat found them)
 // records.

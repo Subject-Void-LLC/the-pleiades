@@ -305,10 +305,8 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		// login may not give) leaves the destination as it was.
 		put, err := remotefile.Put(ctx, conn, req.dest, []byte(req.content), before, effective)
 		if err != nil {
-			if put.Touched {
-				return collection.Result{}, fmt.Errorf("%s: %w: the content was written before this failed", fqcn, err)
-			}
-			return collection.Result{}, copyPutError(fqcn, req, err)
+			// A refusal copyPutError explains is never Touched.
+			return collection.Result{}, copyPutError(fqcn, req, put.Failure(err, "the content was written before this failed"))
 		}
 		if put.InPlace {
 			if err := sdk.RecordWarnings(rc, []string{copyInPlaceWarning(req.dest, before)}); err != nil {

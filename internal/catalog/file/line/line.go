@@ -276,10 +276,7 @@ func lineLoad(ctx context.Context, conn *remoteexec.Conn, path string) (lineFile
 func lineWrite(ctx context.Context, conn *remoteexec.Conn, path, content string, before remotefile.Info) (remotefile.Info, string, error) {
 	put, err := remotefile.Put(ctx, conn, path, []byte(content), before, remotefile.Attributes{})
 	if err != nil {
-		if put.Touched {
-			return remotefile.Info{}, "", fmt.Errorf("%w: the file may already hold the new text, so fix the cause and re-run rather than expecting it untouched", err)
-		}
-		return remotefile.Info{}, "", err
+		return remotefile.Info{}, "", put.Failure(err, "the file may already hold the new text, so fix the cause and re-run rather than expecting it untouched")
 	}
 
 	after, err := remotefile.Stat(ctx, conn, path)
