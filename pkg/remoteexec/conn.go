@@ -146,6 +146,7 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	session.Stdout = stdout
 	session.Stderr = stderr
 
+	startCopy := func() {}
 	if stdin != nil {
 		// Copied through an explicit pipe rather than assigned to
 		// session.Stdin, and the difference is not stylistic. With
@@ -168,16 +169,24 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 			c.taint()
 			return Result{}, fmt.Errorf("remoteexec: open stdin on %s: %w", c.addr, pipeErr)
 		}
-		copying.Add(1)
-		go func() {
-			defer copying.Done()
-			// Both errors are deliberately dropped. A short write means
-			// the remote stopped reading, and closing an already-closed
-			// pipe is the ordinary end of that. Neither says anything
-			// about whether the command succeeded.
-			_, _ = io.Copy(pipe, stdin)
-			_ = pipe.Close()
-		}()
+		// The copy starts once the command has (Start below): an end of
+		// input sent before the exec request is never delivered to the
+		// command by OpenSSH's sshd, so an empty stdin, whose close is
+		// immediate, left "cat > file" waiting forever whenever the close
+		// won the race (seen under -race on net.frr.config's backup of an
+		// empty frr.conf, 2026-10-23).
+		startCopy = func() {
+			copying.Add(1)
+			go func() {
+				defer copying.Done()
+				// Both errors are deliberately dropped. A short write means
+				// the remote stopped reading, and closing an already-closed
+				// pipe is the ordinary end of that. Neither says anything
+				// about whether the command succeeded.
+				_, _ = io.Copy(pipe, stdin)
+				_ = pipe.Close()
+			}()
+		}
 	}
 
 	// ssh.Session.Run takes no context, so cancellation is enforced by
@@ -208,7 +217,11 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		}
 	}()
 
-	runErr := session.Run(command)
+	runErr := session.Start(command)
+	if runErr == nil {
+		startCopy()
+		runErr = session.Wait()
+	}
 
 	// A command cut off for writing past its bound has an unknown outcome on
 	// the remote side, like any other cut-off command, and its output was

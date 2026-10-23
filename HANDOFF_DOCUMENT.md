@@ -24,7 +24,7 @@ FRR, Open vSwitch, a Batfish change gate), in one pull request by the owner's de
   `internal/catalog/wait` (65 s) against real containers; fuzz targets in `8a03adc1`.
 - `examples/routing_lab`, built from a clean slate by a fresh agent from the docs and CLI only (24.8 min, 17 gaps in
   its `GAPS.md`), gated by `TestCLI_RoutingLabExampleValidatesOnRealRouters` (10.4 s).
-- Records: FAILURE_PATTERNS 575 to 589, LESSONS 310 to 313. Changelog fragments: `network-verification.added.md`,
+- Records: FAILURE_PATTERNS 575 to 590, LESSONS 310 to 313. Changelog fragments: `network-verification.added.md`,
   `import-containerlab.added.md`, `data-capabilities.added.md`, `undo-kept-after-a-confirmed-change.fixed.md`,
   `container-memory-limit.added.md`. Roadmap (`implementation.py`): 127a 10 of 19, 127b 15 of 24; both still list the
   Pattern Entry, Fuzz/Stress, Adversarial, Schema/Injection, Release Gate and Commit Message gates open, and 127b the
@@ -39,6 +39,10 @@ None. The fourth `make pr-check` (on `5302fb6f`) failed; everything it found is 
   bsd-check);
 - the doc test leaked a registered capability into later onboards (589, a repeat of 188);
 - twelve coverage floors (tests added; `Replaced.Failure` replaces four copies of one branch) and six durations.
+The fifth failed on Windows only (a read-only directory is writable there; the grant save failure now comes from a
+repository double, `2bd1d6a0`). The sixth hung `internal/catalog/net/frr` under `-race`: an empty stdin's end reached
+sshd before the exec request (590, a regression from 149's fix), fixed in `pkg/remoteexec` with an OpenSSH test.
+Follow-up from 590: a command a cancelled context kills is reported as exit 143, not as the cancellation.
 `cmd/controller`'s `TestControllerServesWithinItsWindowAndStopsPastIt` failed once on a NATS port refusing for two
 minutes (the open 470/471 class) and passed alone. bsd-check's disk was cleared through the lab runbook (3 to 8 GB).
 
@@ -55,7 +59,7 @@ minutes (the open 470/471 class) and passed alone. bsd-check's disk was cleared 
 
 ### Next
 
-1. `make pr-check` (the fifth) with `PR_CHECK_PARALLELISM=1` on this machine, under the memory cap.
+1. `make pr-check` (the seventh) with `PR_CHECK_PARALLELISM=1` on this machine, under the memory cap.
 2. Push and open the pull request. No AI attribution anywhere: not in commits, the PR body or its footer.
 3. Watch CI until green; the owner merges.
 4. Then the release tooling PR, then the GNS3 and CML2 importers.

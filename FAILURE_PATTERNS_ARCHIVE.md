@@ -14656,3 +14656,33 @@ capability without a snapshot.
 
 **Lesson.** A failure that passes alone has passed without the tests that ran before it. Before calling it contention,
 run it with the tests that preceded it.
+
+## 590. An empty standard input's end could reach sshd before the exec request, so "cat > file" waited forever (a regression from 149's fix) (fixed before push)
+
+**Symptom.** 2026-10-23, the sixth `make pr-check` on feat/network-verification-127: `internal/catalog/net/frr` hit
+the 30 minute package timeout in the full pass and again re-measured alone. Under `-race` the package hung in
+`net.frr.config`'s backup about half the time and never without it. The goroutine dump showed `writePrivate` waiting
+in `remoteexec.Conn.run`; on the router, `cat` had been running for 42 seconds and the `.saved` backup of an empty
+`frr.conf` was 0 bytes.
+
+**Root cause.** `Conn.run` started the goroutine copying standard input before `session.Run` sent the exec request.
+With nothing to copy, the goroutine closed the pipe at once, so the channel's end of input could reach OpenSSH's sshd
+before the exec request, and sshd never delivered it to the command it then started. `cat` waited forever. The race
+detector's slower scheduling made the close win often enough to see. Any `RunWithStdin` with empty input could hang
+the same way; a non-empty one sent its data first, which sshd buffers.
+
+**Why 149's fix did not prevent it.** 149 took the copy away from `x/crypto/ssh` so a remote that stops reading is not
+a failure, and started its goroutine before `Run`. No test sent empty input to a real sshd, and 149's own lesson says
+the in-process server never develops sshd's timing.
+
+**Fix.** `pkg/remoteexec`: the copy starts after `session.Start` returns, then `session.Wait`. Proven by
+`TestSSHContainer_AnEmptyStdinEndsTheCommandsInput` (internal/transport/ssh, real OpenSSH): forty empty inputs to
+`cat > file` over one connection, under `-race`; before the fix run 7 of 40 hung until its 10 second deadline, after
+it all forty pass. `internal/catalog/net/frr` then passed five times in a row under `-race`, and `pkg/remoteexec`
+three times.
+
+**Follow-up.** A command killed by a cancelled context's SIGTERM came back as exit 143, not as the cancellation:
+`run` reports `ctx.Err()` only when `Wait` returns something other than an exit status.
+
+**Lesson.** A fix that moves work onto a goroutine moves its ordering too. Say what must have happened before the
+goroutine starts, and test the empty case against the real server.
