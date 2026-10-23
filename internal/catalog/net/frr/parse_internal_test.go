@@ -1,11 +1,9 @@
 // Tests of what the net.frr methods read from the router's own words:
-// frr-reload's difference, show version, and the secrets a configuration
-// holds.
+// frr-reload's difference and show version.
 package frr
 
 import (
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -51,51 +49,4 @@ func TestParseVersion(t *testing.T) {
 			t.Errorf("%q was read as FRR", bad)
 		}
 	}
-}
-
-// TestMaskSecrets replaces every secret form FRR writes, the same way for
-// equal secrets, and leaves everything else, a key chain's key number
-// included.
-func TestMaskSecrets(t *testing.T) {
-	config := strings.Join([]string{
-		"password zebra",
-		"enable password 8 abcd",
-		"interface eth1",
-		" ip ospf authentication-key s1",
-		" ip ospf message-digest-key 1 md5 s2",
-		" ipv6 ospf6 authentication key-id 1 hash-algo sha256 key s3",
-		"router bgp 65001",
-		" neighbor 10.0.0.2 password zebra",
-		"key chain k",
-		" key 1",
-		"  key-string s4",
-		"router isis 1",
-		" area-password md5 s5",
-		" ip ospf authentication message-digest",
-		"hostname r1",
-	}, "\n")
-	masked := maskSecrets(config)
-	for _, secret := range []string{"zebra", "abcd", "s1", "s2", "s3", "s4", "s5"} {
-		if slices.Contains(strings.Fields(masked), secret) {
-			t.Errorf("%s survived:\n%s", secret, masked)
-		}
-	}
-	for _, kept := range []string{" key 1\n", " ip ospf authentication message-digest\n", "hostname r1", "router bgp 65001", "neighbor 10.0.0.2 password "} {
-		if !strings.Contains(masked, kept) {
-			t.Errorf("%q was lost:\n%s", kept, masked)
-		}
-	}
-	lines := strings.Split(masked, "\n")
-	if a, b := lastWord(lines[0]), lastWord(lines[7]); a != b || !strings.HasPrefix(a, "pleiades-masked-") {
-		t.Errorf("one secret masked as %q and %q", a, b)
-	}
-	if a, b := lastWord(lines[0]), lastWord(lines[3]); a == b {
-		t.Errorf("two secrets masked alike: %q", a)
-	}
-}
-
-// lastWord is a line's last word.
-func lastWord(line string) string {
-	f := strings.Fields(line)
-	return f[len(f)-1]
 }

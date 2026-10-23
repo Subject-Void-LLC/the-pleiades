@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -308,7 +309,7 @@ func wantSaved(running, savedConf string, hasSaved bool) string {
 }
 
 // setLines records frr-reload's difference, each line's secret masked as
-// net.frr.facts masks one, and empty lists rather than nothing when there
+// net.frr.facts masks one (pkg/netcfg), and empty lists rather than nothing when there
 // is none.
 func setLines(rc sdk.RunbookContext, deleted, added []string) error {
 	if err := rc.SetStat("lines_deleted", maskLines(deleted)); err != nil {
@@ -321,7 +322,7 @@ func setLines(rc sdk.RunbookContext, deleted, added []string) error {
 func maskLines(lines []string) []string {
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
-		out = append(out, maskSecrets(l))
+		out = append(out, netcfg.Mask(l))
 	}
 	return out
 }

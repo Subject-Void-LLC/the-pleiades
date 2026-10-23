@@ -73,7 +73,7 @@ var routingCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
-			Description: "Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). A line holding a secret word loses its last word, erring toward masking. It changes nothing.",
+			Description: "Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
 			Params: []collection.Param{
 				{Name: "include_config", Type: "bool", Default: "false", Description: "Also return the running configuration, its secrets replaced."},
 				hostKeyParam,

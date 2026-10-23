@@ -1,21 +1,17 @@
-// Package frr: net.frr.facts, a router's state as data, and the secrets
-// its configuration holds replaced before anything reads it.
+// Package frr: net.frr.facts, a router's state as data, the secrets its
+// configuration holds masked (pkg/netcfg) before anything reads it.
 package frr
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -35,7 +31,7 @@ func init() {
 			SupportsCheck:        true,
 			Doc: collection.Doc{
 				Summary:     "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
-				Description: "Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). A line holding a secret word loses its last word, erring toward masking. It changes nothing.",
+				Description: "Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
 				Params: []collection.Param{
 					{Name: "include_config", Type: "bool", Default: "false", Description: "Also return the running configuration, its secrets replaced."},
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -108,7 +104,7 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		if err != nil {
 			return collection.Result{}, err
 		}
-		stats["running_config"] = maskSecrets(config)
+		stats["running_config"] = netcfg.Mask(config)
 	}
 	for _, k := range []string{"version", "hostname", "interfaces", "routes", "ospf_neighbors", "bgp_summary", "running_config"} {
 		if v, ok := stats[k]; ok {
@@ -137,63 +133,4 @@ func (s *session) daemons(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return strings.Fields(out), nil
-}
-
-// secretWords are the configuration words a secret follows: the secret is
-// the line's last word (password zebra, neighbor 10.0.0.2 password x, ip
-// ospf message-digest-key 1 md5 x, area-password md5 x). A key chain's
-// "key 1" names a key, not a secret, so "key" counts only after the line's
-// first word (ipv6 ospf6 authentication key-id 1 hash-algo sha256 key x).
-var secretWords = []string{"password", "authentication-key", "message-digest-key", "key-string", "area-password", "domain-password", "secret", "key"}
-
-// maskKey keys the placeholders: random, made once per process and never
-// written anywhere, so a placeholder is the same for one secret throughout
-// one command-line run and says nothing about the secret to anyone without
-// the key.
-var maskKey = sync.OnceValue(func() []byte {
-	k := make([]byte, 32)
-	if _, err := rand.Read(k); err != nil {
-		panic(fmt.Sprintf("%s: reading randomness for a mask key: %v", factsFQCN, err))
-	}
-	return k
-})
-
-// maskSecrets replaces every secret in config with its placeholder. It
-// errs toward replacing: a line any secret word appears in loses its last
-// word.
-func maskSecrets(config string) string {
-	lines := strings.Split(config, "\n")
-	for i, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 || !holdsSecret(fields) {
-			continue
-		}
-		last := fields[len(fields)-1]
-		cut := strings.LastIndex(line, last)
-		lines[i] = line[:cut] + placeholder(last)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// holdsSecret reports whether a line's words hold a secret.
-func holdsSecret(fields []string) bool {
-	for i, f := range fields {
-		if f == "key" && i == 0 {
-			continue
-		}
-		if slices.Contains(secretWords, f) {
-			// The secret word itself is never the secret: "key 1" aside, a
-			// line ending in its secret word has its value elsewhere or not
-			// at all.
-			return i < len(fields)-1
-		}
-	}
-	return false
-}
-
-// placeholder is secret's stand-in.
-func placeholder(secret string) string {
-	mac := hmac.New(sha256.New, maskKey())
-	mac.Write([]byte(secret))
-	return "pleiades-masked-" + hex.EncodeToString(mac.Sum(nil))[:16]
 }
