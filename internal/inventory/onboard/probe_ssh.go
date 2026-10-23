@@ -36,6 +36,13 @@ for c in apt-get dpkg dnf rpm systemctl firewall-cmd useradd usermod userdel gro
   if command -v "$c" >/dev/null 2>&1; then printf 'has=%s\n' "$c"; fi
 done
 if [ -d /run/systemd/system ]; then printf 'systemd_running=1\n'; fi
+if command -v vtysh >/dev/null 2>&1; then
+  v=$(vtysh -c 'show version' 2>/dev/null | head -n 1)
+  if [ -n "$v" ]; then printf 'frr=%s\n' "$v"; fi
+fi
+if command -v ovs-vsctl >/dev/null 2>&1 && ovs-vsctl --timeout=5 show >/dev/null 2>&1; then
+  printf 'ovs=%s\n' "$(ovs-vsctl --version 2>/dev/null | head -n 1)"
+fi
 exit 0`
 
 // posixAccountTools are the commands identity.user.* and identity.group.*
@@ -87,7 +94,9 @@ func (sshProber) Probe(ctx context.Context, device inventory.InventoryItem, secr
 // fact behind it: a package manager needs its low-level tool too (dpkg for
 // apt, rpm for dnf), firewalld needs a running systemd, every Linux
 // capability needs the kernel to say Linux, and a FreeBSD or Darwin kernel
-// is granted POSIX file access alone.
+// is granted POSIX file access alone. FRR and Open vSwitch are granted only
+// when their own tool answered as the connecting account (vtysh's "show
+// version", ovs-vsctl's "show"), on a Linux kernel.
 func parseSSHProbe(out string) Probed {
 	lines := strings.Split(out, "\n")
 	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "pleiades-probe=1" })
@@ -111,6 +120,18 @@ func parseSSHProbe(out string) Probed {
 			has[value] = true
 		case "systemd_running":
 			systemdRunning = value == "1"
+		case "frr":
+			// "FRRouting 10.1.1_git (r1) on Linux(...)": the version is the
+			// second word, without a build suffix.
+			if fields := strings.Fields(value); len(fields) > 1 && fields[0] == "FRRouting" {
+				version, _, _ := strings.Cut(fields[1], "_")
+				facts[generic.FactFRRVersion] = factText(version)
+			}
+		case "ovs":
+			// "ovs-vsctl (Open vSwitch) 2.17.9": the version is the last word.
+			if fields := strings.Fields(value); len(fields) > 0 && strings.Contains(value, "Open vSwitch") {
+				facts[generic.FactOVSVersion] = factText(fields[len(fields)-1])
+			}
 		}
 	}
 
@@ -152,6 +173,12 @@ func parseSSHProbe(out string) Probed {
 	}
 	if account {
 		caps = append(caps, capability.NamePosixAccount)
+	}
+	if facts[generic.FactFRRVersion] != nil {
+		caps = append(caps, capability.NameFRR)
+	}
+	if facts[generic.FactOVSVersion] != nil {
+		caps = append(caps, capability.NameOpenVSwitch)
 	}
 	return Probed{Capabilities: caps, Facts: facts}
 }

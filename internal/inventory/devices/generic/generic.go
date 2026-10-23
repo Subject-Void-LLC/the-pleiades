@@ -66,6 +66,10 @@ var rules = map[string]record.DiscoveryRules{
 		capability.NamePodman,
 		capability.NameEngineSocket,
 		capability.NameEngineStdio,
+		// What the probe finds answering as the connecting account: FRR's
+		// vtysh and Open vSwitch's ovs-vsctl.
+		capability.NameFRR,
+		capability.NameOpenVSwitch,
 	}},
 	TypeNetconf: {Grants: []capability.Name{capability.NameNetconf}},
 	TypeHTTP: {
