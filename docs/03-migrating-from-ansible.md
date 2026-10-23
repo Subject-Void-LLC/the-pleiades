@@ -46,7 +46,9 @@ locking is in-process only and does not exclude a second `pleiades run`, see
 runs, through a strict subset of Jinja2 (a path, and a closed set of filters such as
 `default`, `quote`, `to_json`, `urlencode` and `cli_token`), and it may read the run's
 variables (`vars`: `pleiades run --extra-vars`, a launch's extra variables and survey
-answers), earlier registered results (`nodes`), and a result one device wrote
+answers; on the command line, `validate` and `run` both refuse a `vars.<name>` that no
+`--extra-vars` gives unless it is guarded by `| default(...)`, where Ansible would fail at the
+task), earlier registered results (`nodes`), and a result one device wrote
 (`result.<register>`). A target may be chosen from data too, when a `within:` names the
 only devices it may resolve to. There is no statement syntax (`{% %}`), no arithmetic
 and no authored `vars:`, and command text and URLs are held to rules that keep data from

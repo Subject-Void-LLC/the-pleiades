@@ -61,6 +61,21 @@ they go in a file of the lab's own, never your `~/.ssh/known_hosts`: the import 
 `--trust-first-connect` unless `PLEIADES_KNOWN_HOSTS` names one (`export PLEIADES_KNOWN_HOSTS=$PWD/known_hosts`),
 and every later command reads the same variable.
 
+A lab's end hosts (containerlab's `linux` nodes) often run no SSH. `net.trace` traces from one anyway,
+through the engine of the machine the lab runs on, a `container_host` device, as `container.exec` runs a
+command: name the container, and the task's target is the container host.
+
+```yaml
+- name: h1 reaches h2 through r1
+  net.trace:
+    target: dockerhost
+    container: clab-routing-lab-h1
+    dest: 10.3.3.10
+    expect:
+      reached: true
+      includes: [10.1.1.1]
+```
+
 ### GNS3 and Cisco Modeling Labs
 
 A GNS3 project's nodes come from the server's own API, on a 3.x server (which needs a login) or a 2.2
@@ -122,28 +137,48 @@ A wrong enable secret is refused by name, and the secret appears in no result or
 
 ### Undoing an IOS change
 
-`net.ios.config`, `net.cli.config` and a configuring `net.ios.command` record no undo, since an IOS
-device cannot say what a line replaced, so `pleiades rollback` refuses such a run until the change is
-left by name (`--leave`). Read what the change will replace first (`net.ios.command` with a `show`
-command reads only and reports unchanged), then give the task a `rollback:` list written from it: the
-`no` form of a line that added something, the old line for one that replaced something.
+`net.ios.config` copies the running configuration to a checkpoint file on the device before its lines
+(the device's default writable disk or flash, such as `unix:` or `flash:`), and asks the device itself
+what the lines changed (`show archive config differences`). No difference reports unchanged and deletes
+the checkpoint, so running the same lines again changes nothing. A change keeps a second checkpoint of
+the configuration it left, and records its undo as `net.ios.replace` naming the two files and nothing
+else, so no configuration text reaches the journal:
+
+```console
+pleiades rollback <run-id>
+```
+
+returns the device exactly to the first checkpoint through IOS's `configure replace`, then holds the
+device to it and deletes both files. It refuses when the device no longer matches the second checkpoint,
+since `configure replace` would undo a later change too; `net.ios.replace` with `force: true` replaces
+anyway. A block's `rollback_on_failure` undoes the change the same way inside the run. The checkpoint
+files stay on the device until the change is undone; delete them with `net.ios.command`
+(`delete /force unix:pleiades-3f2a.cfg`) once you no longer need the undo.
+
+A device with nowhere to keep a checkpoint, or no `configure replace`, records no undo, and neither
+does `checkpoint: false`. The task warns, and reports under `undo_lines` the configuration lines that
+would undo the change, masked: the `no` form of each added line, and each removed line put back. Copy
+them into the task's `rollback:` list, putting each masked secret back:
 
 ```yaml
   - name: Describe the uplink
     net.ios.config:
+      checkpoint: false
       lines:
         - interface GigabitEthernet0/1
         - description uplink to core
     rollback:
       - name: Put the old description back
         net.ios.config:
+          checkpoint: false
           lines:
             - interface GigabitEthernet0/1
+            - no description uplink to core
             - description spare
 ```
 
-None of these methods has a check mode, so rehearse the change and its rollback on a lab device
-running the same image first.
+A change inside an access list, a banner or a certificate has no such lines. `net.cli.config` and a
+configuring `net.ios.command` record no undo either; give their tasks a `rollback:` list.
 
 ## Running Batfish
 
@@ -168,18 +203,24 @@ tasks:
       ports: ["127.0.0.1:9996:9996"]
       memory: 2g
       memory_swap: 2g
+  - name: Batfish's API answers
+    http.wait:
+      url: http://127.0.0.1:9996/v2/version
+      timeout: 300
+      sleep: 5
 ```
 
 ```console
 pleiades add-host dockerhost --type container_host
 pleiades onboard dockerhost
 pleiades run runbooks/batfish_up.yaml
-until pleiades adhoc batfish http.check url=http://127.0.0.1:9996/v2/version status_code:=200 >/dev/null; do sleep 5; done
 pleiades add-host batfish --type batfish --set api_base=http://127.0.0.1:9996
 ```
 
-Batfish takes a minute or two to answer after it starts; the loop above waits for it. An agent never
-runs this without the person's say-so.
+Batfish takes a minute or two to answer after it starts. `http.wait` waits for it from this machine,
+where its port is published; `pleiades.builtin.wait.port` looks from a device over SSH, and
+`dockerhost`, with no `host`, has no SSH, so validation refuses it there. An agent never runs this
+without the person's say-so.
 
 ## The methods
 
@@ -190,11 +231,46 @@ runs this without the person's say-so.
 | `net.frr.config` | The whole intended configuration, applied through FRR's own `frr-reload.py` | yes | restores the backup it took |
 | `net.frr.interface` | An interface administratively up or down | yes | the state it found |
 | `wait.routes` | Waits until the routing table holds the routes given, through the next hops given, and has stopped changing | no (a wait) | read only |
-| `net.trace` | `tracepath` from a Linux device, failing when the path is not the one expected | yes | read only |
+| `net.trace` | `tracepath` from a Linux device, or with `container` from a container on a `container_host` through its engine, failing when the path is not the one expected | yes | read only |
 | `net.ovs.bridge`, `net.ovs.port` | A bridge and its datapath, a port and its VLAN tag | yes | the state they found |
 | `net.batfish.check` | The candidate held to the model, before any change | yes | read only |
+| `pleiades.builtin.project.write` | Keeps text a run produced, such as a registered `running_config`, as a file in the project | yes | none (the project is under version control) |
 
 `pleiades doc <method>` prints each one's full contract.
+
+### Keeping a running configuration as a candidate file
+
+A candidate is a whole configuration file in the project, and the natural start is what the router
+runs now. `pleiades.builtin.project.write` keeps a registered result as such a file:
+
+```yaml
+# What this does: keeps r3's running configuration as a project file to edit into a candidate.
+# Blast radius: r3 is read only; one file in the project is written.
+# Changes: configs/r3.running.frr.conf in the project.
+# Undo: none; the project is under version control.
+id: keep_r3
+hosts: r3
+tasks:
+  - name: Read r3 as it runs
+    net.frr.facts:
+      include_config: true
+    register: r3
+  - name: Keep it in the project
+    pleiades.builtin.project.write:
+      path: configs/r3.running.frr.conf
+      content: "{{ result.r3.running_config }}"
+```
+
+The write acts on no device, so it runs once whatever the runbook's `hosts:` names. Its path is held
+to the rules every project file is: relative, inside the project, never through a symbolic link and
+never into `.pleiades`. The file is written whole and renamed into place, owner-only (`mode` changes
+that), and the task reports `changed` only when the bytes or the mode differ. It runs on the command
+line, which holds the project; a Walk-tier Runner refuses it.
+
+The configuration it keeps is masked: each secret is a `pleiades-masked-` placeholder, and the task
+warns so. That is fine for editing and for the model, and wrong to apply, so `net.frr.config` refuses a
+candidate holding a placeholder before the router is touched, and so do `net.cli.config` and
+`net.netconf.config`. Put each secret back in the candidate first.
 
 ### Applying a configuration
 
@@ -327,13 +403,21 @@ tasks:
 
 ## Limits
 
-- A run holds a device only while one of its tasks works on it, so nothing stops another run changing a
-  neighbouring router while a change is verified. The verification notices only what it checks; run one
-  change to a network at a time.
+- A run holds a device only while one of its tasks works on it, so nothing stops another run changing the
+  same router, or a neighbouring one, while a change is verified. Sometimes that is the point (a failure
+  injected while a change is verified). The command line notices it and says so, without refusing or
+  waiting: a run that changes devices (not a check) records itself under `.pleiades/runs/active` while it
+  works, warns as it starts when another live run is changing any of the same devices, and warns as it ends
+  naming each other run whose journal records a change to one of its devices while it worked
+  (`pleiades journal show <run-id>` lists them). The warnings are in the text view and under `warnings` in
+  `--json`. A run on other devices is not named, even a neighbour whose change reaches this one's routes,
+  so run one change to a network at a time.
 
 - `src` is read by the command line only. A Walk-tier Runner runs each task against its one
   dispatched device, so a gate that reads several routers' registered facts runs on the command line
   until segmented dispatch is built.
 - Masked placeholders are equal for equal secrets within one command-line run. A Runner reads each
   device separately, so there they compare only within one router.
-- `net.trace` claims Linux only, and needs iputils `tracepath`.
+- `net.trace` claims Linux only, and needs iputils `tracepath` on the device or, with `container`, in the
+  container (and `/bin/sh`). From a container it needs a `container_host` device whose engine onboarding
+  proved, and `pleiades validate` refuses either shape on a device that cannot take it.

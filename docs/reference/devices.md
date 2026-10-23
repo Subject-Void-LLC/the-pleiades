@@ -22,7 +22,7 @@ Every registered inventory device type, its vendor package, and the capabilities
 | `aws_account` | `aws` | `AWSAPICapable` | generated |
 | `catalyst_center` | `catalyst` | `CatalystAPICapable` | generated |
 | `cisco_switch` | `cisco` | `SSHTransportCapable`, `CiscoIOSCapable`, `NetworkCLICapable`, `NetworkAddressableCapable` | generated |
-| `container_host` | `container` | `SSHTransportCapable`, `NetworkAddressableCapable`; discovered: `ContainerEngineCapable`, `DockerCapable`, `PodmanCapable`, `EngineLocalCapable`, `EngineSocketCapable`, `EngineStdioCapable`, `EngineTLSCapable` | generated |
+| `container_host` | `container` | `SSHTransportCapable`, `NetworkAddressableCapable` \*; discovered: `ContainerEngineCapable`, `DockerCapable`, `PodmanCapable`, `EngineLocalCapable`, `EngineSocketCapable`, `EngineStdioCapable`, `EngineTLSCapable` | generated |
 | `console_device` | `console` | `SerialCapable`, `RawPassthroughCapable`, `RFC2217Capable`, `TelnetCapable` \* | generated |
 
 16 device types registered.

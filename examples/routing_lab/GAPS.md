@@ -6,7 +6,7 @@ change that added the example: G1, G2 and G3 (`net.frr.config` checks the run di
 Running Batfish), G5 (`container.run` takes `memory`), G7 (`import-containerlab
 --trust-first-connect` refuses without a lab `PLEIADES_KNOWN_HOSTS`), G9 (`net.frr.facts` returns
 `config_sha256`), G15 (the start page) and parts of G17 (the import's JSON lists capabilities;
-docs/16 names `domainname localdomain` and `service_effecting`). The rest are recorded for later.
+docs/16 names `domainname localdomain` and `service_effecting`). Fixed afterwards, on the branch that added the lab importers: G6 (`http.wait`, and validation refusing an SSH method on a `container_host` with no `host`), G8 (a stopped run reports the tasks it never ran as `not_run`), G10 (`pleiades.builtin.project.write`), G11 (`validate -e`, and a missing variable refused before anything runs), G12 (`rollback --json` gives each problem), G13 (device names in labels), G14 (a run warns about another run on the same devices), G16 (`journal` says a run undid itself) and G17's last bullet (`net.trace` with `container`). The entries below are kept as they were found.
 
 Each entry is something The Pleiades did not do, did wrong, or documented wrong or not at all,
 met while following its own documentation (`docs/01-start-here.md`, `docs/16-network-verification.md`,

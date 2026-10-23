@@ -9257,6 +9257,125 @@
       ]
     }
   },
+  "http.wait": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It sends a GET or a HEAD, which HTTP defines as safe, and changes nothing a later task could undo.",
+      "readOnly": true
+    },
+    "supportsCheck": false,
+    "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
+    "doc": {
+      "summary": "Waits, from the machine pleiades runs on, until a URL answers with the expected status, and optionally body.",
+      "description": "Repeats http.check's request and its tests until they pass: the status is one of status_code, and the body contains body_contains or matches body_matches. A refused connection, a timeout or an answer that does not pass all mean not yet. It runs once with no target device, from the machine pleiades runs on, so it waits for a service published there (a container's port on 127.0.0.1) that wait.port, which looks from a device over SSH, cannot see. Each attempt is bounded by 10 seconds or by what is left of the timeout, and running out of time fails the task naming the last answer, or the last error. What it returns is http.check's, never the body: the last answer's status and final URL, how many attempts were made and how long the wait took. A URL carrying a user name or password is refused, a redirect from https to http is not followed, and certificates are verified unless validate_certs is false.",
+      "params": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true,
+          "description": "The http or https URL to request."
+        },
+        {
+          "name": "status_code",
+          "type": "int or list of int",
+          "default": "200",
+          "description": "The status, or statuses, that pass."
+        },
+        {
+          "name": "body_contains",
+          "type": "string",
+          "description": "Text the body must contain."
+        },
+        {
+          "name": "body_matches",
+          "type": "string",
+          "description": "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."
+        },
+        {
+          "name": "method",
+          "type": "string",
+          "default": "GET",
+          "choices": [
+            "GET",
+            "HEAD"
+          ],
+          "description": "GET, or HEAD for the status alone."
+        },
+        {
+          "name": "max_redirects",
+          "type": "int",
+          "default": "5",
+          "description": "How many redirects to follow, 0 to 10."
+        },
+        {
+          "name": "validate_certs",
+          "type": "bool",
+          "default": "true",
+          "description": "Verify the server's certificate. False is set per task, never by a setting, and is visible in the runbook that sets it."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "300",
+          "description": "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0, and at most 86400."
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": "0",
+          "description": "How many seconds to wait before the first request. Must be shorter than the timeout, which it is spent out of."
+        },
+        {
+          "name": "sleep",
+          "type": "int",
+          "default": "1",
+          "description": "How many seconds to wait between requests. Must be more than 0."
+        }
+      ],
+      "returns": [
+        {
+          "name": "status",
+          "type": "int",
+          "returned": "when the server answered",
+          "description": "The last answer's status."
+        },
+        {
+          "name": "final_url",
+          "type": "string",
+          "returned": "when the server answered",
+          "description": "The URL that answered last, without query or fragment."
+        },
+        {
+          "name": "attempts",
+          "type": "int",
+          "returned": "always",
+          "description": "How many requests were made."
+        },
+        {
+          "name": "elapsed",
+          "type": "int",
+          "returned": "always",
+          "description": "How many whole seconds the task waited, including the delay."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Wait for a service this machine runs to answer",
+          "runbookYaml": "- name: Wait for Batfish's API\n  http.wait:\n    url: http://127.0.0.1:9996/v2/version\n    timeout: 180\n    sleep: 3\n"
+        }
+      ],
+      "seeAlso": [
+        "http.check",
+        "pleiades.builtin.wait.port"
+      ]
+    }
+  },
   "identity.group.create": {
     "supportedTransports": [
       "ssh"
@@ -10696,7 +10815,7 @@
     "noCheckReason": "an arbitrary command can be anything the device accepts, and what it changes, if anything, is known only once the device has run it",
     "doc": {
       "summary": "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
-      "description": "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task. A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed. A show command (its first word show, or IOS's abbreviation of it) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command cannot be inspected, so it reports changed every time it runs without error.",
+      "description": "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task. A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed. A command that only reads (show, or IOS's abbreviation of it, and dir and more written in full) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command cannot be inspected, so it reports changed every time it runs without error.",
       "params": [
         {
           "name": "command",
@@ -10791,14 +10910,25 @@
     "engineVersion": ">=0.2.0",
     "status": "implemented",
     "reversibility": {
-      "reversible": false,
-      "notes": "IOS's \"no <line>\" negation convention does not reliably invert every configuration statement (a route-map or ACL entry, for instance), so this platform does not assert an inverse it cannot guarantee. Set backup: true to capture the prior running-config for a human-directed rollback."
+      "reversible": true,
+      "notes": "Its undo returns the device to a checkpoint of its running configuration kept on the device (net.ios.replace, named by the file's path alone, so no configuration text reaches the journal), refusing when the device has changed since. A device with nowhere to keep one records no undo: the configuration lines that would undo the change are shown, masked, for the task's rollback: list, since lines read off the device never reach the journal.",
+      "inverses": [
+        {
+          "fqcn": "net.ios.replace",
+          "record": [
+            "checkpoint",
+            "expect",
+            "insecure_telnet"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
     },
     "supportsCheck": false,
     "noCheckReason": "what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS offers no way to ask without applying it",
     "doc": {
-      "summary": "Applies configuration lines to a Cisco IOS device, with an optional pre-change backup.",
-      "description": "Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, configuration-mode and error conventions (verified directly against a real Cisco IOS XE device, not assumed), and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (a real IOS \"% ...\" error), still leaving configuration mode before returning that error. When backup is true, runs \"show running-config\" before applying anything and records it under the backup stat, giving an operator something to restore from by hand; this platform does not attempt an automatic rollback (see this method's own Reversibility notes for why). Reports changed whenever every line reaches the device without error: a configuration line's effect cannot be inspected before it runs, the same reasoning exec.command and net.cli.command both apply.",
+      "summary": "Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly.",
+      "description": "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
       "params": [
         {
           "name": "lines",
@@ -10806,6 +10936,12 @@
           "required": true,
           "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.",
           "format": "command"
+        },
+        {
+          "name": "checkpoint",
+          "type": "bool",
+          "default": "true",
+          "description": "Keep a checkpoint of the running configuration on the device before the change, which its undo returns to exactly. false records no undo, and reports the lines that would undo the change for the task's rollback: list."
         },
         {
           "name": "backup",
@@ -10828,6 +10964,24 @@
       ],
       "returns": [
         {
+          "name": "checkpoint",
+          "type": "string",
+          "returned": "when a checkpoint was kept and the lines changed the configuration",
+          "description": "The checkpoint file on the device holding the configuration before the change, which the undo returns to."
+        },
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "when a checkpoint was kept",
+          "description": "The device's own contextual differences the change made (+ added, - removed), masked."
+        },
+        {
+          "name": "undo_lines",
+          "type": "list of string",
+          "returned": "when no checkpoint was kept and the lines changed the configuration",
+          "description": "The configuration lines that would undo the change, masked; copy them into the task's rollback: list, putting each masked secret back."
+        },
+        {
           "name": "backup",
           "type": "string",
           "returned": "when backup is true",
@@ -10836,11 +10990,13 @@
       ],
       "examples": [
         {
-          "name": "Create a loopback interface with a backup",
-          "runbookYaml": "- name: Add a loopback interface\n  net.ios.config:\n    backup: true\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n"
+          "name": "Create a loopback interface, undoable by pleiades rollback",
+          "runbookYaml": "- name: Add a loopback interface\n  net.ios.config:\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n"
         }
       ],
       "seeAlso": [
+        "net.ios.replace",
+        "net.ios.parse",
         "net.cli.command",
         "net.cli.config"
       ]
@@ -10956,6 +11112,88 @@
       ]
     }
   },
+  "net.ios.parse": {
+    "supportedTransports": [
+      "ssh",
+      "telnet"
+    ],
+    "requiredCapabilities": [
+      "CiscoIOSCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It runs one show command and changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Runs a show command on a Cisco IOS or IOS XE device and returns its output parsed into Genie's schema.",
+      "description": "Runs one show command over the same session net.ios.command opens and parses its output with a parser ported from Cisco's Genie (genieparser, Apache License 2.0), returning the same nested structure Genie returns for that command, so Genie's own schema documentation describes the result and a later task can compare two reads field by field, such as the state before a change and after its rollback. Each parser is held to every one of genieparser's own recorded device outputs and expected results for the command forms it covers. Output in which the parser finds nothing (no OSPF neighbors yet) is an empty result with empty true, not a failure, so a before and after can compare it; a command the device refuses (% BGP not active) fails the task. A command no parser covers is refused before the device is reached, naming the commands that are covered. It only reads, so it reports unchanged, and a check runs it as a real run does.",
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "required": true,
+          "description": "The show command to run and parse, one of the commands a parser covers (pleiades doc net.ios.parse lists them), for example \"show ip interface brief\" or \"show ip route\". IOS's abbreviations are not accepted: write the command in full."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        },
+        {
+          "name": "insecure_telnet",
+          "type": "bool",
+          "default": "false",
+          "description": "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."
+        }
+      ],
+      "returns": [
+        {
+          "name": "parsed",
+          "type": "dict",
+          "returned": "always",
+          "description": "The command's output in Genie's schema for it: for show ip interface brief, interface, keyed by interface name, each with ip_address, interface_is_ok, method, status and protocol."
+        },
+        {
+          "name": "parser",
+          "type": "string",
+          "returned": "always",
+          "description": "The Genie parser class whose port parsed it, such as ShowIpInterfaceBrief."
+        },
+        {
+          "name": "empty",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the parser found nothing in the output, parsed then being empty."
+        },
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "always",
+          "description": "The command's output as the device printed it, except that the secrets in show archive config differences (a password, secret, key or SNMP community) are masked, as net.ios.replace masks them, before it is parsed or recorded."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read the interfaces before a change, to compare after its rollback",
+          "runbookYaml": "- name: Read the interfaces\n  net.ios.parse:\n    command: show ip interface brief\n  register: interfaces_before\n"
+        }
+      ],
+      "seeAlso": [
+        "net.ios.command",
+        "net.ios.facts",
+        "net.ios.replace"
+      ]
+    }
+  },
   "net.ios.ping": {
     "supportedTransports": [
       "ssh",
@@ -11063,6 +11301,85 @@
       "seeAlso": [
         "net.ssh.ping",
         "net.ios.facts"
+      ]
+    }
+  },
+  "net.ios.replace": {
+    "supportedTransports": [
+      "ssh",
+      "telnet"
+    ],
+    "requiredCapabilities": [
+      "CiscoIOSCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It is the undo net.ios.config records; what it removes is the change that checkpoint was kept before, which running that change again puts back."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Replaces a Cisco IOS device's running configuration with a checkpoint file on the device.",
+      "description": "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files are deleted afterwards unless keep is true. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
+      "params": [
+        {
+          "name": "checkpoint",
+          "type": "string",
+          "required": true,
+          "description": "The checkpoint to return to, a file on the device such as unix:pleiades-3f2a.cfg or flash:pleiades-3f2a.cfg."
+        },
+        {
+          "name": "expect",
+          "type": "string",
+          "description": "A checkpoint the running configuration must still match before anything is replaced, refusing otherwise: the configuration as the change left it."
+        },
+        {
+          "name": "force",
+          "type": "bool",
+          "default": "false",
+          "description": "Replace even when the running configuration no longer matches expect, undoing whatever changed since along with the change."
+        },
+        {
+          "name": "keep",
+          "type": "bool",
+          "default": "false",
+          "description": "Keep the checkpoint files on the device after a replace that leaves no differences, rather than deleting them."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        },
+        {
+          "name": "insecure_telnet",
+          "type": "bool",
+          "default": "false",
+          "description": "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."
+        }
+      ],
+      "returns": [
+        {
+          "name": "differences",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The device's own contextual differences between the running configuration and the checkpoint before the replace, masked: what the replace changes, or would change in a check."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Return a device to a checkpoint a change left",
+          "runbookYaml": "- name: Undo the loopback change\n  net.ios.replace:\n    checkpoint: unix:pleiades-3f2a.cfg\n    expect: unix:pleiades-3f2a-after.cfg\n"
+        }
+      ],
+      "seeAlso": [
+        "net.ios.config",
+        "net.ios.parse"
       ]
     }
   },
@@ -11473,6 +11790,20 @@
       "LinuxCapable",
       "CommandExecCapable"
     ],
+    "shapes": [
+      {
+        "param": "container",
+        "supportedTransports": [
+          "engine_local",
+          "engine_socket",
+          "engine_stdio",
+          "engine_tls"
+        ],
+        "requiredCapabilities": [
+          "ContainerEngineCapable"
+        ]
+      }
+    ],
     "executionContext": {
       "site": "target",
       "device": "required"
@@ -11486,8 +11817,8 @@
     },
     "supportsCheck": true,
     "doc": {
-      "summary": "Traces the path from a Linux device to an address, and fails when it is not the path expected.",
-      "description": "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
+      "summary": "Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected.",
+      "description": "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. Without container it runs on the device, a Linux machine reached over SSH. With container it runs inside that container on the device, a container host, through the engine's own exec as container.exec does, so a lab host with no SSH of its own (a containerlab end host) can be traced from; the container needs tracepath (iputils) and /bin/sh. pleiades validate refuses a call whose device cannot take the shape it chose: container on a device that is not a container host, or none on one that is not a Linux SSH device. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
       "params": [
         {
           "name": "dest",
@@ -11506,6 +11837,16 @@
           "name": "expect",
           "type": "dict",
           "description": "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."
+        },
+        {
+          "name": "container",
+          "type": "string",
+          "description": "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux."
+        },
+        {
+          "name": "engine",
+          "type": "string",
+          "description": "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -11532,11 +11873,16 @@
         {
           "name": "Expect a path through r2",
           "runbookYaml": "- name: h1's LAN reaches h2 through r2\n  net.trace:\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.0.12.1]\n"
+        },
+        {
+          "name": "Trace from a lab host container",
+          "runbookYaml": "- name: h1 reaches h2 through r1\n  net.trace:\n    target: dockerhost\n    container: clab-routing-h1\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.1.1.1]\n"
         }
       ],
       "seeAlso": [
         "wait.routes",
-        "net.batfish.check"
+        "net.batfish.check",
+        "container.exec"
       ]
     }
   },
@@ -12313,6 +12659,75 @@
         "identity.user.modify",
         "identity.group.modify",
         "exec.command"
+      ]
+    }
+  },
+  "pleiades.builtin.project.write": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It overwrites a file in the project, whose earlier content is never journaled: the journal keeps names and counts, never file content. The project is the author's own working copy, kept under version control, which is where an earlier version comes back from."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Writes text a run produced, such as a router's running configuration, to a file in the project.",
+      "description": "Writes content to path, a file in the project directory, so a value a task read (a registered result's running_config) can be kept, edited and used as a candidate: net.frr.config's src and net.batfish.check's src read such a file. The path is held to the rules a method reading the project is held to: relative, never leaving the project, never through a symbolic link, never into the project's .pleiades directory, and a regular file or none yet. A missing directory on the way is created inside the project. The file is written whole to a temporary file beside it and renamed over it, so it is never seen half written, and the task reports changed only when the bytes or the mode differ. A check reads the file and predicts the same answer. It runs on the command line only (pleiades run and adhoc), which holds the project; a Walk-tier Runner refuses it. It acts on no device and needs no hosts. A configuration read by net.frr.facts or net.ios.* is masked: each secret in it is a pleiades-masked- placeholder, and net.frr.config refuses a candidate holding one, so put each secret back before applying the file. It cannot be undone by a rollback: the file's earlier content is never journaled, since the project is the author's working copy, kept under version control.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The file to write, a slash-separated path relative to the project directory, such as configs/r3.running.frr.conf."
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "required": true,
+          "description": "The text to write, usually rendered from a registered result, such as \"{{ result.r3.running_config }}\". An empty string writes an empty file."
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "default": "0600",
+          "description": "The file's permission bits as a quoted octal string, such as \"0640\". Only the owner can read the default, since a configuration can hold more than its masked secrets."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The file written, as given."
+        },
+        {
+          "name": "sha256",
+          "type": "string",
+          "returned": "always",
+          "description": "The SHA-256 of the content, in hex: the digest net.batfish.check reports for the same bytes."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "always",
+          "description": "The content's length in bytes."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep r3's running configuration as a candidate file",
+          "runbookYaml": "- name: Read r3 as it runs\n  net.frr.facts:\n    target: r3\n    include_config: true\n  register: r3\n- name: Keep it in the project, to edit into a candidate\n  pleiades.builtin.project.write:\n    path: configs/r3.running.frr.conf\n    content: \"{{ result.r3.running_config }}\"\n"
+        }
+      ],
+      "seeAlso": [
+        "net.frr.facts",
+        "net.frr.config",
+        "net.batfish.check",
+        "file.copy"
       ]
     }
   },
