@@ -44,6 +44,7 @@ func (s Spec) Create() (*container.Config, *container.HostConfig, *network.Netwo
 		Privileged:     s.Privileged,
 		CapAdd:         s.CapAdd,
 		SecurityOpt:    []string{"no-new-privileges"},
+		Resources:      container.Resources{Memory: s.Memory, MemorySwap: s.MemorySwap},
 	}
 	if s.Privileged {
 		// A privileged container is given everything; no-new-privileges
@@ -131,6 +132,14 @@ func (s Spec) Differences(c container.InspectResponse) []string {
 	}
 	if !devicesMatch(s.Devices, c.HostConfig.Devices) {
 		d = append(d, fmt.Sprintf("devices: %s, the task names %s", strings.Join(liveDevices(c.HostConfig.Devices), ", "), strings.Join(deviceStrings(s.Devices), ", ")))
+	}
+	// A limit the task does not name is not compared, as user is not: it
+	// says nothing about one the container was given.
+	if s.Memory != 0 && c.HostConfig.Memory != s.Memory {
+		d = append(d, fmt.Sprintf("memory: %d bytes, the task names %d", c.HostConfig.Memory, s.Memory))
+	}
+	if s.MemorySwap != 0 && c.HostConfig.MemorySwap != s.MemorySwap {
+		d = append(d, fmt.Sprintf("memory_swap: %d bytes, the task names %d", c.HostConfig.MemorySwap, s.MemorySwap))
 	}
 	// An unset user or workdir is the image's own, which the task does not
 	// name, so only a declared one is compared, as command is.

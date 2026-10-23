@@ -36,6 +36,7 @@ Asks vtysh for each in JSON and returns it as data. With include_config, it also
 | `ospf_neighbors` | `dict` | always | show ip ospf neighbor json, empty when OSPF is not running. |
 | `routes` | `dict` | always | show ip route json: every route by prefix. |
 | `bgp_summary` | `dict` | always | show bgp summary json, empty when BGP is not running. |
+| `config_sha256` | `string` | always | The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file. |
 | `running_config` | `string` | with include_config | The running configuration with its secrets replaced. |
 
 ## Undoing this

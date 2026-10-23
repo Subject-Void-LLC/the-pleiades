@@ -10558,6 +10558,12 @@
           "description": "show bgp summary json, empty when BGP is not running."
         },
         {
+          "name": "config_sha256",
+          "type": "string",
+          "returned": "always",
+          "description": "The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file."
+        },
+        {
           "name": "running_config",
           "type": "string",
           "returned": "with include_config",

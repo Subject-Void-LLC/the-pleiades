@@ -1,0 +1,1 @@
+`container.run`, `container.create` and `container.recreate` take `memory` and `memory_swap` (sizes such as `512m` or `2g`), so a service such as Batfish, whose image otherwise sizes itself to the machine, runs within a limit. A container already there is compared with a limit only when the task names one.

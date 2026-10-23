@@ -37,6 +37,8 @@ Makes the container named name exist from image as the task declares it, without
 | `workdir` | `string` | no | - | The process's working directory, an absolute path inside the container. |
 | `user` | `string` | no | - | The user, or user:group, the process runs as. |
 | `read_only` | `bool` | no | `false` | Give the container a read-only root filesystem. |
+| `memory` | `string` | no | - | The container's memory limit, a size such as 512m or 2g (b, k, m and g, binary units), at least 6m. Unset, the container has no limit. Compared with a container already there only when set. |
+| `memory_swap` | `string` | no | - | Memory and swap together, a size at least memory's, or -1 for unlimited swap; needs memory. Unset, the engine decides (Docker allows as much swap as memory). |
 | `privileged` | `bool` | no | `false` | **Host escape:** setting this lets the container act on its host. Run the container privileged: every capability and every device of the host, which is root on the host for whoever controls the container. |
 | `cap_add` | `list` | no | - | **Host escape:** setting this lets the container act on its host. Kernel capabilities to add, by name (NET_ADMIN, SYS_TIME). |
 | `devices` | `list` | no | - | **Host escape:** setting this lets the container act on its host. Host devices to give the container, /dev/path[:/dev/path-inside]. |

@@ -55,6 +55,10 @@ type Spec struct {
 	User    string
 	// ReadOnly gives the container a read-only root filesystem.
 	ReadOnly bool
+	// Memory is the container's memory limit in bytes, 0 for none.
+	// MemorySwap is its memory and swap together, -1 for unlimited swap,
+	// 0 for the engine's default (twice Memory on Docker).
+	Memory, MemorySwap int64
 	// Pull is how the image is found: PullMissing (resolve a tag through
 	// its registry to a digest, and pull that digest when it is absent) or
 	// PullNever (the image the engine already holds under the reference as
@@ -299,6 +303,20 @@ func ParseSpec(params map[string]any) (Spec, error) {
 	}
 	if s.ReadOnly, err = boolOf(params, "read_only"); err != nil {
 		return s, err
+	}
+	if s.Memory, err = sizeOf(params, "memory", false); err != nil {
+		return s, err
+	}
+	if s.MemorySwap, err = sizeOf(params, "memory_swap", true); err != nil {
+		return s, err
+	}
+	switch {
+	case s.Memory != 0 && s.Memory < MinMemory:
+		return s, fmt.Errorf("memory: %d bytes is below the %d engines accept", s.Memory, MinMemory)
+	case s.MemorySwap != 0 && s.Memory == 0:
+		return s, fmt.Errorf("memory_swap: names memory and swap together, so it needs memory")
+	case s.MemorySwap > 0 && s.MemorySwap < s.Memory:
+		return s, fmt.Errorf("memory_swap: %d bytes is memory and swap together, so it cannot be below memory's %d", s.MemorySwap, s.Memory)
 	}
 	if s.Privileged, err = boolOf(params, "privileged"); err != nil {
 		return s, err
