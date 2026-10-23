@@ -39,6 +39,7 @@ var commands = map[string]commandFunc{
 	"list-database-connections":  runListDatabaseConnections,
 	"remove-database-connection": runRemoveDatabaseConnection,
 	"import-containerlab":        runImportContainerlab,
+	"import-gns3":                runImportGNS3,
 	"import-kubeconfig":          runImportKubeconfig,
 	"onboard":                    runOnboard,
 	"trust-host":                 runTrustHost,

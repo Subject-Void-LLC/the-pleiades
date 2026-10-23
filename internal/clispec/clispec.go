@@ -298,6 +298,25 @@ var Root = Command{
 			},
 		},
 		{
+			Name:     "import-gns3",
+			Synopsis: "make a GNS3 project's nodes console_device devices at their telnet consoles, read from the server's own API (3.x or 2.2), skipping any node without a telnet console",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "server", Type: "string", Default: "", Doc: "the GNS3 server's base URL, e.g. http://gns3.lab:3080"},
+				{Name: "project", Type: "string", Default: "", Doc: "the project to import, by name or id"},
+				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
+				{Name: "username", Type: "string", Default: "", Doc: "the account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth)"},
+				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD"},
+				{Name: "allow-plaintext", Type: "bool", Default: "false", Doc: "send the password over plain HTTP to a server that is not this machine"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the console address of a node already in the inventory as a console_device"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as one JSON document"},
+			},
+			Examples: []string{
+				"pleiades import-gns3 --server http://127.0.0.1:3080 --project routing-lab --username admin --password-stdin < gns3.pw",
+				"pleiades import-gns3 --server https://gns3.lab:3080 --project routing-lab --nodes r1,r2 --replace --json",
+			},
+		},
+		{
 			Name:       "onboard",
 			Positional: "<device>",
 			Synopsis:   "probe a device over its protocol and record what it proved: a generic device's capabilities, the container engines a host runs, or what a Kubernetes cluster serves",

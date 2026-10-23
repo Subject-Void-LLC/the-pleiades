@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 
@@ -22,7 +21,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
@@ -133,31 +131,9 @@ func runImportContainerlab(args []string) error {
 			return fmt.Errorf("node %s: %w", n, err)
 		}
 		props := map[string]pkginventory.PropertyValue{"host": host, "port": port}
-		index := slices.IndexFunc(hosts, func(h inventory.HostSpec) bool { return h.Name == n })
 		spec := inventory.HostSpec{ID: uuid.New().String(), Name: n, Type: generic.TypeSSH, Tags: []string{"containerlab", "lab-" + *lab}, Properties: props}
-		switch {
-		case index >= 0 && !*replace:
-			return fmt.Errorf("host %q already exists; pass --replace to replace its address", n)
-		case index >= 0 && hosts[index].Type != generic.TypeSSH:
-			return fmt.Errorf("host %q is a %s, not a %s, so an import cannot replace it", n, hosts[index].Type, generic.TypeSSH)
-		case index >= 0:
-			// A replacement keeps the record's identity, tags and every
-			// property but the address; a changed address leaves what
-			// onboarding proved stale, as it should.
-			kept := map[string]pkginventory.PropertyValue{}
-			for k, v := range hosts[index].Properties {
-				kept[k] = v
-			}
-			kept["host"], kept["port"] = host, port
-			spec.ID, spec.Tags, spec.Properties = hosts[index].ID, hosts[index].Tags, kept
-		}
-		if _, err := inventory.NewItemFactory().Build(record.Record{ID: pkginventory.DeviceID(spec.ID), Name: n, Type: spec.Type, Properties: spec.Properties}); err != nil {
-			return fmt.Errorf("node %s not imported: %w", n, err)
-		}
-		if index >= 0 {
-			hosts[index] = spec
-		} else {
-			hosts = append(hosts, spec)
+		if hosts, err = labPlace(hosts, spec, *replace); err != nil {
+			return err
 		}
 		res.Nodes = append(res.Nodes, clabImported{Device: n, Kind: node.Kind, Host: host, Port: port, Address: from})
 	}
