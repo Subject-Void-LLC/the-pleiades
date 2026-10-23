@@ -222,3 +222,63 @@ func TestExec_LogsInWhenAsked(t *testing.T) {
 		t.Errorf("Exec = %q, %v; want the version and never the password", res.Stdout, err)
 	}
 }
+
+// TestSession_LoginsThatGoWrong: a closed port, a password-only device
+// with no login given, a device that asks for the name again after the
+// password, one that keeps asking, and a session used after its device
+// hung up or it was closed.
+func TestSession_LoginsThatGoWrong(t *testing.T) {
+	ctx := context.Background()
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", 1, telnetexec.Options{DialTimeout: time.Second}, telnetexec.Login{}); err == nil || !strings.Contains(err.Error(), "dialing") {
+		t.Errorf("a closed port = %v", err)
+	}
+	asks := func(first string, after func(n int) string) int {
+		return telnetServer(t, func(conn net.Conn) {
+			defer conn.Close()
+			lr := lineReader{bufio.NewReader(conn)}
+			_, _ = conn.Write([]byte(first))
+			for n := 1; ; n++ {
+				if _, err := lr.line(); err != nil {
+					return
+				}
+				_, _ = conn.Write([]byte(after(n)))
+			}
+		})
+	}
+	short := telnetexec.Options{ReadTimeout: 200 * time.Millisecond, LoginTimeout: time.Second}
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", asks("Password: ", func(int) string { return "" }), short, telnetexec.Login{}); !errors.Is(err, telnetexec.ErrLoginNeeded) {
+		t.Errorf("a password-only device with no login = %v", err)
+	}
+	again := asks("Username: ", func(n int) string {
+		if n == 1 {
+			return "Password: "
+		}
+		return "\r\nUsername: "
+	})
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", again, short, telnetexec.Login{Username: "u", Password: "p"}); !errors.Is(err, telnetexec.ErrLoginRefused) || !strings.Contains(err.Error(), "name again") {
+		t.Errorf("asked for the name again = %v", err)
+	}
+	forever := asks("Password: ", func(int) string { return "\r\nPassword: " })
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", forever, short, telnetexec.Login{Password: "p"}); !errors.Is(err, telnetexec.ErrLoginRefused) || !strings.Contains(err.Error(), "kept asking") {
+		t.Errorf("a device that keeps asking = %v", err)
+	}
+
+	hangup := telnetServer(t, func(conn net.Conn) {
+		_, _ = conn.Write([]byte("VPCS> "))
+		time.Sleep(300 * time.Millisecond)
+		_ = conn.Close()
+	})
+	s, err := telnetexec.Dial(ctx, "127.0.0.1", hangup, short, telnetexec.Login{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReadUntil(ctx, regexp.MustCompile(`never`), 1<<16); err == nil || !strings.Contains(err.Error(), "reading from") {
+		t.Errorf("a device that hung up = %v", err)
+	}
+	if err := s.WriteLine(ctx, "show ip"); err == nil {
+		t.Error("a line was written to a closed session")
+	}
+	if _, err := s.ReadUntil(ctx, regexp.MustCompile(`never`), 1<<16); err == nil {
+		t.Error("a closed session was read")
+	}
+}

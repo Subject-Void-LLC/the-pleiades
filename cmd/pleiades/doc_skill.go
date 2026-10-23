@@ -294,6 +294,14 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  nodes; with `--username`, `--key`, `--trust-first-connect` and `--onboard` it also stores their login, trusts\n" +
 	"  their host keys unverified (ask first) and onboards them. A lab makes new host keys on every deploy, so set\n" +
 	"  `PLEIADES_KNOWN_HOSTS` to a file of the lab's own first, in every shell; the import refuses without it.\n" +
+	"- `pleiades import-gns3 --server <url> --project <name>` and `pleiades import-cml --server <url> --lab <title>`\n" +
+	"  add a GNS3 project's or a CML lab's nodes from their own APIs; a password comes from `--password-stdin` or\n" +
+	"  `PLEIADES_GNS3_PASSWORD`/`PLEIADES_CML_PASSWORD`, never a flag. `import-cml` takes a node's address only from\n" +
+	"  what the controller observed or from `--address NODE=IP`: never guess one from a configuration, ask.\n" +
+	"- A device with no SSH (a GNS3 console, a lab router before SSH is enabled) is reached over Telnet, which sends\n" +
+	"  its login in cleartext: a task sets `insecure_telnet: true` only when the person has accepted that for that\n" +
+	"  device; never add it to make a task pass. The device's login and enable secret are stored with\n" +
+	"  `pleiades add-credential` (`--enable-password-stdin` for the enable secret), never written in a runbook.\n" +
 	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
 	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
 	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +

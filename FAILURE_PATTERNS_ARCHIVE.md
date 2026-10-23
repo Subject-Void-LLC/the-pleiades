@@ -14707,3 +14707,77 @@ the test, the network gate and the routing lab, since accepting a line a configu
 gate passed in CI with it). docs/16 and the routing lab's README say when FRR writes the line.
 
 **Lesson.** A live test asserts what the device's own configuration put there, never a line the container host adds.
+
+## 592. telnet_exec demanded a stored credential its transport never sent, so a console with no login was unreachable (fixed before push)
+
+**Symptom.** 2026-10-23, proving `pleiades import-gns3` on feat/lab-importers: a GNS3 VPCS node imported as a
+`console_device` failed `telnet_exec` with "no credential stored for device pc1", though VPCS asks for no login.
+
+**Root cause.** The engine's transport executor looked up a credential for every binding before dispatch, and the
+telnet, raw passthrough and serial transports then ignored it: none of those protocols has a login of its own, and
+`pkg/telnetexec` answered no login prompt either. The requirement guarded nothing and blocked every console without
+one.
+
+**Fix.** `TransportBinding.CredentialOptional` on the three bindings: a stored credential is used, a missing one is
+not an error, and any other lookup failure still is (`TestTransportActionExecutor_ACredentialIsOptionalWhereTheProtocolHasNoLogin`).
+The Telnet session now answers a device's login prompts with that credential (593's branch).
+
+**Lesson.** A requirement a code path checks and then never uses is a refusal with no reason; trace each input to
+where it is read before demanding it.
+
+## 593. The IOS dialect waited for a privileged "#" prompt, so an account landing in user mode hung every net.ios method until its byte bound (fixed before push)
+
+**Symptom.** 2026-10-23, on the DevNet CML sandbox's IOL XE routers over Telnet: the login landed at `R1>`, and
+`netcli.IOS`'s exec prompt `(?m)^[\w.\-]+#\s*$` never matched it, so `netcli.Open` would have read until its bound.
+
+**Root cause.** Every net.ios method had been proven against one device, the Catalyst 8000 Always-On sandbox, whose
+account is privilege 15 and lands at `#`. Nothing modelled user mode or `enable`, and no credential could carry an
+enable secret, so an ordinary operator account could not be used at all, over SSH or Telnet.
+
+**Fix.** The IOS exec prompt accepts `>` and `#`; a Dialect names its `Unprivileged` prompt and its `Enable` command;
+`netcli.Open` enters enable with `Options.EnableSecret` from the credential's new `EnablePassword`
+(`add-credential --enable-password[-stdin]`, `wire.SecretEnablePassword`); `Config` in user mode refuses naming the
+fix; a wrong secret is refused without being named. Proven by `TestTelnet_*` in `pkg/netcli` and on the sandbox by
+`TestCLI_ImportCMLReachesIOSOverTelnet`.
+
+**Lesson.** A device method proven with an administrator's account has been proven for administrators. Prove it with
+the account a lab or an operator actually gets.
+
+## 594. A Telnet login answered by a delayed refusal was taken as accepted, because the session read 500 ms of quiet as the answer (a sibling of 149) (fixed before push)
+
+**Symptom.** 2026-10-23, the first run against a real telnetd (BusyBox's, behind its `/bin/login`): a wrong password
+opened a session with no error. Every scripted test had passed.
+
+**Root cause.** After answering the password prompt the session read until the device was quiet for 500 ms. BusyBox's
+login waits about three seconds before "Login incorrect", so the read ended on silence, saw no refusal and no prompt,
+and returned a session. The scripted servers answered at once; IOS does too, which is why the sandbox never showed it.
+
+**Fix.** `Session.answer` reads after a login answer until the device has said something besides blank lines, up to
+`Options.LoginTimeout` (default 20 s), then until quiet (`TestSession_AgainstARealTelnetd`).
+
+**Lesson.** As 149 found for SSH: a scripted server never develops a real one's timing. Run a login against a real
+login program before trusting its refusals.
+
+## 595. trust-host reported a refused connection as a host that presented no host key (fixed before push)
+
+**Symptom.** 2026-10-23, `pleiades trust-host R1 --first-connect` against the CML sandbox's router said "10.10.20.171
+presented no host key", which sent the investigation to SSH algorithms. The router runs no SSH server; port 22 refused
+the connection.
+
+**Root cause.** `hosttrust.Scan` dropped every attempt's error and reported only that no key came back.
+
+**Fix.** The last attempt's error is kept; a dial failure says the host "could not be reached over SSH", anything else
+"presented no host key" with its cause (`TestScan`).
+
+**Lesson.** An error that summarises several attempts keeps the last cause; a summary without one names the wrong layer.
+
+## 596. The generic CLI prompt pattern allowed only whitespace after the prompt, so a shell's terminal query hid it (fixed before push)
+
+**Symptom.** 2026-10-23, `netcli.FromPrompt("lab$")` over a real telnetd never matched its first prompt: BusyBox's ash
+printed `lab$ ` followed by `ESC[6n`, a cursor position query.
+
+**Root cause.** The pattern was `^<prompt>\s*$`; a terminal control sequence after the prompt is not whitespace.
+
+**Fix.** The generic pattern also allows CSI control sequences after the prompt (`TestSession_AgainstARealTelnetd`).
+
+**Lesson.** A terminal session carries the terminal's own traffic; a pattern for where output ends allows it.

@@ -61,6 +61,64 @@ they go in a file of the lab's own, never your `~/.ssh/known_hosts`: the import 
 `--trust-first-connect` unless `PLEIADES_KNOWN_HOSTS` names one (`export PLEIADES_KNOWN_HOSTS=$PWD/known_hosts`),
 and every later command reads the same variable.
 
+### GNS3 and Cisco Modeling Labs
+
+A GNS3 project's nodes come from the server's own API, on a 3.x server (which needs a login) or a 2.2
+one:
+
+```console
+pleiades import-gns3 --server http://gns3.lab:3080 --project routing-lab --username admin --password-stdin < gns3.pw
+```
+
+GNS3 reaches its nodes at their consoles, so each node with a telnet console becomes a `console_device`
+at that console. A console on every address of the server is reached at the server's own host. A node with
+a VNC, SPICE or no console is skipped, with its console type in the report. A project is named by its name,
+which must name one project, or by its id.
+
+A CML lab's nodes come from the controller's API. An IOS or IOS XE node definition (IOL, IOSv, CSR 1000v,
+Catalyst 8000v and 9000v) becomes a `cisco_router` or `cisco_switch`; any other a `generic_ssh` device:
+
+```console
+pleiades import-cml --server https://10.10.20.161 --lab default-lab --username developer --password-stdin \
+  --tls-fingerprint sha256:8e57dd2f... --address R1=10.10.20.171 --address R2=10.10.20.172 < cml.pw
+```
+
+A node's address is the one the controller observed on it, or the one `--address` gives. It is never
+read out of the node's configuration: a router's configuration names an address for every interface, and
+the wrong one would send the node's credential to another machine. The report lists the addresses a
+configuration names, as a hint.
+
+A controller's certificate is often its own CA's, and a lab's may have expired. `--tls-fingerprint`
+trusts exactly the certificate with that SHA-256 fingerprint, whatever its issuer or dates; `--tls-ca`
+trusts a CA, with the name and dates checked. With neither, the system's CAs decide, and a refusal names
+the certificate's fingerprint, subject and expiry, so you can check it with the controller's owner before
+pinning it.
+
+Both importers refuse a password over plain HTTP to anything but this machine unless `--allow-plaintext`
+is given, and then warn. A password is read from standard input (`--password-stdin`) or from
+`PLEIADES_GNS3_PASSWORD` or `PLEIADES_CML_PASSWORD`, never from a flag.
+
+### Devices with no SSH
+
+Many lab images, and older devices, answer only Telnet until someone enables SSH on them. Telnet carries
+the login and everything after it in cleartext, so a task reaches a device over it only with
+`insecure_telnet: true` written on the task. A Cisco device reached that way has `transport: telnet` in
+its record (`import-cml --via telnet` writes it); `net.ios.*` and `net.cli.*` then run over Telnet, and
+`telnet_exec` runs one command.
+
+The device's stored credential answers its login prompt (`Username:` or `login:`, then `Password:`). A
+device that asks for a login with no credential stored, or refuses the one given, is refused by name.
+A console that asks nothing, such as a GNS3 VPCS, needs no credential.
+
+An account that lands in user mode (`R1>`) runs commands, and `net.ios.config` refuses there. Store the
+device's enable secret with its credential, and the IOS methods enter privileged mode with it:
+
+```console
+printf 'login-password\nenable-secret\n' | pleiades add-credential R1 --username cisco --password-stdin --enable-password-stdin
+```
+
+A wrong enable secret is refused by name, and the secret appears in no result or error.
+
 ## Running Batfish
 
 Batfish runs as a container on a machine you choose; this runbook runs it on the machine `pleiades`

@@ -127,3 +127,42 @@ func TestOpenShell_Refusals(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenShell_FailuresAfterTheChoice: an SSH device whose port refuses,
+// an SSH server that declines a shell, and a Telnet device whose port
+// refuses each fail naming the task; a shell closed twice reports the
+// second close.
+func TestOpenShell_FailuresAfterTheChoice(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	skip := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}
+	srv := startServer(t)
+	refused := newCLIDevice("127.0.0.1", 1, 0, capability.NameSSHTransport)
+	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), refused, skip, "test.cli"); err == nil || !strings.Contains(err.Error(), "test.cli") {
+		t.Errorf("an SSH port that refuses = %v", err)
+	}
+	noShell := newCLIDevice(srv.Host, srv.Port, 0, capability.NameSSHTransport)
+	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), noShell, skip, "test.cli"); err == nil || !strings.Contains(err.Error(), "test.cli") {
+		t.Errorf("a server that declines a shell = %v", err)
+	}
+	telnetRefused := newCLIDevice("127.0.0.1", 0, 1, capability.NameTelnet)
+	if _, err := sdk.OpenShell(ctx, newSecretContext(nil), telnetRefused, map[string]any{sdk.ParamInsecureTelnet: true}, "test.cli"); err == nil || !strings.Contains(err.Error(), "dialing") {
+		t.Errorf("a Telnet port that refuses = %v", err)
+	}
+
+	cli, err := remoteexectest.Start(remoteexectest.Options{Device: &remoteexectest.Device{Prompt: "R1#"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cli.Close)
+	shell, err := sdk.OpenShell(ctx, newSecretContext(cli.Secrets()), newCLIDevice(cli.Host, cli.Port, 0, capability.NameSSHTransport), skip, "test.cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := shell.Close(); err != nil {
+		t.Fatalf("the first Close: %v", err)
+	}
+	if err := shell.Close(); err == nil {
+		t.Error("a second Close reported nothing")
+	}
+}

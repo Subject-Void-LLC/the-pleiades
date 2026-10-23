@@ -594,6 +594,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 589. A test left doctest's capability registered, so a later onboard ran its probe, and the re-run alone called it contention (a repeat of 188) (fixed before push)
 590. An empty standard input's end could reach sshd before the exec request, so "cat > file" waited forever (a regression from 149's fix) (fixed before push)
 591. A Batfish live test required "domainname localdomain", which FRR writes only where the Docker host gives a search domain (a repeat of 426) (fixed)
+592. telnet_exec demanded a stored credential its transport never sent, so a console with no login was unreachable (fixed before push)
+593. The IOS dialect waited for a privileged "#" prompt, so an account landing in user mode hung every net.ios method until its byte bound (fixed before push)
+594. A Telnet login answered by a delayed refusal was taken as accepted, because the session read 500 ms of quiet as the answer (a sibling of 149) (fixed before push)
+595. trust-host reported a refused connection as a host that presented no host key (fixed before push)
+596. The generic CLI prompt pattern allowed only whitespace after the prompt, so a shell's terminal query hid it (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
