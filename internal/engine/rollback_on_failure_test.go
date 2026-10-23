@@ -53,8 +53,11 @@ func registerRollbackFixtures(t *testing.T) {
 // unmake:<name>>@<device>"), and each device's calls are kept in order.
 type undoable struct {
 	fail map[string]bool
-	mu   sync.Mutex
-	ran  map[string][]string
+	// keepAndFail names calls that change the device, record an undo kept
+	// through a failure (sdk.Inverse.KeepOnFailure), and then fail.
+	keepAndFail map[string]bool
+	mu          sync.Mutex
+	ran         map[string][]string
 }
 
 func (u *undoable) Execute(_ context.Context, task *engine.Task, d inventory.InventoryItem) (engine.ActionResult, error) {
@@ -75,12 +78,17 @@ func (u *undoable) Execute(_ context.Context, task *engine.Task, d inventory.Inv
 	if u.fail[call+"@"+device] {
 		return engine.ActionResult{}, errors.New("scripted failure of " + call + "@" + device)
 	}
+	if u.keepAndFail[call+"@"+device] {
+		return engine.ActionResult{Stats: map[string]any{
+			sdk.StatInverse: map[string]any{sdk.InverseFQCNKey: "rbtest.unmake", sdk.InverseParamsKey: map[string]any{"name": task.Params["name"]}, sdk.InverseKeepOnFailureKey: true},
+		}}, errors.New("scripted failure of " + call + "@" + device + " after its change")
+	}
 	if strings.HasPrefix(task.Name, "bare") {
 		// A change that recorded no undo at all.
 		return engine.ActionResult{Changed: true}, nil
 	}
 	switch task.FQCN {
-	case "rbtest.make", "rbtest.blob":
+	case "rbtest.make", "rbtest.blob", "rbtest.keep":
 		params := map[string]any{"name": task.Params["name"]}
 		if task.FQCN == "rbtest.blob" {
 			params["content"] = "the prior content"

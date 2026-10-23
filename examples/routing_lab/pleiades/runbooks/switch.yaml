@@ -1,0 +1,20 @@
+# What this does: makes sw1's userspace Open vSwitch bridge br0 and puts its two
+# ports on it (eth1 to r1, eth2 to h1), so h1 and r1 share the LAN 10.1.1.0/24.
+# Blast radius: sw1 only; h1's LAN is down until it has run.
+# Changes: creates bridge br0 (datapath netdev) and ports eth1, eth2 on sw1.
+# Undo: pleiades rollback <run-id> removes the ports and the bridge it made.
+id: switch
+hosts: sw1
+tasks:
+  - name: br0 exists on the userspace datapath
+    net.ovs.bridge:
+      name: br0
+      datapath_type: netdev
+  - name: r1's port is on br0
+    net.ovs.port:
+      bridge: br0
+      name: eth1
+  - name: h1's port is on br0
+    net.ovs.port:
+      bridge: br0
+      name: eth2

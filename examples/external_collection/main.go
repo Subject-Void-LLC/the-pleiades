@@ -2,8 +2,8 @@
 // a program built outside the pleiades binary that The Pleiades runs as a
 // child process, once per task, to provide a Collection method of its own.
 //
-// It provides one method, example.note.write, which makes sure a file on
-// the target holds exactly the text a task asks for. It is small on
+// Its first method, example.note.write, makes sure a file on the target
+// holds exactly the text a task asks for. It is small on
 // purpose, and it is not a toy: it reaches a real device over SSH with the
 // credential The Pleiades hands it, it reads before it writes so a converged
 // run reports no change, and it answers check mode honestly. It is the
@@ -17,11 +17,21 @@
 // usable from any runbook. See README.md beside this file.
 package main
 
-import "github.com/Subject-Void-LLC/the-pleiades/pkg/external"
+import (
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
+)
 
-// main serves this program's one method. external.Main answers the two
-// commands The Pleiades runs it with ("describe" and "invoke") and exits; the
-// program has no other behavior.
+// main serves this program's methods and the capability it defines.
+// external.MainProgram answers the two commands The Pleiades runs it with
+// ("describe" and "invoke") and exits; the program has no other behavior.
+// example.notebook (notebook.go) is a capability The Pleiades has never
+// heard of: this program defines it, its probe grants it, and
+// example.notebook.write requires it, with no rebuilt core.
 func main() {
-	external.Main(noteWriteDescriptor())
+	external.MainProgram(external.Program{
+		Capabilities: []capability.DataDefinition{notebookDefinition()},
+		Methods:      []collection.Descriptor{noteWriteDescriptor(), notebookProbeDescriptor(), notebookWriteDescriptor()},
+	})
 }

@@ -67,9 +67,9 @@ func (r *fileRepository) Create(ctx context.Context, item inventory.InventoryIte
 	// no sidecar entry at all: buildRecord already reads a missing entry as
 	// exactly that. Writing one anyway would add a row carrying nothing the
 	// default does not already say.
-	_, discovered := splitDiscovered(item.Properties().Raw())
+	_, held := splitReserved(item.Properties().Raw())
 	if item.Version() == 0 && len(item.History()) == 0 && item.Source().Plugin == "" &&
-		item.State() == record.InitialState(spec.Type) && discovered == nil {
+		item.State() == record.InitialState(spec.Type) && held.empty() {
 		return nil
 	}
 
@@ -106,7 +106,7 @@ func hostSpecFromItem(item inventory.InventoryItem) (HostSpec, error) {
 		tagStrings = append(tagStrings, string(t))
 	}
 
-	properties, _ := splitDiscovered(item.Properties().Raw())
+	properties, _ := splitReserved(item.Properties().Raw())
 	return HostSpec{
 		ID:         string(item.ID()),
 		Name:       item.Name(),
@@ -132,7 +132,8 @@ func (r *fileRepository) createSidecarEntry(item inventory.InventoryItem) error 
 		State:   item.State().String(),
 		History: fromRevisions(item.History()),
 	}
-	_, entry.Discovered = splitDiscovered(item.Properties().Raw())
+	_, held := splitReserved(item.Properties().Raw())
+	entry.Discovered, entry.Granted = held.discovered, held.granted
 	if src := item.Source(); src.Plugin != "" {
 		entry.Source = src.Plugin
 		if !src.SyncedAt.IsZero() {

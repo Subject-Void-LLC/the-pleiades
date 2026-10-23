@@ -1145,59 +1145,78 @@ func TestCopy_WriteFailureIsReported(t *testing.T) {
 	if err == nil {
 		t.Fatal("a failed write was reported as success")
 	}
-	if !strings.Contains(err.Error(), "write "+dest) {
-		t.Errorf("error = %q, want it to name the write that failed", err)
+	if !strings.Contains(err.Error(), "put "+dest) || !strings.Contains(err.Error(), "writing beside it") {
+		t.Errorf("error = %q, want it to name the path and the write that failed", err)
 	}
 	if _, statErr := os.Lstat(dest); !os.IsNotExist(statErr) {
 		t.Errorf("os.Lstat(%s) = %v, want the path still absent", dest, statErr)
 	}
 }
 
-// TestCopy_ReadBackAfterWriteFailureIsReported covers the branch where
-// the content landed and the fresh read that follows it did not.
+// TestCopy_ACutBeforeTheRenameLeavesTheFileUntouched cuts the session at
+// each step between reading the file and renaming the new one over it.
 //
-// The error has to say the content was written, because it was: the
-// device is not in the state the runbook started from and the task's
-// failure alone would suggest otherwise. The filesystem assertion proves
-// the claim is true rather than a fixed phrase.
-func TestCopy_ReadBackAfterWriteFailureIsReported(t *testing.T) {
-	server := startCopyServerWithSessionBudget(t, 3)
-	dest := copyExistingFile(t, "old\n", 0o644)
+// The new bytes are written beside the file and given its attributes
+// first, so every one of those cuts leaves the file with its old bytes and
+// its old mode, and the error claims nothing was written. Before
+// examples/routing_lab (2026-10-22) the rename came first and a chown
+// after it, so a cut or a refused chown there left the new bytes at mktemp's
+// 0600 with no undo recorded.
+func TestCopy_ACutBeforeTheRenameLeavesTheFileUntouched(t *testing.T) {
+	for _, step := range []struct {
+		name   string
+		budget int
+		wants  string
+	}{
+		{"writing beside the file", 2, "writing beside it"},
+		{"giving the new file the mode", 3, "chmod"},
+		{"reading the new file's owner", 4, "stat "},
+		{"giving the new file the mode again", 5, "chmod"},
+		{"confirming the new file matches", 6, "stat "},
+		{"the rename", 7, "rename over it"},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			server := startCopyServerWithSessionBudget(t, step.budget)
+			dest := copyExistingFile(t, "old\n", 0o644)
 
-	_, err := file.Copy(context.Background(), newCopyContext(server), newCopyTarget(server), copyParams(dest, "new\n"))
-	if err == nil {
-		t.Fatal("a failed read-back was reported as success")
-	}
-	if !strings.Contains(err.Error(), "the content was written before this failed") {
-		t.Errorf("error = %q, want it to say the write already landed", err)
-	}
-	if got := copyFileBytes(t, dest); got != "new\n" {
-		t.Errorf("the file holds %q on disk, want %q: the error's claim about the write must be true", got, "new\n")
+			_, err := file.Copy(context.Background(), newCopyContext(server), newCopyTarget(server), copyParams(dest, "new\n"))
+			if err == nil {
+				t.Fatal("a failed step was reported as success")
+			}
+			if !strings.Contains(err.Error(), step.wants) {
+				t.Errorf("error = %q, want it to name the step that failed (%q)", err, step.wants)
+			}
+			if strings.Contains(err.Error(), "was written") {
+				t.Errorf("error = %q, want no claim that anything was written", err)
+			}
+			if got := copyFileBytes(t, dest); got != "old\n" {
+				t.Errorf("the file holds %q on disk, want it untouched", got)
+			}
+			if got := copyFileMode(t, dest); got != "0644" {
+				t.Errorf("the file is %s on disk, want its own 0644", got)
+			}
+		})
 	}
 }
 
-// TestCopy_ApplyFailureAfterWriteIsReported covers the branch where the
-// content landed and putting the attributes back did not.
-//
-// This is the one state neither the runbook nor a rollback recorded: the
-// file holds the new bytes with the atomic write's own 0600 rather than
-// the mode it had. The error is the only place that can be said.
-func TestCopy_ApplyFailureAfterWriteIsReported(t *testing.T) {
-	server := startCopyServerWithSessionBudget(t, 4)
+// TestCopy_AGroupItCannotGiveIsRefusedUntouched: a group the task names
+// that the connecting account may not give is refused before anything is
+// written, by the run and by the check alike.
+func TestCopy_AGroupItCannotGiveIsRefusedUntouched(t *testing.T) {
+	server := startCopyServer(t)
 	dest := copyExistingFile(t, "old\n", 0o644)
+	params := copyParams(dest, "new\n")
+	params["group"] = "pleiades-no-such-group"
 
-	_, err := file.Copy(context.Background(), newCopyContext(server), newCopyTarget(server), copyParams(dest, "new\n"))
-	if err == nil {
-		t.Fatal("a failed chmod after a successful write was reported as success")
+	if _, err := file.CheckCopy(context.Background(), newCopyContext(server), newCopyTarget(server), params); err == nil || !strings.Contains(err.Error(), "may not give a file the group pleiades-no-such-group") {
+		t.Errorf("check error = %v, want the refusal a real run makes", err)
 	}
-	if !strings.Contains(err.Error(), "not the attributes the task asked for") {
-		t.Errorf("error = %q, want it to say the attributes did not land", err)
+	_, err := file.Copy(context.Background(), newCopyContext(server), newCopyTarget(server), params)
+	if err == nil || !strings.Contains(err.Error(), "may not give a file the group pleiades-no-such-group") || !strings.Contains(err.Error(), "nothing was written") {
+		t.Fatalf("error = %v, want a refusal saying nothing was written", err)
 	}
-	if got := copyFileBytes(t, dest); got != "new\n" {
-		t.Errorf("the file holds %q on disk, want the new content the error claims landed", got)
-	}
-	if got := copyFileMode(t, dest); got != "0600" {
-		t.Errorf("the file is %s on disk, want the atomic write's 0600: the error claims the mode was not restored", got)
+	if got := copyFileBytes(t, dest); got != "old\n" {
+		t.Errorf("the file holds %q on disk, want it untouched", got)
 	}
 }
 
@@ -1237,7 +1256,7 @@ func TestCopy_ApplyFailureWithoutAWriteIsReported(t *testing.T) {
 // TestCopy_ReadBackStatFailureIsReported covers the branch where the
 // whole change landed and the final read of the path did not.
 func TestCopy_ReadBackStatFailureIsReported(t *testing.T) {
-	server := startCopyServerWithSessionBudget(t, 5)
+	server := startCopyServerWithSessionBudget(t, 8)
 	dest := copyExistingFile(t, "old\n", 0o644)
 
 	_, err := file.Copy(context.Background(), newCopyContext(server), newCopyTarget(server), copyParams(dest, "new\n"))
@@ -1252,6 +1271,35 @@ func TestCopy_ReadBackStatFailureIsReported(t *testing.T) {
 	}
 }
 
+// TestCopy_AReadBackLostAfterTheRenameKeepsItsUndo: the content is in
+// place when the read-back loses its connection, so the undo recorded the
+// moment the change was confirmed is kept through the failure
+// (sdk.Inverse.KeepOnFailure), and a rollback of the run can still restore
+// the file's attributes. The engine keeps it only because file.copy's
+// manifest allows it, which is asserted here too.
+func TestCopy_AReadBackLostAfterTheRenameKeepsItsUndo(t *testing.T) {
+	server := startCopyServerWithSessionBudget(t, 8)
+	rc := newCopyContext(server)
+	dest := copyExistingFile(t, "old\n", 0o644)
+
+	if _, err := file.Copy(context.Background(), rc, newCopyTarget(server), copyParams(dest, "new\n")); err == nil {
+		t.Fatal("a failed read-back was reported as success")
+	}
+	record, ok := rc.stats[sdk.StatInverse].(map[string]any)
+	if !ok {
+		t.Fatalf("no undo recorded for a change that landed: %v", rc.stats)
+	}
+	if record[sdk.InverseFQCNKey] != "file.permissions" || record[sdk.InverseKeepOnFailureKey] != true {
+		t.Errorf("undo = %v, want file.permissions kept through the failure", record)
+	}
+	d, _ := collection.Lookup("file.copy")
+	for _, spec := range d.Manifest.Reversibility.Inverses {
+		if !spec.MayKeepOnFailure {
+			t.Errorf("file.copy's undo through %s may not be kept through a failure, so the engine would drop it", spec.FQCN)
+		}
+	}
+}
+
 // TestCopy_ReadBackChecksumFailureIsReported covers the second half of
 // the read-back, which the stat failure above can never reach.
 //
@@ -1259,7 +1307,7 @@ func TestCopy_ReadBackStatFailureIsReported(t *testing.T) {
 // own error. Verifying only one of them would leave a method that could
 // swallow the other and report a checksum it never obtained.
 func TestCopy_ReadBackChecksumFailureIsReported(t *testing.T) {
-	server := startCopyServerWithSessionBudget(t, 6)
+	server := startCopyServerWithSessionBudget(t, 9)
 	dest := copyExistingFile(t, "old\n", 0o644)
 
 	_, err := file.Copy(context.Background(), newCopyContext(server), newCopyTarget(server), copyParams(dest, "new\n"))
@@ -1294,8 +1342,10 @@ func TestCopy_DiffRecordFailureIsReported(t *testing.T) {
 }
 
 // TestCopy_InverseRecordFailureIsReported covers the same swallowing
-// question at the second recording call site, which only a run that
-// really changed something reaches.
+// question at the inverse's recording call site, which only a run that
+// really changed something reaches. The inverse is recorded the moment the
+// change is confirmed, before the read-back and the diff, so a read-back
+// that fails still leaves an undo (TestCopy_AReadBackLostAfterTheRenameKeepsItsUndo).
 func TestCopy_InverseRecordFailureIsReported(t *testing.T) {
 	server := startCopyServer(t)
 	rc := newCopyContext(server)
@@ -1308,8 +1358,8 @@ func TestCopy_InverseRecordFailureIsReported(t *testing.T) {
 	if !errors.Is(err, errCopyStat) {
 		t.Errorf("error = %q, want it to carry what recording returned", err)
 	}
-	if _, recorded := rc.stats["diff"]; !recorded {
-		t.Error("the diff was not recorded before the inverse, so the two call sites ran in the wrong order")
+	if _, recorded := rc.stats["diff"]; recorded {
+		t.Error("the diff was recorded before the inverse, so a read-back that failed after the change would leave no undo")
 	}
 }
 

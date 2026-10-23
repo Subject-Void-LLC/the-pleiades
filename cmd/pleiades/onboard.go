@@ -60,12 +60,32 @@ func runOnboard(args []string) error {
 	// (containerengine.AllowLocalCarrier): the process that onboards here is
 	// the process that runs this project's tasks.
 	res, onboardErr := onboard.Onboard(ctx, repo, name, secrets, time.Now, routes)
+	// Then each loaded program's probe, whatever the device's own probe
+	// found (a program may reach it another way, an API rather than SSH):
+	// what a program defines is proved by that program. A failed probe of
+	// the device's own is still the command's answer.
+	if onboardErr == nil || errors.Is(onboardErr, onboard.ErrNotOnboarded) || errors.Is(onboardErr, onboard.ErrProbe) {
+		grants, err := runProgramProbes(*dir, name)
+		if err != nil {
+			return err
+		}
+		if len(grants) > 0 {
+			res.Grants = grants
+			if errors.Is(onboardErr, onboard.ErrNotOnboarded) {
+				onboardErr = nil
+				res.Device = name
+			}
+		}
+	}
 	if *asJSON {
 		if err := printOnboardJSON(os.Stdout, res); err != nil {
 			return err
 		}
-	} else if res.Type != "" {
-		printOnboard(os.Stdout, res)
+	} else {
+		if res.Type != "" {
+			printOnboard(os.Stdout, res)
+		}
+		printProbedGrants(os.Stdout, res)
 	}
 	return onboardErr
 }
@@ -103,6 +123,22 @@ func printOnboard(w io.Writer, res onboard.Result) {
 	}
 	if !res.Changed {
 		fmt.Fprintln(w, "  unchanged")
+	}
+}
+
+// printProbedGrants prints what each program's probe did.
+func printProbedGrants(w io.Writer, res onboard.Result) {
+	for _, g := range res.Grants {
+		switch {
+		case g.Error != "":
+			fmt.Fprintf(w, "  %s (%s): not granted: %s\n", g.Capability, g.Program, termsafe.EscapeLine(g.Error))
+		case g.Granted:
+			fmt.Fprintf(w, "  %s (%s): granted by its probe %s\n", g.Capability, g.Program, g.Probe)
+		case g.Withdrawn:
+			fmt.Fprintf(w, "  %s (%s): withdrawn, the device no longer answers its probe %s\n", g.Capability, g.Program, g.Probe)
+		default:
+			fmt.Fprintf(w, "  %s (%s): not granted, the device does not answer its probe %s\n", g.Capability, g.Program, g.Probe)
+		}
 	}
 }
 

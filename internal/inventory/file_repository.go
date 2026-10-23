@@ -287,12 +287,17 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 	if withHistory {
 		rec.History = toRevisions(entry.History)
 	}
-	if entry.Discovered != nil {
-		props := make(map[string]inventory.PropertyValue, len(h.Properties)+1)
+	if entry.Discovered != nil || entry.Granted != nil {
+		props := make(map[string]inventory.PropertyValue, len(h.Properties)+2)
 		for k, v := range h.Properties {
 			props[k] = v
 		}
-		props[inventory.DiscoveredProperty] = entry.Discovered
+		if entry.Discovered != nil {
+			props[inventory.DiscoveredProperty] = entry.Discovered
+		}
+		if entry.Granted != nil {
+			props[inventory.GrantedProperty] = entry.Granted
+		}
 		rec.Properties = props
 	}
 	return rec, nil

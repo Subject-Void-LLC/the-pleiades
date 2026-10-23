@@ -95,7 +95,7 @@ func parseDescription(data []byte) (external.Description, error) {
 // registry offers no way to ask "would you accept this" without also
 // registering it, and registering then failing on a later method would
 // leave a half-loaded directory with no way to take the first half back.
-func validateMethod(m external.DescribedMethod, running string, reserved map[string]bool) (versionUnchecked bool, err error) {
+func validateMethod(m external.DescribedMethod, running string, reserved map[string]bool, defined map[capability.Name]bool) (versionUnchecked bool, err error) {
 	if len(m.Name) > maxMethodName || !methodNamePattern.MatchString(m.Name) {
 		return false, fmt.Errorf("method name %q is not a lowercase, dot-separated name of at least two parts", truncateForMessage(m.Name))
 	}
@@ -130,8 +130,16 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 		}
 	}
 	for _, name := range m.Manifest.RequiredCapabilities {
-		if _, known := capability.Lookup(name); !known {
-			return false, fmt.Errorf("method %q requires capability %q, which this build does not define", m.Name, truncateForMessage(string(name)))
+		if defined[name] {
+			// One of this program's own data capabilities (validateCapabilities).
+			continue
+		}
+		d, known := capability.Lookup(name)
+		switch {
+		case !known:
+			return false, fmt.Errorf("method %q requires capability %q, which this build does not define and the program does not define either", m.Name, truncateForMessage(string(name)))
+		case d.Data != nil:
+			return false, fmt.Errorf("method %q requires capability %q, which another program defines; a program's methods may require only its own capabilities and the ones compiled into The Pleiades", m.Name, name)
 		}
 	}
 	if _, taken := collection.Lookup(m.Name); taken {

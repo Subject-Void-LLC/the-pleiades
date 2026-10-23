@@ -1,0 +1,64 @@
+{
+  "runbook": "runbooks/batfish_up.yaml",
+  "mode": "execute",
+  "nodes": 1,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 1
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "Batfish runs, its API on loopback only",
+          "method": "container.run",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "Batfish runs, its API on loopback only",
+      "method": "container.run",
+      "device": "dd7d730e-3647-44c0-96bd-7670f73193ac",
+      "host": "dockerhost",
+      "status": "changed",
+      "stats": {
+        "env_names": [
+          "JAVA_TOOL_OPTIONS"
+        ],
+        "id": "da0989e4b59d6ad0a8eff37cec963bae7d10e3a3eddd60cf5975a70f54503284",
+        "image": "batfish/batfish:2026.08.27.3685@sha256:7909378197c5a3974f2e8180af58cef0ca17b74d1cd9ba39f2d1fddb64737e55",
+        "image_digest": "sha256:7909378197c5a3974f2e8180af58cef0ca17b74d1cd9ba39f2d1fddb64737e55",
+        "image_id": "sha256:7909378197c5a3974f2e8180af58cef0ca17b74d1cd9ba39f2d1fddb64737e55",
+        "inverse": {
+          "description": "Remove the container this task created.",
+          "fqcn": "container.remove",
+          "params": {
+            "engine": "docker",
+            "force": true,
+            "id": "da0989e4b59d6ad0a8eff37cec963bae7d10e3a3eddd60cf5975a70f54503284",
+            "name": "frrlab-batfish"
+          }
+        },
+        "name": "frrlab-batfish",
+        "pulled": false,
+        "state": "running"
+      },
+      "started_at": "2026-10-23T02:30:19.672864379Z",
+      "finished_at": "2026-10-23T02:30:19.879992675Z"
+    }
+  ],
+  "run_id": "6d7da164-14a3-4983-b723-1e387ed2aee5",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/6d7da164-14a3-4983-b723-1e387ed2aee5.jsonl",
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}

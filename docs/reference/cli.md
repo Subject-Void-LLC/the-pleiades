@@ -50,6 +50,32 @@ change an existing host's properties
 
 `pleiades set-host win01 --set "tls_ca_pem=$(cat ca.pem)"`
 
+## pleiades grant-capability
+
+assert that a device holds a capability an external program defines, with a reason
+
+`pleiades grant-capability <device> <capability> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --reason | `string` | - | why this device holds the capability, recorded with the grant (required) |
+| --set | `key=value` | - | grant property as key=value (repeatable) |
+
+`pleiades grant-capability tenancy oci.tenancy_api --set tenancy_ocid=ocid1.tenancy.oc1..aaa --set region=us-ashburn-1 --reason "the lab tenancy"`
+
+## pleiades revoke-capability
+
+take back a device's grant of a capability an external program defines
+
+`pleiades revoke-capability <device> <capability> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+
+`pleiades revoke-capability tenancy oci.tenancy_api`
+
 ## pleiades trust-host
 
 trust a device's SSH host keys, read from its VM's console or taken on first connect
@@ -217,6 +243,29 @@ make one kubeconfig context a kubernetes_cluster device and its stored credentia
 `pleiades import-kubeconfig desktop --kubeconfig ~/.kube/config --context docker-desktop`
 
 `pleiades import-kubeconfig prod --kubeconfig prod.yaml --replace --json`
+
+## pleiades import-containerlab
+
+make a containerlab lab's nodes generic_ssh devices, from the topology-data.json it wrote on deploy, refusing any node that is not the named lab's
+
+`pleiades import-containerlab [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --topology | `string` | - | containerlab's topology-data.json for the lab, written on deploy |
+| --lab | `string` | - | the lab's name, which the file must be for |
+| --nodes | `string` | - | comma-separated nodes to import; every node when empty |
+| --username | `string` | - | with --key, the account every node is reached as |
+| --key | `string` | - | a private key file stored as every imported node's credential |
+| --trust-first-connect | `bool` | `false` | trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does |
+| --onboard | `bool` | `false` | onboard each node once it is imported (needs a credential and trusted host keys) |
+| --replace | `bool` | `false` | replace the address of a node already in the inventory as a generic_ssh device |
+| --json | `bool` | `false` | print the result as one JSON document |
+
+`pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --username netops --key keys/id_ed25519 --trust-first-connect --onboard`
+
+`pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --nodes r1,r2 --replace --json`
 
 ## pleiades onboard
 
@@ -660,8 +709,11 @@ generate a buildable external Collection program providing one method
 | --- | --- | --- | --- |
 | --dir | `string` | - | directory to write the program into (default: the method name with its dots as hyphens) |
 | --no-go-mod | `bool` | `false` | write no go.mod, so the program joins the Go module around it instead of being a module of its own |
+| --capability | `string` | - | a capability the program defines as data, <namespace>.<name> in the method's namespace: its definition and a probe that grants it are written, and the method requires it |
 
 `pleiades forge new-external acme.motd.read`
+
+`pleiades forge new-external acme.motd.read --capability acme.motd_host`
 
 ### pleiades forge new-filter
 

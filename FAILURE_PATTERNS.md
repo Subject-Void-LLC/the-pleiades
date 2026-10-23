@@ -577,6 +577,23 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 572. engine.TaskReads' first draft left out a task's rollback: steps, which rollback_on_failure runs and renders inside the forward run (a repeat of 561) (fixed before push)
 573. The first segmenter accepted two plans one device's dispatch cannot keep, and refused a third it could (fixed before push)
 574. validate holds a rollback: step to three of the rules a task meets, not TemplateRule, so a misspelled register in an undo step passes (a repeat of 561) (open)
+575. Docker Desktop carried a net lab node's SSH port over whichever network's name sorted first, so taking a link down cut the test's own session (fixed before push)
+576. Docker's --internal networks dropped OSPF's multicast hellos, so no adjacency formed and wait.routes timed out (fixed before push)
+577. Secret masking split words at spaces and tabs only, and its keyword list missed RADIUS and TACACS server keys, FHRP, RIP and NHRP authentication, and snmp-server host communities (a repeat of 458) (fixed before push)
+578. A new output path skipped the masking beside it: net.frr.command's show output, vtysh and frr-reload errors, and the Controller's grant properties (a repeat of 522) (fixed before push)
+579. A check of net.frr.config passed a change the account could not make, and a failed reload left the router in neither configuration (a sibling of 564) (fixed before push)
+580. A masked configuration could be applied, and expect_sha256 matched it (fixed before push)
+581. ovs-vsctl exits 1 both for "no port named" and for every fatal error, so a failed read was taken as absence (a repeat of 451) (fixed before push)
+582. Open vSwitch undos were recorded as exact when they could not put back what the change removed (fixed before push)
+583. The grant routes' scope tests ran with a fake admitter and an admin identity, so the routes' own scope was never exercised (a repeat of LESSONS 180) (fixed before push)
+584. The documented accept_unrecognized example split at an unquoted comma in a YAML flow mapping, and validate passed it (a repeat of 548) (fixed before push)
+585. Batfish parses Cisco GLBP, IP SLA, SLA tracking and BFD without a warning and does not model them, so a gate that refused only unrecognised lines would pass them (a sibling of 252 and 539) (fixed before push)
+586. import-containerlab --trust-first-connect wrote an ephemeral lab's host keys into the user's own known_hosts (a repeat of 442) (fixed before push)
+587. Net lab nodes still reached SSH over a link 2 starts in 10, after the networks were named so management sorted first (a repeat of 575) (fixed before push)
+588. PredictPut refused, on FreeBSD, a group the file Put writes takes from its directory without a chgrp (a repeat of 521) (fixed before push)
+589. A test left doctest's capability registered, so a later onboard ran its probe, and the re-run alone called it contention (a repeat of 188) (fixed before push)
+590. An empty standard input's end could reach sshd before the exec request, so "cat > file" waited forever (a regression from 149's fix) (fixed before push)
+591. A Batfish live test required "domainname localdomain", which FRR writes only where the Docker host gives a search domain (a repeat of 426) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

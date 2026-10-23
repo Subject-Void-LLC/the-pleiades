@@ -66,13 +66,21 @@ func (f *ItemFactory) Build(rec record.Record) (inventory.InventoryItem, error) 
 // caller that edits an item calls this before saving it: a value the type
 // would refuse on the next load is refused now, before it is written.
 func (f *ItemFactory) Rebuild(item inventory.InventoryItem) error {
+	_, err := f.Rebuilt(item)
+	return err
+}
+
+// Rebuilt is Rebuild returning the item built afresh from item's current
+// record, for a caller that must ask the rebuilt item a question (whether
+// a capability a grant adds is now held) before it saves item. The
+// returned item carries no history; save item, not it.
+func (f *ItemFactory) Rebuilt(item inventory.InventoryItem) (inventory.InventoryItem, error) {
 	deviceType, err := itemDeviceType(item)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = f.Build(record.Record{
+	return f.Build(record.Record{
 		ID: item.ID(), Name: item.Name(), Type: deviceType,
 		Properties: item.Properties().Raw(), Tags: item.Tags(), State: item.State(),
 	})
-	return err
 }

@@ -46,6 +46,7 @@ func fullSpec(t *testing.T, imageID string) containerengine.Spec {
 		Network: "bridge", Restart: "no", ReadOnly: true, User: "1000", Workdir: "/tmp",
 		Labels: map[string]string{"pleiades.test": "spec"}, CapAdd: []string{"NET_ADMIN"},
 		Ports: []containerengine.Port{port, port2}, Devices: []containerengine.Device{dev},
+		Memory: 64 << 20, MemorySwap: 128 << 20,
 		Attempt: "attempt-1",
 	}
 }

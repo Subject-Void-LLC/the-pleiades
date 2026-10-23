@@ -190,7 +190,7 @@ func TestCreateSkill_ReportsADirectoryItCannotWrite(t *testing.T) {
 // from, so a renamed command or flag cannot stay in the skill an agent
 // follows.
 func TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas(t *testing.T) {
-	spans := strings.Split(skillGuide, "`")
+	spans := strings.Split(skillGuide+skillNetwork, "`")
 	var checked int
 	for i := 1; i < len(spans); i += 2 {
 		words := strings.Fields(spans[i])
@@ -267,5 +267,37 @@ func TestSkillMarkdown_LeavesOutExternalMethods(t *testing.T) {
 func TestTableCell_AnEmptySummaryIsSaidSo(t *testing.T) {
 	if got := tableCell(" \n "); got != "(no summary yet)" {
 		t.Errorf("tableCell(blank) = %q", got)
+	}
+}
+
+// TestSkillNetwork_OnlyWithTheGateAndOnlyRealMethods: the network section
+// is written when net.batfish.check is a built-in method and not
+// otherwise, and every method it names is one this binary registers.
+func TestSkillNetwork_OnlyWithTheGateAndOnlyRealMethods(t *testing.T) {
+	gate := catalogEntry{FQCN: "net.batfish.check", Manifest: collection.Manifest{Status: collection.StatusImplemented}}
+	if !strings.Contains(skillMarkdown([]catalogEntry{gate}), "## Changing a network") {
+		t.Error("the network section is missing with net.batfish.check registered")
+	}
+	if strings.Contains(skillMarkdown(nil), "## Changing a network") {
+		t.Error("the network section is written without net.batfish.check")
+	}
+	gate.Origin = "external Collection /opt/c/x (sha256:00)"
+	if strings.Contains(skillMarkdown([]catalogEntry{gate}), "## Changing a network") {
+		t.Error("an external method of the same name wrote the network section")
+	}
+	spans := strings.Split(skillNetwork, "`")
+	named := 0
+	for i := 1; i < len(spans); i += 2 {
+		w := spans[i]
+		if strings.Count(w, ".") < 1 || strings.ContainsAny(w, " /:") || !strings.HasPrefix(w, "net.") && !strings.HasPrefix(w, "wait.") {
+			continue
+		}
+		if _, ok := collection.Lookup(w); !ok {
+			t.Errorf("the network section names %s, which is not a registered method", w)
+		}
+		named++
+	}
+	if named < 5 {
+		t.Fatalf("only %d methods found in the network section; the parse no longer matches it", named)
 	}
 }

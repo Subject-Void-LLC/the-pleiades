@@ -273,17 +273,11 @@ func syncFstab(ctx context.Context, conn *remoteexec.Conn, fstabPath, mountpoint
 		newContent += "\n"
 	}
 
-	if err := remotefile.Write(ctx, conn, fstabPath, []byte(newContent)); err != nil {
-		return false, err
-	}
-	written, err := remotefile.Stat(ctx, conn, fstabPath)
+	// Put keeps fstab's mode, owner and group, and a write it cannot finish
+	// leaves fstab as it was.
+	put, err := remotefile.Put(ctx, conn, fstabPath, []byte(newContent), info, remotefile.Attributes{})
 	if err != nil {
-		return false, fmt.Errorf("%w: the new fstab text is already in place, so fix the cause and re-run rather than expecting the file to be untouched", err)
-	}
-	if _, err := remotefile.Apply(ctx, conn, fstabPath, remotefile.Attributes{
-		Mode: info.Mode, Owner: info.Owner, Group: info.Group,
-	}, written); err != nil {
-		return false, fmt.Errorf("%w: the new fstab text is in place but the file now carries the permissions of the temporary it was written through, so fix the cause and re-run rather than leaving it that way", err)
+		return false, put.Failure(err, "fstab may already hold the new text, so fix the cause and re-run rather than expecting it untouched")
 	}
 	return true, nil
 }

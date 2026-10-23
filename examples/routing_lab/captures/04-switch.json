@@ -1,0 +1,115 @@
+{
+  "runbook": "runbooks/switch.yaml",
+  "mode": "execute",
+  "nodes": 3,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 1
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "br0 exists on the userspace datapath",
+          "method": "net.ovs.bridge",
+          "selected": true
+        },
+        {
+          "id": "tasks[1]",
+          "name": "r1's port is on br0",
+          "method": "net.ovs.port",
+          "selected": true
+        },
+        {
+          "id": "tasks[2]",
+          "name": "h1's port is on br0",
+          "method": "net.ovs.port",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "br0 exists on the userspace datapath",
+      "method": "net.ovs.bridge",
+      "device": "48cc94ec-f663-4d43-a309-d4ac928ee005",
+      "host": "sw1",
+      "status": "changed",
+      "stats": {
+        "datapath_type": "netdev",
+        "exists": true,
+        "inverse": {
+          "description": "Removes the bridge br0, which this run created.",
+          "fqcn": "net.ovs.bridge",
+          "keepOnFailure": true,
+          "params": {
+            "name": "br0",
+            "state": "absent"
+          }
+        }
+      },
+      "started_at": "2026-10-23T02:30:08.210758317Z",
+      "finished_at": "2026-10-23T02:30:10.756199206Z"
+    },
+    {
+      "id": "tasks[1]",
+      "name": "r1's port is on br0",
+      "method": "net.ovs.port",
+      "device": "48cc94ec-f663-4d43-a309-d4ac928ee005",
+      "host": "sw1",
+      "status": "changed",
+      "stats": {
+        "exists": true,
+        "inverse": {
+          "description": "Removes the port eth1 from br0, which this run added.",
+          "fqcn": "net.ovs.port",
+          "keepOnFailure": true,
+          "params": {
+            "bridge": "br0",
+            "name": "eth1",
+            "state": "absent"
+          }
+        },
+        "tag": 0
+      },
+      "started_at": "2026-10-23T02:30:10.765548409Z",
+      "finished_at": "2026-10-23T02:30:10.781282542Z"
+    },
+    {
+      "id": "tasks[2]",
+      "name": "h1's port is on br0",
+      "method": "net.ovs.port",
+      "device": "48cc94ec-f663-4d43-a309-d4ac928ee005",
+      "host": "sw1",
+      "status": "changed",
+      "stats": {
+        "exists": true,
+        "inverse": {
+          "description": "Removes the port eth2 from br0, which this run added.",
+          "fqcn": "net.ovs.port",
+          "keepOnFailure": true,
+          "params": {
+            "bridge": "br0",
+            "name": "eth2",
+            "state": "absent"
+          }
+        },
+        "tag": 0
+      },
+      "started_at": "2026-10-23T02:30:10.788555469Z",
+      "finished_at": "2026-10-23T02:30:10.805401399Z"
+    }
+  ],
+  "run_id": "2ad789e8-5e11-43fd-aa0d-cd83d9c510c8",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/2ad789e8-5e11-43fd-aa0d-cd83d9c510c8.jsonl",
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}

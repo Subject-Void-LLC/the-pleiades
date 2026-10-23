@@ -3,7 +3,7 @@
 package externalscaffold
 
 // methodTestTemplateSource is the program's starter test. It drives
-// external.Serve, the program's real serving path, over buffers rather
+// external.ServeProgram, the program's real serving path, over buffers rather
 // than calling the descriptor function and inspecting it, because Serve
 // is what runs collection.Register and prints the describe document
 // The Pleiades reads. A test that only looked at the struct would pass for a
@@ -22,13 +22,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Test{{.FunctionName}}Serve runs this program's own serving path,
-// external.Serve, over buffers, for each command The Pleiades can send it.
+// external.ServeProgram, over buffers, for each command The Pleiades can
+// send it.
 //
 // The describe case matters most. Serve registers every method through
 // collection.Register before it answers, so a clean describe proves the
@@ -55,9 +57,14 @@ func Test{{.FunctionName}}Serve(t *testing.T) {
 				if desc.Protocol != external.ProtocolVersion {
 					t.Errorf("Protocol = %d, want %d", desc.Protocol, external.ProtocolVersion)
 				}
-				if len(desc.Methods) != 1 || desc.Methods[0].Name != {{.Prefix}}FQCN {
-					t.Fatalf("Methods = %+v, want exactly %q", desc.Methods, {{.Prefix}}FQCN)
+				if len(desc.Methods) != {{if .Capability}}2{{else}}1{{end}} || desc.Methods[0].Name != {{.Prefix}}FQCN {
+					t.Fatalf("Methods = %+v, want %q first", desc.Methods, {{.Prefix}}FQCN)
 				}
+{{- if .Capability}}
+				if len(desc.Capabilities) != 1 || desc.Capabilities[0].Name != {{.Prefix}}CapabilityName {
+					t.Errorf("Capabilities = %+v, want exactly %q", desc.Capabilities, {{.Prefix}}CapabilityName)
+				}
+{{- end}}
 				manifest := desc.Methods[0].Manifest
 				if manifest.Status != collection.StatusImplemented {
 					t.Errorf("Status = %q, want %q", manifest.Status, collection.StatusImplemented)
@@ -92,6 +99,7 @@ func Test{{.FunctionName}}Serve(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Cleanup(collection.SnapshotForTest())
+			t.Cleanup(capability.SnapshotForTest())
 
 			var in bytes.Buffer
 			if tt.request != nil {
@@ -101,8 +109,7 @@ func Test{{.FunctionName}}Serve(t *testing.T) {
 			}
 
 			var out, errOut, response bytes.Buffer
-			code := external.Serve(context.Background(), tt.args,
-				[]collection.Descriptor{ {{.FunctionName}}Descriptor() },
+			code := external.ServeProgram(context.Background(), tt.args, program(),
 				external.Streams{In: &in, Out: &out, Err: &errOut, Response: &response})
 			if code != tt.wantCode {
 				t.Fatalf("Serve(%q) exited %d, want %d; stderr:\n%s", tt.args, code, tt.wantCode, errOut.String())
@@ -219,6 +226,27 @@ pleiades doc {{.Name}}
   {{.Name}}:
   register: details
 ~~~
+
+{{- if .Capability}}
+
+## The capability
+
+This program defines {{code .Capability}}, a capability The Pleiades knows
+only because this program describes it, and {{code .Name}} requires it. A
+device holds it once it is granted, in one of two ways:
+
+~~~sh
+# its probe, {{.ProbeName}}, decides, and the grant records that it did
+pleiades onboard <device>
+
+# or an operator asserts it, with a reason the grant records
+pleiades grant-capability <device> {{.Capability}} --set kernel=Linux --reason "why it holds"
+~~~
+
+Change its properties to what your methods need to know about a device
+(in {{code (printf "%s.go" .CapabilityFile)}}), and the probe to how you
+find them out. No property may be a secret or an address.
+{{- end}}
 
 ## Test
 

@@ -1,0 +1,13 @@
+run 078bcea2-e9ab-4815-aa7e-d805ea874f82
+    1 tasks[0]                 r1               ran      net.frr.facts
+    2 tasks[1]                 r2               ran      net.frr.facts
+    3 tasks[2]                 batfish          ran      net.batfish.check
+    4 tasks[3].block[0]        r3               changed  net.frr.config
+        undo: net.frr.config restore=/home/netops/.pleiades-frr/pleiades-20261023T023112Z-c82da722.conf save=false
+    5 tasks[3].block[1]        r1               ran      wait.routes
+    6 tasks[3].block[2]        r3               ran      wait.routes
+    7 tasks[3].block[3]        r1               ran      net.trace
+    8 tasks[3].block[4]        r1               ran      net.frr.facts
+    9 tasks[3].block[5]        r2               ran      net.frr.facts
+   10 tasks[3].block[6]        r3               ran      net.frr.facts
+   11 tasks[3].block[7]        batfish          ran      net.batfish.check

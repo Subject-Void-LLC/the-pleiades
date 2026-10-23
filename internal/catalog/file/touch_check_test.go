@@ -30,15 +30,16 @@ func recordingServer(t *testing.T) (dirServer, *remoteexectest.Server) {
 }
 
 // onlyStats fails t if any command is not one of remotefile's reads: Stat
-// (the stat itself, and readlink for a link) and Checksum, the only reads
-// a file method's check may send.
+// (the stat itself, and readlink for a link), Checksum, and PredictPut's
+// read of the login and what it may write, the only reads a file method's
+// check may send.
 func onlyStats(t *testing.T, commands []string) {
 	t.Helper()
 	if len(commands) == 0 {
 		t.Fatal("the check sent nothing, so it read nothing")
 	}
 	for _, c := range commands {
-		if !strings.HasPrefix(c, "if [ -e ") && !strings.HasPrefix(c, "readlink '") && !strings.HasPrefix(c, "if [ -f ") {
+		if !strings.HasPrefix(c, "if [ -e ") && !strings.HasPrefix(c, "readlink '") && !strings.HasPrefix(c, "if [ -f ") && !strings.HasPrefix(c, "id -u; id -un; id -Gn; ") {
 			t.Errorf("the check sent %q, which is not a stat", c)
 		}
 	}

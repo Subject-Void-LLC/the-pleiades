@@ -14293,3 +14293,417 @@ changes `internal/validate`, so the census runs.
 **Lesson.** A comment saying one rule holds X to "exactly what" another thing is held to is a list of rules to check
 against the full list, not a summary to trust.
 
+## 575. Docker Desktop carried a net lab node's SSH port over whichever network's name sorted first, so taking a link down cut the test's own session (fixed before push)
+
+**Symptom.** 2026-10-22, building Phase 127b's net lab (`internal/testsupport/netlab.go`). About half of all lab starts
+reached a node's published SSH port over one of its link networks, not over the management network. When a test then
+took that link down (as the route and failover tests do), the test's own SSH session hung: a channel open was never
+answered. While the links were `--internal` networks, the lab failed to start instead, with "port 22/tcp sent no SSH
+greeting", because the link address refused the connection. That start failure had been unexplained until then.
+A second trap on the same networks: on a link that is not internal, the subnet's first address is Docker's gateway,
+and a test that gave a node 10.212.0.17 failed; its addresses moved to .18 and .19, and `NetLabLink.Ends` now says
+never to use a subnet's first address (`891014f1`).
+
+**Root cause.** Docker Desktop forwards a published port through the container's network whose name sorts first. It
+ignores the endpoint's `gw-priority` and the container's `HostConfig.NetworkMode`. testcontainers' `network.New` names
+every network with a random UUID, so which network carried SSH was a coin toss on each start. Proven both ways with
+one container on two networks: named `aa-link` and `zz-mgmt`, the port went over the link; swapped, over management.
+Measured on Docker Desktop on this machine only; a native Linux daemon (the CI runners) was not checked.
+
+No earlier entry has this cause. 186 is the nearest kin (a Docker network behavior that depends on how the daemon is
+installed). 470 and 471 (a published port refusing every connection while the server listened) stay open: this cause
+needs a container on two or more networks, and whether it explains either of them, whose fixtures are not net labs,
+was not checked.
+
+**Fix.** `c4621535`: `netLabNetwork` names the networks so the management network sorts first. Every net lab test
+since then reaches its nodes over management, and `TestCLI_NetworkChangeIsGatedAppliedAndUndone` takes a link down
+out of band and still drives the routers through it (passed 2026-10-22, 92.8 s).
+
+**Lesson.** When a container sits on several networks, which one a published port uses is the daemon's choice and is
+not what the API's priority fields say. Pin it by the rule the daemon actually follows, and test by taking every other
+network down. On a non-internal network, never give a node the subnet's first address.
+
+## 576. Docker's --internal networks dropped OSPF's multicast hellos, so no adjacency formed and wait.routes timed out (fixed before push)
+
+**Symptom.** 2026-10-22, the first net lab with OSPF between FRR routers. No adjacency ever formed on a link, and
+`wait.routes` timed out waiting for the routes OSPF should have learned.
+
+**Root cause.** On a Docker network created with `--internal`, the bridge drops a packet whose destination is outside
+the network's subnet. OSPF hellos go to the multicast address 224.0.0.5, which is outside every link subnet, so not
+one crossed.
+
+**Fix.** `81e2ebfc`: net lab links are no longer internal networks. Proven by the routers forming OSPF and eBGP
+sessions in `TestMethods_OnRealRouters`, the `wait.routes` live tests and `TestCLI_NetworkChangeIsGatedAppliedAndUndone`.
+The cost is 575's second trap: on a normal network the subnet's first address belongs to Docker's gateway.
+
+No earlier entry is this class.
+
+**Lesson.** An isolation setting is a filter on traffic, and a routing protocol's control traffic is often multicast
+or link-local. Before wiring a lab of routers, check that the network passes the protocol's own packets, not only
+unicast to a neighbor's address.
+
+## 577. Secret masking split words at spaces and tabs only, and its keyword list missed RADIUS and TACACS server keys, FHRP, RIP and NHRP authentication, and snmp-server host communities (a repeat of 458) (fixed before push)
+
+**Symptom.** Two findings in `pkg/netcfg`'s `Mask`, new on this branch (`03294512`), which masks configuration secrets
+before a result, a model or Batfish sees them.
+- `FuzzMask` (`8a03adc1`) found that `password\vzebra` came back unmasked. Mask split a line into words at spaces and
+  tabs only. Any reader that splits at every Unicode space (Go's `strings.Fields`, among others) reads `zebra` as the
+  password's own word. The input is kept as the regression seed `pkg/netcfg/testdata/fuzz/FuzzMask/0efe06de78653693`.
+- The branch review (2026-10-22) found real configuration lines that kept their secret: the leading `key 7 x` inside a
+  `radius server` or `tacacs server` block, `standby`, `vrrp`, `glbp`, `ip rip` and `ip nhrp` authentication, and an
+  `snmp-server host` line's community string.
+
+**Root cause.** Mask is a denylist: it masks the word after each secret word it knows. A denylist fails open, so any
+form it does not list (a word boundary it does not split at, a keyword, a block where `key` holds a secret) passes
+through unmasked. The keyword list came from the forms FRR and Cisco write that its author had in mind, not from each
+vendor's configuration reference.
+
+**Why 458's fix did not prevent it.** 458 found a secret check that asked where a parser files a password, not where
+the receiving side accepts one (LESSONS 277). That lesson was written about URLs, and nothing carried it to a new
+package masking a new kind of text. The `\v` case is the same mistake: Mask asked where its own splitter puts a word
+boundary, not where a reader of its output does.
+
+**Fix.** `8a03adc1`: Mask splits at every Unicode space. `26dca552`: Mask knows a key's block (a key chain's `key 1`
+names a key and is kept; a RADIUS or TACACS server's `key 7 x` holds one and is masked), standby, vrrp, glbp, rip and
+nhrp authentication, and an snmp-server host's community. `TestMask_ByVendor` holds real lines per vendor to the mask,
+and lines with no secret to staying unchanged; `FuzzMask` checks that masking keeps the line count, is idempotent, and
+leaves no word after `password` unmasked.
+
+**Still open, by design.** Mask is still a denylist. A secret form that is not in the table still passes unmasked.
+
+**Lesson.** A mask that names what to hide fails open. Write its tests from each vendor's list of secret-bearing
+commands, fuzz it with a reader as broad as any consumer's, and state beside it that an unlisted form passes.
+
+## 578. A new output path skipped the masking beside it: net.frr.command's show output, vtysh and frr-reload errors, and the Controller's grant properties (a repeat of 522) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-22, before any push:
+- `net.frr.command` returned `show running-config` unmasked in its `stdout` stat, while `net.frr.facts` masked the same
+  text. `show running-config` is a show command, so `net.frr.command` accepts it.
+- `vtysh` errors named the refused command, and `frr-reload` errors echoed configuration lines, both unmasked. A
+  configuration line can hold a secret.
+- The Controller's grant route (`POST /inventory/devices/{name}/capabilities`, `internal/api/devices_grants.go`)
+  accepted a secret-named grant property. A grant rides every dispatch to its device, so the value would travel the
+  JetStream stream on every job. The code's comment said the loader refuses such a property; the Controller loads no
+  program, so nothing did.
+
+**Root cause.** Masking was done by each output path, not where the device's text is read. `net.frr.facts` called
+`netcfg.Mask` on its output; `net.frr.command`, written beside it, did not. The errors were a third path. The grant
+route relied on a check in another binary, and its comment claimed more than the code did (the shape of 228).
+
+**Why 522's fix did not prevent it.** 522's lesson was "mask a test's text where the program reads it, not where each
+view shows it". It was applied to `tools/testgate`. Nothing carried it to the FRR package, where each method masks its
+own output, so a new method had to remember. The fix below is still per path.
+
+**Fix.** `26dca552`: `net.frr.command` masks `stdout` and every string inside `data`; `vtysh` errors and `firstLine`
+mask and bound the device's text; the grant route refuses a secret-named property (`redact.SecretName`). `6e4943fa`:
+a failed reload names frr-reload's own error lines, masked. Tests: `TestGrantRoutes_RefuseWhatTheyCannotRecord`'s
+"a secret-named property" case and `TestReloadError`. `testCommand` in `internal/catalog/net/frr/frr_live_test.go` sets an OSPF key on a real router and requires
+`net.frr.command show running-config` to return it masked (added after this entry was first written).
+
+**Lesson.** When a package masks device text, mask it once where the text comes in from the device, and give every
+new method a test that reads a secret back through it. A check that lives in another binary protects only that
+binary's path.
+
+## 579. A check of net.frr.config passed a change the account could not make, and a failed reload left the router in neither configuration (a sibling of 564) (fixed before push)
+
+**Symptom.** Found by the clean-slate routing lab (its G1 to G3) and the branch review (F8), 2026-10-22.
+- An account in `frrvty` can read the configuration and run `frr-reload --test`, which needs no write access, so a
+  check of `net.frr.config` predicted the change and passed. The real reload needs `/var/run/frr` writable, so the
+  real run failed.
+- `frr-reload` deletes lines before it adds them. A reload that could not write its files left the router in neither
+  the old nor the new configuration, and the method's error showed only frr-reload's first INFO line, not the error.
+  The undo failed the same way.
+- With `save: true`, whether `frr.conf` was writable was asked only after the reload, so a refused save left the
+  router changed and the task failed.
+
+**Root cause.** The check asked a dry-run tool whether the change was well formed, and that tool needs fewer rights
+than the change itself. Nothing asked whether this account could make the change. The writability of `frr.conf` was
+checked in the wrong order.
+
+**Related, not a repeat.** 564 is the same symptom (a check passed in full where the run fails) with another cause: it
+predicted through state an earlier task could change. Here the state was fixed; the check asked a narrower question.
+The tests' own images had hidden it: they granted the test account access to `/var/run/frr` that the docs never told
+a user to grant (LESSONS 311).
+
+**Fix.** `6e4943fa`: `net.frr.config` checks that `/var/run/frr` is writable before anything is sent, in a check as in
+a real run, and a failed reload names frr-reload's own error lines, masked. `26dca552`: whether `frr.conf` can be
+written (`canSave`) is asked before the reload, in both modes. Tests: `testConfig` in
+`internal/catalog/net/frr/frr_live_test.go` removes the group's write access to `/var/run/frr` and requires the check
+and the run to refuse with the router unchanged; `TestReloadError`. The same test makes `frr.conf` read-only and
+requires a check and a run with `save` to refuse before the reload, the router unchanged.
+
+**Lesson.** A check must ask every question the real change will ask, including "may this account do it". When the
+check uses a dry-run mode, list what the real mode needs that the dry run does not, and ask those directly.
+
+## 580. A masked configuration could be applied, and expect_sha256 matched it (fixed before push)
+
+**Symptom.** The branch review, 2026-10-22, reasoned from the code. `net.frr.facts`' `running_config` is masked: every
+secret becomes a `pleiades-masked-` placeholder. Fed to `net.frr.config` as a candidate, it would set every key to its
+placeholder and drop every authenticated OSPF and BGP session. `expect_sha256` would not stop it, because
+`net.batfish.check` hashed the same masked text it was given, so the digests matched.
+
+**Root cause.** The digest proves the bytes applied are the bytes checked. It says nothing about whether those bytes
+are a configuration or a masked copy of one, and nothing else asked.
+
+**Fix.** `26dca552`: `net.frr.config` refuses a candidate that contains the mask prefix (`netcfg.MaskPrefix`) before
+anything is sent, unless it is restoring a backup. `testConfig` requires a candidate holding the prefix to be refused.
+
+No earlier entry is this class.
+
+**Lesson.** A redacted copy of data must never be accepted where the real data is: when a method masks what it reads,
+the method that writes the same kind of data refuses the mask's marker.
+
+## 581. ovs-vsctl exits 1 both for "no port named" and for every fatal error, so a failed read was taken as absence (a repeat of 451) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-22. `net.ovs.port` read any exit 1 from `ovs-vsctl port-to-br` as "no such
+port". `ovs-vsctl` exits 1 for that and also for every other fatal error, such as a database it cannot reach or a
+permission refused. So `state: absent` succeeded on a switch whose database could not be read, and the code's own
+comment said the opposite of what ovs-vsctl does.
+
+**Root cause.** LESSONS 138's second half: "I could not look" collapsed into "it is not there".
+
+**Why 451's fix did not prevent it.** 451 found the same thing in `docker inspect` and fixed it in the container
+package. The rule is a habit each new reader of a command's exit status has to remember, and nothing checks a new one.
+This reader was written from an assumption about the tool's exit codes, not from the tool.
+
+**Fix.** `26dca552`: an absence only when the exit is 1 and the output holds ovs-vsctl's own words, "no port named";
+anything else is an error with the device's text bounded and quoted. `TestBridgeAndPort_OnARealSwitch` makes the
+database socket unreadable and requires `state: absent` to fail rather than report the port absent.
+
+**Lesson.** Before reading an exit code as an answer, make the command fail for another reason and see what it
+returns. Most tools use one code for many failures.
+
+## 582. Open vSwitch undos were recorded as exact when they could not put back what the change removed (fixed before push)
+
+**Symptom.** The branch review, 2026-10-22.
+- `net.ovs.port` removing a port recorded an exact undo that added it back with its tag only. The interface's `type`
+  and `options` and the port's `trunks` and `vlan_mode` were lost.
+- `net.ovs.bridge` removing a bridge lost its `fail_mode`, `controller`, `protocols` and `other_config` the same way.
+- Moving a port to another bridge is a delete and an add, so the forward change itself dropped those settings, and
+  the undo could not restore them.
+
+**Root cause.** Each undo was built from the fields the method sets (bridge, name, tag), not from everything the
+change destroys. LESSONS 147 says to build an inverse from the value about to be overwritten; here the overwritten
+value was larger than what the method's parameters name.
+
+**Fix.** `26dca552`: a removal's undo is marked partial and names what it cannot put back when the port or bridge
+carried more than the defaults; a move of a port that carries more than a tag is refused. The method's declaration
+now allows a partial undo (`MayBePartial`). `TestBridgeAndPort_OnARealSwitch` sets trunks on a real port, requires the
+move to be refused with the port left where it was, and requires the removal's undo to be partial and to name trunks.
+
+No earlier entry is this class.
+
+**Lesson.** An undo is exact only when it restores everything the change destroyed. List what the object carries, not
+what the method sets, and mark the undo partial when it cannot put something back.
+
+## 583. The grant routes' scope tests ran with a fake admitter and an admin identity, so the routes' own scope was never exercised (a repeat of LESSONS 180) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-22. The tests of the grant and revoke routes (`internal/api/devices_grants_test.go`)
+mounted them behind an authentication that admits everyone and a fake admitter. Through that test router a caller
+without `inventory:assert` got 200. Every scope assertion in the file was about constants, not about the routes.
+
+**Root cause.** The test router was built for the handler's behavior and then reused for authorization. With the real
+scope rule absent, and an admin identity bypassing every scope check anyway, nothing could fail.
+
+**Why LESSONS 180 did not prevent it.** 180 says to test an authorization gate with an identity that can only pass
+through the mechanism under test. It was written about the settings page and is a rule to remember, not a check. The
+grant routes were tested by a helper that never installed the mechanism at all.
+
+**Fix.** `26dca552`: `TestGrantRoutes_AnInventoryWriterIsRefused` mounts the routes behind the real token
+authentication (`api.AuthMiddleware`) and `auth.NewTokenScopeRule`, and requires a caller holding `inventory:write`
+and `inventory:onboard` but not `inventory:assert` to get 403 on both routes with nothing written. Its positive half
+uses an admin, which proves nothing about the gate by itself (180's point); it stands because
+`TestGrantRoutes_ScopeIsAdminsAlone` shows only admin carries `inventory:assert`, and the refusal carries the weight.
+
+**Lesson.** A route's authorization test runs through the real authentication and admission chain the Controller
+mounts, never through a test router that admits everyone.
+
+## 584. The documented accept_unrecognized example split at an unquoted comma in a YAML flow mapping, and validate passed it (a repeat of 548) (fixed before push)
+
+**Symptom.** Found by the network release gate (`891014f1`). The documented example for `net.batfish.check`'s
+`accept_unrecognized`, in `internal/forge/catalogdata` and `docs/16-network-verification.md`, wrote an entry as
+`{text: ..., reason: a, b}`. In a YAML flow mapping an unquoted comma ends the value, so the entry had three keys
+(`text`, `reason: a`, and `b`), not a reason holding a comma.
+
+**Root cause.** YAML's flow syntax, and an example nobody had run. `pleiades validate` passed it, because a method's
+structured parameters (a list of mappings) are not checked entry by entry at plan time.
+
+**Why 548's fix did not prevent it.** 515 put every documented example through `pleiades validate`, and 548's lesson
+says passing validate shows an example is well formed, not that it runs. Validate cannot see inside a structured
+parameter, so this example was well formed to it. Only running it through the binary found it.
+
+**Fix.** `891014f1`: the example quotes its reason, in both places.
+
+**Still open.** Validate still does not check a structured parameter's entries, so the same mistake in a user's
+runbook passes validate. This is not listed among Phase 127b's follow-ups.
+
+**Lesson.** In a documented YAML example, quote any string that may hold a comma, colon or bracket, and run the
+example through the binary.
+
+## 585. Batfish parses Cisco GLBP, IP SLA, SLA tracking and BFD without a warning and does not model them, so a gate that refused only unrecognised lines would pass them (a sibling of 252 and 539) (fixed before push)
+
+**Symptom.** 2026-10-22, measured against the pinned Batfish while building `net.batfish.check`. The gate's first form
+(`68c54499`) failed closed on any line Batfish reported unrecognised, unless accepted by name. On Cisco IOS, Batfish
+parses GLBP, IP SLA, SLA-tracked static routes and BFD with no parse warning, and does not model them: it elects no
+GLBP forwarder (a GLBP virtual address is answered by nobody), installs an SLA-tracked route as if the probe always
+answered, and models BFD not at all. HSRP with interface tracking it does model, failover included. On FRR, `ip ospf
+authentication-key`, `no bgp ebgp-requires-policy` and `vrrp` are reported unrecognised, so they were already
+refused. A gate failing closed only on unrecognised lines would have passed every configuration in the first group.
+A Batfish convert error did not refuse the gate either.
+
+**Root cause.** A parser recognising a line was taken as the model acting on it. The parse warnings measure the
+grammar, not the model.
+
+**A sibling of 252 and 539.** Both were a keyword this project's own parser accepted and its executor ignored (a
+runbook's `check_mode`, a block's `always:`). This is the same class in a third party's model. Their lessons were
+about our own parser and did not lead anyone to ask it of Batfish.
+
+**Fix.** `264491d5`: a measured list of features Batfish parses and does not model
+(`internal/catalog/net/batfish/coverage.go`). A configuration using one is refused like an unrecognised line until the
+task accepts the feature by name with a reason, and the result lists it as not modelled. `26dca552`: BFD is caught
+anywhere on a line (`neighbor ... fall-over bfd`), and a convert error refuses the gate unless accepted. Tests:
+`TestUnmodelledIn`, and `internal/catalog/net/batfish/cisco_live_test.go` against the real Batfish.
+
+**Lesson.** See LESSONS 310.
+
+## 586. import-containerlab --trust-first-connect wrote an ephemeral lab's host keys into the user's own known_hosts (a repeat of 442) (fixed before push)
+
+**Symptom.** 2026-10-22. The clean-slate lab agent ran `pleiades import-containerlab --trust-first-connect` as the docs
+described. It wrote the lab's host keys into the user's own `~/.ssh/known_hosts`: twelve lines for
+`[127.0.0.1]:2201`, `:2202`, `:2203` and `:2211` (lines 28 to 39). The agent could not remove them; the owner has to
+remove them by hand. A lab makes new host keys on every deploy at the same addresses, so on the next deploy those
+entries refuse the new lab as a changed host key, and they teach the user to clear such warnings for addresses that
+other services may use later.
+
+**Root cause.** Trust on first connect wrote to the default known_hosts file, which is the user's own. The command is
+meant for throwaway labs, whose keys belong in a file of the lab's own.
+
+**Why 442's fix did not prevent it.** 442 found a test writing a fixture's key into the developer's real known_hosts,
+and fixed it in the tests: each test points `PLEIADES_KNOWN_HOSTS` at a file of its own. The product's own
+first-connect path was left writing to the default, and this new command reached it through a documented use, run by
+a user rather than a test.
+
+**Fix.** `6e4943fa`: `--trust-first-connect` refuses unless `PLEIADES_KNOWN_HOSTS` names a file, and the error says
+why and how. `TestImportContainerlab_WritesEachNodeAndRefusesOtherLabs`' "trust with no lab known_hosts" case.
+
+**Lesson.** A command that trusts keys it has never seen writes them only to a file the user named for that purpose,
+never to the user's own known_hosts by default.
+
+
+## 587. Net lab nodes still reached SSH over a link 2 starts in 10, after the networks were named so management sorted first (a repeat of 575) (fixed before push)
+
+**Symptom.** 2026-10-23, the fourth `make pr-check` on feat/network-verification-127, re-measuring `cmd/pleiades` alone:
+`TestCLI_NetworkChangeIsGatedAppliedAndUndone` failed at its third run, the one taking r3's link to r1 down out of band.
+Every SSH handshake to r3 then failed ("use of closed network connection", three attempts over 34 seconds), so
+`net.frr.config` never reached r3 and the report showed no undo. The gate had passed in the full pass of the same run,
+and passed again alone.
+
+**Root cause.** Docker Desktop's choice of network for a published port is not name order. Measured on this machine
+with one container on a management network and a link, management sorting first: 2 of 10 starts forwarded over the
+link. 575's rule came from one two-network experiment, swapped once each way, which a coin toss weighted this way
+passes as often as not.
+
+**Why 575's fix did not hold.** It pinned the rule it inferred, not the behaviour: no test took every other network
+down across many starts, which its own lesson asked for.
+
+**Fix.** `3203fbf3`: `StartNetLab` starts each node on the management network alone and connects its links with
+`docker network connect` once it runs. Measured: 20 of 20 starts with one late link, and 20 of 20 with two late links
+both taken down, kept SSH on management; the gate then passed three times in a row (191.8 s) and every net lab package
+passed.
+
+**Lesson.** A rule about another program's choice, inferred from one A/B, is a guess. Measure it across enough starts
+for a minority outcome to show, and prefer a setup that leaves the program no choice to make.
+
+## 588. PredictPut refused, on FreeBSD, a group the file Put writes takes from its directory without a chgrp (a repeat of 521) (fixed before push)
+
+**Symptom.** 2026-10-23, the fourth `make pr-check`'s bsd leg: `TestPredictPut_AgreesWithPutWhenItWrites`, "a mode
+change": `PredictPut = put .../Dockerfile: this login (pleiades) may not give a file the group wheel, so nothing was
+written`. The file was in a directory whose group is wheel, which the login is not in.
+
+**Root cause.** `Put` writes the new file beside the target, and on FreeBSD a new file takes its directory's group, so
+it already has wheel and no chgrp is sent. `PredictPut` asked only whether the login is in the target group.
+
+**Why 521's fix did not hold.** 521 taught `PredictWrite` that a new file's group is the directory's on FreeBSD and the
+account's on Linux, in that function's own doc comment. `PredictPut`, new on this branch, wrote its own group check from
+the login's groups without reading it. Its test, meanwhile, only called `PredictPut` and never `Put`, so "agrees with
+Put" was never compared on any system.
+
+**Fix.** `3203fbf3`: `whoAmI` also reads `uname -s` and the login's primary group, and `identity.newFileGroup` gives the
+group a new file starts with: the directory's outside Linux, the directory's under a setgid directory on Linux, else
+the login's. A target group equal to it is not a refusal. The test now runs `Put` on a fixture of its own for each
+case, and `TestNewFileGroup_FollowsEachKernelsRule` covers each rule. `pkg/remotefile` passed on bsd-check
+(`tools/bsdcheck`, 1m18s).
+
+**Lesson.** A prediction that names what it agrees with has to run that thing in its test, on every system it claims.
+
+## 589. A test left doctest's capability registered, so a later onboard ran its probe, and the re-run alone called it contention (a repeat of 188) (fixed before push)
+
+**Symptom.** 2026-10-23, the fourth `make pr-check`: `TestOnboard_AProgramsProbeGrantsItsCapability` failed with a
+second grant in its report, `doctest.widget`, whose probe failed. Re-run alone it passed, and testgate reported it as a
+test that "lost a race".
+
+**Root cause.** `TestDoc_RendersAProgramsCapability` registered `doctest.widget`, with a probe, into the process-wide
+capability vocabulary and never restored it. Onboarding runs every registered capability's probe, so every later test
+in the binary saw it. Running the two tests together failed every time; neither alone did.
+
+**Why 188's fix did not hold.** 188's guard is `make test-repeat`, which repeats each test in a container-free package.
+`cmd/pleiades` is a container package, and this leak crossed from one test to another, which repeating either alone
+cannot show. The tolerant re-run then ran the failing test alone, without the test that leaked, and passed it.
+
+**Fix.** `3203fbf3`: the doc test restores the vocabulary with `t.Cleanup(capability.SnapshotForTest())`. Proven by
+running both tests together, failing before and passing after. No other test function in the module registers a data
+capability without a snapshot.
+
+**Lesson.** A failure that passes alone has passed without the tests that ran before it. Before calling it contention,
+run it with the tests that preceded it.
+
+## 590. An empty standard input's end could reach sshd before the exec request, so "cat > file" waited forever (a regression from 149's fix) (fixed before push)
+
+**Symptom.** 2026-10-23, the sixth `make pr-check` on feat/network-verification-127: `internal/catalog/net/frr` hit
+the 30 minute package timeout in the full pass and again re-measured alone. Under `-race` the package hung in
+`net.frr.config`'s backup about half the time and never without it. The goroutine dump showed `writePrivate` waiting
+in `remoteexec.Conn.run`; on the router, `cat` had been running for 42 seconds and the `.saved` backup of an empty
+`frr.conf` was 0 bytes.
+
+**Root cause.** `Conn.run` started the goroutine copying standard input before `session.Run` sent the exec request.
+With nothing to copy, the goroutine closed the pipe at once, so the channel's end of input could reach OpenSSH's sshd
+before the exec request, and sshd never delivered it to the command it then started. `cat` waited forever. The race
+detector's slower scheduling made the close win often enough to see. Any `RunWithStdin` with empty input could hang
+the same way; a non-empty one sent its data first, which sshd buffers.
+
+**Why 149's fix did not prevent it.** 149 took the copy away from `x/crypto/ssh` so a remote that stops reading is not
+a failure, and started its goroutine before `Run`. No test sent empty input to a real sshd, and 149's own lesson says
+the in-process server never develops sshd's timing.
+
+**Fix.** `pkg/remoteexec`: the copy starts after `session.Start` returns, then `session.Wait`. Proven by
+`TestSSHContainer_AnEmptyStdinEndsTheCommandsInput` (internal/transport/ssh, real OpenSSH): forty empty inputs to
+`cat > file` over one connection, under `-race`; before the fix run 7 of 40 hung until its 10 second deadline, after
+it all forty pass. `internal/catalog/net/frr` then passed five times in a row under `-race`, and `pkg/remoteexec`
+three times.
+
+**Follow-up.** A command killed by a cancelled context's SIGTERM came back as exit 143, not as the cancellation:
+`run` reports `ctx.Err()` only when `Wait` returns something other than an exit status.
+
+**Lesson.** A fix that moves work onto a goroutine moves its ordering too. Say what must have happened before the
+goroutine starts, and test the empty case against the real server.
+
+## 591. A Batfish live test required "domainname localdomain", which FRR writes only where the Docker host gives a search domain (a repeat of 426) (fixed)
+
+**Symptom.** 2026-10-23, PR #88's `containers (5)` (run 39932132697, job 120342742453):
+`TestCheck_RealRoutersAgainstRealBatfish` failed `check_live_test.go:142` (`not_modelled` named no `domainname`) and
+`:165` (the refusal of an unaccepted line did not name `domainname localdomain`), and failed again re-run alone. Its
+other assertions held. A local `make pr-check` at the same commit had passed it.
+
+**Root cause.** FRR copies the container's DNS search domain into its running configuration as `domainname`. Docker
+Desktop on this machine gives the container `localdomain`; the runners' Docker Engine gives none, so the routers there
+had no such line, and the test asserted one.
+
+**Why 426's lesson did not prevent it.** 426 named a fixture's login stack as part of its environment; the same holds
+for its resolver, and nothing tied a test's expected device output to what the host contributes to it.
+
+**Fix.** The test requires the lines the routers' own configuration always holds (`ip ospf authentication-key` in
+`not_modelled`, `no bgp ebgp-requires-policy` in the refusal). The accept entries for `domainname localdomain` stay in
+the test, the network gate and the routing lab, since accepting a line a configuration lacks changes nothing (the
+gate passed in CI with it). docs/16 and the routing lab's README say when FRR writes the line.
+
+**Lesson.** A live test asserts what the device's own configuration put there, never a line the container host adds.

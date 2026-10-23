@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/google/uuid"
 )
 
@@ -1159,15 +1160,27 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		// task's register_mask has marked what it protects; when the mask
 		// cannot apply, nothing is printed, as for a successful task. It is
 		// neither registered nor journaled: the run stops at this level, and
-		// a rollback plans only from changes that completed (journalStats).
+		// a rollback plans only from changes that completed (journalStats),
+		// save an undo the method kept through the failure (below).
 		// A node held for review shows nothing at all: what it holds is for
 		// a person to decide on before anyone reads it (pause.go).
 		// The undo goes whatever produced the stats: the collection bridge
 		// has already left it out, but a success refused here (a prediction
 		// in a real run) or another action executor has not.
 		_, held := HoldOf(err)
-		if stats := failedStats(actionResult.Stats); !held && stats != nil && r.markRegisterMask(cmd, ActionResult{Stats: stats}) == nil {
+		if stats := failedStats(cmd.Task.FQCN, mode, actionResult.Stats); !held && stats != nil && r.markRegisterMask(cmd, ActionResult{Stats: stats}) == nil {
 			result.Stats = stats
+		}
+		// The one exception: an undo the method kept through the failure,
+		// because its change is already on the device (keepsUndo). The node
+		// is journaled as having changed it, with that undo, so a rollback
+		// plans it and a block's rollback_on_failure undoes it first.
+		if keepsUndo(cmd.Task.FQCN, mode, actionResult.Stats) {
+			result.journalStats = map[string]interface{}{sdk.StatInverse: actionResult.Stats[sdk.StatInverse]}
+			if diff, ok := actionResult.Stats[sdk.StatDiff]; ok {
+				result.journalStats[sdk.StatDiff] = diff
+			}
+			result.journalChanged = true
 		}
 		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", err.Error())

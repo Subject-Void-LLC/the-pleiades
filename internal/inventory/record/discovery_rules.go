@@ -71,7 +71,68 @@ func DiscoveryBinding(deviceType string, props inventory.Properties) string {
 // A bound type's discovery whose binding does not match rec grants nothing,
 // and Declared returns why as stale: the device keeps its baseline, loads,
 // and says what to do, rather than failing to load.
+//
+// The data capabilities rec is granted are added by NewBase (withGrants),
+// for every device type, not here.
 func Declared(deviceType string, rec Record, baseline []capability.Name) (caps []capability.Name, stale string, err error) {
+	return declaredByDiscovery(deviceType, rec, baseline)
+}
+
+// withGrants adds to caps the data capabilities rec is granted
+// (inventory.GrantedProperty). NewBase calls it, so a grant counts for
+// every device type whatever builds its capabilities. A record whose grants
+// are malformed (a name that is not a data capability's, an unknown source)
+// was not written by RecordGrant, and grants nothing: failing closed. Where
+// this process holds a capability's definition (a loaded program defined
+// it), a grant counts only when its properties fit the definition and caps
+// already has every compiled capability it requires; where it does not (a
+// Controller, which loads no program), the name is kept as recorded, and
+// grants nothing there, since capability.Implements answers false for a
+// name the vocabulary does not hold.
+func withGrants(rec Record, caps []capability.Name) []capability.Name {
+	grants, ok, err := inventory.GrantsFrom(inventory.NewProperties(rec.Properties))
+	if err != nil || !ok {
+		return caps
+	}
+	deviceType := rec.Type
+	held := make(map[capability.Name]struct{}, len(caps))
+	for _, c := range caps {
+		held[c] = struct{}{}
+	}
+	binding := DiscoveryBinding(deviceType, inventory.NewProperties(rec.Properties))
+	var granted []capability.Name
+	for _, g := range grants {
+		// A grant on a bound type, probed or asserted, holds only while the
+		// properties it was made against are as they were (a repointed
+		// device is probed or vouched for again before a program sends its
+		// credential anywhere new).
+		if binding != "" && g.Binding != binding {
+			continue
+		}
+		if def, defined := capability.DataOf(g.Capability); defined {
+			if capability.ValidateGrant(def, g.Properties) != nil || !requiresHeld(def, held) {
+				continue
+			}
+		}
+		granted = append(granted, g.Capability)
+	}
+	return policy.UnionSlices(caps, granted)
+}
+
+// requiresHeld reports whether held has every compiled capability def
+// requires.
+func requiresHeld(def capability.DataDefinition, held map[capability.Name]struct{}) bool {
+	for _, req := range def.Requires {
+		if !capability.Resolves(held, req) {
+			return false
+		}
+	}
+	return true
+}
+
+// declaredByDiscovery is Declared before grants: baseline plus what rec's
+// discovery proved.
+func declaredByDiscovery(deviceType string, rec Record, baseline []capability.Name) (caps []capability.Name, stale string, err error) {
 	props := inventory.NewProperties(rec.Properties)
 	d, ok, err := inventory.DiscoveryFrom(props)
 	if err != nil {

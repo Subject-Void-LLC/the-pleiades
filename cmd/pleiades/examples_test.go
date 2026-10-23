@@ -59,6 +59,9 @@ var onboardedFirst = map[string]string{
 	"edge_lab":      "TestCLI_EdgeExampleReadsAndNamesEveryDifference",
 	// A linux_server claims a container engine only once onboarding finds
 	// one, and the scan methods require it.
+	// Its routers and switch are generic_ssh devices, which run nothing
+	// until onboarding proves FRRCapable and OpenVSwitchCapable.
+	"routing_lab": "TestCLI_RoutingLabExampleValidatesOnRealRouters",
 	"scan_lab":    "TestCLI_ScanCheckWritesNothingAndTheRunDoesTheWork",
 	"upgrade_ios": "TestCLI_UpgradeIOSExamplesAnswerRefuseAndRecover",
 }

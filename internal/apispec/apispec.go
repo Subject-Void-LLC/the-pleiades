@@ -585,6 +585,89 @@ var OnboardDevice = Endpoint{
 	},
 }
 
+// grantsSchema is the body both grant routes answer with: the device's
+// grants after the change.
+var grantsSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"device": map[string]any{"type": "string"},
+		"grants": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"capability": map[string]any{"type": "string", "description": "The data capability, <namespace>.<name>."},
+					"source":     map[string]any{"type": "string", "description": "probe or assertion."},
+					"program":    map[string]any{"type": "string", "description": "The program whose probe made a probed grant."},
+					"properties": map[string]any{"type": "object", "description": "The grant's own properties."},
+					"by":         map[string]any{"type": "string", "description": "Who asserted an asserted grant."},
+					"reason":     map[string]any{"type": "string", "description": "Why it was asserted."},
+					"at":         map[string]any{"type": "string", "format": "date-time"},
+				},
+			},
+		},
+	},
+}
+
+// GrantCapability is POST /inventory/devices/{name}/capabilities: assert
+// that a device holds a capability an external program defines.
+var GrantCapability = Endpoint{
+	Name:    "grant_capability",
+	Method:  http.MethodPost,
+	Pattern: "/inventory/devices/{name}/capabilities",
+	Scope:   auth.ScopeInventoryAssert,
+	Rel:     auth.RelGrant,
+	Summary: "Grant a device a program's capability",
+	Description: "Records an operator's assertion that a device holds a capability an external program defines " +
+		"(<namespace>.<name>), with the grant's properties and a required reason, as a revision naming who made it. " +
+		"The Controller loads no program, so it checks the grant's shape here (the name, the reason, and properties " +
+		"that are bounded strings, bools or whole numbers) and a Runner holds it to the capability's definition " +
+		"before a method requiring it runs, refusing a grant that does not fit. A compiled capability is refused: " +
+		"only onboarding grants one. It needs inventory:assert, which no role but admin holds.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type":     "object",
+		"required": []string{"capability", "reason"},
+		"properties": map[string]any{
+			"capability": map[string]any{"type": "string"},
+			"properties": map[string]any{"type": "object"},
+			"reason":     map[string]any{"type": "string"},
+		},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The grant was recorded.", Schema: grantsSchema},
+		{Status: http.StatusBadRequest, Description: "name is unusable, or the body is not a grant.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The device was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The capability is compiled into The Pleiades or not a data capability's name, the reason is missing, or a property is malformed.", Schema: errorSchema("")},
+	},
+}
+
+// RevokeCapability is DELETE
+// /inventory/devices/{name}/capabilities/{capability}: take back a grant.
+var RevokeCapability = Endpoint{
+	Name:        "revoke_capability",
+	Method:      http.MethodDelete,
+	Pattern:     "/inventory/devices/{name}/capabilities/{capability}",
+	Scope:       auth.ScopeInventoryAssert,
+	Rel:         auth.RelGrant,
+	Summary:     "Revoke a device's grant of a program's capability",
+	Description: "Removes a device's grant of a capability an external program defines, however it was made, as a revision. It needs inventory:assert.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+		{Name: "capability", In: "path", Required: true, Type: "string", Description: "The capability, <namespace>.<name>."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The grant was removed.", Schema: grantsSchema},
+		{Status: http.StatusBadRequest, Description: "name or capability is unusable.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists, or it has no grant of that capability.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The device was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
+	},
+}
+
 // ImportKubeconfig is POST /inventory/kubeconfig-imports: one kubeconfig
 // context made a kubernetes_cluster device and its stored credential.
 var ImportKubeconfig = Endpoint{
@@ -954,6 +1037,8 @@ var Endpoints = []Endpoint{
 	UpdateDevice,
 	DeleteDevice,
 	OnboardDevice,
+	GrantCapability,
+	RevokeCapability,
 	ImportKubeconfig,
 	ListRunbooks,
 	GetRunbook,

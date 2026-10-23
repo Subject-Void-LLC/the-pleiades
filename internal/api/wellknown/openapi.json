@@ -5783,6 +5783,310 @@
         "x-link-relation": "update"
       }
     },
+    "/inventory/devices/{name}/capabilities": {
+      "post": {
+        "description": "Records an operator's assertion that a device holds a capability an external program defines (<namespace>.<name>), with the grant's properties and a required reason, as a revision naming who made it. The Controller loads no program, so it checks the grant's shape here (the name, the reason, and properties that are bounded strings, bools or whole numbers) and a Runner holds it to the capability's definition before a method requiring it runs, refusing a grant that does not fit. A compiled capability is refused: only onboarding grants one. It needs inventory:assert, which no role but admin holds.",
+        "operationId": "grant_capability",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "capability": {
+                    "type": "string"
+                  },
+                  "properties": {
+                    "type": "object"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "capability",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "device": {
+                      "type": "string"
+                    },
+                    "grants": {
+                      "items": {
+                        "properties": {
+                          "at": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "by": {
+                            "description": "Who asserted an asserted grant.",
+                            "type": "string"
+                          },
+                          "capability": {
+                            "description": "The data capability, <namespace>.<name>.",
+                            "type": "string"
+                          },
+                          "program": {
+                            "description": "The program whose probe made a probed grant.",
+                            "type": "string"
+                          },
+                          "properties": {
+                            "description": "The grant's own properties.",
+                            "type": "object"
+                          },
+                          "reason": {
+                            "description": "Why it was asserted.",
+                            "type": "string"
+                          },
+                          "source": {
+                            "description": "probe or assertion.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The grant was recorded."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name is unusable, or the body is not a grant."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device was modified concurrently, or the inventory is read-only."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The capability is compiled into The Pleiades or not a data capability's name, the reason is missing, or a property is malformed."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:assert"
+            ]
+          }
+        ],
+        "summary": "Grant a device a program's capability",
+        "x-link-relation": "grant"
+      }
+    },
+    "/inventory/devices/{name}/capabilities/{capability}": {
+      "delete": {
+        "description": "Removes a device's grant of a capability an external program defines, however it was made, as a revision. It needs inventory:assert.",
+        "operationId": "revoke_capability",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The capability, <namespace>.<name>.",
+            "in": "path",
+            "name": "capability",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "device": {
+                      "type": "string"
+                    },
+                    "grants": {
+                      "items": {
+                        "properties": {
+                          "at": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "by": {
+                            "description": "Who asserted an asserted grant.",
+                            "type": "string"
+                          },
+                          "capability": {
+                            "description": "The data capability, <namespace>.<name>.",
+                            "type": "string"
+                          },
+                          "program": {
+                            "description": "The program whose probe made a probed grant.",
+                            "type": "string"
+                          },
+                          "properties": {
+                            "description": "The grant's own properties.",
+                            "type": "object"
+                          },
+                          "reason": {
+                            "description": "Why it was asserted.",
+                            "type": "string"
+                          },
+                          "source": {
+                            "description": "probe or assertion.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The grant was removed."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name or capability is unusable."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists, or it has no grant of that capability."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device was modified concurrently, or the inventory is read-only."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:assert"
+            ]
+          }
+        ],
+        "summary": "Revoke a device's grant of a program's capability",
+        "x-link-relation": "grant"
+      }
+    },
     "/inventory/devices/{name}/onboard": {
       "post": {
         "description": "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_http, generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored Kubernetes credential of the cluster's own organization whose host names its API server, refused for a cluster in no organization, one reached through a route, or one pinning an authority the credential does not carry), and records the capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an active device re-probes it and writes only what changed. It needs inventory:onboard, which inventory:write does not imply: this is the only way a device is granted a capability its Go type does not declare.",

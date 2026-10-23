@@ -29,17 +29,18 @@ import (
 func runForgeNewExternal(args []string) error {
 	name, rest, err := splitPositional(args, map[string]bool{"no-go-mod": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-external <namespace.method> [--dir DIR] [--no-go-mod]: %w", err)
+		return fmt.Errorf("usage: pleiades forge new-external <namespace.method> [--dir DIR] [--no-go-mod] [--capability <namespace>.<name>]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("forge new-external", flag.ContinueOnError)
 	dir := fs.String("dir", "", "directory to write the program into (default: the method name with its dots as hyphens)")
 	noGoMod := fs.Bool("no-go-mod", false, "write no go.mod, so the program joins the Go module around it instead of being a module of its own")
+	capabilityName := fs.String("capability", "", "a capability the program defines as data, <namespace>.<name> in the method's namespace: its definition and a probe that grants it are written, and the method requires it")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 
-	cfg := externalscaffold.Config{Name: name, Engine: version, NoGoMod: *noGoMod}
+	cfg := externalscaffold.Config{Name: name, Engine: version, NoGoMod: *noGoMod, Capability: *capabilityName}
 	files, err := externalscaffold.Generate(cfg)
 	if err != nil {
 		return err

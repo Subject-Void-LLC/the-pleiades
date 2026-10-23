@@ -3,6 +3,7 @@ package remotefile_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,5 +161,22 @@ func TestReplace_ADirectoryItCannotWriteInLeavesTheFile(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(p); string(got) != "FROM a:1\n" { // #nosec G304 -- a path under this test's own directory
 		t.Errorf("the file became %q", got)
+	}
+}
+
+// TestReplaced_FailureSaysWhenTheFileMayHaveChanged: a failure after the
+// bytes may have landed carries the caller's note and still wraps the
+// cause; one before carries only the cause; no failure stays nil.
+func TestReplaced_FailureSaysWhenTheFileMayHaveChanged(t *testing.T) {
+	cause := errors.New("copy: broken pipe")
+	got := remotefile.Replaced{InPlace: true, Touched: true}.Failure(cause, "the file may hold the new text")
+	if !errors.Is(got, cause) || got.Error() != "copy: broken pipe: the file may hold the new text" {
+		t.Errorf("touched = %v, want the cause and the note", got)
+	}
+	if got := (remotefile.Replaced{}).Failure(cause, "the file may hold the new text"); got != cause {
+		t.Errorf("untouched = %v, want the cause alone", got)
+	}
+	if got := (remotefile.Replaced{Touched: true}).Failure(nil, "note"); got != nil {
+		t.Errorf("no failure = %v, want nil", got)
 	}
 }

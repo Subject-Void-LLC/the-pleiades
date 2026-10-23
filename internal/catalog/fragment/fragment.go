@@ -64,6 +64,8 @@ var Builtin = map[string]collection.Fragment{
 			{Name: "workdir", Type: "string", Description: "The process's working directory, an absolute path inside the container."},
 			{Name: "user", Type: "string", Description: "The user, or user:group, the process runs as."},
 			{Name: "read_only", Type: "bool", Default: "false", Description: "Give the container a read-only root filesystem."},
+			{Name: "memory", Type: "string", Description: "The container's memory limit, a size such as 512m or 2g (b, k, m and g, binary units), at least 6m. Unset, the container has no limit. Compared with a container already there only when set."},
+			{Name: "memory_swap", Type: "string", Description: "Memory and swap together, a size at least memory's, or -1 for unlimited swap; needs memory. Unset, the engine decides (Docker allows as much swap as memory)."},
 			{Name: "privileged", Type: "bool", Default: "false", Description: "Run the container privileged: every capability and every device of the host, which is root on the host for whoever controls the container.", Risk: collection.ParamRiskHostEscape},
 			{Name: "cap_add", Type: "list", Description: "Kernel capabilities to add, by name (NET_ADMIN, SYS_TIME).", Risk: collection.ParamRiskHostEscape},
 			{Name: "devices", Type: "list", Description: "Host devices to give the container, /dev/path[:/dev/path-inside].", Risk: collection.ParamRiskHostEscape},

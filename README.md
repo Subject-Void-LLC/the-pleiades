@@ -6,7 +6,7 @@ then converts to native typed collections at its own pace.
 
 The offline tier is a single static binary with no server, no database and no message
 broker, and it reaches real devices over real SSH. Every implemented method declares
-whether it can be reversed, and 164 of the 175 can predict what they would change before
+whether it can be reversed, and 172 of the 184 can predict what they would change before
 changing anything (`pleiades run --mode check`), naming every task they could not check
 rather than reporting a clean run.
 
@@ -30,7 +30,7 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 178 registered methods; 175 are implemented.** Every
+- **The module catalog has 187 registered methods; 184 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. Only three are
@@ -137,6 +137,9 @@ mkdir my-project && cd my-project
 - [`docs/15-performance.md`](docs/15-performance.md): the same work through Ansible and
   The Pleiades on 1 to 200 hosts, with time, CPU, memory, threads, logins, network and disk
   measured, and how to rerun it.
+- [`docs/16-network-verification.md`](docs/16-network-verification.md): checking a routing
+  change against Batfish's model before it is made, applying it to FRRouting routers so it
+  undoes itself on failure, and verifying it live; what the model does and does not see.
 - [`docs/reference/`](docs/reference/index.md): the generated reference: module catalog,
   capability vocabulary, device types, sync plugins, runbook and task keys, the CLI
   ([`docs/reference/cli.md`](docs/reference/cli.md)), JSON Schemas, the OpenAPI document

@@ -43,6 +43,10 @@ func TestParseSSHProbe(t *testing.T) {
 		{"freebsd: files, and no Linux package manager", "pleiades-probe=1\nkernel=FreeBSD\nhas=apt-get\nhas=dpkg\nhas=systemctl\nsystemd_running=1\n", []capability.Name{capability.NameShellExec, capability.NamePOSIXFileSystem}},
 		{"darwin: files, and nothing of Linux's", "pleiades-probe=1\nkernel=Darwin\nhas=apt-get\nhas=dpkg\n", []capability.Name{capability.NameShellExec, capability.NamePOSIXFileSystem}},
 		{"a kernel nothing was proven on", "pleiades-probe=1\nkernel=SunOS\nhas=apt-get\nhas=dpkg\n", []capability.Name{capability.NameShellExec}},
+		{"an FRR router", "pleiades-probe=1\nkernel=Linux\nos_id=alpine\nfrr=FRRouting 10.1.1_git (r1) on Linux(6.18.33).\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer, capability.NameFRR}},
+		{"an Open vSwitch switch", "pleiades-probe=1\nkernel=Linux\novs=ovs-vsctl (Open vSwitch) 2.17.9\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer, capability.NameOpenVSwitch}},
+		{"vtysh answering something else", "pleiades-probe=1\nkernel=Linux\nfrr=% Can't open configuration file\novs=permission denied\n", []capability.Name{capability.NameShellExec, capability.NameLinux, capability.NamePOSIXFileSystem, capability.NameFactGatherer}},
+		{"FRR on a kernel nothing was proven on", "pleiades-probe=1\nkernel=SunOS\nfrr=FRRouting 10.1.1\n", []capability.Name{capability.NameShellExec}},
 		{"a router's command line", "% Invalid input detected at '^' marker.\n", nil},
 		{"a banner before the marker", "kernel=Linux\nhas=apt-get\nhas=dpkg\npleiades-probe=1\nkernel=OpenBSD\n", []capability.Name{capability.NameShellExec}},
 	} {

@@ -141,3 +141,28 @@ func TestOperand_ADashNeverReachesStatAsAnOption(t *testing.T) {
 		}
 	}
 }
+
+// TestNewFileGroup_FollowsEachKernelsRule: a new file takes its
+// directory's group outside Linux, and on Linux only under a setgid
+// directory, else the login's own.
+func TestNewFileGroup_FollowsEachKernelsRule(t *testing.T) {
+	who := identity{kernel: "Linux", primaryGroup: "deploy"}
+	cases := []struct {
+		name   string
+		kernel string
+		mode   string
+		want   string
+	}{
+		{"FreeBSD", "FreeBSD", "0755", "wheel"},
+		{"macOS", "Darwin", "0755", "wheel"},
+		{"Linux", "Linux", "0755", "deploy"},
+		{"Linux, setgid", "Linux", "2775", "wheel"},
+		{"Linux, an unreadable mode", "Linux", "x", "deploy"},
+	}
+	for _, c := range cases {
+		who.kernel = c.kernel
+		if got := who.newFileGroup(Info{Kind: KindDirectory, Mode: c.mode, Group: "wheel"}); got != c.want {
+			t.Errorf("%s: newFileGroup = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

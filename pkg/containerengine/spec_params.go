@@ -4,6 +4,8 @@ package containerengine
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -103,4 +105,58 @@ func envOf(params map[string]any) (map[string]string, error) {
 		}
 	}
 	return env, nil
+}
+
+// MinMemory is the smallest memory limit Docker accepts, 6 MiB.
+const MinMemory = 6 << 20
+
+// sizeOf reads an optional size in bytes: a whole number, or text such as
+// 512m or 2g (b, k, m, g, binary units, as docker run reads them). With
+// unlimited, -1 is accepted too.
+func sizeOf(params map[string]any, key string, unlimited bool) (int64, error) {
+	raw, ok := params[key]
+	if !ok || raw == nil {
+		return 0, nil
+	}
+	var n int64
+	switch v := raw.(type) {
+	case int:
+		n = int64(v)
+	case int64:
+		n = v
+	case float64:
+		if v != math.Trunc(v) || v > math.MaxInt64/2 || v < -1 {
+			return 0, fmt.Errorf("%s: %v is not a whole number of bytes", key, v)
+		}
+		n = int64(v)
+	case string:
+		t := strings.ToLower(strings.TrimSpace(v))
+		mult := int64(1)
+		if t != "" {
+			switch t[len(t)-1] {
+			case 'b':
+				t = t[:len(t)-1]
+			case 'k':
+				mult, t = 1<<10, t[:len(t)-1]
+			case 'm':
+				mult, t = 1<<20, t[:len(t)-1]
+			case 'g':
+				mult, t = 1<<30, t[:len(t)-1]
+			}
+		}
+		base, err := strconv.ParseInt(t, 10, 64)
+		if err != nil || (base < 0 && !(base == -1 && mult == 1)) || base > math.MaxInt64/mult {
+			return 0, fmt.Errorf("%s: %q is not a size such as 512m or 2g", key, v)
+		}
+		n = base * mult
+	default:
+		return 0, fmt.Errorf("%s: %v is not a size such as 512m or 2g", key, raw)
+	}
+	switch {
+	case n == -1 && unlimited:
+		return -1, nil
+	case n < 0:
+		return 0, fmt.Errorf("%s: %d is not a size", key, n)
+	}
+	return n, nil
 }

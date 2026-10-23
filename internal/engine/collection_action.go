@@ -192,7 +192,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if e.invoke != nil {
 		result, stats, err := e.invoke(ctx, desc, device, task.Params, mode)
 		if err != nil {
-			return ActionResult{Stats: failedStats(stats)}, methodError(task.FQCN, mode, err)
+			return ActionResult{Stats: failedStats(task.FQCN, mode, stats)}, methodError(task.FQCN, mode, err)
 		}
 		if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
 			return ActionResult{}, err
@@ -255,7 +255,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		stats = collector.Facts()
 	}
 	if err != nil {
-		return ActionResult{Stats: failedStats(stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
+		return ActionResult{Stats: failedStats(task.FQCN, mode, stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
 	}
 	if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
 		return ActionResult{Secrets: secrets}, err
@@ -267,13 +267,16 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 // failedStats is what a failed method recorded before it failed (exec.command
 // records its exit status and output, then fails on a non-zero one), kept so
 // the failed task's report shows them, as Ansible's does. The undo it
-// recorded is left out: a failed task is journaled with none, since a
-// rollback plans only from changes that completed, and a report naming one
-// would say otherwise. Nil when nothing is left.
-func failedStats(stats map[string]interface{}) map[string]interface{} {
+// recorded is left out unless keepsUndo says the method kept it through the
+// failure: a rollback plans only from changes that may have happened, and an
+// undo a method recorded before its change may undo one that never did. A
+// kept undo is one whose method says running it where nothing changed is a
+// no-op. Nil when nothing is left.
+func failedStats(fqcn string, mode collection.Mode, stats map[string]interface{}) map[string]interface{} {
+	keep := keepsUndo(fqcn, mode, stats)
 	out := make(map[string]interface{}, len(stats))
 	for key, value := range stats {
-		if key != sdk.StatInverse {
+		if key != sdk.StatInverse || keep {
 			out[key] = value
 		}
 	}
@@ -281,6 +284,36 @@ func failedStats(stats map[string]interface{}) map[string]interface{} {
 		return nil
 	}
 	return out
+}
+
+// keepsUndo reports whether a failed task's stats hold an undo that stands
+// through the failure: one its method marked kept (sdk.Inverse.KeepOnFailure)
+// once its change may be on the device, in a real run, through a method whose own
+// manifest allows it for that undo (sdk.InverseSpec.MayKeepOnFailure). An
+// external Collection program's declaration is not honored, as the journal
+// honors none of its declarations.
+func keepsUndo(fqcn string, mode collection.Mode, stats map[string]interface{}) bool {
+	if mode != collection.ModeExecute {
+		return false
+	}
+	record, ok := stats[sdk.StatInverse].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	if kept, _ := record[sdk.InverseKeepOnFailureKey].(bool); !kept {
+		return false
+	}
+	desc, ok := collection.Lookup(fqcn)
+	if !ok || desc.Provider != nil {
+		return false
+	}
+	name, _ := record[sdk.InverseFQCNKey].(string)
+	for _, spec := range desc.Manifest.Reversibility.Inverses {
+		if spec.FQCN == name {
+			return spec.MayKeepOnFailure
+		}
+	}
+	return false
 }
 
 // holdReadOnly fails a built-in method that declares it only reads

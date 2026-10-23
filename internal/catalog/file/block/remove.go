@@ -7,7 +7,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -171,14 +170,8 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			}
 			return collection.Result{Changed: true}, nil
 		}
-		if err := remotefile.Write(ctx, conn, req.path, []byte(blockJoin(lines, trailing))); err != nil {
+		if err := blockWrite(ctx, conn, req.path, blockJoin(lines, trailing), was); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
-		if err := blockRestoreAttributes(ctx, conn, req.path, was); err != nil {
-			// The block is gone and its file is wearing the permissions of
-			// a temporary. Saying so here is the only place it can be said:
-			// the engine discards a Result that arrives with an error.
-			return collection.Result{}, fmt.Errorf("%s: the block was removed but %s could not be given back its previous mode and owner: %w", fqcn, req.path, err)
 		}
 		if after, err = blockObserve(ctx, conn, req.path, req.markers); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

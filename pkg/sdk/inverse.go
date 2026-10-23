@@ -51,6 +51,9 @@ const (
 	InverseParamsKey = "params"
 	// InversePartialKey is present, and true, when the undo is partial.
 	InversePartialKey = "partial"
+	// InverseKeepOnFailureKey is present, and true, when the undo stands
+	// even if the task then fails.
+	InverseKeepOnFailureKey = "keepOnFailure"
 )
 
 // Inverse is one concrete, already-parameterized instruction that undoes
@@ -84,6 +87,21 @@ type Inverse struct {
 	// method may set it only for a target its InverseSpec marks
 	// MayBePartial.
 	Partial bool `json:"partial,omitempty"`
+
+	// KeepOnFailure says the change this undoes is already on the device,
+	// so the undo stands even if the task fails afterwards (a read-back
+	// that loses its connection, a wait that runs out). A failed task's
+	// undo is otherwise dropped, since its change may never have happened;
+	// one kept this way is journaled with the failed task, and a rollback,
+	// or the block's rollback_on_failure, undoes it like any other. A
+	// method sets it once its change may be on the device: after the
+	// command that makes it succeeded, or before one that can fail part
+	// way (frr-reload deletes before it adds), and then only when running
+	// the undo where nothing changed changes nothing. A failed task can
+	// therefore journal an undo of a change that did not happen, and that
+	// undo is a no-op. Only for a target its InverseSpec marks
+	// MayKeepOnFailure.
+	KeepOnFailure bool `json:"keepOnFailure,omitempty"`
 }
 
 // InverseSpec declares one method a Collection method's undo may call, in
@@ -115,6 +133,10 @@ type InverseSpec struct {
 
 	// MayBePartial says an undo calling FQCN may set Inverse.Partial.
 	MayBePartial bool `json:"mayBePartial,omitempty"`
+
+	// MayKeepOnFailure says an undo calling FQCN may set
+	// Inverse.KeepOnFailure. The engine keeps no other failed task's undo.
+	MayKeepOnFailure bool `json:"mayKeepOnFailure,omitempty"`
 }
 
 // RecordInverse writes inv as this task's undo instruction.
@@ -151,6 +173,9 @@ func RecordInverse(rc RunbookContext, inv Inverse) error {
 	}
 	if inv.Partial {
 		record[InversePartialKey] = true
+	}
+	if inv.KeepOnFailure {
+		record[InverseKeepOnFailureKey] = true
 	}
 	return rc.SetStat(StatInverse, record)
 }

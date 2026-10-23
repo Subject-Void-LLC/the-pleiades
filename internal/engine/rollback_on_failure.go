@@ -15,8 +15,10 @@
 // An undo that fails, or that cannot be run at all, leaves the device in a
 // state nobody chose: the rescue does not run, the always tasks do, and the
 // run fails with the block's failure and the undo's. The task that failed
-// is not undone: a failed task records no undo, and what it did is the
-// rescue's to answer.
+// is undone first when its method kept its undo through the failure
+// (sdk.Inverse.KeepOnFailure, which the executor journals as a change);
+// otherwise a failed task records no undo, and what it did is the rescue's
+// to answer.
 package engine
 
 import (

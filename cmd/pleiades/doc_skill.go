@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -114,6 +115,11 @@ func skillMarkdown(entries []catalogEntry) string {
 		if e.Origin == "" && e.Manifest.Status == collection.StatusImplemented {
 			methods = append(methods, e)
 		}
+	}
+	// The safe path for a network change, taught only where the gate it
+	// starts from is a method this binary has.
+	if slices.ContainsFunc(methods, func(e catalogEntry) bool { return e.FQCN == "net.batfish.check" }) {
+		b.WriteString(skillNetwork)
 	}
 	sort.Slice(methods, func(i, j int) bool { return methods[i].FQCN < methods[j].FQCN })
 
@@ -257,6 +263,41 @@ const skillGuide = "## Starting in a project\n\n" +
 	"```yaml\n" +
 	skillRunbook +
 	"```\n\n"
+
+// skillNetwork is how an agent changes a network: the model first, a
+// rehearsal on the same OS image, then the change in a block that undoes
+// itself, verified live. TestSkillGuide_NamesOnlyCommandsAndFlagsThisBinaryHas
+// holds the commands and flags it names to internal/clispec too.
+const skillNetwork = "## Changing a network\n\n" +
+	"A routing or switching change goes through three lines of defence, in this order, whatever the network runs on\n" +
+	"(real devices, containerlab, GNS3, CML2):\n\n" +
+	"1. The model. Read each router as it runs (`net.frr.facts` with `include_config: true`, registered), write the\n" +
+	"   candidate as a whole configuration file in the project, and run `net.batfish.check` on a `batfish` device with\n" +
+	"   the running configurations, the candidate, assertions (`ospf_established`, `bgp_established`, `route`,\n" +
+	"   `no_route`, `reach` with `accepted_by` for a virtual address, `routes_match`, `question`) and scenarios with\n" +
+	"   links or nodes down. `pleiades doc net.batfish.check` has the whole contract. A failed check stops the change:\n" +
+	"   report its `assertions`, `unrecognized` and `not_modelled`, and change nothing.\n" +
+	"2. A rehearsal on lab devices running the same OS image as production. An FRR router is no stand-in for a Cisco\n" +
+	"   change, and a model of one is no rehearsal of the other.\n" +
+	"3. The change, in a block with `rollback_on_failure: true`: `net.frr.config` with `src:` the checked file and\n" +
+	"   `expect_sha256:` the digest the check returned for it, then `wait.routes`, `net.trace`, and `routes_match`\n" +
+	"   against facts read again, so the live network is held to the model it passed.\n\n" +
+	"Rules:\n\n" +
+	"- Never start Batfish, and never deploy or destroy a lab, without the person's say-so: each spends this\n" +
+	"  machine's memory and CPU. A missing Batfish service or lab is reported and you ask; never skip the model.\n" +
+	"- A model that agrees is evidence, not proof. It holds no runtime state (an IP SLA probe's answer, BFD's timing)\n" +
+	"  and none of what its result lists under `not_modelled`, so the rehearsal and the live verification still run.\n" +
+	"- Accept an unrecognised line or an unmodelled feature (`accept_unrecognized`) only with a reason the person\n" +
+	"  would agree with, never to make a check pass.\n" +
+	"- `pleiades add-host batfish --type batfish --set api_base=http://127.0.0.1:9996` adds the service.\n" +
+	"  `pleiades import-containerlab --topology <lab dir>/topology-data.json --lab <name>` adds a containerlab lab's\n" +
+	"  nodes; with `--username`, `--key`, `--trust-first-connect` and `--onboard` it also stores their login, trusts\n" +
+	"  their host keys unverified (ask first) and onboards them. A lab makes new host keys on every deploy, so set\n" +
+	"  `PLEIADES_KNOWN_HOSTS` to a file of the lab's own first, in every shell; the import refuses without it.\n" +
+	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
+	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
+	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +
+	"  checks that before any change, and says so when it is missing.\n\n"
 
 // skillRunbook is the runbook the skill teaches by. It reads only, so a
 // reader who runs it as written changes nothing.

@@ -1,0 +1,9 @@
+# Made when the lab is run, never committed.
+pleiades/.pleiades/
+pleiades/.inventory-state.generated.yaml
+pleiades/SKILL.md
+pleiades/AGENT_JOURNAL.md
+keys/
+lab/known_hosts
+lab/clab-*/
+.dockercfg/

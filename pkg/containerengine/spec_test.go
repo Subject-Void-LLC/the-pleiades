@@ -72,6 +72,11 @@ func TestParseSpec_RefusesWhatAnEngineWouldReadOtherwise(t *testing.T) {
 		"a device outside /dev":     {base("devices", []any{"/etc/shadow"}), "under /dev"},
 		"another container's net":   {base("network", "container:db"), "network"},
 		"a number for text":         {base("image", 42), "not text"},
+		"memory below the floor":    {base("memory", "1m"), "below"},
+		"memory not a size":         {base("memory", "lots"), "not a size"},
+		"memory a fraction":         {base("memory", 1.5), "whole number"},
+		"memory negative":           {base("memory", "-1"), "not a size"},
+		"swap without memory":       {base("memory_swap", "1g"), "needs memory"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseSpec(tc.params); err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -108,9 +113,14 @@ func TestSpec_CreateAndDifferences(t *testing.T) {
 		"volumes":        []any{"/srv/conf:/etc/nginx/conf.d", "cache:/var/cache/nginx:rw"},
 		"labels":         map[string]any{"app": "web"},
 		"restart_policy": "unless-stopped",
+		"memory":         "512m",
+		"memory_swap":    "1g",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if s.Memory != 512<<20 || s.MemorySwap != 1<<30 {
+		t.Errorf("memory %d, swap %d", s.Memory, s.MemorySwap)
 	}
 	if _, _, _, err := s.Create(); err == nil {
 		t.Error("a spec with no image ID made a request")
@@ -137,9 +147,10 @@ func TestSpec_CreateAndDifferences(t *testing.T) {
 	}
 	live.Config.Env = []string{"TOKEN=other"}
 	live.HostConfig.RestartPolicy.Name = "always"
+	live.HostConfig.Memory = 256 << 20
 	live.Image = "sha256:" + strings.Repeat("b", 64)
 	d := strings.Join(s.Differences(live), "\n")
-	for _, want := range []string{"env: TOKEN", "restart_policy: always", "image: runs sha256:bbb"} {
+	for _, want := range []string{"env: TOKEN", "restart_policy: always", "image: runs sha256:bbb", "memory: 268435456 bytes"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("differences lack %q:\n%s", want, d)
 		}
@@ -171,6 +182,24 @@ func TestMount_AllowsAPathBesideTheSockets(t *testing.T) {
 	for _, raw := range []string{"/srv/data:/data", "/run/app:/x", "/var/lib/app:/x:rw"} {
 		if _, err := ParseMount(raw); err != nil {
 			t.Errorf("ParseMount(%q) = %v", raw, err)
+		}
+	}
+}
+
+// TestSizeOf reads every form a size may take, and -1 only where unlimited
+// swap is meant.
+func TestSizeOf(t *testing.T) {
+	for raw, want := range map[any]int64{"6m": 6 << 20, "2G": 2 << 30, "1024k": 1 << 20, "4096b": 4096, "8192": 8192, 8192: 8192, float64(8192): 8192} {
+		if got, err := sizeOf(map[string]any{"m": raw}, "m", false); err != nil || got != want {
+			t.Errorf("sizeOf(%v) = %d, %v; want %d", raw, got, err, want)
+		}
+	}
+	if got, err := sizeOf(map[string]any{"s": "-1"}, "s", true); err != nil || got != -1 {
+		t.Errorf("unlimited swap = %d, %v", got, err)
+	}
+	for _, raw := range []any{"", "m", "1t", "-2", "9223372036854775807g", true} {
+		if _, err := sizeOf(map[string]any{"m": raw}, "m", true); err == nil {
+			t.Errorf("sizeOf(%v) was accepted", raw)
 		}
 	}
 }

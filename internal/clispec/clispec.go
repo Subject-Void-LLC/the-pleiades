@@ -116,6 +116,28 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "grant-capability",
+			Positional: "<device> <capability>",
+			Synopsis:   "assert that a device holds a capability an external program defines, with a reason",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "reason", Type: "string", Default: "", Doc: "why this device holds the capability, recorded with the grant (required)"},
+				{Name: "set", Type: "key=value", Default: "", Doc: "grant property as key=value (repeatable)"},
+			},
+			Examples: []string{
+				`pleiades grant-capability tenancy oci.tenancy_api --set tenancy_ocid=ocid1.tenancy.oc1..aaa --set region=us-ashburn-1 --reason "the lab tenancy"`,
+			},
+		},
+		{
+			Name:       "revoke-capability",
+			Positional: "<device> <capability>",
+			Synopsis:   "take back a device's grant of a capability an external program defines",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+			},
+			Examples: []string{"pleiades revoke-capability tenancy oci.tenancy_api"},
+		},
+		{
 			Name:       "trust-host",
 			Positional: "<device>",
 			Synopsis:   "trust a device's SSH host keys, read from its VM's console or taken on first connect",
@@ -253,6 +275,26 @@ var Root = Command{
 			Examples: []string{
 				"pleiades import-kubeconfig desktop --kubeconfig ~/.kube/config --context docker-desktop",
 				"pleiades import-kubeconfig prod --kubeconfig prod.yaml --replace --json",
+			},
+		},
+		{
+			Name:     "import-containerlab",
+			Synopsis: "make a containerlab lab's nodes generic_ssh devices, from the topology-data.json it wrote on deploy, refusing any node that is not the named lab's",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "topology", Type: "string", Default: "", Doc: "containerlab's topology-data.json for the lab, written on deploy"},
+				{Name: "lab", Type: "string", Default: "", Doc: "the lab's name, which the file must be for"},
+				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
+				{Name: "username", Type: "string", Default: "", Doc: "with --key, the account every node is reached as"},
+				{Name: "key", Type: "string", Default: "", Doc: "a private key file stored as every imported node's credential"},
+				{Name: "trust-first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does"},
+				{Name: "onboard", Type: "bool", Default: "false", Doc: "onboard each node once it is imported (needs a credential and trusted host keys)"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the address of a node already in the inventory as a generic_ssh device"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as one JSON document"},
+			},
+			Examples: []string{
+				"pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --username netops --key keys/id_ed25519 --trust-first-connect --onboard",
+				"pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --nodes r1,r2 --replace --json",
 			},
 		},
 		{
@@ -613,8 +655,9 @@ var Root = Command{
 					Flags: []Flag{
 						{Name: "dir", Type: "string", Default: "", Doc: "directory to write the program into (default: the method name with its dots as hyphens)"},
 						{Name: "no-go-mod", Type: "bool", Default: "false", Doc: "write no go.mod, so the program joins the Go module around it instead of being a module of its own"},
+						{Name: "capability", Type: "string", Default: "", Doc: "a capability the program defines as data, <namespace>.<name> in the method's namespace: its definition and a probe that grants it are written, and the method requires it"},
 					},
-					Examples: []string{"pleiades forge new-external acme.motd.read"},
+					Examples: []string{"pleiades forge new-external acme.motd.read", "pleiades forge new-external acme.motd.read --capability acme.motd_host"},
 				},
 				{
 					Name:       "new-filter",

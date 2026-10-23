@@ -61,3 +61,21 @@ func (s *SSH) Distribution() string {
 	}
 	return record.DiscoveredFact(s.Properties(), "os_id")
 }
+
+// The discovered facts the SSH probe records for FRR and Open vSwitch.
+const (
+	FactFRRVersion = "frr_version"
+	FactOVSVersion = "ovs_version"
+)
+
+// FRRVersion returns the FRR version onboarding read from vtysh
+// (capability.FRRCapable).
+func (s *SSH) FRRVersion() string {
+	return record.DiscoveredFact(s.Properties(), FactFRRVersion)
+}
+
+// OVSVersion returns the Open vSwitch version onboarding read from
+// ovs-vsctl (capability.OpenVSwitchCapable).
+func (s *SSH) OVSVersion() string {
+	return record.DiscoveredFact(s.Properties(), FactOVSVersion)
+}

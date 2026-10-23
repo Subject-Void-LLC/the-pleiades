@@ -252,59 +252,36 @@ func lineLoad(ctx context.Context, conn *remoteexec.Conn, path string) (lineFile
 	return lineFile{info: info, content: content, lines: lines, trailing: trailing}, nil
 }
 
-// lineWrite replaces the file's text, puts back the mode, owner and group
-// it had, and returns what the path really looks like and really holds
+// lineWrite replaces the file's text, keeping the mode, owner and group it
+// had, and returns what the path really looks like and really holds
 // afterwards.
 //
-// # Restoring the attributes is not optional
+// # Keeping the attributes is not optional
 //
-// remotefile.Write is atomic because it writes a temporary in the same
-// directory and renames it over the target, and a rename replaces the
-// inode. mktemp creates that temporary as 0600 owned by the connecting
-// account, so what is left behind carries the TEMPORARY's mode and owner,
-// not the file's. Editing one line of /etc/hosts would leave it readable
-// only by the account that ran the task, and the task would report success.
-// Nothing else in this namespace hits this, because nothing else replaces a
-// file that already exists.
-//
-// The repair is the shared primitive rather than a second write path:
-// re-stat, then hand remotefile.Apply the attributes that were there. Apply
-// compares before it acts, so a file that already matches, which is what a
-// 0600 file owned by the connecting account does, costs no command at all.
+// A rename replaces the inode, and a new file starts as mktemp's 0600,
+// owned by the connecting account: editing one line of /etc/hosts that way
+// would leave it readable only by the account that ran the task.
+// remotefile.Put keeps what the file was through remotefile.Replace, which
+// gives the new file the old attributes before renaming it, or copies the
+// bytes into the existing file when this login may not give a new one the
+// old owner and group, so a write it cannot finish changes nothing.
 //
 // # Why it reads the device back afterwards
 //
-// The first re-stat is what Apply has to compare against, and it has to be
-// the state AFTER the write rather than the state before it. The second
-// happens only when Apply really changed something. The final read is what
-// makes the after half of the recorded diff a description of the device
-// instead of an echo of what this function asked for, which is the failure
-// shape that hides longest: a method that records its own request looks
-// correct in every test that reads only what it recorded.
+// The final read is what makes the after half of the recorded diff a
+// description of the device instead of an echo of what this function asked
+// for, which is the failure shape that hides longest: a method that records
+// its own request looks correct in every test that reads only what it
+// recorded.
 func lineWrite(ctx context.Context, conn *remoteexec.Conn, path, content string, before remotefile.Info) (remotefile.Info, string, error) {
-	if err := remotefile.Write(ctx, conn, path, []byte(content)); err != nil {
-		return remotefile.Info{}, "", err
+	put, err := remotefile.Put(ctx, conn, path, []byte(content), before, remotefile.Attributes{})
+	if err != nil {
+		return remotefile.Info{}, "", put.Failure(err, "the file may already hold the new text, so fix the cause and re-run rather than expecting it untouched")
 	}
 
-	written, err := remotefile.Stat(ctx, conn, path)
+	after, err := remotefile.Stat(ctx, conn, path)
 	if err != nil {
 		return remotefile.Info{}, "", fmt.Errorf("%w: the new text is already in place, so fix the cause and re-run rather than expecting the file to be untouched", err)
-	}
-
-	restored, err := remotefile.Apply(ctx, conn, path, remotefile.Attributes{
-		Mode:  before.Mode,
-		Owner: before.Owner,
-		Group: before.Group,
-	}, written)
-	if err != nil {
-		return remotefile.Info{}, "", fmt.Errorf("%w: the new text is in place but the file now carries the permissions of the temporary it was written through, so fix the cause and re-run rather than leaving it that way", err)
-	}
-
-	after := written
-	if restored {
-		if after, err = remotefile.Stat(ctx, conn, path); err != nil {
-			return remotefile.Info{}, "", fmt.Errorf("%w: the new text and the original permissions are both in place", err)
-		}
 	}
 
 	readBack, _, err := remotefile.Read(ctx, conn, path)

@@ -108,10 +108,11 @@ func TestHandWrittenDeviceCapabilitiesMatchTheirTypes(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s is not registered", d.TypeKey)
 			}
-			// A bare Record carrying only the type key is enough here: the
-			// baseline capability set is what the constructor adds itself,
-			// never something the record supplies.
-			item, err := constructor(record.Record{Name: d.TypeKey, Type: d.TypeKey})
+			// A Record carrying only the type key, and what its constructor
+			// requires, is enough here: the baseline capability set is what
+			// the constructor adds itself, never something the record
+			// supplies.
+			item, err := constructor(record.Record{Name: d.TypeKey, Type: d.TypeKey, Properties: d.Required})
 			if err != nil {
 				t.Fatalf("hydrating %s: %v", d.TypeKey, err)
 			}

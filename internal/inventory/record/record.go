@@ -113,6 +113,7 @@ type Base struct {
 // returns a pointer, and concrete types embed that pointer rather than a
 // value, so the embedded sync.RWMutex is never copied.
 func NewBase(rec Record, caps []capability.Name) *Base {
+	caps = withGrants(rec, caps)
 	props := make(map[string]inventory.PropertyValue, len(rec.Properties))
 	for k, v := range rec.Properties {
 		props[k] = v
@@ -205,7 +206,7 @@ func (b *Base) Capabilities() []capability.Name {
 
 func (b *Base) AddInfo(key string, value inventory.PropertyValue, overwrite bool) error {
 	if inventory.IsReservedProperty(key) {
-		return fmt.Errorf("property %s is written only by onboarding", key)
+		return fmt.Errorf("property %s is written only by %s", key, inventory.ReservedPropertyWriter(key))
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -229,7 +230,7 @@ func (b *Base) AddInfo(key string, value inventory.PropertyValue, overwrite bool
 
 func (b *Base) RemoveInfo(key string) error {
 	if inventory.IsReservedProperty(key) {
-		return fmt.Errorf("property %s is written only by onboarding", key)
+		return fmt.Errorf("property %s is written only by %s", key, inventory.ReservedPropertyWriter(key))
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -267,6 +268,78 @@ func (b *Base) RecordDiscovery(d inventory.Discovery) {
 		Version:   b.version,
 		ChangedAt: time.Now().UTC(),
 		Field:     inventory.DiscoveredProperty,
+		OldValue:  old,
+		NewValue:  value,
+	})
+}
+
+// RecordGrant writes g into inventory.GrantedProperty, replacing any grant
+// of the same capability, with a revision like any other change. With
+// RevokeGrant it is the only way that property is written: AddInfo and
+// RemoveInfo refuse it, as every inventory write path a person or a sync
+// plugin reaches does. The caller has held g to its capability's definition
+// and rebuilds the item afterwards, which is when a capability it grants
+// is declared.
+func (b *Base) RecordGrant(g inventory.Grant) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	grants, _, err := inventory.GrantsFrom(inventory.NewProperties(b.props))
+	if err != nil {
+		return err
+	}
+	kept := grants[:0]
+	for _, existing := range grants {
+		if existing.Capability != g.Capability {
+			kept = append(kept, existing)
+		}
+	}
+	// An assertion is bound as a probe's grant is: a person vouched for
+	// the device as it was then, so a repointed device holds nothing until
+	// someone vouches again (the branch review's F15).
+	if g.Binding == "" {
+		g.Binding = DiscoveryBinding(b.deviceType, inventory.NewProperties(b.props))
+	}
+	b.writeGrants(append(kept, g))
+	return nil
+}
+
+// RevokeGrant removes the grant of name, reporting whether there was one.
+func (b *Base) RevokeGrant(name capability.Name) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	grants, _, err := inventory.GrantsFrom(inventory.NewProperties(b.props))
+	if err != nil {
+		return false, err
+	}
+	kept := grants[:0]
+	for _, existing := range grants {
+		if existing.Capability != name {
+			kept = append(kept, existing)
+		}
+	}
+	if len(kept) == len(grants) {
+		return false, nil
+	}
+	b.writeGrants(kept)
+	return true, nil
+}
+
+// writeGrants stores grants, or removes the property when there are none,
+// with a revision. The caller holds b.mu.
+func (b *Base) writeGrants(grants []inventory.Grant) {
+	old := b.props[inventory.GrantedProperty]
+	var value inventory.PropertyValue
+	if len(grants) == 0 {
+		delete(b.props, inventory.GrantedProperty)
+	} else {
+		value = inventory.GrantsProperty(grants)
+		b.props[inventory.GrantedProperty] = value
+	}
+	b.version++
+	b.history = append(b.history, inventory.Revision{
+		Version:   b.version,
+		ChangedAt: time.Now().UTC(),
+		Field:     inventory.GrantedProperty,
 		OldValue:  old,
 		NewValue:  value,
 	})

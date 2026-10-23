@@ -1,0 +1,38 @@
+# What this does: reads r1, r2 and r3 as they run (version, interfaces, OSPF neighbours,
+# routes, running configuration) and holds Batfish's model of those running
+# configurations to what the routers report live. The gate's sha256 of each running
+# configuration is the baseline digest later runs are compared with.
+# Blast radius: r1, r2, r3 and the Batfish service, read only.
+# Changes: nothing on any router (Batfish keeps a snapshot for the task, then removes it).
+# Undo: nothing to undo.
+id: baseline
+hosts: r1
+tasks:
+  - name: Read r1 as it runs
+    net.frr.facts: {target: r1, include_config: true}
+    register: r1
+  - name: Read r2 as it runs
+    net.frr.facts: {target: r2, include_config: true}
+    register: r2
+  - name: Read r3 as it runs
+    net.frr.facts: {target: r3, include_config: true}
+    register: r3
+  - name: The model of the running network routes both LANs and matches each router's live routes
+    net.batfish.check:
+      target: batfish
+      devices:
+        - {name: r1, config: "{{ result.r1.running_config }}"}
+        - {name: r2, config: "{{ result.r2.running_config }}"}
+        - {name: r3, config: "{{ result.r3.running_config }}"}
+      assertions:
+        - ospf_established: true
+        - route: {node: r1, prefix: 10.3.3.0/24}
+        - route: {node: r2, prefix: 10.3.3.0/24}
+        - route: {node: r2, prefix: 10.1.1.0/24}
+        - route: {node: r3, prefix: 10.1.1.0/24}
+        - routes_match: {node: r1, routes: "{{ result.r1.routes }}", ignore: [172.31.250.0/24]}
+        - routes_match: {node: r2, routes: "{{ result.r2.routes }}", ignore: [172.31.250.0/24]}
+        - routes_match: {node: r3, routes: "{{ result.r3.routes }}", ignore: [172.31.250.0/24]}
+      accept_unrecognized:
+        - {text: domainname localdomain, reason: "the DNS search domain FRR copies from the container's resolver; no routing meaning"}
+    register: gate

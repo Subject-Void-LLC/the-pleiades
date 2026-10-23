@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/loader"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
@@ -31,9 +32,10 @@ const collectionsReadPathsEnv = "PLEIADES_COLLECTIONS_READ_PATHS"
 // collectionsDirEnv names and registers its methods, so the command that
 // called it can validate, document and run them like built-in ones.
 //
-// It is called by the three commands that read the Collection registry
-// (run, validate, doc), before they read it, and by nothing else: a
-// command that never looks a method up has no reason to start a program.
+// It is called by the commands that read the Collection or capability
+// registry (run, validate, doc, and grant-capability, which holds a grant
+// to the definition a program makes), before they read it, and by nothing
+// else: a command that never looks one up has no reason to start a program.
 // projectDir is the project whose .pleiades credential store the loader
 // must keep every program away from.
 //
@@ -51,6 +53,40 @@ func loadExternalCollections(ctx context.Context, projectDir string) (*loader.Se
 	if dir == "" {
 		return nil, nil
 	}
+	// Once per directory and project per process: a second Load would
+	// meet the first one's registrations and refuse them. A command that
+	// runs more than one pipeline (onboard, running each program's probe)
+	// loads once.
+	key := dir + "\x00" + projectDir
+	loadedMu.Lock()
+	defer loadedMu.Unlock()
+	if set, ok := loaded[key]; ok {
+		return set, nil
+	}
+	set, err := loadExternalCollectionsOnce(ctx, dir, projectDir)
+	if err != nil {
+		return nil, err
+	}
+	loaded[key] = set
+	return set, nil
+}
+
+// resetLoadedCollections forgets what this process loaded, for a test that
+// restores the registries between loads (collection.SnapshotForTest).
+func resetLoadedCollections() {
+	loadedMu.Lock()
+	defer loadedMu.Unlock()
+	loaded = map[string]*loader.Set{}
+}
+
+// loaded holds what loadExternalCollections loaded in this process.
+var (
+	loadedMu sync.Mutex
+	loaded   = map[string]*loader.Set{}
+)
+
+// loadExternalCollectionsOnce is the one Load behind loadExternalCollections.
+func loadExternalCollectionsOnce(ctx context.Context, dir, projectDir string) (*loader.Set, error) {
 	store, err := filepath.Abs(filepath.Join(projectDir, ".pleiades"))
 	if err != nil {
 		return nil, fmt.Errorf("%s: resolving the project's credential store: %w", collectionsDirEnv, err)

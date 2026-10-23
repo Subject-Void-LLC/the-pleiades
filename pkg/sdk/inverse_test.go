@@ -122,6 +122,26 @@ func TestRecordInverse(t *testing.T) {
 		}
 	})
 
+	t.Run("an undo kept through a failure says so", func(t *testing.T) {
+		// The engine reads this key to keep the undo when the task fails
+		// after its change may be on the device; an undo without it is
+		// dropped with the failed task.
+		rc := newRecordingContext()
+		if err := sdk.RecordInverse(rc, sdk.Inverse{FQCN: "net.frr.config", KeepOnFailure: true}); err != nil {
+			t.Fatalf("RecordInverse: %v", err)
+		}
+		if got := inverseOf(t, rc)[sdk.InverseKeepOnFailureKey]; got != true {
+			t.Errorf("%s = %v, want true", sdk.InverseKeepOnFailureKey, got)
+		}
+		rc = newRecordingContext()
+		if err := sdk.RecordInverse(rc, sdk.Inverse{FQCN: "file.remove"}); err != nil {
+			t.Fatalf("RecordInverse: %v", err)
+		}
+		if _, ok := inverseOf(t, rc)[sdk.InverseKeepOnFailureKey]; ok {
+			t.Errorf("an undo not kept through a failure carries %s", sdk.InverseKeepOnFailureKey)
+		}
+	})
+
 	t.Run("an inverse naming no method is refused", func(t *testing.T) {
 		// Refused here, where the method that produced it is still on the
 		// stack, rather than written and discovered by a rollback engine

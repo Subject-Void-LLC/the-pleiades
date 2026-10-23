@@ -1,0 +1,47 @@
+{
+  "runbook": "runbooks/batfish_down.yaml",
+  "mode": "execute",
+  "nodes": 1,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 1
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "Batfish is gone",
+          "method": "container.remove",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "Batfish is gone",
+      "method": "container.remove",
+      "device": "dd7d730e-3647-44c0-96bd-7670f73193ac",
+      "host": "dockerhost",
+      "status": "changed",
+      "stats": {
+        "id": "da0989e4b59d6ad0a8eff37cec963bae7d10e3a3eddd60cf5975a70f54503284",
+        "name": "frrlab-batfish",
+        "state": "removed"
+      },
+      "started_at": "2026-10-23T02:33:58.018428224Z",
+      "finished_at": "2026-10-23T02:33:58.910741564Z"
+    }
+  ],
+  "run_id": "7d97c292-ff51-4af4-a39f-3c32785a6afd",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/7d97c292-ff51-4af4-a39f-3c32785a6afd.jsonl",
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}

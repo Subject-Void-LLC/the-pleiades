@@ -1,0 +1,56 @@
+WARNING: trusting whatever answered at 127.0.0.1:2201 without verifying it: anything on that network could have answered as r1
+127.0.0.1:2201 ssh-ed25519 SHA256:uUSJhJe7Ttpxe8X67mTn+jTGPqrl9FYTmSia4/Aj6q0
+127.0.0.1:2201 ecdsa-sha2-nistp256 SHA256:+GXjQK8VMeOMjdvTtYYq3andJPclh2N5sI35K1FmhMI
+127.0.0.1:2201 ssh-rsa SHA256:m6IjCXi7+MyPM0IXUO2/Xk9WH3YR5loCsx5cpYUntJM
+/home/noot/pleiades-routing-lab/lab/known_hosts: 3 key(s) added, 0 already trusted, 0 replaced
+r1 (generic_ssh) over ssh: discovered -> active
+  capabilities: FRRCapable, FactGathererCapable, LinuxCapable, POSIXFileSystemCapable, ShellExecCapable
+  added: FRRCapable, FactGathererCapable, LinuxCapable, POSIXFileSystemCapable, ShellExecCapable
+  removed: none
+  frr_version: 10.1.1
+  kernel: Linux
+  kernel_release: 6.18.33.2-microsoft-standard-WSL2
+  os_id: alpine
+  shell: posix
+WARNING: trusting whatever answered at 127.0.0.1:2202 without verifying it: anything on that network could have answered as r2
+127.0.0.1:2202 ssh-ed25519 SHA256:tRANJ8Yc3SoIxZqatfopq1xY16nO/pamDSmtdN8QzKg
+127.0.0.1:2202 ecdsa-sha2-nistp256 SHA256:JHWX2vAP1VEHg8camOUsyypmu8i8g+S9eHahjWjtPoU
+127.0.0.1:2202 ssh-rsa SHA256:09uBLn5asic0jhupbyKaKayYoRgCy0SAiwu2x5O1fTg
+/home/noot/pleiades-routing-lab/lab/known_hosts: 3 key(s) added, 0 already trusted, 0 replaced
+r2 (generic_ssh) over ssh: discovered -> active
+  capabilities: FRRCapable, FactGathererCapable, LinuxCapable, POSIXFileSystemCapable, ShellExecCapable
+  added: FRRCapable, FactGathererCapable, LinuxCapable, POSIXFileSystemCapable, ShellExecCapable
+  removed: none
+  frr_version: 10.1.1
+  kernel: Linux
+  kernel_release: 6.18.33.2-microsoft-standard-WSL2
+  os_id: alpine
+  shell: posix
+WARNING: trusting whatever answered at 127.0.0.1:2203 without verifying it: anything on that network could have answered as r3
+127.0.0.1:2203 ssh-ed25519 SHA256:FZ+mHYnfk5yBEq7gFRxEw21ZWN3pi5VnDiqfrl/+hvg
+127.0.0.1:2203 ecdsa-sha2-nistp256 SHA256:vWz6gvwca1o6iDHmwkfU9+/SLRb1ntxdWfip8vNlyiI
+127.0.0.1:2203 ssh-rsa SHA256:Iy2JGtETvRqj1v/pr0kf4IXO8hfomJJ7ghAjOKdnDSI
+/home/noot/pleiades-routing-lab/lab/known_hosts: 3 key(s) added, 0 already trusted, 0 replaced
+r3 (generic_ssh) over ssh: discovered -> active
+  capabilities: FRRCapable, FactGathererCapable, LinuxCapable, POSIXFileSystemCapable, ShellExecCapable
+  added: FRRCapable, FactGathererCapable, LinuxCapable, POSIXFileSystemCapable, ShellExecCapable
+  removed: none
+  frr_version: 10.1.1
+  kernel: Linux
+  kernel_release: 6.18.33.2-microsoft-standard-WSL2
+  os_id: alpine
+  shell: posix
+WARNING: trusting whatever answered at 127.0.0.1:2211 without verifying it: anything on that network could have answered as sw1
+127.0.0.1:2211 ssh-ed25519 SHA256:RX6p8S9UUPX+fEQXDn6GaLGA4ab8vC27yFbIzvbsmek
+127.0.0.1:2211 ecdsa-sha2-nistp256 SHA256:xCiYcrCCNiQ8zCYL4yAPdQ1Smir8EpSN66bAkZcD4JA
+127.0.0.1:2211 ssh-rsa SHA256:vJIfw/rs9GN9MxgDb3geUMXrnpXAzs9OWDql/HYQyF8
+/home/noot/pleiades-routing-lab/lab/known_hosts: 3 key(s) added, 0 already trusted, 0 replaced
+sw1 (generic_ssh) over ssh: discovered -> active
+  capabilities: FactGathererCapable, LinuxCapable, OpenVSwitchCapable, POSIXFileSystemCapable, ShellExecCapable
+  added: FactGathererCapable, LinuxCapable, OpenVSwitchCapable, POSIXFileSystemCapable, ShellExecCapable
+  removed: none
+  kernel: Linux
+  kernel_release: 6.18.33.2-microsoft-standard-WSL2
+  os_id: alpine
+  ovs_version: 2.17.9
+  shell: posix

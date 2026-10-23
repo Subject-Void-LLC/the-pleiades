@@ -72,7 +72,7 @@ func FuzzRegistrationParity(f *testing.F) {
 		if param != "" {
 			m.Manifest.Doc.Params = []collection.Param{{Name: param, Type: "string", Description: "fuzzed"}}
 		}
-		if _, err := validateMethod(m, "dev", reservedNamespaces()); err != nil {
+		if _, err := validateMethod(m, "dev", reservedNamespaces(), nil); err != nil {
 			return
 		}
 		c := candidate{path: "/fuzz/program", digest: "sha256:fuzz"}

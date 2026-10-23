@@ -35,7 +35,7 @@ func (k *keyValueList) Set(s string) error {
 		return fmt.Errorf("--set expects key=value, got %q", s)
 	}
 	if pkginventory.IsReservedProperty(key) {
-		return fmt.Errorf("--set cannot write property %s: only onboarding writes it (pleiades onboard)", key)
+		return fmt.Errorf("--set cannot write property %s: only %s writes it", key, pkginventory.ReservedPropertyWriter(key))
 	}
 	if k.values == nil {
 		k.values = map[string]interface{}{}

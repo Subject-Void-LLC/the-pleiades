@@ -65,13 +65,19 @@ type Descriptor struct {
 	// one seam where the registry must accept every concrete device
 	// type, and Go has no narrower way to express that.
 	Assert func(item any) bool
+
+	// Data is the definition of a capability an external program defined
+	// (RegisterData), and nil for every compiled one. See data.go.
+	Data *DataDefinition
 }
 
-// vocabulary holds every blessed capability. It is populated by init below,
-// not a runtime Register call from elsewhere, because the core vocabulary
-// is closed: a third party proposing a new capability registers it in
-// their own package (Section 8 governance), it does not inject into this
-// one.
+// vocabulary holds every blessed capability. The compiled ones are
+// populated by init below, not a runtime Register call from elsewhere,
+// because the core vocabulary is closed: a third party proposing a new
+// compiled capability registers it in their own package (Section 8
+// governance), it does not inject into this one. The one runtime addition
+// is a capability an external program defines as data (RegisterData),
+// which can never take a compiled name or imply a compiled capability.
 var vocabulary = registry.New[Descriptor]()
 
 // SnapshotForTest captures the process-wide capability registry and returns a

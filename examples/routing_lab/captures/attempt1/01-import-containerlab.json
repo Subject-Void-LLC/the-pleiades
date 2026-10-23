@@ -1,0 +1,41 @@
+{
+  "lab": "frrlab",
+  "nodes": [
+    {
+      "device": "r1",
+      "kind": "linux",
+      "host": "127.0.0.1",
+      "port": 2201,
+      "address": "published SSH port",
+      "trusted": true,
+      "onboarded": true
+    },
+    {
+      "device": "r2",
+      "kind": "linux",
+      "host": "127.0.0.1",
+      "port": 2202,
+      "address": "published SSH port",
+      "trusted": true,
+      "onboarded": true
+    },
+    {
+      "device": "r3",
+      "kind": "linux",
+      "host": "127.0.0.1",
+      "port": 2203,
+      "address": "published SSH port",
+      "trusted": true,
+      "onboarded": true
+    },
+    {
+      "device": "sw1",
+      "kind": "linux",
+      "host": "127.0.0.1",
+      "port": 2211,
+      "address": "published SSH port",
+      "trusted": true,
+      "onboarded": true
+    }
+  ]
+}

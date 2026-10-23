@@ -162,6 +162,11 @@ const (
 	// it over its protocol and record what it proved. It carries
 	// inventory:onboard.
 	RelOnboard LinkRel = "onboard"
+
+	// RelGrant is the affordance that grants a device a capability an
+	// external program defines, or takes the grant back. It carries
+	// inventory:assert.
+	RelGrant LinkRel = "grant"
 )
 
 // Affordance is one candidate action, described purely in authorization
