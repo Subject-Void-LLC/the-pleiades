@@ -1,0 +1,54 @@
+{
+  "runbook": "adhoc net.frr.interface on r1",
+  "mode": "execute",
+  "nodes": 1,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 1
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "net.frr.interface",
+          "method": "net.frr.interface",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "net.frr.interface",
+      "method": "net.frr.interface",
+      "device": "cc0f9733-f9ce-44e5-9a62-43c8e0c90dcf",
+      "host": "r1",
+      "status": "changed",
+      "stats": {
+        "enabled": false,
+        "inverse": {
+          "description": "Sets eth2 administratively up again, as it was before this run.",
+          "fqcn": "net.frr.interface",
+          "keepOnFailure": true,
+          "params": {
+            "enabled": true,
+            "name": "eth2"
+          }
+        }
+      },
+      "started_at": "2026-10-23T02:32:02.620530511Z",
+      "finished_at": "2026-10-23T02:32:02.772267058Z"
+    }
+  ],
+  "run_id": "2f68de29-e756-4686-a421-176c8a1db97a",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/2f68de29-e756-4686-a421-176c8a1db97a.jsonl",
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}

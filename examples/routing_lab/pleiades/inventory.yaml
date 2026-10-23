@@ -1,0 +1,47 @@
+# The Pleiades static inventory (Crawl tier: no server, no database, no broker).
+# Add hosts by hand below, or run: pleiades add-host <name> --type <type>
+hosts:
+    - id: cc0f9733-f9ce-44e5-9a62-43c8e0c90dcf
+      name: r1
+      type: generic_ssh
+      tags:
+        - containerlab
+        - lab-frrlab
+      properties:
+        host: 127.0.0.1
+        port: 2201
+    - id: 73e22e3b-69ae-4b16-bc32-50e270230ce4
+      name: r2
+      type: generic_ssh
+      tags:
+        - containerlab
+        - lab-frrlab
+      properties:
+        host: 127.0.0.1
+        port: 2202
+    - id: 774e551d-e75e-4b8e-af9b-22cced69cc90
+      name: r3
+      type: generic_ssh
+      tags:
+        - containerlab
+        - lab-frrlab
+      properties:
+        host: 127.0.0.1
+        port: 2203
+    - id: 48cc94ec-f663-4d43-a309-d4ac928ee005
+      name: sw1
+      type: generic_ssh
+      tags:
+        - containerlab
+        - lab-frrlab
+      properties:
+        host: 127.0.0.1
+        port: 2211
+    - id: 3d97c945-2fb6-436c-81a5-924caa7da5da
+      name: batfish
+      type: batfish
+      properties:
+        api_base: http://127.0.0.1:9996
+    - id: dd7d730e-3647-44c0-96bd-7670f73193ac
+      name: dockerhost
+      type: container_host

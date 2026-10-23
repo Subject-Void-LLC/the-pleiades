@@ -1,0 +1,49 @@
+{
+  "runbook": "adhoc http.check on batfish",
+  "mode": "execute",
+  "nodes": 1,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 0
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "http.check",
+          "method": "http.check",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "http.check",
+      "method": "http.check",
+      "status": "ok",
+      "stats": {
+        "body_bytes": 51,
+        "body_over_limit": false,
+        "body_sha256": "6e5d326c9b3037a889a70d8203372722b1321b7105f532d90a4c6ef803075928",
+        "elapsed_ms": 74,
+        "final_url": "http://127.0.0.1:9996/v2/version",
+        "redirects": [],
+        "status": 200
+      },
+      "started_at": "2026-10-23T02:30:21.009056249Z",
+      "finished_at": "2026-10-23T02:30:21.083240451Z"
+    }
+  ],
+  "run_id": "0402496f-2c98-40ca-86e5-799c62ef7d6a",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/0402496f-2c98-40ca-86e5-799c62ef7d6a.jsonl",
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}

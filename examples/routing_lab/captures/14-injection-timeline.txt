@@ -1,0 +1,3 @@
+22:32:02.564351631 r3 now runs the candidate; taking r1 eth2 down
+22:32:02.789304551 adhoc rc=0 (r1 eth2 shut down)
+change run rc=1

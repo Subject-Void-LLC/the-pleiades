@@ -1,0 +1,21 @@
+# What this does: runs the Batfish service the gate (net.batfish.check) talks to, as a
+# container on this machine's Docker engine, its API published on 127.0.0.1:9996 only.
+# Blast radius: this machine's Docker engine; one new container, frrlab-batfish. No router is touched.
+# Changes: pulls the pinned Batfish image if absent, creates and starts frrlab-batfish.
+# The container is held to 2 GiB and the JVM heap to 1536 MiB, since the image otherwise sizes its
+# heap at 80% of the machine's memory.
+# Undo: pleiades rollback <run-id>, or runbooks/batfish_down.yaml, removes the container.
+id: batfish_up
+hosts: dockerhost
+tasks:
+  - name: Batfish runs, its API on loopback only
+    container.run:
+      name: frrlab-batfish
+      image: batfish/batfish:2026.08.27.3685@sha256:7909378197c5a3974f2e8180af58cef0ca17b74d1cd9ba39f2d1fddb64737e55
+      network: bridge
+      ports: ["127.0.0.1:9996:9996"]
+      env:
+        JAVA_TOOL_OPTIONS: "-Xmx1536m -XX:MaxMetaspaceSize=256m"
+      memory: 2g
+      memory_swap: 2g
+      restart_policy: "no"

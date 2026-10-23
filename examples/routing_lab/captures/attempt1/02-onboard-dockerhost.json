@@ -1,0 +1,30 @@
+{
+  "device": "dockerhost",
+  "type": "container_host",
+  "protocol": "engine",
+  "previous_state": "active",
+  "state": "active",
+  "capabilities": [
+    "ContainerEngineCapable",
+    "DockerCapable",
+    "EngineLocalCapable"
+  ],
+  "added": [
+    "ContainerEngineCapable",
+    "DockerCapable",
+    "EngineLocalCapable"
+  ],
+  "removed": [],
+  "facts": {
+    "docker_carriers": [
+      "local"
+    ],
+    "docker_id": "e62e8e92-dbdb-4d53-bc4d-f629ea371cdb",
+    "docker_rootless": "false",
+    "docker_socket": "/var/run/docker.sock",
+    "docker_version": "29.8.0",
+    "login_user": "noot"
+  },
+  "changed": true,
+  "warnings": null
+}

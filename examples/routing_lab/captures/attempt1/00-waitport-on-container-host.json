@@ -1,0 +1,43 @@
+{
+  "runbook": "adhoc pleiades.builtin.wait.port on dockerhost",
+  "mode": "execute",
+  "nodes": 1,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 1
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "pleiades.builtin.wait.port",
+          "method": "pleiades.builtin.wait.port",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "pleiades.builtin.wait.port",
+      "method": "pleiades.builtin.wait.port",
+      "device": "f20aa2a4-7087-4831-95bc-0e001bfed36e",
+      "host": "dockerhost",
+      "status": "failed",
+      "error": "task tasks[0] (name \"pleiades.builtin.wait.port\") failed: collection method \"pleiades.builtin.wait.port\": pleiades.builtin.wait.port: device \"dockerhost\": no usable authentication method: supply a password or a private key for this device",
+      "started_at": "2026-10-23T02:21:04.330033461Z",
+      "finished_at": "2026-10-23T02:21:04.330163864Z"
+    }
+  ],
+  "run_id": "0027f056-6f4a-4355-9e15-5d70fef107fd",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/0027f056-6f4a-4355-9e15-5d70fef107fd.jsonl",
+  "outcome": {
+    "status": "failed",
+    "message": "execution failed",
+    "exit_code": 1
+  }
+}

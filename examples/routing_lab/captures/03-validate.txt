@@ -1,0 +1,6 @@
+runbooks/baseline.yaml: no issues found
+runbooks/batfish_down.yaml: no issues found
+runbooks/batfish_up.yaml: no issues found
+runbooks/change_r3.yaml: no issues found
+runbooks/switch.yaml: no issues found
+validate: 5 runbooks checked, no issues found

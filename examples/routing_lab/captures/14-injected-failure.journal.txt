@@ -1,0 +1,9 @@
+run 7bc10005-e273-44ae-ada4-25c7cd960dd5
+    1 tasks[0]                 r1               ran      net.frr.facts
+    2 tasks[1]                 r2               ran      net.frr.facts
+    3 tasks[2]                 batfish          ran      net.batfish.check
+    4 tasks[3].block[0]        r3               changed  net.frr.config
+        undo: net.frr.config restore=/home/netops/.pleiades-frr/pleiades-20261023T023201Z-fc8606f1.conf save=false
+    5 tasks[3].block[1]        r1               failed   wait.routes (failed at action)
+    6 tasks[3].block[0].undo[0] r3               changed  net.frr.config
+        undo: net.frr.config restore=/home/netops/.pleiades-frr/pleiades-20261023T023252Z-3ab51fba.conf save=false

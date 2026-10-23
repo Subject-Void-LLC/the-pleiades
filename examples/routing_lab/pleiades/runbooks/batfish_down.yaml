@@ -1,0 +1,11 @@
+# What this does: stops and removes the Batfish container, freeing its memory.
+# Blast radius: this machine's Docker engine; the container frrlab-batfish only.
+# Changes: removes frrlab-batfish (its snapshots are kept by no one, so nothing is lost).
+# Undo: run runbooks/batfish_up.yaml again.
+id: batfish_down
+hosts: dockerhost
+tasks:
+  - name: Batfish is gone
+    container.remove:
+      name: frrlab-batfish
+      force: true

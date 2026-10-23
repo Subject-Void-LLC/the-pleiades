@@ -1,0 +1,48 @@
+{
+  "runbook": "adhoc net.trace on r1",
+  "mode": "execute",
+  "nodes": 1,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 1
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "net.trace",
+          "method": "net.trace",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "net.trace",
+      "method": "net.trace",
+      "device": "c36ba90b-1f64-4362-a33a-62823c1e73be",
+      "host": "r1",
+      "status": "ok",
+      "stats": {
+        "hops": [
+          "10.1.1.10"
+        ],
+        "reached": true
+      },
+      "started_at": "2026-10-23T02:20:14.195962063Z",
+      "finished_at": "2026-10-23T02:20:14.269515445Z"
+    }
+  ],
+  "run_id": "95697193-40fe-4425-a9b7-97bc8bbad430",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/95697193-40fe-4425-a9b7-97bc8bbad430.jsonl",
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}

@@ -1,0 +1,4 @@
+rollback of run 7bc10005-e273-44ae-ada4-25c7cd960dd5 refused, before any device was contacted:
+  every change this run made has already been undone, by the run itself or by an earlier rollback of it; there is nothing left to undo
+pleiades: rollback of 7bc10005-e273-44ae-ada4-25c7cd960dd5 refused: 1 problem(s)
+rc=1

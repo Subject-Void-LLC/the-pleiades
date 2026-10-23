@@ -1,0 +1,4 @@
+run a5d872f5-6c27-4b98-a112-51dfb4eec66f
+    1 tasks[0]                 r1               ran      net.frr.facts
+    2 tasks[1]                 r2               ran      net.frr.facts
+    3 tasks[2]                 batfish          failed   net.batfish.check (failed at action)

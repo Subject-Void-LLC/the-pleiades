@@ -1,0 +1,95 @@
+# What this does: gates a candidate configuration for r3 on Batfish's model of the whole
+# network (with the running configurations of r1 and r2 as read now), and only if the model
+# passes applies it to r3 and verifies the live network against it: r1 and r3 route each
+# other's LAN, a trace from r1 reaches h2 over the r1-r3 link, and the model's routes for
+# every router equal the routes each router reports after the change.
+# Pass the candidate with -e candidate=configs/<file>.
+# Blast radius: r3's running configuration (and, through OSPF, every router's routes to
+# r3's networks). r1, r2 and the Batfish service are read only.
+# Changes: nothing at all when the gate refuses the candidate. Otherwise r3's running
+# configuration (not frr.conf: save is not set), applied through frr-reload.
+# Undo: the block undoes the change by itself when any verification after it fails;
+# afterwards, pleiades rollback <run-id> restores the configuration r3 ran before.
+id: change_r3
+hosts: r3
+tasks:
+  - name: Read r1 as it runs
+    net.frr.facts: {target: r1, include_config: true}
+    register: r1
+  - name: Read r2 as it runs
+    net.frr.facts: {target: r2, include_config: true}
+    register: r2
+  - name: The model, with r3's candidate, routes both LANs everywhere, also with the r1-r3 link down
+    net.batfish.check:
+      target: batfish
+      devices:
+        - {name: r1, config: "{{ result.r1.running_config }}"}
+        - {name: r2, config: "{{ result.r2.running_config }}"}
+        - {name: r3, src: "{{ vars.candidate }}"}
+      assertions:
+        - ospf_established: true
+        - route: {node: r1, prefix: 10.3.3.0/24}
+        - route: {node: r2, prefix: 10.3.3.0/24}
+        - route: {node: r2, prefix: 10.1.1.0/24}
+        - route: {node: r3, prefix: 10.1.1.0/24}
+        - reach: {from: "r1[eth3]", dst: 10.3.3.10, through: [r3]}
+        - reach: {from: "r3[eth3]", dst: 10.1.1.10, through: [r1]}
+      scenarios:
+        - name: r1-r3 link down
+          down_interfaces: ["r1[eth2]"]
+          assertions:
+            - route: {node: r1, prefix: 10.3.3.0/24, next_hops: [10.0.12.2]}
+            - route: {node: r3, prefix: 10.1.1.0/24, next_hops: [10.0.23.1]}
+            - reach: {from: "r1[eth3]", dst: 10.3.3.10, through: [r2]}
+      accept_unrecognized:
+        - {text: domainname localdomain, reason: "the DNS search domain FRR copies from the container's resolver; no routing meaning"}
+    register: gate
+  - name: Apply the checked candidate and verify it live, undone by the block if any check fails
+    rollback_on_failure: true
+    block:
+      - name: r3 runs exactly the candidate the gate checked
+        net.frr.config:
+          src: "{{ vars.candidate }}"
+          expect_sha256: "{{ result.gate.sha256.r3 }}"
+      - name: r1 routes r3's LAN over the r1-r3 link, and the table holds still
+        wait.routes:
+          target: r1
+          prefixes: [10.3.3.0/24]
+          next_hops: {"10.3.3.0/24": [10.0.13.2]}
+          stable_for: 10
+          timeout: 45
+      - name: r3 routes h1's LAN over the r1-r3 link
+        wait.routes:
+          target: r3
+          prefixes: [10.1.1.0/24]
+          next_hops: {"10.1.1.0/24": [10.0.13.1]}
+          stable_for: 5
+          timeout: 30
+      - name: A trace from r1 reaches h2 through r3 directly
+        net.trace:
+          target: r1
+          dest: 10.3.3.10
+          expect: {reached: true, includes: [10.0.13.2]}
+      - name: Read r1 after the change
+        net.frr.facts: {target: r1, include_config: true}
+        register: r1_after
+      - name: Read r2 after the change
+        net.frr.facts: {target: r2, include_config: true}
+        register: r2_after
+      - name: Read r3 after the change
+        net.frr.facts: {target: r3, include_config: true}
+        register: r3_after
+      - name: The live routes of every router, read after the change, equal the model the candidate passed
+        net.batfish.check:
+          target: batfish
+          devices:
+            - {name: r1, config: "{{ result.r1_after.running_config }}"}
+            - {name: r2, config: "{{ result.r2_after.running_config }}"}
+            - {name: r3, src: "{{ vars.candidate }}"}
+          assertions:
+            - routes_match: {node: r1, routes: "{{ result.r1_after.routes }}", ignore: [172.31.250.0/24]}
+            - routes_match: {node: r2, routes: "{{ result.r2_after.routes }}", ignore: [172.31.250.0/24]}
+            - routes_match: {node: r3, routes: "{{ result.r3_after.routes }}", ignore: [172.31.250.0/24]}
+          accept_unrecognized:
+            - {text: domainname localdomain, reason: "the DNS search domain FRR copies from the container's resolver; no routing meaning"}
+        register: verify

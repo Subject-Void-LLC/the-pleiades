@@ -1,0 +1,82 @@
+{
+  "runbook": "rollback of 19ff58fe-9d85-4f94-99f6-3c2491cccf88",
+  "mode": "execute",
+  "nodes": 1,
+  "inventory_hosts": 6,
+  "service_effecting": false,
+  "blast_radius": {
+    "devices": 1
+  },
+  "plan": [
+    {
+      "section": "tasks",
+      "tasks": [
+        {
+          "id": "tasks[0]",
+          "name": "undo tasks[3].block[0] (r3 runs exactly the candidate the gate checked) on r3",
+          "method": "net.frr.config",
+          "selected": true
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tasks[0]",
+      "name": "undo tasks[3].block[0] (r3 runs exactly the candidate the gate checked) on r3",
+      "method": "net.frr.config",
+      "device": "37a1543f-aa40-4fd2-9a08-e94d9aa61743",
+      "host": "r3",
+      "status": "changed",
+      "stats": {
+        "backup": "/home/netops/.pleiades-frr/pleiades-20261023T022535Z-2b29ba89.conf",
+        "inverse": {
+          "description": "Restores the configuration the router ran before this change, saved at /home/netops/.pleiades-frr/pleiades-20261023T022535Z-2b29ba89.conf.",
+          "fqcn": "net.frr.config",
+          "keepOnFailure": true,
+          "params": {
+            "restore": "/home/netops/.pleiades-frr/pleiades-20261023T022535Z-2b29ba89.conf",
+            "save": false
+          }
+        },
+        "lines_added": [
+          "interface eth3",
+          " description lan-10.3.3.0"
+        ],
+        "lines_deleted": [],
+        "sha256": "42d9d3592f1aad6abfbbd89dd0b945338ec38a191bcd62d31ccae494825a73fc"
+      },
+      "started_at": "2026-10-23T02:25:35.60329688Z",
+      "finished_at": "2026-10-23T02:25:36.259078391Z"
+    }
+  ],
+  "run_id": "fd8b0aec-1dc4-413d-8129-5a97d351499a",
+  "journal": "/home/noot/pleiades-routing-lab/.pleiades/journal/fd8b0aec-1dc4-413d-8129-5a97d351499a.jsonl",
+  "rollback": {
+    "of": "19ff58fe-9d85-4f94-99f6-3c2491cccf88",
+    "levels": [
+      [
+        {
+          "node": "tasks[3].block[0]",
+          "device_id": "37a1543f-aa40-4fd2-9a08-e94d9aa61743",
+          "device": "r3",
+          "index": 0,
+          "emitter": "net.frr.config",
+          "method": "net.frr.config",
+          "params": {
+            "restore": "/home/netops/.pleiades-frr/pleiades-20261023T022440Z-365dbd8d.conf",
+            "save": false
+          },
+          "name": "undo tasks[3].block[0] (r3 runs exactly the candidate the gate checked)",
+          "source": "recorded"
+        }
+      ]
+    ],
+    "unaccepted_unknown": 0
+  },
+  "outcome": {
+    "status": "complete",
+    "message": "run complete",
+    "exit_code": 0
+  }
+}
