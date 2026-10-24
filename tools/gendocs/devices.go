@@ -74,6 +74,11 @@ var handWrittenDevices = []struct {
 		Capabilities: []string{"NetworkAddressableCapable", "BatfishAPICapable"},
 		Origin:       "hand-written, a service the network model runs in",
 		Required:     map[string]any{"api_base": "http://127.0.0.1:9996"},
+	}, {
+		Vendor: "cml", TypeKey: "cml_controller",
+		Capabilities: []string{"NetworkAddressableCapable", "CMLAPICapable"},
+		Origin:       "hand-written, the API account labs are built through",
+		Required:     map[string]any{"api_base": "https://cml.example"},
 	},
 }
 
