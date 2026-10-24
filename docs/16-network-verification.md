@@ -135,6 +135,90 @@ printf 'login-password\nenable-secret\n' | pleiades add-credential R1 --username
 
 A wrong enable secret is refused by name, and the secret appears in no result or error.
 
+### Building a lab in CML
+
+A CML controller is a device too, `cml_controller`, holding its base URL, its own TLS settings and its own
+login (never a template's machine credential):
+
+```console
+pleiades add-host cml --type cml_controller --set api_base=https://10.10.20.161 \
+  --set tls_fingerprint=sha256:8e57dd2f...
+pleiades add-credential cml --username developer --password-stdin < cml.pw
+```
+
+`tls_fingerprint` is a device TLS setting any device can use: it trusts exactly the certificate with that
+SHA-256 fingerprint, whatever its issuer, dates or names, and every run against the device warns that it
+does. `import-cml --controller cml` then reads the server, its trust and its login from that device, so
+the controller's password stays in the vault.
+
+The `virt.cml` methods build and take apart labs through it, one verb each, every one with a check:
+`virt.cml.lab.create`, `lab.start`, `lab.stop`, `lab.delete`, `lab.info`, `lab.list`, `node.create`,
+`node.delete`, `link.create` and `link.delete`. Each change records its undo, so `pleiades rollback`
+removes exactly what a run made: a lab's start is undone by stopping exactly the nodes it started, and a
+node or lab delete, which wipes disks, cannot be undone and says so.
+
+`virt.cml.node.create` with `device:` makes a node standing for an inventory device (a `cisco_router` or
+`cisco_switch`). Its day-0 configuration sets the hostname to the node's label, puts the device's `host` on
+the management interface in the `Mgmt-intf` VRF with a default route to `management_gateway`, enables SSH,
+and creates the device's stored login as `username <user> privilege 15 secret 9 <hash>` (and `enable secret
+9` when the credential has an enable password). The method is handed only IOS type 9 hashes; the
+passwords never reach the runbook, the task's output or the controller.
+
+```yaml
+# What this does: builds a one-router lab, the router standing for the inventory device P1.
+# Blast radius: the CML controller cml; one new lab, cvd.
+# Changes: a lab, two nodes and a link are made, and both nodes started.
+# Undo: pleiades rollback <run-id> stops, then removes, everything it made.
+id: build-cvd
+hosts: cml
+tasks:
+  - name: make the lab
+    virt.cml.lab.create:
+      title: cvd
+  - name: the bridge to the management network
+    virt.cml.node.create:
+      lab: cvd
+      label: ext
+      definition: external_connector
+      configuration: System Bridge
+  - name: P1, standing for the inventory device P1
+    virt.cml.node.create:
+      lab: cvd
+      label: P1
+      definition: iol-xe
+      device: P1
+      management_gateway: 10.10.20.254
+  - name: link P1's management port to the bridge
+    virt.cml.link.create:
+      lab: cvd
+      a: P1
+      a_interface: Ethernet0/0
+      b: ext
+      b_interface: port
+  - name: start the lab and wait for it to boot
+    virt.cml.lab.start:
+      lab: cvd
+```
+
+### Reaching a node through the controller's console
+
+A node with no address reachable from here is reached through the controller's console server: an SSH
+login to the controller with its own stored credential, then the node's console line, where the node's own
+login is answered. Nothing crosses the network in cleartext, and no route to the node is needed.
+
+```console
+pleiades trust-host cml --first-connect                         # the console server's host key
+pleiades import-cml --controller cml --lab cvd --via console     # each IOS node, by its console's UUID
+pleiades add-credential P1 --username netops --password-stdin < p1.pw
+```
+
+Such a node has `transport: console`, `console_server` (the controller device) and `console_line` (the
+console's UUID, which names exactly one node, where a lab's title may name two) in its record, and every
+`net.ios.*` and `net.cli.*` method reaches it that way. The console server's host key is always checked,
+whatever a task says about its own target's, each console connection is a fresh one, and the line is
+logged out when the task ends, so the next person on that console meets a login rather than this task's
+privileged prompt. The controller resolves only on the CLI so far; a Runner refuses a console device.
+
 ### Undoing an IOS change
 
 `net.ios.config` copies the running configuration to a checkpoint file on the device before its lines
