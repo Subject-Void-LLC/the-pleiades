@@ -47,6 +47,12 @@ var skipped = []string{"md5", "sha1", "sha256", "sha384", "sha512", "hmac-sha-25
 // line holds one, follows a later "key".
 var notSecret = []string{"message-digest", "null", "key-chain", "mode", "key-id", "local", "remote"}
 
+// keyCommands are the words after "key" that name what a crypto key
+// command does, not a secret: crypto key generate rsa, crypto key zeroize
+// rsa, crypto key pubkey-chain rsa, and IOS's "% The key modulus size is
+// 2048 bits" (measured on IOL XE 17.15).
+var keyCommands = []string{"generate", "zeroize", "modulus", "pubkey-chain", "import", "export", "storage", "move", "decrypt", "encrypt", "lock", "unlock"}
+
 // pskSides are the words that can stand between pre-shared-key and its
 // secret in an IKEv2 keyring: the side of the exchange the key is for.
 var pskSides = []string{"local", "remote"}
@@ -148,7 +154,7 @@ func maskLine(line string, inKeyChain bool) string {
 		}
 		// A mode, or another secret word whose own secret follows it
 		// (standby 1 authentication md5 key-string x), is not the secret.
-		if slices.Contains(secretWords, target) || (w.text == "authentication" && slices.Contains(notSecret, target)) || (psk && slices.Contains(pskPeers, target)) {
+		if slices.Contains(secretWords, target) || (w.text == "authentication" && slices.Contains(notSecret, target)) || (psk && slices.Contains(pskPeers, target)) || (w.text == "key" && slices.Contains(keyCommands, target)) {
 			continue
 		}
 		return replaceWord(line, ws[j])
