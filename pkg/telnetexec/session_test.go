@@ -323,7 +323,7 @@ func TestSession_ADeviceThatNeverGoesQuietIsCutOff(t *testing.T) {
 			defer conn.Close()
 			if prompt != "" {
 				_, _ = conn.Write([]byte(prompt))
-				time.Sleep(400 * time.Millisecond)
+				time.Sleep(time.Second)
 			}
 			for {
 				// IAC WILL ECHO, over and over: refused each time, never data.
@@ -338,23 +338,30 @@ func TestSession_ADeviceThatNeverGoesQuietIsCutOff(t *testing.T) {
 			defer conn.Close()
 			if prompt != "" {
 				_, _ = conn.Write([]byte(prompt))
-				time.Sleep(400 * time.Millisecond)
+				time.Sleep(time.Second)
 			}
 			for {
 				if _, err := conn.Write([]byte("x")); err != nil {
 					return
 				}
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(10 * time.Millisecond)
 			}
 		})
 	}
-	small := telnetexec.Options{ReadTimeout: 200 * time.Millisecond, MaxOutputBytes: 256, MaxReadDuration: 1500 * time.Millisecond}
-	if _, err := telnetexec.Dial(ctx, "127.0.0.1", negotiates(""), small, telnetexec.Login{}); err == nil || !strings.Contains(err.Error(), "negotiation included") {
+	// At login the device is never quiet for ReadTimeout: a byte every
+	// 10 ms against 2 s, so only a stall of two seconds (seen on a loaded
+	// 2 GB Windows VM at 200 ms) could make it look quiet.
+	login := telnetexec.Options{ReadTimeout: 2 * time.Second, MaxOutputBytes: 256, MaxReadDuration: 1500 * time.Millisecond}
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", negotiates(""), login, telnetexec.Login{}); err == nil || !strings.Contains(err.Error(), "negotiation included") {
 		t.Errorf("negotiation without end at login = %v", err)
 	}
-	if _, err := telnetexec.Dial(ctx, "127.0.0.1", dribbles(""), small, telnetexec.Login{}); err == nil || !strings.Contains(err.Error(), "without going quiet") {
+	if _, err := telnetexec.Dial(ctx, "127.0.0.1", dribbles(""), login, telnetexec.Login{}); err == nil || !strings.Contains(err.Error(), "without going quiet") {
 		t.Errorf("a dribble at login = %v", err)
 	}
+	// Reading to a prompt, the device first pauses a full second after its
+	// prompt, so the login goes quiet well inside ReadTimeout; after that
+	// only the phase's own deadline or byte bound ends the read.
+	small := telnetexec.Options{ReadTimeout: 300 * time.Millisecond, MaxOutputBytes: 256, MaxReadDuration: 1500 * time.Millisecond}
 	prompt := regexp.MustCompile(`R1#\s*$`)
 	for name, port := range map[string]int{"negotiation": negotiates("R1> "), "a dribble": dribbles("R1> ")} {
 		s, err := telnetexec.Dial(ctx, "127.0.0.1", port, small, telnetexec.Login{})

@@ -15490,3 +15490,20 @@ import a changed package (reverse dependents).
 **Lesson.** A change to a shared package's behavior needs its consumers' tests run before the push, not only its own:
 select reverse dependents from the module graph rather than from a list. Plan it with the pr-check leg reruns
 (memory note pr-check-leg-reruns).
+
+## 632. A Telnet test's "device never goes quiet" depended on a 200 ms quiet window beating a 50 ms dribble, which a loaded Windows VM did not hold (fixed before push)
+
+**Symptom.** `make pr-check` at `d1e221fa`, 2026-10-24, Windows leg's repeat pass:
+`TestSession_ADeviceThatNeverGoesQuietIsCutOff` (`pkg/telnetexec/session_test.go`) passed twice, then failed with "a
+dribble at login = <nil>": the login succeeded.
+
+**Root cause.** The fake device wrote a byte every 50 ms and the client called it quiet after 200 ms of silence. On
+the 2 GB win-check VM under the full parallel run, the device's goroutine stalled past 200 ms, the read went quiet,
+and the login ended normally. The test asserted a timing margin, not the behavior.
+
+**Fix.** The login case dribbles every 10 ms against a 2 s quiet window, so only a two-second stall could break it;
+the read-to-prompt cases pause a full second after the prompt before a 300 ms quiet window, after which only the
+phase's deadline or byte bound ends the read.
+
+**Lesson.** A test that needs "never quiet" must leave a margin no scheduler stall on the slowest leg reaches:
+seconds, not a 4x ratio of milliseconds.

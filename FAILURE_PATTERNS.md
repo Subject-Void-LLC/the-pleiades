@@ -634,6 +634,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 629. The GNS3 fixture's image build failed when Docker Desktop's credential helper did, under make pr-check, though the image needed no credential (a sibling of 601 and 622) (fixed before push)
 630. The image build context grew past its 32 MiB ceiling, because the deny-by-default .dockerignore still let test files and test data in (fixed before push)
 631. A test in a package that only consumes a changed one failed only in CI: pr-check selects the packages a branch changes, not their dependents (a sibling of 559) (open)
+632. A Telnet test's "device never goes quiet" depended on a 200 ms quiet window beating a 50 ms dribble, which a loaded Windows VM did not hold (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
