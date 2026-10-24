@@ -152,6 +152,16 @@ const (
 	// Windows machine admits a password rather than a key, and its answer
 	// file can hold nothing else.
 	SecretSeedPassword = "seed_password"
+
+	// SecretSeedIOSSecret and SecretSeedIOSEnableSecret are what a method
+	// receives in place of a key and a hash when its manifest also sets
+	// SeedsLoginIOSSecret and the device it seeds is a Cisco IOS one: IOS
+	// type 9 (scrypt) hashes of the credential's password and, only when it
+	// has one, its enable password, freshly salted, written into the
+	// device's day-0 configuration as "username <u> privilege 15 secret 9"
+	// and "enable secret 9". Neither password reaches the method.
+	SecretSeedIOSSecret       = "seed_ios_secret"
+	SecretSeedIOSEnableSecret = "seed_ios_enable_secret"
 )
 
 // DispatchPayload is the message body the Controller publishes to NATS

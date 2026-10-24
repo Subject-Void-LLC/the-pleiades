@@ -187,7 +187,8 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 
 	var seed map[string]string
 	if param := desc.Manifest.SeedsLogin; param != "" {
-		if seed, err = e.seedLogin(ctx, task.FQCN, param, desc.Manifest.SeedsLoginPassword, task.Params); err != nil {
+		forms := SeedForms{Password: desc.Manifest.SeedsLoginPassword, IOSSecret: desc.Manifest.SeedsLoginIOSSecret}
+		if seed, err = e.seedLogin(ctx, task.FQCN, param, forms, task.Params); err != nil {
 			return ActionResult{}, err
 		}
 	}

@@ -257,6 +257,15 @@ type Manifest struct {
 	// It needs SeedsLogin.
 	SeedsLoginPassword bool `json:"seedsLoginPassword,omitempty"`
 
+	// SeedsLoginIOSSecret says the method can seed a Cisco IOS device,
+	// which admits a password at its login prompt and keeps only a hash of
+	// it. For a device with the CiscoIOS capability the engine hands the
+	// method IOS type 9 hashes of the password and, when the credential has
+	// one, the enable password (wire.SecretSeedIOSSecret and
+	// SecretSeedIOSEnableSecret), never the passwords; a method without it
+	// is refused such a device. It needs SeedsLogin.
+	SeedsLoginIOSSecret bool `json:"seedsLoginIOSSecret,omitempty"`
+
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries
 	// versus an implemented one.
