@@ -345,41 +345,127 @@ func TestPrepareScript(t *testing.T) {
 }
 
 // TestReadyAnswer accepts only the kernel asked for with every command and
-// MinFreeGB free, naming what is wrong otherwise.
+// MinFreeGB free after making room, naming what is wrong otherwise, and says
+// what room it made when the machine started short.
 func TestReadyAnswer(t *testing.T) {
 	needs := []Need{{"go", "install it"}, {"caffeinate", "it keeps the Mac awake"}}
-	for out, want := range map[string]string{
-		"Darwin\ngo\ncaffeinate\n12\n":  "",
-		"Darwin\ngo\ncaffeinate\n4\n":   "",
-		"Linux\ngo\ncaffeinate\n12\n":   "me@mac is not a Mac: its kernel is Linux",
-		"Darwin\nno-go\ncaffeinate\n12": "me@mac has no go on its PATH (looked in its PATH and /opt/homebrew/bin): install it",
-		"Darwin\ngo\nno-caffeinate\n12": "has no caffeinate",
-		"Darwin\ngo\ncaffeinate\n0\n":   "me@mac has 0 GB free where its tests unpack and build, under the 4 GB a run needs: go clean -cache",
-		"Darwin\ngo\ncaffeinate\nlots":  "answered its free space with \"lots\"",
-		"Darwin\ngo\ncaffeinate\n":      "answered the readiness check",
-		"":                              "answered the readiness check",
+	for out, want := range map[string]struct{ err, note string }{
+		"Darwin\ngo\ncaffeinate\n12\n12\n":  {},
+		"Darwin\ngo\ncaffeinate\n4\n4\n":    {},
+		"Darwin\ngo\ncaffeinate\n3\n9\n":    {note: "me@mac had 3 GB free, under the 4 GB a run needs, so this check removed its own older trees and build cache (~/.pleiades-maccheck/.gocache): 9 GB free now"},
+		"Darwin\ngo\ncaffeinate\n0\n1\n":    {err: "me@mac has 1 GB free where its tests unpack and build, under the 4 GB a run needs, after this check removed what is its own to remove", note: "me@mac had 0 GB free"},
+		"Linux\ngo\ncaffeinate\n12\n12\n":   {err: "me@mac is not a Mac: its kernel is Linux"},
+		"Darwin\nno-go\ncaffeinate\n12\n12": {err: "me@mac has no go on its PATH (looked in its PATH and /opt/homebrew/bin): install it"},
+		"Darwin\ngo\nno-caffeinate\n12\n12": {err: "has no caffeinate"},
+		"Darwin\ngo\ncaffeinate\nlots\n12":  {err: "answered its free space with \"lots\""},
+		"Darwin\ngo\ncaffeinate\n12\nlots":  {err: "answered its free space with \"lots\""},
+		"Darwin\ngo\ncaffeinate\n12\n":      {err: "answered the readiness check"},
+		"":                                  {err: "answered the readiness check"},
 	} {
-		err := posix.readyAnswer("me@mac", "Darwin", "Mac", out, needs)
-		if (want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
-			t.Errorf("readyAnswer(%q) = %v, want %q", out, err, want)
+		note, err := posix.readyAnswer("me@mac", "Darwin", "Mac", out, needs)
+		if (want.err == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want.err) {
+			t.Errorf("readyAnswer(%q) = %v, want %q", out, err, want.err)
+		}
+		if (want.note == "") != (note == "") || !strings.Contains(note, want.note) {
+			t.Errorf("readyAnswer(%q) said %q, want %q", out, note, want.note)
 		}
 	}
 }
 
 // TestReadyScript answers for this machine's own kernel and a command it
-// has and one it lacks, run under sh.
+// has and one it lacks, run under sh, and makes room only from what is the
+// check's own: with space to spare it prunes the older trees and keeps its
+// build cache.
 func TestReadyScript(t *testing.T) {
 	needsSh(t)
-	out, err := exec.Command("/bin/sh", "-c", posix.readyScript([]Need{{"sh", ""}, {"no-such-command-" + strconv.Itoa(os.Getpid()), ""}})).Output()
+	home, base := readyTrees(t)
+	cmd := exec.Command("/bin/sh", "-c", posix.readyScript([]Need{{"sh", ""}, {"no-such-command-" + strconv.Itoa(os.Getpid()), ""}}))
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Fields(string(out))
 	kernel, _ := exec.Command("uname", "-s").Output()
-	if len(lines) != 4 || lines[0] != strings.TrimSpace(string(kernel)) || lines[1] != "sh" || !strings.HasPrefix(lines[2], "no-no-such-command-") {
+	if len(lines) != 5 || lines[0] != strings.TrimSpace(string(kernel)) || lines[1] != "sh" || !strings.HasPrefix(lines[2], "no-no-such-command-") {
 		t.Fatalf("readyScript printed %q", out)
 	}
-	if _, err := strconv.Atoi(lines[3]); err != nil {
-		t.Errorf("the free space line is %q, not a whole number", lines[3])
+	for _, l := range lines[3:] {
+		if _, err := strconv.Atoi(l); err != nil {
+			t.Errorf("a free space line is %q, not a whole number", l)
+		}
+	}
+	if free, _ := strconv.Atoi(lines[4]); free < MinFreeGB {
+		t.Skipf("this machine has %d GB free, so the script made room; TestReadyScript_MakesRoomFromItsOwn covers that", free)
+	}
+	assertLeft(t, base, ".gocache new2 new3")
+}
+
+// TestReadyScript_MakesRoomFromItsOwn: on a machine short of space (a df
+// that says 1 GB free) the script removes the older trees and the check's
+// own build cache, and nothing else in the home directory or beside them.
+func TestReadyScript_MakesRoomFromItsOwn(t *testing.T) {
+	needsSh(t)
+	home, base := readyTrees(t)
+	bin := t.TempDir()
+	// A df -Pk whose fourth column is 1 GB in kilobytes.
+	df := "#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted'\necho '/dev/x 9999999 9999999 1048576 99% /'\n"
+	if err := os.WriteFile(filepath.Join(bin, "df"), []byte(df), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", posix.readyScript(nil))
+	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Fields(string(out)); len(lines) != 3 || lines[1] != "1" || lines[2] != "1" {
+		t.Fatalf("readyScript printed %q", out)
+	}
+	assertLeft(t, base, "new2 new3")
+	for _, keep := range []string{filepath.Join(home, "mine"), filepath.Join(home, ".cache", "go-build")} {
+		if _, err := os.Stat(keep); err != nil {
+			t.Errorf("%s, which is not the check's, was touched: %v", keep, err)
+		}
+	}
+}
+
+// readyTrees makes a home with posix's trees' directory holding four trees
+// of different ages and a build cache, plus a file and a default Go cache of
+// the login's own, and returns the home and the trees' directory.
+func readyTrees(t *testing.T) (home, base string) {
+	t.Helper()
+	home = t.TempDir()
+	base = filepath.Join(home, posix.Dir)
+	for i, name := range []string{"old1", "old2", "new2", "new3", ".gocache"} {
+		if err := os.MkdirAll(filepath.Join(base, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		when := time.Now().Add(time.Duration(i-10) * time.Minute)
+		if err := os.Chtimes(filepath.Join(base, name), when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{"mine", filepath.Join(".cache", "go-build")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home, base
+}
+
+// assertLeft fails unless dir holds exactly want, space separated, sorted.
+func assertLeft(t *testing.T, dir, want string) {
+	t.Helper()
+	left, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range left {
+		names = append(names, e.Name())
+	}
+	if got := strings.Join(names, " "); got != want {
+		t.Errorf("%s holds %q, want %q", dir, got, want)
 	}
 }

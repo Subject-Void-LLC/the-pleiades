@@ -68,16 +68,21 @@ func shellParams(script string, env map[string]string, seconds int) []string {
 
 // Ready builds pleiades from this tree, asks the machine whether it runs
 // Windows with go and tar.exe and the space free on its profile's drive,
-// and sets its clock (clockScript).
+// making room first (readyScript), and sets its clock (clockScript). Room it
+// made is said on standard output.
 func (w windows) Ready() error {
 	if err := w.Pleiades.Build(); err != nil {
 		return err
 	}
-	out, err := w.shell(context.Background(), readyScript, nil, 60)
+	out, err := w.shell(context.Background(), readyScript, nil, 300)
 	if err != nil {
 		return fmt.Errorf("checking %s: %v", w.Target, err)
 	}
-	if err := readyAnswer(w.Target, out); err != nil {
+	note, err := readyAnswer(w.Target, out)
+	if note != "" {
+		fmt.Printf("wincheck: %s\n", note)
+	}
+	if err != nil {
 		return err
 	}
 	utc := time.Now().UTC().Format(time.RFC3339)
@@ -89,12 +94,28 @@ func (w windows) Ready() error {
 
 // readyScript prints the platform, then go, git and tar, or no-go, no-git
 // and no-tar when one is not on the PATH, then the whole gigabytes free on
-// the drive holding the login's profile, where the trees and Go's build
-// cache are, one line each.
-const readyScript = `$env:Path = '` + winPath + `;' + $env:Path
+// the drive holding the login's profile, where the trees and the check's
+// build cache are, before and after making room, one line each. Making room
+// removes only what is this check's own, under winDir: every tree but the
+// newest Kept-1, and, while the space free is still under MinFreeGB,
+// oscheck.CacheDir, which the prune passes over by name (a leading dot hides
+// nothing on Windows).
+var readyScript = `$env:Path = '` + winPath + `;' + $env:Path
 [string][Environment]::OSVersion.Platform
 foreach ($c in 'go', 'git', 'tar') { if (Get-Command "$c.exe" -ErrorAction SilentlyContinue) { $c } else { "no-$c" } }
-[string][math]::Floor((Get-Item $env:USERPROFILE).PSDrive.Free / 1GB)`
+function Get-FreeGB { [string][math]::Floor((Get-Item $env:USERPROFILE).PSDrive.Free / 1GB) }
+$base = Join-Path $env:USERPROFILE '` + winDir + `'
+$before = Get-FreeGB
+if (Test-Path -LiteralPath $base) {
+	` + pruneLine + `
+	if ([int](Get-FreeGB) -lt ` + strconv.Itoa(oscheck.MinFreeGB) + `) { Remove-Item -LiteralPath (Join-Path $base '` + oscheck.CacheDir + `') -Recurse -Force -ErrorAction SilentlyContinue }
+}
+$before
+Get-FreeGB`
+
+// pruneLine removes every tree under $base but the newest Kept-1, passing
+// over oscheck.CacheDir, which is not a tree.
+var pruneLine = `Get-ChildItem -LiteralPath $base -Directory | Where-Object { $_.Name -ne '` + oscheck.CacheDir + `' } | Sort-Object LastWriteTime -Descending | Select-Object -Skip ` + strconv.Itoa(oscheck.Kept-1) + ` | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue`
 
 // clockScript sets the machine's clock: from its time source (w32tm), or,
 // when that cannot reach one, to $env:PLEIADES_UTC, this machine's time when
@@ -106,22 +127,23 @@ if ($LASTEXITCODE -ne 0) {
   Set-Date -Date ([DateTime]::Parse($env:PLEIADES_UTC, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal).ToLocalTime()) | Out-Null
 }`
 
-// readyAnswer checks readyScript's output.
-func readyAnswer(target, out string) error {
+// readyAnswer checks readyScript's output, returning what room it made.
+func readyAnswer(target, out string) (string, error) {
 	lines := strings.Fields(out)
 	switch {
-	case len(lines) != 5:
-		return fmt.Errorf("%s answered the readiness check with %q", target, out)
+	case len(lines) != 6:
+		return "", fmt.Errorf("%s answered the readiness check with %q", target, out)
 	case lines[0] != "Win32NT":
-		return fmt.Errorf("%s is not a Windows machine: its platform is %s", target, lines[0])
+		return "", fmt.Errorf("%s is not a Windows machine: its platform is %s", target, lines[0])
 	case lines[1] != "go":
-		return fmt.Errorf("%s has no go on its PATH (looked in its PATH and %s): install it from https://go.dev/dl, or as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
+		return "", fmt.Errorf("%s has no go on its PATH (looked in its PATH and %s): install it from https://go.dev/dl, or as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
 	case lines[2] != "git":
-		return fmt.Errorf("%s has no git on its PATH (looked in its PATH and %s), which the tests that make a throwaway repository need: install Git for Windows, or MinGit as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
+		return "", fmt.Errorf("%s has no git on its PATH (looked in its PATH and %s), which the tests that make a throwaway repository need: install Git for Windows, or MinGit as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
 	case lines[3] != "tar":
-		return fmt.Errorf("%s has no tar.exe, which unpacks the tree; Windows has had it since Windows 10 1803 and Server 2019", target)
+		return "", fmt.Errorf("%s has no tar.exe, which unpacks the tree; Windows has had it since Windows 10 1803 and Server 2019", target)
 	}
-	return oscheck.FreeSpace(target, lines[4], `go clean -cache there, or delete the trees under %USERPROFILE%\`+winDir)
+	return oscheck.Room(target, lines[4], lines[5], `%USERPROFILE%\`+winDir+`\`+oscheck.CacheDir,
+		`the login's own Go cache is %LocalAppData%\go-build`)
 }
 
 // Ship sends commit sha's tree: exec.winrm.shell removes all but the
@@ -166,10 +188,10 @@ $tree = Join-Path $base $env:PLEIADES_SHA
 `
 
 // prepareScript makes the trees' directory, removes all but the newest
-// Kept-1 trees and any earlier copy of sha's, and prints the profile
-// directory.
+// Kept-1 trees (pruneLine, which keeps the build cache) and any earlier copy
+// of sha's, and prints the profile directory.
 var prepareScript = treeLines + `New-Item -ItemType Directory -Force -Path $base | Out-Null
-Get-ChildItem -LiteralPath $base -Directory | Sort-Object LastWriteTime -Descending | Select-Object -Skip ` + strconv.Itoa(oscheck.Kept-1) + ` | Remove-Item -Recurse -Force
+` + pruneLine + `
 foreach ($old in @($tree, ($tree + '.tar.gz'))) { if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force } }
 $env:USERPROFILE`
 
@@ -205,7 +227,7 @@ const pidFile = ".wincheck.pid"
 
 // testScript is what the machine runs in the unpacked tree: pr-check's two
 // passes over the container-free packages, the full pass and three strict
-// repeats, and it exits with the tests' status. The full pass uses the race
+// repeats, building into the check's own oscheck.CacheDir, and it exits with the tests' status. The full pass uses the race
 // detector when the machine has gcc, which also turns cgo on so go-sqlite3's
 // tests run; without one Go builds with cgo off, the pass runs without the
 // race detector, and testgate reports go-sqlite3's stub as a skip that needs
@@ -222,6 +244,7 @@ const pidFile = ".wincheck.pid"
 // that reused the number.
 var testScript = `$ErrorActionPreference = 'Continue'
 $env:Path = '` + winPath + `;' + $env:Path
+$env:GOCACHE = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') '` + oscheck.CacheDir + `'
 $tree = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') $env:PLEIADES_SHA
 if (-not (Test-Path -LiteralPath $tree)) { "no tree at $tree; run -phase prepare first"; exit 2 }
 if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$') { 'the package list is not import paths and spaces'; exit 2 }
