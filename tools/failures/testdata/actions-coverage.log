@@ -1,0 +1,17 @@
+2026-10-24T07:11:21.6250033Z Getting action download info
+2026-10-24T07:11:21.8350888Z Download action repository 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-24T07:11:21.9249471Z Download action repository 'actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+2026-10-24T07:11:22.2302109Z Complete job name: coverage
+2026-10-24T07:11:22.3266394Z ##[group]Run if [ "$FAST" != success ] || [ "$CONTAINERS" != success ]; then
+2026-10-24T07:11:22.3267411Z [36;1mif [ "$FAST" != success ] || [ "$CONTAINERS" != success ]; then[0m
+2026-10-24T07:11:22.3268466Z [36;1m  echo "fast: $FAST, containers: $CONTAINERS; the floors are checked only from jobs that passed" >&2[0m
+2026-10-24T07:11:22.3269373Z [36;1m  exit 1[0m
+2026-10-24T07:11:22.3270105Z [36;1mfi[0m
+2026-10-24T07:11:22.3536804Z shell: /usr/bin/bash -e {0}
+2026-10-24T07:11:22.3538053Z env:
+2026-10-24T07:11:22.3538600Z   FAST: failure
+2026-10-24T07:11:22.3539152Z   CONTAINERS: success
+2026-10-24T07:11:22.3539965Z ##[endgroup]
+2026-10-24T07:11:22.3720554Z fast: failure, containers: success; the floors are checked only from jobs that passed
+2026-10-24T07:11:22.3735546Z ##[error]Process completed with exit code 1.
+2026-10-24T07:11:22.3931252Z Cleaning up orphan processes

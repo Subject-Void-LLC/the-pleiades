@@ -1,0 +1,31 @@
+{
+ "version": {
+  "chassis": "AS2511-RJ",
+  "chassis_sn": "15897747",
+  "compiled_by": "phester",
+  "compiled_date": "Wed 10-Sep-97 13:06",
+  "copyright_years": "1986-1996",
+  "curr_config_register": "0x2102",
+  "hostname": "YY39-TS",
+  "image": {
+   "data_base": "0x00001000",
+   "text_base": "0x01010000"
+  },
+  "image_id": "IGS-BOOT-R",
+  "image_type": "developer image",
+  "main_mem": "14336",
+  "mem_size": {
+   "non-volatile configuration": "32"
+  },
+  "os": "IOS",
+  "platform": "3000 Bootstrap",
+  "processor_board_flash": "16384K",
+  "processor_type": "68030",
+  "rom": "System Bootstrap, Version 11.0(10c)XB1, PLATFORM SPECIFIC RELEASE SOFTWARE (fc1)",
+  "rtr_type": "AS2511-RJ",
+  "running_default_software": true,
+  "uptime": "31 weeks, 5 days, 5 hours, 26 minutes",
+  "version": "11.0(10c)XB1",
+  "version_short": "11.0"
+ }
+}

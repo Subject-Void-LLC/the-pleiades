@@ -1,0 +1,1 @@
+`telnet_exec`, `serialtcp_exec` and `serial_exec` no longer refuse a device with no stored credential: none of those protocols has a login of its own, so a console that asks nothing is reached with none, and a stored credential is used when the device asks.

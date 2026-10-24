@@ -1,0 +1,148 @@
+{
+ "main": {
+  "TenGigabitEthernet3/0/1": {
+   "SFP-10G-SR": {
+    "descr": "SFP 10GBASE-SR",
+    "name": "TenGigabitEthernet3/0/1",
+    "pid": "SFP-10G-SR",
+    "sn": "******",
+    "vid": "01"
+   }
+  },
+  "TenGigabitEthernet3/0/2": {
+   "SFP-10G-SR": {
+    "descr": "SFP 10GBASE-SR",
+    "name": "TenGigabitEthernet3/0/2",
+    "pid": "SFP-10G-SR",
+    "sn": "******",
+    "vid": "01"
+   }
+  },
+  "TenGigabitEthernet3/0/3": {
+   "SFP-10G-SR": {
+    "descr": "SFP 10GBASE-SR",
+    "name": "TenGigabitEthernet3/0/3",
+    "pid": "SFP-10G-SR",
+    "sn": "******",
+    "vid": "01"
+   }
+  },
+  "TenGigabitEthernet3/0/4": {
+   "SFP-10G-SR": {
+    "descr": "SFP 10GBASE-SR",
+    "name": "TenGigabitEthernet3/0/4",
+    "pid": "SFP-10G-SR",
+    "sn": "******",
+    "vid": "01"
+   }
+  },
+  "TenGigabitEthernet3/0/8": {
+   "QFBR-5798L": {
+    "descr": "GE SX",
+    "name": "TenGigabitEthernet3/0/8",
+    "pid": "QFBR-5798L",
+    "sn": "******",
+    "vid": ""
+   }
+  },
+  "chassis": {
+   "C9407R": {
+    "descr": "Cisco Catalyst 9400 Series 7 Slot Chassis",
+    "name": "Chassis",
+    "pid": "C9407R",
+    "sn": "******",
+    "vid": "V01"
+   }
+  }
+ },
+ "slot": {
+  "Fan_Tray": {
+   "other": {
+    "C9407-FAN": {
+     "descr": "Cisco Catalyst 9400 Series 7 Slot Chassis Fan Tray",
+     "name": "Fan Tray",
+     "pid": "C9407-FAN",
+     "sn": "******",
+     "vid": "V01"
+    }
+   }
+  },
+  "P1": {
+   "other": {
+    "C9400-PWR-3200AC": {
+     "descr": "Cisco Catalyst 9400 Series 3200W AC Power Supply",
+     "name": "Power Supply Module 1",
+     "pid": "C9400-PWR-3200AC",
+     "sn": "******",
+     "vid": "V01"
+    }
+   }
+  },
+  "P2": {
+   "other": {
+    "C9400-PWR-3200AC": {
+     "descr": "Cisco Catalyst 9400 Series 3200W AC Power Supply",
+     "name": "Power Supply Module 2",
+     "pid": "C9400-PWR-3200AC",
+     "sn": "DTM224703G0",
+     "vid": "V01"
+    }
+   }
+  },
+  "Slot_1_Linecard": {
+   "lc": {
+    "C9400-LC-48P": {
+     "descr": "Cisco Catalyst 9400 Series 48-Port POE 10/100/1000 (RJ-45)",
+     "name": "Slot 1 Linecard",
+     "pid": "C9400-LC-48P",
+     "sn": "******",
+     "vid": "V01"
+    }
+   }
+  },
+  "Slot_2_Linecard": {
+   "lc": {
+    "C9400-LC-48P": {
+     "descr": "Cisco Catalyst 9400 Series 48-Port POE 10/100/1000 (RJ-45)",
+     "name": "Slot 2 Linecard",
+     "pid": "C9400-LC-48P",
+     "sn": "******",
+     "vid": "V01"
+    }
+   }
+  },
+  "Slot_3_Supervisor": {
+   "other": {
+    "C9400-SUP-1": {
+     "descr": "Cisco Catalyst 9400 Series Supervisor 1 Module",
+     "name": "Slot 3 Supervisor",
+     "pid": "C9400-SUP-1",
+     "sn": "******",
+     "vid": "V02"
+    }
+   }
+  },
+  "Slot_5_Linecard": {
+   "lc": {
+    "C9400-LC-48P": {
+     "descr": "Cisco Catalyst 9400 Series 48-Port POE 10/100/1000 (RJ-45)",
+     "name": "Slot 5 Linecard",
+     "pid": "C9400-LC-48P",
+     "sn": "******",
+     "vid": "V01"
+    }
+   }
+  },
+  "Slot_6_Linecard": {
+   "lc": {
+    "C9400-LC-48P": {
+     "descr": "Cisco Catalyst 9400 Series 48-Port POE 10/100/1000 (RJ-45)",
+     "name": "Slot 6 Linecard",
+     "pid": "C9400-LC-48P",
+     "sn": "******",
+     "vid": "V01"
+    }
+   }
+  }
+ }
+}

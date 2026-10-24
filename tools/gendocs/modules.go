@@ -164,14 +164,26 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 	}
 
 	b.WriteString("## Attributes\n\n")
-	b.WriteString(table([]string{"", ""}, [][]string{
+	rows := [][]string{
 		{"Capabilities", quoteList(capNames)},
 		{"Transports", quoteList(m.SupportedTransports)},
-		{"Requires elevation", yesNo(m.ExecutionContext.RequiresElevation)},
-		{"Runs", runsWhere(m.ExecutionContext)},
-		{"Check mode", checkModeSupport(m.SupportsCheck, someCalls, m.NoCheckReason)},
-		{"Engine version", code(m.EngineVersion)},
-	}))
+	}
+	// A call shape a parameter selects needs its own (collection.CallShape).
+	for _, s := range m.Shapes {
+		shapeCaps := make([]string, len(s.RequiredCapabilities))
+		for i, c := range s.RequiredCapabilities {
+			shapeCaps[i] = string(c)
+		}
+		rows = append(rows,
+			[]string{"With " + code(s.Param) + ": capabilities", quoteList(shapeCaps)},
+			[]string{"With " + code(s.Param) + ": transports", quoteList(s.SupportedTransports)})
+	}
+	rows = append(rows,
+		[]string{"Requires elevation", yesNo(m.ExecutionContext.RequiresElevation)},
+		[]string{"Runs", runsWhere(m.ExecutionContext)},
+		[]string{"Check mode", checkModeSupport(m.SupportsCheck, someCalls, m.NoCheckReason)},
+		[]string{"Engine version", code(m.EngineVersion)})
+	b.WriteString(table([]string{"", ""}, rows))
 	b.WriteString("\n")
 
 	if m.Status == collection.StatusImplemented {

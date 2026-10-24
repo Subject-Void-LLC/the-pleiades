@@ -45,7 +45,8 @@ func registerEngineMethods(t *testing.T) {
 }
 
 // dockerHost is a container_host whose discovery found Docker reached
-// through its socket over SSH.
+// through its socket over SSH. Its id differs from its name, so a test can
+// tell which of the two a plan line prints.
 func dockerHost(t *testing.T) inventory.InventoryItem {
 	t.Helper()
 	props := map[string]inventory.PropertyValue{"host": "10.0.0.5"}
@@ -58,7 +59,7 @@ func dockerHost(t *testing.T) inventory.InventoryItem {
 		},
 		Binding: record.DiscoveryBinding(container.TypeHost, inventory.NewProperties(props))}
 	props[inventory.DiscoveredProperty] = d.Property()
-	item, err := internalinventory.NewItemFactory().Build(record.Record{ID: "h1", Name: "h1", Type: container.TypeHost, Properties: props})
+	item, err := internalinventory.NewItemFactory().Build(record.Record{ID: "1d0c6a6e-h1", Name: "h1", Type: container.TypeHost, Properties: props})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ tasks:
 		t.Fatalf("routes = %+v, want the docker and any-engine tasks only", report.Routes)
 	}
 	for i, rt := range report.Routes {
-		if rt.Transport != capability.TransportEngineSocket || rt.Detail != "the docker engine" || rt.Device != "h1" {
+		if rt.Transport != capability.TransportEngineSocket || rt.Detail != "the docker engine" || rt.Device != "1d0c6a6e-h1" || rt.DeviceName != "h1" {
 			t.Errorf("route %d = %+v, want the docker engine over its socket", i, rt)
 		}
 		if i > 0 && report.Routes[i-1].Node > rt.Node {
@@ -100,5 +101,9 @@ tasks:
 	text := report.String()
 	if strings.Count(text, "[route]") != 2 || !strings.Contains(text, "engine_socket, the docker engine") {
 		t.Errorf("the report does not show both routes:\n%s", text)
+	}
+	// A person reads the device's name on a plan line, never its id.
+	if strings.Count(text, " on h1: ") != 2 || strings.Contains(text, "1d0c6a6e") {
+		t.Errorf("the plan lines do not name the device h1 by name:\n%s", text)
 	}
 }

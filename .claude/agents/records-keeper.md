@@ -21,6 +21,7 @@ been corrected many times. Write only what the caller's facts and the repository
 
 - `FAILURE_PATTERNS.md` and `FAILURE_PATTERNS_ARCHIVE.md`
 - `LESSONS_LEARNED.md` and `LESSONS_LEARNED_ARCHIVE.md`
+- `CI_LESSONS.md`, and the local failure ledgers through `go run ./tools/failures annotate` (never by hand)
 - `HANDOFF_DOCUMENT.md` and `HANDOFF_ARCHIVE.md`
 - new files under `changelog/`
 - `.SPECIFICATION/IMPLEMENTATION.md`
@@ -42,6 +43,12 @@ Never edit code, tests, generated files or other docs. Never commit, push or sta
    shorten an archive; the commit gate refuses that.
 5. When an open entry is resolved, update its index line and add the resolution to its archive entry; do not
    delete the original text.
+6. **CI and pr-check failures.** When the caller gives a failure seen in `make pr-check` or GitHub Actions, also:
+   annotate its ledger entries with the pattern number (`go run ./tools/failures annotate -test PKG.Test -pattern N
+   [-commit SHA] [-note TEXT]`), and when the diagnosis teaches a rule about writing tests or gating a pull
+   request, append it to `CI_LESSONS.md` under the section it fits, numbered after the last, citing the pattern
+   numbers. Never renumber a CI lesson. `CI_LESSONS.md` is tracked and public: name no `.IGNORE/` path, host or
+   address in it.
 
 ## The handoff
 

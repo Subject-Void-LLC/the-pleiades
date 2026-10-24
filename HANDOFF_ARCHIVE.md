@@ -1,5 +1,174 @@
 # Handoff Document Archive
 
+## Previous session, 2026-10-23: lab importers, the IOS undo, Genie's parsers and the routing lab gaps (Phase 127c), third pass
+
+*Superseded on 2026-10-23: the same branch went on to `56e83fb7` (records 603 to 612, lessons 316 to 320) and `01cdbb70` (the fifteen findings of a whole-branch failure-pattern review, FAILURE_PATTERNS 613 to 627) before any push.*
+
+### Status as it was
+
+**2026-10-23. Branch `feat/lab-importers`, off `main` at `62be86d4` (PR #88's merge). Phase 127c's importers and
+Telnet back end, the dogfooding fixes, then an exact IOS undo, Genie's IOS parsers in Go, `http.wait` and nine of the
+routing lab's gaps. Tip `356c5ef3`. Not pushed; no pull request yet. Tracker: 127c is 5 of 11 done, 127b 15 of 24.**
+
+#### Built and proven
+
+- Everything in the previous entry (`HANDOFF_ARCHIVE.md`).
+- `9ab84fe4`: `net.ios.config` keeps a checkpoint on the device and records `net.ios.replace` (`configure replace`,
+  file paths only in the journal); without a checkpoint it records no undo and shows masked `undo_lines`. IOS sessions
+  send `terminal width 512`. `TestConfig_CheckpointsAChangeAndItsUndoReturnsExactly` and its siblings.
+- `67a70f8e`: `net.ios.parse` and `pkg/iosparse`, twelve genieparser parsers held to genieparser's fixtures
+  (`LICENSE.genieparser`, `NOTICE.genieparser`). `pkg/iosconfig` fuzz 30 s, 33M execs, nothing found.
+- `b53d4db2`: `http.wait` (package 9.2 s, 100% coverage); a `container_host` with no `host` declares no SSH (605).
+- `fde5365c`: routing lab gaps G8, G10 to G14, G16 and G17, each with its test in IMPLEMENTATION.md's 127b follow-ups
+  item; `netcfg.RefuseMasked` in every configuration writer (609).
+- On the DevNet CML sandbox, `TestCLI_ImportCMLReachesIOSOverTelnet` passed in 102.5 s (140.8 s package): the checkpoint
+  round trip through `pleiades rollback`, the parsed before and after, and `rollback_on_failure` undoing inside the run.
+  It passed after the lab's node network stopped answering at about 17:10 UTC and a stop and start through the CML API
+  restored it (LESSONS 320).
+
+#### Open
+
+- FAILURE_PATTERNS 610 (ShowInterfaces keeps genieparser's "medium is" failure), 611 (ShowVlan's quadratic join),
+  612 (checkpoint files are never pruned).
+- Not built: the Walk tier's credential types carry no enable secret; `--via telnet` nodes cannot be onboarded (no
+  Telnet prober); Ansible-style `until`/`retries` task keys (`http.wait` answered G6 instead); 127c's fuzz,
+  adversarial, security and hardening gates.
+- 598 is fixed in set-host only: the other commands using `splitPositional` still check positionals before flags.
+- Still open from the routing lab: `wait.routes`' dispatcher, `validate` refusing a project `src` on the Walk tier,
+  `validate` checking a structured parameter's entries, the IOS XE snapshot proof.
+- LESSONS 315: rotating the sandbox VPN password or ending the reservation early is the owner's call.
+  `tests/cml/.env` is valid until about 2026-10-25.
+- 602, 574, 562, 560, 551, 470 and 471 as before.
+
+#### Next
+
+1. `make pr-check` with `PR_CHECK_PARALLELISM=1`, under the memory cap.
+2. Push and open the pull request; stay on it until it is green.
+3. Then the `virt.cml` pull request (the owner decided on 2026-10-23 it is its own PR), which also gets `--via console`
+   through the CML controller's console server.
+4. Then release tooling, which must ship `LICENSE.genieparser` and the vendored UI licenses in each archive.
+
+#### Files changed (since the last records)
+
+`internal/catalog/net/ios/` (`checkpoint.go`, `replace.go`, `parse.go`, `config.go`, `command.go` and tests);
+`pkg/iosconfig`, `pkg/iosparse` (with `testdata/`), `pkg/netcli`, `pkg/netcfg/refuse.go`, `pkg/collection/shapes.go`,
+`pkg/sdk/projectfiles.go`; `internal/catalog/http/wait.go`; `internal/inventory/devices/container/host.go`;
+`internal/catalog/pleiades/builtin/project/write.go`; `internal/engine/runbook_context_project_write.go`;
+`internal/journal/active.go`; `internal/validate/vars_rule.go` and the rules beside it; `internal/catalog/net/trace.go`,
+`cli/config.go`, `netconf/config.go`, `frr/config.go`; `cmd/pleiades` (run report, `run_concurrent.go`, rollback,
+journal, validate, the CML gate and new release gates); `internal/forge/catalogdata`; docs, the generated reference,
+README, CLAUDE.md, `examples/routing_lab`; changelog fragments. Records: FAILURE_PATTERNS 603 to 612, LESSONS 316 to
+320 (314 narrowed), changelog `ios-config-masked-refusal.changed.md`.
+
+#### Lab state
+
+Unchanged: no lab VM was touched on this branch; `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved as last
+recorded. The CML sandbox lab was stopped and started once through its API.
+
+## Previous session, 2026-10-23: lab importers, the dogfooding fixes (Phase 127c), second pass
+
+*Superseded on 2026-10-23: the same branch went on to `9ab84fe4` (the IOS checkpoint undo, `net.ios.replace`), `67a70f8e` (`net.ios.parse`), `b53d4db2` (`http.wait`, and a `container_host` with no host claims no SSH), `fde5365c` (routing lab gaps G8, G10 to G14, G16, G17) and `356c5ef3` (generated references and docs) before any push.*
+
+### Status as it was
+
+**2026-10-23. Branch `feat/lab-importers`, off `main` at `62be86d4` (PR #88's merge). Phase 127c: `pleiades
+import-gns3`, `pleiades import-cml` and a Telnet back end that logs in, plus four fixes from the owner's agent
+dogfooding (an agent changing a Cisco router through pleiades). Nine commits, tip `9bbc9e0a`. Not pushed; no pull
+request yet. Tracker: 127c is 5 of 11 done.**
+
+#### Built and proven
+
+- Everything in the previous entry (`HANDOFF_ARCHIVE.md`): `pkg/gns3`, `pkg/cml`, both importers, Telnet login, IOS
+  user mode and enable.
+- `c18812c0`: `set-host --tag/--untag`; the file repository now writes tags to `hosts.yaml` (FAILURE_PATTERNS 597);
+  set-host names an unknown flag (598). `TestSetHost_TagsAndUntagsAndRecordsIt`, `TestSetHost_AnUnknownFlagIsNamed`.
+- `9bbc9e0a`: `net.ios.command` reports a show command unchanged (599; `TestIOSShow_OnlyAShowThatWritesNoFile`);
+  `insecure_telnet` is described as a method parameter everywhere (600); the skill and docs/16 teach a `rollback:`
+  list for IOS changes (LESSONS 314); the GNS3 fixture retries a lost console port range (601) and prints the
+  container's log on a failed start. On the DevNet CML sandbox, `TestCLI_ImportCMLReachesIOSOverTelnet` asserts the
+  show is unchanged and that `pleiades rollback` replays the task's `rollback:` list (Loopback199 removed).
+- Live runs, all pass: GNS3 client test 16 to 19 s (3 runs), GNS3 CLI gate 35 s, CML gate 38 s for the package, 28 s
+  for the test.
+
+#### Open
+
+- Not built: the Walk tier's credential types carry no enable secret (AWX's `authorize_password`); `--via telnet`
+  nodes cannot be onboarded (no Telnet prober); 127c's fuzz, adversarial, security and hardening gates.
+- 598 is fixed in set-host only: `add-host` and the other commands using `splitPositional` still check the positional
+  count before parsing flags.
+- 602 (open): the GNS3 2.2.61 container's API once took over two minutes to answer, cause unknown.
+- Parked for the owner: Cisco Genie parser patterns, built in or downloadable. The recommendation given was built in,
+  generated by a tool from a pinned genieparser commit, RE2 only, with genieparser's own test fixtures as golden
+  vectors, and no runtime download path; external Collections stay the way to run real pyATS.
+- LESSONS 315: two fragments of the sandbox VPN password reached tool output. Rotating it or ending the reservation
+  early is the owner's call. `tests/cml/.env` (0600, gitignored) is valid until about 2026-10-25.
+- 574, 562, 560, 551, 470 and 471 as before.
+
+#### Next
+
+1. `make pr-check` with `PR_CHECK_PARALLELISM=1`, under the memory cap.
+2. Push and open the pull request; stay on it until it is green.
+3. Then the release tooling PR.
+
+#### Files changed (follow-up commits)
+
+`cmd/pleiades/sethost.go`, `sethost_test.go`, `doc_skill.go`, `importcml.go`, `importgns3.go`,
+`cml_release_gate_test.go`; `internal/inventory/file_repository_save.go`; `internal/catalog/net/ios/command.go` and
+`command_show_internal_test.go`; `internal/forge/catalogdata/collections_network_cli.go`; `internal/testsupport/gns3.go`;
+`pkg/sdk/shell.go`, `shell_test.go`; `internal/clispec/clispec.go`; `docs/16-network-verification.md` and the
+regenerated reference; four changelog fragments. Records: FAILURE_PATTERNS 597 to 602, LESSONS 314 and 315.
+
+#### Lab state
+
+Unchanged: no lab VM was touched on this branch; `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved as last
+recorded.
+
+## Previous session, 2026-10-23: lab importers and the Telnet back end (Phase 127c), first pass
+
+*Superseded on 2026-10-23: the same branch went on to `c9df9ba9` (a gosec waiver re-keyed), `3fa687e0` (SDK tests kept light), `c18812c0` (set-host tags, and tags saved to hosts.yaml) and `9bbc9e0a` (the IOS show and rollback fixes, the insecure_telnet wording, the GNS3 fixture retry) before any push.*
+
+### Status as it was
+
+**2026-10-23. Branch `feat/lab-importers`, off `main` at `62be86d4` (PR #88's merge). Phase 127c: `pleiades
+import-gns3`, `pleiades import-cml`, and, at the owner's direction ("build the telnet back end and connection
+primitives"), a Telnet back end that logs in. Not pushed; no pull request yet.**
+
+#### Built and proven
+
+- `pkg/gns3` and `import-gns3` against gns3-server 3.0.6 and 2.2.61 built from PyPI (`internal/testsupport/testdata/gns3`):
+  `TestClient_AgainstRealServers`, `TestCLI_ImportGNS3ReachesANodesConsole` (a VPCS node imported and reached with
+  `telnet_exec`).
+- `pkg/cml` and `import-cml` against the DevNet CML sandbox (CML 2.7.2) over its VPN: `TestClient_AgainstARealController`,
+  `TestCLI_ImportCMLReachesIOSOverTelnet` (IOL XE R1 over Telnet: facts and a command in user mode, config refused
+  there, then made with the enable secret, read back and removed). Both skip without `tests/cml/.env` and the VPN.
+- Telnet: `telnetexec.Session` (login, `ReadUntil`/`WriteLine`), `netcli.Shell`, `sdk.OpenShell`, the `telnet`
+  transport on `net.ios.*`/`net.cli.*` behind `insecure_telnet`, `transport: telnet` on Cisco types, the credential's
+  enable secret (`add-credential --enable-password[-stdin]`), IOS user mode and enable. `TestSession_AgainstARealTelnetd`
+  against BusyBox's telnetd and `/bin/login`.
+- Records: FAILURE_PATTERNS 592 to 596. Changelog fragments listed in IMPLEMENTATION.md's 127c Documentation Gate.
+
+#### Open
+
+- `tests/cml/.env` holds the sandbox reservation's VPN and controller logins (0600, gitignored), valid until about
+  2026-10-25; the owner runs `tests/cml/vpn.sh up` (openconnect, sudo). `vpn.sh up --container` runs the VPN in a
+  container where sudo is unavailable, and `vpn.sh run` runs a command on its network.
+- Not built: the Walk tier's credential types carry no enable secret (AWX's network credential, `authorize_password`);
+  `--via telnet` nodes cannot be onboarded (no Telnet prober); 127c's fuzz, adversarial, security and hardening gates.
+- The owner asked whether the Bash guard hook (`~/.claude/hooks/no-grep-go.py`) should be more specific: it blocks a
+  grep whose pattern text holds `.go`, and any path under `tests/`, `tools/`, `internal/`, `pkg/`, `cmd/` (a `.json`, `.env`
+  or log file there included).
+- 574, 560, 551, 470 and 471 as before.
+
+#### Next
+
+1. `make pr-check` with `PR_CHECK_PARALLELISM=1`, under the memory cap; then push and open the pull request.
+2. Then the release tooling PR.
+
+#### Lab state
+
+No lab VM work is recorded on this branch; the last record said `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1`
+were saved. No lab containers are running (`docker ps` empty, 2026-10-22).
+
 ## Previous session, 2026-10-22: the segmenter (Phase 117b part 2)
 
 *Superseded on 2026-10-22: PR #87 merged at `d6ceedb8`.*

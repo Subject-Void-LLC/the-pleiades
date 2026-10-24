@@ -1,0 +1,87 @@
+{
+ "vlans": {
+  "1": {
+   "interfaces": [
+    "GigabitEthernet1/0/23",
+    "GigabitEthernet1/0/25",
+    "GigabitEthernet1/0/26",
+    "GigabitEthernet1/0/27",
+    "GigabitEthernet1/0/28"
+   ],
+   "mtu": 1500,
+   "name": "default",
+   "private_vlan": {
+    "association": [
+     "2"
+    ],
+    "primary": true
+   },
+   "said": 100001,
+   "shutdown": false,
+   "state": "active",
+   "trans1": 0,
+   "trans2": 0,
+   "type": "enet",
+   "vlan_id": "1"
+  },
+  "1003": {
+   "bridge_mode": "srb",
+   "mtu": 4472,
+   "name": "trcrf-default",
+   "parent": "1005",
+   "ring_no": "3276",
+   "said": 101003,
+   "shutdown": false,
+   "state": "unsupport",
+   "token_ring": {
+    "are_hops": 7,
+    "backup_crf": "off",
+    "ste_hops": 7
+   },
+   "trans1": 0,
+   "trans2": 0,
+   "type": "trcrf",
+   "vlan_id": "1003"
+  },
+  "1004": {
+   "mtu": 1500,
+   "name": "fddinet-default",
+   "said": 101004,
+   "shutdown": false,
+   "state": "unsupport",
+   "stp": "ieee",
+   "trans1": 0,
+   "trans2": 0,
+   "type": "fdnet",
+   "vlan_id": "1004"
+  },
+  "1005": {
+   "bridge_no": "15",
+   "mtu": 4472,
+   "name": "trbrf-default",
+   "said": 101005,
+   "shutdown": false,
+   "state": "unsupport",
+   "stp": "ibm",
+   "trans1": 0,
+   "trans2": 0,
+   "type": "trbrf",
+   "vlan_id": "1005"
+  },
+  "2": {
+   "mtu": 1500,
+   "name": "Test",
+   "private_vlan": {
+    "primary": false,
+    "type": "community"
+   },
+   "said": 100002,
+   "shutdown": false,
+   "state": "active",
+   "trans1": 0,
+   "trans2": 0,
+   "type": "enet",
+   "vlan_id": "2"
+  }
+ }
+}

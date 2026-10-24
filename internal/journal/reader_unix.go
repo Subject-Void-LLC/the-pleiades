@@ -64,6 +64,13 @@ func checkJournalDir(dir string) error {
 	return checkPrivate(info, dir)
 }
 
+// othersMayWrite reports whether info's group or world write bit is set:
+// an active-run record (active.go) another account could have written,
+// which is skipped rather than believed.
+func othersMayWrite(info os.FileInfo) bool {
+	return info.Mode().Perm()&0o022 != 0
+}
+
 // checkPrivate refuses a file or directory another user owns, or that
 // group or others may read or write.
 func checkPrivate(info os.FileInfo, path string) error {

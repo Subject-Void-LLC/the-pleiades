@@ -96,7 +96,7 @@ func TestOpenSession_ReachesADeviceAndDisablesPaging(t *testing.T) {
 	if !result.Changed {
 		t.Error("a save the device took reported no change")
 	}
-	if got := srv.Commands(); len(got) != 2 || got[0] != "terminal length 0" || got[1] != "write memory" {
+	if got := srv.Commands(); len(got) != 3 || got[0] != "terminal length 0" || got[1] != "terminal width 512" || got[2] != "write memory" {
 		t.Errorf("the device received %v, want paging disabled first and then the save", got)
 	}
 	if out, _ := rc.stats[statSaveStdout].(string); !strings.Contains(out, "[OK]") {

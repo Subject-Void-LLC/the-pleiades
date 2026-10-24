@@ -1,0 +1,228 @@
+<!doctype html>
+<!--
+  dashboard.html: the pr-check monitor's one page. monitor.py serves it on
+  127.0.0.1 with dashboard.js, which polls /state every two seconds and draws
+  the charts with Apache ECharts (one pinned file, checked by its SRI hash).
+  Every piece of log or API text reaches the page through textContent only.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pr-check monitor</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f4f2;
+    --surface-1: #fcfcfb;
+    --border: #dcdbd6;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #6d6c67;
+    --grid: #e6e5e0;
+    --st-pending: #b9b8b1;
+    --st-running: #2a78d6;
+    --st-pass: #0ca30c;
+    --st-fail: #d03b3b;
+    --st-not-run: #fab219;
+    --st-ended: #6d7f99;
+    --st-skipped: #dedcd5;
+    --st-stopped: #ec835a;
+    --series-1: #2a78d6;
+    --focus: #2a78d6;
+    --cat-1: #2a78d6; --cat-2: #eb6834; --cat-3: #1baf7a; --cat-4: #eda100;
+    --cat-5: #e87ba4; --cat-6: #008300; --cat-7: #6250d6; --cat-8: #e34948;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-0: #121211;
+      --surface-1: #1a1a19;
+      --border: #383835;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted: #9a998f;
+      --grid: #2c2c2a;
+      --st-pending: #5d5c57;
+      --st-running: #3987e5;
+      --st-ended: #8494ad;
+      --st-skipped: #3a3a37;
+      --series-1: #3987e5;
+      --focus: #86b6ef;
+      --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+      --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --border: #383835;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #9a998f;
+    --grid: #2c2c2a;
+    --st-pending: #5d5c57;
+    --st-running: #3987e5;
+    --st-ended: #8494ad;
+    --st-skipped: #3a3a37;
+    --series-1: #3987e5;
+    --focus: #86b6ef;
+    --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+    --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+  }
+  * { box-sizing: border-box; }
+  html, body { max-width: 100%; overflow-x: hidden; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  main { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
+  section {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 0;
+  }
+  section.wide { grid-column: 1 / -1; }
+  .meta, .note { color: var(--text-secondary); margin: 4px 0; }
+  .note { font-size: 13px; }
+  .chart { width: 100%; min-height: 220px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; color: var(--text-secondary); font-size: 13px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .chip {
+    display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600;
+    border: 1px solid var(--border); color: var(--text-primary); background: var(--surface-0);
+  }
+  .chip::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: var(--chip, var(--st-pending)); }
+  .verdict { font-size: 15px; padding: 3px 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-wrap { overflow-x: auto; }
+  .row { display: grid; grid-template-columns: 110px minmax(80px, 1fr); gap: 2px 12px; align-items: center; margin: 8px 0; }
+  .row .note { grid-column: 2; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; }
+  td progress { display: inline-block; width: 90px; vertical-align: middle; }
+  /* Progress bars are drawn by hand: a native bar picks its own track
+     color from accent-color, which turned a grey (pending) bar black. The
+     value takes its stage's status color through --bar. */
+  progress {
+    -webkit-appearance: none; appearance: none; display: block;
+    width: 100%; height: 10px; border: 0; border-radius: 5px;
+    background: var(--grid); color: var(--bar, var(--st-running)); overflow: hidden;
+  }
+  progress::-webkit-progress-bar { background: var(--grid); border-radius: 5px; }
+  progress::-webkit-progress-value { background: var(--bar, var(--st-running)); border-radius: 5px; }
+  progress::-moz-progress-bar { background: var(--bar, var(--st-running)); border-radius: 5px; }
+  progress:indeterminate {
+    background: linear-gradient(90deg, var(--grid) 0%, var(--bar, var(--st-running)) 50%, var(--grid) 100%) 0 0 / 40% 100% no-repeat, var(--grid);
+    animation: sweep 1.4s linear infinite;
+  }
+  progress:indeterminate::-webkit-progress-bar { background: transparent; }
+  progress:indeterminate::-moz-progress-bar { background: transparent; }
+  @keyframes sweep { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
+  .legs { display: grid; gap: 10px; }
+  .leg { border: 1px solid var(--grid); border-radius: 6px; padding: 8px 10px; }
+  .leg code { display: block; margin-top: 4px; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); font-size: 12px; }
+  select, button {
+    font: inherit; color: var(--text-primary); background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
+  }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  a { color: var(--series-1); }
+  .failed-job { color: var(--st-fail); font-weight: 600; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  details summary { cursor: pointer; color: var(--text-secondary); margin-top: 8px; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    progress:indeterminate { background: repeating-linear-gradient(45deg, var(--grid) 0 6px, var(--bar, var(--st-running)) 6px 12px); }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"
+        integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR"
+        crossorigin="anonymous"></script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>pr-check monitor</h1>
+  <label>View
+    <select id="view" aria-label="Which run to show"></select>
+  </label>
+  <span id="verdict" class="chip verdict" role="status">no run</span>
+  <span id="meta" class="meta"></span>
+</header>
+<div id="notes" aria-live="polite"></div>
+<main>
+  <section class="wide" aria-labelledby="h-stages">
+    <h2 id="h-stages">Stages</h2>
+    <div id="stage-legend" class="legend"></div>
+    <div id="gantt" class="chart" role="img" aria-label="Timeline of every stage; the table below holds the same data"></div>
+    <details>
+      <summary>Stage table</summary>
+      <div class="table-wrap"><table id="stage-table"></table></div>
+    </details>
+  </section>
+  <section aria-labelledby="h-progress">
+    <h2 id="h-progress">Progress</h2>
+    <div id="progress"></div>
+  </section>
+  <section aria-labelledby="h-legs">
+    <h2 id="h-legs">OS legs</h2>
+    <div id="legs" class="legs"></div>
+  </section>
+  <section class="wide" aria-labelledby="h-memory">
+    <h2 id="h-memory">MemAvailable (MB)</h2>
+    <p class="note" id="memory-note"></p>
+    <div id="memory" class="chart" role="img" aria-label="MemAvailable over time"></div>
+  </section>
+  <section class="wide" aria-labelledby="h-actions">
+    <h2 id="h-actions">GitHub Actions</h2>
+    <p id="actions-status" class="meta" role="status"></p>
+    <div class="controls">
+      <label>Run <select id="actions-run" aria-label="Which Actions run to show"></select></label>
+      <span id="actions-failed"></span>
+    </div>
+    <div id="actions-gantt" class="chart" role="img" aria-label="Timeline of the selected run's jobs; the job table holds the same data"></div>
+    <details>
+      <summary>Jobs of this run, with their steps</summary>
+      <div class="table-wrap"><table id="actions-jobs"></table></div>
+    </details>
+    <h2 style="margin-top:12px">Runs on this branch</h2>
+    <div class="table-wrap"><table id="actions-runs"></table></div>
+  </section>
+  <section class="wide" aria-labelledby="h-history">
+    <h2 id="h-history">History</h2>
+    <div class="table-wrap"><table id="history"></table></div>
+    <div class="controls" style="margin-top:12px">
+      <label>Local duration of <select id="stage-pick" aria-label="Stage whose duration to chart"></select></label>
+    </div>
+    <p id="history-chart-note" class="note"></p>
+    <div id="history-chart" class="chart" role="img" aria-label="Duration of the chosen stage over saved runs"></div>
+    <div class="controls" style="margin-top:12px">
+      <label>Actions duration of <select id="job-pick" aria-label="Actions job whose duration to chart"></select></label>
+    </div>
+    <p id="actions-chart-note" class="note"></p>
+    <div id="actions-chart" class="chart" role="img" aria-label="Duration of the chosen Actions job over runs"></div>
+  </section>
+  <section class="wide" aria-labelledby="h-size">
+    <h2 id="h-size">Binary size</h2>
+    <div class="controls">
+      <label>Build <select id="size-group" aria-label="Package, Go release and flags to compare"></select></label>
+    </div>
+    <p id="size-note" class="note"></p>
+    <div id="size-chart" class="chart" role="img" aria-label="Binary size per platform over commits"></div>
+  </section>
+</main>
+</body>
+</html>

@@ -23,3 +23,7 @@ func (e *ReadError) Error() string { return e.err.Error() }
 // Unwrap returns the cause: the context's error, the session's I/O
 // error, or the byte bound.
 func (e *ReadError) Unwrap() error { return e.err }
+
+// PartialRead returns Partial, so a caller reading any carrier's shell
+// (pkg/netcli) finds what a read had got without naming this type.
+func (e *ReadError) PartialRead() []byte { return e.Partial }

@@ -1,0 +1,39 @@
+{
+ "cdp": {
+  "index": {
+   "1": {
+    "capability": "R I",
+    "device_id": "R1.cisco.com",
+    "hold_time": 169,
+    "local_interface": "GigabitEthernet0/2/0",
+    "platform": "ASR1002",
+    "port_id": "GigabitEthernet0/0/0"
+   },
+   "2": {
+    "capability": "R B S",
+    "device_id": "R2.cisco.com",
+    "hold_time": 167,
+    "local_interface": "GigabitEthernet0/2/2",
+    "platform": "CISCO2951",
+    "port_id": "GigabitEthernet0/0"
+   },
+   "3": {
+    "capability": "R I",
+    "device_id": "R3.cisco.com",
+    "hold_time": 165,
+    "local_interface": "Multilink3",
+    "platform": "ASR1002",
+    "port_id": "Multilink1"
+   },
+   "4": {
+    "capability": "R S I",
+    "device_id": "R4.cisco.com",
+    "hold_time": 160,
+    "local_interface": "Serial0/1/0",
+    "platform": "ISR4451-X",
+    "port_id": "Serial0/1/0"
+   }
+  },
+  "total_entries": 4
+ }
+}

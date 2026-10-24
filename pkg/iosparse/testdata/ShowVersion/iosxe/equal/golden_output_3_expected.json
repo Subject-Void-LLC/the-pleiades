@@ -1,0 +1,105 @@
+{
+ "version": {
+  "bootldr": "CAT3K_CAA Boot Loader (CAT3K_CAA-HBOOT-M) Version 1.2, RELEASE SOFTWARE (P)",
+  "chassis": "WS-C3650-48PD",
+  "chassis_sn": "FDO0000E1C8",
+  "compiled_by": "prod_rel_team",
+  "compiled_date": "Wed 12-Jul-17 16:55",
+  "copyright_years": "1986-2017",
+  "curr_config_register": "0x102",
+  "disks": {
+   "crashinfo-1:.": {
+    "disk_size": "257008",
+    "type_of_disk": "Crash Files"
+   },
+   "crashinfo:.": {
+    "disk_size": "257008",
+    "type_of_disk": "Crash Files"
+   },
+   "flash-1:.": {
+    "disk_size": "1550272",
+    "type_of_disk": "Flash"
+   },
+   "flash:.": {
+    "disk_size": "1550272",
+    "type_of_disk": "Flash"
+   },
+   "usbflash0-1:.": {
+    "disk_size": "0",
+    "type_of_disk": "Dummy USB Flash"
+   },
+   "usbflash0:.": {
+    "disk_size": "0",
+    "type_of_disk": "Dummy USB Flash"
+   },
+   "webui:.": {
+    "disk_size": "0",
+    "type_of_disk": ""
+   }
+  },
+  "hostname": "testhost",
+  "image_id": "CAT3K_CAA-UNIVERSALK9-M",
+  "image_type": "production image",
+  "last_reload_reason": "Reload command",
+  "license_level": "License",
+  "license_type": "Type",
+  "main_mem": "4194304",
+  "mem_size": {
+   "non-volatile configuration": "2048",
+   "physical": "4194304"
+  },
+  "next_reload_license_level": "License",
+  "number_of_intfs": {
+   "Gigabit Ethernet": "100",
+   "Ten Gigabit Ethernet": "4",
+   "Virtual Ethernet": "3"
+  },
+  "os": "IOS-XE",
+  "platform": "Catalyst L3 Switch",
+  "processor_type": "MIPS",
+  "returned_to_rom_at": "10:29:35 CEST Sat Apr 14 2018",
+  "returned_to_rom_by": "reload",
+  "rom": "IOS-XE ROMMON",
+  "rtr_type": "Edison",
+  "switch_num": {
+   "1": {
+    "active": false,
+    "mac_address": "bb:aa:77:ff:aa:88",
+    "mb_assembly_num": "73-12345-89",
+    "mb_rev_num": "A0",
+    "mb_sn": "FDO668866D8F",
+    "mode": "INSTALL",
+    "model": "WS-C3650-48PD",
+    "model_num": "WS-C3650-48PD",
+    "model_rev_num": "D0",
+    "ports": "52",
+    "sw_image": "cat3k_caa-universalk9",
+    "sw_ver": "03.06.07E",
+    "system_sn": "FDO668866F910",
+    "uptime": "1 year, 51 weeks, 2 days, 44 minutes"
+   },
+   "2": {
+    "active": true,
+    "mac_address": "88:88:00:ff:33:00",
+    "mb_assembly_num": "73-12345-67",
+    "mb_rev_num": "A0",
+    "mb_sn": "FDO668866S6E",
+    "mode": "INSTALL",
+    "model": "WS-C3650-48PD",
+    "model_num": "WS-C3650-48PD",
+    "model_rev_num": "D0",
+    "ports": "52",
+    "sw_image": "cat3k_caa-universalk9",
+    "sw_ver": "03.06.07E",
+    "system_sn": "FDO668866F908",
+    "uptime": "1 year, 51 weeks, 2 days, 46 minutes"
+   }
+  },
+  "system_image": "flash:packages.conf",
+  "system_restarted_at": "10:36:03 CEST Sat Apr 14 2018",
+  "uptime": "1 year, 51 weeks, 2 days, 41 minutes",
+  "uptime_this_cp": "1 year, 51 weeks, 2 days, 46 minutes",
+  "version": "03.06.07E",
+  "version_short": "03.06"
+ }
+}

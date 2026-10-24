@@ -69,7 +69,7 @@ func ReversibleRule(world WorldView) []Finding {
 		if task.Kind() != engine.TaskKindLeaf || task.Rollback != nil {
 			continue
 		}
-		why := whyNotUndoable(task.FQCN)
+		why := whyNotUndoable(task.FQCN, task.Params)
 		if why == "" {
 			continue
 		}
@@ -106,7 +106,7 @@ func RollbackOnFailureRule(world WorldView) []Finding {
 			if task == nil || task.Kind() != engine.TaskKindLeaf || task.Rollback != nil {
 				continue
 			}
-			why := whyNotUndoable(task.FQCN)
+			why := whyNotUndoable(task.FQCN, task.Params)
 			if why == "" {
 				continue
 			}
@@ -125,10 +125,11 @@ func RollbackOnFailureRule(world WorldView) []Finding {
 	return findings
 }
 
-// whyNotUndoable says why a task calling fqcn could not be undone from its
-// journal, or "" when it could (or changes no device). A name nothing
-// registers is CollectionRule's finding, not this rule's.
-func whyNotUndoable(fqcn string) string {
+// whyNotUndoable says why a task calling fqcn with params could not be
+// undone from its journal, or "" when it could (or changes no device). A
+// name nothing registers is CollectionRule's finding, not this rule's. A
+// method whose calls differ answers for this call through its UndoCall.
+func whyNotUndoable(fqcn string, params map[string]any) string {
 	if !isCollectionName(fqcn) || dottedBuiltinExemptions[fqcn] {
 		if deviceUnchangingActions[fqcn] {
 			return ""
@@ -159,6 +160,11 @@ func whyNotUndoable(fqcn string) string {
 		}
 		if spec.MayBePartial {
 			return fmt.Sprintf("calls %s, whose undo through %s can leave part of what it changed in place", fqcn, spec.FQCN)
+		}
+	}
+	if desc.UndoCall != nil {
+		if why := desc.UndoCall(params); why != "" {
+			return fmt.Sprintf("calls %s, which records no undo here: %s", fqcn, why)
 		}
 	}
 	return ""

@@ -36,6 +36,11 @@ type runSummary struct {
 	RollbackOf string `json:"rollback_of,omitempty"`
 	// RolledBackBy are the rollbacks of this run.
 	RolledBackBy []string `json:"rolled_back_by,omitempty"`
+	// UndoneInRun counts the undo steps that ran inside this run itself: a
+	// block's rollback_on_failure undid changes its own tasks made when one
+	// of them failed. Those steps are among Tasks (and Changed, when they
+	// changed something), so this says how many of them were undoing.
+	UndoneInRun int `json:"undone_in_run,omitempty"`
 }
 
 // runShow is `pleiades journal show`'s model.
@@ -98,7 +103,12 @@ func journalList(dir string, asJSON bool) error {
 			}
 			// An entry naming its own run is a step of a block's
 			// rollback_on_failure, not a sign the run is a rollback.
-			if e.RollbackOf != "" && e.RollbackOf != s.RunID {
+			switch {
+			case e.RollbackOf == s.RunID && e.UndoesNode != "" && (e.Outcome == engine.OutcomeChanged || e.Outcome == engine.OutcomeRan):
+				// A step that ran, changed or not, is an undo done; the
+				// planner reads the same two outcomes as done.
+				s.UndoneInRun++
+			case e.RollbackOf != "" && e.RollbackOf != s.RunID:
 				s.RollbackOf = e.RollbackOf
 			}
 		}
@@ -124,6 +134,9 @@ func journalList(dir string, asJSON bool) error {
 		}
 		if s.RollbackOf != "" {
 			notes = append(notes, "rollback of "+s.RollbackOf)
+		}
+		if s.UndoneInRun > 0 {
+			notes = append(notes, fmt.Sprintf("undid its own change in the run (%d undo step(s), rollback_on_failure)", s.UndoneInRun))
 		}
 		if len(s.RolledBackBy) > 0 {
 			notes = append(notes, "rolled back by "+strings.Join(s.RolledBackBy, ", "))
@@ -165,6 +178,20 @@ func journalShow(dir, runID string, asJSON bool) error {
 			line += " (failed at " + string(e.FailureStage) + ")"
 		}
 		fmt.Println(line)
+		// An undo step (a rollback's, or one a block's rollback_on_failure
+		// ran inside this run) says what it undid, and never the undo it
+		// recorded in turn: a rollback does not undo an undo, so that line
+		// would name a step nothing will ever run.
+		if e.UndoesNode != "" {
+			undid := "undoes: " + e.UndoesNode
+			if e.RollbackOf == run.ID {
+				undid += ", inside this run (rollback_on_failure)"
+			} else {
+				undid += " of run " + e.RollbackOf
+			}
+			fmt.Printf("        %s\n", termsafe.EscapeLine(undid))
+			continue
+		}
 		if e.InverseFQCN != "" {
 			fmt.Printf("        undo: %s%s\n", termsafe.EscapeLine(e.InverseFQCN), undoNote(e))
 		}

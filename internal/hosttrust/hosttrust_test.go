@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,7 +56,8 @@ func TestMerge(t *testing.T) {
 	if err != nil || out.Added != 2 {
 		t.Fatalf("%+v, %v", out, err)
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+	// Windows keeps no POSIX mode bits, so a file's mode says nothing there.
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("a new file has mode %v", info.Mode().Perm())
 	}
 	if !verifies(t, path, "192.168.56.10", a) || !verifies(t, path, "192.168.56.10", b) {
@@ -106,7 +108,7 @@ func TestMerge_KeepsWhatItDoesNotOwn(t *testing.T) {
 	if !strings.HasPrefix(string(content), existing+"\n") || !verifies(t, path, "example.com", other) {
 		t.Errorf("the file's other lines changed:\n%s", content)
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o644 {
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 		t.Errorf("the file's mode changed to %v", info.Mode().Perm())
 	}
 	if _, err := Merge(path, "x", nil, false); err == nil {
@@ -137,8 +139,27 @@ func TestScan(t *testing.T) {
 	if srv.Logins() != 0 {
 		t.Error("the scan logged in")
 	}
-	if _, err := Scan(context.Background(), refusing.Addr(t), time.Second); err == nil {
-		t.Error("a closed port gave keys")
+	if _, err := Scan(context.Background(), refusing.Addr(t), time.Second); err == nil || !strings.Contains(err.Error(), "could not be reached") {
+		t.Errorf("a closed port = %v, want it named unreachable", err)
+	}
+	// A listener that speaks something else answers, but with no key.
+	notSSH, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer notSSH.Close()
+	go func() {
+		for {
+			c, err := notSSH.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = c.Write([]byte("User Access Verification\r\n\r\nUsername: "))
+			_ = c.Close()
+		}
+	}()
+	if _, err := Scan(context.Background(), notSSH.Addr().String(), time.Second); err == nil || !strings.Contains(err.Error(), "presented no host key:") {
+		t.Errorf("a listener that is not SSH = %v, want no host key and the cause", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -179,7 +200,9 @@ func TestMerge_Failures(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
-	if os.Getuid() != 0 {
+	// A read-only folder refuses a write only where POSIX modes apply, and
+	// never to root; Windows lets a process write into a 0500 folder.
+	if os.Getuid() != 0 && runtime.GOOS != "windows" {
 		if _, err := Merge(filepath.Join(locked, "known_hosts"), "x", []ssh.PublicKey{key}, false); err == nil {
 			t.Error("wrote into a folder it may not write")
 		}

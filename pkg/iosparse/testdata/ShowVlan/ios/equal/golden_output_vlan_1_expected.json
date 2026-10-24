@@ -1,0 +1,179 @@
+{
+ "vlans": {
+  "1": {
+   "interfaces": [
+    "GigabitEthernet1/0/1",
+    "GigabitEthernet1/0/2",
+    "GigabitEthernet1/0/3",
+    "GigabitEthernet1/0/5",
+    "GigabitEthernet1/0/6",
+    "GigabitEthernet1/0/12",
+    "GigabitEthernet1/0/13",
+    "GigabitEthernet1/0/14",
+    "GigabitEthernet1/0/15",
+    "GigabitEthernet1/0/16",
+    "GigabitEthernet1/0/17",
+    "GigabitEthernet1/0/18",
+    "GigabitEthernet1/0/19",
+    "GigabitEthernet1/0/20",
+    "GigabitEthernet1/0/21",
+    "GigabitEthernet1/0/22"
+   ],
+   "mtu": 1500,
+   "name": "default",
+   "said": 100001,
+   "shutdown": false,
+   "state": "active",
+   "trans1": 0,
+   "trans2": 0,
+   "type": "enet",
+   "vlan_id": "1"
+  },
+  "10": {
+   "private_vlan": {
+    "primary": false,
+    "type": "community"
+   }
+  },
+  "100": {
+   "mtu": 1500,
+   "name": "V100",
+   "private_vlan": {
+    "association": [
+     "151"
+    ],
+    "primary": true
+   },
+   "said": 100100,
+   "shutdown": false,
+   "state": "suspend",
+   "trans1": 0,
+   "trans2": 0,
+   "type": "enet",
+   "vlan_id": "100"
+  },
+  "101": {
+   "mtu": 1500,
+   "name": "VLAN0101",
+   "private_vlan": {
+    "association": [
+     "402"
+    ],
+    "primary": true
+   },
+   "said": 100101,
+   "shutdown": false,
+   "state": "active",
+   "trans1": 0,
+   "trans2": 0,
+   "type": "enet",
+   "vlan_id": "101"
+  },
+  "102": {
+   "name": "VLAN0102",
+   "remote_span_vlan": true,
+   "shutdown": false,
+   "state": "active",
+   "vlan_id": "102"
+  },
+  "103": {
+   "name": "VLAN0103",
+   "shutdown": false,
+   "state": "active",
+   "vlan_id": "103"
+  },
+  "104": {
+   "name": "VLAN0104",
+   "shutdown": true,
+   "state": "shutdown",
+   "vlan_id": "104"
+  },
+  "105": {
+   "private_vlan": {
+    "primary": false,
+    "type": "isolated"
+   }
+  },
+  "151": {
+   "private_vlan": {
+    "primary": false,
+    "type": "non-operational"
+   }
+  },
+  "2": {
+   "name": "VLAN0002",
+   "private_vlan": {
+    "association": [
+     "301",
+     "302"
+    ],
+    "primary": true
+   },
+   "shutdown": false,
+   "state": "active",
+   "vlan_id": "2"
+  },
+  "20": {
+   "name": "VLAN0020",
+   "private_vlan": {
+    "association": [
+     "105"
+    ],
+    "primary": true
+   },
+   "remote_span_vlan": true,
+   "shutdown": false,
+   "state": "active",
+   "vlan_id": "20"
+  },
+  "202": {
+   "private_vlan": {
+    "primary": false,
+    "type": "community"
+   }
+  },
+  "21": {
+   "remote_span_vlan": true
+  },
+  "24": {
+   "remote_span_vlan": true
+  },
+  "25": {
+   "remote_span_vlan": true
+  },
+  "26": {
+   "remote_span_vlan": true
+  },
+  "27": {
+   "remote_span_vlan": true
+  },
+  "301": {
+   "private_vlan": {
+    "ports": [
+     "FastEthernet5/3",
+     "FastEthernet5/25"
+    ],
+    "primary": false,
+    "type": "community"
+   }
+  },
+  "302": {
+   "private_vlan": {
+    "primary": false,
+    "type": "community"
+   }
+  },
+  "303": {
+   "private_vlan": {
+    "primary": false,
+    "type": "community"
+   }
+  },
+  "402": {
+   "private_vlan": {
+    "primary": false,
+    "type": "non-operational"
+   }
+  }
+ }
+}

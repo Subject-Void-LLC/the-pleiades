@@ -5,11 +5,13 @@ package net
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestParseTracepath reads hops once each, in order, a hop that did not
@@ -108,6 +110,54 @@ func TestTrace_OnARealRouter(t *testing.T) {
 	for _, d := range []string{"-V", "10.204.0.3; reboot", ""} {
 		if _, err := Trace(ctx, rc(), r1, map[string]any{"dest": d}); err == nil {
 			t.Errorf("dest %q was accepted", d)
+		}
+	}
+}
+
+// TestTrace_FromAContainerRefusesBeforeTheEngine: a container name no
+// engine allows is refused before any engine is reached, and a device that
+// is not a container host is refused by the engine session, naming the
+// method. The trace itself, through a real engine and router, is
+// cmd/pleiades's TestCLI_NetTraceFromAContainerThroughARouter.
+func TestTrace_FromAContainerRefusesBeforeTheEngine(t *testing.T) {
+	rc := &statContext{stats: map[string]any{}}
+	if _, err := Trace(context.Background(), rc, nil, map[string]any{"dest": "10.0.0.1", "container": "h1; reboot"}); err == nil || !strings.Contains(err.Error(), "no engine allows") {
+		t.Errorf("a bad container name: %v", err)
+	}
+	if _, err := Trace(context.Background(), rc, nil, map[string]any{"dest": "10.0.0.1", "container": "h1"}); err == nil || !strings.HasPrefix(err.Error(), traceFQCN) {
+		t.Errorf("no container host: %v", err)
+	}
+	if _, err := Trace(context.Background(), rc, nil, map[string]any{"dest": "10.0.0.1", "container": 7}); err == nil || !strings.HasPrefix(err.Error(), traceFQCN) {
+		t.Errorf("a container that is not text: %v", err)
+	}
+}
+
+// TestTrace_AnEmptyContainerKeepsTheShapeItWasCheckedFor: a call giving
+// container, even empty (as a template rendering nothing gives it), is held
+// by validation, the engine and admission to the container-engine shape
+// (Manifest.For), so the method refuses it rather than tracing over SSH, a
+// shape nothing checked the device for. Before, "" fell through to SSH.
+func TestTrace_AnEmptyContainerKeepsTheShapeItWasCheckedFor(t *testing.T) {
+	d, ok := collection.Lookup(traceFQCN)
+	if !ok {
+		t.Fatal("net.trace is not registered")
+	}
+	params := map[string]any{"dest": "10.0.0.1", "container": ""}
+	if shaped := d.Manifest.For(params); !slices.Equal(shaped.RequiredCapabilities, []capability.Name{capability.NameContainerEngine}) {
+		t.Fatalf("an empty container is held to %v; want the container-engine shape", shaped.RequiredCapabilities)
+	}
+	rc := &statContext{stats: map[string]any{}}
+	if _, err := Trace(context.Background(), rc, nil, params); err == nil || !strings.Contains(err.Error(), "container is empty") {
+		t.Errorf("an empty container: %v; want it refused, not traced over SSH", err)
+	}
+	if len(rc.stats) != 0 {
+		t.Errorf("an empty container recorded %v", rc.stats)
+	}
+	// Left out, or null, it is the device's own shape, which the real router
+	// test above runs over SSH.
+	for _, p := range []map[string]any{{"dest": "10.0.0.1"}, {"dest": "10.0.0.1", "container": nil}} {
+		if shaped := d.Manifest.For(p); slices.Contains(shaped.RequiredCapabilities, capability.NameContainerEngine) {
+			t.Errorf("%v is held to the container shape", p)
 		}
 	}
 }

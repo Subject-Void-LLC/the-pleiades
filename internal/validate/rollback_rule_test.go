@@ -38,6 +38,20 @@ func registerUndoShapes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A method whose undo depends on the call: with keep: false it records
+	// none (net.ios.config's checkpoint: false).
+	byCall := collection.Descriptor{Name: "undo.bycall", Manifest: collection.Manifest{
+		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{target}},
+		Doc: collection.Doc{Params: []collection.Param{{Name: "name", Type: "string"}, {Name: "keep", Type: "bool"}}},
+	}, Invoke: run, UndoCall: func(params map[string]any) string {
+		if v, ok := params["keep"]; ok && v != true {
+			return "keep is not true"
+		}
+		return ""
+	}}
+	if err := collection.Register(byCall); err != nil {
+		t.Fatal(err)
+	}
 	// An external program's method, whose declaration is never honored.
 	external := collection.Descriptor{Name: "undo.external", Manifest: collection.Manifest{
 		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{target}},
@@ -78,6 +92,24 @@ func TestReversibleRule_RefusesATaskNoRollbackCouldUndo(t *testing.T) {
 				t.Errorf("%s: findings %+v, want one on tasks[0] mentioning %q", method, findings, want)
 			}
 		})
+	}
+}
+
+// TestReversibleRule_AsksTheCallWhenTheMethodSaysItDepends: a method whose
+// undo depends on the call is refused for the call that records none, by
+// both rules that promise an undo, and passed for the one that records it.
+func TestReversibleRule_AsksTheCallWhenTheMethodSaysItDepends(t *testing.T) {
+	registerUndoShapes(t)
+	if findings := validate.ReversibleRule(validate.WorldView{DAG: yamlDAG(t, reversibleRunbook("undo.bycall", ""))}); len(findings) != 0 {
+		t.Errorf("a call that records its undo was refused: %+v", findings)
+	}
+	off := reversibleRunbook("undo.bycall", "      keep: false\n")
+	if findings := validate.ReversibleRule(validate.WorldView{DAG: yamlDAG(t, off)}); len(findings) != 1 || !strings.Contains(findings[0].Message, "records no undo here: keep is not true") {
+		t.Errorf("reversible: findings %+v, want the call refused naming why", findings)
+	}
+	block := "id: r\nhosts: web\ntasks:\n  - name: b\n    rollback_on_failure: true\n    block:\n      - name: step\n        undo.bycall:\n          name: x\n          keep: false\n"
+	if findings := validate.RollbackOnFailureRule(validate.WorldView{DAG: yamlDAG(t, block)}); len(findings) != 1 || !strings.Contains(findings[0].Message, "keep is not true") {
+		t.Errorf("rollback_on_failure: findings %+v, want the call refused", findings)
 	}
 }
 

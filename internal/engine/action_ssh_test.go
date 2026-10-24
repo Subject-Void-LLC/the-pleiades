@@ -736,3 +736,56 @@ func TestTransportActionExecutor_DispatchesToASecondUnrelatedProtocol(t *testing
 		t.Error("expected ssh_exec to reject a device that only declares the fake protocol's capability")
 	}
 }
+
+// TestTransportActionExecutor_ACredentialIsOptionalWhereTheProtocolHasNoLogin:
+// bare Telnet, raw passthrough and a serial line have no login of their
+// own, so a device with no stored credential is reached with none sent,
+// and one with a credential gets it (for a login its terminal asks); SSH
+// and WinRM still refuse without one, and any other lookup failure is
+// still a failure.
+func TestTransportActionExecutor_ACredentialIsOptionalWhereTheProtocolHasNoLogin(t *testing.T) {
+	defaults := engine.NewDefaultTransportBindings(nil, nil, nil, nil, nil)
+	for fqcn, want := range map[string]bool{"telnet_exec": true, "serialtcp_exec": true, "serial_exec": true, "ssh_exec": false, "winrm_exec": false} {
+		b, ok := defaults.Get(fqcn)
+		if !ok || b.CredentialOptional != want {
+			t.Errorf("%s: CredentialOptional = %v (registered %v), want %v", fqcn, b.CredentialOptional, ok, want)
+		}
+	}
+
+	var sent credential.Credential
+	called := false
+	binding := engine.TransportBinding{
+		Capability: capability.NameTelnet,
+		Transport: &fakeTransport{exec: func(_ context.Context, _ transport.Target, cred credential.Credential, _ string) (transport.Result, error) {
+			called, sent = true, cred
+			return transport.Result{Stdout: "VPCS>"}, nil
+		}},
+		Target:             engine.TelnetTarget,
+		RequireOptInParam:  engine.ParamInsecureTelnet,
+		CredentialOptional: true,
+	}
+	actions := engine.NewTransportActionExecutor(
+		map[string]engine.TransportBinding{"telnet_exec": binding},
+		fakeCredentialStore{err: credential.ErrNotFound},
+		nil,
+		engine.NewBuiltinActionExecutor(),
+	)
+	task := &engine.Task{FQCN: "telnet_exec", Params: map[string]any{"command": "show ip", engine.ParamInsecureTelnet: true}}
+	if _, err := actions.Execute(context.Background(), task, newTelnetDevice("pc1", "127.0.0.1", 5000)); err != nil {
+		t.Fatalf("a telnet device with no credential: %v", err)
+	}
+	if !called || sent.Username != "" || sent.Password != "" {
+		t.Errorf("called %v with %+v, want a call with no credential", called, sent)
+	}
+
+	stored := engine.NewTransportActionExecutor(map[string]engine.TransportBinding{"telnet_exec": binding},
+		fakeCredentialStore{cred: credential.Credential{Username: "cisco", Password: "cisco"}}, nil, engine.NewBuiltinActionExecutor())
+	if _, err := stored.Execute(context.Background(), task, newTelnetDevice("r1", "10.10.20.171", 23)); err != nil || sent.Username != "cisco" {
+		t.Errorf("a stored credential: %v, sent %+v; want it sent", err, sent)
+	}
+	broken := engine.NewTransportActionExecutor(map[string]engine.TransportBinding{"telnet_exec": binding},
+		fakeCredentialStore{err: errors.New("the credential store is locked")}, nil, engine.NewBuiltinActionExecutor())
+	if _, err := broken.Execute(context.Background(), task, newTelnetDevice("r1", "10.10.20.171", 23)); err == nil {
+		t.Error("a store that failed was taken for no credential")
+	}
+}

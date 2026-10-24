@@ -58,10 +58,10 @@ import (
 // principal the target maps to one, so a username beside it is a second
 // answer to a question that already has one.
 func runAddCredential(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true, "token-stdin": true})
+	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true, "token-stdin": true, "enable-password": true, "enable-password-stdin": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]]: %w", err)
+			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
@@ -79,6 +79,8 @@ func runAddCredential(args []string) error {
 	generate := fs.Bool("generate", false, "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key")
 	replace := fs.Bool("replace", false, "with --generate, replace a credential already stored for the device")
 	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)")
+	promptEnable := fs.Bool("enable-password", false, "prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode")
+	stdinEnable := fs.Bool("enable-password-stdin", false, "read that enable secret as one line on standard input; with --password-stdin it is the second line")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -86,6 +88,12 @@ func runAddCredential(args []string) error {
 
 	if *replace && !*generate {
 		return fmt.Errorf("--replace only applies to --generate")
+	}
+	if (*promptEnable || *stdinEnable) && (*stdinToken || *generate) {
+		return fmt.Errorf("an enable secret goes with a device login, so it cannot be combined with --token-stdin or --generate")
+	}
+	if *promptEnable && *stdinEnable {
+		return fmt.Errorf("--enable-password and --enable-password-stdin are mutually exclusive: an enable secret is read one way")
 	}
 	if *stdinToken {
 		// A token is the whole identity, so it combines with nothing: a
@@ -161,8 +169,21 @@ func runAddCredential(args []string) error {
 	// entered automatically when stdin is not a terminal, for the reason
 	// internal/prompt states: an automatic fallback means the same command
 	// echoes a secret on some machines and not others.
+	// A passphrase and an enable secret both from standard input are read
+	// by one reader, the passphrase first: two readers of one pipe would
+	// lose the second line to the first one's buffer.
+	var piped []string
+	if *stdinPassphrase && *stdinEnable {
+		read, err := prompt.SecretsFromStdin(2)
+		if err != nil {
+			return err
+		}
+		piped = read
+	}
 	readPassphrase := func(promptText string) (string, error) {
 		switch {
+		case piped != nil:
+			return piped[0], nil
 		case *stdinPassphrase:
 			return prompt.SecretFromStdin()
 		case *promptPassphrase:
@@ -214,6 +235,14 @@ func runAddCredential(args []string) error {
 		cred.Passphrase = passphrase
 	case *password != "":
 		cred.Password = *password
+	case *stdinPassword && *stdinEnable:
+		// One reader for both lines: two reads of a pipe would lose the
+		// second line to the first read's buffer.
+		read, err := prompt.SecretsFromStdin(2)
+		if err != nil {
+			return err
+		}
+		cred.Password, cred.EnablePassword = read[0], read[1]
 	case *stdinPassword:
 		read, err := prompt.SecretFromStdin()
 		if err != nil {
@@ -232,6 +261,24 @@ func runAddCredential(args []string) error {
 			return err
 		}
 		cred.Password = prompted
+	}
+
+	switch {
+	case cred.EnablePassword != "":
+	case piped != nil:
+		cred.EnablePassword = piped[1]
+	case *stdinEnable:
+		read, err := prompt.SecretFromStdin()
+		if err != nil {
+			return err
+		}
+		cred.EnablePassword = read
+	case *promptEnable:
+		read, err := promptSecret("enable secret: ")
+		if err != nil {
+			return err
+		}
+		cred.EnablePassword = read
 	}
 
 	return saveCredential(*dir, name, cred)

@@ -61,6 +61,12 @@ const (
 	// serve, by the kinds onboarding discovered there (internal/validate's
 	// Kubernetes kind rule).
 	ParamFormatKubernetesManifest ParamFormat = "kubernetes_manifest"
+	// ParamFormatProjectPath is a path to a file in the project directory
+	// that the run writes. An expression rendered into it may read only
+	// vars (what the person running the work supplied), never nodes,
+	// result or error, which hold what a device returned: a device's output
+	// must not choose which project file is replaced.
+	ParamFormatProjectPath ParamFormat = "project_path"
 )
 
 // ReturnField documents one key a Collection method emits, either as a

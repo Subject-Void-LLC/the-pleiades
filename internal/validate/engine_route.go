@@ -20,10 +20,16 @@ func EngineRoutes(world WorldView) []Route {
 	var routes []Route
 	for id, task := range world.DAG.Nodes {
 		desc, ok := collection.Lookup(task.FQCN)
-		if !ok || !reachesAnEngine(desc.Manifest) {
+		if !ok {
 			continue
 		}
-		kind := engineOf(desc.Manifest)
+		// The shape the call selects: net.trace given container reaches its
+		// device through the engine, and without it over SSH.
+		shaped := desc.Manifest.For(task.Params)
+		if !reachesAnEngine(shaped) {
+			continue
+		}
+		kind := engineOf(shaped)
 		_, devices := world.taskDevices(task)
 		for _, dev := range devices {
 			engine, carrier, err := containerengine.Route(dev, task.Params, kind)
@@ -31,10 +37,11 @@ func EngineRoutes(world WorldView) []Route {
 				continue
 			}
 			routes = append(routes, Route{
-				Node:      id,
-				Device:    dev.ID(),
-				Transport: carrier.Transport(),
-				Detail:    fmt.Sprintf("the %s engine", engine),
+				Node:       id,
+				Device:     dev.ID(),
+				DeviceName: dev.Name(),
+				Transport:  carrier.Transport(),
+				Detail:     fmt.Sprintf("the %s engine", engine),
 			})
 		}
 	}

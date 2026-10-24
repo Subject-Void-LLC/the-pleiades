@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // Dialect describes one vendor's CLI conventions: how to recognize its
@@ -47,6 +45,15 @@ type Dialect struct {
 	// and Open sends nothing.
 	DisablePaging string
 
+	// DisableWrapping is the command Open sends after DisablePaging to
+	// stop the device wrapping a long line at the terminal's width. IOS
+	// otherwise echoes a command longer than 80 columns scrolled
+	// sideways, "show archive config differences unix:a.cfg system:runn$",
+	// so the echo no longer matches the line sent and is left in the
+	// output (measured on IOS XE 17.15, 2026-10-23). Empty means Open
+	// sends nothing.
+	DisableWrapping string
+
 	// EnterConfigMode and ExitConfigMode are the commands Config sends
 	// to bracket a batch of configuration lines. Both empty means this
 	// Dialect has no configuration-mode convention to drive; Config
@@ -59,6 +66,15 @@ type Dialect struct {
 	// across every device this Dialect could describe, and Config never
 	// treats any line as a rejection.
 	ErrorPattern *regexp.Regexp
+
+	// Unprivileged matches an exec prompt that is not privileged (IOS's
+	// "R1>"), and Enable is the command that asks to leave it (IOS's
+	// "enable"). Both empty means this Dialect has one exec mode. When
+	// Open meets an unprivileged prompt it sends Enable and answers the
+	// secret Options.EnableSecret holds; with none, the session stays
+	// unprivileged, where commands run and Config refuses.
+	Unprivileged *regexp.Regexp
+	Enable       string
 }
 
 var (
@@ -81,7 +97,13 @@ var (
 	// moment a runbook's own lines (net.ios.config's Release Gate
 	// included: it creates a loopback interface, which is exactly a
 	// "(config-if)#" sub-mode) drove the device into one.
-	iosExecPrompt   = regexp.MustCompile(`(?m)^[\w.\-]+#\s*$`)
+	//
+	// iosExecPrompt accepts user mode's ">" as well as privileged "#": an
+	// account below privilege 15 lands at "R1>" (the DevNet CML sandbox's
+	// routers, over Telnet, 2026-10-23), and a read waiting for "#" there
+	// never ended.
+	iosExecPrompt   = regexp.MustCompile(`(?m)^[\w.\-]+[>#]\s*$`)
+	iosUserPrompt   = regexp.MustCompile(`(?m)^[\w.\-]+>\s*$`)
 	iosConfigPrompt = regexp.MustCompile(`(?m)^[\w.\-]+\([^)]*\)#\s*$`)
 
 	// iosErrorPattern matches IOS's own line-start "% " error
@@ -110,9 +132,12 @@ var IOS = Dialect{
 		return iosExecPrompt
 	},
 	DisablePaging:   "terminal length 0",
+	DisableWrapping: "terminal width 512",
 	EnterConfigMode: "configure terminal",
 	ExitConfigMode:  "end",
 	ErrorPattern:    iosErrorPattern,
+	Unprivileged:    iosUserPrompt,
+	Enable:          "enable",
 }
 
 // FromPrompt builds a best-effort generic Dialect from a device's own
@@ -139,7 +164,11 @@ func FromPrompt(prompt string) Dialect {
 	if prompt == "" {
 		return Dialect{Name: "generic"}
 	}
-	pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prompt) + `\s*$`)
+	// A terminal control sequence may follow the prompt: BusyBox's ash,
+	// behind a real telnetd, prints "lab$ " and then ESC[6n, asking where
+	// its cursor is (measured 2026-10-23). It is the shell talking to the
+	// terminal, not output, so it does not keep the prompt from matching.
+	pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prompt) + `\s*(?:\x1b\[[0-9;?]*[A-Za-z]\s*)*$`)
 	return Dialect{
 		Name: "generic",
 		Prompt: func(configMode bool) *regexp.Regexp {
@@ -162,6 +191,11 @@ type Options struct {
 	// MaxBytes bounds every read this Session makes. Zero uses
 	// defaultMaxBytes.
 	MaxBytes int
+
+	// EnableSecret answers the Dialect's Enable command when the device
+	// lands in an unprivileged mode. It is written to the device and to
+	// nothing else: never an error, never a result.
+	EnableSecret string
 }
 
 // Session pairs one remoteexec.Shell with a Dialect: it is what turns
@@ -172,9 +206,13 @@ type Options struct {
 // A Session is not safe for concurrent use, the same restriction its
 // underlying Shell already carries.
 type Session struct {
-	shell    *remoteexec.Shell
+	shell    Shell
 	dialect  Dialect
 	maxBytes int
+
+	// unprivileged is set when the device left the session in a mode
+	// its Dialect calls unprivileged, so Config refuses at once.
+	unprivileged bool
 }
 
 // Open reads the device's first prompt and, when dialect names one,
@@ -184,7 +222,7 @@ type Session struct {
 // with no way to know where a response ends: see FromPrompt's own doc
 // comment for why a device with no declared prompt is a refusal, never
 // a guess.
-func Open(ctx context.Context, shell *remoteexec.Shell, dialect Dialect, opts Options) (*Session, error) {
+func Open(ctx context.Context, shell Shell, dialect Dialect, opts Options) (*Session, error) {
 	if dialect.Prompt == nil {
 		return nil, fmt.Errorf("netcli: dialect %q declares no prompt pattern; set the device's cli_prompt property so netcli.FromPrompt can build one, or use a named vendor Dialect", dialectName(dialect))
 	}
@@ -196,13 +234,27 @@ func Open(ctx context.Context, shell *remoteexec.Shell, dialect Dialect, opts Op
 
 	s := &Session{shell: shell, dialect: dialect, maxBytes: maxBytes}
 
-	if _, err := shell.ReadUntil(ctx, dialect.Prompt(false), maxBytes); err != nil {
+	first, err := shell.ReadUntil(ctx, dialect.Prompt(false), maxBytes)
+	if err != nil {
 		return nil, fmt.Errorf("netcli: reading %s's first prompt: %w", dialectName(dialect), err)
+	}
+	if dialect.Unprivileged != nil && dialect.Unprivileged.MatchString(first) {
+		s.unprivileged = true
+		if opts.EnableSecret != "" {
+			if err := s.enable(ctx, opts.EnableSecret); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if dialect.DisablePaging != "" {
 		if _, err := s.Command(ctx, dialect.DisablePaging); err != nil {
 			return nil, fmt.Errorf("netcli: disabling paging on %s: %w", dialectName(dialect), err)
+		}
+	}
+	if dialect.DisableWrapping != "" {
+		if _, err := s.Command(ctx, dialect.DisableWrapping); err != nil {
+			return nil, fmt.Errorf("netcli: disabling line wrapping on %s: %w", dialectName(dialect), err)
 		}
 	}
 
@@ -237,6 +289,9 @@ func (s *Session) Command(ctx context.Context, line string) (string, error) {
 func (s *Session) Config(ctx context.Context, lines []string) error {
 	if s.dialect.EnterConfigMode == "" {
 		return fmt.Errorf("netcli: dialect %q has no configuration-mode commands; send each line through Command instead", dialectName(s.dialect))
+	}
+	if s.unprivileged {
+		return fmt.Errorf("netcli: the device left this session in %s's unprivileged mode, where configuration is refused; store the device's enable secret with its credential (pleiades add-credential --enable-password)", dialectName(s.dialect))
 	}
 
 	if _, err := s.command(ctx, s.dialect.EnterConfigMode, true); err != nil {

@@ -57,6 +57,11 @@ type runOptions struct {
 	// variables are run's --extra-vars, the vars root a runbook's
 	// conditions and rendered parameters read; nil when none were given.
 	variables map[string]any
+	// variablesFlag is the flag this command takes variables through
+	// (extraVarsFlagName for run), or "" for a command with none (adhoc,
+	// rollback, an onboarding probe), so validation never advises a flag
+	// the command does not have.
+	variablesFlag string
 
 	// rollbackOf, set only by `pleiades rollback`, names the run this run
 	// undoes; undoes says which node and step of it each of this run's
@@ -104,6 +109,10 @@ func runPipeline(opts runOptions, src runSource) error {
 	}
 	if err != nil && rep.Outcome.Status == "" {
 		rep.Outcome = runOutcome{Status: "error", Message: err.Error(), ExitCode: 1}
+		// A run that stopped after its plan and before its first task (the
+		// project's runs were busy, its journal could not be opened) still
+		// names every task it never ran.
+		rep.addNotRun(notRunNotStarted)
 	}
 	if writeErr := writeJSON(os.Stdout, rep); writeErr != nil {
 		return writeErr
@@ -133,10 +142,16 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	mode := engine.TaskMode(opts.mode, dag, nil)
 	checking := mode == collection.ModeCheck
 
-	world := validate.WorldView{Items: items, DAG: dag, Mode: mode}
+	// The run's variables are all known here (run's --extra-vars, and
+	// nothing else feeds vars; adhoc and rollback have none), so a template
+	// reading one nobody gave is refused now, before any device is
+	// contacted, rather than at its task. The advice names --extra-vars only
+	// for the command that takes it.
+	world := validate.WorldView{Items: items, DAG: dag, Mode: mode, Variables: opts.variables, VariablesKnown: true, VariablesFlag: opts.variablesFlag}
 	rep := planReport(src.label, items, dag, mode, world)
 	if report := validate.Validate(world); report.HasErrors() {
-		rep.Validation = validationIssues(report)
+		rep.Validation = validationIssues(report, items)
+		rep.addNotRun(notRunRefused)
 		rep.Outcome = runOutcome{Status: "invalid", Message: "validation failed, not executing", ExitCode: 1}
 		if !opts.asJSON {
 			fmt.Print(report.String())
@@ -196,7 +211,18 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		sink = store
 	}
 
+	// A run that changes devices records itself as active on the devices
+	// its plan targets, and warns about another live run on any of them,
+	// without waiting for it or refusing: running two at once can be the
+	// point (run_concurrent.go). The record goes on every path out.
+	var conc *concurrency
+	if !checking {
+		conc, rep.Warnings = beginConcurrency(opts.dir, src.label, validate.CalculateBlastRadius(world).Devices)
+		defer conc.release()
+	}
+
 	if !opts.asJSON {
+		printRunWarnings(rep, "start")
 		printPlan(rep)
 	}
 
@@ -212,12 +238,20 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// precedent (load.go).
 	result, err := executor.Run(context.Background(), dag)
 	sealRun(store, rep, result.RunID)
+	// What another run changed on these devices while this one worked, read
+	// from the journals once this run's own is complete.
+	if conc != nil {
+		rep.Warnings = append(rep.Warnings, conc.end(result.RunID)...)
+	}
+	// What ran is reported on every path, the aborted one too: a run cut
+	// off partway may already have changed devices.
+	rep.Tasks = taskReports(dag, &result, items, opts.allowUnchecked)
 	if err != nil {
+		rep.addNotRun(notRunAborted)
 		rep.Outcome = runOutcome{Status: "error", Message: "execution aborted: " + redact.Text(result.Secrets, err.Error()), ExitCode: 1}
 		return rep, fmt.Errorf("execution aborted: %w", err)
 	}
-
-	rep.Tasks = taskReports(dag, &result, items, opts.allowUnchecked)
+	rep.addNotRun(stoppedReason(rep.Tasks))
 	if len(result.Metadata) > 0 {
 		rep.Metadata, _ = redact.Value(result.Secrets, result.Metadata).(map[string]any)
 	}
@@ -341,6 +375,34 @@ func outcomeError(outcome runOutcome) error {
 	return errors.New(outcome.Message)
 }
 
+// projectWriteGuards are the paths in or beside the project dir that a
+// method writing project files may never replace or write into: the
+// inventory and its generated state file, whose devices and granted
+// capabilities a run must not rewrite, and the external Collections
+// directory (its programs and its approval list, loader.ApprovalFile),
+// whatever it is named and wherever it sits.
+//
+// Each is made absolute here, against the working directory as --dir and
+// the environment variable are, since the engine reads a relative guard
+// against the project directory instead.
+func projectWriteGuards(dir string) []string {
+	paths := inventory.FileRepositoryPaths(filepath.Join(dir, inventory.DefaultInventoryFilename))
+	if collections := os.Getenv(collectionsDirEnv); collections != "" {
+		paths = append(paths, collections)
+	}
+	guards := make([]string, 0, len(paths))
+	for _, p := range paths {
+		// Abs fails only when the working directory cannot be read, and
+		// then the path is kept as given rather than dropped: a guard
+		// dropped is a file a run may replace.
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		guards = append(guards, p)
+	}
+	return guards
+}
+
 // newRunExecutor builds the executor a run uses, and a function that
 // closes what it opened (the lock manager and the connection pool).
 func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journal, mode collection.Mode) (*engine.Executor, func(), error) {
@@ -409,8 +471,10 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	actionExecutor := engine.NewCollectionActionExecutor(
 		engine.NewTransportActionExecutor(bindings, credentials, inventoryRepo, engine.NewBuiltinActionExecutor()),
 		// The command line holds the project, so a method may read its
-		// files (file.copy's src); a Runner's contexts cannot.
-		engine.WithProjectFiles(engine.NewCredentialRunbookContext(credentials), opts.dir),
+		// files (file.copy's src); a Runner's contexts cannot. A method
+		// writing one (pleiades.builtin.project.write) never replaces the
+		// inventory or reaches the external Collections directory.
+		engine.WithProjectFiles(engine.NewCredentialRunbookContext(credentials), opts.dir, projectWriteGuards(opts.dir)...),
 		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
 		// A method creating a machine (virt.vbox.vm.clone) seeds it with a
 		// device's login from the same vault: the public key and a hash of

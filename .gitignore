@@ -40,6 +40,11 @@ obj/
 # (tools/bsdcheck, tools/wincheck), the same way.
 /tests/bsd/.env
 /tests/win/.env
+# The DevNet CML sandbox import-cml is proven against: its VPN and controller
+# logins (tests/cml/.env.example).
+/tests/cml/.env
+/tests/cml/.bin/
+/tests/cml/.work/
 /backups/
 
 # The throwaway serving certificate `make dev-cert` writes. It holds a real
@@ -101,3 +106,17 @@ __pycache__/
 # clone lacked it and three tests failed everywhere but the machine that
 # captured it (found by Phase 118's clean room).
 !pkg/cloudinit/testdata/*.log
+# tools/failures parses captured pr-check and Actions logs, ignored the same
+# way until its tests failed on every machine but this one.
+!tools/failures/testdata/*.log
+
+# tools/monitor's records: run logs, copies of pr-check's report, leg logs and
+# GitHub Actions snapshots, any of which can name a host or carry a secret. It
+# writes them only under .IGNORE/ci/monitor (ignored by .[A-Z]* above, named
+# here so a change to that rule cannot expose them); the rest keep a record
+# written beside the monitor itself out of a commit.
+/.IGNORE/ci/monitor/
+/tools/monitor/runs/
+/tools/monitor/history/
+/tools/monitor/*.json
+/tools/monitor/*.txt

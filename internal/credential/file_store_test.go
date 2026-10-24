@@ -355,3 +355,26 @@ func TestFileStore_ErrNotFoundMessageMentionsAddCredential(t *testing.T) {
 		t.Fatalf("expected the error to reference add-credential, got %v", err)
 	}
 }
+
+// TestFileStore_EachSecretFailsToDecryptByName: a token and an enable
+// secret stored under one key fail under another, each naming itself, and
+// round-trip under their own.
+func TestFileStore_EachSecretFailsToDecryptByName(t *testing.T) {
+	for field, cred := range map[string]credential.Credential{
+		"token":         {Token: "eyJhbGciOiJSUzI1NiJ9.e30.sig"},
+		"enable secret": {Username: "cisco", EnablePassword: "en4ble-s3cret"},
+	} {
+		dir := t.TempDir()
+		if err := credential.SaveFileStore(dir, testKey('a'), "r1", cred); err != nil {
+			t.Fatalf("%s: SaveFileStore: %v", field, err)
+		}
+		own, _ := credential.NewFileStore(dir, testKey('a'))
+		if got, err := own.Lookup(context.Background(), "r1"); err != nil || got.Token != cred.Token || got.EnablePassword != cred.EnablePassword {
+			t.Errorf("%s: round trip = %v, %v", field, got, err)
+		}
+		other, _ := credential.NewFileStore(dir, testKey('b'))
+		if _, err := other.Lookup(context.Background(), "r1"); err == nil || !strings.Contains(err.Error(), "decrypt "+field) {
+			t.Errorf("%s under another key = %v, want a decryption failure naming it", field, err)
+		}
+	}
+}

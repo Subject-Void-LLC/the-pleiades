@@ -283,7 +283,8 @@ var commandSafeFilters = []string{"quote", "cli_token"}
 // parameter of the given format, or nothing: an expression reading a root
 // other than vars, nodes or result; in command text, an expression that
 // does not end with quote or cli_token; in a URL, text before the first
-// expression that does not already fix the scheme and host. Validation and
+// expression that does not already fix the scheme and host; in a project
+// path the run writes, an expression reading anything but vars. Validation and
 // the executor share it, so the rule is held once at plan time and again
 // when the task renders.
 func TemplateProblems(tmpl render.Template, format collection.ParamFormat) []string {
@@ -296,6 +297,12 @@ func TemplateProblems(tmpl render.Template, format collection.ParamFormat) []str
 		}
 		if format == collection.ParamFormatCommand && (len(expr.Filters) == 0 || !slices.Contains(commandSafeFilters, expr.Filters[len(expr.Filters)-1])) {
 			problems = append(problems, "this parameter is command text, so each expression must end with | quote (a shell) or | cli_token (a network CLI)")
+		}
+		// A project path the run writes may take only what the person
+		// running the work supplied: nodes, result and error hold what a
+		// device returned, which must not choose the file replaced.
+		if format == collection.ParamFormatProjectPath && root != TemplateRootVars {
+			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, so an expression may read only vars, never %s, which holds what a device returned", root))
 		}
 	}
 	if format == collection.ParamFormatURL && !URLPrefixFixed(tmpl.Source()) {

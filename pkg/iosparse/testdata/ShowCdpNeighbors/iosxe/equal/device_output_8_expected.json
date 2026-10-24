@@ -1,0 +1,111 @@
+{
+ "cdp": {
+  "index": {
+   "1": {
+    "capability": "R I",
+    "device_id": "Fusion-Rtr-PG00-P01.cisco.local",
+    "hold_time": 132,
+    "local_interface": "TenGigabitEthernet1/1/2",
+    "platform": "CSR1000V",
+    "port_id": "GigabitEthernet2"
+   },
+   "2": {
+    "capability": "R I",
+    "device_id": "Fusion-Rtr-PG00-P01.cisco.local",
+    "hold_time": 123,
+    "local_interface": "TenGigabitEthernet1/1/2",
+    "platform": "CSR1000V",
+    "port_id": "GigabitEthernet1"
+   },
+   "3": {
+    "capability": "R S I",
+    "device_id": "C9500-PG00-P01.cisco.local",
+    "hold_time": 148,
+    "local_interface": "TenGigabitEthernet1/0/21",
+    "platform": "C9500-40X",
+    "port_id": "TenGigabitEthernet1/0/21"
+   },
+   "4": {
+    "capability": "S",
+    "device_id": "ENT-DNAC-EG00-ESX04",
+    "hold_time": 139,
+    "local_interface": "TenGigabitEthernet1/1/1",
+    "platform": "VMware ES",
+    "port_id": "Vmnic2"
+   },
+   "5": {
+    "capability": "S",
+    "device_id": "ENT-DNAC-EG00-ESX03",
+    "hold_time": 154,
+    "local_interface": "TenGigabitEthernet1/1/2",
+    "platform": "VMware ES",
+    "port_id": "Vmnic2"
+   },
+   "6": {
+    "capability": "S I",
+    "device_id": "C3560-CX-B-PG00-P01.cisco.local",
+    "hold_time": 161,
+    "local_interface": "TenGigabitEthernet1/0/11",
+    "platform": "WS-C3560C",
+    "port_id": "GigabitEthernet0/3"
+   },
+   "7": {
+    "capability": "R S I",
+    "device_id": "C3560-CX-A-PG00-P01.cisco.local",
+    "hold_time": 167,
+    "local_interface": "TenGigabitEthernet1/0/5",
+    "platform": "WS-C3560C",
+    "port_id": "GigabitEthernet0/1"
+   },
+   "8": {
+    "capability": "R S I",
+    "device_id": "C3560-CX-A-PG00-P01.cisco.local",
+    "hold_time": 133,
+    "local_interface": "TenGigabitEthernet1/0/7",
+    "platform": "WS-C3560C",
+    "port_id": "GigabitEthernet0/7"
+   },
+   "9": {
+    "capability": "R I",
+    "device_id": "C9800-WLC-PG00-P01",
+    "hold_time": 165,
+    "local_interface": "TenGigabitEthernet1/1/2",
+    "platform": "C9800-CL",
+    "port_id": "GigabitEthernet2"
+   },
+   "10": {
+    "capability": "R S I",
+    "device_id": "ISR4431-A-PG00-P01.cisco.local",
+    "hold_time": 162,
+    "local_interface": "TenGigabitEthernet1/0/13",
+    "platform": "ISR4431/K",
+    "port_id": "GigabitEthernet0/0/0"
+   },
+   "11": {
+    "capability": "R S I",
+    "device_id": "C9300-B-PG00-P01.cisco.local",
+    "hold_time": 124,
+    "local_interface": "TenGigabitEthernet1/0/24",
+    "platform": "C9300-24U",
+    "port_id": "TenGigabitEthernet1/0/24"
+   },
+   "12": {
+    "capability": "R S I",
+    "device_id": "ISR4431-B-PG00-P01.cisco.local",
+    "hold_time": 164,
+    "local_interface": "TenGigabitEthernet1/0/17",
+    "platform": "ISR4431/K",
+    "port_id": "GigabitEthernet0/0/1"
+   },
+   "13": {
+    "capability": "R S I",
+    "device_id": "ISR4431-B-PG00-P01.cisco.local",
+    "hold_time": 133,
+    "local_interface": "TenGigabitEthernet1/0/19",
+    "platform": "ISR4431/K",
+    "port_id": "GigabitEthernet0/0/0"
+   }
+  },
+  "total_entries": 13
+ }
+}

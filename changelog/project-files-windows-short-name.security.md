@@ -1,0 +1,1 @@
+On Windows, `file.copy`'s `src` can no longer read from the project's `.pleiades` directory through its short 8.3 name (such as `PLEIAD~1`). The directory is now recognized by what it is, not by how its name is spelled.

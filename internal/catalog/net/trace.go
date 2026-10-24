@@ -1,4 +1,14 @@
-// Package net: net.trace, the path from a Linux device to an address.
+// Package net: net.trace, the path from a Linux device, or from a
+// container on a container host, to an address.
+//
+// The method has two shapes. Without container it runs tracepath on a
+// Linux device over SSH; with container it runs tracepath inside that
+// container through the host's engine, the exec container.exec sends
+// (pkg/containerengine's Session.Exec), so a host in a lab that has no SSH
+// of its own (containerlab's end hosts) can be traced from. The two need
+// different capabilities and transports, declared as the manifest's own
+// shape and a call shape selected by container (collection.CallShape),
+// which validation, the engine and admission hold each call to.
 package net
 
 import (
@@ -12,6 +22,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -19,6 +30,10 @@ import (
 
 // traceFQCN is net.trace's name.
 const traceFQCN = "net.trace"
+
+// traceContainer is the parameter that traces from a container on a
+// container host rather than from the device itself.
+const traceContainer = "container"
 
 // traceHost is a destination that is not an address: a host name, never
 // anything tracepath could read as an option.
@@ -34,33 +49,49 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports:  []string{capability.TransportSSH},
 			RequiredCapabilities: []capability.Name{capability.NameLinux, capability.NameCommandExec},
-			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
-			EngineVersion:        ">=0.2.0",
-			Status:               collection.StatusImplemented,
-			Reversibility:        collection.Reversibility{ReadOnly: true, Notes: "It sends probes and reads their answers, changing nothing."},
-			SupportsCheck:        true,
-			Doc: collection.Doc{
-				Summary:     "Traces the path from a Linux device to an address, and fails when it is not the path expected.",
-				Description: "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
-				Params: []collection.Param{
-					{Name: "dest", Type: "string", Required: true, Description: "The address to trace to.", Format: collection.ParamFormatCommand},
-					{Name: "max_hops", Type: "int", Default: "30", Description: "The most hops to try."},
-					{Name: "expect", Type: "dict", Description: "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."},
-					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
-				},
-				Returns: []collection.ReturnField{
-					{Name: "hops", Type: "list of string", Returned: "always", Description: "Each hop's address, in order, the destination last when reached."},
-					{Name: "reached", Type: "bool", Returned: "always", Description: "Whether the destination answered."},
-				},
-				Examples: []collection.Example{
-					{Name: "Expect a path through r2", RunbookYAML: "- name: h1's LAN reaches h2 through r2\n  net.trace:\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.0.12.1]\n"},
-				},
-				SeeAlso: []string{"wait.routes", "net.batfish.check"},
-			},
+			// Given container, the call reaches a container host's engine
+			// instead, and needs only that.
+			Shapes: []collection.CallShape{{
+				Param:                traceContainer,
+				SupportedTransports:  capability.EngineTransports(),
+				RequiredCapabilities: []capability.Name{capability.NameContainerEngine},
+			}},
+			ExecutionContext: collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
+			EngineVersion:    ">=0.2.0",
+			Status:           collection.StatusImplemented,
+			Reversibility:    collection.Reversibility{ReadOnly: true, Notes: "It sends probes and reads their answers, changing nothing."},
+			SupportsCheck:    true,
+			Doc:              traceDoc(),
 		},
 		Invoke: Trace,
 		Check:  Trace,
 	})
+}
+
+// traceDoc is net.trace's reference documentation, which
+// internal/forge/catalogdata holds an identical copy of.
+func traceDoc() collection.Doc {
+	return collection.Doc{
+		Summary:     "Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected.",
+		Description: "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. Without container it runs on the device, a Linux machine reached over SSH. With container it runs inside that container on the device, a container host, through the engine's own exec as container.exec does, so a lab host with no SSH of its own (a containerlab end host) can be traced from; the container needs tracepath (iputils) and /bin/sh. pleiades validate refuses a call whose device cannot take the shape it chose: container on a device that is not a container host, or none on one that is not a Linux SSH device. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
+		Params: []collection.Param{
+			{Name: "dest", Type: "string", Required: true, Description: "The address to trace to.", Format: collection.ParamFormatCommand},
+			{Name: "max_hops", Type: "int", Default: "30", Description: "The most hops to try."},
+			{Name: "expect", Type: "dict", Description: "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."},
+			{Name: traceContainer, Type: "string", Description: "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux. An empty value is refused rather than read as none: leave container out to trace from the device."},
+			{Name: containerengine.ParamEngine, Type: "string", Description: "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."},
+			{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+		},
+		Returns: []collection.ReturnField{
+			{Name: "hops", Type: "list of string", Returned: "always", Description: "Each hop's address, in order, the destination last when reached."},
+			{Name: "reached", Type: "bool", Returned: "always", Description: "Whether the destination answered."},
+		},
+		Examples: []collection.Example{
+			{Name: "Expect a path through r2", RunbookYAML: "- name: h1's LAN reaches h2 through r2\n  net.trace:\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.0.12.1]\n"},
+			{Name: "Trace from a lab host container", RunbookYAML: "- name: h1 reaches h2 through r1\n  net.trace:\n    target: dockerhost\n    container: clab-routing-h1\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.1.1.1]\n"},
+		},
+		SeeAlso: []string{"wait.routes", "net.batfish.check", "container.exec"},
+	}
 }
 
 // traceExpect is what the path must be.
@@ -93,17 +124,31 @@ func Trace(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{}, err
 	}
 
-	conn, err := sdk.Connect(ctx, rc, device, params, traceFQCN)
-	if err != nil {
-		return collection.Result{}, err
-	}
-	defer func() { _ = conn.Close() }()
-	res, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"tracepath", "-n", "-m", strconv.Itoa(maxHops), dest}))
+	from, err := sdk.OptionalStringParam(params, traceContainer)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", traceFQCN, err)
 	}
+	// Validation, the engine and admission held this call to the container
+	// shape because container is present (collection.Manifest.For), so an
+	// empty one (written so, or rendered so) is refused rather than traced
+	// over SSH, a shape nothing checked this device for.
+	if v, present := params[traceContainer]; present && v != nil && from == "" {
+		return collection.Result{}, fmt.Errorf("%s: container is empty; name the container to trace from, or leave container out to trace from the device itself", traceFQCN)
+	}
+	cmd := remoteexec.QuoteCommand([]string{"tracepath", "-n", "-m", strconv.Itoa(maxHops), dest})
+	var res remoteexec.Result
+	where := "the device"
+	if from != "" {
+		where = "container " + from
+		res, err = traceInContainer(ctx, rc, device, params, from, cmd)
+	} else {
+		res, err = traceOverSSH(ctx, rc, device, params, cmd)
+	}
+	if err != nil {
+		return collection.Result{}, err
+	}
 	if res.ExitCode == 127 {
-		return collection.Result{}, fmt.Errorf("%s: the device has no tracepath (iputils): %s", traceFQCN, deviceText(res.Stderr))
+		return collection.Result{}, fmt.Errorf("%s: %s has no tracepath (iputils): %s", traceFQCN, where, deviceText(res.Stderr+res.Stdout))
 	}
 	hops, reached := parseTracepath(res.Stdout)
 	if len(hops) == 0 && !reached {
@@ -119,6 +164,39 @@ func Trace(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{}, fmt.Errorf("%s: the path to %s is not the one expected: %s (hops: %s)", traceFQCN, dest, strings.Join(problems, "; "), strings.Join(hops, " "))
 	}
 	return collection.Result{}, nil
+}
+
+// traceOverSSH runs cmd on device over SSH.
+func traceOverSSH(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, cmd string) (remoteexec.Result, error) {
+	conn, err := sdk.Connect(ctx, rc, device, params, traceFQCN)
+	if err != nil {
+		return remoteexec.Result{}, err
+	}
+	defer func() { _ = conn.Close() }()
+	res, err := conn.Run(ctx, cmd)
+	if err != nil {
+		return remoteexec.Result{}, fmt.Errorf("%s: %w", traceFQCN, err)
+	}
+	return res, nil
+}
+
+// traceInContainer runs cmd inside container on device, a container host,
+// through the engine's exec: the session container.exec opens, allowed
+// only the exec operations.
+func traceInContainer(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, container, cmd string) (remoteexec.Result, error) {
+	if err := containerengine.ValidName("container", container); err != nil {
+		return remoteexec.Result{}, fmt.Errorf("%s: %w", traceFQCN, err)
+	}
+	s, err := containerengine.Open(ctx, rc, device, params, traceFQCN, containerengine.ExecOps...)
+	if err != nil {
+		return remoteexec.Result{}, err
+	}
+	defer s.Close()
+	out, err := s.Exec(ctx, container, cmd, containerengine.ExecOptions{})
+	if err != nil {
+		return remoteexec.Result{}, fmt.Errorf("%s: %w", traceFQCN, err)
+	}
+	return remoteexec.Result{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, nil
 }
 
 // traceExpectParam reads expect.

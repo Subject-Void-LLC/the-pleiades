@@ -44,6 +44,12 @@ const (
 	// block fails, which a check does not predict, so it is neither checked
 	// nor a gap in the check.
 	statusConditionalSkip taskStatus = "conditional_skip"
+	// statusNotRun is a planned task the run never reached: validation
+	// refused the runbook, an earlier failure ended the run, or it was
+	// aborted. It has no device, since nothing resolved its target, and
+	// its reason says which. It differs from skipped, whose task was
+	// reached and passed over by its own condition.
+	statusNotRun taskStatus = "not_run"
 )
 
 // runReport is one run, as both views print it.
@@ -76,6 +82,11 @@ type runReport struct {
 	RunID string `json:"run_id,omitempty"`
 	// Journal is the path of this run's journal file, empty when RunID is.
 	Journal string `json:"journal,omitempty"`
+	// Warnings are about the run as a whole: another run changing the same
+	// devices when it started (concurrent_run), or a change another run
+	// journaled to them while it worked (concurrent_change). A check has
+	// none, since it changes nothing.
+	Warnings []runWarning `json:"warnings,omitempty"`
 	// Rollback is, for `pleiades rollback`, what it planned: the run it
 	// undoes, what it leaves in place, what nobody can say changed, and,
 	// when it refused, why.
@@ -125,8 +136,10 @@ type validationIssue struct {
 	Rule string `json:"rule"`
 	// Node is the task it refused.
 	Node string `json:"node"`
-	// Device is the device it concerns, if one.
+	// Device is the inventory id of the device it concerns, if one.
 	Device string `json:"device,omitempty"`
+	// Host is that device's inventory name.
+	Host string `json:"host,omitempty"`
 	// Message says why.
 	Message string `json:"message"`
 }
@@ -140,9 +153,11 @@ type taskReport struct {
 	Name string `json:"name,omitempty"`
 	// Method is the method or action it called.
 	Method string `json:"method,omitempty"`
-	// Device is the device's inventory id, empty for a controller-side task.
+	// Device is the device's inventory id (a UUID), empty for a
+	// controller-side task and for a task that never ran. It stays the id
+	// by contract, since a name can change and be reused; Host is the name.
 	Device string `json:"device,omitempty"`
-	// Host is the device's inventory name.
+	// Host is the device's inventory name, the one a person reads.
 	Host string `json:"host,omitempty"`
 	// Status is what the task did.
 	Status taskStatus `json:"status"`
@@ -159,7 +174,8 @@ type taskReport struct {
 	// connection failed or timed out before anything was sent, so nothing
 	// ran and running it again is safe. A refused login is not unreached.
 	Unreached bool `json:"unreached,omitempty"`
-	// Reason is why a task was skipped or could not be checked.
+	// Reason is why a task was skipped, could not be checked, or was
+	// never run.
 	Reason string `json:"reason,omitempty"`
 	// AllowedUnchecked marks an unchecked task --allow-unchecked accepts.
 	AllowedUnchecked bool `json:"allowed_unchecked,omitempty"`
@@ -184,7 +200,8 @@ type runOutcome struct {
 	ExitCode int `json:"exit_code"`
 	// Unchecked counts tasks a check did not cover and nothing allowed.
 	Unchecked int `json:"unchecked,omitempty"`
-	// AllowedUnchecked names the unchecked tasks --allow-unchecked allowed.
+	// AllowedUnchecked names the unchecked tasks --allow-unchecked allowed,
+	// each as its node id and its device's name ("tasks[3] [r1]").
 	AllowedUnchecked []string `json:"allowed_unchecked,omitempty"`
 }
 
@@ -234,22 +251,29 @@ func planTasks(dag *engine.DAG, tasks []engine.Task, prefix string) []planTask {
 }
 
 // validationIssues is a validation report's findings as the report writes
-// them.
-func validationIssues(report validate.Report) []validationIssue {
+// them, each device named as well as identified.
+func validationIssues(report validate.Report, items []pkginventory.InventoryItem) []validationIssue {
+	hosts := hostNames(items)
 	out := make([]validationIssue, 0, len(report.Findings))
 	for _, f := range report.Findings {
-		out = append(out, validationIssue{Rule: f.RuleName, Node: f.Node, Device: string(f.Device), Message: f.Message})
+		out = append(out, validationIssue{Rule: f.RuleName, Node: f.Node, Device: string(f.Device), Host: hosts[string(f.Device)], Message: f.Message})
 	}
 	return out
+}
+
+// hostNames maps each inventory item's id to its name.
+func hostNames(items []pkginventory.InventoryItem) map[string]string {
+	hosts := make(map[string]string, len(items))
+	for _, item := range items {
+		hosts[string(item.ID())] = item.Name()
+	}
+	return hosts
 }
 
 // taskReports is each node's result as the report writes it, masked
 // through the run's complete secret set.
 func taskReports(dag *engine.DAG, result *engine.RunResult, items []pkginventory.InventoryItem, allowUnchecked map[string]bool) []taskReport {
-	hosts := make(map[string]string, len(items))
-	for _, item := range items {
-		hosts[string(item.ID())] = item.Name()
-	}
+	hosts := hostNames(items)
 	checking := result.Mode == collection.ModeCheck
 	out := make([]taskReport, 0, len(result.Nodes))
 	for _, node := range result.Nodes {

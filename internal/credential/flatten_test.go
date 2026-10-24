@@ -78,6 +78,7 @@ func TestFlattenUnflattenRoundTrip(t *testing.T) {
 		CertificatePEM: []byte("-----BEGIN CERTIFICATE-----"),
 		PFXBase64:      "MIIKzQIBAzCCCoc=",
 		Token:          "eyJhbGciOiJSUzI1NiJ9.e30.sig",
+		EnablePassword: "en4ble-s3cret",
 	}
 	everyFieldSet(t, original)
 
@@ -181,6 +182,7 @@ func TestEveryCredentialFieldSurvivesTheFileStore(t *testing.T) {
 		CertificatePEM: []byte("-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----\n"),
 		PFXBase64:      "MIIKzQIBAzCCCoc=",
 		Token:          "eyJhbGciOiJSUzI1NiJ9.e30.sig",
+		EnablePassword: "en4ble-s3cret",
 	}
 	everyFieldSet(t, want)
 	if err := SaveFileStore(dir, key, "win01", want); err != nil {
@@ -214,6 +216,7 @@ func TestEveryCredentialFieldSurvivesTheFileStore(t *testing.T) {
 		{"certificate", string(got.CertificatePEM), string(want.CertificatePEM)},
 		{"bundle", got.PFXBase64, want.PFXBase64},
 		{"token", got.Token, want.Token},
+		{"enable", got.EnablePassword, want.EnablePassword},
 	} {
 		if f.got != f.want {
 			t.Errorf("the %s did not survive the store: got %d bytes, want %d", f.name, len(f.got), len(f.want))

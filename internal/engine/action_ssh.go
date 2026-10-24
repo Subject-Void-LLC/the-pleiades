@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -81,6 +82,14 @@ type TransportBinding struct {
 	// (pkg/sdk/connect.go). Empty means no gate, which every binding
 	// before Phase 73 keeps unedited.
 	RequireOptInParam string
+
+	// CredentialOptional marks a protocol with no login of its own (bare
+	// Telnet, raw TCP passthrough, a local serial line): the device's
+	// stored credential is used when there is one, to answer a login the
+	// device asks for at its terminal, and a device with none is still
+	// reached, as a lab console that asks nothing is (a GNS3 node, Phase
+	// 127c). A route's hops keep their own credentials.
+	CredentialOptional bool
 }
 
 // SSHTarget is the TransportBinding.Target function for any fqcn bound to
@@ -258,7 +267,7 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	}
 
 	cred, err := e.credentials.Lookup(ctx, device.Name())
-	if err != nil {
+	if err != nil && !(binding.CredentialOptional && errors.Is(err, credential.ErrNotFound)) {
 		return ActionResult{}, fmt.Errorf("fqcn %q: %w", task.FQCN, err)
 	}
 

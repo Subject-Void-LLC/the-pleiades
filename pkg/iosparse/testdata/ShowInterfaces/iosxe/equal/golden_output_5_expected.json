@@ -1,0 +1,1525 @@
+{
+ "AppGigabitEthernet1/0/1": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "6c29.d290.a929",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "6c29.d290.a929",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "App-hosting Gigabit Ethernet"
+ },
+ "AppGigabitEthernet2/0/1": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "ecc0.18f8.7ca9",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "ecc0.18f8.7ca9",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "App-hosting Gigabit Ethernet"
+ },
+ "FortyGigabitEthernet1/1/1": {
+  "bandwidth": 40000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a925",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a925",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Forty Gigabit Ethernet"
+ },
+ "FortyGigabitEthernet1/1/2": {
+  "bandwidth": 40000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a926",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a926",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Forty Gigabit Ethernet"
+ },
+ "FortyGigabitEthernet2/1/1": {
+  "bandwidth": 40000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca5",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca5",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Forty Gigabit Ethernet"
+ },
+ "FortyGigabitEthernet2/1/2": {
+  "bandwidth": 40000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca6",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca6",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Forty Gigabit Ethernet"
+ },
+ "GigabitEthernet0/0": {
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a900",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a900",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "RP management port"
+ },
+ "GigabitEthernet1/1/1": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a919",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a919",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "GigabitEthernet1/1/2": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a91a",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a91a",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "GigabitEthernet1/1/3": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a91b",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a91b",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "GigabitEthernet1/1/4": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a91c",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a91c",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "GigabitEthernet2/1/1": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c99",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c99",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "GigabitEthernet2/1/2": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c9a",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c9a",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "GigabitEthernet2/1/3": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c9b",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c9b",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "GigabitEthernet2/1/4": {
+  "bandwidth": 1000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c9c",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c9c",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/1": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "6c29.d290.a901",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "6c29.d290.a901",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/10": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a90a",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a90a",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/11": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a90b",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a90b",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/12": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a90c",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a90c",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/13": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a90d",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a90d",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/14": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a90e",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a90e",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/15": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a90f",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a90f",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/16": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a910",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a910",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/17": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a911",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a911",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/18": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a912",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a912",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/19": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a913",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a913",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/2": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "6c29.d290.a902",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "6c29.d290.a902",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/20": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a914",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a914",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/21": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a915",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a915",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/22": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a916",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a916",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/23": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a917",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a917",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/24": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a918",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a918",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/3": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "6c29.d290.a903",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "6c29.d290.a903",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/4": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a904",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a904",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/5": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a905",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a905",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/6": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a906",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a906",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/7": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a907",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a907",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/8": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a908",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a908",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/0/9": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a909",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a909",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/1": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a91d",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a91d",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/2": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a91e",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a91e",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/3": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a91f",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a91f",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/4": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a920",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a920",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/5": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a921",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a921",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/6": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a922",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a922",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/7": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a923",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a923",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet1/1/8": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a924",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a924",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/1": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "ecc0.18f8.7c81",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "ecc0.18f8.7c81",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/10": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c8a",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c8a",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/11": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c8b",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c8b",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/12": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c8c",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c8c",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/13": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c8d",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c8d",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/14": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c8e",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c8e",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/15": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c8f",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c8f",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/16": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c90",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c90",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/17": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c91",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c91",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/18": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c92",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c92",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/19": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c93",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c93",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/2": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "ecc0.18f8.7c82",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "ecc0.18f8.7c82",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/20": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c94",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c94",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/21": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c95",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c95",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/22": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c96",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c96",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/23": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c97",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c97",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/24": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c98",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c98",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/3": {
+  "bandwidth": 1000000,
+  "connected": true,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "up",
+  "mac_address": "ecc0.18f8.7c83",
+  "mtu": 1500,
+  "oper_status": "up",
+  "phys_address": "ecc0.18f8.7c83",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/4": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c84",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c84",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/5": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c85",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c85",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/6": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c86",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c86",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/7": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c87",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c87",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/8": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c88",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c88",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/0/9": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c89",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c89",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/1": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c9d",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c9d",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/2": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c9e",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c9e",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/3": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7c9f",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7c9f",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/4": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca0",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca0",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/5": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca1",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca1",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/6": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca2",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca2",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/7": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca3",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca3",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TenGigabitEthernet2/1/8": {
+  "bandwidth": 10000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca4",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca4",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Ten Gigabit Ethernet"
+ },
+ "TwentyFiveGigE1/1/1": {
+  "bandwidth": 25000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a927",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a927",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Twenty Five Gigabit Ethernet"
+ },
+ "TwentyFiveGigE1/1/2": {
+  "bandwidth": 25000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a928",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a928",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Twenty Five Gigabit Ethernet"
+ },
+ "TwentyFiveGigE2/1/1": {
+  "bandwidth": 25000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca7",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca7",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Twenty Five Gigabit Ethernet"
+ },
+ "TwentyFiveGigE2/1/2": {
+  "bandwidth": 25000000,
+  "connected": false,
+  "delay": 10,
+  "enabled": true,
+  "err_disabled": false,
+  "is_deleted": false,
+  "is_present": false,
+  "line_protocol": "down",
+  "mac_address": "ecc0.18f8.7ca8",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "ecc0.18f8.7ca8",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "suspended": false,
+  "type": "Twenty Five Gigabit Ethernet"
+ },
+ "Vlan1": {
+  "autostate": true,
+  "bandwidth": 1000000,
+  "delay": 10,
+  "enabled": false,
+  "is_deleted": false,
+  "line_protocol": "down",
+  "mac_address": "6c29.d290.a947",
+  "mtu": 1500,
+  "oper_status": "down",
+  "phys_address": "6c29.d290.a947",
+  "port_channel": {
+   "port_channel_member": false
+  },
+  "type": "Ethernet SVI"
+ }
+}

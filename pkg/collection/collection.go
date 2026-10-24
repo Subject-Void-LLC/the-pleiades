@@ -116,6 +116,18 @@ type Descriptor struct {
 	// device without it (checkExecutionContext).
 	DeviceCall func(params map[string]any) bool
 
+	// UndoCall is, for a reversible method some of whose calls record no
+	// undo, the answer read from a call's parameters alone: "" when a call
+	// with params records the undo its Reversibility declares, and a
+	// sentence saying why when it records none (net.ios.config with
+	// checkpoint: false). It follows CheckCall's precedent, so validation
+	// can refuse reversible: true or a block's rollback_on_failure over
+	// such a call before the run, rather than the undo stopping halfway
+	// through. It is nil for a method whose every call is undone as
+	// declared, and Register refuses it on a method that is not
+	// reversible, since there it would answer a question nothing asks.
+	UndoCall func(params map[string]any) string
+
 	// Provider is nil for a method compiled into this binary. For a method
 	// an external Collection program provides, it names that program. Only
 	// the loader that runs the program sets it, when it registers the
@@ -193,6 +205,10 @@ func Register(d Descriptor) error {
 		return err
 	}
 
+	if err := checkShapes(d); err != nil {
+		return err
+	}
+
 	// A method claiming to be implemented must carry an implementation.
 	// Catching it here turns what would be a nil-pointer panic partway
 	// through a runbook into a refusal at process start, which is the same
@@ -203,6 +219,9 @@ func Register(d Descriptor) error {
 
 	if err := checkReversibility(d); err != nil {
 		return err
+	}
+	if d.UndoCall != nil && !d.Manifest.Reversibility.Reversible {
+		return fmt.Errorf("collection: %q carries an UndoCall function but does not declare itself reversible", d.Name)
 	}
 
 	if err := checkReservedParams(d); err != nil {

@@ -256,6 +256,14 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 	fmt.Println("attributes:")
 	fmt.Printf("  capabilities        %s\n", joinOrDash(capNames))
 	fmt.Printf("  transports          %s\n", joinOrDash(m.SupportedTransports))
+	// A call shape a parameter selects needs its own (collection.CallShape).
+	for _, s := range m.Shapes {
+		shapeCaps := make([]string, len(s.RequiredCapabilities))
+		for i, c := range s.RequiredCapabilities {
+			shapeCaps[i] = string(c)
+		}
+		fmt.Printf("  with %s: capabilities %s; transports %s\n", s.Param, joinOrDash(shapeCaps), joinOrDash(s.SupportedTransports))
+	}
 	fmt.Printf("  requires elevation  %t\n", m.ExecutionContext.RequiresElevation)
 	fmt.Printf("  check mode          %s\n", checkModeWord(m.SupportsCheck))
 	if m.EngineVersion != "" {

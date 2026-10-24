@@ -130,11 +130,8 @@ func TestConfig_Registered(t *testing.T) {
 	if d.Manifest.Status != collection.StatusImplemented {
 		t.Errorf("Manifest.Status = %v, want %v", d.Manifest.Status, collection.StatusImplemented)
 	}
-	if d.Manifest.Reversibility.Reversible {
-		t.Error("Manifest.Reversibility.Reversible = true, want false: IOS's own \"no <line>\" negation is not reliable enough to assert")
-	}
-	if d.Manifest.Reversibility.Notes == "" {
-		t.Error("Manifest.Reversibility.Notes is empty; collection.Register would have refused this")
+	if !d.Manifest.Reversibility.Reversible || len(d.Manifest.Reversibility.Inverses) != 1 || d.Manifest.Reversibility.Inverses[0].FQCN != "net.ios.replace" {
+		t.Errorf("Manifest.Reversibility = %+v, want reversible through net.ios.replace alone", d.Manifest.Reversibility)
 	}
 	if d.Invoke == nil {
 		t.Error("Manifest claims StatusImplemented but Invoke is nil")
@@ -186,10 +183,8 @@ func TestConfig_RefusesAnEmptyLinesList(t *testing.T) {
 }
 
 func TestConfig_SendsLinesThroughSessionConfigAndReportsChanged(t *testing.T) {
-	fake := &fakeSession{}
-	swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (iosSession, error) {
-		return fake, nil
-	})
+	dev := newConfigDevice()
+	swapOpenSession(t, dev.open)
 
 	params := map[string]any{paramLines: []any{"interface Loopback0", "description managed by pleiades"}}
 	result, err := Config(context.Background(), newStubContext(), nil, params)
@@ -199,24 +194,11 @@ func TestConfig_SendsLinesThroughSessionConfigAndReportsChanged(t *testing.T) {
 	if !result.Changed {
 		t.Error("Result.Changed = false, want true")
 	}
-	if !fake.closed {
+	if !dev.closed {
 		t.Error("the session was never closed")
 	}
-	if len(fake.configCalls) != 1 {
-		t.Fatalf("Session.Config was called %d times, want 1", len(fake.configCalls))
-	}
-	want := []string{"interface Loopback0", "description managed by pleiades"}
-	got := fake.configCalls[0]
-	if len(got) != len(want) {
-		t.Fatalf("lines sent = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("line[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-	if len(fake.commandCalls) != 0 {
-		t.Errorf("Command was called directly (%v); backup was not requested, so it should never run", fake.commandCalls)
+	if len(dev.configCalls) != 1 || strings.Join(dev.configCalls[0], "|") != "interface Loopback0|description managed by pleiades" {
+		t.Fatalf("lines sent = %v, want the task's lines once, in order", dev.configCalls)
 	}
 }
 
@@ -235,11 +217,11 @@ func TestConfig_CapturesBackupBeforeApplyingWhenRequested(t *testing.T) {
 	if got := rc.stats[statBackup]; got != "hostname Cat8kv\n!\n" {
 		t.Errorf("stat %q = %v, want the captured running-config", statBackup, got)
 	}
-	if len(fake.commandCalls) != 1 || fake.commandCalls[0] != "show running-config" {
-		t.Errorf("commands sent = %v, want exactly [\"show running-config\"]", fake.commandCalls)
+	// The backup must be captured BEFORE anything else: it is the
+	// configuration as the task found it.
+	if len(fake.commandCalls) == 0 || fake.commandCalls[0] != "show running-config" {
+		t.Errorf("commands sent = %v, want show running-config first", fake.commandCalls)
 	}
-	// The backup must be captured BEFORE Config is applied: Command's
-	// own call has to be the only one recorded before Config's.
 	if len(fake.configCalls) != 1 {
 		t.Fatalf("Session.Config was called %d times, want 1", len(fake.configCalls))
 	}

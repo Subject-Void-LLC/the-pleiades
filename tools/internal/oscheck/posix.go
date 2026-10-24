@@ -52,45 +52,62 @@ type Need struct {
 }
 
 // Ready asks the machine for its kernel, for each of needs and for the
-// space free under its login's home, refusing one whose kernel is not kernel
-// (noun names such a machine: "Mac"), that lacks a command, or that has
-// less than MinFreeGB free (FreeSpace).
+// space free under its login's home, making room first (readyScript),
+// refusing one whose kernel is not kernel (noun names such a machine:
+// "Mac"), that lacks a command, or that still has less than MinFreeGB free
+// (Room). Room it made is said on standard output.
 func (x POSIX) Ready(target, kernel, noun string, needs ...Need) error {
 	out, err := x.Pleiades.Adhoc(context.Background(), "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.readyScript(needs)))
 	if err != nil {
 		return fmt.Errorf("checking %s: %v", target, err)
 	}
-	return x.readyAnswer(target, kernel, noun, out, needs)
+	note, err := x.readyAnswer(target, kernel, noun, out, needs)
+	if note != "" {
+		fmt.Printf("%s: %s\n", x.Tool, note)
+	}
+	return err
 }
 
 // readyScript prints the kernel's name, then for each need its command, or
 // no- and its command when it is not on the PATH, then the whole gigabytes
-// free on the file system holding the login's home, where the trees and Go's
-// build cache are, one line each.
+// free on the file system holding the login's home, where the trees and the
+// check's build cache are, before and after making room, one line each.
+// Making room removes only what is this check's own, under Dir: every tree
+// but the newest Kept-1 (ls skips the dot-named CacheDir), and, while the
+// space free is still under MinFreeGB, CacheDir.
 func (x POSIX) readyScript(needs []Need) string {
 	lines := []string{`export PATH="$PATH:` + x.Path + `"`, "uname -s"}
 	for _, n := range needs {
 		lines = append(lines, fmt.Sprintf("command -v %[1]s >/dev/null 2>&1 && echo %[1]s || echo no-%[1]s", n.Command))
 	}
-	lines = append(lines, `df -Pk "$HOME" | awk 'NR==2 {print int($4/1048576)}'`)
+	lines = append(lines, fmt.Sprintf(`free_gb() { df -Pk "$HOME" | awk 'NR==2 {print int($4/1048576)}'; }
+base="$HOME/%[1]s"
+before=$(free_gb)
+if [ -d "$base" ]; then
+	ls -1t "$base" | tail -n +%[2]d | while read -r old; do rm -rf "${base:?}/$old"; done
+	if [ "$(free_gb)" -lt %[3]d ]; then rm -rf "${base:?}/%[4]s"; fi
+fi
+echo "$before"
+free_gb`, x.Dir, Kept, MinFreeGB, CacheDir))
 	return strings.Join(lines, "\n")
 }
 
-// readyAnswer checks readyScript's output.
-func (x POSIX) readyAnswer(target, kernel, noun, out string, needs []Need) error {
+// readyAnswer checks readyScript's output, returning what room it made.
+func (x POSIX) readyAnswer(target, kernel, noun, out string, needs []Need) (string, error) {
 	lines := strings.Fields(out)
-	if len(lines) != 2+len(needs) {
-		return fmt.Errorf("%s answered the readiness check with %q", target, out)
+	if len(lines) != 3+len(needs) {
+		return "", fmt.Errorf("%s answered the readiness check with %q", target, out)
 	}
 	if lines[0] != kernel {
-		return fmt.Errorf("%s is not a %s: its kernel is %s", target, noun, lines[0])
+		return "", fmt.Errorf("%s is not a %s: its kernel is %s", target, noun, lines[0])
 	}
 	for i, n := range needs {
 		if lines[i+1] != n.Command {
-			return fmt.Errorf("%s has no %s on its PATH (looked in its PATH and %s): %s", target, n.Command, x.Path, n.Why)
+			return "", fmt.Errorf("%s has no %s on its PATH (looked in its PATH and %s): %s", target, n.Command, x.Path, n.Why)
 		}
 	}
-	return FreeSpace(target, lines[len(lines)-1], "go clean -cache there, or for the lab's bsd-check run runbooks/bsd/check-05-disk-cleanup.yaml")
+	return Room(target, lines[len(lines)-2], lines[len(lines)-1], "~/"+x.Dir+"/"+CacheDir,
+		"for the lab's bsd-check, runbooks/bsd/check-05-disk-cleanup.yaml clears its login's own Go cache")
 }
 
 // Ship sends commit sha's tree: exec.command removes all but the newest
@@ -125,8 +142,8 @@ func (x POSIX) Ship(sha string) error {
 }
 
 // prepareScript makes the trees' directory, removes all but the newest
-// Kept-1 trees and any earlier copy of sha's, and prints the home
-// directory.
+// Kept-1 trees (ls lists no dot name, so CacheDir stays) and any earlier
+// copy of sha's, and prints the home directory.
 func (x POSIX) prepareScript(sha string) string {
 	return fmt.Sprintf(`set -e
 base="$HOME/%[1]s"
@@ -160,7 +177,7 @@ const TestTimeout = 4 * 60 * 60
 
 // TestScript is what the machine runs in the unpacked tree: pr-check's two
 // passes over the container-free packages, the full pass and three strict
-// repeats, under Wrap. Standard error joins standard output so they read
+// repeats, under Wrap, building into the check's own CacheDir. Standard error joins standard output so they read
 // in order, and the script exits with the tests' status, which the failed
 // task reports with their output. The tests start as a job of their own
 // (set -m), which a shell with job control (macOS's, FreeBSD's) puts in a
@@ -176,6 +193,7 @@ func (x POSIX) TestScript(sha string, parallel int, packages []string) string {
 	p := fmt.Sprintf("-p %d", parallel)
 	return fmt.Sprintf(`exec 2>&1
 export PATH="$PATH:%[1]s"
+export GOCACHE="$HOME/%[2]s/%[11]s"
 cd "$HOME/%[2]s/%[3]s" || exit 2
 %[8]s
 rm -f %[9]s %[10]s
@@ -188,7 +206,7 @@ trap 'stop_run "$job"; rm -f %[6]s; exit 143' TERM HUP INT
 wait "$job"
 status=$?
 rm -f %[6]s
-exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1])
+exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1], CacheDir)
 }
 
 // VulnTimeout bounds a govulncheck run on the machine, in seconds, as the
@@ -228,13 +246,14 @@ func (x POSIX) Vuln(ctx context.Context, sha, version string, stdout io.Writer) 
 // goVersion for the scan, since the machine's own go may be newer than the
 // toolchain line and would otherwise judge its own standard library; GOOS
 // and GOARCH name goos and goarch for the scan alone, since the install
-// builds a program the machine runs.
+// builds a program the machine runs. Both build into the check's CacheDir.
 func (x POSIX) VulnScript(sha, version, goos, goarch, goVersion string) string {
 	return fmt.Sprintf(`exec 2>&1
 export PATH="$PATH:%[1]s"
+export GOCACHE="$HOME/%[2]s/%[9]s"
 cd "$HOME/%[2]s/%[3]s" || exit 2
 GOBIN="$PWD/.pleiades-bin" go install golang.org/x/vuln/cmd/govulncheck@%[4]s || exit $?
-GOTOOLCHAIN=%[7]s GOOS=%[5]s GOARCH=%[6]s %[8]s"$PWD/.pleiades-bin/govulncheck" ./...`, x.Path, x.Dir, sha, version, goos, goarch, goVersion, x.Wrap)
+GOTOOLCHAIN=%[7]s GOOS=%[5]s GOARCH=%[6]s %[8]s"$PWD/.pleiades-bin/govulncheck" ./...`, x.Path, x.Dir, sha, version, goos, goarch, goVersion, x.Wrap, CacheDir)
 }
 
 // Records reads back the testgate records TestScript's passes wrote in
@@ -282,22 +301,39 @@ exit 0`, x.Dir, sha, x.PIDFile(), stopRun)
 
 // MinFreeGB is the space, in whole gigabytes, a machine must have free
 // before a check runs on it. A run unpacks a tree and builds every package
-// it tests and their dependencies into Go's build cache, which nothing
-// trims: bsd-check's grew to 7.8 GB and filled its disk on 2026-10-19, and
-// every package then failed to build with no compiler message reaching the
-// report.
+// it tests and their dependencies into Go's build cache: bsd-check's grew to
+// 7.8 GB and filled its disk on 2026-10-19, and every package then failed to
+// build with no compiler message reaching the report.
 const MinFreeGB = 4
 
-// FreeSpace refuses a machine whose readiness check said it has fewer than
-// MinFreeGB gigabytes free (free, a whole number as text), saying how much
-// it has and fix, what frees space there.
-func FreeSpace(target, free, fix string) error {
-	gb, err := strconv.Atoi(free)
+// CacheDir is the Go build cache (GOCACHE) a check's runs build into, in its
+// trees' directory, so the cache is the check's own to remove when the
+// machine runs short of space. The login's default cache is shared with
+// whatever else that login builds, so no check ever removes it. A dot name
+// keeps it out of the trees a prune removes.
+const CacheDir = ".gocache"
+
+// Room reads a readiness check's free space before and after it made room
+// (whole gigabytes as text): note says what was removed when the machine
+// started under MinFreeGB, and err refuses a machine still under it, saying
+// how much it has and hint, what frees the rest there. cache names the
+// check's own cache, which making room removed.
+func Room(target, before, after, cache, hint string) (note string, err error) {
+	was, err := strconv.Atoi(before)
 	if err != nil {
-		return fmt.Errorf("%s answered its free space with %q, not a number", target, free)
+		return "", fmt.Errorf("%s answered its free space with %q, not a number", target, before)
 	}
-	if gb < MinFreeGB {
-		return fmt.Errorf("%s has %d GB free where its tests unpack and build, under the %d GB a run needs: %s", target, gb, MinFreeGB, fix)
+	now, err := strconv.Atoi(after)
+	if err != nil {
+		return "", fmt.Errorf("%s answered its free space with %q, not a number", target, after)
 	}
-	return nil
+	if was < MinFreeGB {
+		note = fmt.Sprintf("%s had %d GB free, under the %d GB a run needs, so this check removed its own older trees and build cache (%s): %d GB free now, and this run builds from a cold cache",
+			target, was, MinFreeGB, cache, now)
+	}
+	if now < MinFreeGB {
+		return note, fmt.Errorf("%s has %d GB free where its tests unpack and build, under the %d GB a run needs, after this check removed what is its own to remove (its older trees and its build cache, %s); the rest is not this check's to remove: free space there yourself (%s)",
+			target, now, MinFreeGB, cache, hint)
+	}
+	return note, nil
 }

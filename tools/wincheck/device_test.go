@@ -13,22 +13,52 @@ import (
 )
 
 // TestReadyAnswer accepts only Windows with go, git and tar.exe and
-// oscheck.MinFreeGB free, naming what is wrong otherwise.
+// oscheck.MinFreeGB free after making room, naming what is wrong otherwise,
+// and says what room it made when the machine started short.
 func TestReadyAnswer(t *testing.T) {
-	for out, want := range map[string]string{
-		"Win32NT\r\ngo\r\ngit\r\ntar\r\n21\r\n": "",
-		"Unix\ngo\ngit\ntar\n21":                "is not a Windows machine: its platform is Unix",
-		"Win32NT\nno-go\ngit\ntar\n21":          "has no go on its PATH",
-		"Win32NT\ngo\nno-git\ntar\n21":          "has no git on its PATH",
-		"Win32NT\ngo\ngit\nno-tar\n21":          "has no tar.exe",
-		"Win32NT\ngo\ngit\ntar\n3":              "has 3 GB free where its tests unpack and build, under the 4 GB",
-		"Win32NT\ngo\ngit\ntar":                 "answered the readiness check",
-		"Win32NT\ngo":                           "answered the readiness check",
+	for out, want := range map[string]struct{ err, note string }{
+		"Win32NT\r\ngo\r\ngit\r\ntar\r\n21\r\n21\r\n": {},
+		"Win32NT\ngo\ngit\ntar\n2\n11":                {note: `had 2 GB free, under the 4 GB a run needs, so this check removed its own older trees and build cache (%USERPROFILE%\.pleiades-wincheck\.gocache): 11 GB free now`},
+		"Unix\ngo\ngit\ntar\n21\n21":                  {err: "is not a Windows machine: its platform is Unix"},
+		"Win32NT\nno-go\ngit\ntar\n21\n21":            {err: "has no go on its PATH"},
+		"Win32NT\ngo\nno-git\ntar\n21\n21":            {err: "has no git on its PATH"},
+		"Win32NT\ngo\ngit\nno-tar\n21\n21":            {err: "has no tar.exe"},
+		"Win32NT\ngo\ngit\ntar\n3\n3":                 {err: "has 3 GB free where its tests unpack and build, under the 4 GB", note: "had 3 GB free"},
+		"Win32NT\ngo\ngit\ntar\n21":                   {err: "answered the readiness check"},
+		"Win32NT\ngo":                                 {err: "answered the readiness check"},
 	} {
-		err := readyAnswer("win-1", out)
-		if (want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
-			t.Errorf("readyAnswer(%q) = %v, want %q", out, err, want)
+		note, err := readyAnswer("win-1", out)
+		if (want.err == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want.err) {
+			t.Errorf("readyAnswer(%q) = %v, want %q", out, err, want.err)
 		}
+		if (want.note == "") != (note == "") || !strings.Contains(note, want.note) {
+			t.Errorf("readyAnswer(%q) said %q, want %q", out, note, want.note)
+		}
+	}
+}
+
+// TestReadyScript_MakesRoomOnlyFromItsOwn: the readiness script prunes the
+// trees it keeps (passing over the build cache by name, since a leading dot
+// hides nothing on Windows) and removes the build cache only while space is
+// short, only under its own directory; and every run builds into that cache.
+func TestReadyScript_MakesRoomOnlyFromItsOwn(t *testing.T) {
+	for _, w := range []string{
+		`$base = Join-Path $env:USERPROFILE '.pleiades-wincheck'`,
+		`Where-Object { $_.Name -ne '.gocache' } | Sort-Object LastWriteTime -Descending | Select-Object -Skip 2 | Remove-Item`,
+		`if ([int](Get-FreeGB) -lt 4) { Remove-Item -LiteralPath (Join-Path $base '.gocache') -Recurse`,
+	} {
+		if !strings.Contains(readyScript, w) {
+			t.Errorf("the ready script does not hold %q:\n%s", w, readyScript)
+		}
+	}
+	if strings.Count(readyScript, "Remove-Item") != 2 || strings.Contains(readyScript, "go-build") {
+		t.Errorf("the ready script removes something that is not its own:\n%s", readyScript)
+	}
+	if !strings.Contains(prepareScript, pruneLine) {
+		t.Errorf("the prepare script's prune would remove the build cache:\n%s", prepareScript)
+	}
+	if !strings.Contains(testScript, `$env:GOCACHE = Join-Path (Join-Path $env:USERPROFILE '.pleiades-wincheck') '.gocache'`) {
+		t.Errorf("the test script does not build into the check's own cache:\n%s", testScript)
 	}
 }
 

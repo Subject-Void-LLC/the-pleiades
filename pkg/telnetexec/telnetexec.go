@@ -107,6 +107,21 @@ type Options struct {
 	// takes DefaultMaxOutputBytes. The combined Stdout returned by Exec
 	// can therefore be up to twice this value.
 	MaxOutputBytes int
+
+	// Login answers the device's login prompts, when it asks (Open). The
+	// zero Login answers none, and a device that asks is then refused.
+	Login Login
+
+	// LoginTimeout bounds how long a login answer waits for the device to
+	// reply. Zero takes DefaultLoginTimeout.
+	LoginTimeout time.Duration
+
+	// MaxReadDuration bounds each read phase as a whole (going quiet after
+	// a login answer or a command, or reading to a prompt), however the
+	// device paces what it sends: one that dribbles a byte at a time, or
+	// sends only negotiation, never goes quiet and might never fill
+	// MaxOutputBytes. Zero takes DefaultMaxReadDuration.
+	MaxReadDuration time.Duration
 }
 
 const (
@@ -122,6 +137,14 @@ const (
 	// MiB, the same order of magnitude pkg/sdk's own structured-input
 	// caps use elsewhere in this module for document-shaped content.
 	DefaultMaxOutputBytes = 1 << 20
+	// DefaultLoginTimeout is how long a login answer waits for a reply: a
+	// login checker that delays a refusal (BusyBox's, about three seconds)
+	// answers well within it.
+	DefaultLoginTimeout = 20 * time.Second
+	// DefaultMaxReadDuration is MaxReadDuration's default: long enough for
+	// the longest output a CLI streams (a show tech), short enough that a
+	// device holding a read open without end is cut off.
+	DefaultMaxReadDuration = 5 * time.Minute
 )
 
 // Result is what running one command over a Telnet session produced.
@@ -142,9 +165,10 @@ type Result struct {
 // reads back whatever the far end writes until output goes quiet, ctx is
 // canceled, or opts.MaxOutputBytes is reached.
 //
-// There is no authentication of any kind at the transport level: see
-// this package's own doc comment for why Telnet's cleartext nature is a
-// fact about the protocol this package cannot change, not an oversight.
+// Telnet has no authentication of its own. A device that asks for a
+// login at the terminal is answered from opts.Login, in cleartext like
+// everything else on the connection; see this package's own doc comment
+// for why that is a fact about the protocol, not an oversight.
 func Exec(ctx context.Context, host string, port int, opts Options, command string) (Result, error) {
 	dialTimeout := opts.DialTimeout
 	if dialTimeout <= 0 {
@@ -177,31 +201,18 @@ func Exec(ctx context.Context, host string, port int, opts Options, command stri
 // caller that owns it (Exec, or whoever built the tunnel) is
 // responsible for closing it once this call returns.
 func ExecOverConn(ctx context.Context, conn net.Conn, opts Options, command string) (Result, error) {
-	readTimeout := opts.ReadTimeout
-	if readTimeout <= 0 {
-		readTimeout = DefaultReadTimeout
-	}
-	maxOutput := opts.MaxOutputBytes
-	if maxOutput <= 0 {
-		maxOutput = DefaultMaxOutputBytes
-	}
-
-	f := &iacFilter{}
-
-	banner, err := readUntilQuiet(ctx, conn, f, readTimeout, maxOutput)
+	session, err := Open(ctx, conn, opts, opts.Login)
 	if err != nil {
-		return Result{}, fmt.Errorf("telnetexec: %w", err)
+		return Result{}, err
 	}
-
+	banner := session.carry
 	if err := writeData(conn, []byte(command+"\r\n")); err != nil {
 		return Result{}, fmt.Errorf("telnetexec: writing command: %w", err)
 	}
-
-	rest, err := readUntilQuiet(ctx, conn, f, readTimeout, maxOutput)
+	rest, err := session.quiet(ctx)
 	if err != nil {
-		return Result{}, fmt.Errorf("telnetexec: %w", err)
+		return Result{}, err
 	}
-
 	output := append(banner, rest...)
 	return Result{Stdout: string(output), ExitStatusUnknown: true}, nil
 }
@@ -246,14 +257,22 @@ func writeIAC(conn io.Writer, cmd, opt byte) error {
 // pkg/serialtcp.readUntilQuiet each carry for the same reason. Left in
 // place so a future net.Conn implementation's failure mode here gets a
 // clear, named error instead of an opaque one.
-func readUntilQuiet(ctx context.Context, conn net.Conn, f *iacFilter, readTimeout time.Duration, maxOutput int) ([]byte, error) {
+func readUntilQuiet(ctx context.Context, conn net.Conn, f *iacFilter, readTimeout time.Duration, maxOutput int, phase time.Duration) ([]byte, error) {
 	var out []byte
 	buf := make([]byte, 4096)
+	// raw counts every byte read, negotiation included, and deadline the
+	// phase as a whole: a device sending only negotiation never adds to
+	// out, and one sending a byte per read never goes quiet.
+	raw := 0
+	deadline := time.Now().Add(phase)
 	for {
 		select {
 		case <-ctx.Done():
 			return out, ctx.Err()
 		default:
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("still sending after %s without going quiet", phase)
 		}
 
 		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
@@ -262,6 +281,10 @@ func readUntilQuiet(ctx context.Context, conn net.Conn, f *iacFilter, readTimeou
 
 		n, err := conn.Read(buf)
 		if n > 0 {
+			raw += n
+			if raw > rawBound(maxOutput) {
+				return nil, fmt.Errorf("sent %d bytes, negotiation included, without going quiet", raw)
+			}
 			data, ferr := f.feed(conn, buf[:n])
 			if ferr != nil {
 				return out, ferr
@@ -279,6 +302,14 @@ func readUntilQuiet(ctx context.Context, conn net.Conn, f *iacFilter, readTimeou
 			return out, err
 		}
 	}
+}
+
+// rawBound is how many bytes, negotiation included, a read phase takes for
+// maxOutput bytes of data: negotiation is a few bytes per option, so four
+// times the data is room for any device that is talking, and a bound for
+// one that only negotiates.
+func rawBound(maxOutput int) int {
+	return 4 * maxOutput
 }
 
 // filterState is where iacFilter is within one telnet command sequence,

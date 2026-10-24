@@ -416,9 +416,11 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/testsupport \
 	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
+	github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/batfish \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/gns3 \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660 \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
@@ -664,13 +666,27 @@ ci-containers:
 # PR_CHECK_PARALLELISM bounds how many container-free packages run at
 # once (0 keeps go test's default).
 #
+# Coverage goes first, since a missed floor is the commonest failure and
+# the cheapest to find: once the static checks pass, the container-free
+# packages' full pass runs and their floors are checked at once
+# (coverage-fast); a miss, or a package that pass left unmeasured, ends the
+# run there, before any machine check, the repeats or the container pass
+# start. The container packages' floors can be checked only once their pass
+# has run, at the end, with the rest (coverage). Last of the Linux steps,
+# sizes builds pleiades as a release is built for each SIZE_PLATFORMS pair
+# (tools/binsize) and records each size in the gitignored
+# .IGNORE/ci/binsize.jsonl with its change since the last commit recorded,
+# so the binary's growth is tracked; a platform that does not build fails
+# it.
+#
 # The same container-free packages run on each other machine named: a Mac
 # (tests/mac/.env, tools/maccheck), a FreeBSD machine (tests/bsd/.env,
 # tools/bsdcheck) and a Windows one (tests/win/.env, tools/wincheck), each
 # beside the Linux passes rather than after them. The Mac's -phase prepare
-# checks it, builds pleiades and sends the tree first, here; its -phase
-# vuln then runs govulncheck on that tree; then its -phase test runs in the
-# background, on the Mac's CPU and memory, while the Linux passes run here. The FreeBSD and Windows machines are lab VMs
+# checks it, builds pleiades and sends the tree once coverage-fast has
+# passed, here; its -phase vuln then runs govulncheck on that tree; then its
+# -phase test runs in the background, on the Mac's CPU and memory, while the
+# Linux repeats and container pass run here. The FreeBSD and Windows machines are lab VMs
 # a check starts when it needs one and puts back afterwards, its state
 # saved, so they run in the background one after the other (LAB_CHECKS),
 # each whole, and at most one holds the host's memory at a time. Each
@@ -694,7 +710,12 @@ ci-containers:
 # every part it expects (prreport begin), so a part with no record is
 # missing rather than unnoticed, and an interrupt or an early exit merges
 # what ran as interrupted. The report decides nothing. Its merge is given
-# pr-check's own status, so it never passes a run the gate failed.
+# pr-check's own status, so it never passes a run the gate failed. Every
+# run, pass, fail or interrupted, is then recorded in the failure ledger
+# (tools/failures record-prcheck, under the gitignored .IGNORE/ci, so the
+# tree the receipt needs clean stays clean); a recording that fails changes
+# neither the exit status nor the receipt. `go run ./tools/failures report`
+# maps those failures against GitHub Actions' own (record-actions).
 #
 # A pass ends by writing a receipt (tools/gatereceipt, its own file under
 # .git), and .githooks/pre-push refuses a branch whose tip no receipt
@@ -716,6 +737,10 @@ PR_BASE ?= origin/main
 CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 VULN_CHECK := mac
 PR_CHECK_PARALLELISM ?= 0
+# SIZE_PLATFORMS are the GOOS/GOARCH pairs pr-check's sizes step builds
+# pleiades for (tools/binsize), recording each size in the gitignored
+# .IGNORE/ci/binsize.jsonl so its growth is tracked run after run.
+SIZE_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,freebsd/amd64
 BSD_CHECK_PARALLELISM ?= 0
 WIN_CHECK_PARALLELISM ?= 0
 # OS_CHECKS are the checks whose machine is always up, each
@@ -738,13 +763,13 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr/records; \
 	rec=$(COVERAGE_DIR)/pr/records; report=$(COVERAGE_DIR)/pr/prreport; \
 	go build -o $$report ./tools/prreport || exit 1; \
-	expect="mac,bsd,win,govulncheck,images,coverage"; \
-	if [ -n "$$mine_fast" ]; then expect="fast,repeat,$$expect"; fi; \
+	expect="mac,bsd,win,govulncheck,images,coverage,sizes"; \
+	if [ -n "$$mine_fast" ]; then expect="fast,coverage-fast,repeat,$$expect"; fi; \
 	if [ -n "$$mine_docker" ]; then expect="$$expect,containers,durations"; fi; \
 	$$report begin -dir $$rec -commit "$(GATE_START_COMMIT)" -expect "$$expect" || exit 1; \
 	status=0; legs=""; \
 	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s || status=1; [ $$s -eq 0 ] || status=1; }; \
-	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; }; \
+	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; go run ./tools/failures record-prcheck -report $$rec/report.json || true; }; \
 	trap 'stop; exit 130' INT; trap 'stop; exit 143' TERM; trap stop EXIT; \
 	vuln() { \
 		if [ -f $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready ]; then \
@@ -756,6 +781,17 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		fi; \
 		govulncheck ./...; \
 	}; \
+	if [ -n "$$mine_fast" ]; then \
+		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json -report-out $$rec/fast.json $$mine_fast || status=1; \
+		go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/fast.json; cov=$$?; \
+		$$report step -dir $$rec -name coverage-fast -exit $$cov || status=1; \
+		if [ $$cov -ne 0 ]; then \
+			echo "pr-check: the container-free packages miss a coverage floor (or their fast pass left one unmeasured), so nothing else runs: fix that first"; \
+			trap - INT TERM EXIT; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit 1 || true; \
+			go run ./tools/failures record-prcheck -report $$rec/report.json || true; \
+			exit 1; \
+		fi; \
+	fi; \
 	for os in $(OS_CHECKS); do \
 		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
 		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
@@ -776,7 +812,6 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	done ) & legs="$$legs lab:$$!"; \
 	echo "pr-check: the $(LAB_CHECKS) tests run one after another beside the ones below, each box started and put back; their output follows them"; \
 	if [ -n "$$mine_fast" ]; then \
-		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json -report-out $$rec/fast.json $$mine_fast || status=1; \
 		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) -report-out $$rec/repeat.json $$mine_fast || status=1; \
 	fi; \
 	if [ -n "$$mine_docker" ]; then \
@@ -792,6 +827,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	if [ -f $(COVERAGE_DIR)/pr/containers.json ]; then \
 		step durations go run ./tools/testgate -durations-check $(COVERAGE_DIR)/pr/containers.json; \
 	fi; \
+	step sizes go run ./tools/binsize -platforms $(SIZE_PLATFORMS); \
 	for leg in $$legs; do \
 		echo "pr-check: waiting for the $${leg%%:*} tests"; \
 		wait $${leg#*:} || status=1; \
@@ -806,6 +842,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	done; \
 	trap - INT TERM EXIT; \
 	echo; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit $$status || status=1; \
+	go run ./tools/failures record-prcheck -report $$rec/report.json || true; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
 	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"

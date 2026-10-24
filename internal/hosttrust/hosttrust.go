@@ -202,18 +202,27 @@ var errSeen = errors.New("hosttrust: key seen")
 // address is the one meant: whatever answers first is what is returned.
 func Scan(ctx context.Context, address string, timeout time.Duration) ([]ssh.PublicKey, error) {
 	var keys []ssh.PublicKey
+	var last error
 	for _, algorithm := range scanAlgorithms {
 		key, err := scanOne(ctx, withPort(address), algorithm, timeout)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			last = err
 			continue
 		}
 		keys = append(keys, key)
 	}
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("hosttrust: %s presented no host key", address)
+		// A host that refused or never answered the connection is said to
+		// be unreachable: "presented no host key" sent a reader looking at
+		// SSH algorithms for a router that runs no SSH server at all.
+		var op *net.OpError
+		if errors.As(last, &op) && op.Op == "dial" {
+			return nil, fmt.Errorf("hosttrust: %s could not be reached over SSH: %w", address, last)
+		}
+		return nil, fmt.Errorf("hosttrust: %s presented no host key: %w", address, last)
 	}
 	return keys, nil
 }

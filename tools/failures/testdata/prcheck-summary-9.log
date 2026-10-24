@@ -1,0 +1,25 @@
+pr-check at 5dfb5361be32, 2026-10-23 19:46 UTC: FAIL (exit 1)
+  .coverage/pr/records/report.json
+
+  fast        pass     35 package(s), 309s, 0 failed, 0 contention, 13 skipped
+  repeat      pass     35 package(s), 355s, 0 failed, 0 contention, 39 skipped
+  containers  pass     9 package(s), 1273s, 0 failed, 0 contention, 15 skipped
+  mac         pass     macOS on someone@192.0.2.10, 35 package(s), 543s; full pass; repeat pass
+  bsd         pass     FreeBSD on bsd-check, 35 package(s), 884s; full pass; repeat pass
+  win         fail     Windows on win-check, 35 package(s), 1341s; full fail
+  govulncheck pass     exit 0
+  images      pass     exit 0
+  coverage    pass     exit 0
+  durations   pass     exit 0
+
+Failures:
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/internal/journal TestActive_FailuresSayWhatFailed [failed]
+      === RUN   TestActive_FailuresSayWhatFailed
+          active_test.go:219: a record directory that is a file was listed
+          active_test.go:231: a journal directory that is a file was read
+      --- FAIL: TestActive_FailuresSayWhatFailed (0.09s)
+
+261 test(s) skipped; prreport -skips lists them by reason.
+make: *** [Makefile:732: pr-check] Error 1
+

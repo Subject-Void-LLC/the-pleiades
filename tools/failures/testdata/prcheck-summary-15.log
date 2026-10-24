@@ -1,0 +1,31 @@
+pr-check at d1e221fa8162, 2026-10-24 05:55 UTC: FAIL (exit 1)
+  .coverage/pr/records/report.json
+
+  fast        pass     35 package(s), 254s, 0 failed, 0 contention, 13 skipped
+  repeat      pass     35 package(s), 322s, 0 failed, 0 contention, 39 skipped
+  containers  pass     10 package(s), 1439s, 0 failed, 1 contention, 15 skipped
+  mac         pass     macOS on someone@192.0.2.10, 35 package(s), 525s; full pass; repeat pass
+  bsd         pass     FreeBSD on bsd-check, 35 package(s), 754s; full pass; repeat pass
+  win         fail     Windows on win-check, 35 package(s), 1661s; full pass; repeat fail
+  govulncheck pass     exit 0
+  images      pass     exit 0
+  coverage    pass     exit 0
+  durations   pass     exit 0
+
+Failures:
+
+  win repeat: github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec TestSession_ADeviceThatNeverGoesQuietIsCutOff [failed]
+      === RUN   TestSession_ADeviceThatNeverGoesQuietIsCutOff
+      --- PASS: TestSession_ADeviceThatNeverGoesQuietIsCutOff (3.66s)
+      === RUN   TestSession_ADeviceThatNeverGoesQuietIsCutOff
+      --- PASS: TestSession_ADeviceThatNeverGoesQuietIsCutOff (3.69s)
+      === RUN   TestSession_ADeviceThatNeverGoesQuietIsCutOff
+          session_test.go:356: a dribble at login = <nil>
+      --- FAIL: TestSession_ADeviceThatNeverGoesQuietIsCutOff (2.93s)
+
+Passed when re-run alone (1; a test seen here run after run needs a look):
+  containers: github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait TestRoutes_WaitsForARouteOSPFLearns
+
+456 test(s) skipped; prreport -skips lists them by reason.
+make: *** [Makefile:732: pr-check] Error 1
+

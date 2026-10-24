@@ -90,19 +90,22 @@ func CapabilityRule(world WorldView) []Finding {
 // to the same check with no device, which refuses it when the method
 // requires any capability, as the engine would at run time.
 func methodCapabilityFindings(world WorldView, id string, task *engine.Task, desc collection.Descriptor) []Finding {
-	if len(desc.Manifest.RequiredCapabilities) == 0 {
+	// The call is held to the shape its parameters select, as the engine
+	// holds it (collection.Manifest.For).
+	shaped := desc.Manifest.For(task.Params)
+	if len(shaped.RequiredCapabilities) == 0 {
 		return nil
 	}
 	target, devices := world.taskDevices(task)
 	if target == "" && len(devices) == 0 {
 		// The method requires a capability (above), so a call with no
 		// device is always refused.
-		err := collection.CheckCapabilities(nil, task.FQCN, desc.Manifest)
+		err := collection.CheckCapabilities(nil, task.FQCN, shaped)
 		return []Finding{{RuleName: "capability", Node: id, Message: fmt.Sprintf("%v (task %s)", err, taskLabel(id, task))}}
 	}
 	var findings []Finding
 	for _, dev := range devices {
-		if err := collection.CheckCapabilities(dev, task.FQCN, desc.Manifest); err != nil {
+		if err := collection.CheckCapabilities(dev, task.FQCN, shaped); err != nil {
 			findings = append(findings, Finding{
 				RuleName: "capability",
 				Node:     id,

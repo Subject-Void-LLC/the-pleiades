@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**184 of 187 methods are implemented.**
+**188 of 191 methods are implemented.**
 
 ## Implemented
 
@@ -64,6 +64,8 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [net.ios.facts](modules/net/ios/facts.md)
 - [net.ios.ping](modules/net/ios/ping.md)
 - [net.ios.save](modules/net/ios/save.md)
+- [net.ios.replace](modules/net/ios/replace.md)
+- [net.ios.parse](modules/net/ios/parse.md)
 - [net.catalyst.device_facts](modules/net/catalyst/device_facts.md)
 - [net.catalyst.site_facts](modules/net/catalyst/site_facts.md)
 - [net.catalyst.tag_facts](modules/net/catalyst/tag_facts.md)
@@ -154,9 +156,11 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [edge.tunnel](modules/edge/tunnel.md)
 - [file.json](modules/file/json.md)
 - [file.yaml](modules/file/yaml.md)
+- [http.wait](modules/http/wait.md)
 - [http.check](modules/http/check.md)
 - [win.schtask](modules/win/schtask.md)
 - [pleiades.builtin.connection.reset](modules/pleiades/builtin/connection/reset.md)
+- [pleiades.builtin.project.write](modules/pleiades/builtin/project/write.md)
 - [virt.vbox.vm.info](modules/virt/vbox/vm/info.md)
 - [virt.vbox.vm.start](modules/virt/vbox/vm/start.md)
 - [virt.vbox.vm.stop](modules/virt/vbox/vm/stop.md)

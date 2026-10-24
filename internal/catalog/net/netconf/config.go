@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/datastore"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -134,6 +135,11 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 	if strings.TrimSpace(content) == "" {
 		return collection.Result{}, fmt.Errorf("%s: %s is required and must not be empty", fqcn, paramContent)
+	}
+	// Content built from a masked read would set each secret it carries to
+	// its placeholder; refused before the session opens.
+	if err := netcfg.RefuseMasked(paramContent, content); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
 	target, err := datastoreParam(params)

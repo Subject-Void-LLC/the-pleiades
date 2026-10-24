@@ -146,24 +146,11 @@ var routingCollections = []collectionscaffold.Config{
 		Capabilities:  []capability.Name{capability.NameLinux, capability.NameCommandExec},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
-		Doc: collection.Doc{
-			Summary:     "Traces the path from a Linux device to an address, and fails when it is not the path expected.",
-			Description: "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
-			Params: []collection.Param{
-				{Name: "dest", Type: "string", Required: true, Description: "The address to trace to.", Format: collection.ParamFormatCommand},
-				{Name: "max_hops", Type: "int", Default: "30", Description: "The most hops to try."},
-				{Name: "expect", Type: "dict", Description: "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."},
-				hostKeyParam,
-			},
-			Returns: []collection.ReturnField{
-				{Name: "hops", Type: "list of string", Returned: "always", Description: "Each hop's address, in order, the destination last when reached."},
-				{Name: "reached", Type: "bool", Returned: "always", Description: "Whether the destination answered."},
-			},
-			Examples: []collection.Example{
-				{Name: "Expect a path through r2", RunbookYAML: "- name: h1's LAN reaches h2 through r2\n  net.trace:\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.0.12.1]\n"},
-			},
-			SeeAlso: []string{"wait.routes", "net.batfish.check"},
-		},
+		// The container shape (container: a container on a container host,
+		// through its engine) is declared on the method's own manifest as a
+		// collection.CallShape, which the scaffold has no field for; the
+		// capabilities and transports above are the default shape's.
+		Doc: traceDoc,
 	},
 	{
 		Name:          "net.ovs.bridge",
@@ -244,4 +231,28 @@ var routingCollections = []collectionscaffold.Config{
 			SeeAlso: []string{"net.frr.config", "net.frr.facts", "wait.routes", "net.trace"},
 		},
 	},
+}
+
+// traceDoc is net.trace's reference documentation, identical to the copy
+// its implementation registers.
+var traceDoc = collection.Doc{
+	Summary:     "Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected.",
+	Description: "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. Without container it runs on the device, a Linux machine reached over SSH. With container it runs inside that container on the device, a container host, through the engine's own exec as container.exec does, so a lab host with no SSH of its own (a containerlab end host) can be traced from; the container needs tracepath (iputils) and /bin/sh. pleiades validate refuses a call whose device cannot take the shape it chose: container on a device that is not a container host, or none on one that is not a Linux SSH device. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
+	Params: []collection.Param{
+		{Name: "dest", Type: "string", Required: true, Description: "The address to trace to.", Format: collection.ParamFormatCommand},
+		{Name: "max_hops", Type: "int", Default: "30", Description: "The most hops to try."},
+		{Name: "expect", Type: "dict", Description: "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."},
+		{Name: "container", Type: "string", Description: "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux. An empty value is refused rather than read as none: leave container out to trace from the device."},
+		{Name: "engine", Type: "string", Description: "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."},
+		hostKeyParam,
+	},
+	Returns: []collection.ReturnField{
+		{Name: "hops", Type: "list of string", Returned: "always", Description: "Each hop's address, in order, the destination last when reached."},
+		{Name: "reached", Type: "bool", Returned: "always", Description: "Whether the destination answered."},
+	},
+	Examples: []collection.Example{
+		{Name: "Expect a path through r2", RunbookYAML: "- name: h1's LAN reaches h2 through r2\n  net.trace:\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.0.12.1]\n"},
+		{Name: "Trace from a lab host container", RunbookYAML: "- name: h1 reaches h2 through r1\n  net.trace:\n    target: dockerhost\n    container: clab-routing-h1\n    dest: 10.3.3.10\n    expect:\n      reached: true\n      includes: [10.1.1.1]\n"},
+	},
+	SeeAlso: []string{"wait.routes", "net.batfish.check", "container.exec"},
 }

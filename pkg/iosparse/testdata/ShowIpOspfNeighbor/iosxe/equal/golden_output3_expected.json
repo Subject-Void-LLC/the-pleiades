@@ -1,0 +1,44 @@
+{
+ "interfaces": {
+  "Vlan1010": {
+   "neighbors": {
+    "102.16.44.4": {
+     "address": "10.10.196.42",
+     "dead_time": "00:00:36",
+     "priority": 1,
+     "state": "FULL/DR"
+    }
+   }
+  },
+  "Vlan1011": {
+   "neighbors": {
+    "102.16.44.5": {
+     "address": "10.10.196.46",
+     "dead_time": "00:00:39",
+     "priority": 1,
+     "state": "FULL/DR"
+    }
+   }
+  },
+  "Vlan1012": {
+   "neighbors": {
+    "102.16.44.5": {
+     "address": "10.10.196.34",
+     "dead_time": "00:00:31",
+     "priority": 1,
+     "state": "FULL/DR"
+    }
+   }
+  },
+  "Vlan1013": {
+   "neighbors": {
+    "102.16.44.4": {
+     "address": "10.10.196.38",
+     "dead_time": "00:00:36",
+     "priority": 1,
+     "state": "FULL/DR"
+    }
+   }
+  }
+ }
+}

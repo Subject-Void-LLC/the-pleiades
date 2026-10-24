@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "testgate",
+  "label": "testgate -race -timeout 30m -tags integration -cover -count=1 -p 1",
+  "os": "linux",
+  "arch": "amd64",
+  "packages": [
+    "github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades",
+    "github.com/Subject-Void-LLC/the-pleiades/cmd/runner",
+    "github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native",
+    "github.com/Subject-Void-LLC/the-pleiades/internal/archtest",
+    "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net",
+    "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr",
+    "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait",
+    "github.com/Subject-Void-LLC/the-pleiades/internal/testsupport",
+    "github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet",
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/gns3"
+  ],
+  "started": "2026-10-24T10:01:25.221090481-04:00",
+  "seconds": 1337.2,
+  "verdict": "pass",
+  "skips": [],
+  "coverage": {},
+  "missing": {},
+  "package_seconds": {}
+}

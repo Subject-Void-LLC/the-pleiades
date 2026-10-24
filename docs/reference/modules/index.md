@@ -21,17 +21,17 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `fs` | 2 | 2 |
 | `fw` | 3 | 3 |
 | `gate` | 2 | 2 |
-| `http` | 2 | 2 |
+| `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 23 | 21 |
+| `net` | 25 | 23 |
 | `pkg` | 9 | 9 |
-| `pleiades` | 2 | 2 |
+| `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
 | `virt` | 19 | 19 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **187** | **184** |
+| **total** | **191** | **188** |
 
 ## All methods
 
@@ -130,6 +130,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [gate.run](gate/run.md) | implemented | Runs a project's gate manifest of named checks on the device and reports PASS, FAIL or SKIP for each. |
 | [http.check](http/check.md) | implemented | Checks that a URL answers with the expected status, and optionally body, without ever returning or logging the body. |
 | [http.request](http/request.md) | implemented | Makes an HTTP request and reports its status code and body. |
+| [http.wait](http/wait.md) | implemented | Waits, from the machine pleiades runs on, until a URL answers with the expected status, and optionally body. |
 | [identity.group.create](identity/group/create.md) | implemented | Makes sure a POSIX group exists on the target. |
 | [identity.group.modify](identity/group/modify.md) | implemented | Changes the gid of an existing POSIX group on the target. |
 | [identity.group.remove](identity/group/remove.md) | implemented | Removes a POSIX group from the target. |
@@ -149,16 +150,18 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.frr.facts](net/frr/facts.md) | implemented | Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data. |
 | [net.frr.interface](net/frr/interface.md) | implemented | Sets an FRRouting interface administratively up or down, recording the state it found. |
 | [net.ios.command](net/ios/command.md) | implemented | Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says. |
-| [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, with an optional pre-change backup. |
+| [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly. |
 | [net.ios.facts](net/ios/facts.md) | implemented | Gathers structured facts from a Cisco IOS device over its CLI. |
+| [net.ios.parse](net/ios/parse.md) | implemented | Runs a show command on a Cisco IOS or IOS XE device and returns its output parsed into Genie's schema. |
 | [net.ios.ping](net/ios/ping.md) | implemented | Runs a ping from a Cisco IOS device and reports the result. |
+| [net.ios.replace](net/ios/replace.md) | implemented | Replaces a Cisco IOS device's running configuration with a checkpoint file on the device. |
 | [net.ios.save](net/ios/save.md) | implemented | Saves a Cisco IOS device's running configuration to startup. |
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
 | [net.netconf.config](net/netconf/config.md) | implemented | Applies a configuration document to a device over NETCONF, with an optional pre-change backup. |
 | [net.ovs.bridge](net/ovs/bridge.md) | implemented | Makes an Open vSwitch bridge exist with the datapath given, or not exist. |
 | [net.ovs.port](net/ovs/port.md) | implemented | Makes a port exist on an Open vSwitch bridge with the VLAN tag given, or not exist. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
-| [net.trace](net/trace.md) | implemented | Traces the path from a Linux device to an address, and fails when it is not the path expected. |
+| [net.trace](net/trace.md) | implemented | Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
 | [pkg.apt.remove](pkg/apt/remove.md) | implemented | Removes a package via APT. |
 | [pkg.apt.upgrade](pkg/apt/upgrade.md) | implemented | Makes sure a package is at its newest available version via APT. |
@@ -169,6 +172,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [pkg.remove](pkg/remove.md) | implemented | Makes sure a package is absent, whichever package manager the device runs. |
 | [pkg.upgrade](pkg/upgrade.md) | implemented | Makes sure the newest available version of a package is installed, whichever package manager the device runs. |
 | [pleiades.builtin.connection.reset](pleiades/builtin/connection/reset.md) | implemented | Closes the SSH connection kept open to the device, so its next task logs in again. |
+| [pleiades.builtin.project.write](pleiades/builtin/project/write.md) | implemented | Writes text a run produced, such as a router's running configuration, to a file in the project. |
 | [pleiades.builtin.wait.port](pleiades/builtin/wait/port.md) | implemented | Waits for a TCP port on the target to start (or stop) accepting connections. |
 | [scan.sbom](scan/sbom.md) | implemented | Writes an SPDX 2.3 SBOM of an image archive or a directory, held to the NTIA minimum elements, with its SHA256SUMS. |
 | [scan.secrets](scan/secrets.md) | implemented | Finds credentials leaked into a directory, naming each by file, line and rule, never by its value. |

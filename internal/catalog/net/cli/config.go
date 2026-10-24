@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -22,6 +23,7 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
 				"ssh",
+				"telnet",
 			},
 			RequiredCapabilities: []capability.Name{
 				capability.NameNetworkCLI,
@@ -53,6 +55,7 @@ func configDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: paramConfig, Type: "string", Required: true, Description: "The configuration lines to send, one per line. Blank lines are skipped. Include any vendor-specific mode commands (e.g. \"configure terminal\" and \"end\") this device needs, since this method sends none on its own.", Format: collection.ParamFormatCommand},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 		},
 		Examples: []collection.Example{
 			{
@@ -107,6 +110,12 @@ func configLines(params map[string]any) ([]string, error) {
 	}
 	if len(lines) == 0 {
 		return nil, fmt.Errorf("%s has no non-blank lines to send", paramConfig)
+	}
+	// Lines copied from a masked read (net.ios.config's undo_lines, a
+	// configuration net.frr.facts returned) would set each secret to its
+	// placeholder; refused here, before the device is reached.
+	if err := netcfg.RefuseMasked(paramConfig, raw); err != nil {
+		return nil, err
 	}
 	return lines, nil
 }

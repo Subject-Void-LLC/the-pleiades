@@ -28,10 +28,14 @@ import (
 //     or an argument;
 //   - a parameter the method marks as a URL names its scheme and host, or
 //     begins with "/", before its first expression, so data cannot choose
-//     where the request goes.
+//     where the request goes;
+//   - an expression in a parameter the method marks as a project path the
+//     run writes reads only vars, so a device's output cannot choose which
+//     project file is replaced.
 //
 // A rendered target is held to the same rules, and to within: besides,
-// which the runbook builder requires beside it.
+// which the runbook builder requires beside it. A task's rollback: steps
+// are held to them as its own params are.
 func TemplateRule(world WorldView) []Finding {
 	eng := render.New()
 	registered := make(map[string]bool)
@@ -41,15 +45,11 @@ func TemplateRule(world WorldView) []Finding {
 		}
 	}
 
-	ids := make([]string, 0, len(world.DAG.Nodes))
-	for id := range world.DAG.Nodes {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
 	var findings []Finding
-	for _, id := range ids {
-		task := world.DAG.Nodes[id]
+	// Each task's rollback: steps too: they render when the engine undoes
+	// the task, held by the executor to the same rules (renderTask).
+	for _, pt := range paramTasks(world.DAG) {
+		id, task := pt.id, pt.task
 		if !engine.HasTemplate(task.Params) {
 			continue
 		}

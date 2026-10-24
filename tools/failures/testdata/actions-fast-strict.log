@@ -1,0 +1,26 @@
+2026-10-24T07:01:32.9733698Z       internal/ui/resources TestViewConformance_PagingControlIsRenderedOnceAndOnlyWhenItLeadsSomewhere/credentials
+2026-10-24T07:01:32.9734039Z 
+2026-10-24T07:01:32.9734316Z   1: this view's reader does not page: it returned 5 rows for a limit of 1, so there is never a next page
+2026-10-24T07:01:32.9734978Z       internal/ui/resources TestViewConformance_PagingControlIsRenderedOnceAndOnlyWhenItLeadsSomewhere/credentials
+2026-10-24T07:01:32.9735317Z 
+2026-10-24T07:01:32.9735552Z   1: this view's reader does not page: it returned 6 rows for a limit of 1, so there is never a next page
+2026-10-24T07:01:32.9736365Z       internal/ui/resources TestViewConformance_PagingControlIsRenderedOnceAndOnlyWhenItLeadsSomewhere/projects
+2026-10-24T07:01:32.9736741Z 
+2026-10-24T07:01:32.9737088Z --- github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli TestOpenSession_SendsEveryConfigLineOverOneSession ---
+2026-10-24T07:01:32.9737644Z === RUN   TestOpenSession_SendsEveryConfigLineOverOneSession
+2026-10-24T07:01:32.9738024Z --- PASS: TestOpenSession_SendsEveryConfigLineOverOneSession (0.00s)
+2026-10-24T07:01:32.9738504Z === RUN   TestOpenSession_SendsEveryConfigLineOverOneSession
+2026-10-24T07:01:32.9748111Z     cli_session_internal_test.go:123: config over a real session: net.cli.config: netcli: remoteexec: read from shell on 127.0.0.1:35569: EOF
+2026-10-24T07:01:32.9748736Z --- FAIL: TestOpenSession_SendsEveryConfigLineOverOneSession (0.00s)
+2026-10-24T07:01:32.9749110Z === RUN   TestOpenSession_SendsEveryConfigLineOverOneSession
+2026-10-24T07:01:32.9749462Z --- PASS: TestOpenSession_SendsEveryConfigLineOverOneSession (0.00s)
+2026-10-24T07:01:32.9749673Z 
+2026-10-24T07:01:32.9749801Z testgate: 1 failure(s), and -strict re-runs nothing:
+2026-10-24T07:01:32.9749979Z 
+2026-10-24T07:01:32.9750334Z   github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli: TestOpenSession_SendsEveryConfigLineOverOneSession
+2026-10-24T07:01:32.9750766Z testgate: 1 failure(s)
+2026-10-24T07:01:32.9750943Z exit status 1
+2026-10-24T07:01:32.9751134Z make[1]: *** [Makefile:501: test-repeat] Error 1
+2026-10-24T07:01:32.9751380Z make: *** [Makefile:626: ci-fast] Error 2
+2026-10-24T07:01:32.9751682Z make[1]: Leaving directory '/home/runner/work/the-pleiades/the-pleiades'
+2026-10-24T07:01:32.9761761Z ##[error]Process completed with exit code 2.

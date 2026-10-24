@@ -14271,7 +14271,7 @@ reaching other devices runs as one unit; `always:` is a promise to every device)
 **Lesson.** When work moves from one process to one process per device, list every engine behavior that couples
 devices before writing the split rule, and refuse or keep each one. LESSONS 309.
 
-## 574. validate holds a rollback: step to three of the rules a task meets, not TemplateRule, so a misspelled register in an undo step passes (a repeat of 561) (open)
+## 574. validate holds a rollback: step to three of the rules a task meets, not TemplateRule, so a misspelled register in an undo step passes (a repeat of 561) (fixed)
 
 **Symptom.** Review by the fp-reviewer agent, 2026-10-22, reasoned from the code and not reproduced. `validate`'s
 `RollbackRule` (`internal/validate/rollback_rule.go`) runs only CollectionRule, ParamsRule and RequiredParamsRule over
@@ -14292,6 +14292,17 @@ changes `internal/validate`, so the census runs.
 
 **Lesson.** A comment saying one rule holds X to "exactly what" another thing is held to is a list of rules to check
 against the full list, not a summary to trust.
+
+**Update, 2026-10-23 (`01cdbb70`, on feat/lab-importers, not yet on `main`).** `TemplateRule` now walks each task's
+`rollback:` steps as well as its nodes (`paramTasks`, `internal/validate/param_tasks.go`), so its register check
+reaches a step. `TestTemplateRule_AProjectPathReadsOnlyVars` proves the rule reaches a step: a step's project path read
+from a result is refused under `tasks[1].rollback[0]`. No test yet writes a misspelled register in a step, which is
+this entry's symptom, so it stays open until one does.
+
+**Closed, 2026-10-23.** `TestTemplateRule_AMisspelledRegisterInARollbackStepIsFound`
+(`internal/validate/rollback_template_test.go`) writes this entry's symptom: a step reading `result.chnage` where the
+runbook registers `change` is refused under `tasks[1].rollback[0]`, naming the misspelling, and the correct spelling
+passes.
 
 ## 575. Docker Desktop carried a net lab node's SSH port over whichever network's name sorted first, so taking a link down cut the test's own session (fixed before push)
 
@@ -14707,3 +14718,882 @@ the test, the network gate and the routing lab, since accepting a line a configu
 gate passed in CI with it). docs/16 and the routing lab's README say when FRR writes the line.
 
 **Lesson.** A live test asserts what the device's own configuration put there, never a line the container host adds.
+
+## 592. telnet_exec demanded a stored credential its transport never sent, so a console with no login was unreachable (fixed before push)
+
+**Symptom.** 2026-10-23, proving `pleiades import-gns3` on feat/lab-importers: a GNS3 VPCS node imported as a
+`console_device` failed `telnet_exec` with "no credential stored for device pc1", though VPCS asks for no login.
+
+**Root cause.** The engine's transport executor looked up a credential for every binding before dispatch, and the
+telnet, raw passthrough and serial transports then ignored it: none of those protocols has a login of its own, and
+`pkg/telnetexec` answered no login prompt either. The requirement guarded nothing and blocked every console without
+one.
+
+**Fix.** `TransportBinding.CredentialOptional` on the three bindings: a stored credential is used, a missing one is
+not an error, and any other lookup failure still is (`TestTransportActionExecutor_ACredentialIsOptionalWhereTheProtocolHasNoLogin`).
+The Telnet session now answers a device's login prompts with that credential (593's branch).
+
+**Lesson.** A requirement a code path checks and then never uses is a refusal with no reason; trace each input to
+where it is read before demanding it.
+
+## 593. The IOS dialect waited for a privileged "#" prompt, so an account landing in user mode hung every net.ios method until its byte bound (fixed before push)
+
+**Symptom.** 2026-10-23, on the DevNet CML sandbox's IOL XE routers over Telnet: the login landed at `R1>`, and
+`netcli.IOS`'s exec prompt `(?m)^[\w.\-]+#\s*$` never matched it, so `netcli.Open` would have read until its bound.
+
+**Root cause.** Every net.ios method had been proven against one device, the Catalyst 8000 Always-On sandbox, whose
+account is privilege 15 and lands at `#`. Nothing modelled user mode or `enable`, and no credential could carry an
+enable secret, so an ordinary operator account could not be used at all, over SSH or Telnet.
+
+**Fix.** The IOS exec prompt accepts `>` and `#`; a Dialect names its `Unprivileged` prompt and its `Enable` command;
+`netcli.Open` enters enable with `Options.EnableSecret` from the credential's new `EnablePassword`
+(`add-credential --enable-password[-stdin]`, `wire.SecretEnablePassword`); `Config` in user mode refuses naming the
+fix; a wrong secret is refused without being named. Proven by `TestTelnet_*` in `pkg/netcli` and on the sandbox by
+`TestCLI_ImportCMLReachesIOSOverTelnet`.
+
+**Lesson.** A device method proven with an administrator's account has been proven for administrators. Prove it with
+the account a lab or an operator actually gets.
+
+## 594. A Telnet login answered by a delayed refusal was taken as accepted, because the session read 500 ms of quiet as the answer (a sibling of 149) (fixed before push)
+
+**Symptom.** 2026-10-23, the first run against a real telnetd (BusyBox's, behind its `/bin/login`): a wrong password
+opened a session with no error. Every scripted test had passed.
+
+**Root cause.** After answering the password prompt the session read until the device was quiet for 500 ms. BusyBox's
+login waits about three seconds before "Login incorrect", so the read ended on silence, saw no refusal and no prompt,
+and returned a session. The scripted servers answered at once; IOS does too, which is why the sandbox never showed it.
+
+**Fix.** `Session.answer` reads after a login answer until the device has said something besides blank lines, up to
+`Options.LoginTimeout` (default 20 s), then until quiet (`TestSession_AgainstARealTelnetd`).
+
+**Lesson.** As 149 found for SSH: a scripted server never develops a real one's timing. Run a login against a real
+login program before trusting its refusals.
+
+## 595. trust-host reported a refused connection as a host that presented no host key (fixed before push)
+
+**Symptom.** 2026-10-23, `pleiades trust-host R1 --first-connect` against the CML sandbox's router said "10.10.20.171
+presented no host key", which sent the investigation to SSH algorithms. The router runs no SSH server; port 22 refused
+the connection.
+
+**Root cause.** `hosttrust.Scan` dropped every attempt's error and reported only that no key came back.
+
+**Fix.** The last attempt's error is kept; a dial failure says the host "could not be reached over SSH", anything else
+"presented no host key" with its cause (`TestScan`).
+
+**Lesson.** An error that summarises several attempts keeps the last cause; a summary without one names the wrong layer.
+
+## 596. The generic CLI prompt pattern allowed only whitespace after the prompt, so a shell's terminal query hid it (fixed before push)
+
+**Symptom.** 2026-10-23, `netcli.FromPrompt("lab$")` over a real telnetd never matched its first prompt: BusyBox's ash
+printed `lab$ ` followed by `ESC[6n`, a cursor position query.
+
+**Root cause.** The pattern was `^<prompt>\s*$`; a terminal control sequence after the prompt is not whitespace.
+
+**Fix.** The generic pattern also allows CSI control sequences after the prompt (`TestSession_AgainstARealTelnetd`).
+
+**Lesson.** A terminal session carries the terminal's own traffic; a pattern for where output ends allows it.
+
+## 597. A tag change was recorded as a revision and never written to hosts.yaml, because the file repository's Save wrote properties only (a repeat of 261 and 274) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, while adding `--tag` and `--untag` to `pleiades set-host`: a tag change
+moved the host's version and recorded a revision under `tags` in the sidecar, and `hosts.yaml` still held the old
+tags. The command reported success. Nothing could change a host's tags from the CLI before, so nothing had shown it.
+
+**Root cause.** `fileRepository.Save` (`internal/inventory/file_repository_save.go`) wrote the version, state, history
+and reserved properties to the sidecar, and wrote back to `hosts.yaml` only `hosts[hostIdx].Properties`. Tags live in
+`hosts.yaml` beside the properties, and Save never set them.
+
+**Fix.** Save also writes `hosts[hostIdx].Tags = tagsToStrings(item.Tags())`.
+`TestSetHost_TagsAndUntagsAndRecordsIt` (`cmd/pleiades/sethost_test.go`) tags and untags through `runSetHost`, reads
+the host back through the repository and reads `hosts.yaml` itself with `inv.ReadHosts`, and checks that the `tags`
+key disappears when the last tag is removed.
+
+**Why 261 and 274 did not prevent it.** 261's fix added `record.Base.ChangeTags`, which bumps the version and records
+the revision, and proved it through the API handler against the real ent repository. The Crawl tier's file repository
+is a second store, and no path put a tag change through it until now. 274's lesson says to treat every place a type's
+fields are enumerated as a place that must change; `Save`'s list of what goes back to `hosts.yaml` was such a place,
+and nobody looked at it when `ChangeTags` was added, because the lesson depends on someone remembering it.
+
+**Lesson.** A change method on a record (`ChangeTags`, `ChangeState`, `AddInfo`) is proven once per repository, by
+reading back the store's own file or table, not the record in memory.
+
+## 598. An unknown flag before set-host's name took the name as its value, so the command said the name was missing (a repeat of 50) (fixed before push in set-host; open in the other commands)
+
+**Symptom.** 2026-10-23, found when the owner had an agent change a Cisco router through pleiades: a call like
+`pleiades set-host --label r1` (a flag set-host does not define, placed before the name) failed with "missing
+positional argument", which sent the agent looking for a missing name instead of a wrong flag. The agent's own calls
+used `--tag`, which set-host did not define until this branch added it (597 is what adding it exposed).
+
+**Root cause.** `splitPositional` (`cmd/pleiades/addhost.go`) assumes every `-` token it does not know as boolean takes
+the next token as its value. An undefined flag took the host name, so no positional was left, and set-host checked the
+positional count before the flag set ever saw the flag.
+
+**Fix.** set-host splits with `splitPositionals` and calls `fs.Parse` before it checks how many positionals it got, so
+the flag set reports "flag provided but not defined: -label" (`TestSetHost_AnUnknownFlagIsNamed`, with the flag both
+before and after the name). Still open: `add-host` and the other commands that split with `splitPositional` check the
+positional first and would report the same wrong thing.
+
+**Why 50 did not prevent it.** 50's fix kept the premise and exempted the boolean flags each caller names. An unknown
+flag is one no caller can name, so the premise still fails for it. Only the flag set knows what a flag takes. 562
+(open) has the same ordering at its root: a missing name is refused before the flag set sees `--help`.
+
+**Lesson.** Let the flag set parse before any count of positionals is checked; a splitter that guesses which tokens
+are values will guess wrong for the flag nobody defined, which is the one a user most needs named.
+
+## 599. net.ios.command reported a read-only show command as changed, so a second run could not prove it changed nothing (fixed before push)
+
+**Symptom.** 2026-10-23, found when the owner had an agent change a Cisco router through pleiades: the agent's proof
+that a second run changed nothing failed on `net.ios.command` with `show version`, which reported changed every time.
+
+**Root cause.** `net.ios.command` returned `Changed: true` for every command that ran without error, as
+`net.cli.command` and `exec.command` do, because a command's effect cannot be inspected. A show command is the one case
+whose effect is known.
+
+**Fix.** `iosShow` (`internal/catalog/net/ios/command.go`) reports unchanged for a line whose first word is `show` or
+an IOS abbreviation of it (at least two letters), unless one of its pipes is `redirect`, `append` or `tee` (or an
+abbreviation), which write a file. `TestIOSShow_OnlyAShowThatWritesNoFile` covers the abbreviations and the pipes; on
+the DevNet CML sandbox router, `TestCLI_ImportCMLReachesIOSOverTelnet` asserts `show ip interface brief` returns status
+`ok`. The method's documentation says so.
+
+**Lesson.** "Cannot be inspected, so changed" is right for a command in general and wrong for the commands a device
+documents as reads; an agent proving idempotence runs reads, so name them.
+
+## 600. The insecure_telnet advice said to set it "on the task", and an agent wrote it as a task key the builder refused (a repeat of 270 and 488) (fixed before push)
+
+**Symptom.** 2026-10-23, found when the owner had an agent change a Cisco router through pleiades: following the
+refusal "set insecure_telnet: true on the task to accept that", the agent wrote `insecure_telnet: true` beside the
+task's `name:`, and the runbook builder refused it as an unknown task key.
+
+**Root cause.** `insecure_telnet` is a method parameter (`sdk.ParamInsecureTelnet`, read from the method's params by
+`sdk.OpenShell`). "On the task" reads as a task key to anyone who knows tasks have keys of their own. The same wording
+was in `pkg/sdk/shell.go`'s refusal, `docs/16-network-verification.md`, the skill (`cmd/pleiades/doc_skill.go`), the
+next-step lines `import-cml` and `import-gns3` print, and the `telnet-login` changelog fragment.
+
+**Fix.** Each now says to pass it among the method's parameters, beside its other parameters, not as a task key; docs/16
+shows `net.ios.facts: {insecure_telnet: true}`.
+
+**Why 270 and 488 did not prevent it.** 270 says to follow an instruction once before shipping it, and 488 says a
+refusal naming a parameter needs a test that sets it through the whole path. The CML gate does set `insecure_telnet`
+among the parameters and passes, so the parameter was right. What no test can check is where a reader puts it: the
+author placed it correctly because the author knew. An agent reading only the message is what found it, as LESSONS 311
+found for docs.
+
+**Lesson.** Advice that names a key says where it goes in the runbook's own terms (a method parameter, a task key, a
+runbook key); "on the task" is not one of them.
+
+## 601. The GNS3 fixture found console ports free and then let Docker bind them, and another test took one in between (a sibling of 123) (fixed before push)
+
+**Symptom.** 2026-10-23, under `make pr-check`: starting the GNS3 container failed with "address already in use" on a
+console port.
+
+**Root cause.** `freeConsoleRange` (`internal/testsupport/gns3.go`) finds free ports by listening on them and closing
+the listeners; Docker binds them a moment later. A closed listener reserves nothing, so a test running beside it could
+take one first. 123 met the other half of the same fact: a released port is neither unused nor reserved.
+
+**Fix.** `StartGNS3` retries with a fresh range, up to `gns3StartAttempts` (5), and only when the error says "address
+already in use"; any other failure stops at once, now with the container's last 30 log lines.
+
+**Lesson.** A port found free is a guess until it is bound. When the binder is another process, retry on the bind
+error rather than trusting the guess.
+
+## 602. The GNS3 2.2.61 container's API did not answer within two minutes once, with the machine idle, and answers in about 5 s every other time (open)
+
+**Symptom.** 2026-10-23, once, outside `make pr-check` (load average about 2): the fixture's wait for `/v2/version` on
+the 2.2.61 container timed out after two minutes. Run by hand, the same container answered in about 5 s, and the next
+five runs passed in 4 to 5 s.
+
+**Root cause.** Not known. No log of the failed container was kept. It has the outward shape of 470, 471 and 481 (a
+fixture's server never answering within the wait), but those were seen under load, and nothing ties this one to them.
+
+**Fix.** Diagnosis only: a failed start now prints the container's last 30 log lines (601's change), so the next
+occurrence shows what the server was doing.
+
+**Lesson.** When a failure cannot be reproduced, the fix is to make the next one explain itself, and the record says
+the cause is unknown.
+
+## 603. net.ios.config's first fallback recorded its undo lines as a Go []string, which the method's own reader refuses (a sibling of 529 and 534) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push: the first draft of `net.ios.config`'s fallback (a device
+that cannot keep a checkpoint) recorded an undo whose `lines` were a Go `[]string`. `sdk.StringSlice`, which reads
+`lines`, accepts only `[]any`, the shape YAML and JSON decode a list into, so replaying that undo would have failed
+with "lines must be a list of strings". The test of the no-checkpoint path (now
+`TestConfig_WithoutACheckpointTheUndoLinesAreShownNotRecorded`) caught it.
+
+**Root cause.** A method built a value for its own later use in the Go type it had at hand, not in the shape a task's
+params arrive in. Params only ever reach a method after decoding, so a value that skipped decoding met a reader that
+had never seen its type.
+
+**Fix.** Overtaken by 604: the fallback records no undo at all. It reports the masked lines under `undo_lines` for the
+task's `rollback:` list, and the test now requires that no undo is recorded.
+
+**Why 529 and 534 did not prevent it.** 529 found an undo whose values the journal cannot keep, and its guard
+(`TestFirewallRule_UndoIsJournalable`) holds that one method's undo. 534 found a value of the wrong type reaching a
+method's reader and fixed it for rendered and literal params. Neither reaches a new method that builds its own undo
+params in Go.
+
+**Lesson.** A value a method writes for a later task to read is written in the shape that task's params will have
+after decoding (`[]any`, `map[string]any`, `float64` or `int`), and a test replays it through the method's own reader.
+
+## 604. Withholding net.ios.config's fallback undo made validate refuse rollback_on_failure on every net.ios.config task, and the docs said the in-run undo would replay the withheld lines (a repeat of 228 and 571) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push. A draft declared an `sdk.InverseSpec` for the fallback undo
+with its lines under `Withhold`, since they are configuration read off the device. Two things followed. `pleiades
+validate` refused `rollback_on_failure` over every `net.ios.config` task, because it refuses that key over a task whose
+undo is not exact. And the method's description and the docs said a block's `rollback_on_failure` would replay the
+withheld lines inside the run. It would not: the engine's in-run undo (`internal/engine/rollback_on_failure.go`)
+replays only an undo the journal holds exactly.
+
+**Root cause.** The text described what the author meant the fallback to do, not what the engine does with a withheld
+parameter. No test ran `rollback_on_failure` over the fallback, so nothing held the claim to the code. Declaring the
+spec also changed what validate allows for every call of the method, the checkpoint calls included.
+
+**Fix.** The fallback records no undo and reports its lines, masked, under `undo_lines`, with a warning to copy them
+into the task's `rollback:` list. `net.ios.replace` (checkpoint and expect paths, and the Telnet opt-in, nothing else)
+is the method's only declared undo. The description, docs/16 and the changelog say so. The CML gate
+(`TestCLI_ImportCMLReachesIOSOverTelnet`) runs a `rollback_on_failure` block on the sandbox router and proves the
+change undone through the checkpoint.
+
+**Why 228 and 571 did not prevent them.** Both found text claiming more than the code does, and 571's lesson says a
+claim of behavior is checked by a test of that behavior or cut. The claim here was written in the same draft as the
+code, before the gate that tests it existed, and nothing makes the test come first.
+
+**Lesson.** Before a doc or description says what `rollback_on_failure` or `pleiades rollback` does with a method's
+undo, run it, and check what declaring an `InverseSpec` does to validate for every call of the method.
+
+## 605. A container_host with no host declared SSH and a network address, so validate passed wait.port on it and the run asked for a credential (a sibling of 316 and 345) (fixed)
+
+**Symptom.** 2026-10-22, routing lab gap G6 (`examples/routing_lab/GAPS.md`): a `container_host` with no `host`, which
+is the machine pleiades runs on reached through its own engine socket, passed `pleiades validate` for
+`pleiades.builtin.wait.port`, an SSH method. The run then failed asking for a credential that no SSH login could use.
+
+**Root cause.** `container.NewHost` (`internal/inventory/devices/container/host.go`) put `SSHTransport` and
+`NetworkAddressable` in every host's baseline, whether or not the record named a host. The existing test asserted the
+claim on a bare record with no host ("expected the vendor baseline to include SSHTransportCapable"), so the test
+pinned the defect, the tell 273 describes.
+
+**Fix.** Both capabilities are declared only when the record's `host` property is set (`b53d4db2`).
+`TestNewHost_BaselineCapabilities` requires both on a host with an address and neither on one without. Waiting for a
+service on this machine is `http.wait`'s job now.
+
+**Why 345 and 316 did not prevent it.** 345 removed one capability edge a device could not serve and 316 taught the
+generated reference to show a conditional capability. Neither checks that a type's static baseline holds for every
+record the type accepts.
+
+**Lesson.** A capability a type declares for every record must hold for every record the type accepts. When it
+depends on a property, declare it from that property, and test the record without it.
+
+## 606. IOS scrolled a command longer than 80 columns sideways in its echo, so the echo was not stripped and stayed in the output (a sibling of 596) (fixed)
+
+**Symptom.** 2026-10-23, on the DevNet CML sandbox's IOS XE 17.15 IOL router: the new checkpoint commands (`copy
+running-config unix:...`, `show archive config differences unix:... system:running-config`) are longer than 80
+columns. IOS echoed each one scrolled sideways, with a `$` where it cut the line, and the session's output kept that
+garbled echo.
+
+**Root cause.** `stripEcho` in `pkg/netcli` removes an echo only when it matches the line sent. The IOS dialect set
+`terminal length 0` and left the terminal width at its default, so any long command, the checkpoint's or a user's,
+came back changed.
+
+**Fix.** `Dialect.DisableWrapping`: IOS's dialect sends `terminal width 512` after `terminal length 0`
+(`TestOpen_DisablesPagingAndWrappingWhenDialectNamesThem`). The CML gate runs the long checkpoint commands on the
+sandbox router.
+
+**Why 596 did not prevent it.** 596 fixed the prompt pattern for the terminal's own traffic after a prompt. The echo is
+a second place a terminal rewrites what the session expects, and nothing had sent a command that long.
+
+**Lesson.** A terminal session sets every terminal property that changes what it reads (paging and width), and a
+test sends a command longer than the default width.
+
+## 607. http.wait's not-ready test closed a listener and reused its port, and the released-port guard refused it (a repeat of 123, 177, 183 and 478) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push: `internal/archtest`'s `TestNoReleasedPortIsUsedAsAnAddress`
+refused the first draft of `TestWait_AServiceThatIsNotReadyYet`, which closed a listener and then used its address for
+a service that "starts later".
+
+**Root cause.** The construction 123 named: a released port is anyone's, so another test can take it before the
+service starts, and the wait then measures the wrong server. 601 met the same fact in the GNS3 fixture on the same
+branch.
+
+**Fix.** The test holds its port the whole time: `droppingListener` accepts and closes every connection until the
+service is "ready", then serves it, so the wait sees dropped connections first and an answer later.
+
+**Why 478's fix did not prevent it.** It did its job: 478 added the guard, and the guard caught this before push. The
+construction is still the first one a test author reaches for.
+
+**Lesson.** To imitate a service that is not ready yet, hold its port and drop connections; never release it.
+
+## 608. VarsRule refused a task with its own when:, which the run may skip (a repeat of 557) (fixed before push)
+
+**Symptom.** 2026-10-23, on feat/lab-importers, before push: the new validate rule `VarsRule` (routing lab gap G11)
+refused a task whose params read a `vars.<name>` no `--extra-vars` supplied, even when the task had a `when:` of its
+own that would skip it.
+
+**Root cause.** 557 settled that a task with its own `when:` (`engine.DAG.Conditional`) is left out of the plan-time
+checks, because the engine decides the condition first. That decision lives in each rule (`TransportRule`,
+`CapabilityRule`), and a new rule starts without it.
+
+**Fix.** `VarsRule` leaves a conditional task to the run, as `TransportRule` does (`TestVarsRule`). The
+`validate-extra-vars` changelog fragment says so.
+
+**Why 557 did not prevent it.** 557's fix is a check in each existing rule, not a property of the rule framework, so
+every new rule has to remember it.
+
+**Lesson.** A new validate rule starts by asking what the existing rules skip (conditional tasks, device-less calls,
+`rollback:` steps), and copies each answer or says why not.
+
+## 609. net.ios.config, net.cli.config and net.netconf.config applied lines holding a masked placeholder, and net.ios.config's new undo_lines would hand an author such lines (a repeat of 580) (fixed)
+
+**Symptom.** Found by an agent's review, 2026-10-23, on feat/lab-importers: `net.ios.config`'s fallback reports its
+undo lines masked under `undo_lines`, and the docs tell an author to paste them into a `rollback:` list. Pasted
+unchanged, each `pleiades-masked-` placeholder would have been applied, setting each secret on the device to the
+placeholder. `net.ios.config` did not refuse such a line. Neither did `net.cli.config` or `net.netconf.config` on
+`main`.
+
+**Root cause.** 580's class: a masked copy of data accepted where the real data is.
+
+**Fix.** `netcfg.RefuseMasked` (`pkg/netcfg/refuse.go`, `TestRefuseMasked`) is the one refusal, now called by
+`net.frr.config`, `net.cli.config`, `net.netconf.config` and `net.ios.config` before the device is reached
+(`TestConfig_RefusesAMaskedSecret` in `internal/catalog/net/ios`, `TestConfig_RefusesAMaskedSecretBeforeTheDevice` in
+`internal/catalog/net/cli`).
+
+**Why 580 did not prevent it.** 580's fix was in `net.frr.config` alone. Its lesson says the method that writes the same
+kind of data refuses the mask's marker, but nothing lists those methods, and this branch added a masked output that
+feeds one of them.
+
+**Lesson.** When a method starts emitting masked configuration, every method that applies configuration of that kind
+calls the one shared refusal; a new configuration writer calls it from its first draft.
+
+## 610. pkg/iosparse's ShowInterfaces keeps genieparser's failure on an "Encapsulation X, medium is Y" line (open)
+
+**Symptom.** Found 2026-10-23 while porting genieparser's `ShowInterfaces` (`pkg/iosparse`, `67a70f8e`). Not met on the
+CML sandbox's IOL router.
+
+**Root cause.** genieparser's own parser reads the medium from the wrong match on an "Encapsulation X, medium is Y"
+line and raises `KeyError`. The port keeps genieparser's behavior so its fixtures hold the port to upstream, and
+returns a `*ParserError` where genieparser raises. `pkg/iosparse/doc.go` lists this among the port's known
+differences.
+
+**Fix.** None yet. A fix would make the port differ from genieparser on that line and would need a fixture of its own.
+
+**Lesson.** A port held to upstream fixtures inherits upstream's defects. Name each one where users read about the
+port, and fix it as a deliberate, tested difference.
+
+## 611. pkg/iosparse's ShowVlan joins wrapped lines quadratically on pathological output, bounded only by netcli's read limit (a sibling of 48) (open)
+
+**Symptom.** Found 2026-10-23 while porting genieparser's `ShowVlan` (`pkg/iosparse/show_vlan.go`). No real device's
+output has shown it.
+
+**Root cause.** The port joins a wrapped line onto the text before it the way genieparser does, which costs time
+quadratic in the number of continuation lines. The only bound on that input is `pkg/netcli`'s limit on how much a read
+takes from the device.
+
+**Fix.** None yet.
+
+**Lesson.** As 48 found, a loop that rebuilds its accumulated text on every step needs either a builder or a bound on
+its input, and a read limit sized for transport is not a bound sized for a parser.
+
+## 612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (open)
+
+**Symptom.** 2026-10-23, by design of `9ab84fe4`: each `net.ios.config` run that changes the configuration leaves two
+files on the device's default writable file system (the checkpoint before and the configuration after), named
+`pleiades-...`. `net.ios.replace` deletes both when it runs. A change that is never undone keeps its files.
+
+**Root cause.** The checkpoint is the undo, and the undo may be run at any later time, so the method cannot know when
+the files are no longer needed.
+
+**Fix.** None yet. `docs/16-network-verification.md` ("Undoing an IOS change") tells users the files stay until the
+undo runs, and how to delete them by hand with `net.ios.command` once the undo is no longer wanted.
+
+**Lesson.** An undo that keeps state on a device owes a way to list and prune that state, or a limit on how much of it
+builds up.
+
+## 613. net.ios.replace deleted whatever file checkpoint or expect named after a replace, so checkpoint: nvram:startup-config would have erased the saved configuration (a repeat of 570) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+After a successful `configure replace`, `net.ios.replace` ran `delete /force` on the files its `checkpoint` and
+`expect` parameters named, to clean up the two files `net.ios.config` leaves. It deleted whatever they named. A call
+written `checkpoint: nvram:startup-config` would have replaced from the saved configuration and then erased it, and a
+journal entry could name any `flash:` file for the undo to delete.
+
+**Root cause.** The cleanup trusted the call to name only files the method made. The parameters are a caller's
+values, and the undo is replayed from the journal, so they can name the operator's own files. The reviewer also cited
+450 and 497: a caller's value reaching a destructive device command unchecked.
+
+**Fix.** `01cdbb70`: only names that `newCheckpointNames` mints (`pleiades-<12 hex>.cfg` and
+`pleiades-<12 hex>-after.cfg`) are deleted (`mintedCheckpoint`, `internal/catalog/net/ios/checkpoint.go`). A replace
+from any other file replaces from it and leaves it there. `TestReplace_NeverDeletesAFileItDidNotMake`.
+
+**Why 570's fix did not prevent it.** 570 fixed one method, `identity.user.create`'s undo, and its lesson ("an undo that
+deletes names what it made, recorded at the change, and refuses anything else") is a rule an author has to remember.
+Nothing checks a new undo against it, and `net.ios.replace` was written a day later on this branch without it.
+
+**Lesson.** Before a method deletes anything on a device, ask what happens if its argument names the operator's own
+file. Delete only names the method itself made, in a shape it can recognize.
+
+## 614. validate accepted reversible: and rollback_on_failure over net.ios.config calls that record no undo (checkpoint: false), so the in-run undo would stop halfway (a repeat of 156) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+`net.ios.config` declares itself reversible, and validate's `reversible:` and `rollback_on_failure` rules read that
+declaration. A call with `checkpoint: false` records no undo, so a block undoing itself inside the run would reach
+that task and stop, with the tasks before it undone and the rest not.
+
+**Root cause.** Whether a call records an undo depends on its parameters, and validate asked the method. That is
+156's class (a property of the run declared on the method) and the case LESSONS 204 describes for check mode. 604,
+on this branch, was the other direction: declaring an undo made validate refuse every call.
+
+**Fix.** `01cdbb70`: `collection.Descriptor.UndoCall`, a per-call answer beside `CheckCall` and `DeviceCall`, which
+`whyNotUndoable` asks (`internal/validate/rollback_rule.go`). `Register` refuses an `UndoCall` on a method that is not
+reversible. `net.ios.config`'s answers no for `checkpoint: false`. Tests:
+`TestReversibleRule_AsksTheCallWhenTheMethodSaysItDepends`, `TestRegister_UndoCallNeedsAReversibleMethod`,
+`TestConfigUndoCall`. A device with no writable file system still records no undo at run time; only the run can find
+that out, and `UndoCall`'s doc comment says so.
+
+**Why 156's fix did not prevent it.** 156 split whether from what: the undo itself is emitted per run, but whether a
+method is reversible stayed one boolean per method. LESSONS 204 added a per-call answer for check mode alone
+(`CheckCall`). When `net.ios.config` gained a parameter that turns its undo off, nothing asked the same question of
+reversibility.
+
+**Lesson.** When a parameter can turn off something a method declares, the declaration gets a per-call answer
+beside it, and every plan-time rule asks that answer (LESSONS 204).
+
+## 615. Windows: the active-run reader skipped every record, because Windows reports every writable file as group and world writable (a repeat of 544 and 567) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+`internal/journal/active.go` skips an active-run record whose mode has a group or world write bit, so a record
+another user could have planted is not believed. Windows keeps no such bits and reports 0666 for every writable
+file, so every record was skipped there and the notice that another run is active never fired.
+
+**Root cause.** Product code read POSIX permission bits that Windows does not keep.
+
+**Fix.** `01cdbb70`: a build-tagged `othersMayWrite` (`internal/journal/reader_unix.go`, `reader_other.go`) reads the
+bits on Unix and answers no elsewhere. `TestOthersMayWrite_ReadsTheGroupAndWorldWriteBits` (Unix) and
+`TestOthersMayWrite_IgnoresAModeThisSystemDoesNotKeep` (other systems). The Windows test compiles (`GOOS=windows`
+vet) and has not run yet; the Windows leg of `make pr-check` will be its first run.
+
+**Why 544's and 567's fixes did not prevent it.** Both guarded tests that assumed POSIX modes, and 567's lesson is
+about tests. This is product code. The Windows leg runs a package only once a branch changes it, after the code is
+written, and this branch had not run `make pr-check` yet.
+
+**Lesson.** Any code that reads permission bits, not only a test, belongs in a build-tagged file with a Windows
+answer.
+
+## 616. Windows: project.write compared all nine permission bits, so every run reported changed (a repeat of 544 and 567) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+`pleiades.builtin.project.write` reports `changed` only when the file's bytes or mode differ. It compared all nine
+permission bits. Windows keeps only a read-only flag and reports 0666 or 0444, so a requested 0600 never matched and
+every run reported changed there.
+
+**Root cause.** 615's: product code comparing POSIX permission bits that Windows does not keep.
+
+**Fix.** `01cdbb70`: a build-tagged `modeHolds` (`internal/engine/project_mode_unix.go`, `project_mode_other.go`)
+compares every permission bit on Unix and only the owner write bit elsewhere.
+`TestModeHolds_ComparesEveryPermissionBitOnUnix` and `TestModeHolds_ComparesOnlyTheReadOnlyBit`. The second compiles
+for Windows and has not run there yet.
+
+**Why 544's and 567's fixes did not prevent it.** As in 615.
+
+**Lesson.** As in 615.
+
+## 617. A Telnet login resent the stored password when the device asked for it again, and each resend counted against the device's lockout (a repeat of 399) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+IOS answers a wrong line password by asking for the password again, with no refusal text. The new Telnet login
+answered each question it saw, so it sent the same wrong password again, each time a failure counted against
+`login block-for` or an AAA lockout.
+
+**Root cause.** The login read only a refusal it could recognize by text. Over Telnet, the refusal is the question
+asked again.
+
+**Fix.** `01cdbb70`: a password or a name asked for again is `ErrLoginRefused`, and a login has at most three steps
+(`maxLoginSteps`, `pkg/telnetexec`). `TestSession_LoginsThatGoWrong` asserts the password is sent once.
+
+**Why 399's fix did not prevent it.** 399 taught the SSH dial to recognize the SSH library's refusal text and not
+retry it, and LESSONS 265 states the rule. A Telnet login is a hand-written dialog with no protocol refusal, so each
+new login path has to decide what a refusal looks like, and this one recognized only text. 594, on the same branch,
+handled a refusal that arrives late, not one that is never said.
+
+**Lesson.** In a login dialog, the same question asked twice is the answer no. Send a secret once per login.
+
+## 618. project.write's path could be rendered from device output, its mode could set execute bits, and the project's .pleiades refusal (in ReadProjectFile too) was by name, which a Windows 8.3 short name passes (a repeat of 313 and 438) (fixed; a hard link at the project root is still open)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers. Three defects
+in `pleiades.builtin.project.write` and the project file guard beneath it:
+
+- Its `path` rendered like any parameter, so an expression reading `result.` let a device's output choose which
+  project file the run replaced: `inventory.yaml`, a runbook, or a file beside the external Collections approval list.
+- `mode` could set execute bits on a file the run wrote.
+- The guard refused `.pleiades` by its name. On a Windows volume with 8.3 names, the same directory also answers to a
+  short name such as `PLEIAD~1`, which the name check passes. The same check guards `ReadProjectFile`, which
+  `file.copy`'s `src` uses and which is on `main` (`14d4ec22`, 2026-10-16), so on Windows `src` could read the
+  project's credential files through the short name. This is reasoned from the code, not reproduced on Windows.
+
+**Root cause.** A path that chooses what a run overwrites was treated as data a device may supply. And the guard
+judged one spelling of a directory's name, while the file system resolves others.
+
+**Fix.** `01cdbb70`:
+
+- `collection.ParamFormatProjectPath`: an expression in such a path may read only `vars`. `TemplateRule` checks it,
+  now over `rollback:` steps too (`paramTasks`), and the engine checks it again at render.
+  `TestTemplateRule_AProjectPathReadsOnlyVars`, `TestTemplateProblems_AProjectPathReadsOnlyVars`.
+- Execute bits are refused.
+- The guarded paths (the inventory, the state file, `PLEIADES_COLLECTIONS_DIR`) are matched by identity and by name.
+  `TestWriteProjectFile_RefusesTheGuardedPaths`, `TestRefuseGuarded_MatchesByIdentity`,
+  `TestCLI_ProjectWriteRefusesWhatARunMustNotReplace`.
+- `.pleiades` is matched with `os.SameFile` against each prefix of the path, for reads and writes.
+  `TestProjectFiles_RefuseThePleiadesShortName` runs on Windows only; it compiles and has not run yet. The Windows leg
+  of `make pr-check` will be its first run.
+
+**Still open.** The identity check compares directories. A hard link at the project root to a file inside
+`.pleiades` can still be read through the project. Making one needs write access to both directories.
+
+**Why 313's and 438's fixes did not prevent it.** Each fixed its own guard (`pkg/sftpxfer`'s containment, the engine
+guard's request target), and their lesson, that a guard decides on what the far side will actually use, is a rule each
+new guard has to remember. The project guard was written on Linux, where the name it compared is the only name the
+directory has.
+
+**Lesson.** A guard over a file system decides by identity, not by a spelling of a name. A parameter that chooses
+which file a run replaces reads only values the author chose.
+
+## 619. The lab importers printed the server's version and node state text raw, under a comment saying every word was quoted (a repeat of 257 and 368) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+`pleiades import-gns3` and `import-cml` printed the server's version, API version, node state and address with `%s`.
+A server could put terminal control sequences in them. The comment above the print said every word from the server
+was quoted.
+
+**Root cause.** 257's and 368's class: text a remote system wrote reached the terminal raw. The comment claimed a
+coverage nobody had checked (228's shape).
+
+**Fix.** `01cdbb70`: each server-supplied field passes through `termsafe.EscapeLine`, and the comment says quoted or
+escaped. `TestCLI_ImportGNS3EscapesTheServersWords` (`cmd/pleiades/importgns3_escape_test.go`) proves it through the
+binary: a server whose version and node status hold escape sequences has them printed as `\x1b...`, and no raw escape
+reaches the output.
+
+**Why 257's and 368's fixes did not prevent it.** `internal/termsafe` exists, but each print site has to call it, and
+nothing finds a print of remote text that does not.
+
+**Lesson.** Every field a server wrote goes through `termsafe` at the print, and a comment claiming that is checked
+against each argument of the print it describes.
+
+## 620. Telnet reads counted only data bytes and had no bound on a whole read, so a device that only negotiated, or sent a byte at a time, held a run until its context ended (a repeat of 175 and 351) (fixed)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers. `pkg/telnetexec`'s
+`readUntilQuiet` bounds the output it keeps, counting the data bytes left after Telnet negotiation is filtered out,
+and waits for a quiet period that each new byte restarts. A device sending only negotiation (IAC sequences) never
+added to the count, and one sending a byte just inside each quiet period never went quiet. Either held the read until
+the run's context ended. `readUntilQuiet` is on `main` (`telnet_exec`); this branch added the Telnet login and
+`Session.ReadUntil`, which had the same shape.
+
+**Root cause.** The byte bound counted the filtered bytes, not the bytes read, and nothing bounded the time of a whole
+read.
+
+**Fix.** `01cdbb70`: `Options.MaxReadDuration` (five minutes by default) bounds a whole read, and a raw byte bound
+(four times the output bound) counts every byte read, negotiation included, in both `readUntilQuiet` and
+`Session.ReadUntil`. `TestSession_ADeviceThatNeverGoesQuietIsCutOff`.
+
+**Why 175's and 351's fixes did not prevent it.** 175 bounded one accumulator in `pkg/rfc2217`'s negotiation parser,
+and 351 put a deadline on a test helper's handshake. Each fixed its own instance. An idle deadline that every byte
+renews looks like a bound and is not one against a peer that keeps sending.
+
+**Lesson.** A read from a remote peer has three bounds: bytes kept, bytes read, and time for the whole read. A
+deadline that each byte renews is none of them.
+
+## 621. VarsRule's advice named --extra-vars for adhoc and rollback, which have no such flag, and the rule never read rollback: steps (a repeat of 270 and 574) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push. The
+new `VarsRule` told an author of `pleiades adhoc` or `pleiades rollback` to supply a variable with `--extra-vars`,
+which neither command has. And it read only a runbook's tasks, not their `rollback:` steps, which render when the
+task is undone.
+
+**Root cause.** The advice was written for `run` and `validate` and shown by every command that validates. The rule
+walked the DAG's nodes, as the rules before it did.
+
+**Fix.** `01cdbb70`: `WorldView.VariablesFlag` carries the flag the calling command has, if any, and the advice names
+only that, or says the command takes no variables. The rule reads `rollback:` steps through `paramTasks`.
+`TestVarsRule_ReadsRollbackStepsAndAdvisesOnlyAFlagTheCommandHas`,
+`TestCLI_AVariableAdviceNamesOnlyAFlagTheCommandHas`.
+
+**Why 270's and 574's fixes did not prevent it.** 270's lesson (follow your own instruction once before shipping it)
+is a habit, and the advice was followed only from `run`. 574 was still open, and 608, written for this same rule on
+this branch, named `rollback:` steps in its lesson but fixed only the conditional case. Its siblings 561 and 572 are
+the same seam.
+
+**Lesson.** Advice in a shared refusal names only what the command showing it has. A rule that reads a task's params
+reads its `rollback:` steps through `paramTasks`.
+
+## 622. The GNS3 fixture retried a lost port race only on the kernel's wording, not Docker's "port is already allocated" (a repeat of 601) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+`StartGNS3` retried a start only when the error said "address already in use". When the port's taker is another
+container, Docker says "port is already allocated", and the fixture failed at once.
+
+**Root cause.** 601's fix matched the one error text it had seen.
+
+**Fix.** `01cdbb70`: `lostPortRace` (`internal/testsupport/gns3.go`) recognizes both.
+
+**Why 601's fix did not prevent it.** It was written from one observed message, and the same race has two reporters:
+the kernel when a process holds the port, Docker when a container does.
+
+**Lesson.** A retry on an error's text lists every component that can report the same cause.
+
+## 623. add-credential read a piped passphrase and a piped enable secret through two readers of one standard input, so the first reader's buffer took the second line (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+`pleiades add-credential --passphrase-stdin --enable-password-stdin` read each secret with its own reader. The first
+read buffered past its line, so the enable secret was lost.
+
+**Root cause.** Two buffered readers of one pipe. The class was known in the same command: the password and enable
+secret pair beside it already reads both lines with one `prompt.SecretsFromStdin(2)`, with a comment saying why. The
+new pair did not.
+
+**Fix.** `01cdbb70`: one `SecretsFromStdin(2)` read, passphrase first. `TestCLI_AddCredentialStoresAnEnableSecret`
+drives it through the binary.
+
+**Lesson.** Every flag combination that reads more than one secret from standard input reads them through one
+reader. When adding a stdin flag, check each pairing with the stdin flags already there.
+
+## 624. import-cml --replace over SSH of a node first imported over Telnet kept transport: telnet (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push. A
+node imported with `--via telnet` and then imported again over SSH with `--replace` kept its `transport: telnet`
+property, so it was still reached over Telnet.
+
+**Root cause.** The SSH spec wrote only `host` and `port`, relying on SSH being the default. A replace keeps what the
+new spec does not write.
+
+**Fix.** `01cdbb70`: the SSH spec writes `transport: ssh`. `TestCMLSpec_AReplaceOverSSHUndoesTelnet`.
+
+**Lesson.** A spec that a replace applies writes every field any other form of it writes, the default value included.
+
+## 625. net.trace chose its container path by a non-empty value while Manifest.For chose the call's shape by presence, so container: "" was checked as a container call and ran over SSH (a sibling of 115) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+Validation, admission and the engine held a `net.trace` call to the container shape whenever `container` was present
+(`collection.Manifest.For`). The method traced from a container only when the value was non-empty. So `container: ""`
+was validated against a container host and then traced over SSH, a shape nothing had checked the device for.
+
+**Root cause.** Two readers of one parameter decided by different tests, as 115's prefill and checkbox did.
+
+**Fix.** `01cdbb70`: an empty `container` is refused, and `For`'s contract (shape by presence) is documented.
+`TestTrace_AnEmptyContainerKeepsTheShapeItWasCheckedFor`.
+
+**Lesson.** A method that has a shape-choosing parameter decides by presence, as `Manifest.For` does, and refuses a
+present but empty value.
+
+## 626. A CML or GNS3 login error could quote the response body, which a 422 echoes with the password (a repeat of 457) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push. The
+new `pkg/cml` and `pkg/gns3` clients quoted a failed login's response body in their error. A validation error (422)
+can echo the submitted fields, the password among them.
+
+**Root cause.** 457's class: an error quoting what it was answering, when that can carry a secret.
+
+**Fix.** `01cdbb70`: a login answer is never quoted; the error names the status. `TestConnect_RefusesWhatItCannotUse`
+(`pkg/cml`), `TestConnect_RefusesWhatItCannotRead` (`pkg/gns3`).
+
+**Why 457's fix did not prevent it.** 457 fixed `kubeapi.checkServer`. Each new API client writes its own error path.
+
+**Lesson.** A client never quotes the answer to a request that carried a secret.
+
+## 627. net.ios.replace quoted every difference line in its errors, and telnetexec quoted up to 1 MiB of a device's question (a repeat of 431) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's whole-branch review, 2026-10-23, on feat/lab-importers, before push.
+`net.ios.replace`'s error quoted every line the device reported as different, with no limit, and a Telnet login's
+error quoted the device's unexpected question up to the read bound, 1 MiB.
+
+**Root cause.** 431's class and LESSONS 266: text a remote system wrote reached an error unbounded.
+
+**Fix.** `01cdbb70`: at most ten difference lines (`TestShownDifferences`) and at most 80 bytes of a quoted prompt
+(`TestSession_LoginsThatGoWrong`).
+
+**Why 431's fix did not prevent it.** 431 bounded `kubeapi`'s error text. Each new error that quotes a device's output
+needs its own bound, and nothing finds one that lacks it.
+
+**Lesson.** Bound and escape remote text where it enters an error, every time (LESSONS 266).
+
+## 628. Windows: a file standing where the active-run or journal directory belongs read as "no directory yet", because Windows reports a file opened as a directory as a path not found (a sibling of 615) (fixed before push)
+
+**Symptom.** `make pr-check`'s Windows leg, 2026-10-23, at `5dfb5361`: `TestActive_FailuresSayWhatFailed` failed on
+win-check only ("a record directory that is a file was listed", "a journal directory that is a file was read"). Linux,
+macOS and FreeBSD passed.
+
+**Root cause.** `OtherActive` and `ChangesDuring` (`internal/journal/active.go`) treated `fs.ErrNotExist` from
+`os.ReadDir` as "nothing recorded yet". On Unix, reading a file as a directory fails with ENOTDIR, which is not
+`ErrNotExist`, so the error surfaced. On Windows the same read fails with "the system cannot find the path specified",
+which Go maps to `ErrNotExist`, so a file in the directory's place silently read as an empty directory.
+
+**Fix.** `readDirIfAny`: when a read reports not-exist, `os.Lstat` the path; absent is no entries, anything else
+standing there is an error. Test `TestReadDirIfAny_TellsAMissingDirectoryFromSomethingElse` (a dangling link reaches
+the same branch on Linux); the Windows leg of the next pr-check runs the original test.
+
+**Why 615's fix did not prevent it.** 615 fixed the mode bits Windows reports; this is a different Windows answer, to
+a different question (what a failed directory read means), in the same new file.
+
+**Lesson.** On Windows, "not found" from a directory read does not mean nothing is there. Confirm absence with
+`Lstat` before treating it as empty, wherever a file in the wrong place must be an error.
+
+## 629. The GNS3 fixture's image build failed when Docker Desktop's credential helper did, under make pr-check, though the image needed no credential (a sibling of 601 and 622) (fixed before push)
+
+**Symptom.** `make pr-check` at `c2d7b8a6`, 2026-10-23: `TestCLI_ImportGNS3ReachesANodesConsole/2.2.61` failed in the
+containers pass with `ERROR: failed to build: failed to solve: error getting credentials - err: exit status 1`, then
+passed re-run alone. The same pass's `TestCLI_NetworkChangeIsGatedAppliedAndUndone` also passed alone after Docker
+Desktop never forwarded a lab router's published SSH port within two minutes (the 575 family, contention).
+
+**Root cause.** `docker build` asks the configured credential helper (Docker Desktop's, through WSL) for the base
+image's registry even when the image is cached and public, and that helper fails now and then under load. The
+fixture took the helper's failure for the build's.
+
+**Fix.** `StartGNS3` retries the build, up to three times, only when its output says `error getting credentials`.
+Any other build failure fails at once.
+
+**Why 601's and 622's fixes did not prevent it.** They retried the container's start on a lost port; this is the build
+before it, a different external step with its own transient failure.
+
+**Lesson.** Every step of a fixture that leans on Docker Desktop (build, pull, start, port publishing) has its own
+transient failure under load; retry each on its own named error and nothing else.
+
+## 630. The image build context grew past its 32 MiB ceiling, because the deny-by-default .dockerignore still let test files and test data in (fixed before push)
+
+**Symptom.** PR #89's `containers (3)`, 2026-10-24: `TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust`
+(`tests/e2e/packaging_images_test.go`) failed, and again alone: "build context: 32.6 MiB across 3985 files", over the
+32.0 MiB ceiling. `make pr-check` leaves `tests/e2e` to CI, so no local run could see it.
+
+**Root cause.** `.dockerignore` allows `cmd/`, `internal/` and `pkg/` whole, which also brought every `_test.go` file
+and every `testdata` tree into the context of the controller and runner images, though no build reads them. The
+branch added about 1.7 MiB under those trees, a megabyte of it the Genie fixtures in `pkg/iosparse/testdata`, and the
+context had only about 1.15 MiB of headroom left.
+
+**Fix.** `.dockerignore` excludes `**/testdata` and `**/*_test.go` after its allowances: the context is 18.7 MiB.
+`internal/testsupport`'s dockerignore tests (which derive the builds' real inputs from `go list -deps`) and the whole
+packaging release gate (compose stack, images built and run unprivileged, Kubernetes install) pass.
+
+**Lesson.** A size ceiling on a build context measures what the builds do not need as well as what they do; keep what
+no build reads (tests, fixtures) out of the context rather than raising the ceiling when it is reached.
+
+## 631. A test in a package that only consumes a changed one failed only in CI: pr-check selects the packages a branch changes, not their dependents (a sibling of 559) (open)
+
+**Symptom.** PR #89's `containers (6)`, 2026-10-24: `TestConnection_WaitsForANetworkDevicesPrompt`
+(`internal/catalog/wait/connection_test.go`) failed, and again alone: "the IOS device received ["terminal length 0"
+"terminal width 512"], want only IOS's paging command". Commit 9ab84fe4 added `terminal width 512` to `netcli.IOS`'s
+session setup and updated the counting tests in `internal/catalog/net/ios` and `pkg/netcli`, not this one.
+
+**Root cause.** `make pr-check` runs the packages `tools/prscope` selects: those the branch changes, plus a fixed census
+(559) for a few central packages. `internal/catalog/wait` was unchanged and only consumes `pkg/netcli` through
+`wait.connection`, so no local run tested it, and the assertion pinning IOS's setup commands broke unseen.
+
+**Fix.** The assertion expects both setup lines. The scope gap is open: prscope does not add the packages that
+import a changed package (reverse dependents).
+
+**Why 559's fix did not prevent it.** 559's census adds named consumers of a fixed list of central packages;
+`pkg/netcli` is not on it, and a list cannot keep up with every consumer of every package.
+
+**Lesson.** A change to a shared package's behavior needs its consumers' tests run before the push, not only its own:
+select reverse dependents from the module graph rather than from a list. Plan it with the pr-check leg reruns
+(memory note pr-check-leg-reruns).
+
+## 632. A Telnet test's "device never goes quiet" depended on a 200 ms quiet window beating a 50 ms dribble, which a loaded Windows VM did not hold (fixed before push)
+
+**Symptom.** `make pr-check` at `d1e221fa`, 2026-10-24, Windows leg's repeat pass:
+`TestSession_ADeviceThatNeverGoesQuietIsCutOff` (`pkg/telnetexec/session_test.go`) passed twice, then failed with "a
+dribble at login = <nil>": the login succeeded.
+
+**Root cause.** The fake device wrote a byte every 50 ms and the client called it quiet after 200 ms of silence. On
+the 2 GB win-check VM under the full parallel run, the device's goroutine stalled past 200 ms, the read went quiet,
+and the login ended normally. The test asserted a timing margin, not the behavior.
+
+**Fix.** The login case dribbles every 10 ms against a 2 s quiet window, so only a two-second stall could break it;
+the read-to-prompt cases pause a full second after the prompt before a 300 ms quiet window, after which only the
+phase's deadline or byte bound ends the read.
+
+**Lesson.** A test that needs "never quiet" must leave a margin no scheduler stall on the slowest leg reaches:
+seconds, not a 4x ratio of milliseconds.
+
+## 633. A Shell call's watcher could close the session after the call returned, when the caller cancelled the call's context at once: net.cli's next read found EOF (a repeat of 352) (fixed)
+
+**Symptom.** PR #89's `fast` job, 2026-10-24, strict repeat:
+`TestOpenSession_SendsEveryConfigLineOverOneSession` (`internal/catalog/net/cli`) failed once in three with
+`net.cli.config: netcli: remoteexec: read from shell on 127.0.0.1:35569: EOF`, in 0.00 s. It never failed in 300
+local `-race` runs, on any GOMAXPROCS, and appears in no earlier failed CI run. Investigated before any rerun, at
+the owner's choice.
+
+**Root cause.** `remoteexec.Shell`'s `Shell`, `WriteLine` and `ReadUntil` each started a goroutine selecting between
+`ctx.Done()` (close the session) and a `done` channel the call closed as it returned. net.cli gives every line its
+own timeout context and cancels it the moment the line finishes. When the goroutine was not yet scheduled by then,
+both cases were ready, `select` chose at random, and half the time the session was closed under the next line. A
+loaded CI runner delays the goroutine; this machine rarely does. The race predates the branch.
+
+**Fix.** `closeWhileRunning` (`pkg/remoteexec/shell.go`): `context.AfterFunc` closes the session if the context
+ends during the call, and the stop the call defers guarantees it never runs afterwards. Proven by
+`TestShell_ACancelAfterTheCallLeavesTheSessionOpen`, which cancels each call's context as it returns on one CPU:
+it failed within the first three lines of every run before the fix, with CI's exact error, and passes 50 times on
+1, 2 and 4 CPUs after. `conn.run`'s watcher has the same shape but closes a one-command session that has already
+ended, so it is harmless and left as it is.
+
+**Why 352's fix did not prevent it.** 352 found and fixed this race in `closeOnDone`, for the handshake, and said
+why in its comment; the three identical watchers in `shell.go` were not swept for it.
+
+**Lesson.** A goroutine that selects between "the context ended" and "the call is over" can choose either when both
+are ready: stop the watcher before the call returns (`context.AfterFunc`'s stop, or a stop that waits for the
+goroutine), and when one such watcher is fixed, sweep every watcher of the same shape.
+
+## 634. tools/failures' captured logs matched *.log in .gitignore, so they were never committed and its tests failed on every machine but this one (a repeat of 401) (fixed before push)
+
+**Symptom.** `make pr-check` at `ae89f745`, 2026-10-24: the Mac and Windows legs failed nine `tools/failures` tests
+with "open testdata/testgate-contention.log: no such file or directory". The Linux passes, run in the working tree
+that held the files, passed.
+
+**Root cause.** The package's fixtures are captured pr-check and Actions logs named `*.log`, which `.gitignore`
+ignores. `git add tools/failures` skipped them without a word, and the machine legs test the committed tree
+(`git archive`), not the working tree. CI would have failed the same way.
+
+**Fix.** A `.gitignore` exception for `tools/failures/testdata/*.log`, the fixtures committed after reading them for
+anything private (they name only documentation addresses, loopback and the runner's path), and
+`internal/archtest`'s `TestNoTestdataFileIsIgnored`, which fails on any file under a `testdata` directory that
+`.gitignore` matches (`git ls-files --others --ignored --exclude-standard`). Proven both ways: it named the eleven
+files with the exception removed and passes with it.
+
+**Why 401's fix did not prevent it.** 401 added an exception for one path (`pkg/cloudinit/testdata/*.log`) and
+`make test-clean-room`, which `pr-check` does not run. Nothing refused the class, so the next fixture named `.log`
+fell into the same rule.
+
+**Lesson.** A fix for an ignore rule that hides a fixture must cover every fixture, not the one found: check what
+the rule hides under every `testdata` directory, as a test, not by remembering.
+
+## 635. Windows: a file standing where the failure ledgers' directory belongs read as an empty ledger (a repeat of 628) (fixed before push)
+
+**Symptom.** `make pr-check`'s Windows leg, 2026-10-24, at `ae89f745`: `TestReadLedger_Contract` failed with "a
+ledger under a file was read". Linux and macOS passed it.
+
+**Root cause.** `readLedger` (`tools/failures/ledger.go`) treated `fs.ErrNotExist` from `os.ReadFile` as "no ledger
+yet". Unix reports a path under a file as ENOTDIR; Windows reports it as path not found, which Go maps to
+`ErrNotExist`.
+
+**Fix.** `absentUnderDirectories`: when a read reports not-exist, the nearest ancestor that exists must be a
+directory, or it is an error. `TestAbsentUnderDirectories` reaches that branch on every system, one and two levels
+under a file.
+
+**Why 628's fix did not prevent it.** 628 fixed `internal/journal`'s directory reads, in an unexported helper, and
+`CI_LESSONS.md` rule 3 written the same day says to confirm absence with `Lstat`. The new tool was written before
+either was read; no check finds a not-exist branch that skips the confirmation.
+
+**Lesson.** Every "missing means empty" branch is a Windows bug until it confirms the absence. Read CI_LESSONS.md
+before writing file-system code, including in tools.
+
+## 636. Windows: a tools/failures test asserted the ledger directory's 0700 mode, which Windows does not keep (a repeat of 544, 567 and 615) (fixed before push)
+
+**Symptom.** `make pr-check`'s Windows leg at `90a4a3e7`, 2026-10-24: `TestAppendLedger_Dedups` failed with "the
+ledger's directory: ... <nil>", the directory there but its mode not 0700. Every other leg passed it.
+
+**Root cause.** The test compared `Mode().Perm()` with 0o700. Windows keeps no POSIX permission bits and reports
+0777 for a directory.
+
+**Fix.** The test checks the mode only where `runtime.GOOS` is not windows, and the directory's existence
+everywhere.
+
+**Why 544's, 567's and 615's fixes did not prevent it.** Each fixed the file it was found in, and CI_LESSONS rule 3
+says a file-system assumption is a Windows bug until the Windows leg says otherwise. Nothing finds a permission
+comparison with no Windows answer before that leg runs, and this one was written the same day 615 was recorded.
+
+**Lesson.** A permission-bit assertion is the most repeated Windows defect here (544, 567, 615, 616, 636). When a
+test or code compares `Mode().Perm()`, give Windows its answer in the same line or a build-tagged file, at the
+moment it is written.

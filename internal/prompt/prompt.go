@@ -58,13 +58,34 @@ func SecretFromStdin() (string, error) {
 	return secretFromReader(os.Stdin)
 }
 
+// SecretsFromStdin reads n secrets as n lines on standard input, through one
+// reader: two separate reads of a pipe would lose a second line the first
+// read had already buffered.
+func SecretsFromStdin(n int) ([]string, error) {
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 0, 4096), 1<<20)
+	out := make([]string, 0, n)
+	for range n {
+		secret, err := scanSecret(scanner)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, secret)
+	}
+	return out, nil
+}
+
 func secretFromReader(r io.Reader) (string, error) {
 	scanner := bufio.NewScanner(r)
 	// A generous cap so a long passphrase is not silently truncated at
 	// bufio's 64 KiB default, and a cap at all so a pipe that never ends
 	// does not read forever.
 	scanner.Buffer(make([]byte, 0, 4096), 1<<20)
+	return scanSecret(scanner)
+}
 
+// scanSecret reads one non-empty line from scanner as a secret.
+func scanSecret(scanner *bufio.Scanner) (string, error) {
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return "", fmt.Errorf("failed to read a secret from standard input: %w", err)

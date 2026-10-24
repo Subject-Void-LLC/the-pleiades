@@ -1,0 +1,5 @@
+bsdcheck: starting the VM bsd-check on labhost (it was saved); it is put back, saved, when the run ends
+bsdcheck: bsd-check has 3 GB free where its tests unpack and build, under the 4 GB a run needs: go clean -cache there, or for the lab's bsd-check run runbooks/bsd/check-05-disk-cleanup.yaml
+  To test on another FreeBSD machine:   set PLEIADES_BSD_PROJECT and PLEIADES_BSD_DEVICE in /home/someone/auto-roboto/tests/bsd/.env
+  To stop testing on a FreeBSD machine: delete /home/someone/auto-roboto/tests/bsd/.env
+bsdcheck: put the VM bsd-check back on labhost, its state saved

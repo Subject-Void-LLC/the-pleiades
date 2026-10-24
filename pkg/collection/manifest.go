@@ -171,6 +171,13 @@ type Manifest struct {
 	// not a bare string a compiler can't check.
 	RequiredCapabilities []capability.Name `json:"requiredCapabilities,omitempty"`
 
+	// Shapes are the other shapes a call can take, each selected by a
+	// parameter the call gives and needing its own transports and
+	// capabilities in place of the two fields above (net.trace from a
+	// container, through its host's engine). Empty for nearly every
+	// method. A call is held to its shape through For; see shapes.go.
+	Shapes []CallShape `json:"shapes,omitempty"`
+
 	ExecutionContext ExecutionContext `json:"executionContext,omitempty"`
 	PlatformTargets  []PlatformTarget `json:"platformTargets,omitempty"`
 

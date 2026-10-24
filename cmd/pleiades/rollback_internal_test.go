@@ -356,3 +356,20 @@ func TestRunAndAdhocUsage_NameTheFlagsTheyParse(t *testing.T) {
 		}
 	}
 }
+
+// TestProblemLines: each refusal problem reads as the text view prints it,
+// where (node on device name) then why, with the flag that accepts it, and
+// a problem of the whole run as its reason alone.
+func TestProblemLines(t *testing.T) {
+	got := problemLines([]rollback.Problem{
+		{Node: "tasks[1]", DeviceID: cliDeviceID, DeviceName: "web01", Reason: "not recorded in full", Accept: "--leave tasks[1]"},
+		{Reason: "every change this run made has already been undone"},
+	})
+	want := []string{
+		"tasks[1] on web01: not recorded in full (accept it with --leave tasks[1])",
+		"every change this run made has already been undone",
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("problemLines = %q, want %q", got, want)
+	}
+}

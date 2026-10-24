@@ -158,15 +158,18 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	// The method's required capabilities, checked here as well as at plan
 	// time (validate.CapabilityRule) and at admission (internal/dispatch),
 	// since a plan can run against an inventory that changed after it was
-	// checked.
-	if err := collection.CheckCapabilities(device, task.FQCN, desc.Manifest); err != nil {
+	// checked. A call is held to the shape its parameters select
+	// (Manifest.For: net.trace from a container needs a container host,
+	// not SSH), with its parameters as rendered.
+	shaped := desc.Manifest.For(task.Params)
+	if err := collection.CheckCapabilities(device, task.FQCN, shaped); err != nil {
 		return ActionResult{}, err
 	}
 	// The same transport check pleiades validate makes (TransportRule),
 	// again here for the same reason. It is what keeps exec.command, an SSH
 	// method, off a Windows server that has CommandExecCapable through
 	// WindowsShellCapable.
-	if err := collection.CheckTransports(device, task.FQCN, desc.Manifest); err != nil {
+	if err := collection.CheckTransports(device, task.FQCN, shaped); err != nil {
 		return ActionResult{}, err
 	}
 

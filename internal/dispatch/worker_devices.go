@@ -175,10 +175,11 @@ func methodsAdmit(device pkginventory.InventoryItem, methods []string) error {
 		if !ok {
 			continue
 		}
-		if err := collection.CheckCapabilities(device, fqcn, desc.Manifest); err != nil {
-			return err
-		}
-		if err := collection.CheckTransports(device, fqcn, desc.Manifest); err != nil {
+		// Admission knows the methods, not each call's parameters, so a
+		// method whose calls take more than one shape admits a device any
+		// of them fits; the Runner's preflight and its engine hold each call
+		// to its own (collection.Manifest.For).
+		if err := collection.CheckAnyShape(device, fqcn, desc.Manifest); err != nil {
 			return err
 		}
 	}

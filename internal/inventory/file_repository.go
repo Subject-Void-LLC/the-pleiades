@@ -60,6 +60,14 @@ func NewFileRepository(inventoryPath string, factory *ItemFactory) Repository {
 	}
 }
 
+// FileRepositoryPaths returns the files a file-backed inventory at
+// inventoryPath reads and writes: the inventory itself and the generated
+// state file NewFileRepository derives beside it. The command line guards
+// both against a run's own writes into the project.
+func FileRepositoryPaths(inventoryPath string) []string {
+	return []string{inventoryPath, filepath.Join(filepath.Dir(inventoryPath), sidecarFileName)}
+}
+
 // GetGroup returns an Iterator over every host in the inventory file. Crawl
 // tier has no real grouping infrastructure yet anywhere in this codebase:
 // HostSpec (yaml_plugin.go) has no group-membership field at all, unlike

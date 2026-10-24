@@ -75,15 +75,15 @@ var _ inventory.InventoryItem = (*Switch)(nil)
 // only add to what this type already asserts about itself, never replace
 // it.
 func NewSwitch(rec record.Record) (inventory.InventoryItem, error) {
-	caps := policy.UnionSlices(
-		netconfBaseline(rec, []capability.Name{
-			capability.Name("SSHTransportCapable"),
-			capability.Name("CiscoIOSCapable"),
-			capability.Name("NetworkCLICapable"),
-			capability.NameNetworkAddressable,
-		}),
-		rec.Capabilities,
-	)
+	reach, err := managementBaseline(rec, []capability.Name{
+		capability.Name("CiscoIOSCapable"),
+		capability.Name("NetworkCLICapable"),
+		capability.NameNetworkAddressable,
+	})
+	if err != nil {
+		return nil, err
+	}
+	caps := policy.UnionSlices(netconfBaseline(rec, reach), rec.Capabilities)
 	base := record.NewBase(rec, caps)
 	return &Switch{Base: base}, nil
 }

@@ -139,6 +139,13 @@ func buildCredentialEntry(svc crypto.Service, cred Credential) (credentialEntry,
 		}
 		entry.TokenEncrypted = encrypted
 	}
+	if cred.EnablePassword != "" {
+		encrypted, err := encryptField(svc, []byte(cred.EnablePassword))
+		if err != nil {
+			return credentialEntry{}, fmt.Errorf("enable secret: %w", err)
+		}
+		entry.EnablePasswordEncrypted = encrypted
+	}
 
 	return entry, nil
 }

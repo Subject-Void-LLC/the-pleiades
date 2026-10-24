@@ -1,0 +1,21 @@
+pr-check at c2d7b8a66e01, 2026-10-23 20:42 UTC: FAIL (exit 1)
+  .coverage/pr/records/report.json
+
+  fast        pass     35 package(s), 278s, 0 failed, 0 contention, 13 skipped
+  repeat      pass     35 package(s), 340s, 0 failed, 0 contention, 39 skipped
+  containers  pass     9 package(s), 2196s, 0 failed, 2 contention, 15 skipped
+  mac         not-run  macOS on someone@192.0.2.10: stopped at reachable: someone@192.0.2.10 (192.0.2.10:22) did not answer on its SSH port within 5s: dial tcp 192.0.2.10:22: i/o timeout
+  bsd         pass     FreeBSD on bsd-check, 35 package(s), 806s; full pass; repeat pass
+  win         pass     Windows on win-check, 35 package(s), 1772s; full pass; repeat pass
+  govulncheck pass     exit 0
+  images      pass     exit 0
+  coverage    pass     exit 0
+  durations   pass     exit 0
+
+Passed when re-run alone (2; a test seen here run after run needs a look):
+  containers: github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades TestCLI_ImportGNS3ReachesANodesConsole
+  containers: github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades TestCLI_NetworkChangeIsGatedAppliedAndUndone
+
+385 test(s) skipped; prreport -skips lists them by reason.
+make: *** [Makefile:732: pr-check] Error 1
+

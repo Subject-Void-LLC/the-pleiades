@@ -455,9 +455,20 @@ $ pleiades adhoc ubuntu-lab exec.command argv:='[cat, /etc/hostname]' --json
 ```
 
 A task's `status` is one of `ok`, `changed`, `would_change`, `checked_only`, `failed`,
-`held`, `skipped` and `unchecked`. `held` is a task that held its result for a person's
+`held`, `skipped`, `unchecked`, `conditional_skip` and `not_run`. `held` is a task that held its result for a person's
 decision (an `ai` method's review): the run fails as it would for `failed`, and running it
-again once the decision is made continues it. Everything in the document is masked as the text view is,
+again once the decision is made continues it. `skipped` is a task the run reached and its
+`when:` passed over; `not_run` is a task in the plan the run never reached, because
+validation refused the runbook or an earlier failure stopped the run, and its `reason` says
+which, so a refused or stopped run still lists every task it planned. A task's `device` is
+its device's inventory id and `host` the device's name; `outcome.allowed_unchecked` names
+each task by its node id and device name. `warnings`, present only when there is one, is about the
+run as a whole: each has a `kind`, `when` (`start` or `end`), a `message` (the line the text view
+prints after `WARNING:`), and, as they apply, the other run's `run_id`, `runbook` and `pid`, and the
+shared `devices` by name. `concurrent_run` is another live run changing some of the same devices as
+this one started (or still changing them as it ended), `concurrent_change` another run whose journal
+records a change to one of them while this one worked, and `concurrent_unknown` a part of that
+question the run could not answer. Nothing stops either run; a check, which changes nothing, has none. Everything in the document is masked as the text view is,
 and a stat whose name says it holds a secret (`password`, `token`, `private_key` and
 the like) reads `$encrypted$` in both. Characters a terminal would act on are written
 as `\u` escapes, so the document is safe to print.
@@ -484,7 +495,10 @@ asks of an agent and what its sandbox has to provide.
 ### 10. Undo a run
 
 `pleiades journal list` lists the project's runs, and `pleiades journal show <run-id>`
-shows one: each task, the device, how it ended, and the undo it recorded.
+shows one: each task, the device, how it ended, and the undo it recorded. A run whose
+block undid its own changes (`rollback_on_failure: true`) says so in the list ("undid its own
+change in the run", and `undone_in_run` in `--json`), and `show` names, under each of its undo
+steps, the task it undid rather than an undo of the undo, which no rollback runs.
 
 ```console
 $ pleiades journal list
@@ -510,6 +524,10 @@ rollback of run 9dbb7e3d-1779-44dd-941e-efee18dc824d refused, before any device 
     accept it with --leave tasks[1]
 pleiades: rollback of 9dbb7e3d-1779-44dd-941e-efee18dc824d refused: 1 problem(s)
 ```
+
+With `--json` the refusal is one report whose `rollback.problems` lists each problem (its
+`node`, its device's name as `device` and id as `device_id`, the `reason`, and the flag that
+`accept`s it), and whose `outcome.message` carries the same reasons.
 
 Either leave that change in place, or give the task a `rollback:` list in its runbook,
 which applies even though it was written after the run:
@@ -542,7 +560,7 @@ tasks:
   undo tasks[0] (make a directory) on container1
 
 executing:
-  tasks[0] [8b7356a0-e457-4462-b9d3-1ec30363c886]: changed
+  tasks[0] [container1]: changed
 
 run 934c99b3-2af9-4806-a667-b5e8f3a6a66b, journal /home/you/my-project/.pleiades/journal/934c99b3-2af9-4806-a667-b5e8f3a6a66b.jsonl
 

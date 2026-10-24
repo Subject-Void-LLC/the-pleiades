@@ -2,6 +2,8 @@ package validate
 
 import (
 	"sort"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // BlastRadius summarizes how large an impact running a runbook right now
@@ -33,6 +35,11 @@ type BlastRadius struct {
 	// follow-up decision, not something to invent here. Tiers is empty if
 	// no targeted device declares a "tier" property at all.
 	Tiers []string
+
+	// Devices are those distinct devices, sorted by name: what a run of the
+	// runbook would work on, which the command line records while it runs
+	// so another run can notice it (internal/journal's active.go).
+	Devices []inventory.InventoryItem
 }
 
 // CalculateBlastRadius computes a BlastRadius for world's runbook against
@@ -54,6 +61,7 @@ type BlastRadius struct {
 func CalculateBlastRadius(world WorldView) BlastRadius {
 	devices := make(map[string]struct{})
 	tiers := make(map[string]struct{})
+	var items []inventory.InventoryItem
 
 	for _, task := range world.DAG.Nodes {
 		_, reached := world.taskDevices(task)
@@ -63,6 +71,7 @@ func CalculateBlastRadius(world WorldView) BlastRadius {
 				continue
 			}
 			devices[id] = struct{}{}
+			items = append(items, item)
 
 			if tier, ok := item.Properties().String("tier"); ok {
 				tiers[tier] = struct{}{}
@@ -75,9 +84,11 @@ func CalculateBlastRadius(world WorldView) BlastRadius {
 		tierList = append(tierList, t)
 	}
 	sort.Strings(tierList)
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Name() < items[j].Name() })
 
 	return BlastRadius{
 		DeviceCount: len(devices),
 		Tiers:       tierList,
+		Devices:     items,
 	}
 }

@@ -26,6 +26,7 @@ const (
 	SecretCertificatePEM = wire.SecretCertificatePEM
 	SecretPFXBase64      = wire.SecretPFXBase64
 	SecretBearerToken    = wire.SecretBearerToken
+	SecretEnablePassword = wire.SecretEnablePassword
 )
 
 // Unflatten is Flatten's inverse: it rebuilds a Credential from the
@@ -43,6 +44,7 @@ func Unflatten(secrets map[string]string) Credential {
 		CertificatePEM: bytesOrNil(secrets[SecretCertificatePEM]),
 		PFXBase64:      secrets[SecretPFXBase64],
 		Token:          secrets[SecretBearerToken],
+		EnablePassword: secrets[SecretEnablePassword],
 	}
 }
 
@@ -75,7 +77,7 @@ func bytesOrNil(s string) []byte {
 // "this device has no key" instead of "this device has a key that happens
 // to be empty."
 func Flatten(cred Credential) map[string]string {
-	secrets := make(map[string]string, 7)
+	secrets := make(map[string]string, 8)
 	if cred.Username != "" {
 		secrets[SecretUsername] = cred.Username
 	}
@@ -96,6 +98,9 @@ func Flatten(cred Credential) map[string]string {
 	}
 	if cred.Token != "" {
 		secrets[SecretBearerToken] = cred.Token
+	}
+	if cred.EnablePassword != "" {
+		secrets[SecretEnablePassword] = cred.EnablePassword
 	}
 	return secrets
 }

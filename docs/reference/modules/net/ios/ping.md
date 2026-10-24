@@ -13,7 +13,7 @@ Answers a different question from net.ssh.ping, and the difference is the point:
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh` |
+| Transports | `ssh`, `telnet` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
@@ -29,6 +29,7 @@ Answers a different question from net.ssh.ping, and the difference is the point:
 | `vrf` | `string` | no | - | VRF to ping from, passed to IOS as "vrf". |
 | `state` | `string` | no | `present` | "present" fails the task if the destination is unreachable (0 percent success); "absent" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
+| `insecure_telnet` | `bool` | no | `false` | Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 
 ## Returns
 

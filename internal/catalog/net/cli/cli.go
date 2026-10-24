@@ -16,7 +16,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -37,50 +36,21 @@ type cliSession interface {
 // I/O in production, a canned double in cli_internal_test.go.
 var openSession = realOpenSession
 
-// realOpenSession connects to device over SSH, opens an interactive
-// shell, and builds a netcli.Session from the device's own declared CLI
-// prompt.
+// realOpenSession opens the device's CLI over SSH, or over Telnet with
+// the task's opt-in (sdk.OpenShell), and builds a netcli.Session from the
+// device's own declared CLI prompt. The Session's Close ends the
+// connection as well.
 func realOpenSession(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (cliSession, error) {
-	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
+	shell, err := sdk.OpenShell(ctx, rc, device, params, fqcn)
 	if err != nil {
 		return nil, err
 	}
-
-	shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("%s: %w", fqcn, err)
-	}
-
 	session, err := netcli.Open(ctx, shell, netcli.FromPrompt(cliPrompt(device)), netcli.Options{})
 	if err != nil {
 		_ = shell.Close()
-		_ = conn.Close()
 		return nil, fmt.Errorf("%s: %w", fqcn, err)
 	}
-
-	return &sessionAndConn{Session: session, conn: conn}, nil
-}
-
-// sessionAndConn embeds a *netcli.Session (promoting Command) but
-// overrides Close so one call releases the Session's own PTY session
-// AND the underlying *remoteexec.Conn it was opened on: Session.Close
-// only closes the former, and sdk.Connect dials a fresh Conn on every
-// call the same way exec.command's own connect-then-defer-Close does,
-// so leaving the latter open would leak one real SSH connection per
-// task.
-type sessionAndConn struct {
-	*netcli.Session
-	conn *remoteexec.Conn
-}
-
-func (s *sessionAndConn) Close() error {
-	sessErr := s.Session.Close()
-	connErr := s.conn.Close()
-	if sessErr != nil {
-		return sessErr
-	}
-	return connErr
+	return session, nil
 }
 
 // genericCommandTimeout bounds how long a single line sent through a

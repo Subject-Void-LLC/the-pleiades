@@ -127,6 +127,8 @@ func printResults(rep *runReport, verbose bool) {
 			fmt.Printf("  %s: HELD FOR REVIEW: %v\n", label, termsafe.Escape(t.Error))
 		case statusSkipped:
 			fmt.Printf("  %s: skipped (%s)\n", label, termsafe.Escape(t.Reason))
+		case statusNotRun:
+			fmt.Printf("  %s: not run (%s)\n", label, termsafe.Escape(t.Reason))
 		case statusWouldChange:
 			fmt.Printf("  %s: would change\n", label)
 		case statusChanged:
@@ -159,6 +161,13 @@ func printResults(rep *runReport, verbose bool) {
 		printMetadata(rep.Metadata, nil)
 	}
 
+	// Another run's change to these devices during this one is said where
+	// the results end, beside the run id it is told apart by.
+	if hasWarnings(rep, "end") {
+		fmt.Println()
+		printRunWarnings(rep, "end")
+	}
+
 	// The run id is printed whatever the outcome: a run that failed
 	// partway is the one an operator most needs to find again, to read or
 	// to roll back.
@@ -180,13 +189,18 @@ func printResults(rep *runReport, verbose bool) {
 	}
 }
 
-// taskLabel is how a result line names its task: the node id, and the
-// device it ran on when it ran on one.
+// taskLabel is how a result line, and an outcome's list of tasks, names a
+// task: the node id, and the device it ran on by name when it ran on one.
+// The id stands in only for a device the inventory no longer names.
 func taskLabel(t taskReport) string {
-	if t.Device == "" {
-		return t.ID
+	switch {
+	case t.Host != "":
+		// A name is inventory text, escaped before a terminal sees it.
+		return fmt.Sprintf("%s [%s]", t.ID, termsafe.EscapeLine(t.Host))
+	case t.Device != "":
+		return fmt.Sprintf("%s [%s]", t.ID, t.Device)
 	}
-	return fmt.Sprintf("%s [%s]", t.ID, t.Device)
+	return t.ID
 }
 
 // printMetadata prints result.Metadata (populated only from "set_metadata"

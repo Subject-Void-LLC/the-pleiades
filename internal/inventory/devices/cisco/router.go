@@ -44,10 +44,11 @@ type Router struct {
 // gain more (policy.UnionSlices, Section 25's shared primitive, rather
 // than a bespoke dedup loop here).
 func NewRouter(rec record.Record) (inventory.InventoryItem, error) {
-	caps := policy.UnionSlices(
-		netconfBaseline(rec, []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS, capability.NameNetworkAddressable}),
-		rec.Capabilities,
-	)
+	reach, err := managementBaseline(rec, []capability.Name{capability.NameCiscoIOS, capability.NameNetworkAddressable})
+	if err != nil {
+		return nil, err
+	}
+	caps := policy.UnionSlices(netconfBaseline(rec, reach), rec.Capabilities)
 	base := record.NewBase(rec, caps)
 	return &Router{Base: base}, nil
 }

@@ -36,7 +36,7 @@ add a host to the static inventory
 
 ## pleiades set-host
 
-change an existing host's properties
+change an existing host's properties and tags
 
 `pleiades set-host <name> [flags]`
 
@@ -45,8 +45,12 @@ change an existing host's properties
 | --dir | `string` | `.` | project directory |
 | --set | `key=value` | - | device property to add or replace, as key=value (repeatable) |
 | --unset | `string` | - | device property to remove (repeatable) |
+| --tag | `string` | - | tag to add, or several separated by commas (repeatable) |
+| --untag | `string` | - | tag to remove, or several separated by commas (repeatable) |
 
 `pleiades set-host web01 --set port=2222`
+
+`pleiades set-host r1 --tag core --untag staging`
 
 `pleiades set-host win01 --set "tls_ca_pem=$(cat ca.pem)"`
 
@@ -113,6 +117,8 @@ store an encrypted credential for a device
 | --pfx | `string` | - | path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key |
 | --passphrase | `bool` | `false` | prompt for the passphrase of the private key, the bundle or a passphrase-sealed --password-file |
 | --passphrase-stdin | `bool` | `false` | read the passphrase of the private key, the bundle or a passphrase-sealed --password-file as one line on standard input |
+| --enable-password | `bool` | `false` | prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode |
+| --enable-password-stdin | `bool` | `false` | read that enable secret as one line on standard input; with --password-stdin it is the second line |
 | --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
 | --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key) |
@@ -267,6 +273,56 @@ make a containerlab lab's nodes generic_ssh devices, from the topology-data.json
 
 `pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --nodes r1,r2 --replace --json`
 
+## pleiades import-cml
+
+make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management addresses, read from the controller's API; an address is the one the controller observed or one --address gives, never one guessed from a configuration
+
+`pleiades import-cml [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --server | `string` | - | the CML controller's base URL, e.g. https://cml.lab |
+| --lab | `string` | - | the lab to import, by title or id |
+| --nodes | `string` | - | comma-separated nodes to import; every node when empty |
+| --address | `string` | - | NODE=IP: the node's management address, where the controller observed none or several (repeatable) |
+| --username | `string` | - | the controller account to log in as |
+| --password-stdin | `bool` | `false` | read the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD |
+| --tls-fingerprint | `string` | - | trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates |
+| --tls-ca | `string` | - | a PEM file of the CAs the controller's certificate must chain to |
+| --allow-plaintext | `bool` | `false` | send the password over plain HTTP to a controller that is not this machine |
+| --via | `string` | `ssh` | how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext) |
+| --trust-first-connect | `bool` | `false` | trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does |
+| --onboard | `bool` | `false` | onboard each node once it is imported (needs a credential and trusted host keys) |
+| --replace | `bool` | `false` | replace the address of a node already in the inventory as the same device type |
+| --json | `bool` | `false` | print the result as one JSON document |
+
+`pleiades import-cml --server https://10.10.20.161 --lab default-lab --username developer --password-stdin --tls-fingerprint sha256:8e57dd2f... < cml.pw`
+
+`pleiades import-cml --server https://cml.lab --lab routing --username admin --tls-ca cml-ca.pem --address R1=10.10.20.171 --nodes R1 --json`
+
+## pleiades import-gns3
+
+make a GNS3 project's nodes console_device devices at their telnet consoles, read from the server's own API (3.x or 2.2), skipping any node without a telnet console
+
+`pleiades import-gns3 [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --server | `string` | - | the GNS3 server's base URL, e.g. http://gns3.lab:3080 |
+| --project | `string` | - | the project to import, by name or id |
+| --nodes | `string` | - | comma-separated nodes to import; every node when empty |
+| --username | `string` | - | the account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth) |
+| --password-stdin | `bool` | `false` | read the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD |
+| --allow-plaintext | `bool` | `false` | send the password over plain HTTP to a server that is not this machine |
+| --replace | `bool` | `false` | replace the console address of a node already in the inventory as a console_device |
+| --json | `bool` | `false` | print the result as one JSON document |
+
+`pleiades import-gns3 --server http://127.0.0.1:3080 --project routing-lab --username admin --password-stdin < gns3.pw`
+
+`pleiades import-gns3 --server https://gns3.lab:3080 --project routing-lab --nodes r1,r2 --replace --json`
+
 ## pleiades onboard
 
 probe a device over its protocol and record what it proved: a generic device's capabilities, the container engines a host runs, or what a Kubernetes cluster serves
@@ -294,12 +350,16 @@ check runbooks against the inventory; with none named, every one in runbooks/
 | --dir | `string` | `.` | project directory |
 | --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
+| --extra-vars | `string` | - | a variable the run will start with, read exactly as run reads it (key=value, key:=yaml or @file.yaml, repeatable); a parameter reading vars.<name> that none of these gives, with no \| default(...), is reported |
+| --e | `string` | - | shorthand for --extra-vars |
 
 `pleiades validate`
 
 `pleiades validate runbooks/site.yaml`
 
 `pleiades validate runbooks/*.yaml --tags web`
+
+`pleiades validate runbooks/change.yaml -e candidate=configs/r3.conf`
 
 ## pleiades run
 
@@ -319,7 +379,7 @@ build, validate, and run a runbook
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000; the default is Ansible's own |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says |
-| --extra-vars | `string` | - | a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, and a name given twice is refused |
+| --extra-vars | `string` | - | a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, a name given twice is refused, and a runbook reading one none of these gives is refused before any task runs |
 | --e | `string` | - | shorthand for --extra-vars |
 
 `pleiades run runbooks/site.yaml`

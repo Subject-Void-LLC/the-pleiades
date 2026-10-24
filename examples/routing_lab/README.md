@@ -89,7 +89,7 @@ pleiades import-containerlab --topology ../lab/clab-frrlab/topology-data.json --
 # batfish and dockerhost are already in inventory.yaml (pleiades add-host batfish --type batfish
 # --set api_base=http://127.0.0.1:9996, and pleiades add-host dockerhost --type container_host).
 pleiades onboard dockerhost --json > ../captures/02-onboard-dockerhost.json
-pleiades validate > ../captures/03-validate.txt
+pleiades validate -e candidate=configs/r3.good.frr.conf > ../captures/03-validate.txt   # change_r3 reads vars.candidate
 
 pleiades run runbooks/switch.yaml --json > ../captures/04-switch.json
 pleiades adhoc r1 net.trace dest=10.1.1.10 'expect:={reached: true}' --json > ../captures/05-trace-r1-h1.json

@@ -1,0 +1,27 @@
+pr-check at 9fc2bd0ea76a, 2026-10-23 23:51 UTC: FAIL (exit 1)
+  .coverage/pr/records/report.json
+
+  fast        pass     35 package(s), 213s, 0 failed, 0 contention, 13 skipped
+  repeat      pass     35 package(s), 339s, 0 failed, 0 contention, 39 skipped
+  containers  fail     9 package(s), 2115s, 1 failed, 1 contention, 15 skipped
+  mac         unset    macOS: no Mac configured (PLEIADES_MAC in tests/mac/.env)
+  bsd         pass     FreeBSD on bsd-check, 35 package(s), 1509s; full pass; repeat pass
+  win         pass     Windows on win-check, 35 package(s), 1324s; full pass; repeat pass
+  govulncheck pass     exit 0
+  images      pass     exit 0
+  coverage    pass     exit 0
+  durations   pass     exit 0
+
+Failures:
+
+  containers: github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades (the package: package) [failed]
+      FAIL
+      coverage: 62.3% of statements
+      FAIL	github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades	632.302s
+
+Passed when re-run alone (1; a test seen here run after run needs a look):
+  containers: github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades TestCLI_ImportGNS3ReachesANodesConsole
+
+385 test(s) skipped; prreport -skips lists them by reason.
+make: *** [Makefile:732: pr-check] Error 1
+

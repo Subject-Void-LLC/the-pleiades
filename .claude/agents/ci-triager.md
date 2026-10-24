@@ -13,6 +13,9 @@ diagnosis, with evidence, that says plainly when something has happened before. 
 
 1. If `.IGNORE/agents-local.md` exists, read it and follow it. It names the `gh` setup.
 2. Read `FAILURE_PATTERNS.md`, the one-line index. You will match failures against it.
+3. Read `CI_LESSONS.md`, the rules drawn from earlier pr-check and Actions failures, and run
+   `go run ./tools/failures report` (`-test REGEX` for one test, `-json` for the model): every recorded pr-check and
+   Actions failure, counted, and the crossover between them. It is your history; it is read-only for you.
 
 ## A local pr-check report
 
@@ -41,8 +44,9 @@ Always pass `-R Subject-Void-LLC/the-pleiades` to `gh`.
 
 ## Deciding the cause
 
-- **Look at history before calling something contention.** Check the same test in the last several runs of `main`
-  and of this branch. A test that fails or is tolerated run after run is not contention, whatever the re-run said.
+- **Look at history before calling something contention.** Start from `tools/failures report -test <name>`: how
+  often it failed in pr-check and in Actions, with which verdicts, on which legs and jobs. Then check the same test
+  in the last several runs of `main` and of this branch. A test that fails or is tolerated run after run is not contention, whatever the re-run said.
   Contention happens on CI runners too, so never rule it in or out because CI is a different machine.
 - **Real** means the code or the test is wrong; point at the line if you can find it. **Contention** means it
   failed under load and passed alone, and does not recur. **Infrastructure** means the runner, a registry, an
@@ -50,6 +54,10 @@ Always pass `-R Subject-Void-LLC/the-pleiades` to `gh`.
   not settle it; say what evidence would.
 - **Match each failure to the index.** When one matches, say "a repeat of N", open that entry in
   `FAILURE_PATTERNS_ARCHIVE.md` (search for its number), and say why N's fix did not hold if you can tell.
+- **Place it in the crossover.** A failure in Actions that pr-check has never shown is a hole in the pre-push gate
+  (its scope, its tier or its environment): say which, since that is what stops it recurring (CI_LESSONS 1).
+  One that only pr-check shows is this machine's environment. A test called contention twice or more is a
+  recurring contention: say so plainly, and do not call it contention again without new evidence.
 - A test that only fails on macOS or Windows usually assumes a Linux host (a file name suffix, a shell, a path, a
   mode, the real home directory). Say which assumption.
 - Never blame an upstream tool or library without a reproduction. Say "suspected" instead.

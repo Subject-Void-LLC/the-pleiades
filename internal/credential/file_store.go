@@ -73,6 +73,9 @@ type credentialEntry struct {
 	PFXEncrypted string `yaml:"pfx_encrypted,omitempty"`
 	// TokenEncrypted holds a bearer token. Phase 119c.
 	TokenEncrypted string `yaml:"token_encrypted,omitempty"`
+	// EnablePasswordEncrypted holds a network device's enable secret.
+	// Phase 127c.
+	EnablePasswordEncrypted string `yaml:"enable_password_encrypted,omitempty"`
 }
 
 // fileStore is the Store implementation backed by credentialsFileName
@@ -180,6 +183,13 @@ func (s *fileStore) Lookup(ctx context.Context, deviceName string) (Credential, 
 			return Credential{}, fmt.Errorf("failed to decrypt token for device %s: %w", deviceName, err)
 		}
 		cred.Token = string(token)
+	}
+	if entry.EnablePasswordEncrypted != "" {
+		enable, err := s.decryptField(entry.EnablePasswordEncrypted)
+		if err != nil {
+			return Credential{}, fmt.Errorf("failed to decrypt enable secret for device %s: %w", deviceName, err)
+		}
+		cred.EnablePassword = string(enable)
 	}
 
 	return cred, nil

@@ -43,9 +43,7 @@ func runRunbook(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags := addRunFlags(fs)
 	selection := tagFlags(fs)
-	extraVars := &extraVarsFlag{}
-	fs.Var(extraVars, "extra-vars", "a variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.<name>")
-	fs.Var(extraVars, "e", "shorthand for --extra-vars")
+	extraVars := addExtraVarsFlag(fs)
 	runbook, rest, err := splitPositional(args, runBoolFlags)
 	if err != nil {
 		return fmt.Errorf("%s: %w", usageLine("run <runbook.yaml>", fs), err)
@@ -60,6 +58,9 @@ func runRunbook(args []string) error {
 	if opts.variables, err = extraVars.variables(); err != nil {
 		return err
 	}
+	// run takes --extra-vars, so validation's advice for a missing variable
+	// may name it; adhoc and rollback take none and leave this empty.
+	opts.variablesFlag = extraVarsFlagName
 	return runPipeline(opts, runSource{label: runbook, path: runbook, selection: *selection})
 }
 

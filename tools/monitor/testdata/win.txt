@@ -1,0 +1,169 @@
+wincheck: starting the VM win-check on labhost (it was saved); it is put back, saved, when the run ends
+wincheck: 36 package(s) at ae89f745ba1c on win-check
+wincheck: running on the Windows machine; Pleiades returns the output when the run ends, since it does not stream it yet
+wincheck: gcc found, so cgo and the race detector are on
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/project
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/clispec
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/credential
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/dispatch
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/engine
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/hosttrust
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/journal
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/prompt
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/validate
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/capability
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/collection
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/cml
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcli
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/sdk
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/wire
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec
+FAIL	github.com/Subject-Void-LLC/the-pleiades/tools/failures
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gendocs
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/testgate
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestAppendLedger_Dedups alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestReadLedger_Contract alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog alone
+
+testgate: 69 test(s) skipped, so they are not evidence of anything in this run:
+
+      internal/engine TestCollectionExecutor_LendsThePool
+      pkg/sdk TestConnect_ReachesARealServer
+      pkg/sdk TestConnect_BorrowsFromThePool
+      pkg/sdk TestConnect_VerifiesTheHostKeyByDefault
+      pkg/sdk TestConnect_Refusals
+      pkg/sdk TestConnectPort_OverridesTheDevicesSSHPort
+      pkg/sdk TestConnectFresh_NeverBorrows
+      pkg/sdk TestOpenShell_PicksTheCarrierTheDeviceIsReachedBy
+      and 28 more
+
+      internal/journal TestNewFileStoreCreatesBothDirectoriesOwnerOnly
+      internal/journal TestNewFileStoreTightensADirectoryItDidNotCreate
+      internal/journal TestNewFileStoreFailsWhenItCannotCreateItsDirectory
+      internal/journal TestNewFileStoreRestoresTheWriteBitOnItsOwnDirectory
+      internal/journal TestRecordWritesTheFileOwnerOnly
+      internal/journal TestRecordReportsAFileItCannotOpen
+
+      pkg/netcli TestLiveIOSDialogs
+      pkg/netcli TestLiveIOSPromptShapes
+      pkg/netcli TestLiveIOSConfigSubmodePrompt
+      pkg/netcli TestLiveIOSFactsShapes
+
+      internal/journal TestReadRun_RefusesWhatNoRunWrote
+      internal/journal TestReadRun_RefusesTheRestOfWhatNoRunWrote
+      internal/journal TestReadRun_RefusesAFileNoRunCouldHaveWritten
+
+      internal/engine TestProjectGuards_AProjectThatCannotBeExaminedIsAnError
+      internal/engine TestWriteProjectFile_ASystemRefusalIsAnError
+      internal/journal TestActive_SkipsWhatIsNotARecord
+
+      internal/engine TestTagFilter_MatchesAnsible
+      internal/forge/playbook TestMergeKeys_MatchAnsible
+      internal/forge/playbook TestEntries_ArgsMatchAnsibleCore
+
+      pkg/iosparse TestShowBgpSummary/ios/golden_output1
+      pkg/iosparse TestShowBgpSummary/iosxe/golden_output1
+
+      internal/catalog/http TestRequest_ConnectionFailureIsReported
+      internal/hosttrust TestScan
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xe
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xr
+
+      pkg/netcli TestLiveIOSXRPromptAndConfigShapes
+      pkg/netcli TestLiveIOSXRShowRunningInterfaces
+
+      internal/journal TestRecordReportsAFullDisk
+
+      internal/journal TestSeal_ReportsASealItCannotMake
+
+      pkg/cml TestClient_AgainstARealController
+
+      tools/failures TestGitHelpers_AgainstThisRepository
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestAppendLedger_Dedups ---
+=== RUN   TestAppendLedger_Dedups
+    ledger_test.go:36: the ledger's directory: &{sub 16 {2538379530 31286209} {2538497370 31286209} {2538497370 31286209} 0 0 0 0 {{} {0 0}} C:\Users\ADMINI~1\AppData\Local\Temp\TestAppendLedger_Dedups3568434963\001\sub  [trimmed]
+--- FAIL: TestAppendLedger_Dedups (0.03s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts ---
+=== RUN   TestParseJobLog_RealExcerpts
+    actionslog_test.go:37: open testdata\actions-containers-real.log: The system cannot find the path specified.
+--- FAIL: TestParseJobLog_RealExcerpts (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate ---
+=== RUN   TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+    prchecklog_test.go:147: open testdata\testgate-contention.log: The system cannot find the path specified.
+--- FAIL: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine ---
+=== RUN   TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+    prchecklog_test.go:73: open testdata\prcheck-summary-15.log: The system cannot find the path specified.
+--- FAIL: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries ---
+=== RUN   TestParsePRCheckLog_RealSummaries
+    prchecklog_test.go:57: open testdata\prcheck-summary-9.log: The system cannot find the path specified.
+--- FAIL: TestParsePRCheckLog_RealSummaries (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestReadLedger_Contract ---
+=== RUN   TestReadLedger_Contract
+    ledger_test.go:70: a ledger under a file was read
+--- FAIL: TestReadLedger_Contract (0.04s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun ---
+=== RUN   TestRecordActions_ARun
+    actions_test.go:38: open testdata\actions-containers-real.log: The system cannot find the path specified.
+--- FAIL: TestRecordActions_ARun (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals ---
+=== RUN   TestRecordActions_Refusals
+    actions_test.go:38: open testdata\actions-containers-real.log: The system cannot find the path specified.
+--- FAIL: TestRecordActions_Refusals (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog ---
+=== RUN   TestRecordPRCheck_FromALog
+    prcheck_test.go:181: failures record-prcheck -dir C:\Users\ADMINI~1\AppData\Local\Temp\TestRecordPRCheck_FromALog2790838752\001 -log testdata\prcheck-summary-15.log -at 2026-10-24T05:01:00Z -branch b: exit 1: failure [trimmed]
+--- FAIL: TestRecordPRCheck_FromALog (0.00s)
+
+testgate: 9 failure(s) failed AGAIN when re-run alone, or could not be re-run at all:
+
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestAppendLedger_Dedups
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParseJobLog_RealExcerpts
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_RealSummaries
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestReadLedger_Contract
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordActions_ARun
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordActions_Refusals
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordPRCheck_FromALog
+
+These are not contention. Fix them.
+testgate: 9 failure(s) confirmed in isolation
+exit status 1
+wincheck: the tests failed on win-check (Windows) in 19m12s
+wincheck: put the VM win-check back on labhost, its state saved

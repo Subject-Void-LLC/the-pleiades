@@ -6038,3 +6038,134 @@ This is LESSONS 247 (a captured request proves what was asked, not what happened
 held. It is recorded because the next configuration method (EOS, Junos, IOS) will meet the same thing in other
 forms, and a gate that hashed the candidate (`expect_sha256`) proves only what was sent.
 
+## 314. An IOS change records no undo, so read what it will replace first, write the task's rollback: list from that read, and rehearse both on a lab device
+
+**Rule.** Before changing a Cisco IOS device with `net.ios.config`, `net.cli.config` or a configuring
+`net.ios.command`, read what the change will replace with a show command. Give the task a `rollback:` list written
+from that read: the `no` form of a line that adds something, the old line for one that replaces something. These
+methods have no check mode, so rehearse the change and its rollback on a lab device running the same image before
+relying on the list. The skill and the docs teach an agent exactly this.
+
+**Why.** 2026-10-23, Phase 127c. The owner had an agent change a Cisco router through pleiades (the "turn B" scenario:
+make a change, then undo it). `net.ios.config` records no undo, because an IOS device cannot say what a line replaced,
+so `pleiades rollback` refuses such a run until the change is left by name with `--leave`. Nothing told the agent how
+to make the change undoable, so the undo depended on the agent guessing. The same session gave three of the friction
+points in FAILURE_PATTERNS 598 to 600.
+
+The skill (`skillNetwork` in `cmd/pleiades/doc_skill.go`) and `docs/16-network-verification.md` ("Undoing an IOS
+change") now teach the read, the `rollback:` list and the rehearsal. It is proven on the DevNet CML sandbox router:
+`TestCLI_ImportCMLReachesIOSOverTelnet` runs a runbook that adds Loopback199 with a `rollback:` list, then `pleiades
+rollback <run-id>`, and reads the router back to find Loopback199 gone.
+
+**Update, 2026-10-23 (`9ab84fe4`).** Narrowed by 316. `net.ios.config` now keeps a checkpoint of the running
+configuration on a device that has a writable file system and `configure replace`, and records an exact undo
+(`net.ios.replace`), so `pleiades rollback` and `rollback_on_failure` need no `rollback:` list there. This rule still
+holds for a device that cannot keep a checkpoint, for `checkpoint: false`, for `net.cli.config` and for a configuring
+`net.ios.command`; on the first two, `net.ios.config` reports the lines that would undo the change, masked, under
+`undo_lines`.
+
+## 315. A repeat of 189: never load a secrets .env file by sourcing it with the shell; read it with a parser
+
+**Rule.** Never load a file holding secrets with `.`, `source` or `set -a; . file`. Read it with a parser that treats
+each value as data: a few lines of Python, or the test's own loader for that file. This holds for any `.env` under
+`tests/` and for any other file of credentials.
+
+**Why.** 2026-10-23, Phase 127c. Loading `tests/cml/.env` with `set -a; . tests/cml/.env`, a value containing `&`
+split its line: the shell ran the part before it in the background and tried to execute the part after it as a
+command. The error output put two fragments of the sandbox VPN password into the session's tool output. No part of
+it is written here.
+
+189 covered a presence check whose expansion printed the value, and its rule is about probing. It did not cover
+loading, and `. file` looks like loading rather than printing. What happened is 245's fact: the shell parses a
+sourced file as shell, so a value is data only if the shell never parses it. 189's second rule applies as written:
+a secret that has been displayed is rotated, not deleted, because a transcript and a provider's logs are not ours to
+delete. Whether to rotate or end the sandbox reservation early is the owner's decision.
+
+## 316. A device's own undo beats an inverse the platform writes: keep a checkpoint on the device and journal only its path
+
+**Rule.** When a device can save its own state and return to it exactly, a change's undo uses that: the method saves a
+checkpoint on the device before the change, and the undo returns to it, refusing when the device has changed since.
+The journal holds only the checkpoint's identifier (a file path), never configuration text. Inverse lines worked out
+from a configuration diff are a fallback only: they are device content, so they are shown masked for the task's
+`rollback:` list and never journaled.
+
+**Why.** 2026-10-23, Phase 127c follow-up (`9ab84fe4`). LESSONS 314 had said an IOS change records no undo, because IOS
+cannot say what a line replaced. It can keep the whole configuration instead: `net.ios.config` copies the running
+configuration to `unix:` or `flash:` before its lines, asks the device what changed (`show archive config
+differences`), and records `net.ios.replace`, which returns to the checkpoint through `configure replace` and then
+holds the device to it with the same device-side comparison. On the DevNet CML sandbox router,
+`TestCLI_ImportCMLReachesIOSOverTelnet` makes a change and undoes it with `pleiades rollback` (the loopback is gone,
+`net.ios.parse`'s `show ip interface brief` equals the read before the change, and no checkpoint file is left), and
+a block's `rollback_on_failure` undoes another change inside the run. This is LESSONS 147 (build an undo from the value about to be overwritten) at the size of the whole
+configuration, and the device does the capturing. FAILURE_PATTERNS 603 and 604 are what trying to journal the
+fallback lines cost.
+
+## 317. Measure a pasted claim about another project's code before building on it; here 109 held, and the measurement changed the design
+
+**Rule.** Before sizing or shaping work around a claim about someone else's code, whether pasted, remembered or read
+in its docs, fetch the source at a pinned commit and measure the claim. Record the counting method beside the number.
+
+**Why.** 2026-10-23, porting Cisco's genieparser parsers for `net.ios.parse` (`67a70f8e`). A pasted claim said Genie's
+regular expressions rely heavily on lookarounds, which Go's RE2 lacks. Measured over genieparser's IOS and IOS XE
+parsers, 21,937 of 21,983 patterns compile unchanged in Go's RE2 and 46 do not. The same
+measurement showed the real cost was elsewhere: each parser is imperative Python built around its patterns, so a port
+is a translation held to genieparser's own golden fixtures (`tools/geniefixtures`, `pkg/iosparse/testdata`), not a
+scrape of regular expressions. This is LESSONS 109 and 210 applied, and here they held: the claim was measured before
+any code was written.
+
+## 318. Porting permissively licensed code into this GPLv3 project: treat the result as a derived work and carry the upstream license and notice with it
+
+**Rule.** When code from an Apache-2.0 project is ported into this repository, even by translating it to another
+language, treat the result as a derived work of it. Keep the upstream license verbatim beside the port
+(`LICENSE.<project>`), a notice naming the source, the commit and the copyright line, and say that the files were
+changed. Put a header in every ported file naming the upstream file and saying it was changed. Use no identifier
+named after the upstream owner's trademarks. Take nothing from a separate library whose source is not published with
+the project; reimplement it from its documented behavior and the fixtures. Release archives carry the upstream
+license too.
+
+**Why.** 2026-10-23, `pkg/iosparse` (`67a70f8e`) ports twelve genieparser parsers. genieparser's README carries
+"Copyright (c) 2021 Cisco Systems, Inc. and/or its affiliates"; upstream has no NOTICE file and no per-file headers,
+so the port writes its own: `pkg/iosparse/LICENSE.genieparser` (verbatim), `pkg/iosparse/NOTICE.genieparser` (source,
+commit `e62f9467a383997e190e04679d769c5c009e7460`, copyright, what changed), and a header in each ported file.
+`parsergen.oper_fill_tabular` and the schema check `MetaParser.parse` live in Cisco's separate genie library, whose
+source is not published with genieparser; `tabular.go` and `schema.go` reimplement them from behavior
+(`pkg/iosparse/doc.go` says so). The release tooling pull request must ship `LICENSE.genieparser` in each archive.
+
+## 319. An empty parse is a state to compare, not a failure
+
+**Rule.** A parser used to compare a device's state before and after a change returns an empty, successful result
+for output that holds nothing it recognizes, marked as empty, rather than an error.
+
+**Why.** 2026-10-23, `net.ios.parse` (`67a70f8e`). Genie raises `SchemaEmptyParserError` on output it finds nothing in.
+A comparison of "before the change" with "after its rollback" is exactly where that happens: a device with no BGP
+neighbors before and none after has the same state, and an error on both sides would hide that. `net.ios.parse`
+returns `empty: true` with an empty structure (`TestParse_EmptyIsAResultNotAFailure`). This is the before-and-after
+side of LESSONS 98 (absent and empty are different instructions).
+
+## 320. When every node of a CML sandbox lab stops answering while its controller still answers, restart the lab before reading the failure as code
+
+**Rule.** If every node in a Cisco Modeling Labs sandbox lab stops answering at once and the controller's API still
+answers, stop and start the lab through the CML API, then run the gate again before looking for a code defect. Record
+the time and the restart.
+
+**Why.** 2026-10-23, about 17:10 UTC, on the DevNet CML sandbox reserved for Phase 127c: the node network stopped
+answering for all nodes while the controller stayed up. Stopping and starting the lab through the CML API restored it,
+and `TestCLI_ImportCMLReachesIOSOverTelnet` then passed (102.5 s for the test, 140.8 s for the package). The cause was
+the sandbox, not the code; LESSONS 129 is why a removed or dead piece of infrastructure must be ruled out before a
+failure is called a defect.
+
+## 321. Run a whole-branch failure-pattern review before every pull request, and ask of each new destructive device command what happens if its argument names the operator's own file
+
+**Rule.** Before a branch's pull request, review the whole branch diff against every failure pattern title, even when
+each change was already reviewed and tested on its own. For each new command that deletes, replaces or erases
+something on a device, ask what happens if its argument names a file the operator owns, such as the saved
+configuration, and make the method touch only what it made.
+
+**Why.** 2026-10-23, feat/lab-importers. The fp-reviewer agent's pass over the whole branch, after its records commit
+`56e83fb7`, found fifteen defects (FAILURE_PATTERNS 613 to 627) in code that three agents and the main session had
+written and tested. Three were security-relevant: `net.ios.replace` would have run `delete /force` on
+`nvram:startup-config` if a call named it (613), `project.write`'s path could be chosen by a device's output and the
+`.pleiades` guard passed a Windows 8.3 short name (618), and a CML or GNS3 login error could quote a body echoing the
+password (626). Two were Windows-only (615, 616), which no Linux test could show. Twelve of the fifteen repeat an
+entry already in the archive and one more is a sibling of one, so the archive knew those classes; the per-change
+reviews did not ask it of the whole branch. `01cdbb70` fixed all fifteen, apart from 618's hard-link residual.

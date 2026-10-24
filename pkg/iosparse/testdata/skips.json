@@ -1,0 +1,4 @@
+{
+ "ShowBgpSummary/iosxe/golden_output1": "an rd form (show bgp vpnv4 unicast rd 5918:51 summary): genieparser parses it with the output of a second command, show vrf, run on the device, so its output alone cannot be parsed as genieparser parses it and the port refuses the form",
+ "ShowBgpSummary/ios/golden_output1": "an rd form (show bgp vpnv4 unicast rd 5918:51 summary): genieparser parses it with the output of a second command, show vrf, run on the device, so its output alone cannot be parsed as genieparser parses it and the port refuses the form"
+}
