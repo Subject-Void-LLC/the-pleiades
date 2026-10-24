@@ -76,7 +76,7 @@ func catalogEntries(external *loader.Set) ([]catalogEntry, error) {
 	return entries, nil
 }
 
-const docUsage = "usage: pleiades doc [--list [namespace]] [--snippet <fqcn>] [--json] [--create-skill] [fqcn]"
+const docUsage = "usage: pleiades doc [--list [namespace]] [--snippet <fqcn>] [--json] [--create-skill] [fqcn | device type]"
 
 // runDoc dispatches the doc subcommand's five modes: --create-skill,
 // --list, --snippet, --json, and a bare fqcn lookup. They are mutually
@@ -91,6 +91,7 @@ func runDoc(args []string) error {
 	listFlag := fs.Bool("list", false, "list every registered FQCN, or those in one namespace if fqcn is given as a prefix")
 	snippetFlag := fs.Bool("snippet", false, "print a paste-ready runbook task stanza for fqcn")
 	jsonFlag := fs.Bool("json", false, "print the full catalog, or one fqcn's Manifest, as JSON")
+	dirFlag := fs.String("dir", ".", "project directory whose external Collections are read, as run --dir")
 	skillFlag := fs.Bool("create-skill", false, "create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -122,7 +123,7 @@ func runDoc(args []string) error {
 		return nil
 	}
 
-	external, err := loadExternalCollections(context.Background(), ".")
+	external, err := loadExternalCollections(context.Background(), *dirFlag)
 	if err != nil {
 		return err
 	}
@@ -147,6 +148,11 @@ func runDoc(args []string) error {
 		if _, err := lookupEntry(entries, fqcn); err != nil {
 			if def, ok := capability.DataOf(capability.Name(fqcn)); ok {
 				printCapability(def)
+				return nil
+			}
+			// A device type is looked up by its name too, so a person adding
+			// one reads the properties it takes.
+			if printDeviceType(fqcn) {
 				return nil
 			}
 		}
@@ -174,7 +180,7 @@ func lookupEntry(entries []catalogEntry, fqcn string) (catalogEntry, error) {
 			return e, nil
 		}
 	}
-	return catalogEntry{}, fmt.Errorf("pleiades doc: unknown fqcn %q (see 'pleiades doc --list')", fqcn)
+	return catalogEntry{}, fmt.Errorf("pleiades doc: unknown fqcn %q (see 'pleiades doc --list'; a device type is looked up by its name, such as cisco_router)", fqcn)
 }
 
 // printDocList prints one line per FQCN matching prefix: every FQCN if

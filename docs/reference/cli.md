@@ -14,7 +14,7 @@ scaffold a new project in the current directory
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
-| --dir | `string` | `.` | project directory to scaffold |
+| --dir | `string` | `.` | project directory to scaffold, made when it does not exist |
 
 `pleiades init`
 
@@ -415,7 +415,7 @@ run one method against a device or a tag, with no runbook written
 | --allow-unchecked | `string` | - | with --mode check, a method that may go unchecked without making the check incomplete |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
-| --timeout | `int` | `0` | seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound) |
+| --timeout | `seconds` | `0` | how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound) |
 
 `pleiades adhoc web01 facts.gather`
 
@@ -812,15 +812,16 @@ convert an Ansible playbook into native runbooks, with a report of everything a 
 
 ## pleiades doc
 
-look up a Collection method's reference from the live registry (see 'pleiades doc --help')
+look up a Collection method's or a device type's reference from the live registry (see 'pleiades doc --help')
 
-`pleiades doc [fqcn] [flags]`
+`pleiades doc [fqcn | device type] [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --list | `bool` | `false` | list every registered FQCN, or those in one namespace if fqcn is given as a prefix |
 | --snippet | `bool` | `false` | print a paste-ready runbook task stanza for fqcn |
 | --json | `bool` | `false` | print the full catalog, or one fqcn's Manifest, as JSON |
+| --dir | `string` | `.` | project directory whose external Collections are read, as run --dir |
 | --create-skill | `bool` | `false` | create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method |
 
 `pleiades doc --create-skill`
@@ -834,6 +835,8 @@ look up a Collection method's reference from the live registry (see 'pleiades do
 `pleiades doc --snippet net.catalyst.device_facts`
 
 `pleiades doc --json net.catalyst.device_facts`
+
+`pleiades doc cisco_router`
 
 ## pleiades version
 
