@@ -23,7 +23,8 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
    the context rather than raising the ceiling. FAILURE_PATTERNS 630.
 3. **A file-system assumption is a Windows bug until the Windows leg says otherwise.** Mode bits, "not found",
    symbolic links and path case all answer differently there; read the answer the way that system keeps it,
-   and confirm absence with `Lstat`. FAILURE_PATTERNS 544, 567, 615, 616, 628, 635.
+   and confirm absence with `Lstat`. A `Mode().Perm()` comparison gets its Windows answer when it is written.
+   FAILURE_PATTERNS 544, 567, 615, 616, 628, 635, 636.
 4. **A pass of `pr-check` is a pass of every leg at one commit on a clean tree.** A file left in the tree (even
    a moved, ignored one under a new name) costs the receipt; an unreachable machine costs the leg. A machine
    check makes room from its own trees and build cache before it refuses a full disk; what it refuses then is

@@ -638,6 +638,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 633. A Shell call's watcher could close the session after the call returned, when the caller cancelled the call's context at once: net.cli's next read found EOF (a repeat of 352) (fixed)
 634. tools/failures' captured logs matched *.log in .gitignore, so they were never committed and its tests failed on every machine but this one (a repeat of 401) (fixed before push)
 635. Windows: a file standing where the failure ledgers' directory belongs read as an empty ledger (a repeat of 628) (fixed before push)
+636. Windows: a tools/failures test asserted the ledger directory's 0700 mode, which Windows does not keep (a repeat of 544, 567 and 615) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -15578,3 +15578,22 @@ either was read; no check finds a not-exist branch that skips the confirmation.
 
 **Lesson.** Every "missing means empty" branch is a Windows bug until it confirms the absence. Read CI_LESSONS.md
 before writing file-system code, including in tools.
+
+## 636. Windows: a tools/failures test asserted the ledger directory's 0700 mode, which Windows does not keep (a repeat of 544, 567 and 615) (fixed before push)
+
+**Symptom.** `make pr-check`'s Windows leg at `90a4a3e7`, 2026-10-24: `TestAppendLedger_Dedups` failed with "the
+ledger's directory: ... <nil>", the directory there but its mode not 0700. Every other leg passed it.
+
+**Root cause.** The test compared `Mode().Perm()` with 0o700. Windows keeps no POSIX permission bits and reports
+0777 for a directory.
+
+**Fix.** The test checks the mode only where `runtime.GOOS` is not windows, and the directory's existence
+everywhere.
+
+**Why 544's, 567's and 615's fixes did not prevent it.** Each fixed the file it was found in, and CI_LESSONS rule 3
+says a file-system assumption is a Windows bug until the Windows leg says otherwise. Nothing finds a permission
+comparison with no Windows answer before that leg runs, and this one was written the same day 615 was recorded.
+
+**Lesson.** A permission-bit assertion is the most repeated Windows defect here (544, 567, 615, 616, 636). When a
+test or code compares `Mode().Perm()`, give Windows its answer in the same line or a build-tagged file, at the
+moment it is written.
