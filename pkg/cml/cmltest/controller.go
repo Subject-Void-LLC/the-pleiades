@@ -241,6 +241,8 @@ func (c *Controller) serveLab(w http.ResponseWriter, r *http.Request, lab *Lab, 
 		reply(w, out)
 	case route == "links" && r.Method == http.MethodPost:
 		c.createLink(w, r, lab)
+	case route == "interfaces" && r.Method == http.MethodPost:
+		c.createInterfaces(w, r, lab)
 	case len(rest) == 2 && rest[0] == "links" && r.Method == http.MethodDelete:
 		l, ok := lab.Links[rest[1]]
 		if !ok {
@@ -347,6 +349,43 @@ func (c *Controller) createNode(w http.ResponseWriter, r *http.Request, lab *Lab
 	}
 	lab.Nodes[n.ID] = n
 	reply(w, map[string]string{"id": n.ID})
+}
+
+// createInterfaces gives a node a physical interface in every slot up to
+// and including the one asked for that it lacks, as CML 2.7.2 does,
+// labelled as IOL names a slot (slot 4 is Ethernet1/0) or portN.
+func (c *Controller) createInterfaces(w http.ResponseWriter, r *http.Request, lab *Lab) {
+	var body struct {
+		Node string
+		Slot *int
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil || body.Slot == nil || *body.Slot < 0 || *body.Slot > 128 {
+		fail(w, http.StatusUnprocessableEntity, "node and a slot from 0 to 128 are required")
+		return
+	}
+	n, ok := lab.Nodes[body.Node]
+	if !ok {
+		fail(w, http.StatusNotFound, "node not found: %s", body.Node)
+		return
+	}
+	have := map[int]bool{}
+	for _, i := range n.Interfaces {
+		if i.Slot != nil {
+			have[*i.Slot] = true
+		}
+	}
+	for s := 0; s <= *body.Slot; s++ {
+		if have[s] {
+			continue
+		}
+		label := fmt.Sprintf("port%d", s)
+		if strings.HasPrefix(n.Definition, "iol") {
+			label = fmt.Sprintf("Ethernet%d/%d", s/4, s%4)
+		}
+		slot := s
+		n.Interfaces = append(n.Interfaces, &Interface{ID: c.id(), Label: label, Slot: &slot})
+	}
+	reply(w, []map[string]any{})
 }
 
 // createLink links two free interfaces of the lab.

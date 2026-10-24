@@ -216,3 +216,43 @@ func TestConsoleKey_ReadsANodesConsoleUUID(t *testing.T) {
 		t.Error("a node the lab lacks had a console key")
 	}
 }
+
+// TestCreateInterfaces_AddsEverySlotUpToTheOneAsked: an IOL node's slots
+// 4 to 7 come as Ethernet1/0 to Ethernet1/3, slots it has are kept, and a
+// slot out of range is refused before any call.
+func TestCreateInterfaces_AddsEverySlotUpToTheOneAsked(t *testing.T) {
+	ctl := cmltest.New(t, "admin", "pw")
+	c := connected(t, ctl)
+	ctx := context.Background()
+	lab, err := c.CreateLab(ctx, "cvd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := c.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "WAN1", Definition: "iol-xe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CreateInterfaces(ctx, lab.ID, node, 7); err != nil {
+		t.Fatal(err)
+	}
+	ifaces, err := c.NodeInterfaces(ctx, lab.ID, node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var labels []string
+	for _, i := range ifaces {
+		labels = append(labels, i.Label)
+	}
+	if !slices.Contains(labels, "Ethernet0/0") || !slices.Contains(labels, "Ethernet1/3") || len(labels) != 9 {
+		t.Errorf("interfaces = %v, want Loopback0 and Ethernet0/0 to Ethernet1/3", labels)
+	}
+	calls := len(ctl.Calls)
+	for _, slot := range []int{-1, cml.MaxSlots + 1} {
+		if err := c.CreateInterfaces(ctx, lab.ID, node, slot); err == nil {
+			t.Errorf("slot %d was accepted", slot)
+		}
+	}
+	if len(ctl.Calls) != calls {
+		t.Error("a slot out of range reached the controller")
+	}
+}

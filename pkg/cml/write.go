@@ -187,6 +187,20 @@ func (c *Client) Links(ctx context.Context, lab string) ([]Link, error) {
 	return out, nil
 }
 
+// MaxSlots is the most physical interface slots CML gives one node.
+const MaxSlots = 128
+
+// CreateInterfaces gives node in lab physical interfaces in every slot up to
+// and including slot that it does not have yet, named as its definition
+// names them (iol-xe's slot 4 is Ethernet1/0). A definition that allows
+// fewer is refused by the controller.
+func (c *Client) CreateInterfaces(ctx context.Context, lab, node string, slot int) error {
+	if slot < 0 || slot > MaxSlots {
+		return fmt.Errorf("cml: slot %d is outside 0 to %d", slot, MaxSlots)
+	}
+	return c.send(ctx, http.MethodPost, labPath(lab)+"/interfaces", map[string]any{"node": node, "slot": slot}, nil)
+}
+
 // CreateLink links interface a to interface b in lab and returns the
 // link's id.
 func (c *Client) CreateLink(ctx context.Context, lab, a, b string) (string, error) {

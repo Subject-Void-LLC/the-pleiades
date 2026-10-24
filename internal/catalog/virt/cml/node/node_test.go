@@ -6,6 +6,7 @@ package node_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -260,5 +261,35 @@ func TestNode_FailureWalk(t *testing.T) {
 		if _, _, err := f.run(fqcn, false, map[string]any{"lab": "cvd", "label": "X", "node": "X", "definition": "iosv"}, map[string]string{wire.SecretPassword: "wrong"}); err == nil || !strings.Contains(err.Error(), "refused the login") {
 			t.Errorf("%s with the login refused: %v", fqcn, err)
 		}
+	}
+}
+
+// TestCreate_AddsInterfacesUpToTheCountAsked: interfaces adds the slots a
+// definition does not give, named as it names them; a count out of range
+// is refused before contact; and a controller refusing the interfaces
+// fails the task with the node's undo kept.
+func TestCreate_AddsInterfacesUpToTheCountAsked(t *testing.T) {
+	f := newFixture(t)
+	params := map[string]any{"lab": "cvd", "label": "WAN1", "definition": "iol-xe", "interfaces": 8}
+	_, rc, err := f.run("virt.cml.node.create", false, params, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := rc.Stats["interfaces"].([]string)
+	if !slices.Contains(got, "Ethernet1/3") || slices.Contains(got, "Ethernet2/0") {
+		t.Errorf("interfaces = %v, want up to Ethernet1/3", got)
+	}
+	for _, bad := range []any{-1, 129, "many"} {
+		f := newFixture(t)
+		before := len(f.ctl.Labs[f.lab.ID].Nodes)
+		if _, _, err := f.run("virt.cml.node.create", false, map[string]any{"lab": "cvd", "label": "X", "definition": "iol-xe", "interfaces": bad}, nil); err == nil || len(f.ctl.Labs[f.lab.ID].Nodes) != before {
+			t.Errorf("interfaces %v: %v, and a node was made", bad, err)
+		}
+	}
+	f = newFixture(t)
+	f.ctl.Fail = map[string]bool{"POST /interfaces": true}
+	_, rc, err = f.run("virt.cml.node.create", false, params, nil)
+	if inv, kept := rc.Inverse(); err == nil || !kept || inv[sdk.InverseKeepOnFailureKey] != true {
+		t.Errorf("interfaces refused: %v, undo %v", err, inv)
 	}
 }

@@ -27,6 +27,7 @@ const (
 	paramConfig     = "configuration"
 	paramX          = "x"
 	paramY          = "y"
+	paramIfaces     = "interfaces"
 )
 
 // mgmtVRF is the VRF a seeded node's management interface sits in, as the
