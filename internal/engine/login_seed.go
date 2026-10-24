@@ -179,14 +179,14 @@ func keySeed(device string, cred credential.Credential) (map[string]string, erro
 // in another process (which the seed cannot yet cross to), and when the
 // parameter names no device.
 func (e *collectionActionExecutor) seedLogin(ctx context.Context, fqcn, param string, forms SeedForms, params map[string]interface{}) (map[string]string, error) {
-	if e.seed == nil || e.invoke != nil {
-		return nil, fmt.Errorf("collection method %q seeds a login into the machine it creates, which only the pleiades CLI resolves so far", fqcn)
-	}
 	device, _ := params[param].(string)
 	if device == "" && !forms.Required {
 		// An optional device left empty: the machine stands for no
-		// inventory device, so there is no login to seed.
+		// inventory device, so there is no login to seed, on any tier.
 		return nil, nil
+	}
+	if e.seed == nil || e.invoke != nil {
+		return nil, fmt.Errorf("collection method %q seeds a login into the machine it creates, which only the pleiades CLI resolves so far", fqcn)
 	}
 	if device == "" {
 		return nil, fmt.Errorf("collection method %q: %s must name the inventory device whose login the machine gets", fqcn, param)

@@ -162,6 +162,16 @@ func TestLoginSeed_ACiscoDeviceGetsTypeNineHashesOnly(t *testing.T) {
 	if err := run(ios, ""); err == nil || !strings.Contains(err.Error(), "must name the inventory device") {
 		t.Errorf("an empty required device: %v", err)
 	}
+	// Where no login can be seeded (a Runner), an optional device left
+	// empty still runs, and one named is refused.
+	unseeded := engine.NewCollectionActionExecutor(&recordingFallback{}, engine.NewCredentialRunbookContext(vault{}))
+	for login, want := range map[string]string{"": "", "CORE1": "only the pleiades CLI"} {
+		got = nil
+		_, err := unseeded.Execute(context.Background(), &engine.Task{FQCN: optional, Params: map[string]any{"login": login}}, newNamedDevice("cml"))
+		if (want == "" && (err != nil || got == nil)) || (want != "" && (err == nil || !strings.Contains(err.Error(), want))) {
+			t.Errorf("no seeder, login %q: %v, want %q", login, err, want)
+		}
+	}
 
 	for why, tt := range map[string]struct{ method, login, want string }{
 		"a method that cannot seed IOS": {plain, "CORE1", "cannot seed one"},
