@@ -223,3 +223,36 @@ func TestDelete_StopsWipesAndRemoves(t *testing.T) {
 		}
 	}
 }
+
+// TestNode_FailureWalk: each call a node method makes, failed by the
+// controller in turn, fails the task, and so does a login the controller
+// refuses.
+func TestNode_FailureWalk(t *testing.T) {
+	createParams := map[string]any{"lab": "cvd", "label": "SW1", "definition": "unmanaged_switch"}
+	for _, call := range []string{"GET /labs", "/simplified_node_definitions", "GET /nodes", "POST /nodes", "/interfaces"} {
+		f := newFixture(t)
+		f.ctl.Fail = map[string]bool{call: true}
+		if _, _, err := f.run("virt.cml.node.create", false, createParams, nil); err == nil {
+			t.Errorf("create with %s failing: no error", call)
+		}
+	}
+	for _, call := range []string{"GET /nodes", "/state/stop", "/wipe_disks", "DELETE /nodes/"} {
+		f := newFixture(t)
+		ctx := context.Background()
+		id, _ := f.client.CreateNode(ctx, f.lab.ID, cml.NodeSpec{Label: "BR3", Definition: "iol-xe"})
+		_ = f.client.StartNode(ctx, f.lab.ID, id)
+		if call == "DELETE /nodes/" {
+			call = "DELETE /labs/" + f.lab.ID + "/nodes/" + id
+		}
+		f.ctl.Fail = map[string]bool{call: true}
+		if _, _, err := f.run("virt.cml.node.delete", false, map[string]any{"lab": "cvd", "node": "BR3"}, nil); err == nil {
+			t.Errorf("delete with %s failing: no error", call)
+		}
+	}
+	f := newFixture(t)
+	for _, fqcn := range []string{"virt.cml.node.create", "virt.cml.node.delete"} {
+		if _, _, err := f.run(fqcn, false, map[string]any{"lab": "cvd", "label": "X", "node": "X", "definition": "iosv"}, map[string]string{wire.SecretPassword: "wrong"}); err == nil || !strings.Contains(err.Error(), "refused the login") {
+			t.Errorf("%s with the login refused: %v", fqcn, err)
+		}
+	}
+}

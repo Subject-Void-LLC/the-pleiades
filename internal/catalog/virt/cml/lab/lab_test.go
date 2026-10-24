@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml/cmltest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 func init() { lab.SetPollInterval(time.Millisecond) }
@@ -27,6 +28,9 @@ type runner struct {
 	t      *testing.T
 	ctl    *cmltest.Controller
 	device *cmltest.Device
+	// password, when set, is the password the task presents in place of
+	// the controller's.
+	password string
 }
 
 // run calls the registered method fqcn (its check with check set) with
@@ -42,6 +46,9 @@ func (r runner) run(fqcn string, check bool, params map[string]any) (collection.
 		call = d.Check
 	}
 	rc := cmltest.NewContext(r.ctl)
+	if r.password != "" {
+		rc.Secrets[wire.SecretPassword] = r.password
+	}
 	res, err := call(context.Background(), rc, r.device, params)
 	return res, rc, err
 }
@@ -183,5 +190,59 @@ func TestLab_Refusals(t *testing.T) {
 	}
 	if inv, ok := rc.Inverse(); !ok || inv[sdk.InverseKeepOnFailureKey] != true {
 		t.Errorf("a failed start kept no undo: %v", inv)
+	}
+}
+
+// TestLab_FailureWalk: each call a lab method makes, failed by the
+// controller in turn, fails the task, and so does a login the controller
+// refuses, for every method; a stop's check changes nothing.
+func TestLab_FailureWalk(t *testing.T) {
+	byID := func(id string) map[string]any { return map[string]any{"lab": id} }
+	for _, c := range []struct {
+		fqcn    string
+		running bool
+		params  func(id string) map[string]any
+		fails   func(id string) []string
+	}{
+		{"virt.cml.lab.list", false, func(string) map[string]any { return nil }, func(id string) []string { return []string{"GET /labs", "GET /labs/" + id} }},
+		{"virt.cml.lab.info", false, byID, func(string) []string { return []string{"/nodes", "/interfaces", "/links"} }},
+		{"virt.cml.lab.create", false, func(string) map[string]any { return map[string]any{"title": "new"} }, func(string) []string { return []string{"GET /labs", "POST /labs"} }},
+		{"virt.cml.lab.start", false, byID, func(string) []string { return []string{"/nodes", "/state/start"} }},
+		{"virt.cml.lab.stop", true, byID, func(string) []string { return []string{"/nodes", "/state/stop"} }},
+		{"virt.cml.lab.delete", true, byID, func(id string) []string { return []string{"PUT /labs/" + id + "/stop", "/wipe", "DELETE /labs/" + id} }},
+	} {
+		setup := func() (runner, string) {
+			r, client := newRunner(t)
+			ctx := context.Background()
+			lab, _ := client.CreateLab(ctx, "cvd")
+			id, _ := client.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "R1", Definition: "iol-xe"})
+			if c.running {
+				_ = client.StartNode(ctx, lab.ID, id)
+			}
+			return r, lab.ID
+		}
+		for i := range c.fails("") {
+			r, id := setup()
+			call := c.fails(id)[i]
+			r.ctl.Fail = map[string]bool{call: true}
+			if _, _, err := r.run(c.fqcn, false, c.params(id)); err == nil {
+				t.Errorf("%s with %s failing: no error", c.fqcn, call)
+			}
+		}
+		r, id := setup()
+		r.password = "wrong"
+		if _, _, err := r.run(c.fqcn, false, c.params(id)); err == nil || !strings.Contains(err.Error(), "refused the login") {
+			t.Errorf("%s with the login refused: %v", c.fqcn, err)
+		}
+	}
+	r, client := newRunner(t)
+	ctx := context.Background()
+	lab, _ := client.CreateLab(ctx, "cvd")
+	id, _ := client.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "R1", Definition: "iol-xe"})
+	_ = client.StartNode(ctx, lab.ID, id)
+	if res, rc, err := r.run("virt.cml.lab.stop", true, map[string]any{"lab": lab.ID}); err != nil || !res.Changed || r.ctl.Labs[lab.ID].Nodes[id].State == cml.StateStopped {
+		t.Errorf("check stop: %+v %v", res, err)
+	} else if _, ok := rc.Inverse(); ok {
+		t.Error("a stop's check recorded an undo")
 	}
 }

@@ -164,3 +164,43 @@ func TestDelete_ByIDOrEndsWithAnUndoThatLinksAgain(t *testing.T) {
 		}
 	}
 }
+
+// TestLink_FailureWalk: each call a link method makes, failed by the
+// controller in turn, fails the task, and so does a login the controller
+// refuses.
+func TestLink_FailureWalk(t *testing.T) {
+	for _, call := range []string{"GET /labs", "GET /nodes", "/interfaces", "GET /links", "POST /links"} {
+		ctl, _ := withLab(t)
+		ctl.Fail = map[string]bool{call: true}
+		if _, _, err := run(t, ctl, "virt.cml.link.create", false, ends); err == nil {
+			t.Errorf("create with %s failing: no error", call)
+		}
+	}
+	for _, call := range []string{"GET /nodes", "GET /links", "/interfaces", "DELETE /links/"} {
+		ctl, lab := withLab(t)
+		if _, _, err := run(t, ctl, "virt.cml.link.create", false, ends); err != nil {
+			t.Fatal(err)
+		}
+		if call == "DELETE /links/" {
+			for id := range ctl.Labs[lab].Links {
+				call = "DELETE /labs/" + lab + "/links/" + id
+			}
+		}
+		ctl.Fail = map[string]bool{call: true}
+		if _, _, err := run(t, ctl, "virt.cml.link.delete", false, ends); err == nil {
+			t.Errorf("delete with %s failing: no error", call)
+		}
+	}
+	ctl, _ := withLab(t)
+	ctl.Mu.Lock()
+	ctl.Password = "rotated"
+	ctl.Mu.Unlock()
+	for _, fqcn := range []string{"virt.cml.link.create", "virt.cml.link.delete"} {
+		d, _ := collection.Lookup(fqcn)
+		rc := cmltest.NewContext(ctl)
+		rc.Secrets["password"] = "wrong"
+		if _, err := d.Invoke(context.Background(), rc, cmltest.NewDevice(t, ctl), ends); err == nil || !strings.Contains(err.Error(), "refused the login") {
+			t.Errorf("%s with the login refused: %v", fqcn, err)
+		}
+	}
+}

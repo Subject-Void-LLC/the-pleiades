@@ -198,3 +198,21 @@ func TestWrite_AMadeThingWithNoIDIsAnError(t *testing.T) {
 		t.Errorf("CreateLink = %v", err)
 	}
 }
+
+// TestConsoleKey_ReadsANodesConsoleUUID: a node's first console line's UUID
+// comes back as the controller gives it, and a node the lab lacks is the
+// controller's refusal.
+func TestConsoleKey_ReadsANodesConsoleUUID(t *testing.T) {
+	ctl := cmltest.New(t, "admin", "pw")
+	c := connected(t, ctl)
+	ctx := context.Background()
+	lab, _ := c.CreateLab(ctx, "cvd")
+	id, _ := c.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "R1", Definition: "iol-xe"})
+	key, err := c.ConsoleKey(ctx, lab.ID, id)
+	if err != nil || key != "11111111-2222-4333-8444-"+id[len(id)-12:] {
+		t.Errorf("ConsoleKey = %q, %v", key, err)
+	}
+	if _, err := c.ConsoleKey(ctx, lab.ID, "no-such-node"); err == nil {
+		t.Error("a node the lab lacks had a console key")
+	}
+}

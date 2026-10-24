@@ -75,7 +75,12 @@ type Controller struct {
 	BootPolls int
 	// Calls are each request's method and path, in order.
 	Calls []string
-	next  int
+	// Fail makes calls answer 500, as a controller failing partway
+	// through a task does: a key "PUT /stop" fails every PUT whose path
+	// (under /api/v0) ends in /stop, and a key "/nodes" every call whose
+	// path ends there, whatever its method.
+	Fail map[string]bool
+	next int
 }
 
 // New starts a controller accepting username and password, closed when t
@@ -128,6 +133,9 @@ func (c *Controller) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Header.Get("Authorization") != "Bearer "+Token:
 		fail(w, http.StatusUnauthorized, "no valid token")
 		return
+	case c.failing(r.Method, path):
+		fail(w, http.StatusInternalServerError, "injected failure")
+		return
 	case path == "/simplified_node_definitions":
 		var defs []map[string]string
 		for _, d := range Definitions {
@@ -158,6 +166,20 @@ func (c *Controller) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.serveLab(w, r, lab, parts[1:])
+}
+
+// failing reports whether a call of method on path matches a key of Fail.
+func (c *Controller) failing(method, path string) bool {
+	for key := range c.Fail {
+		want, suffix, hasMethod := strings.Cut(key, " ")
+		if !hasMethod {
+			want, suffix = "", key
+		}
+		if (want == "" || want == method) && strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // labJSON is lab as GET /labs/{id} answers it.
