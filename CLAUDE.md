@@ -591,7 +591,7 @@ and markdown.
 
 ### Project subagents
 
-`.claude/agents/` defines five agents. Delegate to them instead of writing a general-purpose prompt that
+`.claude/agents/` defines six agents. Delegate to them instead of writing a general-purpose prompt that
 repeats the house rules: each one already carries the gopls ladder, the no-build rule, the evidence format,
 and the writing rules. Each reads `.IGNORE/agents-local.md` first when it exists (git-ignored; this machine's
 memory limits, `gh` setup and lab names).
@@ -603,8 +603,10 @@ memory limits, `gh` setup and lab names).
 | `claim-refuter` | testing a finding, a "fixed" claim, a ticked roadmap item or a doc claim | no |
 | `ci-triager` | a failed Actions run or a local `prreport`: real, contention, infrastructure, or a repeat of N | no |
 | `records-keeper` | the end-of-branch records: failure patterns, lessons, handoff, changelog, roadmap ticks | records only |
+| `docker-cleaner` | Docker itself failing a container test, or tens of GB reclaimable: prunes only what nothing uses, through `.claude/skills/docker-clean` | Docker only |
 
-None commits, pushes, comments, reruns CI or touches a lab VM. The main thread keeps to the machine's
+None commits, pushes, comments, reruns CI or touches a lab VM, and `docker-cleaner` refuses while a gate or test
+run is using Docker. The main thread keeps to the machine's
 concurrency limit across all of them.
 
 ### ent code generation
