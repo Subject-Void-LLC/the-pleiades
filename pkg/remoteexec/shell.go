@@ -107,19 +107,9 @@ func (c *Conn) Shell(ctx context.Context, opts ShellOptions) (*Shell, error) {
 
 	// Cancellation is enforced by closing the session out from under
 	// whichever of RequestPty/StdinPipe/StdoutPipe/Shell below is
-	// blocked, the same shape RunWithStdin's own goroutine uses around
-	// session.Run. Without this a caller's ctx timeout could not reach
-	// a session stuck negotiating a pty-req against an unresponsive
-	// device.
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = session.Close() // #nosec G104 -- intentional, see comment above
-		case <-done:
-		}
-	}()
+	// blocked. Without this a caller's ctx timeout could not reach a
+	// session stuck negotiating a pty-req against an unresponsive device.
+	defer closeWhileRunning(ctx, session)()
 
 	if err := session.RequestPty(term, height, width, ssh.TerminalModes{}); err != nil {
 		_ = session.Close()
@@ -182,15 +172,7 @@ func (s *Shell) WriteLine(ctx context.Context, line string) error {
 		return fmt.Errorf("remoteexec: shell line for %s contains an embedded line terminator, which would submit an unintended second line to the session", s.addr)
 	}
 
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = s.session.Close() // #nosec G104 -- intentional, see Shell's own doc comment
-		case <-done:
-		}
-	}()
+	defer closeWhileRunning(ctx, s.session)()
 
 	if _, err := io.WriteString(s.stdin, line+"\r"); err != nil {
 		return fmt.Errorf("remoteexec: write to shell on %s: %w", s.addr, wrapCtx(ctx, err))
@@ -219,15 +201,7 @@ func (s *Shell) WriteLine(ctx context.Context, line string) error {
 //
 // Every error it returns is a *ReadError holding what had been read.
 func (s *Shell) ReadUntil(ctx context.Context, pattern *regexp.Regexp, maxBytes int) (string, error) {
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = s.session.Close() // #nosec G104 -- intentional, see Shell's own doc comment
-		case <-done:
-		}
-	}()
+	defer closeWhileRunning(ctx, s.session)()
 
 	buf := s.carry
 	s.carry = nil
@@ -257,6 +231,21 @@ func (s *Shell) ReadUntil(ctx context.Context, pattern *regexp.Regexp, maxBytes 
 // is not reusable afterward, matching Conn.Close's own contract.
 func (s *Shell) Close() error {
 	return s.session.Close()
+}
+
+// closeWhileRunning closes session if ctx ends before the stop it returns
+// is called, and never after: the caller defers stop, so a context ending
+// during the call cuts the session off, and one the caller cancels the
+// moment the call returns (net.cli gives each line its own timeout) cannot.
+// A watcher goroutine selecting between ctx.Done and a done channel could:
+// still choosing when the caller cancelled, with both ready, it picked the
+// close half the time and the next read found EOF (FAILURE_PATTERNS 633;
+// closeOnDone in dial.go fixed the same race for the handshake).
+func closeWhileRunning(ctx context.Context, session *ssh.Session) (stop func()) {
+	unregister := context.AfterFunc(ctx, func() {
+		_ = session.Close() // #nosec G104 -- intentional: the closed session is how the blocked call learns it was cancelled
+	})
+	return func() { unregister() }
 }
 
 // wrapCtx substitutes ctx's own error for err when ctx is what actually

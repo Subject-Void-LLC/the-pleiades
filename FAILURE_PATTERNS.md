@@ -635,6 +635,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 630. The image build context grew past its 32 MiB ceiling, because the deny-by-default .dockerignore still let test files and test data in (fixed before push)
 631. A test in a package that only consumes a changed one failed only in CI: pr-check selects the packages a branch changes, not their dependents (a sibling of 559) (open)
 632. A Telnet test's "device never goes quiet" depended on a 200 ms quiet window beating a 50 ms dribble, which a loaded Windows VM did not hold (fixed before push)
+633. A Shell call's watcher could close the session after the call returned, when the caller cancelled the call's context at once: net.cli's next read found EOF (a repeat of 352) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

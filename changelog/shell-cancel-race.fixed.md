@@ -1,0 +1,1 @@
+Fixed an SSH CLI session (`net.cli.*`, `net.ios.*`) occasionally ending under its next line with `read from shell: EOF`: a call's watcher could close the session just after the call returned, when the caller cancelled that call's context at once, as `net.cli` does with each line's own timeout.

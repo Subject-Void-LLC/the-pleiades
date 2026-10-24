@@ -15507,3 +15507,31 @@ phase's deadline or byte bound ends the read.
 
 **Lesson.** A test that needs "never quiet" must leave a margin no scheduler stall on the slowest leg reaches:
 seconds, not a 4x ratio of milliseconds.
+
+## 633. A Shell call's watcher could close the session after the call returned, when the caller cancelled the call's context at once: net.cli's next read found EOF (a repeat of 352) (fixed)
+
+**Symptom.** PR #89's `fast` job, 2026-10-24, strict repeat:
+`TestOpenSession_SendsEveryConfigLineOverOneSession` (`internal/catalog/net/cli`) failed once in three with
+`net.cli.config: netcli: remoteexec: read from shell on 127.0.0.1:35569: EOF`, in 0.00 s. It never failed in 300
+local `-race` runs, on any GOMAXPROCS, and appears in no earlier failed CI run. Investigated before any rerun, at
+the owner's choice.
+
+**Root cause.** `remoteexec.Shell`'s `Shell`, `WriteLine` and `ReadUntil` each started a goroutine selecting between
+`ctx.Done()` (close the session) and a `done` channel the call closed as it returned. net.cli gives every line its
+own timeout context and cancels it the moment the line finishes. When the goroutine was not yet scheduled by then,
+both cases were ready, `select` chose at random, and half the time the session was closed under the next line. A
+loaded CI runner delays the goroutine; this machine rarely does. The race predates the branch.
+
+**Fix.** `closeWhileRunning` (`pkg/remoteexec/shell.go`): `context.AfterFunc` closes the session if the context
+ends during the call, and the stop the call defers guarantees it never runs afterwards. Proven by
+`TestShell_ACancelAfterTheCallLeavesTheSessionOpen`, which cancels each call's context as it returns on one CPU:
+it failed within the first three lines of every run before the fix, with CI's exact error, and passes 50 times on
+1, 2 and 4 CPUs after. `conn.run`'s watcher has the same shape but closes a one-command session that has already
+ended, so it is harmless and left as it is.
+
+**Why 352's fix did not prevent it.** 352 found and fixed this race in `closeOnDone`, for the handshake, and said
+why in its comment; the three identical watchers in `shell.go` were not swept for it.
+
+**Lesson.** A goroutine that selects between "the context ended" and "the call is over" can choose either when both
+are ready: stop the watcher before the call returns (`context.AfterFunc`'s stop, or a stop that waits for the
+goroutine), and when one such watcher is fixed, sweep every watcher of the same shape.
