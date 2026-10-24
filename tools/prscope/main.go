@@ -9,10 +9,15 @@
 // .github/) names nothing: pr-check's static checks and its always-run
 // guards read those, and CI's own jobs test everything else.
 //
-// Some changes also name packages they do not touch: a change that can
+// Some changes also name packages they do not touch, each said on standard
+// error. Every package that imports a changed one directly, its tests
+// included, runs too, since a consumer's assertion about the old behavior
+// otherwise breaks only in CI (FAILURE_PATTERNS 631); importers of
+// importers do not, since a change to a shared package reaches most of the
+// module that way, and CI's own jobs test it all. And a change that can
 // alter what validation decides about an existing runbook adds the
 // packages that validate and run those runbooks, cmd/pleiades first
-// (census.go), and says so on standard error.
+// (census.go).
 //
 // A rename names both its old path and its new one, so a file moved out of
 // a package still selects that package, and paths are read NUL-separated,
@@ -51,10 +56,13 @@ func realMain(root string, args []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	pkgs, trigger, err := changedPackages(root, *base)
+	pkgs, importers, trigger, err := changedPackages(root, *base)
 	if err != nil {
 		fmt.Fprintln(stderr, "prscope:", err)
 		return 1
+	}
+	if len(importers) > 0 {
+		fmt.Fprintf(stderr, "prscope: %d package(s) import a changed one, so they run too (FAILURE_PATTERNS 631): %s\n", len(importers), strings.Join(importers, ", "))
 	}
 	if trigger != "" {
 		fmt.Fprintf(stderr, "prscope: %s changes what validation decides, so %s run too (FAILURE_PATTERNS 559)\n", trigger, strings.Join(censusPackages, ", "))
@@ -66,28 +74,30 @@ func realMain(root string, args []string, stdout, stderr io.Writer) int {
 }
 
 // changedPackages is every package of the module at root holding a file
-// that differs from the merge base of HEAD and base, sorted, plus the
-// census packages when a changed file triggers them; the second result
-// names that file.
-func changedPackages(root, base string) ([]string, string, error) {
+// that differs from the merge base of HEAD and base, every package that
+// imports one of those directly, and the census packages when a changed
+// file triggers them, sorted. The second result is the importers it added
+// that no file of theirs changed, sorted, and the third names the file
+// that triggered the census.
+func changedPackages(root, base string) ([]string, []string, string, error) {
 	mergeBase, err := run(root, "git", "merge-base", "HEAD", base)
 	if err != nil {
-		return nil, "", fmt.Errorf("finding where HEAD left %s: %w", base, err)
+		return nil, nil, "", fmt.Errorf("finding where HEAD left %s: %w", base, err)
 	}
 	// --no-renames prints a rename's old path beside its new one, and -z
 	// prints each path raw, NUL-terminated, where git would otherwise quote
 	// one holding a space or a non-ASCII character.
 	tracked, err := run(root, "git", "diff", "--name-only", "--no-renames", "-z", strings.TrimSpace(mergeBase))
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	untracked, err := run(root, "git", "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
-	packages, err := modulePackages(root)
+	packages, imports, err := modulePackages(root)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	var files []string
 	for _, file := range strings.Split(tracked+"\x00"+untracked, "\x00") {
@@ -107,38 +117,73 @@ func changedPackages(root, base string) ([]string, string, error) {
 			}
 		}
 	}
+	importers := addImporters(found, imports)
 	trigger, err := addCensus(files, packages, found)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	out := make([]string, 0, len(found))
 	for ip := range found {
 		out = append(out, ip)
 	}
 	sort.Strings(out)
-	return out, trigger, nil
+	return out, importers, trigger, nil
+}
+
+// addImporters adds to found every package that imports one already in it
+// directly, in its own code or its tests (imports maps each package to
+// those it imports), and returns the ones it added, sorted. Only the
+// packages found before it ran are followed, so an importer's importers
+// are not added.
+func addImporters(found map[string]bool, imports map[string][]string) []string {
+	var added []string
+	for pkg, deps := range imports {
+		if found[pkg] {
+			continue
+		}
+		for _, dep := range deps {
+			if dep != pkg && found[dep] {
+				added = append(added, pkg)
+				break
+			}
+		}
+	}
+	for _, pkg := range added {
+		found[pkg] = true
+	}
+	sort.Strings(added)
+	return added
 }
 
 // modulePackages maps each package directory of the module at root,
-// slash-separated and relative to root, to its import path, under the
-// integration tag CI's test tiers build with.
-func modulePackages(root string) (map[string]string, error) {
-	out, err := run(root, "go", "list", "-tags", "integration", "-f", "{{.Dir}}\t{{.ImportPath}}", "./...")
+// slash-separated and relative to root, to its import path, and each
+// package's import path to what it imports, its tests' imports included,
+// under the integration tag CI's test tiers build with.
+func modulePackages(root string) (map[string]string, map[string][]string, error) {
+	out, err := run(root, "go", "list", "-tags", "integration", "-f",
+		"{{.Dir}}\t{{.ImportPath}}\t{{join .Imports \" \"}} {{join .TestImports \" \"}} {{join .XTestImports \" \"}}", "./...")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = resolved
 	}
 	packages := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		dir, ip, ok := strings.Cut(line, "\t")
-		if !ok {
+	imports := map[string][]string{}
+	for _, line := range strings.Split(out, "\n") {
+		// A package with no imports ends its line in a tab and spaces, which
+		// trimming would take with it, so only the third field is optional.
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) < 2 {
 			continue
+		}
+		dir, ip := fields[0], fields[1]
+		if len(fields) == 3 {
+			imports[ip] = strings.Fields(fields[2])
 		}
 		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
 			dir = resolved
@@ -149,7 +194,7 @@ func modulePackages(root string) (map[string]string, error) {
 		}
 		packages[filepath.ToSlash(rel)] = ip
 	}
-	return packages, nil
+	return packages, imports, nil
 }
 
 // run runs name with args in dir and returns its standard output; a
