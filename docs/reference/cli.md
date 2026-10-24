@@ -292,7 +292,7 @@ make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management a
 | --tls-fingerprint | `string` | - | trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates |
 | --tls-ca | `string` | - | a PEM file of the CAs the controller's certificate must chain to |
 | --allow-plaintext | `bool` | `false` | send the password over plain HTTP to a controller that is not this machine |
-| --via | `string` | `ssh` | how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext) |
+| --via | `string` | `ssh` | how the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here |
 | --trust-first-connect | `bool` | `false` | trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does |
 | --onboard | `bool` | `false` | onboard each node once it is imported (needs a credential and trusted host keys) |
 | --replace | `bool` | `false` | replace the address of a node already in the inventory as the same device type |

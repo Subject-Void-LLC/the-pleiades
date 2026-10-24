@@ -317,7 +317,7 @@ var Root = Command{
 				{Name: "tls-fingerprint", Type: "string", Default: "", Doc: "trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates"},
 				{Name: "tls-ca", Type: "string", Default: "", Doc: "a PEM file of the CAs the controller's certificate must chain to"},
 				{Name: "allow-plaintext", Type: "bool", Default: "false", Doc: "send the password over plain HTTP to a controller that is not this machine"},
-				{Name: "via", Type: "string", Default: "ssh", Doc: "how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext)"},
+				{Name: "via", Type: "string", Default: "ssh", Doc: "how the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here"},
 				{Name: "trust-first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does"},
 				{Name: "onboard", Type: "bool", Default: "false", Doc: "onboard each node once it is imported (needs a credential and trusted host keys)"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the address of a node already in the inventory as the same device type"},

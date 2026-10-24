@@ -11,6 +11,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml/cmltest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
@@ -195,5 +196,73 @@ func TestImportCML_ThroughAControllerDevice(t *testing.T) {
 		if err := runImportCML(append([]string{"--dir", dir}, tc.args...)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want an error mentioning %q", name, err, tc.want)
 		}
+	}
+}
+
+// TestImportCML_ViaConsole: --via console makes an IOS node a device
+// reached through the controller's console server, at the console UUID the
+// controller gives, and skips a node that is not IOS, saying why; it needs
+// --controller and takes no address; and trust-host reads a controller's
+// console server address, so its host key can be trusted.
+func TestImportCML_ViaConsole(t *testing.T) {
+	ctl := cmltest.New(t, "admin", "pw")
+	client, err := cml.New(ctl.URL, ctl.Client(), cml.Credentials{Username: "admin", Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := client.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	lab, _ := client.CreateLab(ctx, "cvd")
+	r1, _ := client.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "R1", Definition: "iol-xe"})
+	if _, err := client.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "SW1", Definition: "unmanaged_switch"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	for _, step := range [][]string{
+		{"init", "--dir", dir},
+		{"add-host", "cml", "--dir", dir, "--type", "cml_controller", "--set", "api_base=" + ctl.URL, "--set", "tls_fingerprint=" + devicetls.Fingerprint(ctl.Certificate()), "--set", "console_port=2222"},
+		{"add-credential", "cml", "--dir", dir, "--username", "admin", "--password", "pw"},
+	} {
+		run := map[string]func([]string) error{"init": runInit, "add-host": runAddHost, "add-credential": runAddCredential}[step[0]]
+		if err := run(step[1:]); err != nil {
+			t.Fatalf("%s: %v", strings.Join(step, " "), err)
+		}
+	}
+	if err := runImportCML([]string{"--dir", dir, "--controller", "cml", "--lab", "cvd", "--via", "console"}); err != nil {
+		t.Fatal(err)
+	}
+	repo := inventory.NewFileRepository(filepath.Join(dir, inventory.DefaultInventoryFilename), inventory.NewItemFactory())
+	item, err := repo.GetByName(ctx, "R1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served, ok := item.(capability.ConsoleServedCapable)
+	if !ok || !item.HasCapability(capability.NameConsoleServed) || served.ConsoleServer() != "cml" || served.ConsoleLine() != "11111111-2222-4333-8444-"+r1[len(r1)-12:] {
+		t.Errorf("R1 = %v", item.Properties())
+	}
+	if _, err := repo.GetByName(ctx, "SW1"); err == nil {
+		t.Error("a node that is not IOS was imported to be reached through its console")
+	}
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"no controller": {[]string{"--server", ctl.URL, "--username", "admin", "--lab", "cvd", "--via", "console"}, "needs --controller"},
+		"an address":    {[]string{"--controller", "cml", "--lab", "cvd", "--via", "console", "--address", "R1=10.0.0.1"}, "no address of its own"},
+		"a bad via":     {[]string{"--controller", "cml", "--lab", "cvd", "--via", "serial"}, "ssh, telnet or console"},
+	} {
+		if err := runImportCML(append([]string{"--dir", dir}, tc.args...)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want an error mentioning %q", name, err, tc.want)
+		}
+	}
+
+	controller, err := repo.GetByName(ctx, "cml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr, err := sshAddress(controller); err != nil || !strings.HasSuffix(addr, ":2222") {
+		t.Errorf("trust-host's address for a controller = %q, %v", addr, err)
 	}
 }

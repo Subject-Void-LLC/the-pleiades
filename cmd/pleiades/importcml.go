@@ -128,7 +128,7 @@ func runImportCML(args []string) error {
 	allowPlaintext := fs.Bool("allow-plaintext", false, "send the password over plain HTTP to a controller that is not this machine")
 	trust := fs.Bool("trust-first-connect", false, "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does")
 	onboardNodes := fs.Bool("onboard", false, "onboard each node once it is imported (needs a credential and trusted host keys)")
-	via := fs.String("via", "ssh", "how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext)")
+	via := fs.String("via", "ssh", "how the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here")
 	replace := fs.Bool("replace", false, "replace the address of a node already in the inventory as the same device type")
 	asJSON := fs.Bool("json", false, "print the result as one JSON document")
 	if err := fs.Parse(args); err != nil {
@@ -145,8 +145,16 @@ func runImportCML(args []string) error {
 	case *controller == "" && (*server == "" || *username == ""):
 		return errors.New("--server and --username are required without --controller: the import logs in to the controller it names")
 	}
-	if *via != "ssh" && *via != "telnet" {
-		return fmt.Errorf("--via is ssh or telnet, not %q", *via)
+	if *via != "ssh" && *via != "telnet" && *via != "console" {
+		return fmt.Errorf("--via is ssh, telnet or console, not %q", *via)
+	}
+	if *via == "console" {
+		switch {
+		case *controller == "":
+			return errors.New("--via console needs --controller: each node is reached through that cml_controller's console server, and names it")
+		case len(addresses) > 0 || *trust || *onboardNodes:
+			return errors.New("a node reached through the console server has no address of its own: --address, --trust-first-connect and --onboard do not apply with --via console")
+		}
 	}
 	if *via == "telnet" && (*trust || *onboardNodes) {
 		return errors.New("--trust-first-connect and --onboard are SSH's; a node reached over Telnet has no host key and is used as imported")
@@ -195,6 +203,24 @@ func runImportCML(args []string) error {
 	}
 	for _, n := range nodes {
 		out := cmlImported{Device: n.Label, NodeDefinition: n.NodeDefinition, State: n.State}
+		if *via == "console" {
+			deviceType, props, skip, err := cmlConsoleSpec(ctx, client, picked.ID, n, *controller)
+			if err != nil {
+				return err
+			}
+			if skip != "" {
+				out.Skipped = skip
+				res.Nodes = append(res.Nodes, out)
+				continue
+			}
+			spec := inventory.HostSpec{ID: uuid.New().String(), Name: n.Label, Type: deviceType, Tags: tags, Properties: props}
+			if hosts, err = labPlace(hosts, spec, *replace); err != nil {
+				return err
+			}
+			out.Address, out.Type, out.Via = "console of "+*controller, deviceType, *via
+			res.Nodes = append(res.Nodes, out)
+			continue
+		}
 		addr, from, skip := cmlAddress(n, addresses)
 		if skip != "" {
 			out.Skipped = skip
@@ -254,12 +280,18 @@ func runImportCML(args []string) error {
 			fmt.Printf("skipped %q (%q): %s\n", n.Device, n.NodeDefinition, n.Skipped)
 			continue
 		}
+		if n.Via == "console" {
+			fmt.Printf("imported %s (%q, %s) as a %s reached through the %s\n", n.Device, n.NodeDefinition, termsafe.EscapeLine(n.State), n.Type, termsafe.EscapeLine(n.Address))
+			continue
+		}
 		fmt.Printf("imported %s (%q, %s) as a %s at %s over %s, from %s\n", n.Device, n.NodeDefinition, termsafe.EscapeLine(n.State), n.Type, n.Host, n.Via, termsafe.EscapeLine(n.Address))
 	}
 	if follow != nil {
 		return follow
 	}
 	switch {
+	case *via == "console":
+		fmt.Printf("next, for each node: pleiades add-credential (the node's own login, answered on its console line; the console server's login is %s's)\n", *controller)
 	case *via == "telnet":
 		fmt.Println("next, for each node: pleiades add-credential (with --enable-password for a router's enable secret); every method reaching one takes insecure_telnet: true among its parameters")
 	case !*trust || !*onboardNodes:
@@ -454,4 +486,21 @@ func cmlByController(ctx context.Context, dir, name string) (cmlConnection, erro
 		server = c.CMLBaseURL()
 	}
 	return cmlConnection{client: client, version: version, server: server, warnings: warnings}, nil
+}
+
+// cmlConsoleSpec is the device a node becomes when it is reached through
+// controller's console server: its Cisco type, with transport console,
+// console_server naming controller and console_line the node's console
+// UUID from the controller, which names exactly one node's line. A node
+// that is not IOS or IOS XE is skipped, saying why.
+func cmlConsoleSpec(ctx context.Context, client *cml.Client, lab string, n cml.Node, controller string) (string, map[string]pkginventory.PropertyValue, string, error) {
+	deviceType, ok := cmlCiscoTypes[n.NodeDefinition]
+	if !ok {
+		return "", nil, "a console import is for IOS and IOS XE nodes, whose login it answers", nil
+	}
+	key, err := client.ConsoleKey(ctx, lab, n.ID)
+	if err != nil {
+		return "", nil, "", err
+	}
+	return deviceType, map[string]pkginventory.PropertyValue{"transport": "console", "console_server": controller, "console_line": key}, "", nil
 }

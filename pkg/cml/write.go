@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"time"
 )
 
@@ -290,4 +291,22 @@ func notDone(nodes []Node, ids []string, done func(string) bool) []string {
 		}
 	}
 	return out
+}
+
+// consoleKey is what a console's key must be: the UUID the console server
+// connects by.
+var consoleKey = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// ConsoleKey returns the UUID of node id's first console line, which the
+// controller's console server connects to ("connect <uuid>") and which
+// names exactly one node, where a lab title may name two.
+func (c *Client) ConsoleKey(ctx context.Context, lab, id string) (string, error) {
+	var key string
+	if err := c.get(ctx, nodePath(lab, id)+"/keys/console?line=0", &key); err != nil {
+		return "", err
+	}
+	if !consoleKey.MatchString(key) {
+		return "", fmt.Errorf("cml: node %s's console key %q is not a UUID", id, key)
+	}
+	return key, nil
 }

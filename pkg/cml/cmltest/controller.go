@@ -385,6 +385,10 @@ func (c *Controller) serveNode(w http.ResponseWriter, r *http.Request, lab *Lab,
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	case route == "keys/console":
+		// A console's key, derived from the node's id so a test can
+		// predict it.
+		reply(w, "11111111-2222-4333-8444-"+n.ID[len(n.ID)-12:])
 	case route == "interfaces":
 		var out []map[string]any
 		for _, i := range n.Interfaces {
