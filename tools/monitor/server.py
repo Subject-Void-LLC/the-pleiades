@@ -9,6 +9,7 @@ Routes (GET only):
     /history          every saved run, newest first, with stage durations
     /history/<id>     one saved run
     /actions-history  every Actions run seen, with its jobs
+    /binsize          the binary size ledger, grouped for charting
 
 A request whose Host header is not this machine's loopback is refused, so a
 page on another site cannot read the dashboard through DNS rebinding.
@@ -56,6 +57,10 @@ class Backend(Protocol):
 
     def actions_history(self) -> object:
         """Returns the /actions-history document."""
+        ...
+
+    def binsize(self) -> object:
+        """Returns the /binsize document."""
         ...
 
 
@@ -141,6 +146,8 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
                 self.send_json(app.history())
             elif path == "/actions-history":
                 self.send_json(app.actions_history())
+            elif path == "/binsize":
+                self.send_json(app.binsize())
             else:
                 m = HISTORY_PATH.match(path)
                 run = app.history_run(m.group(1)) if m else None

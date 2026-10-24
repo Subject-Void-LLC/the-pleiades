@@ -44,11 +44,14 @@ STATIC_TARGETS = [
 HIDDEN_UNTIL_SEEN = ("tools", "templ-gen")
 PASSES = ["fast", "repeat", "containers"]
 LEGS = ["mac", "bsd", "win"]
-STEPS = ["govulncheck", "images", "coverage", "durations"]
+# coverage-fast checks the fast pass's coverage floors before anything else
+# runs; sizes records the binary sizes (tools/binsize) after durations.
+STEPS = ["coverage-fast", "govulncheck", "images", "coverage", "durations", "sizes"]
 # The parts report.json can list as expected.
 REPORT_PARTS = PASSES + LEGS + STEPS
 # The order the dashboard lists stages in.
-DISPLAY_ORDER = STATIC_TARGETS + ["scope"] + PASSES + LEGS + STEPS
+DISPLAY_ORDER = (STATIC_TARGETS + ["scope", "fast", "coverage-fast", "repeat", "containers"] + LEGS
+                 + ["govulncheck", "images", "coverage", "durations", "sizes"])
 
 # A verdict word from a record or prreport's summary, as a stage status.
 VERDICT_STATUS: Dict[str, str] = {
@@ -279,6 +282,9 @@ class RunState:
         in_summary: Whether prreport's closing summary has begun.
         records_valid: Whether .coverage/pr holds this run's records.
         lines: Main-log lines read.
+        scope_done_at: When the package count line was read.
+        fast_first: Whether the fast pass ran before the legs began (the
+            order with coverage-fast), rather than beside them.
     """
 
     stages: Dict[str, Stage]
@@ -303,6 +309,8 @@ class RunState:
     in_summary: bool
     records_valid: bool
     lines: int
+    scope_done_at: Optional[float]
+    fast_first: bool
 
     def __init__(self, now: float) -> None:
         """Creates a run with every known stage pending.
@@ -332,6 +340,8 @@ class RunState:
         self.in_summary = False
         self.records_valid = False
         self.lines = 0
+        self.scope_done_at = None
+        self.fast_first = False
 
     def stage(self, name: str) -> Stage:
         """Finds a stage, adding it when it is new.
@@ -452,6 +462,9 @@ class RunState:
     def end_run(self, now: float, exit_code: int, stopped_by: Optional[str] = None) -> None:
         """Closes the run: its exit code, its verdict and any stage still open.
 
+        A stage still pending never ran: it is marked not-run, so nothing
+        stays pending once the run is over.
+
         Args:
             now: When it ended.
             exit_code: pr-check's exit status.
@@ -472,6 +485,9 @@ class RunState:
                     self.finish(st.name, now, STOPPED)
                 else:
                     self.finish(st.name, now, ENDED if exit_code == 0 else FAIL)
+            elif st.status == PENDING and st.name not in HIDDEN_UNTIL_SEEN:
+                st.status = NOT_RUN
+                st.detail = st.detail or "did not run"
 
     def to_dict(self, now: float, max_points: int = 1500) -> RunDict:
         """Converts the run for the page or for history.

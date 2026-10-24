@@ -26,6 +26,7 @@ import unittest  # noqa: E402
 from typing import Dict, List, Mapping, Optional, Tuple  # noqa: E402
 
 import actions  # noqa: E402
+import binsize  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
 import memwatch  # noqa: E402
@@ -209,8 +210,10 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(state.stage("scope").status, ps.RUNNING)
         feed(state, ["pr-check: 2 container-free and 1 container package(s) against origin/main"], 20)
         self.assertEqual(state.stage("scope").status, ps.PASS)
-        self.assertEqual(state.stage("mac").status, ps.RUNNING)
+        self.assertEqual(state.stage("mac").status, ps.PENDING)
         self.assertTrue(state.records_valid)
+        feed(state, ["maccheck: 2 package(s) at abc on someone@192.0.2.10"], 25)
+        self.assertEqual((state.stage("mac").status, state.main), (ps.RUNNING, "mac"))
         feed(state, ["maccheck: the tree of abc is on someone@192.0.2.10; -phase test runs its tests"], 30)
         self.assertEqual(state.stage("mac").status, ps.RUNNING)
         self.assertEqual(state.stage("govulncheck").status, ps.RUNNING)
@@ -258,11 +261,69 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(state.verdict, "fail")
 
     def test_end_run_stops_open_stages(self) -> None:
-        """Marks open stages stopped when the monitor stopped the run."""
+        """Marks open stages stopped, and stages that never began not-run."""
         state = ps.RunState(0.0)
-        feed(state, ["pr-check: 3 container-free and 0 container package(s) against origin/main"])
+        feed(state, ["pr-check: 3 container-free and 0 container package(s) against origin/main",
+                     "maccheck: 3 package(s) at abc on someone@192.0.2.10"])
         state.end_run(5.0, 143, stopped_by="watchdog")
         self.assertEqual((state.verdict, state.stage("mac").status), ("stopped", ps.STOPPED))
+        self.assertEqual(state.stage("win").status, ps.NOT_RUN)
+        self.assertEqual(state.stage("containers").status, ps.SKIPPED)
+        self.assertNotIn("tools", [s["name"] for s in state.to_dict(5.0)["stages"]])
+
+    def test_newer_order_fast_then_coverage_fast(self) -> None:
+        """Starts the fast pass from the count line, then coverage-fast, then the legs."""
+        state = ps.RunState(0.0)
+        feed(state, ["pr-check: 2 container-free and 1 container package(s) against origin/main"], 10)
+        feed(state, ["ok  \t" + PKG + "a\t1.0s"], 50)
+        fast = state.stage("fast")
+        self.assertEqual((fast.status, fast.start, state.fast_first), (ps.RUNNING, 10.0, True))
+        feed(state, ["testgate: all tests passed"], 60)
+        self.assertEqual((fast.status, state.main), (ps.PASS, "coverage-fast"))
+        feed(state, ["coverage-check: 2 package(s) measured, none below their recorded floor"], 70)
+        self.assertEqual(state.stage("coverage").status, ps.PENDING)
+        feed(state, ["maccheck: 2 package(s) at abc on someone@192.0.2.10"], 80)
+        self.assertEqual(state.stage("coverage-fast").status, ps.ENDED)
+        self.assertEqual(state.stage("mac").status, ps.RUNNING)
+        feed(state, ["maccheck: the tree of abc is on someone@192.0.2.10; -phase test runs its tests",
+                     "pr-check: the bsd win tests run one after another beside the ones below"], 90)
+        self.assertEqual((state.main, state.stage("repeat").status), ("repeat", ps.RUNNING))
+
+    def test_coverage_floor_stop(self) -> None:
+        """Fails coverage-fast and marks what never ran not-run, not pending."""
+        state = ps.RunState(0.0)
+        feed(state, ["pr-check: 2 container-free and 1 container package(s) against origin/main",
+                     "ok  \t" + PKG + "a\t1.0s", "testgate: all tests passed",
+                     "coverage-check: " + PKG + "a: 50.0%, below its floor of 80.0%", "exit status 1",
+                     "pr-check: the container-free packages miss a coverage floor, so nothing else runs"])
+        got = statuses(state)
+        self.assertEqual(got["coverage-fast"], ps.FAIL)
+        for name in ("repeat", "containers", "mac", "bsd", "win", "govulncheck", "images", "coverage", "sizes"):
+            self.assertEqual(got[name], ps.NOT_RUN, name)
+
+    def test_sizes_step(self) -> None:
+        """Reads tools/binsize's lines as the sizes step."""
+        state = ps.RunState(0.0)
+        feed(state, ["pr-check: 2 container-free and 1 container package(s) against origin/main",
+                     "testgate: durations.json holds a time for each of the 1 measured package(s)",
+                     "binsize: ./cmd/pleiades at 0123456789ab, go1.26.10 -trimpath -ldflags=-s -w, cgo off",
+                     "  linux/amd64        42.13 MiB  +0.21 MiB (+0.5%) since 0123456789aa",
+                     "  darwin/arm64       40.02 MiB  (first recorded)"])
+        sizes = state.stage("sizes")
+        self.assertEqual((sizes.status, len(sizes.packages)), (ps.RUNNING, 2))
+        self.assertIn("darwin/arm64", sizes.detail)
+        feed(state, ["pr-check: waiting for the mac tests"], 10)
+        self.assertEqual(sizes.status, ps.ENDED)
+        feed(state, ["pr-check at abc, 2026-10-24 14:24 UTC: PASS (exit 0)", "  sizes       pass     exit 0"], 20)
+        self.assertEqual(sizes.status, ps.PASS)
+
+    def test_leg_total_is_its_own(self) -> None:
+        """Takes a leg's package count from its own line, not the fast pass's."""
+        state = ps.RunState(0.0)
+        feed(state, ["pr-check: 38 container-free and 1 container package(s) against origin/main",
+                     "maccheck: 36 package(s) at abc on someone@192.0.2.10"])
+        self.assertEqual((state.stage("fast").total, state.stage("mac").total), (38, 36))
+        self.assertIsNone(state.stage("win").total)
 
     def test_finish_keeps_the_first_end(self) -> None:
         """Keeps an ended stage's time; only an unknown verdict may change."""
@@ -448,6 +509,50 @@ class HistoryTest(unittest.TestCase):
                                       for i in range(history.MAX_ACTIONS_RUNS + 20)]
             self.assertEqual(len(store.save_actions(many)), history.MAX_ACTIONS_RUNS)
             self.assertEqual(stat.S_IMODE(os.stat(store.actions_path()).st_mode), 0o600)
+
+
+class BinsizeTest(unittest.TestCase):
+    """The binary size ledger reader."""
+
+    def test_groups_by_package_go_and_flags(self) -> None:
+        """Compares only entries with the same package, Go release and flags."""
+        def line(commit: str, at: str, platform: str, go: str, size: int, flags: JSONValue = "-trimpath -ldflags=-s -w") -> str:
+            """Builds one ledger line."""
+            return json.dumps({"schema": 1, "commit": commit, "dirty": False, "recorded_at": at, "package": "./cmd/pleiades",
+                               "platform": platform, "go_version": go, "flags": flags, "bytes": size})
+        text = "\n".join([
+            line("aaa", "2026-10-01T00:00:00Z", "linux/amd64", "go1.26.10", 100),
+            line("bbb", "2026-10-02T00:00:00Z", "linux/amd64", "go1.26.10", 110),
+            line("aaa", "2026-10-01T00:00:01Z", "darwin/arm64", "go1.26.10", 90),
+            line("ccc", "2026-10-03T00:00:00Z", "linux/amd64", "go1.27.0", 120),
+            line("ddd", "2026-10-04T00:00:00Z", "linux/amd64", "go1.26.10", 105, ["-trimpath"]),
+            "not json", json.dumps({"schema": 2, "bytes": 1}), "",
+        ])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "binsize.jsonl")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            doc = binsize.read_ledger(path)
+        self.assertIsNone(doc["error"])
+        self.assertEqual(doc["skipped"], 2)
+        self.assertEqual(len(doc["groups"]), 3)
+        newest = doc["groups"][0]
+        self.assertEqual((newest["flags"], newest["go_version"]), ("-trimpath", "go1.26.10"))
+        main = next(g for g in doc["groups"] if g["go_version"] == "go1.26.10" and g["flags"] == "-trimpath -ldflags=-s -w")
+        self.assertEqual([e["bytes"] for e in main["platforms"]["linux/amd64"]], [100, 110])
+        self.assertEqual(sorted(main["platforms"]), ["darwin/arm64", "linux/amd64"])
+
+    def test_missing_or_unreadable(self) -> None:
+        """Says why there is nothing, instead of raising."""
+        with tempfile.TemporaryDirectory() as d:
+            missing = binsize.read_ledger(os.path.join(d, "binsize.jsonl"))
+            self.assertIn("no ledger yet", missing["error"] or "")
+            unreadable = binsize.read_ledger(d)
+            self.assertIn("cannot read", unreadable["error"] or "")
+            path = os.path.join(d, "junk.jsonl")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("junk\n")
+            self.assertIn("no entry", binsize.read_ledger(path)["error"] or "")
 
 
 class FakeApi:
@@ -648,6 +753,10 @@ class ServerTest(unittest.TestCase):
                 code, _, _ = self.get(port, "/state", host="evil.example:%d" % port)
                 self.assertEqual(code, 403)
                 self.assertEqual(self.get(port, "/history")[0], 200)
+                code, _, body = self.get(port, "/binsize")
+                size_doc = as_object(loads(body.decode("utf-8")))
+                self.assertEqual(code, 200)
+                self.assertEqual(size_doc.get("path") if size_doc else None, os.path.join(".IGNORE", "ci", "binsize.jsonl"))
                 self.assertEqual(self.get(port, "/history/20990101T000000Z")[0], 404)
                 self.assertEqual(self.get(port, "/../monitor.py")[0], 404)
             finally:

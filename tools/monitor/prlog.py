@@ -66,15 +66,18 @@ LEG_FAIL = re.compile(r"^(\w+)check: the tests failed on ")
 LEG_ERROR = re.compile(r"^(\w+)check: running the tests on ")
 LEG_PUT_BACK = re.compile(r"^(\w+)check: put the VM \S+ back")
 LEG_BOX = re.compile(r"^\w+check: starting the VM ")
-LEG_READY = re.compile(r"^\w+check: \d+ package\(s\) at \S+ on ")
+LEG_READY = re.compile(r"^\w+check: (\d+) package\(s\) at \S+ on ")
 LEG_TESTING = re.compile(r"^\w+check: running on the ")
+FLOOR_STOP = re.compile(r"^pr-check: the container-free packages miss a coverage floor")
+BINSIZE_HEAD = re.compile(r"^binsize: ")
+BINSIZE_ROW = re.compile(r"^  ([\w.-]+/[\w.-]+)\s+([\d.]+ [KMG]iB)\s*(.*)$")
 RFC3339 = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$")
 
 # STEP_ORDER is the serial order of what follows the testgate passes.
 STEP_ORDER = ["images", "coverage", "durations"]
 
 
-def next_after_pass(state: ps.RunState, name: str) -> str:
+def next_after_pass(state: ps.RunState, name: str) -> Optional[str]:
     """Names the stage that runs after a testgate pass.
 
     Args:
@@ -82,9 +85,14 @@ def next_after_pass(state: ps.RunState, name: str) -> str:
         name: The pass that just ended.
 
     Returns:
-        The next stage's name.
+        The next stage's name, or None when the next one starts on a marker
+        of its own.
     """
     if name == "fast":
+        if state.fast_first:
+            # The newer order: coverage-fast, then the legs; repeat starts
+            # once pr-check says the lab legs run beside it.
+            return None if state.stage("coverage-fast").status == ps.SKIPPED else "coverage-fast"
         return "repeat"
     if name == "repeat":
         return "images" if state.docker_total == 0 else "containers"
@@ -92,18 +100,18 @@ def next_after_pass(state: ps.RunState, name: str) -> str:
 
 
 def first_pass(state: ps.RunState) -> str:
-    """Names the first testgate pass this run has.
+    """Names the first testgate pass that has not begun.
 
     Args:
         state: The run.
 
     Returns:
-        fast, containers, or images when the run has no pass.
+        fast, repeat or containers, or images when every pass is done or
+        not in this run.
     """
-    if state.fast_total != 0:
-        return "fast"
-    if state.docker_total != 0:
-        return "containers"
+    for name in ps.PASSES:
+        if state.stage(name).status == ps.PENDING:
+            return name
     return "images"
 
 
@@ -179,9 +187,8 @@ def on_scope_count(state: ps.RunState, m: re.Match[str], now: float) -> None:
         state.stage(name).total = state.fast_total
         if state.fast_total == 0:
             state.set_verdict(name, ps.SKIPPED, "no container-free package changed")
-    for leg in ps.LEGS:
-        # Each OS leg runs the same container-free packages.
-        state.stage(leg).total = state.fast_total
+    if state.fast_total == 0:
+        state.set_verdict("coverage-fast", ps.SKIPPED, "no container-free package changed")
     state.stage("containers").total = state.docker_total
     if state.docker_total == 0:
         state.set_verdict("containers", ps.SKIPPED, "no container package changed")
@@ -189,9 +196,10 @@ def on_scope_count(state: ps.RunState, m: re.Match[str], now: float) -> None:
     # pr-check deletes and rewrites .coverage/pr right after this line, so
     # its records belong to this run from here on.
     state.records_valid = True
-    # The Mac's prepare phase runs next, in the foreground.
-    state.start("mac", now, "preparing: checking the machine and sending the tree")
-    state.main = "mac"
+    state.scope_done_at = now
+    # What runs next depends on the Makefile's order: the Mac's prepare
+    # phase (a maccheck line) or the fast pass (its first package line).
+    state.main = None
 
 
 def leg_step(st: ps.Stage, line: str) -> None:
@@ -201,10 +209,13 @@ def leg_step(st: ps.Stage, line: str) -> None:
         st: The leg's stage.
         line: A line the leg's check printed.
     """
+    ready = LEG_READY.match(line)
     if LEG_BOX.match(line):
         st.reach("box")
-    elif LEG_READY.match(line):
+    elif ready:
         st.reach("ready")
+        # The leg's own package count, which can differ from the fast pass's.
+        st.total = int(ready.group(1))
     elif TREE_SENT.match(line) or LEG_TESTING.match(line):
         st.reach("ship")
     elif LEG_PASS.match(line) or LEG_FAIL.match(line):
@@ -224,7 +235,13 @@ def on_oscheck(state: ps.RunState, leg: str, line: str, now: float) -> None:
         line: The line.
         now: The time it was read.
     """
-    state.start(leg, now)
+    if state.stage(leg).status == ps.PENDING:
+        # The leg's prepare phase runs in the foreground: whatever ran
+        # before it (coverage-fast, in the newer order) has ended.
+        if state.main is not None and state.main not in ps.LEGS:
+            state.close_main(now)
+        state.start(leg, now, "preparing: checking the machine and sending the tree")
+        state.main = leg
     state.stage(leg).last_line = line
     leg_step(state.stage(leg), line)
     if TREE_SENT.match(line):
@@ -277,6 +294,74 @@ def on_make_error(state: ps.RunState, target: str, now: float) -> None:
         state.verdict = "fail"
 
 
+def current_pass(state: ps.RunState, now: float) -> Optional[str]:
+    """Names the testgate pass a package line belongs to, starting it if needed.
+
+    In the newer order the fast pass begins right after the package count
+    line with no marker of its own, so its first output starts it, timed
+    from the count line.
+
+    Args:
+        state: The run.
+        now: The time the line was read.
+
+    Returns:
+        The pass, or None when the line belongs to no pass.
+    """
+    if state.main in ps.PASSES:
+        return state.main
+    if state.main is not None or state.tail is not None or state.scope_done_at is None:
+        return None
+    if state.stage("fast").status == ps.PENDING and state.fast_total != 0 and state.stage("mac").status == ps.PENDING:
+        state.fast_first = True
+        state.start("fast", state.scope_done_at)
+        state.main = "fast"
+        return "fast"
+    return None
+
+
+def on_floor_stop(state: ps.RunState, now: float) -> None:
+    """Reads pr-check stopping because the fast pass missed a coverage floor.
+
+    Everything it expected and had not begun will never run.
+
+    Args:
+        state: The run.
+        now: The time it was read.
+    """
+    state.close_main(now, ps.FAIL)
+    state.finish("coverage-fast", now, ps.FAIL)
+    for name in ps.REPORT_PARTS:
+        st = state.stage(name)
+        if st.status == ps.PENDING:
+            st.status = ps.NOT_RUN
+            st.detail = "not run: the container-free packages missed a coverage floor"
+
+
+def on_binsize(state: ps.RunState, line: str, now: float) -> bool:
+    """Reads tools/binsize's lines, which make up the sizes step.
+
+    Args:
+        state: The run.
+        line: The line.
+        now: The time it was read.
+
+    Returns:
+        Whether the line was one of them.
+    """
+    if BINSIZE_HEAD.match(line):
+        advance(state, "sizes", now)
+        state.stage("sizes").detail = line
+        return True
+    m = BINSIZE_ROW.match(line)
+    if m and state.main == "sizes":
+        st = state.stage("sizes")
+        st.packages.add(m.group(1))
+        st.detail = "%d platform(s); %s %s %s" % (len(st.packages), m.group(1), m.group(2), m.group(3))
+        return True
+    return False
+
+
 def on_step_line(state: ps.RunState, line: str, now: float) -> bool:
     """Reads the lines that end testgate passes and the steps after them.
 
@@ -288,7 +373,20 @@ def on_step_line(state: ps.RunState, line: str, now: float) -> bool:
     Returns:
         Whether the line was one of them.
     """
+    if FLOOR_STOP.match(line):
+        on_floor_stop(state, now)
+        return True
+    if PASS_OK.match(line):
+        current_pass(state, now)
     main = state.main
+    if main == "coverage-fast" and (COVERAGE_LINE.match(line) or EXIT_STATUS.match(line)):
+        # The fast pass's own floor check: its lines are not the coverage step's.
+        if EXIT_STATUS.match(line):
+            state.finish(main, now, ps.FAIL)
+        return True
+    if main == "sizes" and EXIT_STATUS.match(line):
+        state.close_main(now, ps.FAIL)
+        return True
     if PASS_OK.match(line) and main in ps.PASSES:
         state.finish(main, now, ps.PASS)
         advance(state, next_after_pass(state, main), now)
@@ -391,13 +489,14 @@ def feed_line(state: ps.RunState, line: str, now: float) -> None:
         return
     m = PACKAGE.match(line)
     if m:
-        if state.main in ps.PASSES:
-            st = state.stage(state.main)
+        name = current_pass(state, now)
+        if name is not None:
+            st = state.stage(name)
             st.packages.add(m.group(2))
             if m.group(1) == "FAIL":
                 st.failed.add(m.group(2))
         return
-    if on_step_line(state, line, now):
+    if on_step_line(state, line, now) or on_binsize(state, line, now):
         return
     m = WAITING.match(line)
     if m:

@@ -64,13 +64,18 @@ is read, so the static checks and pass progress are not visible.
   `--trace`, static stages are found by their first command, and `fmt`
   (which prints nothing) is marked passed once make reaches pr-check.
 - **pr-check's markers**, in order: `prscope:`, `pr-check: N container-free
-  and M container package(s) against BASE`, the Mac's prepare lines
+  and M container package(s) against BASE`. In the newer order the fast pass
+  runs next (its first package line starts it, timed from the count line),
+  then `coverage-fast`, the fast pass's own coverage floors; a failing one
+  prints `pr-check: the container-free packages miss a coverage floor ...`
+  and every part not yet begun is marked not-run. Then the Mac's prepare lines
   (`maccheck: ...`), govulncheck, `pr-check: the mac tests run beside ...`,
   `pr-check: the bsd win tests run one after another ...`, the testgate passes
   (fast, repeat, containers; each `ok`/`FAIL` package line counts toward the
   pass, which ends at `testgate: all tests passed` or `exit status N`),
-  `coverage-check:` lines, `testgate: durations.json ...`, `pr-check: waiting
-  for the X tests` (the legs' output follows), and prreport's summary
+  `coverage-check:` lines, `testgate: durations.json ...`, the sizes step
+  (`binsize: ./cmd/pleiades at ...` and one line per platform), `pr-check:
+  waiting for the X tests` (the legs' output follows), and prreport's summary
   `pr-check at SHA, DATE: VERDICT (exit N)` with one row per part.
 - **`.coverage/pr/records/*.json`.** A pass or leg record carries its real
   start and length, which replace the times the monitor saw (outlined bars
@@ -78,8 +83,13 @@ is read, so the static checks and pass progress are not visible.
   expected parts and, at the end, the verdict. Records are read only once the
   log shows pr-check rewriting `.coverage/pr`, and only when their commit
   matches.
-- **`.coverage/pr/{mac,bsd,win}.log`**, tailed for each leg's latest line.
-  Their package output arrives only when the leg ends.
+- **`.coverage/pr/{mac,bsd,win}.log`**, tailed for each leg's latest line
+  and its step bar (box, reachable, ready, ship, test, put back; the Mac has
+  no box). A leg's package total is its own (`N package(s) at ...` or its
+  record), not the fast pass's. Package output arrives only when the leg ends.
+- **`.IGNORE/ci/binsize.jsonl`**, read only, for the Binary size panel: each
+  platform's size over commits, compared only within one package, Go release
+  and set of flags. A missing or unreadable ledger is reported on the page.
 - **`/proc/meminfo`** for MemAvailable.
 - **GitHub Actions**, every 60 seconds, for the checked-out branch: `gh api
   repos/Subject-Void-LLC/the-pleiades/actions/runs?branch=...` and the jobs of
@@ -88,7 +98,12 @@ is read, so the static checks and pass progress are not visible.
   keeps working.
 
 The log carries no timestamps, so every time is when the monitor read the
-line, unless a record gave it.
+line, unless a record gave it. The page shows every time in the viewer's own
+time zone and names it.
+
+Each chart is created once per container and only updated with a merging
+`setOption`. Replacing a chart's whole option on every poll (`notMerge`)
+left its open tooltip behind each time, so old tooltips stacked up.
 
 ## Where it writes
 

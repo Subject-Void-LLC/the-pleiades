@@ -1,10 +1,16 @@
 // dashboard.js draws the pr-check monitor's page from monitor.py's JSON.
 //
 // It polls /state every two seconds (the live run, the Actions poll and
-// memory), /history every twenty and /actions-history every sixty. Every
-// string from a log or an API is placed with textContent, and chart tooltips
-// render as canvas rich text (renderMode "richText"), so no third-party text
-// is ever parsed as HTML.
+// memory), /history every twenty, and /actions-history and /binsize every
+// sixty. Every string from a log or an API is placed with textContent, and
+// chart tooltips render as canvas rich text (renderMode "richText"), so no
+// third-party text is ever parsed as HTML.
+//
+// Each chart is created once per container (chart()) and only ever updated
+// with a merging setOption. Replacing a whole option on every poll
+// (notMerge) left the open rich-text tooltip behind each time, so old
+// tooltips stacked on the canvas. All times are shown in the viewer's own
+// time zone.
 'use strict';
 
 // STATUSES lists each stage status with the CSS color token that draws it.
@@ -15,7 +21,19 @@ const LABELS = {
   ended: 'ended (verdict not known yet)', skipped: 'not in this run', stopped: 'stopped',
 };
 
+// SHORT is the one word a timeline row ends with.
+const SHORT = {
+  pending: 'pending', running: 'running', pass: 'pass', fail: 'fail', 'not-run': 'not run',
+  ended: 'ended', skipped: 'skipped', stopped: 'stopped',
+};
+// TIME_ZONE names the viewer's time zone, which every time on the page uses.
+const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
+
 const charts = {};
+// rowKeys remembers each timeline's rows, so a tooltip whose row went away
+// is hidden rather than left pointing at nothing.
+const rowKeys = {};
+let binsizeDoc = null;
 let liveState = null;
 let viewId = 'live';
 let viewRun = null;
@@ -108,10 +126,34 @@ function axisStyle() {
   };
 }
 
+// clock formats epoch milliseconds as the viewer's local time of day, with
+// seconds on a short axis and the date when the axis spans more than a day.
+function clock(ms, spanMs) {
+  const d = new Date(ms);
+  // Under ten minutes, minutes alone would repeat one label; show seconds.
+  const opts = spanMs < 600000 ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' };
+  const time = d.toLocaleTimeString([], opts);
+  return spanMs > 86400000 ? d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time : time;
+}
+
+// timeAxis returns a local-time x axis that drops labels that would overlap
+// and uses fewer of them on a narrow screen.
+function timeAxis(id, minMs, maxMs) {
+  const width = document.getElementById(id).clientWidth || 600;
+  // A span of a few seconds (one sample, say) gets a minute's width, so the
+  // axis does not stretch to fill days around a single point.
+  if (typeof minMs === 'number' && typeof maxMs === 'number' && maxMs - minMs < 60000) minMs = maxMs - 60000;
+  const span = (maxMs || 0) - (minMs || 0);
+  return Object.assign({ type: 'time', min: minMs, max: maxMs, splitNumber: width < 600 ? 3 : 6 }, axisStyle(), {
+    axisLabel: { color: css('--text-secondary'), hideOverlap: true, formatter: (v) => clock(v, span) },
+  });
+}
+
 // tooltipStyle returns the shared tooltip settings (canvas rich text).
 function tooltipStyle(extra) {
   return Object.assign({
     renderMode: 'richText',
+    confine: true,
     backgroundColor: css('--surface-1'),
     borderColor: css('--border'),
     textStyle: { color: css('--text-primary') },
@@ -122,11 +164,18 @@ function tooltipStyle(extra) {
 // timeline into the element with id, open bars running to now.
 function drawGantt(id, rows, now) {
   const node = document.getElementById(id);
+  // No rows draws nothing at all rather than an empty axis.
+  node.style.display = rows.length ? '' : 'none';
+  if (!rows.length) return;
   node.style.height = Math.max(160, 26 * rows.length + 60) + 'px';
   const c = chart(id);
   if (!c) return;
   c.resize();
-  const cats = rows.map((r) => r.label + '  ' + (LABELS[r.status] || r.status).split(' ')[0]);
+  const cats = rows.map((r) => r.label + '  ' + (r.word || SHORT[r.status] || r.status));
+  // A row that went away takes any tooltip pointing at it along.
+  const key = rows.map((r) => r.label).join('|');
+  if (rowKeys[id] !== undefined && rowKeys[id] !== key) c.dispatchAction({ type: 'hideTip' });
+  rowKeys[id] = key;
   const data = [];
   let min = Infinity, max = -Infinity;
   rows.forEach((r, i) => {
@@ -141,17 +190,20 @@ function drawGantt(id, rows, now) {
     });
   });
   if (!isFinite(min)) { min = now - 60; max = now; }
+  // A little room past the last end, so a bar ending there stays visible.
+  const pad = Math.max((max - min) * 0.02, 1);
   c.setOption({
     animation: false,
+    useUTC: false,
     grid: { left: 8, right: 24, top: 8, bottom: 28, containLabel: true },
-    xAxis: Object.assign({ type: 'time', min: min * 1000, max: Math.max(max, min + 1) * 1000 }, axisStyle()),
+    xAxis: timeAxis(id, min * 1000, (Math.max(max, min + 1) + pad) * 1000),
     yAxis: Object.assign({ type: 'category', data: cats, inverse: true }, axisStyle(), { splitLine: { show: false } }),
     tooltip: tooltipStyle({
       formatter: (p) => {
         const r = p.data.row;
         const end = r.end === null || r.end === undefined ? null : r.end;
         return [
-          plain(r.label) + ': ' + (LABELS[r.status] || r.status),
+          plain(r.label) + ': ' + plain(r.word || LABELS[r.status] || r.status),
           'start ' + fmtTime(r.start) + (end ? ', end ' + fmtTime(end) : ', still open'),
           'length ' + fmtDur((end || now) - r.start) + (r.source === 'record' ? ' (from its record)' : ' (as the monitor saw it)'),
           plain(r.detail || ''),
@@ -168,12 +220,12 @@ function drawGantt(id, rows, now) {
         const e = api.coord([api.value(2), y]);
         const h = api.size([0, 1])[1] * 0.62;
         const rect = echarts.graphic.clipRectByRect(
-          { x: s[0], y: s[1] - h / 2, width: Math.max(e[0] - s[0], 4), height: h },
+          { x: Math.min(s[0], e[0] - 6), y: s[1] - h / 2, width: Math.max(e[0] - s[0], 6), height: h },
           { x: params.coordSys.x, y: params.coordSys.y, width: params.coordSys.width, height: params.coordSys.height });
         return rect && { type: 'rect', shape: Object.assign(rect, { r: 3 }), style: api.style() };
       },
     }],
-  }, true);
+  }, { replaceMerge: ['series'] });
 }
 
 // drawLegend writes the status legend: a swatch and a word for each status.
@@ -213,10 +265,10 @@ function renderRun(run, now, memory, floor) {
     if (begun) parts.push('began ' + fmtTime(begun));
     if (begun) parts.push((run.ended ? 'took ' : 'running for ') + fmtDur((run.ended || now) - begun));
     parts.push(run.trace ? 'stage starts from make --trace' : 'no --trace lines: static checks inferred from their commands');
+    parts.push('times in ' + TIME_ZONE);
     meta.textContent = parts.join(' | ');
     const allNotes = (run.notes || []).slice();
     allNotes.push('Times are when the monitor read each line; the log has no timestamps of its own.');
-    if (run.attached_late) allNotes.push('Attached late: lines already in the log all show the time they were read.');
     for (const n of allNotes) notes.appendChild(el('p', { cls: 'note', text: n }));
     const stages = run.stages || [];
     drawGantt('gantt', stages.map((s) => ({ label: s.name, status: s.status, start: s.start, end: s.end, detail: s.detail, source: s.source })), now);
@@ -262,10 +314,20 @@ function timing(s, now) {
 // bar returns a progress bar: determinate when total is known, otherwise
 // indeterminate (animated) while running and full once ended.
 function bar(label, s, done, total) {
-  if (total) return el('progress', { max: total, value: Math.min(done, total), 'aria-label': label });
-  if (s.status === 'running') return el('progress', { 'aria-label': label + ' (length not known)' });
-  if (s.status === 'pending') return el('progress', { max: 1, value: 0, 'aria-label': label });
-  return el('progress', { max: 1, value: 1, 'aria-label': label });
+  let node;
+  if (total) node = el('progress', { max: total, value: Math.min(done, total), 'aria-label': label });
+  else if (s.status === 'running') node = el('progress', { 'aria-label': label + ' (length not known)' });
+  else if (s.status === 'pending') node = el('progress', { max: 1, value: 0, 'aria-label': label });
+  else node = el('progress', { max: 1, value: 1, 'aria-label': label });
+  return paint(node, s.status);
+}
+
+// paint colors a progress bar by its stage's status: blue only while
+// running, green on pass, red on fail, amber when not run, grey pending.
+function paint(node, status) {
+  node.style.setProperty('--bar', statusColor(status));
+  node.setAttribute('data-status', status || 'pending');
+  return node;
 }
 
 // progressRow adds one labeled bar with its status and words.
@@ -315,7 +377,9 @@ function renderLegs(stages, now) {
     const next = s.step < steps.length ? steps[s.step] : null;
     let words = steps.length ? 'step ' + s.step + ' of ' + steps.length + (next && s.status === 'running' ? ', now: ' + next : '') : '';
     if (s.total) words += (words ? '; ' : '') + (s.done || 0) + ' of ' + s.total + ' packages' + (s.failed ? ', ' + s.failed + ' failed' : '');
-    const stepBar = steps.length ? el('progress', { max: steps.length, value: s.step || 0, 'aria-label': s.name + ' steps done' }) : bar(s.name, s, 0, 0);
+    const stepBar = steps.length
+      ? paint(el('progress', { max: steps.length, value: s.step || 0, 'aria-label': s.name + ' steps done' }), s.status)
+      : bar(s.name, s, 0, 0);
     node.appendChild(el('div', { cls: 'leg' },
       el('div', {}, el('strong', { text: s.name + ' ' }), chip(s.status), el('span', { cls: 'note', text: '  ' + timing(s, now) })),
       stepBar,
@@ -333,19 +397,23 @@ function renderMemory(samples, floor) {
     : 'Now ' + last + ' MB available. The watchdog stops a run it started below ' + floor + ' MB.';
   const c = chart('memory');
   if (!c) return;
+  const first = samples.length ? samples[0][0] * 1000 : null;
+  const lastAt = samples.length ? samples[samples.length - 1][0] * 1000 : null;
   c.setOption({
     animation: false,
+    useUTC: false,
     grid: { left: 8, right: 24, top: 16, bottom: 28, containLabel: true },
-    xAxis: Object.assign({ type: 'time' }, axisStyle()),
+    xAxis: timeAxis('memory', first, lastAt),
     yAxis: Object.assign({ type: 'value', min: 0, name: 'MB', nameTextStyle: { color: css('--text-secondary') } }, axisStyle()),
     tooltip: tooltipStyle({ trigger: 'axis', formatter: (p) => fmtTime(p[0].value[0] / 1000) + '\n' + p[0].value[1] + ' MB available' }),
     series: [{
       type: 'line', showSymbol: false, lineStyle: { width: 2, color: css('--series-1') }, itemStyle: { color: css('--series-1') },
       data: samples.map((s) => [s[0] * 1000, s[1]]),
       markLine: { symbol: 'none', silent: true, lineStyle: { type: 'dashed', color: css('--st-fail') },
-        label: { color: css('--text-secondary'), formatter: 'watchdog ' + floor + ' MB' }, data: [{ yAxis: floor }] },
+        label: { color: css('--text-secondary'), position: 'insideEndTop', formatter: 'watchdog ' + floor + ' MB' },
+        data: [{ yAxis: floor }] },
     }],
-  }, true);
+  }, { replaceMerge: ['series'] });
 }
 
 // jobStatus maps an Actions status and conclusion to a stage status.
@@ -355,6 +423,13 @@ function jobStatus(status, conclusion) {
     success: 'pass', failure: 'fail', timed_out: 'fail', startup_failure: 'fail',
     cancelled: 'stopped', skipped: 'skipped', neutral: 'ended', action_required: 'not-run',
   }[conclusion] || 'ended';
+}
+
+// jobWord is the one word a job's timeline row ends with.
+function jobWord(status, conclusion) {
+  if (status !== 'completed') return status === 'in_progress' ? 'running' : 'queued';
+  return { success: 'pass', failure: 'failed', timed_out: 'timed out', startup_failure: 'failed',
+    cancelled: 'cancelled', skipped: 'skipped', neutral: 'neutral', action_required: 'waiting' }[conclusion] || conclusion || 'done';
 }
 
 // renderActions draws the Actions panel from the latest poll.
@@ -381,8 +456,8 @@ function renderActions(acts, now) {
   if (run) {
     const jobs = run.jobs || [];
     drawGantt('actions-gantt', jobs.map((j) => ({
-      label: (j.failed ? 'FAILED ' : '') + j.name, status: jobStatus(j.status, j.conclusion),
-      start: j.start, end: j.end, detail: j.conclusion || j.status, source: 'seen',
+      label: j.name, status: jobStatus(j.status, j.conclusion), word: jobWord(j.status, j.conclusion),
+      start: j.start, end: j.end, detail: j.steps_total ? j.steps_done + ' of ' + j.steps_total + ' steps' : '', source: 'seen',
     })), now);
     const bad = jobs.filter((j) => j.failed);
     if (bad.length) {
@@ -412,7 +487,7 @@ function renderJobsTable(jobs, now) {
   for (const j of jobs) {
     const st = jobStatus(j.status, j.conclusion);
     const steps = j.steps_total
-      ? el('progress', { max: j.steps_total, value: j.steps_done || 0, 'aria-label': j.name + ' steps done' })
+      ? paint(el('progress', { max: j.steps_total, value: j.steps_done || 0, 'aria-label': j.name + ' steps done' }), st)
       : bar(j.name, { status: st }, 0, 0);
     table.appendChild(el('tr', {}, el('td', { cls: j.failed ? 'failed-job' : null, text: j.name }),
       el('td', {}, chip(st, j.conclusion || j.status)),
@@ -426,7 +501,8 @@ function jobsBar(r) {
   const jobs = r.jobs || [];
   const done = jobs.filter((j) => j.status === 'completed').length;
   if (!jobs.length) return el('span', { cls: 'note', text: r.jobs_error || 'jobs not read' });
-  return el('span', {}, el('progress', { max: jobs.length, value: done, 'aria-label': 'jobs completed' }),
+  const st = jobStatus(r.status, r.conclusion);
+  return el('span', {}, paint(el('progress', { max: jobs.length, value: done, 'aria-label': 'jobs completed' }), st),
     el('span', { cls: 'note', text: ' ' + done + ' of ' + jobs.length }));
 }
 
@@ -457,9 +533,10 @@ function renderHistory() {
   for (const r of historyRuns) {
     const btn = el('button', { type: 'button', text: 'View', 'aria-label': 'View the run that began ' + fmtTime(r.started) });
     btn.addEventListener('click', () => { selectView(r.id); window.scrollTo(0, 0); });
-    const v = r.verdict || 'unknown';
+    const v = r.verdict || (r.ended ? 'unknown' : 'running');
+    const vs = { pass: 'pass', fail: 'fail', stopped: 'stopped', running: 'running' }[v] || 'ended';
     table.appendChild(el('tr', {}, el('td', { text: fmtTime(r.started) }), el('td', { text: r.commit || '' }),
-      el('td', {}, chip(v === 'pass' ? 'pass' : v === 'fail' ? 'fail' : v === 'stopped' ? 'stopped' : 'ended', v)),
+      el('td', {}, chip(vs, v)),
       el('td', { cls: 'num', text: fmtDur(r.seconds) }), el('td', { text: (r.mode || '') + (r.stopped_by ? ', stopped by ' + r.stopped_by : '') }),
       el('td', {}, btn)));
   }
@@ -468,7 +545,7 @@ function renderHistory() {
   const keep = viewId;
   clear(view);
   view.appendChild(el('option', { value: 'live', text: liveState && liveState.run ? 'Live (' + liveState.mode + ')' : 'Live (no run)' }));
-  for (const r of historyRuns) view.appendChild(el('option', { value: r.id, text: fmtTime(r.started) + ' ' + (r.verdict || '') }));
+  for (const r of historyRuns) view.appendChild(el('option', { value: r.id, text: fmtTime(r.started) + ' ' + (r.verdict || (r.ended ? '' : 'running')) }));
   view.value = keep;
   drawDurationChart('history-chart', 'stage-pick', historyRuns.slice().reverse().map((r) => ({
     label: fmtTime(r.started), total: r.seconds, parts: r.stages || {},
@@ -488,8 +565,15 @@ function drawDurationChart(chartId, pickId, runs) {
   pick.value = Array.from(pick.options).some((o) => o.value === keep) ? keep : '(whole run)';
   const choice = pick.value;
   const values = runs.map((r) => (choice === '(whole run)' ? r.total : r.parts[choice]));
+  const known = values.filter((v) => typeof v === 'number').length;
+  const box = document.getElementById(chartId);
+  const note = document.getElementById(chartId + '-note');
+  note.textContent = known < 2 ? 'This chart needs two or more finished runs that include ' + (choice === '(whole run)' ? 'a whole run' : choice) + '; it has ' + known + '.' : '';
+  box.style.display = known < 2 ? 'none' : '';
+  if (known < 2) return;
   const c = chart(chartId);
   if (!c) return;
+  c.resize();
   c.setOption({
     animation: false,
     grid: { left: 8, right: 24, top: 16, bottom: 28, containLabel: true },
@@ -498,7 +582,7 @@ function drawDurationChart(chartId, pickId, runs) {
     tooltip: tooltipStyle({ trigger: 'axis', formatter: (p) => plain(p[0].name) + '\n' + plain(choice) + ': ' + (p[0].value === null || p[0].value === undefined ? 'not run' : fmtDur(p[0].value)) }),
     series: [{ type: 'line', connectNulls: false, symbolSize: 8, lineStyle: { width: 2, color: css('--series-1') }, itemStyle: { color: css('--series-1') },
       data: values.map((v) => (v === undefined ? null : v)) }],
-  }, true);
+  }, { replaceMerge: ['series'] });
 }
 
 // renderActionsHistory charts Actions job durations over every run seen.
@@ -509,6 +593,68 @@ function renderActionsHistory() {
     return { label: '#' + r.number + ' ' + r.name, total: r.start && r.end ? r.end - r.start : null, parts: parts };
   });
   drawDurationChart('actions-chart', 'job-pick', runs);
+}
+
+// renderBinsize charts the chosen comparable group's size per platform over
+// commits, one line per platform, in the viewer's local time.
+function renderBinsize() {
+  const doc = binsizeDoc;
+  const note = document.getElementById('size-note');
+  const pick = document.getElementById('size-group');
+  const box = document.getElementById('size-chart');
+  const groups = (doc && doc.groups) || [];
+  if (!doc || !groups.length) {
+    note.textContent = doc ? (doc.error || 'No sizes recorded yet.') + ' (' + doc.path + ')' : 'Reading the size ledger...';
+    box.style.display = 'none';
+    clear(pick);
+    return;
+  }
+  const keep = pick.value;
+  clear(pick);
+  for (const g of groups) pick.appendChild(el('option', { value: g.key, text: g.key }));
+  pick.value = groups.some((g) => g.key === keep) ? keep : groups[0].key;
+  const group = groups.find((g) => g.key === pick.value);
+  const commits = [];
+  const seen = new Set();
+  const all = [];
+  for (const entries of Object.values(group.platforms)) for (const e of entries) all.push(e);
+  all.sort((a, b) => (a.recorded_at < b.recorded_at ? -1 : 1));
+  for (const e of all) {
+    const id = e.commit.slice(0, 8) + (e.dirty ? '+dirty' : '');
+    if (!seen.has(id)) { seen.add(id); commits.push(id); }
+  }
+  const platforms = Object.keys(group.platforms).sort();
+  note.textContent = 'Sizes are compared only within one package, Go release and set of flags. ' +
+    (doc.skipped ? doc.skipped + ' ledger line(s) could not be read. ' : '') +
+    (commits.length < 2 ? 'The chart needs two or more commits; it has ' + commits.length + '.' : '');
+  box.style.display = commits.length < 2 ? 'none' : '';
+  if (commits.length < 2) return;
+  const c = chart('size-chart');
+  if (!c) return;
+  c.resize();
+  const series = platforms.slice(0, 8).map((p, i) => {
+    const byCommit = {};
+    for (const e of group.platforms[p]) byCommit[e.commit.slice(0, 8) + (e.dirty ? '+dirty' : '')] = e.bytes / 1048576;
+    const color = css('--cat-' + (i + 1));
+    return { name: p, type: 'line', symbolSize: 8, connectNulls: true, lineStyle: { width: 2, color: color }, itemStyle: { color: color },
+      data: commits.map((k) => (byCommit[k] === undefined ? null : Math.round(byCommit[k] * 100) / 100)) };
+  });
+  c.setOption({
+    animation: false,
+    grid: { left: 8, right: 24, top: 40, bottom: 28, containLabel: true },
+    legend: { top: 0, textStyle: { color: css('--text-secondary') }, type: 'scroll' },
+    xAxis: Object.assign({ type: 'category', data: commits }, axisStyle(), { axisLabel: { color: css('--text-secondary'), hideOverlap: true } }),
+    yAxis: Object.assign({ type: 'value', name: 'MiB', scale: true, nameTextStyle: { color: css('--text-secondary') } }, axisStyle()),
+    tooltip: tooltipStyle({ trigger: 'axis', formatter: (ps) => [plain(ps[0].name)].concat(ps.filter((p) => p.value !== null && p.value !== undefined)
+      .map((p) => plain(p.seriesName) + ': ' + p.value + ' MiB')).join('\n') }),
+    series: series,
+  }, { replaceMerge: ['series'] });
+}
+
+// pollBinsize refreshes the size ledger.
+async function pollBinsize() {
+  const d = await getJson('/binsize');
+  if (d) { binsizeDoc = d; renderBinsize(); }
 }
 
 // selectView switches between the live run and a saved one.
@@ -576,10 +722,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('actions-run').addEventListener('change', draw);
   document.getElementById('stage-pick').addEventListener('change', renderHistory);
   document.getElementById('job-pick').addEventListener('change', renderActionsHistory);
+  document.getElementById('size-group').addEventListener('change', renderBinsize);
   window.addEventListener('resize', () => Object.values(charts).forEach((c) => c.resize()));
   pollState();
   pollHistory();
   pollActionsHistory();
+  pollBinsize();
   setInterval(pollHistory, 20000);
   setInterval(pollActionsHistory, 60000);
+  setInterval(pollBinsize, 60000);
 });

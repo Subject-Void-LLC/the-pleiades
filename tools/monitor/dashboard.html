@@ -30,6 +30,8 @@
     --st-stopped: #ec835a;
     --series-1: #2a78d6;
     --focus: #2a78d6;
+    --cat-1: #2a78d6; --cat-2: #eb6834; --cat-3: #1baf7a; --cat-4: #eda100;
+    --cat-5: #e87ba4; --cat-6: #008300; --cat-7: #6250d6; --cat-8: #e34948;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -47,6 +49,8 @@
       --st-skipped: #3a3a37;
       --series-1: #3987e5;
       --focus: #86b6ef;
+      --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+      --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
     }
   }
   :root[data-theme="dark"] {
@@ -64,8 +68,11 @@
     --st-skipped: #3a3a37;
     --series-1: #3987e5;
     --focus: #86b6ef;
+    --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+    --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
   }
   * { box-sizing: border-box; }
+  html, body { max-width: 100%; overflow-x: hidden; }
   body {
     margin: 0;
     padding: 16px;
@@ -104,8 +111,25 @@
   .row { display: grid; grid-template-columns: 110px minmax(80px, 1fr); gap: 2px 12px; align-items: center; margin: 8px 0; }
   .row .note { grid-column: 2; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; }
-  td progress { width: 120px; }
-  progress { width: 100%; height: 12px; accent-color: var(--st-running); }
+  td progress { display: inline-block; width: 90px; vertical-align: middle; }
+  /* Progress bars are drawn by hand: a native bar picks its own track
+     color from accent-color, which turned a grey (pending) bar black. The
+     value takes its stage's status color through --bar. */
+  progress {
+    -webkit-appearance: none; appearance: none; display: block;
+    width: 100%; height: 10px; border: 0; border-radius: 5px;
+    background: var(--grid); color: var(--bar, var(--st-running)); overflow: hidden;
+  }
+  progress::-webkit-progress-bar { background: var(--grid); border-radius: 5px; }
+  progress::-webkit-progress-value { background: var(--bar, var(--st-running)); border-radius: 5px; }
+  progress::-moz-progress-bar { background: var(--bar, var(--st-running)); border-radius: 5px; }
+  progress:indeterminate {
+    background: linear-gradient(90deg, var(--grid) 0%, var(--bar, var(--st-running)) 50%, var(--grid) 100%) 0 0 / 40% 100% no-repeat, var(--grid);
+    animation: sweep 1.4s linear infinite;
+  }
+  progress:indeterminate::-webkit-progress-bar { background: transparent; }
+  progress:indeterminate::-moz-progress-bar { background: transparent; }
+  @keyframes sweep { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
   .legs { display: grid; gap: 10px; }
   .leg { border: 1px solid var(--grid); border-radius: 6px; padding: 8px 10px; }
   .leg code { display: block; margin-top: 4px; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); font-size: 12px; }
@@ -119,7 +143,10 @@
   .failed-job { color: var(--st-fail); font-weight: 600; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
   details summary { cursor: pointer; color: var(--text-secondary); margin-top: 8px; }
-  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    progress:indeterminate { background: repeating-linear-gradient(45deg, var(--grid) 0 6px, var(--bar, var(--st-running)) 6px 12px); }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"
         integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR"
@@ -154,7 +181,7 @@
     <h2 id="h-legs">OS legs</h2>
     <div id="legs" class="legs"></div>
   </section>
-  <section aria-labelledby="h-memory">
+  <section class="wide" aria-labelledby="h-memory">
     <h2 id="h-memory">MemAvailable (MB)</h2>
     <p class="note" id="memory-note"></p>
     <div id="memory" class="chart" role="img" aria-label="MemAvailable over time"></div>
@@ -180,11 +207,21 @@
     <div class="controls" style="margin-top:12px">
       <label>Local duration of <select id="stage-pick" aria-label="Stage whose duration to chart"></select></label>
     </div>
+    <p id="history-chart-note" class="note"></p>
     <div id="history-chart" class="chart" role="img" aria-label="Duration of the chosen stage over saved runs"></div>
     <div class="controls" style="margin-top:12px">
       <label>Actions duration of <select id="job-pick" aria-label="Actions job whose duration to chart"></select></label>
     </div>
+    <p id="actions-chart-note" class="note"></p>
     <div id="actions-chart" class="chart" role="img" aria-label="Duration of the chosen Actions job over runs"></div>
+  </section>
+  <section class="wide" aria-labelledby="h-size">
+    <h2 id="h-size">Binary size</h2>
+    <div class="controls">
+      <label>Build <select id="size-group" aria-label="Package, Go release and flags to compare"></select></label>
+    </div>
+    <p id="size-note" class="note"></p>
+    <div id="size-chart" class="chart" role="img" aria-label="Binary size per platform over commits"></div>
   </section>
 </main>
 </body>

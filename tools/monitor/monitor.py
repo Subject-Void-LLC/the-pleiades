@@ -35,6 +35,7 @@ from types import FrameType  # noqa: E402
 from typing import Callable, List, Mapping, Optional, Sequence, TextIO, TypedDict  # noqa: E402
 
 import actions  # noqa: E402
+import binsize  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
 import prstate as ps  # noqa: E402
@@ -49,6 +50,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
 # HISTORY_DIR is the one directory the monitor writes to.
 HISTORY_DIR = os.path.join(REPO_ROOT, ".IGNORE", "ci", "monitor")
 PR_DIR = os.path.join(REPO_ROOT, ".coverage", "pr")
+# BINSIZE_LEDGER is tools/binsize's ledger, which the monitor only reads.
+BINSIZE_LEDGER = os.path.join(REPO_ROOT, ".IGNORE", "ci", "binsize.jsonl")
 CAPPED = os.path.expanduser("~/.local/bin/capped")
 # SAVE_SECONDS is how often a run in progress is saved to history.
 SAVE_SECONDS = 10
@@ -204,6 +207,16 @@ class App:
         """
         runs = sorted(self.store.load_actions().values(), key=lambda r: get_str(r, "created"), reverse=True)
         return {"runs": runs}
+
+    def binsize(self) -> binsize.LedgerDoc:
+        """Builds the /binsize document from the ledger.
+
+        Returns:
+            The ledger's comparable groups, or why there are none.
+        """
+        doc = binsize.read_ledger(BINSIZE_LEDGER)
+        doc["path"] = os.path.relpath(BINSIZE_LEDGER, REPO_ROOT)
+        return doc
 
 
 def git_head(root: str) -> str:
