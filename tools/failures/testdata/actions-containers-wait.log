@@ -1,0 +1,15 @@
+2026-10-24T01:20:01.1121148Z       internal/inventory/plugins/aws TestSync_RoundTripsRealInstances
+2026-10-24T01:20:01.1121439Z 
+2026-10-24T01:20:01.1121729Z --- github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait TestConnection_WaitsForANetworkDevicesPrompt ---
+2026-10-24T01:20:01.1122087Z === RUN   TestConnection_WaitsForANetworkDevicesPrompt
+2026-10-24T01:20:01.1122507Z     connection_test.go:101: the IOS device received ["terminal length 0" "terminal width 512"], want only IOS's paging command
+2026-10-24T01:20:01.1122843Z --- FAIL: TestConnection_WaitsForANetworkDevicesPrompt (0.01s)
+2026-10-24T01:20:01.1122987Z 
+2026-10-24T01:20:01.1123121Z testgate: 1 failure(s) failed AGAIN when re-run alone, or could not be re-run at all:
+2026-10-24T01:20:01.1123293Z 
+2026-10-24T01:20:01.1123507Z   github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait: TestConnection_WaitsForANetworkDevicesPrompt
+2026-10-24T01:20:01.1123730Z 
+2026-10-24T01:20:01.1123795Z These are not contention. Fix them.
+2026-10-24T01:20:01.1123964Z testgate: 1 failure(s) confirmed in isolation
+2026-10-24T01:20:01.1129533Z exit status 1
+2026-10-24T01:20:01.1139115Z make: *** [Makefile:635: ci-containers] Error 1

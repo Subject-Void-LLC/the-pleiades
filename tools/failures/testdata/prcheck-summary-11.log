@@ -1,0 +1,24 @@
+pr-check at 9fc2bd0ea76a, 2026-10-23 21:59 UTC: PASS (exit 0)
+  .coverage/pr/records/report.json
+
+  fast        pass     35 package(s), 226s, 0 failed, 0 contention, 13 skipped
+  repeat      pass     35 package(s), 361s, 0 failed, 0 contention, 39 skipped
+  containers  pass     9 package(s), 1278s, 0 failed, 0 contention, 15 skipped
+  mac         unset    macOS: no Mac configured (PLEIADES_MAC in tests/mac/.env)
+  bsd         pass     FreeBSD on bsd-check, 35 package(s), 865s; full pass; repeat pass
+  win         pass     Windows on win-check, 35 package(s), 1858s; full pass; repeat pass
+  govulncheck pass     exit 0
+  images      pass     exit 0
+  coverage    pass     exit 0
+  durations   pass     exit 0
+
+Passed when re-run alone (1; a test seen here run after run needs a look):
+  win full: github.com/Subject-Void-LLC/the-pleiades/pkg/netcli TestTelnet_UserModeRunsCommandsAndRefusesConfiguration
+
+385 test(s) skipped; prreport -skips lists them by reason.
+pr-check: all checks passed for this branch's packages
+gatereceipt write: the working tree already had uncommitted changes when the gate started, so the run examined code that is in no commit and no receipt was written.
+Commit the work, then run the gate again
+exit status 1
+make: *** [Makefile:733: pr-check] Error 1
+

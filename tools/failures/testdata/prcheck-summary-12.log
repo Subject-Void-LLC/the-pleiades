@@ -1,0 +1,17 @@
+pr-check at 9fc2bd0ea76a, 2026-10-23 22:45 UTC: FAIL (exit 1)
+  .coverage/pr/records/report.json
+
+  fast        pass     35 package(s), 227s, 0 failed, 0 contention, 13 skipped
+  repeat      pass     35 package(s), 372s, 0 failed, 0 contention, 39 skipped
+  containers  pass     9 package(s), 1304s, 0 failed, 0 contention, 15 skipped
+  mac         unset    macOS: no Mac configured (PLEIADES_MAC in tests/mac/.env)
+  bsd         not-run  FreeBSD on bsd-check: stopped at ready: bsd-check has 3 GB free where its tests unpack and build, under the 4 GB a run needs: go clean -cache there, or for the lab's bsd-check run runbooks/bsd/check-05-disk-cleanup.yaml
+  win         pass     Windows on win-check, 35 package(s), 2108s; full pass; repeat pass
+  govulncheck pass     exit 0
+  images      pass     exit 0
+  coverage    pass     exit 0
+  durations   pass     exit 0
+
+330 test(s) skipped; prreport -skips lists them by reason.
+make: *** [Makefile:732: pr-check] Error 1
+

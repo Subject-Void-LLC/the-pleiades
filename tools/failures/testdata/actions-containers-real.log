@@ -1,0 +1,17 @@
+2026-10-24T01:22:54.4121297Z 
+2026-10-24T01:22:54.4121558Z --- github.com/Subject-Void-LLC/the-pleiades/tests/e2e TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust ---
+2026-10-24T01:22:54.4122285Z === RUN   TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust
+2026-10-24T01:22:54.4127537Z     packaging_images_test.go:224: docker daemon version 28.0.4
+2026-10-24T01:22:54.4128334Z     packaging_images_test.go:287: build context: 32.6 MiB across 3985 files (3.6 GiB of working tree on this machine, 0.90%, informational)
+2026-10-24T01:22:54.4129242Z     packaging_images_test.go:294: the build context is 32.6 MiB, over the 32.0 MiB ceiling; check .dockerignore for a rule that was removed or narrowed
+2026-10-24T01:22:54.4129753Z     packaging_images_test.go:242: docker image rm pleiades/build-context-probe:release-gate (12ms)
+2026-10-24T01:22:54.4130303Z --- FAIL: TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust (1.53s)
+2026-10-24T01:22:54.4130503Z 
+2026-10-24T01:22:54.4130647Z testgate: 1 failure(s) failed AGAIN when re-run alone, or could not be re-run at all:
+2026-10-24T01:22:54.4130826Z 
+2026-10-24T01:22:54.4131277Z   github.com/Subject-Void-LLC/the-pleiades/tests/e2e: TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust (its package is in flaky-packages.json, which does not cover failing alone)
+2026-10-24T01:22:54.4131972Z 
+2026-10-24T01:22:54.4132076Z These are not contention. Fix them.
+2026-10-24T01:22:54.4132359Z testgate: 1 failure(s) confirmed in isolation
+2026-10-24T01:22:54.4132598Z exit status 1
+2026-10-24T01:22:54.4132813Z make: *** [Makefile:635: ci-containers] Error 1

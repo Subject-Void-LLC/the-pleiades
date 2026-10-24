@@ -1,0 +1,26 @@
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait
+
+testgate: 1 failure(s) passed when re-run alone, so they lost a race rather than broke:
+
+  github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait: TestRoutes_WaitsForARouteOSPFLearns (not listed; tolerated on this run's own evidence)
+
+  why github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait TestRoutes_WaitsForARouteOSPFLearns failed under load:
+    ... 17 earlier line(s) left out
+    2026/10/24 01:36:39 ⏳ Waiting for container id 2620f2906783 image: testcontainers/ryuk:0.14.0. Waiting for: all of: [log message "Started", port 8080/tcp to be listening]
+    2026/10/24 01:37:46 container logs (wait until ready: external check: check target: retries: 569 address: localhost:36580: get state: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.55/containers/2620f290678351b748eb9fef00ef2646819f053ac7b67b75643d633759db406a/json": context deadline exceeded):
+    time=2026-10-24T05:36:39.936Z level=INFO msg=starting connection_timeout=1m0s reconnection_timeout=10s request_timeout=10s shutdown_timeout=10m0s remove_retries=10 retry_offset=-1s changes_retry_interval=1s port=8080 verbose=false
+    time=2026-10-24T05:36:39.936Z level=INFO msg=Started address=[::]:8080
+    time=2026-10-24T05:36:39.937Z level=INFO msg="client processing started"
+    time=2026-10-24T05:37:46.198Z level=INFO msg="prune check" clients=0
+    time=2026-10-24T05:37:46.198Z level=INFO msg="client processing stopped"
+    time=2026-10-24T05:37:46.198Z level=INFO msg=removed containers=0 networks=0 volumes=0 images=0
+    time=2026-10-24T05:37:46.198Z level=INFO msg=done
+    2026/10/24 01:37:46 🐳 Stopping container: 2620f2906783
+    2026/10/24 01:37:46 ✅ Container stopped: 2620f2906783
+    2026/10/24 01:37:46 🐳 Terminating container: 2620f2906783
+    2026/10/24 01:37:46 🚫 Container terminated: 2620f2906783
+        routes_live_test.go:27: creating network netlab-a5fbdc9aec9c-0-mgmt: reaper: new reaper: run container: started hook: wait until ready: external check: check target: retries: 569 address: localhost:36580: get state: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.55/containers/2620f290678351b748eb9fef00ef2646819f053ac7b67b75643d633759db406a/json": context deadline exceeded: could not start container: failed to create network
+    --- FAIL: TestRoutes_WaitsForARouteOSPFLearns (61.06s)
+
+
+testgate: 15 test(s) skipped, so they are not evidence of anything in this run:

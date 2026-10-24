@@ -106,3 +106,6 @@ __pycache__/
 # clone lacked it and three tests failed everywhere but the machine that
 # captured it (found by Phase 118's clean room).
 !pkg/cloudinit/testdata/*.log
+# tools/failures parses captured pr-check and Actions logs, ignored the same
+# way until its tests failed on every machine but this one.
+!tools/failures/testdata/*.log
