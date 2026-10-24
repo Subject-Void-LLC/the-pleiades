@@ -151,7 +151,8 @@ SHA-256 fingerprint, whatever its issuer, dates or names, and every run against 
 does. `import-cml --controller cml` then reads the server, its trust and its login from that device, so
 the controller's password stays in the vault.
 
-The `virt.cml` methods build and take apart labs through it, one verb each, every one with a check:
+The `virt.cml` methods build and take apart labs through it, one verb each, every one with a check (a lab or node an earlier task in the same run makes is reported
+unchecked, since it is not there yet):
 `virt.cml.lab.create`, `lab.start`, `lab.stop`, `lab.delete`, `lab.info`, `lab.list`, `node.create`,
 `node.delete`, `link.create` and `link.delete`. Each change records its undo, so `pleiades rollback`
 removes exactly what a run made: a lab's start is undone by stopping exactly the nodes it started, and a
@@ -162,7 +163,10 @@ node or lab delete, which wipes disks, cannot be undone and says so.
 the management interface in the `Mgmt-intf` VRF with a default route to `management_gateway`, enables SSH,
 and creates the device's stored login as `username <user> privilege 15 secret 9 <hash>` (and `enable secret
 9` when the credential has an enable password). The method is handed only IOS type 9 hashes; the
-passwords never reach the runbook, the task's output or the controller.
+passwords never reach the runbook or the task's output, and never leave this machine. The hashes do: they
+are in the node's configuration, which the controller keeps and anyone who can read the lab can read. A
+type 9 hash is scrypt and slow to attack, but it is still a verifier of the password, so give a node the
+login of a device that exists only in the lab, never one that shares a credential with real equipment.
 
 ```yaml
 # What this does: builds a one-router lab, the router standing for the inventory device P1.
@@ -215,9 +219,13 @@ pleiades add-credential P1 --username netops --password-stdin < p1.pw
 Such a node has `transport: console`, `console_server` (the controller device) and `console_line` (the
 console's UUID, which names exactly one node, where a lab's title may name two) in its record, and every
 `net.ios.*` and `net.cli.*` method reaches it that way. The console server's host key is always checked,
-whatever a task says about its own target's, each console connection is a fresh one, and the line is
-logged out when the task ends, so the next person on that console meets a login rather than this task's
-privileged prompt. The controller resolves only on the CLI so far; a Runner refuses a console device.
+whatever a task says about its own target's, each console connection is a fresh one, and each read on it
+has a time limit of its own. When the task ends the line is logged out, so the next person on that console
+meets a login rather than this task's privileged prompt, unless the connection is already gone by then (a
+task that ran out of time, a dropped network). For that case a node `virt.cml.node.create` seeded logs an
+idle console session out itself after five minutes (`exec-timeout 5 0`). The controller resolves only on
+the CLI so far; a Runner refuses a console device, and `virt.cml.node.create` with `device:`, whose seed a
+Runner cannot resolve either.
 
 ### Undoing an IOS change
 
