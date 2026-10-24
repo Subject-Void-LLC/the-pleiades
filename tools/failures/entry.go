@@ -99,9 +99,9 @@ type Entry struct {
 	// Leg is where it happened: a pr-check pass, leg or step (fast, repeat,
 	// containers, mac, bsd, win, coverage, ...), or an Actions job's name.
 	Leg string `json:"leg"`
-	// Pass is, on a pr-check machine leg, which of its passes failed: full or
-	// repeat.
-	Pass string `json:"pass,omitempty"`
+	// Stage is, on a pr-check machine leg, which of its testgate passes
+	// failed: full or repeat. It is not named pass, which reads as a secret.
+	Stage string `json:"stage,omitempty"`
 	// OS is the operating system it ran on: linux, macOS, FreeBSD, Windows.
 	OS string `json:"os,omitempty"`
 	// Package is a test entry's import path; absent on a leg entry.
@@ -125,7 +125,7 @@ type Entry struct {
 // key is what makes two entries the same, so a run recorded twice appends
 // nothing the second time.
 func (e Entry) key() string {
-	return strings.Join([]string{e.Source, e.Commit, e.Leg, e.Pass, e.Package, e.Test, e.Verdict, e.Run,
+	return strings.Join([]string{e.Source, e.Commit, e.Leg, e.Stage, e.Package, e.Test, e.Verdict, e.Run,
 		strconv.FormatInt(e.RunID, 10), strconv.FormatInt(e.JobID, 10)}, "\x00")
 }
 

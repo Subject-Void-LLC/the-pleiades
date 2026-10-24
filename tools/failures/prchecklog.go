@@ -167,7 +167,7 @@ func parsePRCheckLog(text string) (prcheckLog, error) {
 func (m runMeta) logTest(where, pkg, test string, oses map[string]string) Entry {
 	leg, pass, _ := strings.Cut(where, " ")
 	e := m.entry(KindTest, leg)
-	e.Pass, e.Package = pass, scrub(pkg)
+	e.Stage, e.Package = pass, scrub(pkg)
 	switch {
 	case linuxPasses[leg]:
 		e.OS = "linux"

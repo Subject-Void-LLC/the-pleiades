@@ -16,7 +16,7 @@ type brief struct{ kind, leg, pass, os, pkg, test, verdict, reason string }
 func briefs(entries []Entry) []brief {
 	var out []brief
 	for _, e := range entries {
-		out = append(out, brief{e.Kind, e.Leg, e.Pass, e.OS, short(e.Package), e.Test, e.Verdict, e.Reason})
+		out = append(out, brief{e.Kind, e.Leg, e.Stage, e.OS, short(e.Package), e.Test, e.Verdict, e.Reason})
 	}
 	return out
 }

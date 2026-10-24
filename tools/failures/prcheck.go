@@ -110,7 +110,7 @@ func (m runMeta) failures(out *[]Entry, leg, os string, run flakegate.Run) bool 
 	}
 	for _, f := range run.Failures {
 		e := m.entry(KindTest, leg)
-		e.Pass, e.OS, e.Package, e.Test = pass, os, scrub(f.Package), scrub(f.Test)
+		e.Stage, e.OS, e.Package, e.Test = pass, os, scrub(f.Package), scrub(f.Test)
 		e.Verdict = testVerdict(f.Outcome, passOf(run.Label) == "repeat")
 		if f.Test == "" {
 			e.Reason = packageReason(f.Kind)
