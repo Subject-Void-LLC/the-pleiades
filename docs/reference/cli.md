@@ -286,6 +286,7 @@ make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management a
 | --lab | `string` | - | the lab to import, by title or id |
 | --nodes | `string` | - | comma-separated nodes to import; every node when empty |
 | --address | `string` | - | NODE=IP: the node's management address, where the controller observed none or several (repeatable) |
+| --controller | `string` | - | a cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password |
 | --username | `string` | - | the controller account to log in as |
 | --password-stdin | `bool` | `false` | read the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD |
 | --tls-fingerprint | `string` | - | trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates |

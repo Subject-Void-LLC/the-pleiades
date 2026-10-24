@@ -311,6 +311,7 @@ var Root = Command{
 				{Name: "lab", Type: "string", Default: "", Doc: "the lab to import, by title or id"},
 				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
 				{Name: "address", Type: "string", Default: "", Doc: "NODE=IP: the node's management address, where the controller observed none or several (repeatable)"},
+				{Name: "controller", Type: "string", Default: "", Doc: "a cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password"},
 				{Name: "username", Type: "string", Default: "", Doc: "the controller account to log in as"},
 				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD"},
 				{Name: "tls-fingerprint", Type: "string", Default: "", Doc: "trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates"},
