@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cmlconsole"
 )
@@ -125,8 +127,8 @@ func TestLogIn_Refusals(t *testing.T) {
 	}{
 		"a wrong password": {[]string{"Username: ", "Password: ", "\r\n% Login invalid\r\n\r\nUsername: "}, cmlconsole.Login{Username: "netops", Password: "pw"}, "username again"},
 		"a password twice": {[]string{"Password: ", "\r\nPassword: "}, cmlconsole.Login{Password: "pw"}, "password again"},
-		"no username":      {[]string{"Username: "}, cmlconsole.Login{}, "username again"},
-		"no password":      {[]string{"Password: "}, cmlconsole.Login{Username: "netops"}, "password again"},
+		"no username":      {[]string{"Username: "}, cmlconsole.Login{}, "credential has none"},
+		"no password":      {[]string{"Password: "}, cmlconsole.Login{Username: "netops"}, "credential has none"},
 		"endless returns":  {[]string{"Press RETURN to get started.\r\n", "Press RETURN to get started.\r\n", "Press RETURN to get started.\r\n", "Press RETURN to get started.\r\n", "Press RETURN to get started.\r\n", "Press RETURN to get started.\r\n", "Press RETURN to get started.\r\n"}, cmlconsole.Login{}, "steps"},
 		"a quiet line":     {[]string{"booting..."}, cmlconsole.Login{}, "waiting for the node"},
 	} {
@@ -141,17 +143,68 @@ func TestLogIn_Refusals(t *testing.T) {
 	}
 }
 
-// TestLogOut_EndsTheSession: the logout leaves any mode and exits, and a
-// line already gone is not an error.
+// TestLogOut_EndsTheSession: the logout asks for the prompt, leaves any
+// mode and exits; a line at a login prompt is left alone, since typing
+// there would only be a failed login; and a line already gone is not an
+// error.
 func TestLogOut_EndsTheSession(t *testing.T) {
-	s := &script{chunks: []string{"\r\nP1#"}}
-	if err := cmlconsole.LogOut(s); err != nil || strings.Join(s.written, "|") != "end|exit" {
+	s := &script{chunks: []string{"\r\nP1(config)#", "\r\nP1#"}}
+	if err := cmlconsole.LogOut(s); err != nil || strings.Join(s.written, "|") != "|end|exit" {
 		t.Errorf("logout: %v, wrote %q", err, s.written)
+	}
+	for _, prompt := range []string{"\r\nUsername: ", "Password: ", "Press RETURN to get started.\r\n"} {
+		s := &script{chunks: []string{prompt}}
+		if err := cmlconsole.LogOut(s); err != nil || strings.Join(s.written, "|") != "" {
+			t.Errorf("a line at %q: %v, wrote %q", prompt, err, s.written)
+		}
+	}
+	if err := cmlconsole.LogOut(&script{chunks: []string{"\r\nP1#"}}); err != nil {
+		t.Errorf("a line that stops answering after its prompt: %v", err)
 	}
 	if err := cmlconsole.LogOut(&script{closed: true}); err != nil {
 		t.Errorf("a line already gone: %v", err)
 	}
 	if err := cmlconsole.LogOut(&script{}); err != nil {
 		t.Errorf("a line that never answers: %v", err)
+	}
+}
+
+// quiet is a line that never answers: each read waits until its context
+// ends.
+type quiet struct{ script }
+
+func (q *quiet) ReadUntil(ctx context.Context, _ *regexp.Regexp, _ int) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+// TestReads_EndOnTheirOwn: with no deadline on the task, a console server
+// that never prompts, one that never answers a connect, and a node that
+// never asks for its login each end the call after their own time limit,
+// saying so, and a task that ends first says that instead.
+func TestReads_EndOnTheirOwn(t *testing.T) {
+	t.Cleanup(cmlconsole.SetWaits(20*time.Millisecond, 20*time.Millisecond))
+	if err := cmlconsole.Attach(context.Background(), &quiet{}, line); err == nil || !strings.Contains(err.Error(), "no answer within") {
+		t.Errorf("a server that never prompts: %v", err)
+	}
+	if err := cmlconsole.LogIn(context.Background(), &quiet{}, cmlconsole.Login{}); err == nil || !strings.Contains(err.Error(), "no answer within") {
+		t.Errorf("a node that never asks: %v", err)
+	}
+	t.Cleanup(cmlconsole.SetWaits(time.Hour, time.Hour))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := cmlconsole.LogIn(ctx, &quiet{}, cmlconsole.Login{}); err == nil || strings.Contains(err.Error(), "no answer within") || !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a task that ended first: %v", err)
+	}
+}
+
+// TestRefusal_CutsTheServersWordsWhole: a long reason from the server is
+// cut to whole characters.
+func TestRefusal_CutsTheServersWordsWhole(t *testing.T) {
+	reason := strings.Repeat("\u00e9", 60)
+	s := &script{chunks: []string{serverPrompt, "connect " + line + "\r\n" + reason + "\r\n" + serverPrompt}}
+	err := cmlconsole.Attach(context.Background(), s, line)
+	if err == nil || !utf8.ValidString(err.Error()) {
+		t.Errorf("a long refusal: %q", err)
 	}
 }

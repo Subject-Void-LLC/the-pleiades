@@ -74,7 +74,7 @@ type plainContext struct{ consoleContext }
 // still reached only through its console.
 func TestOpenShell_ThroughTheConsoleServer(t *testing.T) {
 	device := consoleDevice{&inventorytest.Stub{StubName: "P1", Caps: []capability.Name{capability.NameConsoleServed, capability.NameCiscoIOS}}}
-	l := &line{chunks: []string{"\r\nUsername: ", "Password: ", "\r\nP1#", "\r\nP1#"}}
+	l := &line{chunks: []string{"\r\nUsername: ", "Password: ", "\r\nP1#", "\r\nP1#", "\r\nP1#"}}
 	rc := consoleContext{
 		dial:    func(context.Context) (netcli.Shell, error) { return l, nil },
 		secrets: map[string]string{wire.SecretUsername: "netops", wire.SecretPassword: "pw"},
@@ -87,7 +87,7 @@ func TestOpenShell_ThroughTheConsoleServer(t *testing.T) {
 		t.Errorf("the login wrote %q", got)
 	}
 	l.written = nil
-	if err := shell.Close(); err != nil || !l.closed || strings.Join(l.written, "|") != "end|exit" {
+	if err := shell.Close(); err != nil || !l.closed || strings.Join(l.written, "|") != "|end|exit" {
 		t.Errorf("Close: %v, closed %v, wrote %q", err, l.closed, l.written)
 	}
 }

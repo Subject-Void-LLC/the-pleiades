@@ -8,8 +8,10 @@
 //
 // It works over any netcli.Shell, so the SSH session to the console server
 // is the caller's (pkg/sdk opens it with the server's own credential and
-// verified host key). Every step is bounded by its context and a byte
-// limit.
+// verified host key). Every read is bounded by its context, a byte limit
+// and a time limit of its own, since a run sets no deadline of its own by
+// default and a console server or a line that never answers would
+// otherwise hold the run forever.
 package cmlconsole
 
 import (
@@ -19,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 )
@@ -34,6 +37,15 @@ const maxLoginSteps = 6
 // logoutWait bounds the logout a Close sends, on its own context, since it
 // runs after the task's own may have ended.
 const logoutWait = 10 * time.Second
+
+var (
+	// serverWait bounds each read of the console server: its prompt, and
+	// its answer to a connect.
+	serverWait = 30 * time.Second
+	// nodeWait bounds each read of the node's login: long enough for a
+	// node still printing its boot log to reach its prompt.
+	nodeWait = 3 * time.Minute
+)
 
 // lineUUID is what a console line must be before it is written to the
 // console server's prompt.
@@ -67,13 +79,13 @@ func Attach(ctx context.Context, shell netcli.Shell, line string) error {
 	if !lineUUID.MatchString(line) {
 		return fmt.Errorf("cmlconsole: console line %q is not a console UUID", line)
 	}
-	if _, err := shell.ReadUntil(ctx, serverPrompt, maxBytes); err != nil {
+	if _, err := read(ctx, shell, serverPrompt, serverWait); err != nil {
 		return fmt.Errorf("cmlconsole: waiting for the console server's prompt: %w", err)
 	}
 	if err := shell.WriteLine(ctx, "connect "+line); err != nil {
 		return err
 	}
-	out, err := shell.ReadUntil(ctx, connected, maxBytes)
+	out, err := read(ctx, shell, connected, serverWait)
 	if err != nil {
 		return fmt.Errorf("cmlconsole: connecting to console %s: %w", line, err)
 	}
@@ -95,7 +107,7 @@ func LogIn(ctx context.Context, shell netcli.Shell, login Login) error {
 	}
 	var sentUser, sentPass bool
 	for step := 0; step < maxLoginSteps; step++ {
-		out, err := shell.ReadUntil(ctx, nodeTurn, maxBytes)
+		out, err := read(ctx, shell, nodeTurn, nodeWait)
 		if err != nil {
 			return fmt.Errorf("cmlconsole: waiting for the node's login: %w", err)
 		}
@@ -103,12 +115,18 @@ func LogIn(ctx context.Context, shell netcli.Shell, login Login) error {
 		var answer string
 		switch {
 		case strings.HasPrefix(last, "username"):
-			if sentUser || login.Username == "" {
+			if login.Username == "" {
+				return errors.New("cmlconsole: the node asks for a username, and the device's credential has none")
+			}
+			if sentUser {
 				return errors.New("cmlconsole: the node refused the login (it asked for a username again)")
 			}
 			answer, sentUser = login.Username, true
 		case strings.HasPrefix(last, "password"):
-			if sentPass || login.Password == "" {
+			if login.Password == "" {
+				return errors.New("cmlconsole: the node asks for a password, and the device's credential has none")
+			}
+			if sentPass {
 				return errors.New("cmlconsole: the node refused the login (it asked for a password again)")
 			}
 			answer, sentPass = login.Password, true
@@ -127,13 +145,29 @@ func LogIn(ctx context.Context, shell netcli.Shell, login Login) error {
 	return fmt.Errorf("cmlconsole: the node's login took more than %d steps", maxLoginSteps)
 }
 
-// LogOut ends the node's exec session on the line, leaving any mode first,
-// on a context of its own, so the next person on that console meets a
-// login and not this session's privileged prompt. A line already gone is
-// not an error: there is nothing left to log out.
+// LogOut ends the node's exec session on the line, on a context of its
+// own, so the next person on that console meets a login and not this
+// session's privileged prompt. It asks for the node's prompt first and
+// logs out only from an exec prompt, leaving any mode on the way: a line
+// at a login prompt has no session to end, and typing there would only be
+// a failed login. A line already gone, or one that does not answer, is not
+// an error: there is nothing left it can log out.
 func LogOut(shell netcli.Shell) error {
 	ctx, cancel := context.WithTimeout(context.Background(), logoutWait)
 	defer cancel()
+	if err := shell.WriteLine(ctx, ""); err != nil {
+		return nil
+	}
+	out, err := shell.ReadUntil(ctx, nodeTurn, maxBytes)
+	if err != nil {
+		return nil
+	}
+	last := strings.ToLower(lastLine(out))
+	for _, login := range []string{"username", "password", "press return"} {
+		if strings.HasPrefix(last, login) {
+			return nil
+		}
+	}
 	if err := shell.WriteLine(ctx, "end"); err != nil {
 		return nil
 	}
@@ -142,6 +176,17 @@ func LogOut(shell netcli.Shell) error {
 	}
 	_ = shell.WriteLine(ctx, "exit")
 	return nil
+}
+
+// read is one bounded read: up to maxBytes, until ctx ends or wait passes.
+func read(ctx context.Context, shell netcli.Shell, re *regexp.Regexp, wait time.Duration) (string, error) {
+	step, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	out, err := shell.ReadUntil(step, re, maxBytes)
+	if err != nil && ctx.Err() == nil && step.Err() != nil {
+		return out, fmt.Errorf("no answer within %s", wait)
+	}
+	return out, err
 }
 
 // lastLine is the last non-empty line of s, terminal sequences taken out,
@@ -154,7 +199,11 @@ func lastLine(s string) string {
 	}
 	l := strings.TrimSpace(lines[len(lines)-1])
 	if len(l) > 80 {
+		// Cut whole characters only: at most three bytes of one go.
 		l = l[:80]
+		for len(l) > 0 && !utf8.ValidString(l) {
+			l = l[:len(l)-1]
+		}
 	}
 	return l
 }

@@ -43,6 +43,8 @@ func openConsole(ctx context.Context, rc RunbookContext, device inventory.Invent
 	secrets := rc.InjectSecrets()
 	login := cmlconsole.Login{Username: secrets[wire.SecretUsername], Password: secrets[wire.SecretPassword]}
 	if err := cmlconsole.LogIn(ctx, shell, login); err != nil {
+		// The login may have got as far as a prompt before it failed.
+		_ = cmlconsole.LogOut(shell)
 		_ = shell.Close()
 		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}
