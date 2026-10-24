@@ -40,6 +40,12 @@ func OpenShell(ctx context.Context, rc RunbookContext, device inventory.Inventor
 	if _, ok := device.(capability.SSHTransportCapable); ok && device.HasCapability(capability.NameSSHTransport) {
 		conn, err := Connect(ctx, rc, device, params, fqcn)
 		if err != nil {
+			if BoolParam(params, ParamInsecureTelnet) {
+				// The task asked for Telnet, and the device's own record says
+				// SSH: insecure_telnet only accepts Telnet's exposure, it never
+				// chooses the carrier, so say where the carrier is chosen.
+				return nil, fmt.Errorf("%w (device %q is reached over SSH, its transport property; %s: true only accepts Telnet for a device whose transport is telnet: pleiades set-host %s --set transport=telnet)", err, device.Name(), ParamInsecureTelnet, device.Name())
+			}
 			return nil, err
 		}
 		shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})

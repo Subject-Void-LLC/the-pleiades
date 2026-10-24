@@ -144,6 +144,12 @@ func TestOpenShell_FailuresAfterTheChoice(t *testing.T) {
 	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), refused, skip, "test.cli"); err == nil || !strings.Contains(err.Error(), "test.cli") {
 		t.Errorf("an SSH port that refuses = %v", err)
 	}
+	// A task that asked for Telnet of a device whose record says SSH is
+	// told where the carrier is chosen.
+	telnetAsked := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true, sdk.ParamInsecureTelnet: true}
+	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), refused, telnetAsked, "test.cli"); err == nil || !strings.Contains(err.Error(), "--set transport=telnet") {
+		t.Errorf("an SSH device given insecure_telnet = %v", err)
+	}
 	noShell := newCLIDevice(srv.Host, srv.Port, 0, capability.NameSSHTransport)
 	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), noShell, skip, "test.cli"); err == nil || !strings.Contains(err.Error(), "test.cli") {
 		t.Errorf("a server that declines a shell = %v", err)
