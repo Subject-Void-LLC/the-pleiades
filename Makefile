@@ -696,7 +696,12 @@ ci-containers:
 # every part it expects (prreport begin), so a part with no record is
 # missing rather than unnoticed, and an interrupt or an early exit merges
 # what ran as interrupted. The report decides nothing. Its merge is given
-# pr-check's own status, so it never passes a run the gate failed.
+# pr-check's own status, so it never passes a run the gate failed. Every
+# run, pass, fail or interrupted, is then recorded in the failure ledger
+# (tools/failures record-prcheck, under the gitignored .IGNORE/ci, so the
+# tree the receipt needs clean stays clean); a recording that fails changes
+# neither the exit status nor the receipt. `go run ./tools/failures report`
+# maps those failures against GitHub Actions' own (record-actions).
 #
 # A pass ends by writing a receipt (tools/gatereceipt, its own file under
 # .git), and .githooks/pre-push refuses a branch whose tip no receipt
@@ -746,7 +751,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	$$report begin -dir $$rec -commit "$(GATE_START_COMMIT)" -expect "$$expect" || exit 1; \
 	status=0; legs=""; \
 	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s || status=1; [ $$s -eq 0 ] || status=1; }; \
-	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; }; \
+	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; go run ./tools/failures record-prcheck -report $$rec/report.json || true; }; \
 	trap 'stop; exit 130' INT; trap 'stop; exit 143' TERM; trap stop EXIT; \
 	vuln() { \
 		if [ -f $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready ]; then \
@@ -808,6 +813,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	done; \
 	trap - INT TERM EXIT; \
 	echo; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit $$status || status=1; \
+	go run ./tools/failures record-prcheck -report $$rec/report.json || true; \
 	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
 	exit $$status
 	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
