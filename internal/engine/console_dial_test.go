@@ -6,6 +6,7 @@ package engine_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -117,6 +118,42 @@ func TestConsoleDialerFor(t *testing.T) {
 		if _, _, err := engine.ConsoleDialerFor(ctx, f.inv, tc.creds, node(t, tc.server)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want an error mentioning %q", name, err, tc.want)
 		}
+	}
+}
+
+// sealedStore is a credential store that cannot be read.
+type sealedStore struct{}
+
+func (sealedStore) Lookup(context.Context, string) (credential.Credential, error) {
+	return credential.Credential{}, errors.New("the vault is sealed")
+}
+
+// TestConsoleDialerFor_FailsBeforeTheLine: a store that cannot be read and a
+// stored key that does not parse are refused before any dial, and a console
+// server that has gone away fails the dial naming it.
+func TestConsoleDialerFor_FailsBeforeTheLine(t *testing.T) {
+	f := newConsoleFixture(t)
+	ctx := context.Background()
+	for name, tc := range map[string]struct {
+		creds credential.Store
+		want  string
+	}{
+		"an unreadable store": {sealedStore{}, "the vault is sealed"},
+		"a key that does not parse": {credential.NewStaticStore(map[string]string{
+			credential.SecretUsername: "admin", credential.SecretPrivateKeyPEM: "not a key",
+		}), `console server "cml"`},
+	} {
+		if dial, _, err := engine.ConsoleDialerFor(ctx, f.inv, tc.creds, node(t, "cml")); err == nil || dial != nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want an error mentioning %q", name, err, tc.want)
+		}
+	}
+	dial, _, err := engine.ConsoleDialerFor(ctx, f.inv, f.creds, node(t, "cml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.server.Close()
+	if _, err := dial(ctx); err == nil || !strings.Contains(err.Error(), `the console server "cml"`) {
+		t.Errorf("a console server that has gone: %v", err)
 	}
 }
 
