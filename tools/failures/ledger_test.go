@@ -71,6 +71,26 @@ func TestReadLedger_Contract(t *testing.T) {
 	}
 }
 
+// TestAbsentUnderDirectories: a ledger whose directories do not exist yet is
+// absent, and one under a file is an error, however deep. This is the branch
+// Windows takes for a ledger under a file, reached here directly, since a
+// Unix read of one fails with ENOTDIR before it.
+func TestAbsentUnderDirectories(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := absentUnderDirectories(filepath.Join(dir, "a", "b", "pr-check.jsonl")); err != nil {
+		t.Errorf("a ledger under directories not made yet: %v", err)
+	}
+	for _, p := range []string{filepath.Join(file, "pr-check.jsonl"), filepath.Join(file, "a", "pr-check.jsonl")} {
+		if err := absentUnderDirectories(p); err == nil || !strings.Contains(err.Error(), "not a directory") {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+}
+
 // TestRun_Usage: no command, an unknown one, a stray argument and an
 // unknown flag are usage errors.
 func TestRun_Usage(t *testing.T) {

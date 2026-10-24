@@ -28,7 +28,7 @@ func ledgerFile(dir, source string) string {
 func readLedger(path string) ([]Entry, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- a ledger under the directory this tool was pointed at
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, absentUnderDirectories(path)
 	}
 	if err != nil {
 		return nil, err
@@ -51,6 +51,30 @@ func readLedger(path string) ([]Entry, error) {
 		out = append(out, e)
 	}
 	return out, scanner.Err()
+}
+
+// absentUnderDirectories confirms that path, which a read reported missing,
+// is really not there yet: the nearest of its ancestors that exists must be
+// a directory. Windows reports a path under a file as not found, where Unix
+// says ENOTDIR, so without this a file standing where the ledgers' directory
+// belongs would read as an empty ledger there (FAILURE_PATTERNS 628).
+func absentUnderDirectories(path string) error {
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		// Stat, not Lstat: a ledgers' directory reached through a link to a
+		// directory is a directory.
+		info, err := os.Stat(dir)
+		if err == nil {
+			if !info.IsDir() {
+				return fmt.Errorf("reading %s: %s is not a directory", path, dir)
+			}
+			return nil
+		}
+		// This one is missing too (or unreadable); look further up, until
+		// there is no further up.
+		if filepath.Dir(dir) == dir {
+			return nil
+		}
+	}
 }
 
 // appendLedger adds each entry the ledger at path does not already hold, and
