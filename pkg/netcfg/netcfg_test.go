@@ -32,9 +32,20 @@ func TestMask(t *testing.T) {
 		"service password-encryption",
 		"no password",
 		"hostname r1",
+		"crypto ikev2 keyring DMVPN-KEYRING",
+		" peer ANY",
+		"  address 0.0.0.0 0.0.0.0",
+		"  pre-shared-key s9",
+		"  pre-shared-key local 6 s10",
+		"  pre-shared-key remote s11",
+		"crypto ikev2 profile P",
+		" authentication local pre-share key s12",
+		" authentication remote pre-share",
+		"crypto keyring K",
+		" pre-shared-key address 10.0.0.9 key s13",
 	}
 	masked := strings.Split(netcfg.Mask(strings.Join(lines, "\n")), "\n")
-	for _, secret := range []string{"zebra", "abcd", "s1", "s2", "s3", "s4", "s5", "$9$abc", "s6", "s7", "s8", "123"} {
+	for _, secret := range []string{"zebra", "abcd", "s1", "s2", "s3", "s4", "s5", "$9$abc", "s6", "s7", "s8", "123", "s9", "s10", "s11", "s12", "s13"} {
 		for _, l := range masked {
 			if slices.Contains(strings.Fields(l), secret) {
 				t.Errorf("%s survived in %q", secret, l)
@@ -45,6 +56,9 @@ func TestMask(t *testing.T) {
 		1: "enable password 8 ", 3: " ip ospf message-digest-key 1 md5 ", 5: " neighbor 10.0.0.2 password ",
 		7: " key 1", 11: " RO", 12: " address 10.0.0.9", 15: " ip ospf authentication message-digest",
 		16: "service password-encryption", 17: "no password", 18: "hostname r1",
+		21: "  address 0.0.0.0 0.0.0.0", 23: "  pre-shared-key local 6 ", 24: "  pre-shared-key remote ",
+		26: " authentication local pre-share key ", 27: " authentication remote pre-share",
+		29: " pre-shared-key address 10.0.0.9 key ",
 	} {
 		if !strings.Contains(masked[i], kept) {
 			t.Errorf("line %d lost %q: %q", i, kept, masked[i])
