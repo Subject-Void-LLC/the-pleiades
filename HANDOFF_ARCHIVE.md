@@ -1,5 +1,82 @@
 # Handoff Document Archive
 
+## Previous session, 2026-10-23 to 2026-10-24: lab importers, the IOS undo, Genie's parsers and the routing lab gaps (Phase 127c), merged
+
+*Superseded on 2026-10-24: PR #89 merged at `0caadb17` (18:44 UTC).*
+
+### How it ended
+
+- PR #89 merged green: Actions run 40117974279 at `b897136b`, every required check passed. Local `make pr-check`
+  passed at `b897136b` on Linux, macOS, FreeBSD and Windows in 84 minutes.
+- Fixed in the final round: `remoteexec.Shell`'s watcher race (FAILURE_PATTERNS 633); `tools/failures` fixtures
+  hidden by `*.log` in `.gitignore` (634, held by `internal/archtest`'s `TestNoTestdataFileIsIgnored`); two Windows
+  bugs in `tools/failures` (635, a file where the ledger directory belongs; 636, the 0700 mode bits); gosec G117 on a
+  field named `Pass` (renamed `Stage`).
+- Added: `tools/failures` (pr-check and Actions failure ledgers under `.IGNORE/ci`, a crossover report,
+  `CI_LESSONS.md`); `tools/monitor` (Python standard library, an ECharts dashboard of pr-check stages, Actions,
+  history and binary size; records under `.IGNORE/ci/monitor`); pr-check runs coverage first (`coverage-fast` ends a
+  run on a miss); `tools/binsize` and pr-check's sizes step (stripped release build: linux/amd64 98.6 MiB, 133.8 MiB
+  unstripped; ledger `.IGNORE/ci/binsize.jsonl`); the mac, bsd and win checks build into their own `GOCACHE`
+  (`.gocache` beside their trees) and make room from their own trees and cache before refusing under 4 GB.
+- Lab: `bsd-check`'s old 7.8 GB default Go cache was cleared once with the lab's
+  `runbooks/bsd/check-05-disk-cleanup.yaml`, run through this branch's binary. `~/pleiades-lab/bin/pleiades` was
+  rebuilt from `main` at `0caadb17`; the old one is kept as `pleiades.old`.
+- Left open: `TestCheck_RealRoutersAgainstRealBatfish` (`internal/catalog/net/batfish`) failed once in CI shard 5,
+  vtysh answering "% command failed" during router setup, likely before FRR's daemons were up. It passed alone and is
+  annotated in the Actions ledger as the 575 family. `TestCLI_ImportGNS3ReachesANodesConsole` needed retries three
+  times locally (FAILURE_PATTERNS 629).
+
+### Status as it was
+
+**2026-10-23. Branch `feat/lab-importers`, off `main` at `62be86d4` (PR #88's merge). Phase 127c's importers and
+Telnet back end, the IOS checkpoint undo, Genie's IOS parsers in Go, `http.wait`, nine routing lab gaps, and the fixes
+from a whole-branch failure-pattern review. Tip `01cdbb70`, plus the uncommitted records for it. Not pushed; no pull
+request yet. Tracker: 127c is 5 of 11 done, 127b 15 of 24.**
+
+#### Built and proven
+
+- Everything in the previous entry (`HANDOFF_ARCHIVE.md`).
+- `01cdbb70`: the fifteen findings of the fp-reviewer agent's whole-branch review, FAILURE_PATTERNS 613 to 627, each
+  with its test named in its archive entry. Among them: `net.ios.replace` deletes only checkpoints it made (613,
+  `TestReplace_NeverDeletesAFileItDidNotMake`); `Descriptor.UndoCall` (614); a Telnet password is sent once (617);
+  `project.write`'s path reads only `vars` and `.pleiades` is matched by identity (618); Telnet reads bounded by time
+  and raw bytes (620).
+- Not yet run: the Windows-only tests from 615, 616 and 618 (`TestOthersMayWrite_IgnoresAModeThisSystemDoesNotKeep`,
+  `TestModeHolds_ComparesOnlyTheReadOnlyBit`, `TestProjectFiles_RefuseThePleiadesShortName`). They compile for
+  Windows (`GOOS=windows` vet).
+
+#### Open
+
+- 618's residual: a hard link at the project root to a file inside `.pleiades` can still be read (needs write access
+  to both directories).
+- 574 stays open: `TemplateRule` now reaches `rollback:` steps, but no test writes a misspelled register in one.
+- 610, 611, 612, 602, 598 (other commands), 562, 560, 551, 470 and 471 as before.
+- Not built, as before: Walk-tier enable secret, onboarding a `--via telnet` node, `until`/`retries`, 127c's fuzz,
+  adversarial, security and hardening gates; the routing lab items listed in the previous entry.
+- `tests/cml/.env` is valid until about 2026-10-25 (LESSONS 315).
+
+#### Next
+
+1. Commit the records.
+2. `make pr-check` with `PR_CHECK_PARALLELISM=1`, under the memory cap. Its Windows leg is the first real run of the
+   Windows tests from 615, 616 and 618.
+3. Push and open the pull request; stay on it until it is green.
+4. Then the `virt.cml` pull request, then release tooling (which must ship `LICENSE.genieparser`).
+
+#### Files changed (since the last records)
+
+`01cdbb70`: `internal/catalog/net/ios/` (`checkpoint.go`, `replace.go`, `config.go`), `internal/catalog/net/trace.go`,
+`internal/catalog/pleiades/builtin/project/write.go`, `internal/engine/` (project guard, project mode, render),
+`internal/journal/` (`active.go`, `reader_unix.go`, `reader_other.go`), `internal/validate/` (`param_tasks.go`,
+`template_rule.go`, `vars_rule.go`, `rollback_rule.go`), `pkg/collection` (`UndoCall`), `pkg/telnetexec`, `pkg/cml`,
+`pkg/gns3`, `internal/testsupport/gns3.go`, `internal/inventory/file_repository.go`, `cmd/pleiades` (add-credential,
+importers, run pipeline, validate), docs, the generated reference, changelog fragments. Records: FAILURE_PATTERNS 613
+to 627 (and an update to 574), LESSONS 321, changelog `project-files-windows-short-name.security.md`.
+
+#### Lab state
+
+Unchanged: no lab VM was touched; `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved as last recorded.
+
 ## Previous session, 2026-10-23: lab importers, the IOS undo, Genie's parsers and the routing lab gaps (Phase 127c), third pass
 
 *Superseded on 2026-10-23: the same branch went on to `56e83fb7` (records 603 to 612, lessons 316 to 320) and `01cdbb70` (the fifteen findings of a whole-branch failure-pattern review, FAILURE_PATTERNS 613 to 627) before any push.*
