@@ -15535,3 +15535,46 @@ why in its comment; the three identical watchers in `shell.go` were not swept fo
 **Lesson.** A goroutine that selects between "the context ended" and "the call is over" can choose either when both
 are ready: stop the watcher before the call returns (`context.AfterFunc`'s stop, or a stop that waits for the
 goroutine), and when one such watcher is fixed, sweep every watcher of the same shape.
+
+## 634. tools/failures' captured logs matched *.log in .gitignore, so they were never committed and its tests failed on every machine but this one (a repeat of 401) (fixed before push)
+
+**Symptom.** `make pr-check` at `ae89f745`, 2026-10-24: the Mac and Windows legs failed nine `tools/failures` tests
+with "open testdata/testgate-contention.log: no such file or directory". The Linux passes, run in the working tree
+that held the files, passed.
+
+**Root cause.** The package's fixtures are captured pr-check and Actions logs named `*.log`, which `.gitignore`
+ignores. `git add tools/failures` skipped them without a word, and the machine legs test the committed tree
+(`git archive`), not the working tree. CI would have failed the same way.
+
+**Fix.** A `.gitignore` exception for `tools/failures/testdata/*.log`, the fixtures committed after reading them for
+anything private (they name only documentation addresses, loopback and the runner's path), and
+`internal/archtest`'s `TestNoTestdataFileIsIgnored`, which fails on any file under a `testdata` directory that
+`.gitignore` matches (`git ls-files --others --ignored --exclude-standard`). Proven both ways: it named the eleven
+files with the exception removed and passes with it.
+
+**Why 401's fix did not prevent it.** 401 added an exception for one path (`pkg/cloudinit/testdata/*.log`) and
+`make test-clean-room`, which `pr-check` does not run. Nothing refused the class, so the next fixture named `.log`
+fell into the same rule.
+
+**Lesson.** A fix for an ignore rule that hides a fixture must cover every fixture, not the one found: check what
+the rule hides under every `testdata` directory, as a test, not by remembering.
+
+## 635. Windows: a file standing where the failure ledgers' directory belongs read as an empty ledger (a repeat of 628) (fixed before push)
+
+**Symptom.** `make pr-check`'s Windows leg, 2026-10-24, at `ae89f745`: `TestReadLedger_Contract` failed with "a
+ledger under a file was read". Linux and macOS passed it.
+
+**Root cause.** `readLedger` (`tools/failures/ledger.go`) treated `fs.ErrNotExist` from `os.ReadFile` as "no ledger
+yet". Unix reports a path under a file as ENOTDIR; Windows reports it as path not found, which Go maps to
+`ErrNotExist`.
+
+**Fix.** `absentUnderDirectories`: when a read reports not-exist, the nearest ancestor that exists must be a
+directory, or it is an error. `TestAbsentUnderDirectories` reaches that branch on every system, one and two levels
+under a file.
+
+**Why 628's fix did not prevent it.** 628 fixed `internal/journal`'s directory reads, in an unexported helper, and
+`CI_LESSONS.md` rule 3 written the same day says to confirm absence with `Lstat`. The new tool was written before
+either was read; no check finds a not-exist branch that skips the confirmation.
+
+**Lesson.** Every "missing means empty" branch is a Windows bug until it confirms the absence. Read CI_LESSONS.md
+before writing file-system code, including in tools.

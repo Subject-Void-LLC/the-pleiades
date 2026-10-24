@@ -23,10 +23,11 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
    the context rather than raising the ceiling. FAILURE_PATTERNS 630.
 3. **A file-system assumption is a Windows bug until the Windows leg says otherwise.** Mode bits, "not found",
    symbolic links and path case all answer differently there; read the answer the way that system keeps it,
-   and confirm absence with `Lstat`. FAILURE_PATTERNS 544, 567, 615, 616, 628.
+   and confirm absence with `Lstat`. FAILURE_PATTERNS 544, 567, 615, 616, 628, 635.
 4. **A pass of `pr-check` is a pass of every leg at one commit on a clean tree.** A file left in the tree (even
-   a moved, ignored one under a new name) costs the receipt; an unreachable machine or a full disk costs the
-   leg. Clear the cause and run again rather than pushing around it. LESSONS_LEARNED 271.
+   a moved, ignored one under a new name) costs the receipt; an unreachable machine costs the leg. A machine
+   check makes room from its own trees and build cache before it refuses a full disk; what it refuses then is
+   not its to remove. Clear the cause and run again rather than pushing around it. LESSONS_LEARNED 271.
 
 ## Tests that do not fail by luck
 
@@ -58,3 +59,6 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     (the ci-triager agent matches FAILURE_PATTERNS; `tools/failures report` counts recurrences).
 11. **A required check that fails because another job did (`coverage` after a shard) has no cause of its own.**
     Fix the job it waits on.
+12. **A fixture git ignores exists only in the tree that wrote it.** The machine legs test the committed tree, so
+    they find it before CI does; `internal/archtest`'s `TestNoTestdataFileIsIgnored` refuses one under any
+    `testdata` directory. Name a captured log `.txt`, or add an exception. FAILURE_PATTERNS 401, 634.
