@@ -97,8 +97,8 @@ func TestConnection_WaitsForANetworkDevicesPrompt(t *testing.T) {
 	if _, err := wait.Connection(context.Background(), newWaitContext(server), ios, params); err != nil {
 		t.Fatal(err)
 	}
-	if got := srv.Commands(); len(got) != 1 || got[0] != "terminal length 0" {
-		t.Errorf("the IOS device received %q, want only IOS's paging command", got)
+	if got := srv.Commands(); len(got) != 2 || got[0] != "terminal length 0" || got[1] != "terminal width 512" {
+		t.Errorf("the IOS device received %q, want only IOS's session setup (paging and wrapping off)", got)
 	}
 
 	server, srv = startCLIDevice(t, "edge-1>")

@@ -53,3 +53,11 @@
 !cmd/
 !internal/
 !pkg/
+
+# Tests are never a build input: go build reads no _test.go file, and no
+# binary embeds a file from a testdata directory, which dockerignore_test.go's
+# input check holds. Together they were most of the context's growth, and the
+# Genie fixtures under pkg/iosparse/testdata took it over its ceiling
+# (FAILURE_PATTERNS 630).
+**/testdata
+**/*_test.go

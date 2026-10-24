@@ -15451,3 +15451,42 @@ before it, a different external step with its own transient failure.
 
 **Lesson.** Every step of a fixture that leans on Docker Desktop (build, pull, start, port publishing) has its own
 transient failure under load; retry each on its own named error and nothing else.
+
+## 630. The image build context grew past its 32 MiB ceiling, because the deny-by-default .dockerignore still let test files and test data in (fixed before push)
+
+**Symptom.** PR #89's `containers (3)`, 2026-10-24: `TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust`
+(`tests/e2e/packaging_images_test.go`) failed, and again alone: "build context: 32.6 MiB across 3985 files", over the
+32.0 MiB ceiling. `make pr-check` leaves `tests/e2e` to CI, so no local run could see it.
+
+**Root cause.** `.dockerignore` allows `cmd/`, `internal/` and `pkg/` whole, which also brought every `_test.go` file
+and every `testdata` tree into the context of the controller and runner images, though no build reads them. The
+branch added about 1.7 MiB under those trees, a megabyte of it the Genie fixtures in `pkg/iosparse/testdata`, and the
+context had only about 1.15 MiB of headroom left.
+
+**Fix.** `.dockerignore` excludes `**/testdata` and `**/*_test.go` after its allowances: the context is 18.7 MiB.
+`internal/testsupport`'s dockerignore tests (which derive the builds' real inputs from `go list -deps`) and the whole
+packaging release gate (compose stack, images built and run unprivileged, Kubernetes install) pass.
+
+**Lesson.** A size ceiling on a build context measures what the builds do not need as well as what they do; keep what
+no build reads (tests, fixtures) out of the context rather than raising the ceiling when it is reached.
+
+## 631. A test in a package that only consumes a changed one failed only in CI: pr-check selects the packages a branch changes, not their dependents (a sibling of 559) (open)
+
+**Symptom.** PR #89's `containers (6)`, 2026-10-24: `TestConnection_WaitsForANetworkDevicesPrompt`
+(`internal/catalog/wait/connection_test.go`) failed, and again alone: "the IOS device received ["terminal length 0"
+"terminal width 512"], want only IOS's paging command". Commit 9ab84fe4 added `terminal width 512` to `netcli.IOS`'s
+session setup and updated the counting tests in `internal/catalog/net/ios` and `pkg/netcli`, not this one.
+
+**Root cause.** `make pr-check` runs the packages `tools/prscope` selects: those the branch changes, plus a fixed census
+(559) for a few central packages. `internal/catalog/wait` was unchanged and only consumes `pkg/netcli` through
+`wait.connection`, so no local run tested it, and the assertion pinning IOS's setup commands broke unseen.
+
+**Fix.** The assertion expects both setup lines. The scope gap is open: prscope does not add the packages that
+import a changed package (reverse dependents).
+
+**Why 559's fix did not prevent it.** 559's census adds named consumers of a fixed list of central packages;
+`pkg/netcli` is not on it, and a list cannot keep up with every consumer of every package.
+
+**Lesson.** A change to a shared package's behavior needs its consumers' tests run before the push, not only its own:
+select reverse dependents from the module graph rather than from a list. Plan it with the pr-check leg reruns
+(memory note pr-check-leg-reruns).
