@@ -40,7 +40,7 @@ func init() {
 				Reversible: true,
 				Notes:      "A run that made a lab emits virt.cml.lab.delete naming its id, so a rollback removes exactly that lab and whatever was later built in it.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "virt.cml.lab.delete", Record: []string{paramLab}},
+					{FQCN: "virt.cml.lab.delete", Record: []string{paramLab}, MayKeepOnFailure: true},
 				},
 			},
 
@@ -108,15 +108,15 @@ func runCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if err := rc.SetStat("id", lab.ID); err != nil {
-		return collection.Result{}, err
-	}
+	// The lab exists from here on, so its undo stands even if the task
+	// then fails.
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.cml.lab.delete",
-		Params:      map[string]any{paramLab: lab.ID},
-		Description: fmt.Sprintf("Remove the lab %q (%s) this task made.", title, lab.ID),
+		FQCN:          "virt.cml.lab.delete",
+		Params:        map[string]any{paramLab: lab.ID},
+		Description:   fmt.Sprintf("Remove the lab %q (%s) this task made.", title, lab.ID),
+		KeepOnFailure: true,
 	}); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		return collection.Result{Changed: true}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	return collection.Result{Changed: true}, nil
+	return collection.Result{Changed: true}, rc.SetStat("id", lab.ID)
 }

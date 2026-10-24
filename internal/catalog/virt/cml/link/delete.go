@@ -39,7 +39,7 @@ func init() {
 			Status:          collection.StatusImplemented,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
-				Notes:      "A run that removed a link emits virt.cml.link.create of the same two interfaces, by node and interface label; one that found no such link emits nothing.",
+				Notes:      "A run that removed a link emits virt.cml.link.create of the same two interfaces, each node by its id and each interface by its label; one that found no such link emits nothing.",
 				Inverses: []sdk.InverseSpec{
 					{FQCN: "virt.cml.link.create", Record: []string{paramLab, paramA, paramAInterface, paramB, paramBInterface}},
 				},
@@ -148,7 +148,7 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	if !found {
 		return collection.Result{}, nil
 	}
-	undo, err := labelsOf(ctx, client, lab.ID, nodes, link)
+	undo, described, err := endsOf(ctx, client, lab.ID, nodes, link)
 	if err != nil {
 		return fail(err)
 	}
@@ -165,7 +165,7 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:        "virt.cml.link.create",
 		Params:      undo,
-		Description: fmt.Sprintf("Link %s %s and %s %s again, as they were before this task.", undo[paramA], undo[paramAInterface], undo[paramB], undo[paramBInterface]),
+		Description: fmt.Sprintf("Link %s again, as they were before this task.", described),
 	}); err != nil {
 		return fail(err)
 	}

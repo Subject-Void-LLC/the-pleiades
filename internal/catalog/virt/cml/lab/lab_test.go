@@ -6,6 +6,8 @@ package lab_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -244,5 +246,63 @@ func TestLab_FailureWalk(t *testing.T) {
 		t.Errorf("check stop: %+v %v", res, err)
 	} else if _, ok := rc.Inverse(); ok {
 		t.Error("a stop's check recorded an undo")
+	}
+}
+
+// TestLab_UncheckedBeforeItExists: a check of a start or a stop of a lab,
+// or of a node, that an earlier task in the run would make is unchecked
+// rather than failed; a real run fails on it.
+func TestLab_UncheckedBeforeItExists(t *testing.T) {
+	r, client := newRunner(t)
+	if _, err := client.CreateLab(context.Background(), "cvd"); err != nil {
+		t.Fatal(err)
+	}
+	for _, fqcn := range []string{"virt.cml.lab.start", "virt.cml.lab.stop"} {
+		for name, params := range map[string]map[string]any{
+			"no lab yet":  {"lab": "later"},
+			"no node yet": {"lab": "cvd", "nodes": []any{"R9"}},
+		} {
+			var unchecked *collection.CannotCheckError
+			if _, _, err := r.run(fqcn, true, params); !errors.As(err, &unchecked) {
+				t.Errorf("%s, %s, checked: %v", fqcn, name, err)
+			}
+			if _, _, err := r.run(fqcn, false, params); err == nil || errors.As(err, &unchecked) {
+				t.Errorf("%s, %s, run: %v", fqcn, name, err)
+			}
+		}
+	}
+}
+
+// TestLab_AnUndoNamesNoMoreNodesThanTheJournalKeeps: a start or a stop of
+// more nodes than an undo can name is undone by acting on the whole lab
+// when it acted on every node, and refused before anything changes when it
+// acted on fewer.
+func TestLab_AnUndoNamesNoMoreNodesThanTheJournalKeeps(t *testing.T) {
+	r, client := newRunner(t)
+	ctx := context.Background()
+	l, err := client.CreateLab(ctx, "big")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var some []any
+	for i := range 130 {
+		label := fmt.Sprintf("N%03d", i)
+		if _, err := client.CreateNode(ctx, l.ID, cml.NodeSpec{Label: label, Definition: "unmanaged_switch"}); err != nil {
+			t.Fatal(err)
+		}
+		if i < 129 {
+			some = append(some, label)
+		}
+	}
+	for _, fqcn := range []string{"virt.cml.lab.start", "virt.cml.lab.stop"} {
+		if _, _, err := r.run(fqcn, false, map[string]any{"lab": "big", "nodes": some}); err == nil || !strings.Contains(err.Error(), "more than the 128") {
+			t.Errorf("%s of 129 of 130 nodes: %v", fqcn, err)
+		}
+		res, rc, err := r.run(fqcn, false, map[string]any{"lab": "big"})
+		inv, ok := rc.Inverse()
+		undo, _ := inv[sdk.InverseParamsKey].(map[string]any)
+		if _, named := undo["nodes"]; err != nil || !res.Changed || !ok || named || undo["lab"] != l.ID {
+			t.Errorf("%s of the whole lab: %+v %v, undo %v", fqcn, res, err, inv)
+		}
 	}
 }

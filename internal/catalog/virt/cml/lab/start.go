@@ -111,7 +111,7 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	}
 	lab, err := findLab(ctx, client, ref, fqcn)
 	if err != nil {
-		return collection.Result{}, err
+		return collection.Result{}, cml.Unchecked(mode, err)
 	}
 	nodes, err := client.Nodes(ctx, lab.ID)
 	if err != nil {
@@ -119,7 +119,7 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	}
 	chosen, err := pick(nodes, refs)
 	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, cml.Unchecked(mode, err))
 	}
 	var todo []cml.Node
 	for _, n := range chosen {
@@ -128,6 +128,10 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		}
 	}
 	labels, _ := labelsAndIDs(todo)
+	undoScope, err := undoNodes(nodes, todo, "start")
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	if err := rc.SetStat("lab_id", lab.ID); err != nil {
 		return collection.Result{}, err
 	}
@@ -147,9 +151,13 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	}
 	if len(started) > 0 {
 		_, ids := labelsAndIDs(started)
+		undo := map[string]any{paramLab: lab.ID}
+		if len(undoScope) > 0 {
+			undo[paramNodes] = ids
+		}
 		if err := sdk.RecordInverse(rc, sdk.Inverse{
 			FQCN:          "virt.cml.lab.stop",
-			Params:        map[string]any{paramLab: lab.ID, paramNodes: ids},
+			Params:        undo,
 			Description:   fmt.Sprintf("Stop the %d node(s) of %q this task started, and no other.", len(ids), lab.Title),
 			KeepOnFailure: true,
 		}); err != nil {

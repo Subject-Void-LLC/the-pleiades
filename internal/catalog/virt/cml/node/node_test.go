@@ -225,15 +225,21 @@ func TestDelete_StopsWipesAndRemoves(t *testing.T) {
 }
 
 // TestNode_FailureWalk: each call a node method makes, failed by the
-// controller in turn, fails the task, and so does a login the controller
-// refuses.
+// controller in turn, fails the task, keeping the undo of a node already
+// made, and so does a login the controller refuses.
 func TestNode_FailureWalk(t *testing.T) {
 	createParams := map[string]any{"lab": "cvd", "label": "SW1", "definition": "unmanaged_switch"}
 	for _, call := range []string{"GET /labs", "/simplified_node_definitions", "GET /nodes", "POST /nodes", "/interfaces"} {
 		f := newFixture(t)
 		f.ctl.Fail = map[string]bool{call: true}
-		if _, _, err := f.run("virt.cml.node.create", false, createParams, nil); err == nil {
+		_, rc, err := f.run("virt.cml.node.create", false, createParams, nil)
+		if err == nil {
 			t.Errorf("create with %s failing: no error", call)
+		}
+		// Once the node is made, its undo stands whatever fails after.
+		inv, kept := rc.Inverse()
+		if made := call == "/interfaces"; made != kept || made && inv[sdk.InverseKeepOnFailureKey] != true {
+			t.Errorf("create with %s failing: undo %v", call, inv)
 		}
 	}
 	for _, call := range []string{"GET /nodes", "/state/stop", "/wipe_disks", "DELETE /nodes/"} {

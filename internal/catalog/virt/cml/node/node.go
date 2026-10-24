@@ -102,6 +102,10 @@ func readSeed(secrets map[string]string, definition, label, iface string, prefix
 	return s, nil
 }
 
+// consoleIdleMinutes is how long a seeded node's console session may sit
+// idle before the node logs it out itself.
+const consoleIdleMinutes = 5
+
 // mask is prefix as a dotted IPv4 netmask.
 func mask(prefix int) string {
 	m := uint32(0xffffffff) << (32 - prefix)
@@ -135,6 +139,9 @@ func (s seed) config() string {
 	line("ip ssh version 2")
 	line("line con 0")
 	line(" login local")
+	// A console session left at its prompt (a task that ended before it
+	// could log out) ends itself after five idle minutes.
+	line(" exec-timeout %d 0", consoleIdleMinutes)
 	line("line vty 0 4")
 	line(" login local")
 	line(" transport input ssh")

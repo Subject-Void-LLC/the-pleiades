@@ -42,7 +42,7 @@ func init() {
 				Reversible: true,
 				Notes:      "A run that made a link emits virt.cml.link.delete naming its lab's id and its own; one that found the same link already there emits nothing.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "virt.cml.link.delete", Record: []string{paramLab, paramLink}},
+					{FQCN: "virt.cml.link.delete", Record: []string{paramLab, paramLink}, MayKeepOnFailure: true},
 				},
 			},
 
@@ -95,7 +95,7 @@ func runCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	client, lab, a, b, links, err := resolve(ctx, rc, device, ep)
 	if err != nil {
-		return fail(err)
+		return fail(cml.Unchecked(mode, err))
 	}
 	if l, ok := cml.Between(links, a.Interface.ID, b.Interface.ID); ok {
 		return collection.Result{}, rc.SetStat("id", l.ID)
@@ -115,15 +115,15 @@ func runCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	if err != nil {
 		return fail(err)
 	}
-	if err := rc.SetStat("id", id); err != nil {
-		return collection.Result{Changed: true}, err
-	}
+	// The link exists from here on, so its undo stands even if the task
+	// then fails.
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.cml.link.delete",
-		Params:      map[string]any{paramLab: lab.ID, paramLink: id},
-		Description: fmt.Sprintf("Remove the link between %s %s and %s %s this task made.", a.Node.Label, a.Interface.Label, b.Node.Label, b.Interface.Label),
+		FQCN:          "virt.cml.link.delete",
+		Params:        map[string]any{paramLab: lab.ID, paramLink: id},
+		Description:   fmt.Sprintf("Remove the link between %s %s and %s %s this task made.", a.Node.Label, a.Interface.Label, b.Node.Label, b.Interface.Label),
+		KeepOnFailure: true,
 	}); err != nil {
-		return fail(err)
+		return collection.Result{Changed: true}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	return collection.Result{Changed: true}, nil
+	return collection.Result{Changed: true}, rc.SetStat("id", id)
 }

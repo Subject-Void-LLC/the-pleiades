@@ -44,7 +44,7 @@ func init() {
 				Reversible: true,
 				Notes:      "A run that made a node emits virt.cml.node.delete naming its lab's id and its own, so a rollback removes exactly that node.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "virt.cml.node.delete", Record: []string{paramLab, paramNode}},
+					{FQCN: "virt.cml.node.delete", Record: []string{paramLab, paramNode}, MayKeepOnFailure: true},
 				},
 			},
 
@@ -53,7 +53,7 @@ func init() {
 			SeedsLoginIOSSecret: true,
 			Doc: collection.Doc{
 				Summary:     "Creates a node in a CML lab, optionally seeded with an inventory device's login and address.",
-				Description: "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook, the task's output or the controller: the method is handed type 9 hashes only. configuration adds lines after those. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
+				Description: "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. configuration adds lines after those. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
 				Params: []collection.Param{
 					{Name: "lab", Type: "string", Required: true, Description: "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."},
 					{Name: "label", Type: "string", Required: true, Description: "The node's label in the lab, also its hostname when device is set."},
@@ -159,7 +159,7 @@ func runCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	lab, err := client.FindLab(ctx, ref)
 	if err != nil {
-		return fail(err)
+		return fail(cml.Unchecked(mode, err))
 	}
 	defs, err := client.NodeDefinitions(ctx)
 	if err != nil {
@@ -187,12 +187,16 @@ func runCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	if err != nil {
 		return fail(err)
 	}
+	// The node exists from here on, so its undo stands even if reading it
+	// back then fails: otherwise a rollback could not remove it, and a
+	// second run would be refused on its label.
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.cml.node.delete",
-		Params:      map[string]any{paramLab: lab.ID, paramNode: id},
-		Description: fmt.Sprintf("Remove the node %s (%s) this task made in %q.", label, id, lab.Title),
+		FQCN:          "virt.cml.node.delete",
+		Params:        map[string]any{paramLab: lab.ID, paramNode: id},
+		Description:   fmt.Sprintf("Remove the node %s (%s) this task made in %q.", label, id, lab.Title),
+		KeepOnFailure: true,
 	}); err != nil {
-		return fail(err)
+		return collection.Result{Changed: true}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	ifaces, err := client.NodeInterfaces(ctx, lab.ID, id)
 	if err != nil {

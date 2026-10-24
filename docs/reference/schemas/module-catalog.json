@@ -14374,7 +14374,8 @@
           "fqcn": "virt.cml.lab.delete",
           "record": [
             "lab"
-          ]
+          ],
+          "mayKeepOnFailure": true
         }
       ]
     },
@@ -14751,7 +14752,8 @@
           "record": [
             "lab",
             "link"
-          ]
+          ],
+          "mayKeepOnFailure": true
         }
       ]
     },
@@ -14826,7 +14828,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that removed a link emits virt.cml.link.create of the same two interfaces, by node and interface label; one that found no such link emits nothing.",
+      "notes": "A run that removed a link emits virt.cml.link.create of the same two interfaces, each node by its id and each interface by its label; one that found no such link emits nothing.",
       "inverses": [
         {
           "fqcn": "virt.cml.link.create",
@@ -14918,7 +14920,8 @@
           "record": [
             "lab",
             "node"
-          ]
+          ],
+          "mayKeepOnFailure": true
         }
       ]
     },
@@ -14927,7 +14930,7 @@
     "seedsLoginIOSSecret": true,
     "doc": {
       "summary": "Creates a node in a CML lab, optionally seeded with an inventory device's login and address.",
-      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook, the task's output or the controller: the method is handed type 9 hashes only. configuration adds lines after those. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
+      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. configuration adds lines after those. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
       "params": [
         {
           "name": "lab",

@@ -1,6 +1,6 @@
 // Package link implements the virt.cml.link.* methods: two nodes'
 // interfaces linked in a CML lab, and a link removed. This file holds what
-// both read: a link's two ends by node and interface, and the labels a
+// both read: a link's two ends by node and interface, and the ends a
 // removed link's undo names it by.
 package link
 
@@ -79,10 +79,12 @@ func resolve(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	return client, lab, a, b, links, nil
 }
 
-// labelsOf names link's two ends by node and interface label, as the
-// parameters of virt.cml.link.create that would make it again.
-func labelsOf(ctx context.Context, client *cml.Client, lab string, nodes []cml.Node, link cml.Link) (map[string]any, error) {
-	label := func(nodeID, ifaceID string) (string, string, error) {
+// endsOf names link's two ends as the parameters of virt.cml.link.create
+// that would make it again: each node by its id, so a node removed and made
+// again under the same label in between is never linked in its place, and
+// each interface by its label. It also describes them by label, for people.
+func endsOf(ctx context.Context, client *cml.Client, lab string, nodes []cml.Node, link cml.Link) (map[string]any, string, error) {
+	end := func(nodeID, ifaceID string) (string, string, error) {
 		for _, n := range nodes {
 			if n.ID != nodeID {
 				continue
@@ -99,13 +101,14 @@ func labelsOf(ctx context.Context, client *cml.Client, lab string, nodes []cml.N
 		}
 		return "", "", fmt.Errorf("link %s names an interface the lab does not hold", link.ID)
 	}
-	a, aIface, err := label(link.NodeA, link.InterfaceA)
+	a, aIface, err := end(link.NodeA, link.InterfaceA)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	b, bIface, err := label(link.NodeB, link.InterfaceB)
+	b, bIface, err := end(link.NodeB, link.InterfaceB)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return map[string]any{paramA: a, paramAInterface: aIface, paramB: b, paramBInterface: bIface}, nil
+	params := map[string]any{paramA: link.NodeA, paramAInterface: aIface, paramB: link.NodeB, paramBInterface: bIface}
+	return params, fmt.Sprintf("%s %s and %s %s", a, aIface, b, bIface), nil
 }

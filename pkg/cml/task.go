@@ -4,7 +4,9 @@ package cml
 
 import (
 	"context"
+	"errors"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -23,4 +25,14 @@ func ForTask(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return nil, err
 	}
 	return client, nil
+}
+
+// Unchecked is err, except in a check, where a lab, node or interface that
+// does not exist (ErrNotFound) makes the call unchecked rather than failed:
+// an earlier task in the same run may be what makes it.
+func Unchecked(mode collection.Mode, err error) error {
+	if mode == collection.ModeCheck && errors.Is(err, ErrNotFound) {
+		return collection.CannotCheck(err.Error() + " yet; a real run fails on it unless an earlier task in the run makes it")
+	}
+	return err
 }

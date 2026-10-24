@@ -62,6 +62,27 @@ func labelsAndIDs(nodes []cml.Node) (labels, ids []string) {
 	return labels, ids
 }
 
+// maxUndoNodes is how many node ids an undo may name: the run journal keeps
+// a list of at most 128 items, and refuses a longer one.
+const maxUndoNodes = 128
+
+// undoNodes returns the nodes parameter of the undo of acting on todo, of
+// a lab holding all: todo's ids, or none (every node of the lab) when todo
+// is too many for an undo to name and is every node of the lab, which is
+// then the same set. More than an undo can name, and fewer than the whole
+// lab, is refused before anything changes, since its undo could not be
+// recorded exactly.
+func undoNodes(all, todo []cml.Node, verb string) (map[string]any, error) {
+	_, ids := labelsAndIDs(todo)
+	switch {
+	case len(todo) <= maxUndoNodes:
+		return map[string]any{paramNodes: ids}, nil
+	case len(todo) == len(all):
+		return map[string]any{}, nil
+	}
+	return nil, fmt.Errorf("this would %s %d nodes, more than the %d an undo can name: name at most %d in %s, or %s every node of the lab", verb, len(todo), maxUndoNodes, maxUndoNodes, paramNodes, verb)
+}
+
 // findLab finds the lab a task names, naming fqcn in the error.
 func findLab(ctx context.Context, client *cml.Client, ref, fqcn string) (cml.Lab, error) {
 	lab, err := client.FindLab(ctx, ref)

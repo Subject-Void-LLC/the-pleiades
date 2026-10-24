@@ -6,6 +6,7 @@ package link_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -73,6 +74,25 @@ func with(over map[string]any) map[string]any {
 	return p
 }
 
+// TestCreate_UncheckedBeforeItsLabExists: a check of a link in a lab, or
+// to a node, that an earlier task in the run would make is unchecked
+// rather than failed; a real run fails on it.
+func TestCreate_UncheckedBeforeItsLabExists(t *testing.T) {
+	ctl, _ := withLab(t)
+	for name, params := range map[string]map[string]any{
+		"no lab yet":  with(map[string]any{"lab": "later"}),
+		"no node yet": with(map[string]any{"b": "BR9"}),
+	} {
+		var unchecked *collection.CannotCheckError
+		if _, _, err := run(t, ctl, "virt.cml.link.create", true, params); !errors.As(err, &unchecked) {
+			t.Errorf("%s, checked: %v", name, err)
+		}
+		if _, _, err := run(t, ctl, "virt.cml.link.create", false, params); err == nil || errors.As(err, &unchecked) {
+			t.Errorf("%s, run: %v", name, err)
+		}
+	}
+}
+
 // TestCreate_LinksOnceAndRefusesAnInterfaceInUse: a check links nothing; a
 // link is made and its undo removes it by id; the same link again is
 // unchanged, with no undo; and an end already linked elsewhere, an end that
@@ -133,6 +153,13 @@ func TestDelete_ByIDOrEndsWithAnUndoThatLinksAgain(t *testing.T) {
 	undo, _ := inv["params"].(map[string]any)
 	if !ok || inv[sdk.InverseFQCNKey] != "virt.cml.link.create" || undo["lab"] != lab || undo["a"] == undo["b"] || undo["a_interface"] != "Ethernet0/1" {
 		t.Fatalf("the undo: %v", inv)
+	}
+	// Each node is named by its id, so a node made again under the same
+	// label in between is never linked in its place.
+	for _, end := range []string{"a", "b"} {
+		if _, ok := ctl.Labs[lab].Nodes[undo[end].(string)]; !ok {
+			t.Errorf("the undo names %s as %v, not a node id", end, undo[end])
+		}
 	}
 	// The undo, run as a rollback would, makes the same link again.
 	if _, _, err := run(t, ctl, "virt.cml.link.create", false, undo); err != nil || len(ctl.Labs[lab].Links) != 1 {
