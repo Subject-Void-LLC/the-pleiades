@@ -210,8 +210,9 @@ rollback (G12) together.
 - `service_effecting` is `false` in the report of a runbook that changes routing. It is authored metadata
   (`docs/reference/task-keys.md`), and neither docs/16's example nor the skill mentions setting it. Left unset in
   these runbooks, so the reports match what docs/16 shows.
-- FRR in a container always adds `domainname localdomain` to its running configuration, and Batfish does not
-  recognise it, so every gate needs the same `accept_unrecognized` entry. docs/16 does not say this; the
+- FRR in a container adds `domainname localdomain` to its running configuration where the Docker host gives it a
+  search domain (Docker Desktop's resolver does; a Linux host's Docker usually does not, FAILURE_PATTERNS 591), and
+  Batfish does not recognise it, so every gate on such a host needs the same `accept_unrecognized` entry. docs/16 does not say this; the
   `net.batfish.check` example happens to include it. There is no project-wide accept.
 - `wait.routes` returns a `diff` whose `before` and `after` are identical (`captures/11-good-candidate.json`),
   which says nothing about what it waited for.
