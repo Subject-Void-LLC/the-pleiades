@@ -5,7 +5,7 @@ package cml_test
 
 import (
 	"context"
-	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // controller serves a CML 2 API with one lab of two nodes: R1, whose
@@ -143,15 +145,19 @@ func TestConnect_RefusesWhatItCannotUse(t *testing.T) {
 	}
 }
 
-// TestTLSConfig_PinsTheCertificateOrACA: a pinned fingerprint is the one
-// certificate accepted; a pinned CA verifies the chain and the name; and
+// TestConnect_TrustsWhatTheDeviceTLSSettingsPin: through the settings a
+// cml_controller's record holds, a pinned certificate is the one accepted
+// (in capitals too); a pinned CA verifies the chain and the name; and
 // anything else fails carrying the certificate's fingerprint to check.
-func TestTLSConfig_PinsTheCertificateOrACA(t *testing.T) {
+func TestConnect_TrustsWhatTheDeviceTLSSettingsPin(t *testing.T) {
 	srv := controller(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`"tok"`)) })
 	leaf := srv.Certificate()
-	host := strings.Split(strings.TrimPrefix(srv.URL, "https://"), ":")[0]
-	connect := func(fingerprint string, roots *x509.CertPool, h string) error {
-		cfg, err := cml.TLSConfig(h, fingerprint, roots)
+	connect := func(props map[string]inventory.PropertyValue) error {
+		settings, err := devicetls.Parse(inventory.NewProperties(props))
+		if err != nil {
+			return err
+		}
+		cfg, err := settings.Config(nil)
 		if err != nil {
 			return err
 		}
@@ -159,30 +165,25 @@ func TestTLSConfig_PinsTheCertificateOrACA(t *testing.T) {
 		_, err = c.Connect(context.Background())
 		return err
 	}
-	if err := connect(cml.Fingerprint(leaf), nil, host); err != nil {
+	pin := devicetls.Fingerprint(leaf)
+	if err := connect(map[string]inventory.PropertyValue{devicetls.FingerprintProperty: pin}); err != nil {
 		t.Errorf("the pinned certificate: %v", err)
 	}
-	if err := connect(strings.ToUpper(cml.Fingerprint(leaf)), nil, host); err != nil {
+	if err := connect(map[string]inventory.PropertyValue{devicetls.FingerprintProperty: strings.ToUpper(pin)}); err != nil {
 		t.Errorf("the pin in capitals: %v", err)
 	}
-	roots := x509.NewCertPool()
-	roots.AddCert(leaf)
-	if err := connect("", roots, host); err != nil {
+	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))
+	if err := connect(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: ca}); err != nil {
 		t.Errorf("the pinned CA, the right name: %v", err)
 	}
-	var untrusted *cml.UntrustedError
-	if err := connect("", roots, "10.9.9.9"); !errors.As(err, &untrusted) {
+	var untrusted *devicetls.UntrustedError
+	if err := connect(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: ca, devicetls.ServerNameProperty: "10.9.9.9"}); !errors.As(err, &untrusted) {
 		t.Errorf("the pinned CA, a name it does not hold = %v, want UntrustedError", err)
 	}
-	if err := connect("sha256:"+strings.Repeat("0", 64), nil, host); !errors.As(err, &untrusted) || untrusted.Fingerprint != cml.Fingerprint(leaf) || !strings.Contains(untrusted.Error(), "--tls-fingerprint") {
+	if err := connect(map[string]inventory.PropertyValue{devicetls.FingerprintProperty: "sha256:" + strings.Repeat("0", 64)}); !errors.As(err, &untrusted) || untrusted.Fingerprint != pin || !strings.Contains(untrusted.Error(), "--tls-fingerprint") {
 		t.Errorf("another pin = %v, want an UntrustedError naming the real fingerprint", err)
 	}
-	if err := connect("", nil, host); !errors.As(err, &untrusted) {
+	if err := connect(nil); !errors.As(err, &untrusted) || untrusted.Fingerprint != pin {
 		t.Errorf("the system's CAs = %v, want UntrustedError", err)
-	}
-	for _, bad := range []string{"8e57", "md5:" + strings.Repeat("0", 32), "sha256:zz"} {
-		if _, err := cml.TLSConfig(host, bad, nil); err == nil {
-			t.Errorf("fingerprint %q accepted", bad)
-		}
 	}
 }

@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -23,6 +22,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
@@ -161,18 +161,24 @@ func runImportCML(args []string) error {
 	if err != nil {
 		return err
 	}
-	var roots *x509.CertPool
+	// The flags become the properties a cml_controller's record holds, read
+	// by the same rule, so a flag and a record can never trust differently.
+	props := map[string]pkginventory.PropertyValue{}
+	if *fingerprint != "" {
+		props[devicetls.FingerprintProperty] = *fingerprint
+	}
 	if *caFile != "" {
 		pem, err := os.ReadFile(*caFile) // #nosec G304 -- the operator names the CA file
 		if err != nil {
 			return fmt.Errorf("reading --tls-ca: %w", err)
 		}
-		roots = x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(pem) {
-			return fmt.Errorf("--tls-ca %s holds no PEM certificate", *caFile)
-		}
+		props[devicetls.CAPEMProperty] = string(pem)
 	}
-	tlsConfig, err := cml.TLSConfig(base.Hostname(), *fingerprint, roots)
+	settings, err := devicetls.Parse(pkginventory.NewProperties(props))
+	if err != nil {
+		return fmt.Errorf("--tls-fingerprint or --tls-ca: %w", err)
+	}
+	tlsConfig, err := settings.Config(nil)
 	if err != nil {
 		return err
 	}

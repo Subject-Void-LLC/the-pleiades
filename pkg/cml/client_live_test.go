@@ -5,10 +5,8 @@ package cml_test
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -16,6 +14,8 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // sandbox returns the controller's settings, skipping when none are set.
@@ -27,14 +27,20 @@ func sandbox(t *testing.T) (base, user, password, fingerprint string) {
 	return base, user, password, fingerprint
 }
 
-// pinned is an HTTP client trusting only the certificate fingerprint pins.
-func pinned(t *testing.T, base, fingerprint string, roots *x509.CertPool) *http.Client {
+// pinned is an HTTP client trusting only the certificate fingerprint pins,
+// built as a cml_controller's record builds it; with no fingerprint it
+// trusts the system's CAs.
+func pinned(t *testing.T, fingerprint string) *http.Client {
 	t.Helper()
-	u, err := url.Parse(base)
+	props := map[string]inventory.PropertyValue{}
+	if fingerprint != "" {
+		props[devicetls.FingerprintProperty] = fingerprint
+	}
+	settings, err := devicetls.Parse(inventory.NewProperties(props))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := cml.TLSConfig(u.Hostname(), fingerprint, roots)
+	cfg, err := settings.Config(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +54,7 @@ func pinned(t *testing.T, base, fingerprint string, roots *x509.CertPool) *http.
 func TestClient_AgainstARealController(t *testing.T) {
 	base, user, password, fingerprint := sandbox(t)
 	ctx := context.Background()
-	c, err := cml.New(base, pinned(t, base, fingerprint, nil), cml.Credentials{Username: user, Password: password})
+	c, err := cml.New(base, pinned(t, fingerprint), cml.Credentials{Username: user, Password: password})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,14 +81,14 @@ func TestClient_AgainstARealController(t *testing.T) {
 		t.Error("no node's configuration named an address; the sandbox's routers each name several")
 	}
 
-	wrong, _ := cml.New(base, pinned(t, base, fingerprint, nil), cml.Credentials{Username: user, Password: "not-the-password"})
+	wrong, _ := cml.New(base, pinned(t, fingerprint), cml.Credentials{Username: user, Password: "not-the-password"})
 	if _, err := wrong.Connect(ctx); err == nil || !strings.Contains(err.Error(), "refused the login") {
 		t.Errorf("a wrong password = %v, want the login refused", err)
 	}
 	// The sandbox's certificate is its own CA's, so the system's CAs do
 	// not vouch for it, and the refusal carries the fingerprint to check.
-	unpinned, _ := cml.New(base, pinned(t, base, "", nil), cml.Credentials{Username: user, Password: password})
-	var untrusted *cml.UntrustedError
+	unpinned, _ := cml.New(base, pinned(t, ""), cml.Credentials{Username: user, Password: password})
+	var untrusted *devicetls.UntrustedError
 	if _, err := unpinned.Connect(ctx); !errors.As(err, &untrusted) || untrusted.Fingerprint != strings.ToLower(fingerprint) {
 		t.Errorf("unpinned = %v, want an UntrustedError naming %s", err, fingerprint)
 	}

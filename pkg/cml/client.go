@@ -18,6 +18,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 )
 
 // maxResponse bounds a response body read: a lab's nodes with their
@@ -59,7 +61,9 @@ func (c *Client) Connect(ctx context.Context) (string, error) {
 		Ready   bool   `json:"ready"`
 	}
 	if err := c.call(ctx, http.MethodGet, "/system_information", nil, &sys); err != nil {
-		return "", err
+		// A certificate nothing trusts is said with its fingerprint, so a
+		// person can check it with the controller's owner and pin it.
+		return "", devicetls.Explain(err)
 	}
 	if sys.Version == "" {
 		return "", errors.New("cml: /api/v0/system_information names no version, so it is not a CML 2 controller")
