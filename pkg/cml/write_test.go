@@ -69,7 +69,7 @@ func TestWrite_BuildsALabAndTakesItApart(t *testing.T) {
 		return cml.Interface{}
 	}
 	a, b := port(r1), port(r2)
-	if a.IsConnected || a.Slot == nil || *a.Slot != 1 {
+	if a.IsConnected || a.Slot == nil || *a.Slot != 0 {
 		t.Errorf("a free port reads as %+v", a)
 	}
 	link, err := c.CreateLink(ctx, lab.ID, a.ID, b.ID)

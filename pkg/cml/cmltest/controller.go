@@ -21,8 +21,10 @@ import (
 // Token is the bearer token the controller hands every login.
 const Token = "cmltest-token"
 
-// Interfaces are the interfaces each definition is made with: IOL XE's
-// four Ethernet ports, and a single port for anything else.
+// Interfaces are the interfaces each definition is made with, as the DevNet
+// sandbox's CML 2.7.2 makes them: IOL XE's Loopback0 (which has no slot)
+// and four Ethernet ports in slots 0 to 3, and a single interface, "port",
+// for anything else (an external connector's).
 var Interfaces = map[string][]string{
 	"iol-xe": {"Loopback0", "Ethernet0/0", "Ethernet0/1", "Ethernet0/2", "Ethernet0/3"},
 }
@@ -46,10 +48,10 @@ type Node struct {
 	Interfaces []*Interface
 }
 
-// Interface is one interface of a node.
+// Interface is one interface of a node; a loopback has no slot.
 type Interface struct {
 	ID, Label string
-	Slot      int
+	Slot      *int
 	Connected bool
 }
 
@@ -309,10 +311,16 @@ func (c *Controller) createNode(w http.ResponseWriter, r *http.Request, lab *Lab
 	if r.URL.Query().Get("populate_interfaces") == "true" {
 		labels := Interfaces[body.Definition]
 		if labels == nil {
-			labels = []string{"port0"}
+			labels = []string{"port"}
 		}
-		for slot, label := range labels {
-			n.Interfaces = append(n.Interfaces, &Interface{ID: c.id(), Label: label, Slot: slot})
+		slot := 0
+		for _, label := range labels {
+			i := &Interface{ID: c.id(), Label: label}
+			if !strings.HasPrefix(label, "Loopback") {
+				s := slot
+				i.Slot, slot = &s, slot+1
+			}
+			n.Interfaces = append(n.Interfaces, i)
 		}
 	}
 	lab.Nodes[n.ID] = n
