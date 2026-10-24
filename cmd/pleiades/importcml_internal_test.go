@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"path/filepath"
 	"strings"
@@ -264,5 +265,31 @@ func TestImportCML_ViaConsole(t *testing.T) {
 	}
 	if addr, err := sshAddress(controller); err != nil || !strings.HasSuffix(addr, ":2222") {
 		t.Errorf("trust-host's address for a controller = %q, %v", addr, err)
+	}
+
+	// Imported again another way with --replace, R1 keeps nothing of the
+	// way it was reached before.
+	props := func() map[string]string {
+		item, err := repo.GetByName(ctx, "R1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for key, v := range item.Properties().Raw() {
+			out[key] = fmt.Sprint(v)
+		}
+		return out
+	}
+	if err := runImportCML([]string{"--dir", dir, "--controller", "cml", "--lab", "cvd", "--nodes", "R1", "--via", "telnet", "--address", "R1=10.0.0.1", "--replace"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := props(); p["host"] != "10.0.0.1" || p["console_server"] != "" || p["console_line"] != "" {
+		t.Errorf("R1 over Telnet after the console = %v", p)
+	}
+	if err := runImportCML([]string{"--dir", dir, "--controller", "cml", "--lab", "cvd", "--nodes", "R1", "--via", "console", "--replace"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := props(); p["host"] != "" || p["port"] != "" || p["console_server"] != "cml" {
+		t.Errorf("R1 over the console after Telnet = %v", p)
 	}
 }

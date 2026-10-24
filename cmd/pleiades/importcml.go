@@ -51,12 +51,13 @@ var cmlCiscoTypes = map[string]string{
 func cmlSpec(n cml.Node, addr netip.Addr, via string) (string, map[string]pkginventory.PropertyValue) {
 	host := addr.String()
 	if t, ok := cmlCiscoTypes[n.NodeDefinition]; ok {
+		// transport is written either way, and a console's properties
+		// taken away, so a node imported again with --replace keeps nothing
+		// of how it was reached before.
 		if via == "telnet" {
-			return t, map[string]pkginventory.PropertyValue{"host": host, "transport": "telnet"}
+			return t, map[string]pkginventory.PropertyValue{"host": host, "transport": "telnet", "console_server": nil, "console_line": nil}
 		}
-		// transport is written either way, so a node imported again over
-		// SSH with --replace stops being reached over Telnet.
-		return t, map[string]pkginventory.PropertyValue{"host": host, "port": 22, "transport": "ssh"}
+		return t, map[string]pkginventory.PropertyValue{"host": host, "port": 22, "transport": "ssh", "console_server": nil, "console_line": nil}
 	}
 	if via == "telnet" {
 		return gns3DeviceType, map[string]pkginventory.PropertyValue{"telnet_host": host, "telnet_port": 23}
@@ -502,5 +503,7 @@ func cmlConsoleSpec(ctx context.Context, client *cml.Client, lab string, n cml.N
 	if err != nil {
 		return "", nil, "", err
 	}
-	return deviceType, map[string]pkginventory.PropertyValue{"transport": "console", "console_server": controller, "console_line": key}, "", nil
+	// An address left from an import over SSH or Telnet is taken away: a
+	// console device has none.
+	return deviceType, map[string]pkginventory.PropertyValue{"transport": "console", "console_server": controller, "console_line": key, "host": nil, "port": nil}, "", nil
 }
