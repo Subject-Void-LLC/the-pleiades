@@ -22,7 +22,7 @@
       "description": "LegRecord is one check's record of its machine's run.",
       "properties": {
         "commit": {
-          "description": "Commit is the commit whose tree the leg tested.",
+          "description": "Commit is the commit whose tree the leg tested. A leg tests the tree git archive makes of that commit, never the working tree, so it is clean by construction and the record has no clean field: a merge compares only this commit with the run's.",
           "type": "string"
         },
         "error": {
@@ -140,7 +140,7 @@
       "description": "Problem is one reason a report cannot simply be read as its records say.",
       "properties": {
         "code": {
-          "description": "Code is what kind of problem it is, stable for a tool to act on. Known values: unreadable, unknown-kind, unknown-schema, unknown-value, missing, gate-failed, gate-disagrees, interrupted. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "description": "Code is what kind of problem it is, stable for a tool to act on. Known values: unreadable, unknown-kind, unknown-schema, unknown-value, missing, gate-failed, gate-disagrees, interrupted, stale, dirty. A newer producer may add others, and a reader treats one it does not know as not a pass.",
           "examples": [
             "unreadable",
             "unknown-kind",
@@ -149,7 +149,9 @@
             "missing",
             "gate-failed",
             "gate-disagrees",
-            "interrupted"
+            "interrupted",
+            "stale",
+            "dirty"
           ],
           "type": "string"
         },
@@ -173,6 +175,14 @@
       "properties": {
         "arch": {
           "description": "Arch is the architecture it ran on (GOARCH).",
+          "type": "string"
+        },
+        "clean": {
+          "description": "Clean is true when the working tree had no uncommitted changes as pr-check began (testgate -clean yes). A stamped record without it ran over code that is in no commit.",
+          "type": "boolean"
+        },
+        "commit": {
+          "description": "Commit is the commit pr-check began at, which the run tested (testgate -commit); absent on a record nobody stamped, which a merge cannot tie to any commit.",
           "type": "string"
         },
         "coverage": {
@@ -355,6 +365,19 @@
     "Step": {
       "description": "Step is the record of one step pr-check ran besides the tests (govulncheck, the coverage check, the served-images check): how it exited, or why it did not run.",
       "properties": {
+        "at": {
+          "description": "At is when the step's record was written; the zero time on a record from before steps carried one.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "clean": {
+          "description": "Clean is true when the working tree had no uncommitted changes as pr-check began (prreport step -clean yes).",
+          "type": "boolean"
+        },
+        "commit": {
+          "description": "Commit is the commit pr-check began at (prreport step -commit); absent on a record nobody stamped, which a merge cannot tie to any commit.",
+          "type": "string"
+        },
         "exit_code": {
           "description": "ExitCode is how the step's command exited; 0 for a step that did not run.",
           "type": "integer"
@@ -393,7 +416,8 @@
         "kind",
         "name",
         "exit_code",
-        "verdict"
+        "verdict",
+        "at"
       ],
       "type": "object"
     }
@@ -450,6 +474,11 @@
         "array",
         "null"
       ]
+    },
+    "oldest": {
+      "description": "Oldest is when the oldest record in the report began: the earliest start of a pass or a leg, or time a step was written, a check with no machine set up left out. It is earlier than Started when make pr-check LEGS=... kept records from an earlier run, and the receipt's age is counted from it, so a reused govulncheck answer cannot outlive its advisory database. Absent when no record says when it began.",
+      "format": "date-time",
+      "type": "string"
     },
     "passes": {
       "description": "Passes are the testgate passes on this machine, in the order pr-check runs them.",

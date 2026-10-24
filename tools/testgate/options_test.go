@@ -39,6 +39,10 @@ func TestValidate(t *testing.T) {
 		"a shard of ./...":              {shard: "1/2"},
 		"-repeat with the one pass":     {repeat: 3, full: true},
 		"a negative repeat":             {repeat: -1},
+		"a commit with no clean":        {commit: strings.Repeat("a", 40)},
+		"a clean with no commit":        {clean: "yes"},
+		"a short commit":                {commit: "abc123", clean: "yes"},
+		"a clean that is not yes or no": {commit: strings.Repeat("a", 40), clean: "maybe"},
 	} {
 		if err := o.validate(); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -46,6 +50,9 @@ func TestValidate(t *testing.T) {
 	}
 	if err := (options{full: true, coverageOut: "c.json", shard: "1/2", packages: []string{"a"}}).validate(); err != nil {
 		t.Errorf("a full, sharded, measured run was refused: %v", err)
+	}
+	if err := (options{full: true, commit: strings.Repeat("a", 40), clean: "no"}).validate(); err != nil {
+		t.Errorf("a stamped run was refused: %v", err)
 	}
 }
 

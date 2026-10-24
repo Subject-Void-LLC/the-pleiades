@@ -16,14 +16,17 @@
 //	go run ./tools/prreport [-dir D] [-json] [-failures] [-skips] [-leg NAME]
 //	go run ./tools/prreport begin [-dir D] [-commit SHA] [-expect NAME,...]
 //	go run ./tools/prreport merge [-dir D] [-commit SHA] [-exit CODE] [-interrupted]
-//	go run ./tools/prreport step -dir D -name NAME (-exit CODE | -not-run REASON)
+//	go run ./tools/prreport step -dir D -name NAME (-exit CODE | -not-run REASON) [-commit SHA -clean yes|no]
 //
 // The directory defaults to .coverage/pr/records, where make pr-check
 // writes them. begin writes a running report naming what the run expects,
 // so an expected part with no record is missing from the merge rather than
 // unnoticed, and a run that never merges still says it has not ended.
 // merge's -exit is pr-check's own status, so the report never passes a run
-// the gate failed, and -interrupted marks a run that stopped early. -leg
+// the gate failed, and -interrupted marks a run that stopped early. step's
+// -commit and -clean stamp its record with the commit pr-check began at and
+// whether its tree was clean then, as testgate's do, so the merge can name a
+// record of another commit stale and one of a dirty tree dirty. -leg
 // names a pass (fast, repeat, containers), a leg (mac, bsd, win) or a step;
 // with -json it prints that one entry. A report for a commit other than
 // HEAD is said to be one.
@@ -42,6 +45,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
 )
 
@@ -137,6 +141,8 @@ func runStep(args []string, stderr io.Writer) int {
 	name := fs.String("name", "", "the step's name: letters, digits and -")
 	exit := fs.Int("exit", 0, "the step's exit code")
 	notRun := fs.String("not-run", "", "why the step did not run, in place of -exit")
+	commit := fs.String("commit", "", "stamp the record with the full commit hash pr-check began at (needs -clean)")
+	clean := fs.String("clean", "", "yes or no: stamp the record with whether the working tree was clean as pr-check began (needs -commit)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -148,7 +154,12 @@ func runStep(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "prreport step: pass -exit or -not-run, not both: a step that did not run has no exit code")
 		return 2
 	}
-	if err := prreport.WriteStep(*dir, *name, *exit, *notRun); err != nil {
+	stamp, err := flakegate.ParseStamp(*commit, *clean)
+	if err != nil {
+		fmt.Fprintf(stderr, "prreport step: %v\n", err)
+		return 2
+	}
+	if err := prreport.WriteStep(*dir, *name, *exit, *notRun, stamp, time.Now()); err != nil {
 		fmt.Fprintf(stderr, "prreport: %v\n", err)
 		return 2
 	}

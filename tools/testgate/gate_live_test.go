@@ -132,6 +132,37 @@ func TestRun_ABrokenTestFailsBothWays(t *testing.T) {
 	}
 }
 
+// TestRun_TheRecordCarriesItsStamp proves -commit and -clean reach the
+// record a real run writes, so a merge can tie it to the commit pr-check
+// began at; and that a stamp that cannot be one stops the run before go test
+// starts, still leaving a record, unstamped, that says why.
+func TestRun_TheRecordCarriesItsStamp(t *testing.T) {
+	throwawayModule(t, false)
+	commit := strings.Repeat("0123456789", 4)
+	record := filepath.Join(t.TempDir(), "run.json")
+	if err := run(options{full: true, noRace: raceOff(t), strict: true, reportOut: record, commit: commit, clean: "yes",
+		packages: []string{"gateproof/good"}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if rec := readRecord(t, record); rec.Commit != commit || !rec.Clean || rec.Verdict != flakegate.VerdictPass {
+		t.Errorf("the record's stamp: commit %q clean %v verdict %s", rec.Commit, rec.Clean, rec.Verdict)
+	}
+	if err := run(options{full: true, noRace: raceOff(t), strict: true, reportOut: record, commit: commit, clean: "no",
+		packages: []string{"gateproof/good"}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if rec := readRecord(t, record); rec.Commit != commit || rec.Clean {
+		t.Errorf("a run on a dirty tree was stamped clean: %+v", rec)
+	}
+	err := run(options{full: true, reportOut: record, commit: commit[:12], clean: "yes", packages: []string{"gateproof/good"}})
+	if err == nil || !strings.Contains(err.Error(), "not a full commit hash") {
+		t.Fatalf("a short commit: %v", err)
+	}
+	if rec := readRecord(t, record); rec.Commit != "" || rec.Verdict != flakegate.VerdictError || !strings.Contains(rec.Error, "not a full commit hash") {
+		t.Errorf("a refused stamp's record: %+v", rec)
+	}
+}
+
 // TestRun_ShardsTogetherTestEverything proves two shards of a list test its
 // packages between them, each once.
 func TestRun_ShardsTogetherTestEverything(t *testing.T) {

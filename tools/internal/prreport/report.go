@@ -18,8 +18,12 @@
 //   - refuses a major version it does not know, rather than guessing.
 //
 // The verdict is never pass unless every expected part of the run has a
-// record, every record was read, every value in them is known, and
-// pr-check's own exit status, when given, was 0.
+// record, every record was read, every value in them is known, every record
+// is stamped with the report's commit (and, for a testgate run or a step, a
+// clean tree), and pr-check's own exit status, when given, was 0. A
+// record's stamp is what lets make pr-check LEGS=... keep the records of
+// the parts it does not run: one from another commit is stale, and the
+// report is then not a pass.
 package prreport
 
 import (
@@ -87,6 +91,15 @@ const (
 	ProblemGateDisagrees = "gate-disagrees"
 	// ProblemInterrupted is a run that stopped before its end.
 	ProblemInterrupted = "interrupted"
+	// ProblemStale is a record that cannot be tied to the commit the report
+	// checked: one stamped with another commit (an earlier run's, kept by
+	// make pr-check LEGS=...), one stamped with none, or every record of a
+	// report that names no commit. A check with no machine set up is exempt,
+	// since it tested nothing.
+	ProblemStale = "stale"
+	// ProblemDirty is a testgate run or step whose run began on a working
+	// tree with uncommitted changes, so it tested code that is in no commit.
+	ProblemDirty = "dirty"
 )
 
 // The values this reader knows, by where they appear. A value outside them
@@ -98,7 +111,7 @@ var (
 	KnownFailureKinds   = []string{"test", "build", "package"}
 	KnownStepVerdicts   = []string{flakegate.VerdictPass, flakegate.VerdictFail, flakegate.VerdictNotRun}
 	KnownLegSteps       = []string{oscheck.StepSettings, oscheck.StepBox, oscheck.StepCommit, oscheck.StepReachable, oscheck.StepReady, oscheck.StepShip, oscheck.StepTest}
-	KnownProblemCodes   = []string{ProblemUnreadable, ProblemUnknownKind, ProblemUnknownSchema, ProblemUnknownValue, ProblemMissing, ProblemGateFailed, ProblemGateDisagrees, ProblemInterrupted}
+	KnownProblemCodes   = []string{ProblemUnreadable, ProblemUnknownKind, ProblemUnknownSchema, ProblemUnknownValue, ProblemMissing, ProblemGateFailed, ProblemGateDisagrees, ProblemInterrupted, ProblemStale, ProblemDirty}
 )
 
 // Step is the record of one step pr-check ran besides the tests (govulncheck,
@@ -119,6 +132,15 @@ type Step struct {
 	Verdict string `json:"verdict"`
 	// Reason is why a step with the not-run verdict did not run.
 	Reason string `json:"reason,omitempty"`
+	// Commit is the commit pr-check began at (prreport step -commit); absent
+	// on a record nobody stamped, which a merge cannot tie to any commit.
+	Commit string `json:"commit,omitempty"`
+	// Clean is true when the working tree had no uncommitted changes as
+	// pr-check began (prreport step -clean yes).
+	Clean bool `json:"clean,omitempty"`
+	// At is when the step's record was written; the zero time on a record
+	// from before steps carried one.
+	At time.Time `json:"at"`
 }
 
 // Pass is one testgate pass on this machine, by its record's name.
@@ -165,6 +187,13 @@ type Report struct {
 	// Started is when pr-check began; absent when it wrote no running report
 	// first.
 	Started *time.Time `json:"started,omitempty"`
+	// Oldest is when the oldest record in the report began: the earliest
+	// start of a pass or a leg, or time a step was written, a check with no
+	// machine set up left out. It is earlier than Started when make
+	// pr-check LEGS=... kept records from an earlier run, and the receipt's
+	// age is counted from it, so a reused govulncheck answer cannot outlive
+	// its advisory database. Absent when no record says when it began.
+	Oldest *time.Time `json:"oldest,omitempty"`
 	// Generated is when this document was written.
 	Generated time.Time `json:"generated"`
 	// Verdict is the run's: pass, fail, incomplete (nothing failed, and
@@ -206,12 +235,14 @@ func ValidName(name string) bool {
 }
 
 // WriteStep writes a step's record to dir, named for it: how it exited, or
-// with a reason, that it did not run.
-func WriteStep(dir, name string, exitCode int, notRun string) error {
+// with a reason, that it did not run; stamped with stamp, and written at
+// now.
+func WriteStep(dir, name string, exitCode int, notRun string, stamp flakegate.Stamp, now time.Time) error {
 	if !ValidName(name) {
 		return fmt.Errorf("%q is not a step name: letters, digits and - only", name)
 	}
-	s := Step{Schema: StepSchema, Kind: StepKind, Name: name, ExitCode: exitCode, Verdict: flakegate.VerdictPass}
+	s := Step{Schema: StepSchema, Kind: StepKind, Name: name, ExitCode: exitCode, Verdict: flakegate.VerdictPass,
+		Commit: stamp.Commit, Clean: stamp.Clean, At: now.UTC()}
 	switch {
 	case notRun != "":
 		s.Verdict, s.Reason = flakegate.VerdictNotRun, notRun
@@ -250,8 +281,9 @@ type MergeOptions struct {
 
 // Merge reads every record in dir but the report, by kind, and returns them
 // as one report. A running report already there (Begin's) gives the start
-// time and what was expected; a record that cannot be read, or holds a
-// value this reader does not know, is a problem in it.
+// time and what was expected; a record that cannot be read, holds a value
+// this reader does not know, or is not stamped with the report's commit and
+// a clean tree (stamps.go), is a problem in it.
 func Merge(dir string, o MergeOptions) (Report, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -276,6 +308,7 @@ func Merge(dir string, o MergeOptions) (Report, error) {
 		}
 		r.add(name, data)
 	}
+	r.unstampedReport()
 	sort.SliceStable(r.Passes, func(i, j int) bool { return order(r.Passes[i].Name) < order(r.Passes[j].Name) })
 	sort.SliceStable(r.Legs, func(i, j int) bool { return order(r.Legs[i].Name) < order(r.Legs[j].Name) })
 	sort.SliceStable(r.Steps, func(i, j int) bool { return order(r.Steps[i].Name) < order(r.Steps[j].Name) })

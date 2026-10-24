@@ -33,6 +33,8 @@ func (r *Report) add(file string, data []byte) {
 		}
 		r.Passes = append(r.Passes, Pass{Name: name, Run: run})
 		r.checkRun(file, run)
+		r.checkStamp(file, run.Commit, run.Clean)
+		r.began(run.Started)
 	case oscheck.LegKind:
 		leg, err := oscheck.ReadLegRecord(data)
 		if err != nil {
@@ -47,6 +49,7 @@ func (r *Report) add(file string, data []byte) {
 		for _, run := range leg.Runs {
 			r.checkRun(file, run)
 		}
+		r.checkLeg(file, leg)
 	case StepKind:
 		if probe.Schema != StepSchema {
 			r.problem(ProblemUnknownSchema, file, fmt.Sprintf("a step record of schema %d, where this reader knows %d", probe.Schema, StepSchema))
@@ -59,6 +62,8 @@ func (r *Report) add(file string, data []byte) {
 		}
 		r.Steps = append(r.Steps, s)
 		r.known(file, "verdict", s.Verdict, KnownStepVerdicts)
+		r.checkStamp(file, s.Commit, s.Clean)
+		r.began(s.At)
 	default:
 		r.problem(ProblemUnknownKind, file, fmt.Sprintf("a record of kind %q, which this reader does not know", probe.Kind))
 	}

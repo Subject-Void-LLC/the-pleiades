@@ -10,15 +10,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
 )
 
-// passing is a testgate record with nothing against it.
+// abc is the commit the fixtures' run checked, and stamp is what its
+// records carry: that commit, on a clean tree.
+var (
+	abc   = strings.Repeat("abc0", 10)
+	stamp = flakegate.Stamp{Commit: abc, Clean: true}
+)
+
+// passing is a testgate record with nothing against it, stamped with abc.
 func passing(label string) flakegate.Run {
-	return flakegate.Run{Label: label, OS: "linux", Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass}
+	return flakegate.Run{Label: label, OS: "linux", Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass, Commit: abc, Clean: true}
 }
 
 // writeRecords writes each record into dir by its name, a Run, a LegRecord
@@ -65,15 +73,15 @@ func fixture(t *testing.T) string {
 	writeRecords(t, dir, map[string]any{
 		"containers.json": containers,
 		"fast.json":       fast,
-		"win.json":        oscheck.LegRecord{Tool: "wincheck", OS: "Windows", Target: "win-check", Verdict: flakegate.VerdictNotRun, Step: oscheck.StepReachable, Error: "no route to host\nmore"},
+		"win.json":        oscheck.LegRecord{Tool: "wincheck", OS: "Windows", Target: "win-check", Commit: abc, Verdict: flakegate.VerdictNotRun, Step: oscheck.StepReachable, Error: "no route to host\nmore"},
 		"bsd.json":        oscheck.LegRecord{Tool: "bsdcheck", OS: "FreeBSD", Verdict: flakegate.VerdictNotRun, Step: oscheck.StepSettings, Error: "tests/bsd/.env names no machine"},
-		"mac.json":        oscheck.LegRecord{Tool: "maccheck", OS: "macOS", Target: "mac", Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass, Runs: []flakegate.Run{passing("testgate -race -timeout 30m -tags integration -cover -count=1"), repeat}},
+		"mac.json":        oscheck.LegRecord{Tool: "maccheck", OS: "macOS", Target: "mac", Commit: abc, Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass, Runs: []flakegate.Run{passing("testgate -race -timeout 30m -tags integration -cover -count=1"), repeat}},
 		"notes.txt":       "not a record",
 	})
-	if err := prreport.WriteStep(dir, "coverage", 0, ""); err != nil {
+	if err := prreport.WriteStep(dir, "coverage", 0, "", stamp, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := prreport.WriteStep(dir, "images", 0, "no Docker daemon answered"); err != nil {
+	if err := prreport.WriteStep(dir, "images", 0, "no Docker daemon answered", stamp, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -97,14 +105,14 @@ func runCLI(args ...string) (int, string, string) {
 // report reads back the same, whole, as JSON, by one entry, its failures
 // alone and its skips.
 func TestRun_MergeThenRead(t *testing.T) {
-	setHead(t, "abc")
+	setHead(t, abc)
 	dir := fixture(t)
-	code, merged, stderr := runCLI("merge", "-dir", dir, "-commit", "abc", "-exit", "1")
+	code, merged, stderr := runCLI("merge", "-dir", dir, "-commit", abc, "-exit", "1")
 	if code != 0 || stderr != "" {
 		t.Fatalf("merge: %d %s", code, stderr)
 	}
 	for _, want := range []string{
-		"at abc", "FAIL (exit 1)\n",
+		"at " + abc[:12], "FAIL (exit 1)\n",
 		"fast        pass     1 package(s), 0s, 0 failed, 1 contention, 1 skipped",
 		"containers  fail     1 package(s), 0s, 2 failed",
 		"mac         pass     macOS on mac, 1 package(s), 0s; full pass; repeat pass",
@@ -155,7 +163,7 @@ func TestRun_MergeThenRead(t *testing.T) {
 	}
 	green := t.TempDir()
 	writeRecords(t, green, map[string]any{"fast.json": passing("-full")})
-	runCLI("merge", "-dir", green)
+	runCLI("merge", "-dir", green, "-commit", abc)
 	if _, out, _ = runCLI("-dir", green, "-skips"); out != "No test was skipped.\n" {
 		t.Errorf("no skips: %q", out)
 	}
@@ -166,8 +174,8 @@ func TestRun_MergeThenRead(t *testing.T) {
 func TestRun_AReportForAnotherCommitSaysSo(t *testing.T) {
 	setHead(t, "def")
 	dir := fixture(t)
-	runCLI("merge", "-dir", dir, "-commit", "abc")
-	if code, _, stderr := runCLI("-dir", dir); code != 0 || !strings.Contains(stderr, "for abc, and HEAD is def") {
+	runCLI("merge", "-dir", dir, "-commit", abc)
+	if code, _, stderr := runCLI("-dir", dir); code != 0 || !strings.Contains(stderr, "for "+abc+", and HEAD is def") {
 		t.Errorf("%d %q", code, stderr)
 	}
 }
@@ -205,16 +213,50 @@ func TestRun_Refusals(t *testing.T) {
 		"a stray to merge":      {[]string{"merge", "-dir", scratch, "now"}, `unexpected argument "now"`},
 		"a stray to step":       {[]string{"step", "-dir", scratch, "-name", "x", "1"}, `unexpected argument "1"`},
 		"an exit not run":       {[]string{"step", "-dir", scratch, "-name", "x", "-exit", "1", "-not-run", "no daemon"}, "-exit or -not-run, not both"},
+		"a short commit":        {[]string{"step", "-dir", scratch, "-name", "x", "-commit", "abc", "-clean", "yes"}, "not a full commit hash"},
+		"a commit alone":        {[]string{"step", "-dir", scratch, "-name", "x", "-commit", abc}, "go together"},
+		"a clean of maybe":      {[]string{"step", "-dir", scratch, "-name", "x", "-commit", abc, "-clean", "maybe"}, "yes or no"},
 	} {
 		if code, _, stderr := runCLI(tc.args...); code != 2 || !strings.Contains(stderr, tc.want) {
 			t.Errorf("%s: %d %q", name, code, stderr)
 		}
 	}
-	if code, _, stderr := runCLI("step", "-dir", empty, "-name", "coverage", "-exit", "1"); code != 0 || stderr != "" {
+	if code, _, stderr := runCLI("step", "-dir", empty, "-name", "coverage", "-exit", "1", "-commit", abc, "-clean", "no"); code != 0 || stderr != "" {
 		t.Fatalf("step: %d %s", code, stderr)
 	}
-	if r, _ := prreport.Merge(empty, prreport.MergeOptions{}); len(r.Steps) != 1 || r.Steps[0].Verdict != flakegate.VerdictFail {
+	r, _ := prreport.Merge(empty, prreport.MergeOptions{Commit: abc})
+	if len(r.Steps) != 1 || r.Steps[0].Verdict != flakegate.VerdictFail || r.Steps[0].Commit != abc || r.Steps[0].Clean || r.Steps[0].At.IsZero() {
 		t.Errorf("the step's record: %+v", r)
+	}
+	if len(r.Problems) != 1 || r.Problems[0].Code != prreport.ProblemDirty {
+		t.Errorf("a step stamped on a dirty tree: %+v", r.Problems)
+	}
+}
+
+// TestRun_KeptRecordsSayHowOldTheyAre: a report whose oldest record began
+// before the run did (one kept by LEGS) says when, so a reader sees the run
+// is not all from today; one whose records are all its own does not.
+func TestRun_KeptRecordsSayHowOldTheyAre(t *testing.T) {
+	setHead(t, abc)
+	dir := t.TempDir()
+	if code, _, stderr := runCLI("begin", "-dir", dir, "-commit", abc, "-expect", "fast,coverage"); code != 0 {
+		t.Fatalf("begin: %s", stderr)
+	}
+	kept := passing("-full")
+	kept.Started = time.Now().Add(-5 * time.Hour)
+	writeRecords(t, dir, map[string]any{"fast.json": kept})
+	if code, _, stderr := runCLI("step", "-dir", dir, "-name", "coverage", "-exit", "0", "-commit", abc, "-clean", "yes"); code != 0 {
+		t.Fatalf("step: %s", stderr)
+	}
+	_, out, _ := runCLI("merge", "-dir", dir, "-exit", "0")
+	if !strings.Contains(out, "PASS (exit 0)") || !strings.Contains(out, "the oldest record began "+kept.Started.UTC().Format("2006-01-02 15:04 MST")+", before this run") {
+		t.Errorf("a report with a kept record:\n%s", out)
+	}
+	fresh := t.TempDir()
+	runCLI("begin", "-dir", fresh, "-commit", abc, "-expect", "coverage")
+	runCLI("step", "-dir", fresh, "-name", "coverage", "-exit", "0", "-commit", abc, "-clean", "yes")
+	if _, out, _ := runCLI("merge", "-dir", fresh, "-exit", "0"); strings.Contains(out, "oldest record") {
+		t.Errorf("a report of this run's records alone speaks of an older one:\n%s", out)
 	}
 }
 
@@ -223,9 +265,9 @@ func TestRun_Refusals(t *testing.T) {
 // says interrupted, lists what is missing, and says why; -leg on a missing
 // part answers incomplete rather than failing to find it.
 func TestRun_BeginThenAnInterruptedMerge(t *testing.T) {
-	setHead(t, "abc")
+	setHead(t, abc)
 	dir := t.TempDir()
-	if code, _, stderr := runCLI("begin", "-dir", dir, "-commit", "abc", "-expect", "fast, repeat,win"); code != 0 || stderr != "" {
+	if code, _, stderr := runCLI("begin", "-dir", dir, "-commit", abc, "-expect", "fast, repeat,win"); code != 0 || stderr != "" {
 		t.Fatalf("begin: %d %s", code, stderr)
 	}
 	if code, out, _ := runCLI("-dir", dir); code != 0 || !strings.Contains(out, "RUNNING") ||
@@ -237,7 +279,7 @@ func TestRun_BeginThenAnInterruptedMerge(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("merge: %d %s", code, stderr)
 	}
-	for _, want := range []string{"at abc", "INTERRUPTED (exit 130)", "repeat      missing  no record of it", "win         missing  no record of it",
+	for _, want := range []string{"at " + abc[:12], "INTERRUPTED (exit 130)", "repeat      missing  no record of it", "win         missing  no record of it",
 		"Problem (interrupted) pr-check stopped before it finished"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the summary lacks %q:\n%s", want, out)

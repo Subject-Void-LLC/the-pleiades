@@ -98,7 +98,14 @@ func gateRun(t *testing.T, target string) []string {
 	if dirty {
 		clean = "no"
 	}
-	return []string{"--target", target, "--started-at", headOf(t), "--started-clean", clean}
+	args := []string{"--target", target, "--started-at", headOf(t), "--started-clean", clean}
+	if target == "pr-check" {
+		// pr-check's receipt is written only over its run's report, which
+		// make pr-check passes; a passing one for HEAD, as a real run
+		// merges it.
+		args = append(args, "--report", passingReport(t, headOf(t), time.Now().Add(-time.Hour)))
+	}
+	return args
 }
 
 // pushLines puts the lines git gives a pre-push hook on os.Stdin, through a

@@ -717,12 +717,43 @@ ci-containers:
 # neither the exit status nor the receipt. `go run ./tools/failures report`
 # maps those failures against GitHub Actions' own (record-actions).
 #
+# Every record is stamped with where the gate began: the commit HEAD named
+# and whether the tree was clean, read once as make parses this file
+# (GATE_START_COMMIT, GATE_START_CLEAN) and handed to each testgate pass and
+# each prreport step (PR_STAMP). An OS check's leg names the commit whose
+# tree it tested, which git archive makes, so it is clean by construction.
+# The merge calls a record of another commit, or of none, stale, and a pass
+# or step that began on a dirty tree dirty, and a report with either is not
+# a pass.
+#
+# LEGS=a,b runs only the parts it names and keeps every other part's record
+# from the last run, to run one leg again (a lab box that did not start, a
+# Mac that was asleep) without the hour the rest take: make pr-check
+# LEGS=bsd,mac. Empty, it changes nothing. The names are the records'
+# (PR_CHECK_PARTS); a name pr-check does not know stops make before anything
+# runs. A part that reads another's output comes with it, and the list run
+# is printed: fast brings coverage-fast and coverage, containers brings
+# durations and coverage, and mac brings govulncheck; govulncheck may run
+# alone. Only the named parts' records and side files (pr/fast.json,
+# pr/containers.json, pr/<os>.ready, .log and .failed) are removed first, and
+# the run still expects every part, so a part never run is missing. The
+# static checks and pr-check-vet always run. coverage-fast stops the run
+# early only when fast ran in it. govulncheck uses the Mac's tree only when
+# the Mac's ready file names this commit.
+#
 # A pass ends by writing a receipt (tools/gatereceipt, its own file under
 # .git), and .githooks/pre-push refuses a branch whose tip no receipt
 # covers: run it on a committed, clean tree, since a receipt names a
-# commit. A make flag that skips a prerequisite (-o ci-remote, -t) still
-# gets a receipt for what did run, the way `git push --no-verify` skips the
-# hook: both are deliberate, and both are the developer's to answer for.
+# commit. Since LEGS can keep earlier records, pr-check's exit status says
+# only that the parts it ran passed, so the receipt also reads the merged
+# report (--report) and refuses one that is not a pass of HEAD with nothing
+# missing and no problem listed: a kept record from another commit or a
+# dirty tree costs the receipt. The receipt keeps the report's oldest record
+# time, and the hook counts its one-day age from there, so a kept
+# govulncheck answer cannot outlive its advisory database. A make flag that
+# skips a prerequisite (-o ci-remote, -t) still gets a receipt for what did
+# run, the way `git push --no-verify` skips the hook: both are deliberate,
+# and both are the developer's to answer for.
 PR_BASE ?= origin/main
 # CI_REMOTE_STATIC is ci-remote's list of checks but govulncheck, which
 # pr-check runs in its recipe instead: on the Mac (VULN_CHECK) when its
@@ -751,6 +782,29 @@ LAB_CHECKS := bsd win
 PR_CHECK_ALWAYS := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
 	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
+# PR_CHECK_PARTS are the parts of pr-check that leave a record, each named
+# as its record is, and the names LEGS takes. LEGS_RUN is what LEGS selects,
+# in this order, with the parts that read another's output added: fast
+# brings coverage-fast and coverage, which read its measurement; containers
+# brings durations and coverage; mac brings govulncheck, which scans the
+# tree mac's prepare phase sends. A name pr-check does not know stops make
+# before anything runs. PR_STAMP is what every pass and step is told about
+# where the gate began, so its record carries it.
+PR_CHECK_PARTS := fast coverage-fast repeat containers durations mac bsd win govulncheck images coverage sizes
+LEGS ?=
+comma := ,
+LEGS_NAMED := $(sort $(subst $(comma), ,$(LEGS)))
+LEGS_UNKNOWN := $(filter-out $(PR_CHECK_PARTS),$(LEGS_NAMED))
+LEGS_RUN := $(filter $(LEGS_NAMED) \
+	$(if $(filter fast,$(LEGS_NAMED)),coverage-fast coverage) \
+	$(if $(filter containers,$(LEGS_NAMED)),durations coverage) \
+	$(if $(filter mac,$(LEGS_NAMED)),govulncheck),$(PR_CHECK_PARTS))
+ifneq ($(filter pr-check,$(MAKECMDGOALS)),)
+ifneq ($(LEGS_UNKNOWN),)
+$(error LEGS names $(LEGS_UNKNOWN), which pr-check does not run; its parts are $(PR_CHECK_PARTS))
+endif
+endif
+PR_STAMP = $(if $(GATE_START_COMMIT),-commit $(GATE_START_COMMIT) -clean $(GATE_START_CLEAN))
 pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	@$(SPLIT_PACKAGES); \
 	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
@@ -760,32 +814,49 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
-	rm -rf $(COVERAGE_DIR)/pr; mkdir -p $(COVERAGE_DIR)/pr/records; \
+	want() { [ -z "$(LEGS_RUN)" ] && return 0; case " $(LEGS_RUN) " in *" $$1 "*) return 0;; esac; return 1; }; \
 	rec=$(COVERAGE_DIR)/pr/records; report=$(COVERAGE_DIR)/pr/prreport; \
+	if [ -z "$(LEGS_RUN)" ]; then \
+		rm -rf $(COVERAGE_DIR)/pr; \
+	else \
+		echo "pr-check: LEGS=$(LEGS) runs $(LEGS_RUN) and keeps every other part's record from the last run; a receipt needs each record to be for $(GATE_START_COMMIT) on a clean tree"; \
+		for part in $(LEGS_RUN); do \
+			rm -f $$rec/$$part.json; \
+			case $$part in \
+				fast|containers) rm -f $(COVERAGE_DIR)/pr/$$part.json;; \
+				mac|bsd|win) rm -f $(COVERAGE_DIR)/pr/$$part.ready $(COVERAGE_DIR)/pr/$$part.log $(COVERAGE_DIR)/pr/$$part.failed;; \
+			esac; \
+		done; \
+	fi; \
+	mkdir -p $$rec; \
 	go build -o $$report ./tools/prreport || exit 1; \
 	expect="mac,bsd,win,govulncheck,images,coverage,sizes"; \
 	if [ -n "$$mine_fast" ]; then expect="fast,coverage-fast,repeat,$$expect"; fi; \
 	if [ -n "$$mine_docker" ]; then expect="$$expect,containers,durations"; fi; \
 	$$report begin -dir $$rec -commit "$(GATE_START_COMMIT)" -expect "$$expect" || exit 1; \
-	status=0; legs=""; \
-	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s || status=1; [ $$s -eq 0 ] || status=1; }; \
+	status=0; legs=""; ran_fast=no; \
+	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s $(PR_STAMP) || status=1; [ $$s -eq 0 ] || status=1; }; \
 	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; go run ./tools/failures record-prcheck -report $$rec/report.json || true; }; \
 	trap 'stop; exit 130' INT; trap 'stop; exit 143' TERM; trap stop EXIT; \
 	vuln() { \
-		if [ -f $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready ]; then \
+		if [ -f $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready ] && [ "$$(cat $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready)" = "$(GATE_START_COMMIT)" ]; then \
 			$(COVERAGE_DIR)/pr/$(VULN_CHECK)check -phase vuln -govulncheck $(GOVULNCHECK_VERSION); s=$$?; \
 			[ $$s -eq 2 ] || return $$s; \
 			echo "pr-check: the $(VULN_CHECK) check could not run govulncheck, so it runs here"; \
 		else \
-			echo "pr-check: the $(VULN_CHECK) check has no tree to scan, so govulncheck runs here"; \
+			echo "pr-check: the $(VULN_CHECK) check has no tree of this commit to scan, so govulncheck runs here"; \
 		fi; \
 		govulncheck ./...; \
 	}; \
-	if [ -n "$$mine_fast" ]; then \
-		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json -report-out $$rec/fast.json $$mine_fast || status=1; \
+	if [ -n "$$mine_fast" ] && want fast; then \
+		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json -report-out $$rec/fast.json $(PR_STAMP) $$mine_fast || status=1; \
+		ran_fast=yes; \
+	fi; \
+	if [ -n "$$mine_fast" ] && want coverage-fast; then \
 		go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/fast.json; cov=$$?; \
-		$$report step -dir $$rec -name coverage-fast -exit $$cov || status=1; \
-		if [ $$cov -ne 0 ]; then \
+		$$report step -dir $$rec -name coverage-fast -exit $$cov $(PR_STAMP) || status=1; \
+		[ $$cov -eq 0 ] || status=1; \
+		if [ $$cov -ne 0 ] && [ $$ran_fast = yes ]; then \
 			echo "pr-check: the container-free packages miss a coverage floor (or their fast pass left one unmeasured), so nothing else runs: fix that first"; \
 			trap - INT TERM EXIT; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit 1 || true; \
 			go run ./tools/failures record-prcheck -report $$rec/report.json || true; \
@@ -794,45 +865,52 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	fi; \
 	for os in $(OS_CHECKS); do \
 		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
+		want $$os || continue; \
 		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
 	done; \
-	step govulncheck vuln; \
+	if want govulncheck; then step govulncheck vuln; fi; \
 	for os in $(OS_CHECKS); do \
+		want $$os || continue; \
 		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ]; then \
 			$(COVERAGE_DIR)/pr/$${os}check -phase test -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
 			echo "pr-check: the $$os tests run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log)"; \
 		fi; \
 	done; \
-	for os in $(LAB_CHECKS); do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
-	( for os in $(LAB_CHECKS); do \
-		case $$os in bsd) p=$(BSD_CHECK_PARALLELISM);; win) p=$(WIN_CHECK_PARALLELISM);; esac; \
-		$(COVERAGE_DIR)/pr/$${os}check -optional -report-out $$rec/$$os.json -p $$p $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & child=$$!; \
-		trap 'kill -TERM $$child 2>/dev/null; wait $$child; exit 143' TERM; \
-		wait $$child || touch $(COVERAGE_DIR)/pr/$$os.failed; \
-	done ) & legs="$$legs lab:$$!"; \
-	echo "pr-check: the $(LAB_CHECKS) tests run one after another beside the ones below, each box started and put back; their output follows them"; \
-	if [ -n "$$mine_fast" ]; then \
-		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) -report-out $$rec/repeat.json $$mine_fast || status=1; \
+	labs=""; for os in $(LAB_CHECKS); do want $$os && labs="$$labs $$os"; done; \
+	for os in $$labs; do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
+	if [ -n "$$labs" ]; then \
+		( for os in $$labs; do \
+			case $$os in bsd) p=$(BSD_CHECK_PARALLELISM);; win) p=$(WIN_CHECK_PARALLELISM);; esac; \
+			$(COVERAGE_DIR)/pr/$${os}check -optional -report-out $$rec/$$os.json -p $$p $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & child=$$!; \
+			trap 'kill -TERM $$child 2>/dev/null; wait $$child; exit 143' TERM; \
+			wait $$child || touch $(COVERAGE_DIR)/pr/$$os.failed; \
+		done ) & legs="$$legs lab:$$!"; \
+		echo "pr-check: the$$labs tests run one after another beside the ones below, each box started and put back; their output follows them"; \
 	fi; \
-	if [ -n "$$mine_docker" ]; then \
-		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $$mine_docker || status=1; \
+	if [ -n "$$mine_fast" ] && want repeat; then \
+		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) -report-out $$rec/repeat.json $(PR_STAMP) $$mine_fast || status=1; \
 	fi; \
-	if docker info >/dev/null 2>&1; then \
-		step images go run ./tools/testimages -served $$docker >/dev/null; \
-	else \
-		echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
-		$$report step -dir $$rec -name images -not-run "no Docker daemon answered, so whether a registry serves each image CI pulls was not checked" || status=1; \
+	if [ -n "$$mine_docker" ] && want containers; then \
+		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$mine_docker || status=1; \
 	fi; \
-	step coverage go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json; \
-	if [ -f $(COVERAGE_DIR)/pr/containers.json ]; then \
+	if want images; then \
+		if docker info >/dev/null 2>&1; then \
+			step images go run ./tools/testimages -served $$docker >/dev/null; \
+		else \
+			echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
+			$$report step -dir $$rec -name images -not-run "no Docker daemon answered, so whether a registry serves each image CI pulls was not checked" $(PR_STAMP) || status=1; \
+		fi; \
+	fi; \
+	if want coverage; then step coverage go run ./tools/coverage-check -measured -scoped $(COVERAGE_DIR)/pr/*.json; fi; \
+	if want durations && [ -f $(COVERAGE_DIR)/pr/containers.json ]; then \
 		step durations go run ./tools/testgate -durations-check $(COVERAGE_DIR)/pr/containers.json; \
 	fi; \
-	step sizes go run ./tools/binsize -platforms $(SIZE_PLATFORMS); \
+	if want sizes; then step sizes go run ./tools/binsize -platforms $(SIZE_PLATFORMS); fi; \
 	for leg in $$legs; do \
 		echo "pr-check: waiting for the $${leg%%:*} tests"; \
 		wait $${leg#*:} || status=1; \
 		if [ "$${leg%%:*}" = lab ]; then \
-			for os in $(LAB_CHECKS); do \
+			for os in $$labs; do \
 				cat $(COVERAGE_DIR)/pr/$$os.log; \
 				if [ -f $(COVERAGE_DIR)/pr/$$os.failed ]; then status=1; fi; \
 			done; \
@@ -843,9 +921,9 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	trap - INT TERM EXIT; \
 	echo; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit $$status || status=1; \
 	go run ./tools/failures record-prcheck -report $$rec/report.json || true; \
-	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
+	if [ $$status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages$(if $(LEGS_RUN), (the parts LEGS named; the receipt reads the whole report))"; fi; \
 	exit $$status
-	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
+	@go run ./tools/gatereceipt write --target pr-check --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)" --report $(COVERAGE_DIR)/pr/records/report.json
 
 # mac-check runs the branch's container-free packages on a real Mac, before
 # a push, for what a Linux run cannot show: a GNU-only tool or flag that

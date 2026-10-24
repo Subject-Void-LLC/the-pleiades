@@ -22,9 +22,18 @@ import (
 
 var now = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 
-// passing is a testgate record with nothing against it.
+// commit is the commit the fixtures' run checked, and stamp is what its
+// records carry: that commit, on a clean tree.
+var (
+	commit = strings.Repeat("ab12", 10)
+	stamp  = flakegate.Stamp{Commit: commit, Clean: true}
+)
+
+// passing is a testgate record with nothing against it, stamped with
+// commit on a clean tree.
 func passing(label string) flakegate.Run {
-	return flakegate.Run{Label: label, OS: "linux", Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass}
+	return flakegate.Run{Label: label, OS: "linux", Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass,
+		Commit: commit, Clean: true, Started: now.Add(-time.Hour)}
 }
 
 // writeRecords writes each record into dir by its name: a Run, a LegRecord,
@@ -92,15 +101,15 @@ func fixture(t *testing.T) string {
 	writeRecords(t, dir, map[string]any{
 		"containers.json": containers,
 		"fast.json":       fast,
-		"win.json":        oscheck.LegRecord{Tool: "wincheck", OS: "Windows", Target: "win-check", Verdict: flakegate.VerdictNotRun, Step: oscheck.StepReachable, Error: "no route to host"},
+		"win.json":        oscheck.LegRecord{Tool: "wincheck", OS: "Windows", Target: "win-check", Commit: commit, Verdict: flakegate.VerdictNotRun, Step: oscheck.StepReachable, Error: "no route to host"},
 		"bsd.json":        oscheck.LegRecord{Tool: "bsdcheck", OS: "FreeBSD", Verdict: flakegate.VerdictNotRun, Step: oscheck.StepSettings, Error: "tests/bsd/.env names no machine"},
-		"mac.json":        oscheck.LegRecord{Tool: "maccheck", OS: "macOS", Target: "mac", Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass, Runs: []flakegate.Run{passing("-full"), passing("-count=3")}},
+		"mac.json":        oscheck.LegRecord{Tool: "maccheck", OS: "macOS", Target: "mac", Commit: commit, Packages: []string{"x/a"}, Verdict: flakegate.VerdictPass, Runs: []flakegate.Run{passing("-full"), passing("-count=3")}},
 		"notes.txt":       "not a record",
 	})
-	if err := WriteStep(dir, "coverage", 0, ""); err != nil {
+	if err := WriteStep(dir, "coverage", 0, "", stamp, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteStep(dir, "images", 0, "no Docker daemon answered"); err != nil {
+	if err := WriteStep(dir, "images", 0, "no Docker daemon answered", stamp, now); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -112,10 +121,10 @@ func TestMerge_ReadsEveryRecordInOrder(t *testing.T) {
 	dir := fixture(t)
 	// govulncheck runs before the tests, between the Mac's prepare and test
 	// phases, so it leads the steps.
-	if err := WriteStep(dir, "govulncheck", 0, ""); err != nil {
+	if err := WriteStep(dir, "govulncheck", 0, "", stamp, now); err != nil {
 		t.Fatal(err)
 	}
-	r := merge(t, dir, MergeOptions{Commit: "abc"})
+	r := merge(t, dir, MergeOptions{Commit: commit})
 	var passes, legs, steps []string
 	for _, p := range r.Passes {
 		passes = append(passes, p.Name)
@@ -129,7 +138,7 @@ func TestMerge_ReadsEveryRecordInOrder(t *testing.T) {
 	if !slices.Equal(passes, []string{"fast", "containers"}) || !slices.Equal(legs, []string{"mac", "bsd", "win"}) || !slices.Equal(steps, []string{"govulncheck", "images", "coverage"}) {
 		t.Errorf("passes %v legs %v steps %v", passes, legs, steps)
 	}
-	if r.Verdict != flakegate.VerdictFail || len(r.Problems) != 0 || r.Commit != "abc" || r.Kind != ReportKind || r.Schema != ReportSchema || !r.Generated.Equal(now) {
+	if r.Verdict != flakegate.VerdictFail || len(r.Problems) != 0 || r.Commit != commit || r.Kind != ReportKind || r.Schema != ReportSchema || !r.Generated.Equal(now) {
 		t.Errorf("report %+v", r)
 	}
 	if _, err := Merge(filepath.Join(t.TempDir(), "absent"), MergeOptions{}); err == nil {
@@ -182,16 +191,16 @@ func TestMerge_TheGatesStatusDecides(t *testing.T) {
 	one, zero := 1, 0
 	green := t.TempDir()
 	writeRecords(t, green, map[string]any{"fast.json": passing("-full")})
-	if r := merge(t, green, MergeOptions{ExitCode: &one}); r.Verdict != flakegate.VerdictFail || !slices.Equal(codes(r), []string{ProblemGateFailed}) {
+	if r := merge(t, green, MergeOptions{Commit: commit, ExitCode: &one}); r.Verdict != flakegate.VerdictFail || !slices.Equal(codes(r), []string{ProblemGateFailed}) {
 		t.Errorf("a gate that failed with every record passing: %+v", r)
 	}
-	if r := merge(t, green, MergeOptions{ExitCode: &zero}); r.Verdict != flakegate.VerdictPass || len(r.Problems) != 0 || *r.ExitCode != 0 {
+	if r := merge(t, green, MergeOptions{Commit: commit, ExitCode: &zero}); r.Verdict != flakegate.VerdictPass || len(r.Problems) != 0 || *r.ExitCode != 0 {
 		t.Errorf("a gate that passed: %+v", r)
 	}
-	if r := merge(t, fixture(t), MergeOptions{ExitCode: &zero}); r.Verdict != flakegate.VerdictFail || !slices.Equal(codes(r), []string{ProblemGateDisagrees}) {
+	if r := merge(t, fixture(t), MergeOptions{Commit: commit, ExitCode: &zero}); r.Verdict != flakegate.VerdictFail || !slices.Equal(codes(r), []string{ProblemGateDisagrees}) {
 		t.Errorf("a gate that passed over a failed record: %+v", r)
 	}
-	if r := merge(t, fixture(t), MergeOptions{ExitCode: &one}); len(r.Problems) != 0 {
+	if r := merge(t, fixture(t), MergeOptions{Commit: commit, ExitCode: &one}); len(r.Problems) != 0 {
 		t.Errorf("a gate that failed with a record saying why: %+v", r.Problems)
 	}
 }
@@ -201,7 +210,7 @@ func TestMerge_TheGatesStatusDecides(t *testing.T) {
 // is never a pass; with the gate failing too, it fails.
 func TestMerge_AMissingLeg(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := Begin(dir, "abc", []string{"fast", "win"}, now.Add(-time.Hour)); err != nil {
+	if _, err := Begin(dir, commit, []string{"fast", "win"}, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	writeRecords(t, dir, map[string]any{"fast.json": passing("-full")})
@@ -209,7 +218,7 @@ func TestMerge_AMissingLeg(t *testing.T) {
 	if r.Verdict != VerdictIncomplete || !slices.Equal(r.Missing, []string{"win"}) || !slices.Equal(codes(r), []string{ProblemMissing}) || r.Problems[0].Record != "win" {
 		t.Errorf("a leg with no record: %+v", r)
 	}
-	if r.Started == nil || !r.Started.Equal(now.Add(-time.Hour)) || r.Commit != "abc" || !slices.Equal(r.Expected, []string{"fast", "win"}) {
+	if r.Started == nil || !r.Started.Equal(now.Add(-time.Hour)) || r.Commit != commit || !slices.Equal(r.Expected, []string{"fast", "win"}) {
 		t.Errorf("begin's start, commit and expectations were not kept: %+v", r)
 	}
 	one := 1
@@ -233,7 +242,7 @@ func TestMerge_MalformedRecords(t *testing.T) {
 		"leg.json":       `{"schema":2,"kind":"leg"}`,
 		"step.json":      `{"schema":2,"kind":"step"}`,
 	})
-	r := merge(t, dir, MergeOptions{})
+	r := merge(t, dir, MergeOptions{Commit: commit})
 	want := map[string]string{
 		"junk.json": ProblemUnreadable, "truncated.json": ProblemUnreadable, "other.json": ProblemUnknownKind,
 		"future.json": ProblemUnknownSchema, "leg.json": ProblemUnknownSchema, "step.json": ProblemUnknownSchema,
@@ -267,10 +276,10 @@ func TestMerge_AValueThisReaderDoesNotKnow(t *testing.T) {
 	writeRecords(t, dir, map[string]any{
 		"fast.json":   flaky,
 		"repeat.json": newOutcome,
-		"win.json":    oscheck.LegRecord{OS: "Windows", Verdict: "skipped", Step: "warmup"},
-		"images.json": `{"schema":1,"kind":"step","name":"images","verdict":"waived"}`,
+		"win.json":    oscheck.LegRecord{OS: "Windows", Commit: commit, Verdict: "skipped", Step: "warmup"},
+		"images.json": `{"schema":1,"kind":"step","name":"images","verdict":"waived","commit":"` + commit + `","clean":true}`,
 	})
-	r := merge(t, dir, MergeOptions{})
+	r := merge(t, dir, MergeOptions{Commit: commit})
 	if r.Verdict != VerdictIncomplete {
 		t.Errorf("verdict %s with %+v", r.Verdict, r.Problems)
 	}
@@ -317,7 +326,7 @@ func TestBegin_ARunThatHasNotEnded(t *testing.T) {
 // why; a merge after a report that is not a running one starts afresh.
 func TestMerge_AnInterruptedRun(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := Begin(dir, "abc", []string{"fast", "repeat", "mac"}, now); err != nil {
+	if _, err := Begin(dir, commit, []string{"fast", "repeat", "mac"}, now); err != nil {
 		t.Fatal(err)
 	}
 	writeRecords(t, dir, map[string]any{"fast.json": passing("-full")})
@@ -372,7 +381,7 @@ func TestDecodeReport_WhatAReaderAccepts(t *testing.T) {
 func TestMerge_ARoundTrip(t *testing.T) {
 	dir := fixture(t)
 	one := 1
-	r := merge(t, dir, MergeOptions{Commit: "abc", ExitCode: &one})
+	r := merge(t, dir, MergeOptions{Commit: commit, ExitCode: &one})
 	path := filepath.Join(dir, ReportFile)
 	if err := WriteJSON(path, r); err != nil {
 		t.Fatal(err)
@@ -407,7 +416,7 @@ func TestWriteStep(t *testing.T) {
 		"failed":  {3, "", flakegate.VerdictFail},
 		"skipped": {0, "no daemon", flakegate.VerdictNotRun},
 	} {
-		if err := WriteStep(dir, name, tc.exit, tc.notRun); err != nil {
+		if err := WriteStep(dir, name, tc.exit, tc.notRun, stamp, now.In(time.FixedZone("x", 3600))); err != nil {
 			t.Fatal(err)
 		}
 		data, err := os.ReadFile(filepath.Join(dir, name+".json"))
@@ -416,12 +425,18 @@ func TestWriteStep(t *testing.T) {
 		}
 		var s Step
 		if err := json.Unmarshal(data, &s); err != nil || s.Verdict != tc.verdict || s.ExitCode != tc.exit || s.Reason != tc.notRun ||
-			s.Kind != StepKind || s.Schema != StepSchema || s.Name != name {
+			s.Kind != StepKind || s.Schema != StepSchema || s.Name != name || s.Commit != commit || !s.Clean || !s.At.Equal(now) || s.At.Location() != time.UTC {
 			t.Errorf("%s: %v %+v", name, err, s)
 		}
 	}
+	if err := WriteStep(dir, "unstamped", 0, "", flakegate.Stamp{}, now); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "unstamped.json")); strings.Contains(string(data), `"commit"`) || strings.Contains(string(data), `"clean"`) {
+		t.Errorf("an unstamped step carries stamp fields:\n%s", data)
+	}
 	for _, bad := range []string{"", "report", "../x", "a.b", "a/b", "a b"} {
-		if err := WriteStep(dir, bad, 0, ""); err == nil {
+		if err := WriteStep(dir, bad, 0, "", stamp, now); err == nil {
 			t.Errorf("the step name %q was taken", bad)
 		}
 	}
@@ -448,11 +463,11 @@ func TestMerge_AnUnreadableRecordFile(t *testing.T) {
 // and a report that cannot replace what is at its path is an error.
 func TestMerge_EdgesOfWhatItReads(t *testing.T) {
 	dir := fixture(t)
-	if _, err := Begin(dir, "abc", []string{"mac", "coverage", "fast"}, now); err != nil {
+	if _, err := Begin(dir, commit, []string{"mac", "coverage", "fast"}, now); err != nil {
 		t.Fatal(err)
 	}
 	writeRecords(t, dir, map[string]any{
-		"durations.json": `{"schema":1,"kind":"step","name":"durations","exit_code":"none","verdict":"pass"}`,
+		"durations.json": `{"schema":1,"kind":"step","name":"durations","exit_code":"none","verdict":"pass","commit":"` + commit + `","clean":true}`,
 		"extra.json":     passing("-full"),
 	})
 	r := merge(t, dir, MergeOptions{})
