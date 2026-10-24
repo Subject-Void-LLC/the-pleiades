@@ -15,11 +15,15 @@ import (
 // repo is the repository whose runs are read.
 const repo = "Subject-Void-LLC/the-pleiades"
 
-// github answers a GitHub REST path, as gh api does. It is an interface so a
-// test answers from fixtures and needs no network.
+// github answers a GitHub REST path, as gh api does, and a pull request's
+// checks, as gh pr checks does. It is an interface so a test answers from
+// fixtures and needs no network.
 type github interface {
 	// API returns the body GitHub answers path with.
 	API(path string) ([]byte, error)
+	// PRChecks returns what gh pr checks prints for pull request pr, one
+	// tab-separated line per check: name, bucket, elapsed, link.
+	PRChecks(pr int) ([]byte, error)
 }
 
 // ghCLI is github through the gh command, logged in as its user.

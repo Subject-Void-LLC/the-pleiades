@@ -10,6 +10,7 @@
 //	go run ./tools/failures record-prcheck [-report FILE] [-interrupted] [-branch B]
 //	go run ./tools/failures record-prcheck -log FILE [-commit SHA] [-at RFC3339] [-branch B]
 //	go run ./tools/failures record-actions (-run RUN_ID | -pr N) [-failed-only]
+//	go run ./tools/failures watch-pr -pr N [-every 2m]
 //	go run ./tools/failures report [-json] [-since DATE] [-source S] [-test REGEX]
 //	go run ./tools/failures annotate -test PKG.Test [-commit SHA] -pattern N [-note TEXT]
 //
@@ -18,7 +19,12 @@
 // dirty the tree its receipt needs clean. An entry stores the OS and leg or
 // job, never a host or address, and its free text is masked (scrub). Each
 // ledger is one JSON entry per line (Entry, schema EntrySchema); a run
-// recorded twice adds nothing.
+// recorded twice adds nothing. Beside them, record-prcheck keeps what each
+// run tested (Scope, in pr-check-scope.jsonl), so the report can name a test
+// that failed only in Actions in a package pr-check did not test at that
+// commit. watch-pr follows a pull request's checks until none is pending,
+// then records its run and prints the report's Actions-only and recurring
+// sections; it exits 1 when a check failed.
 package main
 
 import (
@@ -49,7 +55,7 @@ func main() {
 // it.
 func run(args []string, stdout, stderr io.Writer, gh github) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "failures: name a command: record-prcheck, record-actions, report or annotate")
+		fmt.Fprintln(stderr, "failures: name a command: record-prcheck, record-actions, watch-pr, report or annotate")
 		return 2
 	}
 	var err error
@@ -58,12 +64,14 @@ func run(args []string, stdout, stderr io.Writer, gh github) int {
 		err = runRecordPRCheck(args[1:], stdout, stderr)
 	case "record-actions":
 		err = runRecordActions(args[1:], stdout, stderr, gh)
+	case "watch-pr":
+		err = runWatchPR(args[1:], stdout, stderr, gh)
 	case "report":
 		err = runReport(args[1:], stdout, stderr)
 	case "annotate":
 		err = runAnnotate(args[1:], stdout, stderr)
 	default:
-		err = usageError{fmt.Sprintf("unknown command %q: record-prcheck, record-actions, report or annotate", args[0])}
+		err = usageError{fmt.Sprintf("unknown command %q: record-prcheck, record-actions, watch-pr, report or annotate", args[0])}
 	}
 	var usage usageError
 	switch {
@@ -115,28 +123,42 @@ func runRecordPRCheck(args []string, stdout, stderr io.Writer) error {
 	if *branch == "" {
 		*branch = currentBranch()
 	}
-	var entries []Entry
 	if *logFile != "" {
-		var err error
-		if entries, err = entriesFromLog(*logFile, *commit, *at, *branch); err != nil {
-			return err
-		}
-	} else {
-		r, err := prreport.ReadReport(*report)
+		entries, err := entriesFromLog(*logFile, *commit, *at, *branch)
 		if err != nil {
 			return err
 		}
-		if r.Verdict == prreport.VerdictRunning {
-			if !*interrupted {
-				return fmt.Errorf("the report for %s still says running, which is not a result: wait for the run, or pass -interrupted for one that stopped before its merge", shortSHA(r.Commit))
-			}
-			if r, err = prreport.Merge(filepath.Dir(*report), prreport.MergeOptions{Commit: r.Commit, Interrupted: true, Now: now()}); err != nil {
-				return err
-			}
-		}
-		entries = fromReport(r, *branch, now())
+		// A log's summary names no packages, so it records no scope.
+		return appendAndSay(stdout, ledgerFile(*dir, SourcePRCheck), entries)
 	}
-	return appendAndSay(stdout, ledgerFile(*dir, SourcePRCheck), entries)
+	r, err := prreport.ReadReport(*report)
+	if err != nil {
+		return err
+	}
+	if r.Verdict == prreport.VerdictRunning {
+		if !*interrupted {
+			return fmt.Errorf("the report for %s still says running, which is not a result: wait for the run, or pass -interrupted for one that stopped before its merge", shortSHA(r.Commit))
+		}
+		if r, err = prreport.Merge(filepath.Dir(*report), prreport.MergeOptions{Commit: r.Commit, Interrupted: true, Now: now()}); err != nil {
+			return err
+		}
+	}
+	if err := appendAndSay(stdout, ledgerFile(*dir, SourcePRCheck), fromReport(r, *branch, now())); err != nil {
+		return err
+	}
+	// What the run tested goes beside the ledger, passing run or not, so
+	// the report can tell a test pr-check never ran from one it ran and
+	// passed.
+	if s, ok := scopeOf(r, now()); ok {
+		added, err := appendScope(scopeFile(*dir), s)
+		if err != nil {
+			return err
+		}
+		if added {
+			fmt.Fprintf(stdout, "failures: the run's scope (%d packages) recorded in %s\n", len(s.Packages), scopeFile(*dir))
+		}
+	}
+	return nil
 }
 
 // entriesFromLog reads a saved log's summary into entries for its run.
@@ -234,7 +256,11 @@ func runReport(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	r, err := buildReport(entries, f, now())
+	scopes, err := readScopes(scopeFile(*dir))
+	if err != nil {
+		return err
+	}
+	r, err := buildReport(entries, scopes, f, now())
 	if err != nil {
 		return usageError{"-test: " + err.Error()}
 	}

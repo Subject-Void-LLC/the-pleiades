@@ -22,6 +22,11 @@ func (f fakeGitHub) API(path string) ([]byte, error) {
 	return []byte(body), nil
 }
 
+// PRChecks answers pull request pr's checks from the fixture "checks/<pr>".
+func (f fakeGitHub) PRChecks(pr int) ([]byte, error) {
+	return f.API(fmt.Sprintf("checks/%d", pr))
+}
+
 // runFixture is a run of four jobs: one that failed on a real test, one
 // that failed on a strict one, a coverage job that failed because they did,
 // one that passed with a contention, and one skipped.

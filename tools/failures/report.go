@@ -1,7 +1,9 @@
 // The crossover report: every test the ledgers name, counted by source and
-// verdict, then which failed only in Actions (a hole in the pre-push gate),
-// only in pr-check (this machine's environment), or in both; which keep
-// losing races; and what legs and steps failed with no test to blame.
+// verdict, then which failed only in Actions (a hole in the pre-push gate,
+// and which of those pr-check never tested at that commit: a hole in its
+// package scope), only in pr-check (this machine's environment), or in
+// both; which keep losing races; and what legs and steps failed with no
+// test to blame.
 package main
 
 import (
@@ -57,6 +59,11 @@ type TestSummary struct {
 	LastError string `json:"last_error,omitempty"`
 	// Contention is how many entries call it contention, in either source.
 	Contention int `json:"contention"`
+	// OutsideScopeAt are, for a test that failed only in Actions, the
+	// commits it failed at where pr-check ran and did not test its package
+	// (the FAILURE_PATTERNS 631 shape), from the scope each recorded
+	// pr-check run tested.
+	OutsideScopeAt []string `json:"outside_scope_at,omitempty"`
 }
 
 // LegSummary is one kind of non-test outcome: a source's leg, verdict and
@@ -90,6 +97,10 @@ type Report struct {
 	// ActionsOnly failed in Actions and never in pr-check: holes in the
 	// pre-push gate's scope, tier or environment.
 	ActionsOnly []string `json:"actions_only"`
+	// OutsideScope are the Actions-only tests whose package pr-check did not
+	// test at a commit where it ran: a hole in its package scope, the
+	// FAILURE_PATTERNS 631 shape, rather than in its tier or environment.
+	OutsideScope []string `json:"outside_scope"`
 	// PRCheckOnly failed in pr-check and never in Actions: this machine's
 	// environment.
 	PRCheckOnly []string `json:"pr_check_only"`
@@ -127,8 +138,10 @@ func causeOf(reason string) string {
 	return reason
 }
 
-// buildReport reads entries through f into the crossover report.
-func buildReport(entries []Entry, f Filters, now time.Time) (Report, error) {
+// buildReport reads entries through f into the crossover report, holding
+// each Actions-only test against scopes, what each recorded pr-check run
+// tested.
+func buildReport(entries []Entry, scopes []Scope, f Filters, now time.Time) (Report, error) {
 	var testRE *regexp.Regexp
 	if f.Test != "" {
 		re, err := regexp.Compile(f.Test)
@@ -138,7 +151,9 @@ func buildReport(entries []Entry, f Filters, now time.Time) (Report, error) {
 		testRE = re
 	}
 	r := Report{Schema: ReportSchema, Kind: ReportKind, Generated: now.UTC(), Filters: f, Entries: map[string]int{},
-		Tests: []TestSummary{}, ActionsOnly: []string{}, PRCheckOnly: []string{}, Both: []string{}, RecurringContention: []string{}, Legs: []LegSummary{}}
+		Tests: []TestSummary{}, ActionsOnly: []string{}, OutsideScope: []string{}, PRCheckOnly: []string{}, Both: []string{},
+		RecurringContention: []string{}, Legs: []LegSummary{}}
+	tested := scopesByCommit(scopes)
 	tests := map[string]*TestSummary{}
 	legs := map[string]*LegSummary{}
 	for _, e := range entries {
@@ -164,7 +179,6 @@ func buildReport(entries []Entry, f Filters, now time.Time) (Report, error) {
 		l.Commits = addString(l.Commits, e.Commit)
 	}
 	for name, t := range tests {
-		r.Tests = append(r.Tests, *t)
 		_, local := t.Counts[SourcePRCheck]
 		_, remote := t.Counts[SourceActions]
 		switch {
@@ -172,15 +186,19 @@ func buildReport(entries []Entry, f Filters, now time.Time) (Report, error) {
 			r.Both = append(r.Both, name)
 		case remote:
 			r.ActionsOnly = append(r.ActionsOnly, name)
+			if t.OutsideScopeAt = outsideScope(*t, tested); len(t.OutsideScopeAt) > 0 {
+				r.OutsideScope = append(r.OutsideScope, name)
+			}
 		default:
 			r.PRCheckOnly = append(r.PRCheckOnly, name)
 		}
 		if t.Contention >= recurringAt {
 			r.RecurringContention = append(r.RecurringContention, name)
 		}
+		r.Tests = append(r.Tests, *t)
 	}
 	sort.Slice(r.Tests, func(i, j int) bool { return testName(r.Tests[i]) < testName(r.Tests[j]) })
-	for _, list := range [][]string{r.ActionsOnly, r.PRCheckOnly, r.Both, r.RecurringContention} {
+	for _, list := range [][]string{r.ActionsOnly, r.OutsideScope, r.PRCheckOnly, r.Both, r.RecurringContention} {
 		sort.Strings(list)
 	}
 	for _, l := range legs {

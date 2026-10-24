@@ -7,8 +7,11 @@ container, opens a port, waits on timing, or touches the file system, and before
 The failures themselves are counted by `tools/failures`, in two local ledgers: one for `make pr-check` runs
 (written by every run) and one for GitHub Actions runs (`go run ./tools/failures record-actions -pr N`).
 `go run ./tools/failures report` maps the crossover. A test that fails only in Actions is a hole in the
-pre-push gate. One that fails only in `pr-check` is this machine's environment. One called contention run
-after run needs a look, not another rerun.
+pre-push gate, and the report says when pr-check did not test its package at that commit (the 631 shape). One
+that fails only in `pr-check` is this machine's environment. One called contention run after run needs a look,
+not another rerun. `go run ./tools/failures watch-pr -pr N` follows a pull request's checks and records its run
+when they finish. No FAILURE_PATTERNS title carries a `[ci]` marker, so the ledgers, not the titles, say which
+failures CI found.
 
 Append a rule when a diagnosis teaches one; name the failure patterns it comes from. Never renumber.
 
@@ -28,7 +31,9 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
 4. **A pass of `pr-check` is a pass of every leg at one commit on a clean tree.** A file left in the tree (even
    a moved, ignored one under a new name) costs the receipt; an unreachable machine costs the leg. A machine
    check makes room from its own trees and build cache before it refuses a full disk; what it refuses then is
-   not its to remove. Clear the cause and run again rather than pushing around it. LESSONS_LEARNED 271.
+   not its to remove. Clear the cause and run again rather than pushing around it. `make pr-check LEGS=bsd` runs
+   one part again and keeps the rest; every record is stamped with its commit and tree, so the receipt still needs
+   them all at one commit on a clean tree. LESSONS_LEARNED 271.
 
 ## Tests that do not fail by luck
 

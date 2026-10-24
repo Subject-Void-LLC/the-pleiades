@@ -40,20 +40,30 @@ func (m runMeta) legEntry(leg, verdict, reason string) Entry {
 
 // fromReport turns a merged report into entries. A report still running is
 // not a result; fromReport is given one only to record it as interrupted.
+// A pass, leg or step that began before the run did was kept from an
+// earlier run by make pr-check LEGS=..., which recorded it then, so it is
+// left out rather than counted twice.
 func fromReport(r prreport.Report, branch string, now time.Time) []Entry {
 	seen := r.Generated
 	if r.Started != nil {
 		seen = *r.Started
 	}
+	kept := func(at time.Time) bool { return r.Started != nil && !at.IsZero() && at.Before(*r.Started) }
 	m := runMeta{commit: r.Commit, branch: branch, run: runID(seen, r.Commit), seen: seen.UTC(), now: now.UTC()}
 	var out []Entry
 	for _, p := range r.Passes {
+		if kept(p.Run.Started) {
+			continue
+		}
 		failed := m.failures(&out, p.Name, "", p.Run)
 		if !failed && (p.Run.Verdict == flakegate.VerdictError || p.Run.Verdict == flakegate.VerdictNotRun || p.Run.Verdict == flakegate.VerdictFail) {
 			out = append(out, m.legEntry(p.Name, legVerdict(p.Run.Verdict), p.Run.Error))
 		}
 	}
 	for _, l := range r.Legs {
+		if kept(l.Leg.Started) {
+			continue
+		}
 		failed := false
 		for _, run := range l.Leg.Runs {
 			if m.failures(&out, l.Name, l.Leg.OS, run) {
@@ -71,6 +81,9 @@ func fromReport(r prreport.Report, branch string, now time.Time) []Entry {
 		}
 	}
 	for _, s := range r.Steps {
+		if kept(s.At) {
+			continue
+		}
 		switch s.Verdict {
 		case flakegate.VerdictFail:
 			out = append(out, m.legEntry(s.Name, VerdictFail, "exit "+strconv.Itoa(s.ExitCode)))

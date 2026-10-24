@@ -40,7 +40,7 @@ func synthetic() []Entry {
 // TestBuildReport_Crossover: each test lands in exactly the section its
 // sources put it in, and recurring contention counts both sources.
 func TestBuildReport_Crossover(t *testing.T) {
-	r, err := buildReport(synthetic(), Filters{}, testAt)
+	r, err := buildReport(synthetic(), nil, Filters{}, testAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,19 +70,19 @@ func TestBuildReport_Crossover(t *testing.T) {
 // and a bad expression is refused.
 func TestBuildReport_Filters(t *testing.T) {
 	since := testAt.Add(4 * time.Hour)
-	r, _ := buildReport(synthetic(), Filters{Since: &since}, testAt)
+	r, _ := buildReport(synthetic(), nil, Filters{Since: &since}, testAt)
 	if len(r.Tests) != 2 || len(r.Legs) != 0 {
 		t.Errorf("since: %d tests, %d legs", len(r.Tests), len(r.Legs))
 	}
-	r, _ = buildReport(synthetic(), Filters{Source: SourceActions}, testAt)
+	r, _ = buildReport(synthetic(), nil, Filters{Source: SourceActions}, testAt)
 	if len(r.Both) != 0 || len(r.ActionsOnly) != 3 {
 		t.Errorf("actions alone: both %v, actions only %v", r.Both, r.ActionsOnly)
 	}
-	r, _ = buildReport(synthetic(), Filters{Test: `TestRace$`}, testAt)
+	r, _ = buildReport(synthetic(), nil, Filters{Test: `TestRace$`}, testAt)
 	if len(r.Tests) != 1 || len(r.Legs) != 0 {
 		t.Errorf("one test: %+v", r.Tests)
 	}
-	if _, err := buildReport(nil, Filters{Test: "("}, testAt); err == nil {
+	if _, err := buildReport(nil, nil, Filters{Test: "("}, testAt); err == nil {
 		t.Error("a bad expression was read")
 	}
 }
