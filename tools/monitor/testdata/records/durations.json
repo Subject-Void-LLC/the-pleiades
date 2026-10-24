@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "kind": "step",
+  "name": "durations",
+  "exit_code": 0,
+  "verdict": "pass"
+}

@@ -1,0 +1,37 @@
+{
+  "total_count": 2,
+  "workflow_runs": [
+    {
+      "id": 40071700770,
+      "name": "CI",
+      "display_title": "feat: lab importers, Telnet, an exact IOS undo and net.ios.parse (Phase 127c)",
+      "head_branch": "feat/lab-importers",
+      "head_sha": "b1909bb3cdb145ed85459616a8cccd3dbfb28a2b",
+      "status": "completed",
+      "conclusion": "failure",
+      "created_at": "2026-10-24T06:49:10Z",
+      "run_started_at": "2026-10-24T06:49:10Z",
+      "updated_at": "2026-10-24T07:11:23Z",
+      "event": "pull_request",
+      "html_url": "https://github.com/Subject-Void-LLC/the-pleiades/actions/runs/40071700770",
+      "run_attempt": 1,
+      "run_number": 235
+    },
+    {
+      "id": 40047970897,
+      "name": "CI",
+      "display_title": "feat: lab importers, Telnet, an exact IOS undo and net.ios.parse (Phase 127c)",
+      "head_branch": "feat/lab-importers",
+      "head_sha": "9fc2bd0ea76ad99bd34ae7fb3475c04609e5f1db",
+      "status": "completed",
+      "conclusion": "failure",
+      "created_at": "2026-10-24T01:02:54Z",
+      "run_started_at": "2026-10-24T01:02:54Z",
+      "updated_at": "2026-10-24T01:27:58Z",
+      "event": "pull_request",
+      "html_url": "https://github.com/Subject-Void-LLC/the-pleiades/actions/runs/40047970897",
+      "run_attempt": 1,
+      "run_number": 234
+    }
+  ]
+}

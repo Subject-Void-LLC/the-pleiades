@@ -1,0 +1,763 @@
+Makefile:193: target 'build' does not exist
+go build ./...
+Makefile:215: target 'devtools' does not exist
+go build -tags devtools ./tools/...
+go vet -tags devtools ./tools/...
+go test -tags devtools ./tools/...
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/breakglass	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/bsdcheck	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/commitgate	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/coverage-check	(cached)
+?   	github.com/Subject-Void-LLC/the-pleiades/tools/devcert	[no test files]
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/docs-lint	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/doctor	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/failures	0.028s
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gatereceipt	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gencatalog	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gendocs	(cached)
+?   	github.com/Subject-Void-LLC/the-pleiades/tools/genzoneinfo	[no test files]
+?   	github.com/Subject-Void-LLC/the-pleiades/tools/gosec-check	[no test files]
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/helm-lint	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate	2.570s
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/maccheck	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/prreport	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/prscope	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/sweep	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/testgate	(cached)
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/testimages	7.647s
+?   	github.com/Subject-Void-LLC/the-pleiades/tools/uidev	[no test files]
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/wincheck	(cached)
+Makefile:223: target 'vet' does not exist
+go vet ./...
+go vet -tags integration ./...
+Makefile:233: target 'fmt' does not exist
+unformatted="$(gofmt -l $(find . -name '*.go' -not -path './.claude/*' -not -path './.git/*'))"; \
+if [ -n "$unformatted" ]; then \
+	echo "gofmt would reformat:"; \
+	echo "$unformatted"; \
+	exit 1; \
+fi
+Makefile:945: target 'tidy-check' does not exist
+go mod tidy -diff
+Makefile:81: target 'tools' does not exist
+have="$(go version -m "$(command -v gosec 2>/dev/null)" 2>/dev/null | awk '$1=="mod"{print $3; exit}')"; if [ "$have" != "v2.28.0" ]; then echo "tools: installing gosec v2.28.0 (found: ${have:-none})"; go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0; fi
+have="$(go version -m "$(command -v govulncheck 2>/dev/null)" 2>/dev/null | awk '$1=="mod"{print $3; exit}')"; if [ "$have" != "v1.6.0" ]; then echo "tools: installing govulncheck v1.6.0 (found: ${have:-none})"; go install golang.org/x/vuln/cmd/govulncheck@v1.6.0; fi
+have="$(go version -m "$(command -v actionlint 2>/dev/null)" 2>/dev/null | awk '$1=="mod"{print $3; exit}')"; if [ "$have" != "v1.7.12" ]; then echo "tools: installing actionlint v1.7.12 (found: ${have:-none})"; go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12; fi
+Makefile:909: update target 'gosec' due to: tools
+go run ./tools/gosec-check
+gosec-check: 32 finding(s), all individually waived in gosec-waivers.json
+Makefile:955: target 'docs-lint' does not exist
+go run ./tools/docs-lint
+docs-lint: 612 file(s) and the string literals of 1744 Go file(s) scanned, no citation of a gitignored document found
+Makefile:975: target 'docs-gen-check' does not exist
+go run ./tools/gendocs
+gendocs: wrote docs/reference
+git diff --exit-code -- docs/reference internal/api/wellknown
+test -z "$(git ls-files --others --exclude-standard -- docs/reference internal/api/wellknown)"
+Makefile:992: target 'helm-lint' does not exist
+go run ./tools/helm-lint
+helm-lint: helm/the-pleiades renders in 9 configuration(s) plus the values file controller setup writes; 37 containers checked (non-root numeric uid, read-only root, no capabilities, RuntimeDefault seccomp, tagged image) [trimmed]
+Makefile:1083: target 'templ-gen' does not exist
+go tool templ generate ./internal/ui/render
+(✓) Post-generation event received, processing... [ updates=0 needsRestart=true needsBrowserReload=true ]
+(✓) Complete [ updates=0 duration=50.219105ms ]
+Makefile:1089: update target 'templ-gen-check' due to: templ-gen
+git diff --exit-code -- internal/ui/render
+test -z "$(git ls-files --others --exclude-standard -- internal/ui/render)"
+Makefile:878: update target 'workflow-lint' due to: tools
+actionlint
+Makefile:863: target 'pr-check-vet' does not exist
+GOOS=darwin go vet -tags integration ./...
+GOOS=windows go vet -tags integration ./...
+Makefile:737: update target 'pr-check' due to: build devtools vet fmt tidy-check gosec docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint pr-check-vet
+all="$(go list -tags integration ./...)"; fast="$all"; docker=""; for pkg in github.com/Subject-Void-LLC/the-pleiades/cmd/controller github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades github.com/Subject-Void-LLC/the-pleiades/cmd/runner github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native github.com/Subject-Void-LLC/the-pleiades/internal/archtest github.com/Subject-Void-LLC/the-pleiades/internal/backup github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3 github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/engine github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/image github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/network github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/registry github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/volume github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/batfish github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ovs github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve github.com/Subject-Void-LLC/the-pleiades/internal/election github.com/Subject-Void-LLC/the-pleiades/internal/ent github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate/gen github.com/Subject-Void-LLC/the-pleiades/internal/event github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws github.com/Subject-Void-LLC/the-pleiades/internal/keyregistry github.com/Subject-Void-LLC/the-pleiades/internal/lock github.com/Subject-Void-LLC/the-pleiades/internal/meshid github.com/Subject-Void-LLC/the-pleiades/internal/runner github.com/Subject-Void-LLC/the-pleiades/internal/testsupport github.com/Subject-Void-LLC/the-pleiades/internal/topology github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud github.com/Subject-Void-LLC/the-pleiades/pkg/batfish github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine github.com/Subject-Void-LLC/the-pleiades/pkg/gns3 github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660 github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi github.com/Subject-Void-LLC/the-pleiades/pkg/netconf github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer github.com/Subject-Void-LLC/the-pleiades/tests/e2e; do if echo "$all" | grep -q "^$pkg$"; then docker="$docker $pkg"; fi; fast="$(echo "$fast" | grep -v "^$pkg$")"; done; \
+scope="$(go run ./tools/prscope -base origin/main)" || exit 1; \
+mine_fast=""; mine_docker=""; \
+for pkg in $(printf '%s\n' $scope github.com/Subject-Void-LLC/the-pleiades/internal/archtest github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate | sort -u); do \
+	if printf '%s\n' $docker | grep -qx "$pkg"; then mine_docker="$mine_docker $pkg"; \
+	elif printf '%s\n' $fast | grep -qx "$pkg"; then mine_fast="$mine_fast $pkg"; fi; \
+done; \
+echo "pr-check: $(echo $mine_fast | wc -w) container-free and $(echo $mine_docker | wc -w) container package(s) against origin/main"; \
+rm -rf .coverage/pr; mkdir -p .coverage/pr/records; \
+rec=.coverage/pr/records; report=.coverage/pr/prreport; \
+go build -o $report ./tools/prreport || exit 1; \
+expect="mac,bsd,win,govulncheck,images,coverage"; \
+if [ -n "$mine_fast" ]; then expect="fast,repeat,$expect"; fi; \
+if [ -n "$mine_docker" ]; then expect="$expect,containers,durations"; fi; \
+$report begin -dir $rec -commit "acf4a52d6a3e13352f864f13419a11d60e593041" -expect "$expect" || exit 1; \
+status=0; legs=""; \
+step() { name=$1; shift; "$@"; s=$?; $report step -dir $rec -name $name -exit $s || status=1; [ $s -eq 0 ] || status=1; }; \
+stop() { trap - INT TERM EXIT; for leg in $legs; do kill -TERM ${leg#*:} 2>/dev/null; done; for leg in $legs; do wait ${leg#*:}; done; $report merge -dir $rec -commit "acf4a52d6a3e13352f864f13419a11d60e593041" -interrupted || true; go run ./tools/failures record-prcheck -report $rec/report.json || true; }; \
+trap 'stop; exit 130' INT; trap 'stop; exit 143' TERM; trap stop EXIT; \
+vuln() { \
+	if [ -f .coverage/pr/mac.ready ]; then \
+		.coverage/pr/maccheck -phase vuln -govulncheck v1.6.0; s=$?; \
+		[ $s -eq 2 ] || return $s; \
+		echo "pr-check: the mac check could not run govulncheck, so it runs here"; \
+	else \
+		echo "pr-check: the mac check has no tree to scan, so govulncheck runs here"; \
+	fi; \
+	govulncheck ./...; \
+}; \
+for os in mac; do \
+	go build -o .coverage/pr/${os}check ./tools/${os}check || exit 1; \
+	.coverage/pr/${os}check -optional -phase prepare -ready-file .coverage/pr/$os.ready -report-out $rec/$os.json -p 0 $mine_fast || status=1; \
+done; \
+step govulncheck vuln; \
+for os in mac; do \
+	if [ -f .coverage/pr/$os.ready ]; then \
+		.coverage/pr/${os}check -phase test -report-out $rec/$os.json -p 0 $mine_fast > .coverage/pr/$os.log 2>&1 & legs="$legs $os:$!"; \
+		echo "pr-check: the $os tests run beside the ones below; their output follows them (.coverage/pr/$os.log)"; \
+	fi; \
+done; \
+for os in bsd win; do go build -o .coverage/pr/${os}check ./tools/${os}check || exit 1; done; \
+( for os in bsd win; do \
+	case $os in bsd) p=0;; win) p=0;; esac; \
+	.coverage/pr/${os}check -optional -report-out $rec/$os.json -p $p $mine_fast > .coverage/pr/$os.log 2>&1 & child=$!; \
+	trap 'kill -TERM $child 2>/dev/null; wait $child; exit 143' TERM; \
+	wait $child || touch .coverage/pr/$os.failed; \
+done ) & legs="$legs lab:$!"; \
+echo "pr-check: the bsd win tests run one after another beside the ones below, each box started and put back; their output follows them"; \
+if [ -n "$mine_fast" ]; then \
+	go run ./tools/testgate -full -p 0 -coverage-out .coverage/pr/fast.json -report-out $rec/fast.json $mine_fast || status=1; \
+	go run ./tools/testgate -repeat 3 -strict -p 0 -report-out $rec/repeat.json $mine_fast || status=1; \
+fi; \
+if [ -n "$mine_docker" ]; then \
+	go run ./tools/testgate -full -p 1 -coverage-out .coverage/pr/containers.json -report-out $rec/containers.json $mine_docker || status=1; \
+fi; \
+if docker info >/dev/null 2>&1; then \
+	step images go run ./tools/testimages -served $docker >/dev/null; \
+else \
+	echo "pr-check: no Docker daemon answered, so whether a registry serves each image CI pulls was NOT checked"; \
+	$report step -dir $rec -name images -not-run "no Docker daemon answered, so whether a registry serves each image CI pulls was not checked" || status=1; \
+fi; \
+step coverage go run ./tools/coverage-check -measured -scoped .coverage/pr/*.json; \
+if [ -f .coverage/pr/containers.json ]; then \
+	step durations go run ./tools/testgate -durations-check .coverage/pr/containers.json; \
+fi; \
+for leg in $legs; do \
+	echo "pr-check: waiting for the ${leg%%:*} tests"; \
+	wait ${leg#*:} || status=1; \
+	if [ "${leg%%:*}" = lab ]; then \
+		for os in bsd win; do \
+			cat .coverage/pr/$os.log; \
+			if [ -f .coverage/pr/$os.failed ]; then status=1; fi; \
+		done; \
+	else \
+		cat .coverage/pr/${leg%%:*}.log; \
+	fi; \
+done; \
+trap - INT TERM EXIT; \
+echo; $report merge -dir $rec -commit "acf4a52d6a3e13352f864f13419a11d60e593041" -exit $status || status=1; \
+go run ./tools/failures record-prcheck -report $rec/report.json || true; \
+if [ $status -eq 0 ]; then echo "pr-check: all checks passed for this branch's packages"; fi; \
+exit $status
+prscope: examples/routing_lab/GAPS.md changes what validation decides, so cmd/pleiades, cmd/runner, internal/adapters/native, internal/forge/playbook run too (FAILURE_PATTERNS 559)
+pr-check: 36 container-free and 10 container package(s) against origin/main
+maccheck: 36 package(s) at ae89f745ba1c on someone@192.0.2.10
+maccheck: the tree of ae89f745ba1c is on someone@192.0.2.10; -phase test runs its tests
+maccheck: govulncheck v1.6.0 runs on the Mac, scanning for linux/amd64 with go1.26.10 as a scan here would
+=== Symbol Results ===
+
+No vulnerabilities found.
+
+Your code is affected by 0 vulnerabilities.
+This scan also found 0 vulnerabilities in packages you import and 1
+vulnerability in modules you require, but your code doesn't appear to call these
+vulnerabilities.
+Use '-show verbose' for more details.
+maccheck: govulncheck v1.6.0 passed on the tree of ae89f745ba1c, on someone@192.0.2.10, in 5s
+pr-check: the mac tests run beside the ones below; their output follows them (.coverage/pr/mac.log)
+pr-check: the bsd win tests run one after another beside the ones below, each box started and put back; their output follows them
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/project
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/clispec
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/credential
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/dispatch
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/engine
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/hosttrust
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/journal
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/prompt
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/validate
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/capability
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/cml
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/collection
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcli
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/sdk
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/wire
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/failures
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gendocs
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/testgate
+
+testgate: 13 test(s) skipped, so they are not evidence of anything in this run:
+
+      pkg/netcli TestLiveIOSDialogs
+      pkg/netcli TestLiveIOSPromptShapes
+      pkg/netcli TestLiveIOSConfigSubmodePrompt
+      pkg/netcli TestLiveIOSFactsShapes
+
+      pkg/iosparse TestShowBgpSummary/ios/golden_output1
+      pkg/iosparse TestShowBgpSummary/iosxe/golden_output1
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xe
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xr
+
+      pkg/netcli TestLiveIOSXRPromptAndConfigShapes
+      pkg/netcli TestLiveIOSXRShowRunningInterfaces
+
+      pkg/cml TestClient_AgainstARealController
+testgate: all tests passed
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/project
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/clispec
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/credential
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/dispatch
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/engine
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/hosttrust
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/journal
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/prompt
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/validate
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/capability
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/cml
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/collection
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcli
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/sdk
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/wire
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/failures
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gendocs
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/testgate
+
+testgate: 39 test(s) skipped, so they are not evidence of anything in this run:
+
+      pkg/netcli TestLiveIOSDialogs
+      pkg/netcli TestLiveIOSPromptShapes
+      pkg/netcli TestLiveIOSConfigSubmodePrompt
+      pkg/netcli TestLiveIOSFactsShapes
+      pkg/netcli TestLiveIOSDialogs
+      pkg/netcli TestLiveIOSPromptShapes
+      pkg/netcli TestLiveIOSConfigSubmodePrompt
+      pkg/netcli TestLiveIOSFactsShapes
+      and 4 more
+
+      pkg/iosparse TestShowBgpSummary/ios/golden_output1
+      pkg/iosparse TestShowBgpSummary/iosxe/golden_output1
+      pkg/iosparse TestShowBgpSummary/ios/golden_output1
+      pkg/iosparse TestShowBgpSummary/iosxe/golden_output1
+      pkg/iosparse TestShowBgpSummary/ios/golden_output1
+      pkg/iosparse TestShowBgpSummary/iosxe/golden_output1
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xe
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xr
+
+      pkg/netcli TestLiveIOSXRPromptAndConfigShapes
+      pkg/netcli TestLiveIOSXRShowRunningInterfaces
+      pkg/netcli TestLiveIOSXRPromptAndConfigShapes
+      pkg/netcli TestLiveIOSXRShowRunningInterfaces
+      pkg/netcli TestLiveIOSXRPromptAndConfigShapes
+      pkg/netcli TestLiveIOSXRShowRunningInterfaces
+
+      pkg/cml TestClient_AgainstARealController
+      pkg/cml TestClient_AgainstARealController
+      pkg/cml TestClient_AgainstARealController
+testgate: all tests passed
+ok  	github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades
+ok  	github.com/Subject-Void-LLC/the-pleiades/cmd/runner
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/archtest
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/testsupport
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/gns3
+
+testgate: 15 test(s) skipped, so they are not evidence of anything in this run:
+
+      cmd/pleiades TestCLI_RunAppliesAndRevertsIOSConfig
+      cmd/pleiades TestCLI_RunGathersIOSFactsAndPings
+      cmd/pleiades TestCLI_RunAppliesAndRevertsNetconfConfig
+
+      cmd/pleiades TestWinRMGate_ACertificateAuthenticatesAndAStrangerDoesNot
+      cmd/pleiades TestWinRMGate_RunComparedToAnsible
+      cmd/pleiades TestWinRMModesGate_ThreeModesThroughTheBinary
+
+      cmd/pleiades TestWinRMGate_ServiceStartStopAndBack
+      cmd/pleiades TestWinRMGate_ServiceEnableDisableAndBack
+
+      cmd/pleiades TestWinRMGate_StaticIPAndBack
+
+      cmd/pleiades TestWinRMGate_ReachesAWindowsHost
+
+      cmd/pleiades TestCLI_ImportCMLReachesIOSOverTelnet
+
+      cmd/pleiades TestCLI_DockerDesktopClusterAsIs
+
+      cmd/pleiades TestCLI_FreeBSDFileChecksMatchTheirRealRuns
+
+      cmd/pleiades TestWinRMGate_FeatureRemoveInstallAndBack
+
+      cmd/pleiades TestLab_FreeBSDVMRollback
+testgate: all tests passed
+coverage-check: packages with no recorded floor (informational, not a failure):
+  github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net: 83.2% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr: 79.7% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/project: 93.6% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/pkg/cml: 90.0% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/pkg/gns3: 95.2% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig: 95.5% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse: 94.9% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg: 97.9% (no floor recorded yet)
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: 94.2% (no floor recorded yet)
+coverage-check: floors this run could not check, because the package's tests skipped for something this machine lacks (not a pass and not a failure):
+  github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades: 62.3%, below its floor of 69.4%, measured without docker-desktop
+coverage-check: 43 package(s) measured, none below their recorded floor except the 1 named above
+testgate: durations.json holds a time for each of the 10 measured package(s) and test(s)
+pr-check: waiting for the mac tests
+maccheck: running on the Mac; Pleiades returns the output when the run ends, since it does not stream it yet
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/project
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/clispec
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/credential
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/dispatch
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/engine
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/hosttrust
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/journal
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/prompt
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/validate
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/capability
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/cml
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/collection
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcli
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/sdk
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/wire
+FAIL	github.com/Subject-Void-LLC/the-pleiades/tools/failures
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gendocs
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/testgate
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog alone
+
+testgate: 21 test(s) skipped, so they are not evidence of anything in this run:
+
+      pkg/netcli TestLiveIOSDialogs
+      pkg/netcli TestLiveIOSPromptShapes
+      pkg/netcli TestLiveIOSConfigSubmodePrompt
+      pkg/netcli TestLiveIOSFactsShapes
+
+      internal/engine TestTagFilter_MatchesAnsible
+      internal/forge/playbook TestMergeKeys_MatchAnsible
+      internal/forge/playbook TestEntries_ArgsMatchAnsibleCore
+
+      pkg/iosparse TestShowBgpSummary/ios/golden_output1
+      pkg/iosparse TestShowBgpSummary/iosxe/golden_output1
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xe
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xr
+
+      pkg/netcli TestLiveIOSXRPromptAndConfigShapes
+      pkg/netcli TestLiveIOSXRShowRunningInterfaces
+
+      internal/journal TestRecordReportsAFullDisk
+
+      pkg/cml TestClient_AgainstARealController
+
+      tools/failures TestGitHelpers_AgainstThisRepository
+
+      internal/catalog/http TestRequest_ConnectionFailureIsReported
+
+      internal/hosttrust TestScan
+
+      pkg/remoteexec TestDialTCP_ReachesAnEndpointAndNamesARefusal
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts ---
+=== RUN   TestParseJobLog_RealExcerpts
+    actionslog_test.go:37: open testdata/testgate-contention.log: no such file or directory
+--- FAIL: TestParseJobLog_RealExcerpts (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate ---
+=== RUN   TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+    prchecklog_test.go:147: open testdata/testgate-contention.log: no such file or directory
+--- FAIL: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine ---
+=== RUN   TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+    prchecklog_test.go:73: open testdata/prcheck-summary-15.log: no such file or directory
+--- FAIL: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries ---
+=== RUN   TestParsePRCheckLog_RealSummaries
+    prchecklog_test.go:57: open testdata/prcheck-summary-9.log: no such file or directory
+--- FAIL: TestParsePRCheckLog_RealSummaries (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun ---
+=== RUN   TestRecordActions_ARun
+    actions_test.go:38: open testdata/actions-containers-real.log: no such file or directory
+--- FAIL: TestRecordActions_ARun (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals ---
+=== RUN   TestRecordActions_Refusals
+    actions_test.go:38: open testdata/actions-containers-real.log: no such file or directory
+--- FAIL: TestRecordActions_Refusals (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog ---
+=== RUN   TestRecordPRCheck_FromALog
+    prcheck_test.go:181: failures record-prcheck -dir /var/folders/6k/tk0c7gnx4clf5_0x0qq2p3480000gn/T/TestRecordPRCheck_FromALog2788879970/001 -log testdata/prcheck-summary-15.log -at 2026-10-24T05:01:00Z -branch b: exi [trimmed]
+--- FAIL: TestRecordPRCheck_FromALog (0.00s)
+
+testgate: 7 failure(s) failed AGAIN when re-run alone, or could not be re-run at all:
+
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParseJobLog_RealExcerpts
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_RealSummaries
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordActions_ARun
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordActions_Refusals
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordPRCheck_FromALog
+
+These are not contention. Fix them.
+testgate: 7 failure(s) confirmed in isolation
+exit status 1
+maccheck: the tests failed on someone@192.0.2.10 (macOS) in 3m50s
+pr-check: waiting for the lab tests
+bsdcheck: starting the VM bsd-check on labhost (it was saved); it is put back, saved, when the run ends
+bsdcheck: bsd-check has 3 GB free where its tests unpack and build, under the 4 GB a run needs: go clean -cache there, or for the lab's bsd-check run runbooks/bsd/check-05-disk-cleanup.yaml
+  To test on another FreeBSD machine:   set PLEIADES_BSD_PROJECT and PLEIADES_BSD_DEVICE in /home/someone/auto-roboto/tests/bsd/.env
+  To stop testing on a FreeBSD machine: delete /home/someone/auto-roboto/tests/bsd/.env
+bsdcheck: put the VM bsd-check back on labhost, its state saved
+wincheck: starting the VM win-check on labhost (it was saved); it is put back, saved, when the run ends
+wincheck: 36 package(s) at ae89f745ba1c on win-check
+wincheck: running on the Windows machine; Pleiades returns the output when the run ends, since it does not stream it yet
+wincheck: gcc found, so cgo and the race detector are on
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pleiades/builtin/project
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/clispec
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/credential
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/dispatch
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/engine
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/hosttrust
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/inventory
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/journal
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/prompt
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/validate
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/capability
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/collection
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/cml
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/netcli
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/sdk
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/wire
+ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec
+FAIL	github.com/Subject-Void-LLC/the-pleiades/tools/failures
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/gendocs
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/testgate
+ok  	github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestAppendLedger_Dedups alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestReadLedger_Contract alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals alone
+flakegate: re-running github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog alone
+
+testgate: 69 test(s) skipped, so they are not evidence of anything in this run:
+
+      internal/engine TestCollectionExecutor_LendsThePool
+      pkg/sdk TestConnect_ReachesARealServer
+      pkg/sdk TestConnect_BorrowsFromThePool
+      pkg/sdk TestConnect_VerifiesTheHostKeyByDefault
+      pkg/sdk TestConnect_Refusals
+      pkg/sdk TestConnectPort_OverridesTheDevicesSSHPort
+      pkg/sdk TestConnectFresh_NeverBorrows
+      pkg/sdk TestOpenShell_PicksTheCarrierTheDeviceIsReachedBy
+      and 28 more
+
+      internal/journal TestNewFileStoreCreatesBothDirectoriesOwnerOnly
+      internal/journal TestNewFileStoreTightensADirectoryItDidNotCreate
+      internal/journal TestNewFileStoreFailsWhenItCannotCreateItsDirectory
+      internal/journal TestNewFileStoreRestoresTheWriteBitOnItsOwnDirectory
+      internal/journal TestRecordWritesTheFileOwnerOnly
+      internal/journal TestRecordReportsAFileItCannotOpen
+
+      pkg/netcli TestLiveIOSDialogs
+      pkg/netcli TestLiveIOSPromptShapes
+      pkg/netcli TestLiveIOSConfigSubmodePrompt
+      pkg/netcli TestLiveIOSFactsShapes
+
+      internal/journal TestReadRun_RefusesWhatNoRunWrote
+      internal/journal TestReadRun_RefusesTheRestOfWhatNoRunWrote
+      internal/journal TestReadRun_RefusesAFileNoRunCouldHaveWritten
+
+      internal/engine TestProjectGuards_AProjectThatCannotBeExaminedIsAnError
+      internal/engine TestWriteProjectFile_ASystemRefusalIsAnError
+      internal/journal TestActive_SkipsWhatIsNotARecord
+
+      internal/engine TestTagFilter_MatchesAnsible
+      internal/forge/playbook TestMergeKeys_MatchAnsible
+      internal/forge/playbook TestEntries_ArgsMatchAnsibleCore
+
+      pkg/iosparse TestShowBgpSummary/ios/golden_output1
+      pkg/iosparse TestShowBgpSummary/iosxe/golden_output1
+
+      internal/catalog/http TestRequest_ConnectionFailureIsReported
+      internal/hosttrust TestScan
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xe
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xe
+
+      pkg/remoteexec TestLiveNetconfSubsystemShapes/ios-xr
+      pkg/remoteexec TestLiveNetconfChunkedFramingAndErrorShapes/ios-xr
+
+      pkg/netcli TestLiveIOSXRPromptAndConfigShapes
+      pkg/netcli TestLiveIOSXRShowRunningInterfaces
+
+      internal/journal TestRecordReportsAFullDisk
+
+      internal/journal TestSeal_ReportsASealItCannotMake
+
+      pkg/cml TestClient_AgainstARealController
+
+      tools/failures TestGitHelpers_AgainstThisRepository
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestAppendLedger_Dedups ---
+=== RUN   TestAppendLedger_Dedups
+    ledger_test.go:36: the ledger's directory: &{sub 16 {2538379530 31286209} {2538497370 31286209} {2538497370 31286209} 0 0 0 0 {{} {0 0}} C:\Users\ADMINI~1\AppData\Local\Temp\TestAppendLedger_Dedups3568434963\001\sub  [trimmed]
+--- FAIL: TestAppendLedger_Dedups (0.03s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts ---
+=== RUN   TestParseJobLog_RealExcerpts
+    actionslog_test.go:37: open testdata\actions-containers-real.log: The system cannot find the path specified.
+--- FAIL: TestParseJobLog_RealExcerpts (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate ---
+=== RUN   TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+    prchecklog_test.go:147: open testdata\testgate-contention.log: The system cannot find the path specified.
+--- FAIL: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine ---
+=== RUN   TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+    prchecklog_test.go:73: open testdata\prcheck-summary-15.log: The system cannot find the path specified.
+--- FAIL: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries ---
+=== RUN   TestParsePRCheckLog_RealSummaries
+    prchecklog_test.go:57: open testdata\prcheck-summary-9.log: The system cannot find the path specified.
+--- FAIL: TestParsePRCheckLog_RealSummaries (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestReadLedger_Contract ---
+=== RUN   TestReadLedger_Contract
+    ledger_test.go:70: a ledger under a file was read
+--- FAIL: TestReadLedger_Contract (0.04s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun ---
+=== RUN   TestRecordActions_ARun
+    actions_test.go:38: open testdata\actions-containers-real.log: The system cannot find the path specified.
+--- FAIL: TestRecordActions_ARun (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals ---
+=== RUN   TestRecordActions_Refusals
+    actions_test.go:38: open testdata\actions-containers-real.log: The system cannot find the path specified.
+--- FAIL: TestRecordActions_Refusals (0.00s)
+
+--- github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog ---
+=== RUN   TestRecordPRCheck_FromALog
+    prcheck_test.go:181: failures record-prcheck -dir C:\Users\ADMINI~1\AppData\Local\Temp\TestRecordPRCheck_FromALog2790838752\001 -log testdata\prcheck-summary-15.log -at 2026-10-24T05:01:00Z -branch b: exit 1: failure [trimmed]
+--- FAIL: TestRecordPRCheck_FromALog (0.00s)
+
+testgate: 9 failure(s) failed AGAIN when re-run alone, or could not be re-run at all:
+
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestAppendLedger_Dedups
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParseJobLog_RealExcerpts
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestParsePRCheckLog_RealSummaries
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestReadLedger_Contract
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordActions_ARun
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordActions_Refusals
+  github.com/Subject-Void-LLC/the-pleiades/tools/failures: TestRecordPRCheck_FromALog
+
+These are not contention. Fix them.
+testgate: 9 failure(s) confirmed in isolation
+exit status 1
+wincheck: the tests failed on win-check (Windows) in 19m12s
+wincheck: put the VM win-check back on labhost, its state saved
+
+pr-check at ae89f745ba1c, 2026-10-24 14:24 UTC: FAIL (exit 1)
+  .coverage/pr/records/report.json
+
+  fast        pass     36 package(s), 297s, 0 failed, 0 contention, 13 skipped
+  repeat      pass     36 package(s), 371s, 0 failed, 0 contention, 39 skipped
+  containers  pass     10 package(s), 1337s, 0 failed, 0 contention, 15 skipped
+  mac         fail     macOS on someone@192.0.2.10, 36 package(s), 231s; full fail
+  bsd         not-run  FreeBSD on bsd-check: stopped at ready: bsd-check has 3 GB free where its tests unpack and build, under the 4 GB a run needs: go clean -cache there, or for the lab's bsd-check run runbooks/bsd/chec [trimmed]
+  win         fail     Windows on win-check, 36 package(s), 1178s; full fail
+  govulncheck pass     exit 0
+  images      pass     exit 0
+  coverage    pass     exit 0
+  durations   pass     exit 0
+
+Failures:
+
+  mac full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts [failed]
+      === RUN   TestParseJobLog_RealExcerpts
+          actionslog_test.go:37: open testdata/testgate-contention.log: no such file or directory
+      --- FAIL: TestParseJobLog_RealExcerpts (0.00s)
+
+  mac full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate [failed]
+      === RUN   TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+          prchecklog_test.go:147: open testdata/testgate-contention.log: no such file or directory
+      --- FAIL: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate (0.00s)
+
+  mac full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine [failed]
+      === RUN   TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+          prchecklog_test.go:73: open testdata/prcheck-summary-15.log: no such file or directory
+      --- FAIL: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine (0.00s)
+
+  mac full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries [failed]
+      === RUN   TestParsePRCheckLog_RealSummaries
+          prchecklog_test.go:57: open testdata/prcheck-summary-9.log: no such file or directory
+      --- FAIL: TestParsePRCheckLog_RealSummaries (0.00s)
+
+  mac full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun [failed]
+      === RUN   TestRecordActions_ARun
+          actions_test.go:38: open testdata/actions-containers-real.log: no such file or directory
+      --- FAIL: TestRecordActions_ARun (0.00s)
+
+  mac full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals [failed]
+      === RUN   TestRecordActions_Refusals
+          actions_test.go:38: open testdata/actions-containers-real.log: no such file or directory
+      --- FAIL: TestRecordActions_Refusals (0.00s)
+
+  mac full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog [failed]
+      === RUN   TestRecordPRCheck_FromALog
+          prcheck_test.go:181: failures record-prcheck -dir /var/folders/6k/tk0c7gnx4clf5_0x0qq2p3480000gn/T/TestRecordPRCheck_FromALog2788879970/001 -log testdata/prcheck-summary-15.log -at 2026-10-24T05:01:00Z -branch  [trimmed]
+      --- FAIL: TestRecordPRCheck_FromALog (0.00s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestAppendLedger_Dedups [failed]
+      === RUN   TestAppendLedger_Dedups
+          ledger_test.go:36: the ledger's directory: &{sub 16 {2538379530 31286209} {2538497370 31286209} {2538497370 31286209} 0 0 0 0 {{} {0 0}} C:\Users\ADMINI~1\AppData\Local\Temp\TestAppendLedger_Dedups3568434963\00 [trimmed]
+      --- FAIL: TestAppendLedger_Dedups (0.03s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParseJobLog_RealExcerpts [failed]
+      === RUN   TestParseJobLog_RealExcerpts
+          actionslog_test.go:37: open testdata\actions-containers-real.log: The system cannot find the path specified.
+      --- FAIL: TestParseJobLog_RealExcerpts (0.00s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate [failed]
+      === RUN   TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate
+          prchecklog_test.go:147: open testdata\testgate-contention.log: The system cannot find the path specified.
+      --- FAIL: TestParsePRCheckLog_ContentionTakesItsErrorFromTestgate (0.00s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine [failed]
+      === RUN   TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine
+          prchecklog_test.go:73: open testdata\prcheck-summary-15.log: The system cannot find the path specified.
+      --- FAIL: TestParsePRCheckLog_KeepsTheFailingLineAndNoMachine (0.00s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestParsePRCheckLog_RealSummaries [failed]
+      === RUN   TestParsePRCheckLog_RealSummaries
+          prchecklog_test.go:57: open testdata\prcheck-summary-9.log: The system cannot find the path specified.
+      --- FAIL: TestParsePRCheckLog_RealSummaries (0.00s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestReadLedger_Contract [failed]
+      === RUN   TestReadLedger_Contract
+          ledger_test.go:70: a ledger under a file was read
+      --- FAIL: TestReadLedger_Contract (0.04s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_ARun [failed]
+      === RUN   TestRecordActions_ARun
+          actions_test.go:38: open testdata\actions-containers-real.log: The system cannot find the path specified.
+      --- FAIL: TestRecordActions_ARun (0.00s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordActions_Refusals [failed]
+      === RUN   TestRecordActions_Refusals
+          actions_test.go:38: open testdata\actions-containers-real.log: The system cannot find the path specified.
+      --- FAIL: TestRecordActions_Refusals (0.00s)
+
+  win full: github.com/Subject-Void-LLC/the-pleiades/tools/failures TestRecordPRCheck_FromALog [failed]
+      === RUN   TestRecordPRCheck_FromALog
+          prcheck_test.go:181: failures record-prcheck -dir C:\Users\ADMINI~1\AppData\Local\Temp\TestRecordPRCheck_FromALog2790838752\001 -log testdata\prcheck-summary-15.log -at 2026-10-24T05:01:00Z -branch b: exit 1: f [trimmed]
+      --- FAIL: TestRecordPRCheck_FromALog (0.00s)
+
+157 test(s) skipped; prreport -skips lists them by reason.
+failures: 17 of 17 entries new in .IGNORE/ci/pr-check.jsonl
+make: *** [Makefile:737: pr-check] Error 1

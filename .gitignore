@@ -109,3 +109,14 @@ __pycache__/
 # tools/failures parses captured pr-check and Actions logs, ignored the same
 # way until its tests failed on every machine but this one.
 !tools/failures/testdata/*.log
+
+# tools/monitor's records: run logs, copies of pr-check's report, leg logs and
+# GitHub Actions snapshots, any of which can name a host or carry a secret. It
+# writes them only under .IGNORE/ci/monitor (ignored by .[A-Z]* above, named
+# here so a change to that rule cannot expose them); the rest keep a record
+# written beside the monitor itself out of a commit.
+/.IGNORE/ci/monitor/
+/tools/monitor/runs/
+/tools/monitor/history/
+/tools/monitor/*.json
+/tools/monitor/*.txt
