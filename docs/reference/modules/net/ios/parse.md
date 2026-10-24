@@ -13,7 +13,7 @@ Runs one show command over the same session net.ios.command opens and parses its
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh`, `telnet` |
+| Transports | `ssh`, `telnet`, `console` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |

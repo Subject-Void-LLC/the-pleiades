@@ -26,7 +26,7 @@ func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "net.ios.command",
 		Manifest: collection.Manifest{
-			SupportedTransports:  []string{"ssh", "telnet"},
+			SupportedTransports:  []string{"ssh", "telnet", "console"},
 			RequiredCapabilities: []capability.Name{capability.NameCiscoIOS},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,

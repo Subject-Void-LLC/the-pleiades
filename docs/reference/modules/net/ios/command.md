@@ -13,7 +13,7 @@ Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt 
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh`, `telnet` |
+| Transports | `ssh`, `telnet`, `console` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since an arbitrary command can be anything the device accepts, and what it changes, if anything, is known only once the device has run it |

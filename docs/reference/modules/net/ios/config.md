@@ -13,7 +13,7 @@ Opens an interactive session over SSH (or over Telnet, with insecure_telnet), us
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh`, `telnet` |
+| Transports | `ssh`, `telnet`, `console` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS offers no way to ask without applying it |

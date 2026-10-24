@@ -15,6 +15,7 @@ import (
 // starts remoteexectest's server and sends it no command, so it runs
 // wherever the server does, with why.
 var shellFreeServers = map[string]string{
+	"internal/engine/console_dial_test.go:newConsoleFixture":                                                                   "a scripted CML console server answers the shell request; no exec session is opened",
 	"cmd/pleiades/upgrade_ios_example_test.go:scriptedSwitch":                                                                  "a scripted IOS CLI; wait.connection opens a terminal on it, never an exec session",
 	"internal/catalog/net/cli/cli_session_internal_test.go:scriptedDevice":                                                     "a scripted CLI answers the shell request; no exec session is opened",
 	"internal/catalog/net/cli/cli_session_internal_test.go:TestCommand_AnswersTheQuestionsTheTaskLists":                        "a scripted CLI that asks a question; no exec session is opened",

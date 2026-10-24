@@ -259,7 +259,7 @@ var networkCollections = []collectionscaffold.Config{
 	{
 		Name:          "net.ios.replace",
 		Capabilities:  []capability.Name{capability.NameCiscoIOS},
-		Transports:    []string{"ssh", "telnet"},
+		Transports:    []string{"ssh", "telnet", "console"},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Replaces a Cisco IOS device's running configuration with a checkpoint file on the device.",
@@ -287,7 +287,7 @@ var networkCollections = []collectionscaffold.Config{
 	{
 		Name:          "net.ios.parse",
 		Capabilities:  []capability.Name{capability.NameCiscoIOS},
-		Transports:    []string{"ssh", "telnet"},
+		Transports:    []string{"ssh", "telnet", "console"},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Runs a show command on a Cisco IOS or IOS XE device and returns its output parsed into Genie's schema.",

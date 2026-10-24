@@ -242,6 +242,21 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 			routed.route = dial
 			secrets = append(secrets, hopSecrets...)
 		}
+		// A device reached through a console server hands the method a
+		// dialer to its line (sdk.Consoler), and the server's secrets join
+		// the masking set the same way.
+		console, serverSecrets, err := ConsoleDialerFor(ctx, e.routeRepo, e.routeCredentials, device)
+		if err != nil {
+			return ActionResult{Secrets: secrets}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+		}
+		if console != nil {
+			consoled, ok := rc.(*runbookContext)
+			if !ok {
+				return ActionResult{Secrets: secrets}, fmt.Errorf("collection method %q: device %q is reached through a console server, which this run's context cannot carry", task.FQCN, device.Name())
+			}
+			consoled.console = console
+			secrets = append(secrets, serverSecrets...)
+		}
 	}
 
 	e.lendPool(ctx, rc, device)

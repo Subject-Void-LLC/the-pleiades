@@ -24,6 +24,7 @@ func init() {
 			SupportedTransports: []string{
 				"ssh",
 				"telnet",
+				"console",
 			},
 			RequiredCapabilities: []capability.Name{
 				capability.NameNetworkCLI,

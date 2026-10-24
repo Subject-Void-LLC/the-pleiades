@@ -10264,7 +10264,8 @@
   "net.cli.command": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "NetworkCLICapable"
@@ -10361,7 +10362,8 @@
   "net.cli.config": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "NetworkCLICapable"
@@ -10796,7 +10798,8 @@
   "net.ios.command": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -10898,7 +10901,8 @@
   "net.ios.config": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11005,7 +11009,8 @@
   "net.ios.facts": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11115,7 +11120,8 @@
   "net.ios.parse": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11197,7 +11203,8 @@
   "net.ios.ping": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11307,7 +11314,8 @@
   "net.ios.replace": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11386,7 +11394,8 @@
   "net.ios.save": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"

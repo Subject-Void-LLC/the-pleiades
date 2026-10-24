@@ -22,7 +22,8 @@ import (
 const ParamInsecureTelnet = "insecure_telnet"
 
 // OpenShell opens an interactive CLI session on device for a method that
-// speaks a device's CLI through pkg/netcli: over SSH when the device is
+// speaks a device's CLI through pkg/netcli: through its console server
+// when the device is reached by one (openConsole), over SSH when it is
 // reachable over SSH, else over Telnet when it is reachable over Telnet
 // and the method is given insecure_telnet: true among its parameters, its
 // login answered with the task's credential. The shell's Close ends the
@@ -30,6 +31,11 @@ const ParamInsecureTelnet = "insecure_telnet"
 func OpenShell(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (netcli.Shell, error) {
 	if device == nil {
 		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
+	}
+	// A device behind a console server is reached only through it: it has
+	// no address of its own, and no other carrier is tried.
+	if _, ok := device.(capability.ConsoleServedCapable); ok && device.HasCapability(capability.NameConsoleServed) {
+		return openConsole(ctx, rc, device, fqcn)
 	}
 	if _, ok := device.(capability.SSHTransportCapable); ok && device.HasCapability(capability.NameSSHTransport) {
 		conn, err := Connect(ctx, rc, device, params, fqcn)

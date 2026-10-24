@@ -13,7 +13,7 @@ Runs IOS's configure replace with a checkpoint file the device holds (net.ios.co
 |  |  |
 | --- | --- |
 | Capabilities | `CiscoIOSCapable` |
-| Transports | `ssh`, `telnet` |
+| Transports | `ssh`, `telnet`, `console` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
