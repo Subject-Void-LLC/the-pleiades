@@ -162,6 +162,13 @@ const (
 	// and "enable secret 9". Neither password reaches the method.
 	SecretSeedIOSSecret       = "seed_ios_secret"
 	SecretSeedIOSEnableSecret = "seed_ios_enable_secret"
+
+	// SecretSeedHost is the seeded device's address, its host, which a Cisco
+	// IOS seed carries so the machine made for it answers where the
+	// inventory says it does; empty for a device with no address of its own
+	// (one reached through a console server). It is an identifier, never
+	// masked.
+	SecretSeedHost = "seed_host"
 )
 
 // DispatchPayload is the message body the Controller publishes to NATS

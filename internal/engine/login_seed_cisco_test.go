@@ -29,13 +29,31 @@ func (c ciscoInventory) GetByName(_ context.Context, name string) (inventory.Inv
 	}
 	d := &namedDevice{Stub: &inventorytest.Stub{}, name: name}
 	d.Caps = []capability.Name{capability.NameCiscoIOS}
+	if name == "CORE1" {
+		return addressedDevice{d, "10.10.20.181"}, nil
+	}
 	return d, nil
 }
 
+// addressedDevice is a device with a host, as a cisco_router has.
+type addressedDevice struct {
+	*namedDevice
+	addr string
+}
+
+// IPAddress returns the device's host.
+func (a addressedDevice) IPAddress() string { return a.addr }
+
 // registerIOSSeeding registers a method named enginetest.<suffix> that
-// seeds the device its login parameter names, recording what it receives
-// in got; with ios set it can seed a Cisco IOS device.
+// seeds the device its login parameter names, a required one, recording
+// what it receives in got; with ios set it can seed a Cisco IOS device.
 func registerIOSSeeding(t *testing.T, suffix string, got *map[string]string, ios bool) string {
+	return registerIOSSeedingParam(t, suffix, got, ios, true)
+}
+
+// registerIOSSeedingParam is registerIOSSeeding with the login parameter
+// required or optional.
+func registerIOSSeedingParam(t *testing.T, suffix string, got *map[string]string, ios, required bool) string {
 	t.Helper()
 	name := "enginetest." + suffix
 	if err := collection.Register(collection.Descriptor{
@@ -45,7 +63,7 @@ func registerIOSSeeding(t *testing.T, suffix string, got *map[string]string, ios
 			Reversibility:       collection.Reversibility{Notes: "a test fixture that changes nothing"},
 			SeedsLogin:          "login",
 			SeedsLoginIOSSecret: ios,
-			Doc:                 collection.Doc{Params: []collection.Param{{Name: "login", Type: "string", Required: true}}},
+			Doc:                 collection.Doc{Params: []collection.Param{{Name: "login", Type: "string", Required: required}}},
 		},
 		Invoke: func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
 			*got = rc.InjectSecrets()
@@ -99,6 +117,9 @@ func TestLoginSeed_ACiscoDeviceGetsTypeNineHashesOnly(t *testing.T) {
 	if ok, err := iossecret.Verify("enable-pw", enable); !ok || err != nil {
 		t.Errorf("the enable secret does not verify: %v, %v", ok, err)
 	}
+	if got[wire.SecretSeedHost] != "10.10.20.181" {
+		t.Errorf("the seed carries the device's address as %q", got[wire.SecretSeedHost])
+	}
 	for _, key := range []string{wire.SecretSeedPassword, wire.SecretSeedAuthorizedKey, wire.SecretSeedPasswordHash} {
 		if got[key] != "" {
 			t.Errorf("an IOS seed carried %s", key)
@@ -115,6 +136,19 @@ func TestLoginSeed_ACiscoDeviceGetsTypeNineHashesOnly(t *testing.T) {
 	}
 	if _, ok := got[wire.SecretSeedIOSEnableSecret]; ok || got[wire.SecretSeedIOSSecret] == "" {
 		t.Errorf("a credential with no enable password seeded %v", got)
+	}
+	if _, ok := got[wire.SecretSeedHost]; ok {
+		t.Errorf("a device with no address seeded one: %v", got)
+	}
+
+	// An optional device left empty seeds nothing, and the method still
+	// runs; a required one left empty is refused.
+	optional := registerIOSSeedingParam(t, "optional", &got, true, false)
+	if err := run(optional, ""); err != nil || got == nil || got[wire.SecretSeedIOSSecret] != "" || got[wire.SecretSeedUsername] != "" {
+		t.Errorf("an empty optional device: err %v, secrets %v", err, got)
+	}
+	if err := run(ios, ""); err == nil || !strings.Contains(err.Error(), "must name the inventory device") {
+		t.Errorf("an empty required device: %v", err)
 	}
 
 	for why, tt := range map[string]struct{ method, login, want string }{

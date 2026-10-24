@@ -187,7 +187,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 
 	var seed map[string]string
 	if param := desc.Manifest.SeedsLogin; param != "" {
-		forms := SeedForms{Password: desc.Manifest.SeedsLoginPassword, IOSSecret: desc.Manifest.SeedsLoginIOSSecret}
+		forms := SeedForms{Password: desc.Manifest.SeedsLoginPassword, IOSSecret: desc.Manifest.SeedsLoginIOSSecret, Required: requiredParam(desc, param)}
 		if seed, err = e.seedLogin(ctx, task.FQCN, param, forms, task.Params); err != nil {
 			return ActionResult{}, err
 		}
@@ -392,7 +392,7 @@ func credentialSecrets(secrets map[string]string) []string {
 	out := make([]string, 0, len(secrets))
 	for key, value := range secrets {
 		switch key {
-		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey:
+		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey, wire.SecretSeedHost:
 			continue
 		}
 		out = append(out, value)
