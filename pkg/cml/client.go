@@ -1,8 +1,8 @@
 // Package cml is a client for a Cisco Modeling Labs 2.x controller's REST
-// API (/api/v0), the part an import reads: the controller's version, its
-// labs and each lab's nodes with the addresses the controller observed.
-// Measured against CML 2.7.2 in Cisco's DevNet sandbox (Phase 127c). It
-// never changes a lab.
+// API (/api/v0): what an import reads (the controller's version, its labs
+// and each lab's nodes with the addresses the controller observed), and the
+// calls the virt.cml methods change a lab with (write.go). Measured against
+// CML 2.7.2 in Cisco's DevNet sandbox (Phases 127c and 127d).
 package cml
 
 import (
@@ -237,7 +237,8 @@ func (c *Client) get(ctx context.Context, path string, into any) error {
 	return c.call(ctx, http.MethodGet, path, nil, into)
 }
 
-// call sends one request under /api/v0 and decodes a 2xx answer into into.
+// call sends one request under /api/v0 and decodes a 2xx answer into into,
+// or reads none when into is nil (a 204's empty answer).
 func (c *Client) call(ctx context.Context, method, path string, body []byte, into any) error {
 	u := c.base.String() + "/api/v0" + path
 	var r io.Reader
@@ -268,6 +269,9 @@ func (c *Client) call(ctx context.Context, method, path string, body []byte, int
 	}
 	if res.StatusCode/100 != 2 {
 		return &StatusError{Method: method, Path: path, Status: res.StatusCode, Body: string(out)}
+	}
+	if into == nil {
+		return nil
 	}
 	if err := json.Unmarshal(out, into); err != nil {
 		return fmt.Errorf("cml: %s /api/v0%s: the answer is not what this client reads: %w", method, path, err)
