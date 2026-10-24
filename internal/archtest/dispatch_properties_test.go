@@ -219,6 +219,9 @@ var secretNamedButValidated = map[string]struct {
 	"ai_provider/http_allow_plaintext_credentials": {
 		reason:   "a flag validated as a boolean",
 		baseline: map[string]any{"ai_kind": "ollama", "residency": "local", "api_base": "http://10.0.0.5:11434"},
+	}, "cml_controller/http_allow_plaintext_credentials": {
+		reason:   "a flag validated as a boolean",
+		baseline: map[string]any{"api_base": "http://10.0.0.5"},
 	},
 }
 
