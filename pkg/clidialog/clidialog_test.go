@@ -219,3 +219,33 @@ func TestParams_DocumentEveryParameter(t *testing.T) {
 		t.Errorf("returns %v", clidialog.Returns())
 	}
 }
+
+// TestReadConfig_TakesPromptsAndAskAndRefusesADisconnect: a configuration
+// method reads prompts as Read does, and refuses expect_disconnect, set
+// either way; its reference documents prompts and ask and no disconnect.
+func TestReadConfig_TakesPromptsAndAskAndRefusesADisconnect(t *testing.T) {
+	opts, err := clidialog.ReadConfig(context.Background(), bare{}, "net.x", map[string]any{
+		"prompts": []any{map[string]any{"match": `\[yes/no\]`, "answer": "yes"}},
+	})
+	if err != nil || len(opts.Prompts) != 1 || opts.Prompts[0].Answer != "yes" {
+		t.Fatalf("options %+v, %v", opts, err)
+	}
+	for _, v := range []any{true, false} {
+		if _, err := clidialog.ReadConfig(context.Background(), bare{}, "net.x", map[string]any{"expect_disconnect": v}); err == nil || !strings.Contains(err.Error(), "configuration lines") {
+			t.Errorf("expect_disconnect %v: %v", v, err)
+		}
+	}
+	var names []string
+	for _, p := range clidialog.ConfigParams() {
+		names = append(names, p.Name)
+	}
+	if strings.Join(names, ",") != "prompts,ask" {
+		t.Errorf("documented %v", names)
+	}
+	if r := clidialog.ConfigReturns(); len(r) != 1 || r[0].Name != "exchanges" {
+		t.Errorf("returns %v", r)
+	}
+	if len(clidialog.Params()) != 3 {
+		t.Error("ConfigParams changed Params' own list")
+	}
+}

@@ -10,9 +10,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/clidialog"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig"
@@ -35,6 +37,10 @@ const (
 // off.
 const paramCheckpoint = "checkpoint"
 
+// paramAccept lists the IOS "% " lines a task takes as notices rather than
+// rejections, beside the ones netcli.IOS knows.
+const paramAccept = "accept"
+
 // statBackup is the stat name backup: true records the pre-change
 // running-config under.
 const statBackup = "backup"
@@ -46,6 +52,9 @@ const (
 	statCheckpoint  = "checkpoint"
 	statDifferences = "differences"
 	statUndoLines   = "undo_lines"
+	// statNotices are the "% " lines the device printed that were taken
+	// as notices, masked.
+	statNotices = "notices"
 )
 
 // configFQCN and replaceFQCN are the two methods a change and its undo run.
@@ -93,26 +102,34 @@ func init() {
 func configDoc() collection.Doc {
 	return collection.Doc{
 		Summary: "Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly.",
-		Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. " +
+		Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, and the time a key pair was made; accept adds the task's own. " +
+			"A line that asks a question (crypto pki server's no shutdown asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers fails the line at once, naming it, rather than waiting. " +
 			"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
 			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
-		Params: []collection.Param{
+		Params: append(append([]collection.Param{
 			{Name: paramLines, Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.", Format: collection.ParamFormatCommand},
 			{Name: paramCheckpoint, Type: "bool", Default: "true", Description: "Keep a checkpoint of the running configuration on the device before the change, which its undo returns to exactly. false records no undo, and reports the lines that would undo the change for the task's rollback: list."},
 			{Name: paramBackup, Type: "bool", Default: "false", Description: "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."},
-			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
-			{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
-		},
-		Returns: []collection.ReturnField{
+			{Name: paramAccept, Type: "list of string", Description: "Further IOS \"% \" lines to take as notices rather than rejections, each RE2 matched from the start of the line and so beginning with %, e.g. \"% Frob is deprecated\". Every other \"% \" line still fails the task."},
+		}, clidialog.ConfigParams()...),
+			collection.Param{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			collection.Param{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
+		),
+		Returns: append([]collection.ReturnField{
 			{Name: statCheckpoint, Type: "string", Returned: "when a checkpoint was kept and the lines changed the configuration", Description: "The checkpoint file on the device holding the configuration before the change, which the undo returns to."},
 			{Name: statDifferences, Type: "list of string", Returned: "when a checkpoint was kept", Description: "The device's own contextual differences the change made (+ added, - removed), masked."},
 			{Name: statUndoLines, Type: "list of string", Returned: "when no checkpoint was kept and the lines changed the configuration", Description: "The configuration lines that would undo the change, masked; copy them into the task's rollback: list, putting each masked secret back."},
 			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
-		},
+			{Name: statNotices, Type: "list of string", Returned: "when the device printed one", Description: "The \"% \" lines the device printed that were taken as notices rather than rejections, masked."},
+		}, clidialog.ConfigReturns()...),
 		Examples: []collection.Example{
 			{
 				Name:        "Create a loopback interface, undoable by pleiades rollback",
 				RunbookYAML: "- name: Add a loopback interface\n  net.ios.config:\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n",
+			},
+			{
+				Name:        "Remove a key pair, answering the question IOS asks first",
+				RunbookYAML: "- name: Remove the old key pair\n  net.ios.config:\n    lines:\n      - crypto key zeroize rsa OLDKEY\n    prompts:\n      - match: 'Do you really want to remove these keys\\? \\[yes/no\\]'\n        answer: \"yes\"\n",
 			},
 		},
 		SeeAlso: []string{"net.ios.replace", "net.ios.parse", "net.cli.command", "net.cli.config"},
@@ -155,6 +172,13 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	// The dialog and the notices are read, and ask's provider resolved,
+	// before the device is reached, so a parameter that does not read never
+	// leaves a line half answered.
+	opts, err := readConfigOptions(ctx, rc, params)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	session, err := openSession(ctx, rc, device, params, fqcn)
 	if err != nil {
@@ -177,7 +201,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		before, after, err := takeCheckpoint(ctx, session)
 		switch {
 		case err == nil:
-			applyErr := session.Config(ctx, lines)
+			applyErr := applyLines(ctx, rc, session, lines, opts)
 			return finishCheckpoint(ctx, rc, session, params, before, after, applyErr)
 		case !errors.Is(err, errNoCheckpoint):
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -189,8 +213,56 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			return collection.Result{}, fmt.Errorf("%s: reading the configuration before the change: %w", fqcn, err)
 		}
 	}
-	applyErr := session.Config(ctx, lines)
+	applyErr := applyLines(ctx, rc, session, lines, opts)
 	return finishLines(ctx, rc, session, running, applyErr, warnings)
+}
+
+// readConfigOptions reads prompts and ask (clidialog.ReadConfig) when the
+// task sets either, and accept: each pattern RE2 that must begin with %,
+// matched from the start of the line, since only a line in IOS's error
+// form is ever held to one.
+func readConfigOptions(ctx context.Context, rc sdk.RunbookContext, params map[string]any) (netcli.ConfigOptions, error) {
+	var opts netcli.ConfigOptions
+	if clidialog.Uses(params) {
+		dialog, err := clidialog.ReadConfig(ctx, rc, configFQCN, params)
+		if err != nil {
+			return opts, err
+		}
+		opts.Dialog = dialog
+	}
+	accept, _, err := sdk.StringSlice(params, paramAccept)
+	if err != nil {
+		return opts, err
+	}
+	for i, text := range accept {
+		if !strings.HasPrefix(text, "%") {
+			return opts, fmt.Errorf("%s[%d] %q does not begin with %%: it is matched from the start of an IOS \"%% \" line", paramAccept, i, text)
+		}
+		re, err := regexp.Compile("^(?:" + text + ")")
+		if err != nil {
+			return opts, fmt.Errorf("%s[%d]: %w", paramAccept, i, err)
+		}
+		opts.Accept = append(opts.Accept, re)
+	}
+	return opts, nil
+}
+
+// applyLines applies lines as opts says, recording each question answered
+// and, masked, each notice the device printed, whether or not the batch
+// went on to the end.
+func applyLines(ctx context.Context, rc sdk.RunbookContext, session iosSession, lines []string, opts netcli.ConfigOptions) error {
+	res, applyErr := session.ConfigWith(ctx, lines, opts)
+	if len(opts.Dialog.Prompts) > 0 || opts.Dialog.Ask != nil {
+		if err := rc.SetStat("exchanges", clidialog.Stats(netcli.DialogResult{Exchanges: res.Exchanges})["exchanges"]); err != nil {
+			return err
+		}
+	}
+	if len(res.Notices) > 0 {
+		if err := rc.SetStat(statNotices, maskLines(res.Notices)); err != nil {
+			return err
+		}
+	}
+	return applyErr
 }
 
 // finishCheckpoint ends a change made with a checkpoint: it asks the device
@@ -312,7 +384,7 @@ func maskLines(lines []string) []string {
 // canned double with no real I/O, and no more.
 type iosSession interface {
 	Command(ctx context.Context, line string) (string, error)
-	Config(ctx context.Context, lines []string) error
+	ConfigWith(ctx context.Context, lines []string, opts netcli.ConfigOptions) (netcli.ConfigResult, error)
 	Dialog(ctx context.Context, line string, opts netcli.DialogOptions) (netcli.DialogResult, error)
 	Close() error
 }

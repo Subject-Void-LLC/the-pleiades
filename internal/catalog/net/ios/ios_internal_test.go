@@ -38,6 +38,10 @@ type fakeSession struct {
 	commandErrs map[string]error
 	configErr   error
 	closed      bool
+	// configOpts are the options each batch was applied with, and
+	// configResult what every batch returns.
+	configOpts   []netcli.ConfigOptions
+	configResult netcli.ConfigResult
 }
 
 func (f *fakeSession) Command(ctx context.Context, line string) (string, error) {
@@ -57,6 +61,13 @@ func (f *fakeSession) Command(ctx context.Context, line string) (string, error) 
 func (f *fakeSession) Config(ctx context.Context, lines []string) error {
 	f.configCalls = append(f.configCalls, lines)
 	return f.configErr
+}
+
+// ConfigWith applies lines as Config does and returns configResult: the
+// dialog itself is proven over a real session (config_session_internal_test.go).
+func (f *fakeSession) ConfigWith(ctx context.Context, lines []string, opts netcli.ConfigOptions) (netcli.ConfigResult, error) {
+	f.configOpts = append(f.configOpts, opts)
+	return f.configResult, f.Config(ctx, lines)
 }
 
 // Dialog answers as Command does, with no questions asked: the dialogs

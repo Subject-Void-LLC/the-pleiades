@@ -1,6 +1,6 @@
-// How Dialog finds the end of a read: the exec prompt, a listed question,
-// or a line shaped like a question, each on the line the device is
-// waiting on.
+// How Dialog and ConfigWith find the end of a read: the prompt, a listed
+// question, or a line shaped like a question, each on the line the device
+// is waiting on.
 package netcli
 
 import (
@@ -70,16 +70,19 @@ func askShape(ask *Ask) *regexp.Regexp {
 	return openLine(QuestionShape)
 }
 
-// dialogPattern is what one read waits for: the exec prompt, any listed
-// question, or a question-shaped line. A read must end at whichever comes
-// first, since a read that times out closes the session for good.
-func dialogPattern(exec *regexp.Regexp, prompts []*regexp.Regexp, shape *regexp.Regexp) *regexp.Regexp {
-	parts := []string{`(?:` + exec.String() + `)`}
+// dialogPattern is what one read waits for: the end prompt, any listed
+// question, or each further shape that is not nil (a question-shaped line).
+// A read must end at whichever comes first, since a read that times out
+// closes the session for good.
+func dialogPattern(end *regexp.Regexp, prompts []*regexp.Regexp, shapes ...*regexp.Regexp) *regexp.Regexp {
+	parts := []string{`(?:` + end.String() + `)`}
 	for _, p := range prompts {
 		parts = append(parts, `(?:`+p.String()+`)`)
 	}
-	if shape != nil {
-		parts = append(parts, `(?:`+shape.String()+`)`)
+	for _, shape := range shapes {
+		if shape != nil {
+			parts = append(parts, `(?:`+shape.String()+`)`)
+		}
 	}
 	return regexp.MustCompile(strings.Join(parts, "|"))
 }

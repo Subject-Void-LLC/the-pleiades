@@ -29,11 +29,14 @@ import (
 // configDevice is a device double holding a running configuration and the
 // files on its one disk, unix:.
 type configDevice struct {
-	running     string
-	files       map[string]string
-	noDisk      bool // show file systems lists no writable disk
-	noArchive   bool // show archive config differences is not a command
-	failConfig  error
+	running    string
+	files      map[string]string
+	noDisk     bool // show file systems lists no writable disk
+	noArchive  bool // show archive config differences is not a command
+	failConfig error
+	// replaceSays is a line configure replace prints beside its own, as
+	// IOS prints a routing protocol's notice while a replace runs.
+	replaceSays string
 	commands    []string
 	configCalls [][]string
 	closed      bool
@@ -117,7 +120,7 @@ func (d *configDevice) Command(_ context.Context, line string) (string, error) {
 			return "%Error opening " + path + " (No such file or directory)\r\n", nil
 		}
 		d.running = text
-		return "Total number of passes: 1\r\nRollback Done\r\n", nil
+		return d.replaceSays + "Total number of passes: 1\r\nRollback Done\r\n", nil
 	case strings.HasPrefix(line, "delete /force "):
 		path := strings.Fields(line)[2]
 		if _, ok := d.files[path]; !ok {
@@ -147,6 +150,11 @@ func (d *configDevice) Dialog(_ context.Context, line string, _ netcli.DialogOpt
 	}
 	d.files[path] = d.running
 	return netcli.DialogResult{Output: "Destination filename [x]? \r\n3623 bytes copied in 0.027 secs\r\n"}, nil
+}
+
+// ConfigWith applies lines as Config does.
+func (d *configDevice) ConfigWith(ctx context.Context, cfg []string, _ netcli.ConfigOptions) (netcli.ConfigResult, error) {
+	return netcli.ConfigResult{}, d.Config(ctx, cfg)
 }
 
 // Config applies lines as IOS would to the double's configuration: a line
@@ -548,4 +556,62 @@ func TestShownDifferences(t *testing.T) {
 	if got := shownDifferences(many[:2]); got != "+line 0; +line 1" {
 		t.Errorf("shownDifferences of two = %q", got)
 	}
+}
+
+// TestReplace_ANoticeDuringAReplaceThatMatchesIsAWarning: configure replace
+// printing a "% " line still succeeds when the device matches the
+// checkpoint afterwards, warning with the line masked; when the device
+// still differs, the line is the failure's reason.
+func TestReplace_ANoticeDuringAReplaceThatMatchesIsAWarning(t *testing.T) {
+	dev := newConfigDevice()
+	dev.replaceSays = "% Removing the EIGRP process cleared its key 7 0822455D0A16\r\n"
+	swapOpenSession(t, dev.open)
+	rc := newStubContext()
+	if _, err := Config(context.Background(), rc, nil, loopback); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ := recordedInverse(t, rc)
+	undo := newStubContext()
+	if res, err := Replace(context.Background(), undo, nil, inv.Params); err != nil || !res.Changed || dev.running != iosBase {
+		t.Fatalf("Replace = %+v, %v", res, err)
+	}
+	warnings, _ := undo.stats[sdk.StatWarnings].([]string)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "% Removing the EIGRP process") || strings.Contains(warnings[0], "0822455D0A16") {
+		t.Errorf("warnings %q, want the line, masked", warnings)
+	}
+
+	dev = newConfigDevice()
+	swapOpenSession(t, dev.open)
+	rc = newStubContext()
+	if _, err := Config(context.Background(), rc, nil, loopback); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ = recordedInverse(t, rc)
+	// A replace that prints its failure and leaves the device as it was.
+	before := inv.Params["checkpoint"].(string)
+	dev.replaceSays = "% Rollback aborted\r\n"
+	stuck := &stuckReplace{configDevice: dev, keep: dev.running}
+	swapOpenSession(t, stuck.open)
+	if _, err := Replace(context.Background(), newStubContext(), nil, map[string]any{"checkpoint": before}); err == nil || !strings.Contains(err.Error(), "% Rollback aborted") {
+		t.Errorf("a replace that changed nothing and complained: %v", err)
+	}
+}
+
+// stuckReplace is a device whose configure replace prints its notice and
+// changes nothing.
+type stuckReplace struct {
+	*configDevice
+	keep string
+}
+
+func (s *stuckReplace) open(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any, string) (iosSession, error) {
+	return s, nil
+}
+
+func (s *stuckReplace) Command(ctx context.Context, line string) (string, error) {
+	out, err := s.configDevice.Command(ctx, line)
+	if strings.HasPrefix(line, "configure replace ") {
+		s.running = s.keep
+	}
+	return out, err
 }

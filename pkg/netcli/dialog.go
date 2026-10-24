@@ -80,6 +80,20 @@ const DefaultAskMax = 3
 // output lines do not.
 var QuestionShape = regexp.MustCompile(`(?:\?|\]|\]:)[ \t]*\z`)
 
+// UnansweredShape is a question no Prompt answers when a configuration line
+// is left waiting on it: an open last line ending in a question mark, in
+// one of IOS's answer brackets ("[yes/no]:", "[confirm]", "[y/n]"), or in a
+// request for a password or passphrase ("Password:", which crypto pki
+// server's "no shutdown" asks to protect the CA's key). It is
+// narrower than QuestionShape on purpose: a configuration line's output can
+// leave "[OK]" open for a moment before its line break ("Building
+// configuration...", crypto key generation), and failing on that would
+// fail a line that succeeded. A question that matches it fails the line at
+// once rather than waiting, unanswered, for the read's bound (the blind CVD
+// lab lost five minutes to crypto pki server's "no shutdown" asking
+// "Are you sure you want to do this? [yes/no]:", 2026-10-24).
+var UnansweredShape = regexp.MustCompile(`(?i)(?:\?|\[(?:yes/no|yes|no|y/n|confirm)\]|\b(?:password|passphrase))[: \t]*\z`)
+
 // Ask is how Dialog handles a question no Prompt matched. Without one,
 // such a question is waited on until the context ends.
 type Ask struct {
@@ -155,13 +169,29 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 	if err := checkDialog(opts); err != nil {
 		return DialogResult{}, err
 	}
-	exec := s.dialect.Prompt(false)
+	asked := 0
+	return s.converse(ctx, line, s.dialect.Prompt(false), opts, false, &asked)
+}
+
+// converse sends line and reads its output to end, the prompt of the mode
+// the line leaves the device in, answering the device's questions on the
+// way as opts says; asked counts the questions a Chooser has been asked so
+// far, so a batch of lines shares one limit. With failFast, a line left
+// waiting on a question (UnansweredShape) that no prompt matches and no
+// Chooser is there to answer fails at once, naming the question: the
+// device would otherwise wait for an answer nothing will type until the
+// read's bound ends it.
+func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp, opts DialogOptions, failFast bool, asked *int) (DialogResult, error) {
 	prompts := make([]*regexp.Regexp, len(opts.Prompts))
 	for i, p := range opts.Prompts {
 		prompts[i] = openLine(p.Match)
 	}
 	shape := askShape(opts.Ask)
-	until := dialogPattern(exec, prompts, shape)
+	var unanswered *regexp.Regexp
+	if failFast && shape == nil {
+		unanswered = openLine(UnansweredShape)
+	}
+	until := dialogPattern(end, prompts, shape, unanswered)
 
 	if err := s.shell.WriteLine(ctx, line); err != nil {
 		return DialogResult{}, fmt.Errorf("netcli: %w", err)
@@ -169,7 +199,6 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 	var res DialogResult
 	var transcript strings.Builder
 	answered := make([]bool, len(opts.Prompts))
-	asked := 0
 	for {
 		raw, err := s.shell.ReadUntil(ctx, until, s.maxBytes)
 		if err != nil {
@@ -180,15 +209,20 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 			}
 			if opts.ExpectDisconnect && len(res.Exchanges) > 0 && errors.Is(err, io.EOF) {
 				transcript.Write(partial)
-				res.Output, res.Disconnected = stripEcho(transcript.String(), line, exec), true
+				res.Output, res.Disconnected = stripEcho(transcript.String(), line, end), true
 				return res, nil
 			}
 			return res, fmt.Errorf("netcli: %w%s", err, waitingOn(partial))
 		}
 		transcript.WriteString(raw)
-		if endsWith(exec, raw) {
-			res.Output = stripEcho(transcript.String(), line, exec)
+		if endsWith(end, raw) {
+			res.Output = stripEcho(transcript.String(), line, end)
 			return res, nil
+		}
+		if echoing(transcript.String(), line) {
+			// The device's echo of line itself, not yet ended by its line
+			// break: a line that ends in "?" reads as a question until then.
+			continue
 		}
 		question := lastLine(raw)
 		if i, again := pickPrompt(prompts, answered, raw); i >= 0 || again {
@@ -205,12 +239,15 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 			res.Exchanges = append(res.Exchanges, Exchange{Question: question, Answer: opts.Prompts[i].Answer, Prompt: i})
 			continue
 		}
+		if unanswered != nil && endsWith(unanswered, raw) {
+			return res, s.stop("the device asked %q, which no prompt answers: list it in prompts with its answer (or refuse: true), or let ask choose among answers the task writes", question)
+		}
 		if shape == nil || !endsWith(shape, raw) {
 			// The pattern matched something none of its parts recognizes
 			// at the end; read on rather than guess.
 			continue
 		}
-		ex, done, err := s.choose(ctx, opts.Ask, question, &asked)
+		ex, done, err := s.choose(ctx, opts.Ask, question, asked)
 		if err != nil {
 			return res, err
 		}
@@ -218,6 +255,12 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 			res.Exchanges = append(res.Exchanges, ex)
 		}
 	}
+}
+
+// echoing reports whether everything read so far is the device's echo of
+// line, its line break not yet arrived.
+func echoing(read, line string) bool {
+	return strings.TrimRight(read, " \t") == strings.TrimRight(line, " \t")
 }
 
 // choose asks the Chooser about question and acts on its decision: an

@@ -19,8 +19,10 @@ package netcli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -66,6 +68,11 @@ type Dialect struct {
 	// across every device this Dialect could describe, and Config never
 	// treats any line as a rejection.
 	ErrorPattern *regexp.Regexp
+
+	// Notices are lines ErrorPattern matches that report rather than
+	// reject: the device says the line changed nothing, or how it went.
+	// Config collects them instead of failing on them.
+	Notices []*regexp.Regexp
 
 	// Unprivileged matches an exec prompt that is not privileged (IOS's
 	// "R1>"), and Enable is the command that asks to leave it (IOS's
@@ -115,6 +122,36 @@ var (
 	// the percent sign. A "%Warning:" line is not a failure, and neither
 	// is a syslog line ("%SYS-5-CONFIG_I: ...").
 	iosErrorPattern = regexp.MustCompile(`(?m)^%(?: |Error\b)`)
+
+	// iosNotices are the "% " lines IOS prints for a configuration line it
+	// accepted: one already in the configuration (an access list entry, an
+	// IKEv2 proposal or a profile's match), or a key pair being made.
+	// Each was measured on IOL XE 17.15 in the blind CVD lab (2026-10-24),
+	// where failing on them kept ordinary configuration from being run
+	// twice. Only these: every other "% " line still rejects, "% Duplicate
+	// sequence number" and "% Failed to add ace to access-list" among them,
+	// since those say the line was not applied.
+	iosNotices = []*regexp.Regexp{
+		regexp.MustCompile(`^% Duplicate (?:permit|deny) statement ignored\b`),
+		regexp.MustCompile(`^% Policy already has same proposal set\b`),
+		regexp.MustCompile(`^% Already found same '[^']*' statement in this profile\b`),
+		regexp.MustCompile(`^% Key pair was generated at: `),
+		// crypto key generate rsa ... modulus <n>, made and made again
+		// (measured through net.ios.config on the same lab's BR3): IOS
+		// names the modulus, says it is generating, and, for a label it
+		// already has, replaces that key pair with no question asked.
+		regexp.MustCompile(`^% The key modulus size is [0-9]+ bits$`),
+		regexp.MustCompile(`^% Generating [0-9]+ bit RSA keys, keys will be non-exportable\.\.\.`),
+		regexp.MustCompile(`^% You already have RSA keys defined named \S+\.$`),
+		regexp.MustCompile(`^% They will be replaced\.$`),
+		// crypto key zeroize rsa <label>: what it says before asking
+		// "Do you really want to remove these keys? [yes/no]:", which a
+		// task answers with prompts. A label with no key pair ("% The
+		// specified keypair does not exist") still rejects: a mistyped
+		// label must not pass for a key already gone.
+		regexp.MustCompile(`^% Keys to be removed are named '[^']*'\.$`),
+		regexp.MustCompile(`^% All router certs issued using these keys will also be removed\.$`),
+	}
 )
 
 // IOS is the one concrete vendor Dialect this package ships, covering
@@ -136,6 +173,7 @@ var IOS = Dialect{
 	EnterConfigMode: "configure terminal",
 	ExitConfigMode:  "end",
 	ErrorPattern:    iosErrorPattern,
+	Notices:         iosNotices,
 	Unprivileged:    iosUserPrompt,
 	Enable:          "enable",
 }
@@ -270,51 +308,128 @@ func (s *Session) Command(ctx context.Context, line string) (string, error) {
 }
 
 // Config brackets lines between the Dialect's EnterConfigMode and
-// ExitConfigMode commands, sending them through Command one line at a
-// time and reading each one back to the CONFIGURATION-mode prompt, not
-// the exec-mode one: reading to the wrong prompt is what hangs a
-// configuration session, because the device genuinely never sends the
-// pattern being waited for until the caller leaves configuration mode.
+// ExitConfigMode commands, sending them one line at a time and reading
+// each one back to the CONFIGURATION-mode prompt, not the exec-mode one:
+// reading to the wrong prompt is what hangs a configuration session,
+// because the device genuinely never sends the pattern being waited for
+// until the caller leaves configuration mode. It is ConfigWith with no
+// answers, so a line that asks a question fails at once, naming it.
+func (s *Session) Config(ctx context.Context, lines []string) error {
+	_, err := s.ConfigWith(ctx, lines, ConfigOptions{})
+	return err
+}
+
+// ConfigOptions are what ConfigWith answers and accepts.
+type ConfigOptions struct {
+	// Dialog answers the questions a configuration line asks, as Dialog
+	// does a command's. ExpectDisconnect does not apply: a configuration
+	// line that ends the session is a failure.
+	Dialog DialogOptions
+	// Accept are further lines the Dialect's ErrorPattern matches that
+	// the caller takes as notices rather than rejections, beside the
+	// Dialect's own Notices.
+	Accept []*regexp.Regexp
+}
+
+// ConfigResult is what a configuration batch came to.
+type ConfigResult struct {
+	// Exchanges are the questions its lines asked and how each was
+	// answered, in order, across the whole batch.
+	Exchanges []Exchange
+	// Notices are the lines the device printed that ErrorPattern matches
+	// and a notice or Accept pattern let through, in order.
+	Notices []string
+}
+
+// ConfigWith is Config answering the questions a line asks as
+// opts.Dialog says (a question nothing answers fails the line at once,
+// UnansweredShape) and taking the Dialect's Notices, and opts.Accept, as
+// notices rather than rejections.
 //
-// It aborts on the first line whose output matches the Dialect's own
-// ErrorPattern, still attempting to leave configuration mode before
-// returning that error: a runbook that fails partway through a batch
-// should not also leave the device sitting in configuration mode for
-// whatever runs next.
+// It aborts on the first line whose output holds any other line matching
+// the Dialect's own ErrorPattern, still attempting to leave configuration
+// mode before returning that error: a runbook that fails partway through
+// a batch should not also leave the device sitting in configuration mode
+// for whatever runs next. A refused or unanswered question closes the
+// session instead, which the device takes as abandoning the line.
 //
 // It refuses outright when the Dialect names no EnterConfigMode: a
 // Dialect with no configuration-mode convention (FromPrompt's own
 // generic Dialect, always) has nothing to bracket lines with, and
 // guessing at one is exactly the mistake this method exists to avoid.
-func (s *Session) Config(ctx context.Context, lines []string) error {
+func (s *Session) ConfigWith(ctx context.Context, lines []string, opts ConfigOptions) (ConfigResult, error) {
+	var res ConfigResult
 	if s.dialect.EnterConfigMode == "" {
-		return fmt.Errorf("netcli: dialect %q has no configuration-mode commands; send each line through Command instead", dialectName(s.dialect))
+		return res, fmt.Errorf("netcli: dialect %q has no configuration-mode commands; send each line through Command instead", dialectName(s.dialect))
 	}
 	if s.unprivileged {
-		return fmt.Errorf("netcli: the device left this session in %s's unprivileged mode, where configuration is refused; store the device's enable secret with its credential (pleiades add-credential --enable-password)", dialectName(s.dialect))
+		return res, fmt.Errorf("netcli: the device left this session in %s's unprivileged mode, where configuration is refused; store the device's enable secret with its credential (pleiades add-credential --enable-password)", dialectName(s.dialect))
+	}
+	if opts.Dialog.ExpectDisconnect {
+		return res, errors.New("netcli: a configuration line cannot end by the device closing the session")
+	}
+	if err := checkDialog(opts.Dialog); err != nil {
+		return res, err
 	}
 
 	if _, err := s.command(ctx, s.dialect.EnterConfigMode, true); err != nil {
-		return fmt.Errorf("netcli: entering configuration mode: %w", err)
+		return res, fmt.Errorf("netcli: entering configuration mode: %w", err)
 	}
 
+	asked := 0
 	for _, line := range lines {
-		out, err := s.command(ctx, line, true)
+		out, err := s.converse(ctx, line, s.dialect.Prompt(true), opts.Dialog, true, &asked)
+		res.Exchanges = append(res.Exchanges, out.Exchanges...)
 		if err != nil {
-			return fmt.Errorf("netcli: sending %q: %w", line, err)
+			return res, fmt.Errorf("netcli: sending %q: %w", line, err)
 		}
-		if s.dialect.ErrorPattern != nil && s.dialect.ErrorPattern.MatchString(out) {
+		notices, rejected := s.judge(out.Output, out.Exchanges, opts.Accept)
+		res.Notices = append(res.Notices, notices...)
+		if rejected {
 			if _, exitErr := s.command(ctx, s.dialect.ExitConfigMode, false); exitErr != nil {
-				return fmt.Errorf("netcli: device rejected %q: %s (and leaving configuration mode afterward failed too: %w)", line, strings.TrimSpace(out), exitErr)
+				return res, fmt.Errorf("netcli: device rejected %q: %s (and leaving configuration mode afterward failed too: %w)", line, strings.TrimSpace(out.Output), exitErr)
 			}
-			return fmt.Errorf("netcli: device rejected %q: %s", line, strings.TrimSpace(out))
+			return res, fmt.Errorf("netcli: device rejected %q: %s", line, strings.TrimSpace(out.Output))
 		}
 	}
 
 	if _, err := s.command(ctx, s.dialect.ExitConfigMode, false); err != nil {
-		return fmt.Errorf("netcli: exiting configuration mode: %w", err)
+		return res, fmt.Errorf("netcli: exiting configuration mode: %w", err)
 	}
-	return nil
+	return res, nil
+}
+
+// judge reads one line's output: each line the Dialect's ErrorPattern
+// matches is a notice when a Notices or accept pattern matches it too, and
+// otherwise a rejection. A question the line asked and the task answered
+// is neither, though IOS may begin one with "% " ("% Do you really want
+// to replace them? [yes/no]:"): it stays in the output with its answer.
+func (s *Session) judge(out string, asked []Exchange, accept []*regexp.Regexp) (notices []string, rejected bool) {
+	if s.dialect.ErrorPattern == nil {
+		return nil, false
+	}
+	for l := range strings.SplitSeq(out, "\n") {
+		l = strings.TrimRight(l, "\r \t")
+		if !s.dialect.ErrorPattern.MatchString(l) || slices.ContainsFunc(asked, func(ex Exchange) bool { return ex.Question != "" && strings.Contains(l, ex.Question) }) {
+			continue
+		}
+		if matchesAny(s.dialect.Notices, l) || matchesAny(accept, l) {
+			notices = append(notices, l)
+			continue
+		}
+		rejected = true
+	}
+	return notices, rejected
+}
+
+// matchesAny reports whether any of patterns matches line.
+func matchesAny(patterns []*regexp.Regexp, line string) bool {
+	for _, p := range patterns {
+		if p.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
 
 // Close closes the underlying Shell. It is safe to call once; a Session

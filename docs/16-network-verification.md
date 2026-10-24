@@ -272,6 +272,34 @@ them into the task's `rollback:` list, putting each masked secret back:
 A change inside an access list, a banner or a certificate has no such lines. `net.cli.config` and a
 configuring `net.ios.command` record no undo either; give their tasks a `rollback:` list.
 
+### Configuration lines that ask, and IOS's notices
+
+A configuration line that asks a question (removing a key pair asks to confirm) is
+answered from `prompts`, each answer written in the task, or by a model with `ask`, which picks one of
+the task's own choices by id and never types its own, as `net.ios.command` does. A question nothing
+answers fails the line at once and names it, rather than leaving the device waiting until the session's
+time runs out. IOS prints some `% ` lines for a line it accepted (an access list entry or IKEv2 proposal
+already there, a key pair being made, or replaced when its label is already taken, which IOS does without
+asking); `net.ios.config` reports those under `notices` instead of
+failing, and `accept` names more, each matched from the start of the line. Every other `% ` line still
+fails the task. A `% ` line `configure replace` prints fails `net.ios.replace` only when the device does
+not match the checkpoint afterwards; otherwise it is a warning.
+
+```yaml
+  - name: Remove the old key pair
+    net.ios.config:
+      lines:
+        - crypto key zeroize rsa OLDKEY
+      prompts:
+        - match: 'Do you really want to remove these keys\? \[yes/no\]'
+          answer: "yes"
+```
+
+Measured on IOL XE 17.15: without the prompt, the task fails at once naming "Do you really want to remove
+these keys? [yes/no]:", and with it the key pair is removed. A key pair made again under a label it already
+has is replaced with no question, so its notices say so; a run that changes no line of the configuration
+reports unchanged even when a key was replaced, since key material is not in the configuration.
+
 ## Running Batfish
 
 Batfish runs as a container on a machine you choose; this runbook runs it on the machine `pleiades`

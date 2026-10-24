@@ -83,6 +83,16 @@ func Read(ctx context.Context, rc sdk.RunbookContext, fqcn string, params map[st
 	return opts, nil
 }
 
+// ReadConfig reads the dialog parameters a method applying configuration
+// lines takes, prompts and ask, as Read does. expect_disconnect is refused:
+// a configuration line that ends the session has failed.
+func ReadConfig(ctx context.Context, rc sdk.RunbookContext, fqcn string, params map[string]any) (netcli.DialogOptions, error) {
+	if _, set := params[ParamExpectDisconnect]; set {
+		return netcli.DialogOptions{}, fmt.Errorf("%s does not apply to configuration lines: a line that ends the session has failed", ParamExpectDisconnect)
+	}
+	return Read(ctx, rc, fqcn, params)
+}
+
 // readPrompts reads prompts: a list of {match, answer} or {match, refuse:
 // true}.
 func readPrompts(raw any) ([]netcli.Prompt, error) {
@@ -257,6 +267,20 @@ func Params() []collection.Param {
 		{Name: ParamPrompts, Type: collection.ParamTypeListOfDict, Description: "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."},
 		{Name: ParamAsk, Type: collection.ParamTypeDict, Description: "A model for questions no prompts entry matches, on the Crawl tier: choices, a list of {id, answer, means} the model picks from by id (it never types its own answer, and may refuse, which fails the task, or say the line was no question); max, how many it may answer (1 to 10, default 3); shape, the RE2 a waiting line must match to be asked about (default: ending in ?, ] or ]:); and ai.chat's own provider, model, residency, prompt or prompt_file (a built-in prompt when neither), signing, review, usage_sink and call options. Its provider is resolved before the device is reached. A held answer fails the task as held, which abandons the command; decided with pleiades ai review, running again reuses the decision for that same question."},
 		{Name: ParamExpectDisconnect, Type: collection.ParamTypeBool, Default: "false", Description: "Count the device closing the session after at least one answer as success, which is how a reload ends. A close before any answer still fails."},
+	}
+}
+
+// ConfigParams documents the dialog parameters a method applying
+// configuration lines takes: Params without expect_disconnect.
+func ConfigParams() []collection.Param {
+	return slices.DeleteFunc(Params(), func(p collection.Param) bool { return p.Name == ParamExpectDisconnect })
+}
+
+// ConfigReturns documents what a configuration dialog returns: each
+// question its lines asked.
+func ConfigReturns() []collection.ReturnField {
+	return []collection.ReturnField{
+		{Name: "exchanges", Type: "list of dict", Returned: "when prompts or ask is set", Description: "Each question a line asked and what was typed: question and answer, with prompt (the entry's index) or, for the model, choice, reason, provider, model, confidence, usage and review."},
 	}
 }
 
