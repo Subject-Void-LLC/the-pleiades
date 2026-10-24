@@ -32,7 +32,10 @@ func TestAppendLedger_Dedups(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0].Note != "" {
 		t.Errorf("the ledger holds %+v, %v", got, err)
 	}
-	if info, err := os.Stat(filepath.Dir(path)); err != nil || info.Mode().Perm() != 0o700 {
+	info, err := os.Stat(filepath.Dir(path))
+	// Windows keeps no POSIX permission bits and reports 0777 for every
+	// directory (FAILURE_PATTERNS 615, 636): only the directory is checked.
+	if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		t.Errorf("the ledger's directory: %v %v", info, err)
 	}
 }
