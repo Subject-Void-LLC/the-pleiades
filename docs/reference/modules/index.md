@@ -28,10 +28,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
-| `virt` | 19 | 19 |
+| `virt` | 29 | 29 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **191** | **188** |
+| **total** | **201** | **198** |
 
 ## All methods
 
@@ -193,6 +193,16 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [svc.windows.restart](svc/windows/restart.md) | implemented | Restarts a Windows service, starting it if it was not running. |
 | [svc.windows.start](svc/windows/start.md) | implemented | Starts a Windows service now, without changing its start type. |
 | [svc.windows.stop](svc/windows/stop.md) | implemented | Stops a Windows service now, without changing its start type. |
+| [virt.cml.lab.create](virt/cml/lab/create.md) | implemented | Creates an empty CML lab with a title. |
+| [virt.cml.lab.delete](virt/cml/lab/delete.md) | implemented | Stops, wipes and deletes a CML lab. |
+| [virt.cml.lab.info](virt/cml/lab/info.md) | implemented | Reports one CML lab: its nodes, their interfaces and its links. |
+| [virt.cml.lab.list](virt/cml/lab/list.md) | implemented | Lists the labs on a CML controller. |
+| [virt.cml.lab.start](virt/cml/lab/start.md) | implemented | Starts a CML lab's nodes and waits until they boot. |
+| [virt.cml.lab.stop](virt/cml/lab/stop.md) | implemented | Stops a CML lab's nodes. |
+| [virt.cml.link.create](virt/cml/link/create.md) | implemented | Links two nodes' interfaces in a CML lab. |
+| [virt.cml.link.delete](virt/cml/link/delete.md) | implemented | Removes a link from a CML lab. |
+| [virt.cml.node.create](virt/cml/node/create.md) | implemented | Creates a node in a CML lab, optionally seeded with an inventory device's login and address. |
+| [virt.cml.node.delete](virt/cml/node/delete.md) | implemented | Stops, wipes and deletes one node of a CML lab. |
 | [virt.vbox.snapshot.delete](virt/vbox/snapshot/delete.md) | implemented | Deletes a snapshot of a VirtualBox VM. |
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |

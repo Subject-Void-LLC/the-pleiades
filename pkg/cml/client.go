@@ -100,9 +100,10 @@ func (c *Client) Connect(ctx context.Context) (string, error) {
 
 // Lab is one lab on the controller.
 type Lab struct {
-	ID    string `json:"id"`
-	Title string `json:"lab_title"`
-	State string `json:"state"`
+	ID        string `json:"id"`
+	Title     string `json:"lab_title"`
+	State     string `json:"state"`
+	NodeCount int    `json:"node_count"`
 }
 
 // Labs lists the labs this login can see.

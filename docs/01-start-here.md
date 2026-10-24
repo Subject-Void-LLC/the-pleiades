@@ -252,7 +252,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 191 registered methods across 23 namespaces; 188 are
+**The module catalog has 201 registered methods across 23 namespaces; 198 are
 implemented and 3 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, all three of them: `file.template`, `net.junos.config` and

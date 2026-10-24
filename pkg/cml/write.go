@@ -228,29 +228,48 @@ func (c *Client) NodeDefinitions(ctx context.Context) ([]string, error) {
 // node, when ids is empty) is BOOTED, or ctx ends, which is then an error
 // naming the nodes not yet booted and their states.
 func (c *Client) WaitBooted(ctx context.Context, lab string, ids []string, interval time.Duration) error {
+	return c.waitNodes(ctx, lab, ids, interval, "finish booting", func(state string) bool { return state == StateBooted })
+}
+
+// WaitStopped polls lab's nodes every interval until none of ids (every
+// node, when ids is empty) is running, or ctx ends, which is then an error
+// naming the nodes still running and their states.
+func (c *Client) WaitStopped(ctx context.Context, lab string, ids []string, interval time.Duration) error {
+	return c.waitNodes(ctx, lab, ids, interval, "stop", func(state string) bool { return !Running(state) })
+}
+
+// waitNodes polls lab's nodes every interval until every one of ids (every
+// node, when ids is empty) is in a state done accepts, or ctx ends, which
+// is then an error saying the lab did not what, naming the nodes not done.
+func (c *Client) waitNodes(ctx context.Context, lab string, ids []string, interval time.Duration, what string, done func(string) bool) error {
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
+	// waiting is what the last read found not done, so a deadline that
+	// ends a read partway still names the nodes it was waiting for.
+	var waiting []string
 	for {
 		nodes, err := c.Nodes(ctx, lab)
 		if err != nil {
+			if ctx.Err() != nil && waiting != nil {
+				return fmt.Errorf("cml: lab %s did not %s: %v (%w)", lab, what, waiting, ctx.Err())
+			}
 			return err
 		}
-		waiting := notBooted(nodes, ids)
-		if len(waiting) == 0 {
+		if waiting = notDone(nodes, ids, done); len(waiting) == 0 {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("cml: lab %s did not finish booting: %v (%w)", lab, waiting, ctx.Err())
+			return fmt.Errorf("cml: lab %s did not %s: %v (%w)", lab, what, waiting, ctx.Err())
 		case <-tick.C:
 		}
 	}
 }
 
-// notBooted names each node of ids (every node, when ids is empty) that is
-// not BOOTED, as "label (STATE)"; a node of ids the lab does not hold is
-// named as missing.
-func notBooted(nodes []Node, ids []string) []string {
+// notDone names each node of ids (every node, when ids is empty) whose
+// state done does not accept, as "label (STATE)"; a node of ids the lab
+// does not hold is named as missing.
+func notDone(nodes []Node, ids []string, done func(string) bool) []string {
 	byID := map[string]Node{}
 	for _, n := range nodes {
 		byID[n.ID] = n
@@ -266,7 +285,7 @@ func notBooted(nodes []Node, ids []string) []string {
 		switch {
 		case !ok:
 			out = append(out, id+" (missing)")
-		case n.State != StateBooted:
+		case !done(n.State):
 			out = append(out, fmt.Sprintf("%s (%s)", n.Label, n.State))
 		}
 	}
