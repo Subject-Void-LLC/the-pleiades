@@ -29,8 +29,13 @@ func (c ciscoInventory) GetByName(_ context.Context, name string) (inventory.Inv
 	}
 	d := &namedDevice{Stub: &inventorytest.Stub{}, name: name}
 	d.Caps = []capability.Name{capability.NameCiscoIOS}
-	if name == "CORE1" {
+	switch name {
+	case "CORE1":
+		d.Caps = append(d.Caps, capability.NameNetworkAddressable)
 		return addressedDevice{d, "10.10.20.181"}, nil
+	case "CONSOLE1":
+		// A console-served device with a stale host: it claims no address.
+		return addressedDevice{d, "10.10.20.99"}, nil
 	}
 	return d, nil
 }
@@ -89,9 +94,10 @@ func TestLoginSeed_ACiscoDeviceGetsTypeNineHashesOnly(t *testing.T) {
 	}
 	keyOnly.Password = ""
 	store := vault{
-		"CORE1": {Username: "netops", Password: "login-pw", EnablePassword: "enable-pw"},
-		"BR1":   {Username: "netops", Password: "login-pw"},
-		"KEY":   keyOnly,
+		"CORE1":    {Username: "netops", Password: "login-pw", EnablePassword: "enable-pw"},
+		"CONSOLE1": {Username: "netops", Password: "login-pw"},
+		"BR1":      {Username: "netops", Password: "login-pw"},
+		"KEY":      keyOnly,
 	}
 	var got map[string]string
 	ios := registerIOSSeeding(t, "ios", &got, true)
@@ -139,6 +145,12 @@ func TestLoginSeed_ACiscoDeviceGetsTypeNineHashesOnly(t *testing.T) {
 	}
 	if _, ok := got[wire.SecretSeedHost]; ok {
 		t.Errorf("a device with no address seeded one: %v", got)
+	}
+	if err := run(ios, "CONSOLE1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got[wire.SecretSeedHost]; ok {
+		t.Errorf("a device that claims no address seeded its stale host: %v", got)
 	}
 
 	// An optional device left empty seeds nothing, and the method still

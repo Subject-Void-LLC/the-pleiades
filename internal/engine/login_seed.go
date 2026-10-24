@@ -134,7 +134,9 @@ func iosSeed(device string, item inventory.InventoryItem, cred credential.Creden
 		wire.SecretSeedUsername:  cred.Username,
 		wire.SecretSeedIOSSecret: secret,
 	}
-	if addressed, ok := item.(interface{ IPAddress() string }); ok && addressed.IPAddress() != "" {
+	// Only a device that claims an address of its own hands one over: a
+	// console-served device has none, whatever a stale host property says.
+	if addressed, ok := item.(interface{ IPAddress() string }); ok && addressed.IPAddress() != "" && item.HasCapability(capability.NameNetworkAddressable) {
 		seed[wire.SecretSeedHost] = addressed.IPAddress()
 	}
 	if cred.EnablePassword != "" {
