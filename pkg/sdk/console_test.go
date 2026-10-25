@@ -113,4 +113,58 @@ func TestOpenShell_ConsoleRefusals(t *testing.T) {
 	if _, err := sdk.OpenShell(context.Background(), refused, device, nil, "net.ios.command"); err == nil || !strings.Contains(err.Error(), "refused the login") || !l.closed {
 		t.Errorf("a refused login: %v, line closed %v", err, l.closed)
 	}
+	// The refused line sits at a login prompt: nothing is typed after the
+	// refusal, which would be one more failed login.
+	if got := strings.Join(l.written, "|"); got != "|netops|wrong" {
+		t.Errorf("a refused login wrote %q", got)
+	}
+	// A login that failed another way may have left a prompt: it is
+	// logged out.
+	quiet := &line{chunks: []string{"booting..."}}
+	failing := consoleContext{
+		dial:    func(context.Context) (netcli.Shell, error) { return quiet, nil },
+		secrets: map[string]string{wire.SecretUsername: "netops", wire.SecretPassword: "pw"},
+	}
+	if _, err := sdk.OpenShell(context.Background(), failing, device, nil, "net.ios.command"); err == nil || strings.Join(quiet.written, "|") != "|" || !quiet.closed {
+		t.Errorf("a quiet line: %v, wrote %q, closed %v", err, quiet.written, quiet.closed)
+	}
+}
+
+// TestConsoleShell_AbandonsAQuestionWithoutAnsweringIt: a refused
+// "[confirm]" on a console line gets "n", never an Enter, and the line is
+// logged out after; a question it cannot decline gets nothing typed, and
+// the line is not logged out, since the logout's Enter would answer it.
+func TestConsoleShell_AbandonsAQuestionWithoutAnsweringIt(t *testing.T) {
+	device := consoleDevice{&inventorytest.Stub{StubName: "P1", Caps: []capability.Name{capability.NameConsoleServed}}}
+	open := func(chunks ...string) (netcli.Shell, *line) {
+		l := &line{chunks: append([]string{"\r\nP1#"}, chunks...)}
+		rc := consoleContext{
+			dial:    func(context.Context) (netcli.Shell, error) { return l, nil },
+			secrets: map[string]string{wire.SecretUsername: "netops", wire.SecretPassword: "pw"},
+		}
+		shell, err := sdk.OpenShell(context.Background(), rc, device, nil, "net.ios.command")
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.written = nil
+		return shell, l
+	}
+	shell, l := open("n\r\nP1#", "\r\nP1#", "\r\nP1#")
+	a, ok := shell.(netcli.Abandoner)
+	if !ok {
+		t.Fatal("a console shell is no netcli.Abandoner")
+	}
+	if !a.Abandon("Proceed with reload? [confirm]") {
+		t.Error("a [confirm] was not declined")
+	}
+	if err := shell.Close(); err != nil || strings.Join(l.written, "|") != "n||end|exit" {
+		t.Errorf("declined then closed: %v, wrote %q", err, l.written)
+	}
+	shell, l = open()
+	if shell.(netcli.Abandoner).Abandon("Destination filename [x.bin]?") {
+		t.Error("a filename question was declined")
+	}
+	if err := shell.Close(); err != nil || len(l.written) != 0 || !l.closed {
+		t.Errorf("left waiting then closed: %v, wrote %q, closed %v", err, l.written, l.closed)
+	}
 }

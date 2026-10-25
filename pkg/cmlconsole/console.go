@@ -67,6 +67,59 @@ var (
 	ansi = regexp.MustCompile("\x1b\\[[0-9;?]*[A-Za-z]")
 )
 
+// ErrRefused is what LogIn's error wraps when the node refused the login,
+// or asked for a part of it the device's credential does not hold. The line
+// is then at a login prompt, where there is no session to log out, and
+// anything typed would be one more failed login.
+var ErrRefused = errors.New("the login was refused")
+
+// refused is a login refusal saying why, which errors.Is finds as
+// ErrRefused.
+type refused string
+
+func (r refused) Error() string        { return "cmlconsole: " + string(r) }
+func (r refused) Is(target error) bool { return target == ErrRefused }
+
+// Questions a node's line can be left on whose decline is certain on IOS,
+// and the decline: at "[confirm]" any key but Enter or y declines, and
+// "[yes/no]:" takes "no" (both measured on IOL XE 17.15 through
+// net.ios.command and net.ios.config, 2026-10-24: clear counters and crypto
+// key zeroize, each back at its prompt with nothing done).
+var (
+	confirmQuestion = regexp.MustCompile(`(?i)\[confirm\][ \t]*\z`)
+	yesNoQuestion   = regexp.MustCompile(`(?i)\[yes/no\]:?[ \t]*\z`)
+	// atPrompt is the node back at a prompt of its own, exec or
+	// configuration, after a decline.
+	atPrompt = regexp.MustCompile(`\S[>#][ \t]*\z`)
+)
+
+// Abandon leaves question, which the node's line is waiting on, without
+// answering it yes: a "[confirm]" gets "n" and a "[yes/no]:" gets "no", and
+// Abandon reports true once the node is back at its prompt. Any other
+// question is left as it is, typed at by nothing, and Abandon reports
+// false: closing the connection to the console server does not end a
+// node's command, so the line stays waiting until someone at its console
+// clears it, and must not be logged out, since the logout's first Enter
+// would answer it.
+func Abandon(shell netcli.Shell, question string) bool {
+	var decline string
+	switch {
+	case confirmQuestion.MatchString(question):
+		decline = "n"
+	case yesNoQuestion.MatchString(question):
+		decline = "no"
+	default:
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), logoutWait)
+	defer cancel()
+	if err := shell.WriteLine(ctx, decline); err != nil {
+		return false
+	}
+	out, err := shell.ReadUntil(ctx, nodeTurn, maxBytes)
+	return err == nil && atPrompt.MatchString(lastLine(out))
+}
+
 // Login is a node's own account.
 type Login struct {
 	Username, Password string
@@ -116,18 +169,18 @@ func LogIn(ctx context.Context, shell netcli.Shell, login Login) error {
 		switch {
 		case strings.HasPrefix(last, "username"):
 			if login.Username == "" {
-				return errors.New("cmlconsole: the node asks for a username, and the device's credential has none")
+				return refused("the node asks for a username, and the device's credential has none")
 			}
 			if sentUser {
-				return errors.New("cmlconsole: the node refused the login (it asked for a username again)")
+				return refused("the node refused the login (it asked for a username again)")
 			}
 			answer, sentUser = login.Username, true
 		case strings.HasPrefix(last, "password"):
 			if login.Password == "" {
-				return errors.New("cmlconsole: the node asks for a password, and the device's credential has none")
+				return refused("the node asks for a password, and the device's credential has none")
 			}
 			if sentPass {
-				return errors.New("cmlconsole: the node refused the login (it asked for a password again)")
+				return refused("the node refused the login (it asked for a password again)")
 			}
 			answer, sentPass = login.Password, true
 		case strings.HasPrefix(last, "press return"):

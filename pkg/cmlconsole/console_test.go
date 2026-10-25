@@ -208,3 +208,50 @@ func TestRefusal_CutsTheServersWordsWhole(t *testing.T) {
 		t.Errorf("a long refusal: %q", err)
 	}
 }
+
+// TestAbandon_DeclinesOnlyWhatIsCertain: a "[confirm]" gets "n" and a
+// "[yes/no]:" gets "no", each declined once the node is back at its
+// prompt; any other question gets nothing typed, and neither does a line
+// that does not come back to a prompt.
+func TestAbandon_DeclinesOnlyWhatIsCertain(t *testing.T) {
+	for name, tc := range map[string]struct {
+		question string
+		chunks   []string
+		declined bool
+		written  string
+	}{
+		"confirm":            {"Proceed with reload? [confirm]", []string{"n\r\nP1#"}, true, "n"},
+		"yes/no":             {"Do you really want to remove these keys? [yes/no]:", []string{"no\r\nP1(config)#"}, true, "no"},
+		"a filename":         {"Destination filename [x.bin]?", nil, false, ""},
+		"a password":         {"Password:", nil, false, ""},
+		"no prompt after it": {"Proceed with reload? [confirm]", []string{"n\r\nUsername: "}, false, "n"},
+		"a line gone quiet":  {"Proceed with reload? [confirm]", nil, false, "n"},
+	} {
+		s := &script{chunks: tc.chunks}
+		if got := cmlconsole.Abandon(s, tc.question); got != tc.declined || strings.Join(s.written, "|") != tc.written {
+			t.Errorf("%s: declined %v, wrote %q; want %v, %q", name, got, s.written, tc.declined, tc.written)
+		}
+	}
+	if cmlconsole.Abandon(&script{closed: true}, "Proceed with reload? [confirm]") {
+		t.Error("a closed line was declined")
+	}
+}
+
+// TestLogIn_ARefusalIsErrRefused: a login the node refused, or one the
+// credential cannot answer, is ErrRefused; a line that goes quiet is not.
+func TestLogIn_ARefusalIsErrRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		chunks  []string
+		login   cmlconsole.Login
+		refused bool
+	}{
+		"a wrong password": {[]string{"Username: ", "Password: ", "\r\n% Login invalid\r\n\r\nUsername: "}, cmlconsole.Login{Username: "netops", Password: "pw"}, true},
+		"no password":      {[]string{"Password: "}, cmlconsole.Login{Username: "netops"}, true},
+		"a quiet line":     {[]string{"booting..."}, cmlconsole.Login{}, false},
+	} {
+		err := cmlconsole.LogIn(context.Background(), &script{chunks: tc.chunks}, tc.login)
+		if err == nil || errors.Is(err, cmlconsole.ErrRefused) != tc.refused {
+			t.Errorf("%s: %v, refused %v", name, err, errors.Is(err, cmlconsole.ErrRefused))
+		}
+	}
+}

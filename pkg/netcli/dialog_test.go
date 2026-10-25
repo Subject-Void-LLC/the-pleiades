@@ -450,3 +450,69 @@ func TestDialog_RefusesOptionsItCouldOnlyActOnWrongly(t *testing.T) {
 		})
 	}
 }
+
+// abandoningShell is a shell that keeps a question open after it closes,
+// as a console line does, recording each question it was asked to abandon
+// and declining it or not as told.
+type abandoningShell struct {
+	netcli.Shell
+	declines  bool
+	abandoned []string
+}
+
+// Abandon implements netcli.Abandoner.
+func (a *abandoningShell) Abandon(question string) bool {
+	a.abandoned = append(a.abandoned, question)
+	return a.declines
+}
+
+// TestDialog_AnAbandonerHearsTheQuestionBeforeItCloses: a question the task
+// refuses, or whose chooser fails, on a shell that keeps it open after
+// closing, is handed to that shell's Abandon before the session closes,
+// and the error says whether it was declined or left waiting; nothing
+// confirms it.
+func TestDialog_AnAbandonerHearsTheQuestionBeforeItCloses(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	refuse := netcli.DialogOptions{Prompts: []netcli.Prompt{{Match: regexp.MustCompile(`\[confirm\]`), Refuse: true}}}
+	failing := netcli.DialogOptions{Ask: &netcli.Ask{
+		Choices: []netcli.Choice{{ID: "confirm", Answer: "", Means: "Reload."}},
+		Choose: func(context.Context, string, []netcli.Choice) (netcli.Decision, error) {
+			return netcli.Decision{}, errors.New("the model is not answering")
+		},
+	}}
+	for name, tc := range map[string]struct {
+		opts     netcli.DialogOptions
+		declines bool
+		want     string
+	}{
+		"refused, declined":     {refuse, true, "the question was declined and the session closed"},
+		"refused, left waiting": {refuse, false, `left waiting at "Proceed with reload? [confirm]"`},
+		"a chooser that fails":  {failing, true, "the model is not answering; the question was declined"},
+	} {
+		d := &askingIOS{hostname: "r1", files: map[string]bool{}}
+		conn := dialFakeIOSServer(t, newFakeIOSServer(t, d.serve))
+		raw, err := conn.Shell(ctx, remoteexec.ShellOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		shell := &abandoningShell{Shell: raw, declines: tc.declines}
+		session, err := netcli.Open(ctx, shell, netcli.FromPrompt("r1#"), netcli.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = session.Dialog(ctx, "reload", tc.opts)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want it to say %q", name, err, tc.want)
+		}
+		if len(shell.abandoned) != 1 || shell.abandoned[0] != "Proceed with reload? [confirm]" {
+			t.Errorf("%s: abandoned %q", name, shell.abandoned)
+		}
+		d.mu.Lock()
+		reloaded := d.reloaded
+		d.mu.Unlock()
+		if reloaded {
+			t.Errorf("%s: the device reloaded", name)
+		}
+	}
+}

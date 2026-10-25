@@ -17,17 +17,22 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// configIOS is a fake IOS device in configuration mode: crypto pki server's
-// "no shutdown" asks to confirm, a line already in the configuration
-// prints IOS's notice for it, a numbered access list entry already there is
-// rejected, and "write" leaves "[OK]" open for a moment before its line
-// break, as "Building configuration..." does. Every line it receives is
-// kept, answers included.
+// configIOS is a fake IOS device in configuration mode, its questions and
+// notices in IOL XE 17.15's own words, measured through net.ios.config on
+// the blind CVD lab's BR3 (2026-10-24): crypto pki server's "no shutdown"
+// asks to confirm and then for a passphrase, removing the server asks a
+// question that begins with "% ", a key pair made, made again and removed
+// prints its notices and asks to confirm the removal; a line already in the
+// configuration prints IOS's notice for it, a numbered access list entry
+// already there is rejected, and "write" leaves "[OK]" open for a moment
+// before its line break, as "Building configuration..." does. Some lines'
+// echoes arrive a byte at a time. Every line it receives is kept, answers
+// included.
 type configIOS struct {
 	mu    sync.Mutex
 	lines []string
 	mode  string
-	// started is set when the CA was started, with "yes".
+	// started is set when the CA's start was confirmed, with "yes".
 	started bool
 	// hasKey is whether the key pair PLTEST exists.
 	hasKey bool
@@ -82,10 +87,14 @@ func (d *configIOS) serve(channel ssh.Channel) {
 		if !ok {
 			return
 		}
-		if line == "description why?" {
-			// The echo of a line ending in "?", its line break late.
-			write(line)
-			time.Sleep(50 * time.Millisecond)
+		if slowEcho[line] {
+			// The echo arrives a byte at a time, its line break late, so a
+			// read can end on part of it: "service password" or "why?".
+			for i := range len(line) {
+				write(line[i : i+1])
+				time.Sleep(time.Millisecond)
+			}
+			time.Sleep(20 * time.Millisecond)
 			write("\r\n" + d.prompt())
 			continue
 		}
@@ -109,6 +118,21 @@ func (d *configIOS) serve(channel ssh.Channel) {
 			d.mu.Lock()
 			d.started = answer == "yes"
 			d.mu.Unlock()
+			if answer == "yes" {
+				// The CA's key passphrase, which no task answers.
+				write("Password: ")
+				if _, ok := read(); !ok {
+					return
+				}
+				write("\r\n")
+			}
+		case line == "no crypto pki server CA":
+			write("% CA certificate, Keypair, CRL and database files will be deleted. Do you wish to continue? [yes/no]: ")
+			answer, ok := read()
+			if !ok {
+				return
+			}
+			write(answer + "\r\n")
 		case line == "permit ip any any":
 			write("% Duplicate permit statement ignored\r\n")
 		case line == "proposal P":
@@ -139,12 +163,6 @@ func (d *configIOS) serve(channel ssh.Channel) {
 			}
 			write(answer + "\r\n")
 			d.setKey(answer != "yes")
-		case line == "start ca":
-			write("Password: ")
-			if _, ok := read(); !ok {
-				return
-			}
-			write("\r\n")
 		case line == "frob":
 			write("% Frob is deprecated and was ignored\r\n")
 		case line == "write":
@@ -155,6 +173,9 @@ func (d *configIOS) serve(channel ssh.Channel) {
 		write(d.prompt())
 	}
 }
+
+// slowEcho are the lines configIOS echoes a byte at a time.
+var slowEcho = map[string]bool{"description why?": true, "service password-encryption": true, "security passwords min-length 8": true}
 
 // newConfigSession opens a real IOS-dialect session over SSH against d.
 func newConfigSession(t *testing.T, d *configIOS) *netcli.Session {
@@ -177,20 +198,48 @@ func confirmCA() netcli.Prompt {
 	return netcli.Prompt{Match: regexp.MustCompile(`Are you sure you want to do this\? \[yes/no\]:`), Answer: "yes"}
 }
 
-// TestConfigWith_AnswersAListedQuestion: a configuration line's question
-// is answered as a listed prompt says, and the batch goes on to its end.
+// within is a context bounded well past anything these tests wait for, so
+// a session that waited on a question nothing answers fails the test
+// rather than hanging it.
+func within(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// TestConfigWith_AnswersAListedQuestion: a configuration line's question,
+// and one that begins with "% ", are answered as listed prompts say, and
+// the batch goes on to its end, the answered question counted as neither a
+// rejection nor a notice.
 func TestConfigWith_AnswersAListedQuestion(t *testing.T) {
 	d := &configIOS{}
 	session := newConfigSession(t, d)
-	res, err := session.ConfigWith(context.Background(), []string{"crypto pki server CA", "no shutdown"}, netcli.ConfigOptions{Dialog: netcli.DialogOptions{Prompts: []netcli.Prompt{confirmCA()}}})
+	yes := netcli.Prompt{Match: regexp.MustCompile(`\[yes/no\]`), Answer: "yes"}
+	res, err := session.ConfigWith(within(t), []string{"crypto key generate rsa general-keys label PLTEST modulus 2048", "crypto key zeroize rsa PLTEST", "no crypto pki server CA"},
+		netcli.ConfigOptions{Dialog: netcli.DialogOptions{Prompts: []netcli.Prompt{yes, yes}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.wasStarted() || len(res.Exchanges) != 1 || res.Exchanges[0].Question != "Are you sure you want to do this? [yes/no]:" || res.Exchanges[0].Answer != "yes" {
-		t.Fatalf("started %v, exchanges %+v", d.wasStarted(), res.Exchanges)
+	if d.keyHeld() || len(res.Exchanges) != 2 || res.Exchanges[1].Question != "% CA certificate, Keypair, CRL and database files will be deleted. Do you wish to continue? [yes/no]:" {
+		t.Fatalf("key kept %v, exchanges %+v", d.keyHeld(), res.Exchanges)
 	}
-	if got := strings.Join(d.received(), "|"); !strings.HasSuffix(got, "configure terminal|crypto pki server CA|no shutdown|yes|end") {
+	if got := strings.Join(d.received(), "|"); !strings.HasSuffix(got, "crypto key zeroize rsa PLTEST|yes|no crypto pki server CA|yes|end") {
 		t.Errorf("device received %q", got)
+	}
+}
+
+// TestConfigWith_TheCAsPassphraseIsNeverTyped: crypto pki server's start,
+// its confirmation answered, then asks for a passphrase, which no task
+// answers: the line fails there, naming it, with nothing typed at it.
+func TestConfigWith_TheCAsPassphraseIsNeverTyped(t *testing.T) {
+	d := &configIOS{}
+	_, err := newConfigSession(t, d).ConfigWith(within(t), []string{"crypto pki server CA", "no shutdown"}, netcli.ConfigOptions{Dialog: netcli.DialogOptions{Prompts: []netcli.Prompt{confirmCA()}}})
+	if err == nil || !strings.Contains(err.Error(), `"Password:"`) {
+		t.Fatalf("the passphrase: %v", err)
+	}
+	if got := d.received(); got[len(got)-1] != "yes" || !d.wasStarted() {
+		t.Errorf("device received %q after the passphrase question", got)
 	}
 }
 
@@ -202,7 +251,7 @@ func TestConfigWith_AnswersAListedQuestion(t *testing.T) {
 func TestConfigWith_AnUnansweredQuestionFailsAtOnce(t *testing.T) {
 	d := &configIOS{}
 	session := newConfigSession(t, d)
-	err := session.Config(context.Background(), []string{"crypto pki server CA", "no shutdown", "never sent"})
+	err := session.Config(within(t), []string{"crypto pki server CA", "no shutdown", "never sent"})
 	if err == nil || !strings.Contains(err.Error(), `"Are you sure you want to do this? [yes/no]:"`) || !strings.Contains(err.Error(), "prompts") {
 		t.Fatalf("err %v", err)
 	}
@@ -211,11 +260,12 @@ func TestConfigWith_AnUnansweredQuestionFailsAtOnce(t *testing.T) {
 	}
 }
 
-// TestConfigWith_OutputThatIsNoQuestion: "[OK]" left open for a moment, and
-// the echo of a line that ends in "?", are not questions.
+// TestConfigWith_OutputThatIsNoQuestion: "[OK]" left open for a moment,
+// and echoes that arrive a byte at a time, whose pieces end in "?" or
+// "password" (a prefix of the line, not a question), are not questions.
 func TestConfigWith_OutputThatIsNoQuestion(t *testing.T) {
 	session := newConfigSession(t, &configIOS{})
-	if err := session.Config(context.Background(), []string{"write", "description why?"}); err != nil {
+	if err := session.Config(within(t), []string{"write", "description why?", "service password-encryption", "security passwords min-length 8"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -253,16 +303,17 @@ func TestConfigWith_NoticesAreNotRejections(t *testing.T) {
 // question goes to the chooser, whose pick is typed.
 func TestConfigWith_AChooserAnswersAQuestionNobodyListed(t *testing.T) {
 	d := &configIOS{}
+	d.setKey(true)
 	session := newConfigSession(t, d)
-	c := &chooser{decisions: []netcli.Decision{{ID: "start", Reason: "the task starts the CA"}}}
-	res, err := session.ConfigWith(context.Background(), []string{"crypto pki server CA", "no shutdown"}, netcli.ConfigOptions{Dialog: netcli.DialogOptions{
-		Ask: &netcli.Ask{Choices: []netcli.Choice{{ID: "start", Answer: "yes", Means: "Start the CA."}, {ID: "keep", Answer: "no", Means: "Leave it stopped."}}, Choose: c.choose},
+	c := &chooser{decisions: []netcli.Decision{{ID: "confirm", Reason: "the task removes the key pair"}}}
+	res, err := session.ConfigWith(within(t), []string{"crypto key zeroize rsa PLTEST"}, netcli.ConfigOptions{Dialog: netcli.DialogOptions{
+		Ask: &netcli.Ask{Choices: []netcli.Choice{{ID: "confirm", Answer: "yes", Means: "Remove the key pair."}, {ID: "keep", Answer: "no", Means: "Keep it."}}, Choose: c.choose},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.wasStarted() || len(c.asked) != 1 || len(res.Exchanges) != 1 || res.Exchanges[0].Choice != "start" {
-		t.Fatalf("started %v, asked %q, exchanges %+v", d.wasStarted(), c.asked, res.Exchanges)
+	if d.keyHeld() || len(c.asked) != 1 || len(res.Exchanges) != 1 || res.Exchanges[0].Choice != "confirm" {
+		t.Fatalf("key kept %v, asked %q, exchanges %+v", d.keyHeld(), c.asked, res.Exchanges)
 	}
 }
 
@@ -283,19 +334,6 @@ func TestConfigWith_RefusesWhatItCannotDo(t *testing.T) {
 		if line == "never sent" || line == "configure terminal" {
 			t.Errorf("the device was sent %q", line)
 		}
-	}
-}
-
-// TestConfigWith_APasswordPromptNothingAnswersFailsAtOnce: a line left at a
-// password prompt fails at once, as an unanswered [yes/no] does.
-func TestConfigWith_APasswordPromptNothingAnswersFailsAtOnce(t *testing.T) {
-	d := &configIOS{}
-	err := newConfigSession(t, d).Config(context.Background(), []string{"start ca"})
-	if err == nil || !strings.Contains(err.Error(), `"Password:"`) {
-		t.Fatalf("err %v", err)
-	}
-	if got := d.received(); got[len(got)-1] != "start ca" {
-		t.Errorf("device received %q after the prompt", got)
 	}
 }
 

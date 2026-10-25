@@ -18,12 +18,15 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
-// caQuestion is the question crypto pki server's "no shutdown" asks.
-const caQuestion = "Are you sure you want to do this? [yes/no]: "
+// zeroizeQuestion is the question removing a key pair asks, in IOL XE
+// 17.15's own words (measured through net.ios.config on the blind CVD lab's
+// BR3, 2026-10-24; answered "no", the key pair stays and nothing more is
+// printed).
+const zeroizeQuestion = "Do you really want to remove these keys? [yes/no]: "
 
 // configuringDevice starts a scripted IOS device with a configuration mode
-// whose "no shutdown" asks to confirm and whose lines print IOS's notices
-// and errors.
+// whose key pair removal asks to confirm and whose lines print IOS's
+// notices and errors.
 func configuringDevice(t *testing.T) (*remoteexectest.Server, *sshDevice) {
 	t.Helper()
 	srv, err := remoteexectest.Start(remoteexectest.Options{Device: &remoteexectest.Device{
@@ -36,7 +39,7 @@ func configuringDevice(t *testing.T) (*remoteexectest.Server, *sshDevice) {
 			"10 permit ip any any": "% Duplicate sequence number\r\n% Failed to add ace to access-list",
 		},
 		Asks: map[string][]remoteexectest.Question{
-			"no shutdown": {{Text: caQuestion, Want: "yes", Declined: "% The CA was not started"}},
+			"crypto key zeroize rsa PLTEST": {{Text: zeroizeQuestion, Want: "yes"}},
 		},
 	}})
 	if err != nil {
@@ -49,27 +52,27 @@ func configuringDevice(t *testing.T) (*remoteexectest.Server, *sshDevice) {
 	}
 }
 
-// startCA are the lines that start a CA server, without a checkpoint, so
-// the scripted device needs to answer no file commands.
-func startCA(extra map[string]any) map[string]any {
-	params := map[string]any{paramLines: []any{"crypto pki server CA", "no shutdown"}, paramCheckpoint: false}
+// removeKey is the line that removes the key pair PLTEST, without a
+// checkpoint, so the scripted device needs to answer no file commands.
+func removeKey(extra map[string]any) map[string]any {
+	params := map[string]any{paramLines: []any{"crypto key zeroize rsa PLTEST"}, paramCheckpoint: false}
 	for k, v := range extra {
 		params[k] = v
 	}
 	return sessionParams(params)
 }
 
-var confirmCA = map[string]any{"match": `Are you sure you want to do this\? \[yes/no\]`, "answer": "yes"}
+var confirmRemoval = map[string]any{"match": `Do you really want to remove these keys\? \[yes/no\]`, "answer": "yes"}
 
 func TestConfig_AnswersAQuestionALineAsks(t *testing.T) {
 	srv, device := configuringDevice(t)
 	rc := &secretContext{stubContext: newStubContext(), secrets: srv.Secrets()}
 
-	if _, err := Config(context.Background(), rc, device, startCA(map[string]any{"prompts": []any{confirmCA}})); err != nil {
+	if _, err := Config(context.Background(), rc, device, removeKey(map[string]any{"prompts": []any{confirmRemoval}})); err != nil {
 		t.Fatal(err)
 	}
 	got := srv.Commands()
-	if i := slices.Index(got, "no shutdown"); i < 0 || i+1 >= len(got) || got[i+1] != "yes" {
+	if i := slices.Index(got, "crypto key zeroize rsa PLTEST"); i < 0 || i+1 >= len(got) || got[i+1] != "yes" {
 		t.Errorf("the device received %q: the answer follows the line that asked", got)
 	}
 	exchanges, _ := rc.stats["exchanges"].([]any)
@@ -85,8 +88,8 @@ func TestConfig_AnUnansweredQuestionFailsTheLineAtOnce(t *testing.T) {
 	srv, device := configuringDevice(t)
 	rc := &secretContext{stubContext: newStubContext(), secrets: srv.Secrets()}
 
-	_, err := Config(context.Background(), rc, device, startCA(nil))
-	if err == nil || !strings.Contains(err.Error(), strings.TrimSpace(caQuestion)) || !strings.Contains(err.Error(), "prompts") {
+	_, err := Config(context.Background(), rc, device, removeKey(nil))
+	if err == nil || !strings.Contains(err.Error(), strings.TrimSpace(zeroizeQuestion)) || !strings.Contains(err.Error(), "prompts") {
 		t.Fatalf("err %v", err)
 	}
 	if slices.Contains(srv.Commands(), "yes") {
@@ -138,7 +141,7 @@ func TestConfig_DialogParametersThatDoNotReadNeverReachTheDevice(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, device := configuringDevice(t)
 			rc := &secretContext{stubContext: newStubContext(), secrets: srv.Secrets()}
-			if _, err := Config(context.Background(), rc, device, startCA(tc.params)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			if _, err := Config(context.Background(), rc, device, removeKey(tc.params)); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err %v, want %q", err, tc.want)
 			}
 			if srv.Logins() != 0 {
@@ -151,14 +154,14 @@ func TestConfig_DialogParametersThatDoNotReadNeverReachTheDevice(t *testing.T) {
 func TestConfig_AModelAnswersAQuestionALineAsks(t *testing.T) {
 	srv, device := configuringDevice(t)
 	host := aitest.NewOllama(t, "m:latest")
-	host.Answer = `{"choice":"start","confidence":0.9,"reason":"the task starts the CA"}`
+	host.Answer = `{"choice":"confirm","confidence":0.9,"reason":"the task removes the key pair"}`
 	rc := modelContext(t, srv, host)
 
-	_, err := Config(context.Background(), rc, device, startCA(map[string]any{"ask": map[string]any{
+	_, err := Config(context.Background(), rc, device, removeKey(map[string]any{"ask": map[string]any{
 		"provider": "workstation", "model": "m:latest", "residency": "local",
 		"choices": []any{
-			map[string]any{"id": "start", "answer": "yes", "means": "Confirm starting the CA server."},
-			map[string]any{"id": "keep", "answer": "no", "means": "Leave the CA server stopped."},
+			map[string]any{"id": "confirm", "answer": "yes", "means": "Remove the key pair this task names."},
+			map[string]any{"id": "keep", "answer": "no", "means": "Keep the key pair."},
 		},
 	}}))
 	if err != nil {
@@ -168,7 +171,7 @@ func TestConfig_AModelAnswersAQuestionALineAsks(t *testing.T) {
 	if len(exchanges) != 1 || host.Chats() != 1 {
 		t.Fatalf("exchanges %v after %d calls", exchanges, host.Chats())
 	}
-	if ex := exchanges[0].(map[string]any); ex["choice"] != "start" || ex["answer"] != "yes" || ex["provider"] != "workstation" {
+	if ex := exchanges[0].(map[string]any); ex["choice"] != "confirm" || ex["answer"] != "yes" || ex["provider"] != "workstation" {
 		t.Errorf("the model's exchange %v", ex)
 	}
 }
