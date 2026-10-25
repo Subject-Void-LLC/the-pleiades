@@ -4,11 +4,13 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
 const (
@@ -99,7 +101,8 @@ func TestResolveKey_GenerateThenReuse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected key file to be created: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	// Windows has no POSIX modes; the key file's access there is its ACL.
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("key file mode = %o, want 0600", perm)
 	}
 
@@ -123,6 +126,7 @@ func TestResolveKey_GenerateThenReuse(t *testing.T) {
 // explicitly tightens the directory too, not just when it is the one
 // creating it fresh.
 func TestResolveKey_TightensPreexistingDirPermissions(t *testing.T) {
+	need.Require(t, "posix-modes", runtime.GOOS != "windows", "Windows has no POSIX file modes to tighten; a directory's access there is its ACL")
 	dir := t.TempDir()
 	keyDir := filepath.Join(dir, filepath.Dir(testFileName))
 	if err := os.MkdirAll(keyDir, 0o777); err != nil {

@@ -17,7 +17,8 @@ import (
 // path, so tests never hand-splice the scheme and get the triple-slash
 // form wrong.
 func fileEndpoint(path string) string {
-	return (&url.URL{Scheme: "file", Path: path}).String()
+	// A Windows path (C:\x) becomes /C:/x, the form a file URL holds.
+	return (&url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(filepath.ToSlash(path), "/")}).String()
 }
 
 // newProject writes an upstream inventory document holding hosts and

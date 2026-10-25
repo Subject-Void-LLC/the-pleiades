@@ -34,9 +34,14 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.test",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.test",
 	)
-	out, err := cmd.CombinedOutput()
+	// Standard error is kept apart: git warns there (on Windows, that a
+	// file's line endings will change), and a warning is not the output a
+	// test reads.
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		t.Fatalf("git %s: %v\n%s%s", strings.Join(args, " "), err, out, stderr.String())
 	}
 	return strings.TrimSpace(string(out))
 }
