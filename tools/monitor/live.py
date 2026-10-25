@@ -3,7 +3,9 @@
 
 LiveRun owns a RunState and the lock every thread takes before touching it:
 the reader of the main log, the poller of .coverage/pr (records and leg
-logs), the memory sampler and the HTTP server. Every line is masked by the
+logs), the memory sampler and the HTTP server. It is also the subject its
+observers subscribe to: each change of a stage's status, and the run's end,
+is published to its events.Broker, so a page or a script waits to be told. Every line is masked by the
 redactor before it reaches the state, so nothing served or saved can carry a
 secret-named environment value.
 """
@@ -15,6 +17,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
+import events
 import prlog
 import prstate as ps
 from history import HistoryStore
@@ -146,6 +149,8 @@ class LiveRun:
         state: The run.
         tails: Each OS leg's log, followed.
         finished: Set once the run has ended.
+        broker: Where the run's changes are published.
+        published: Each stage's status as last published.
     """
 
     redactor: Redactor
@@ -154,6 +159,8 @@ class LiveRun:
     state: ps.RunState
     tails: Dict[str, FileTail]
     finished: threading.Event
+    broker: events.Broker
+    published: Dict[str, str]
 
     def __init__(self, redactor: Redactor, pr_dir: str, now: Optional[float] = None) -> None:
         """Watches a run.
@@ -169,6 +176,8 @@ class LiveRun:
         self.state = ps.RunState(now if now is not None else time.time())
         self.tails = {leg: FileTail(os.path.join(pr_dir, leg + ".log")) for leg in ps.LEGS}
         self.finished = threading.Event()
+        self.broker = events.Broker()
+        self.published = {}
 
     def feed_main(self, line: str, now: Optional[float] = None) -> str:
         """Feeds one main-log line, masked first.
@@ -183,6 +192,7 @@ class LiveRun:
         masked = self.redactor.mask(line.rstrip("\r\n"))
         with self.lock:
             prlog.feed_line(self.state, masked, now if now is not None else time.time())
+            self.publish_changes()
         return masked
 
     def poll_pr_dir(self, now: Optional[float] = None) -> None:
@@ -207,6 +217,32 @@ class LiveRun:
                 for line in tail.read_lines():
                     prlog.feed_leg_line(self.state, leg, self.redactor.mask(line), at)
             prlog.apply_records(self.state, masked_records, masked_report, at)
+            self.publish_changes()
+
+    def publish_changes(self) -> None:
+        """Publishes each stage whose status changed since it was last
+        published. The caller holds lock."""
+        for name, st in self.state.stages.items():
+            if self.published.get(name) != st.status:
+                self.published[name] = st.status
+                if st.status != ps.PENDING:
+                    self.broker.publish("stage", {"name": name, "status": st.status})
+
+    def end(self, now: float, exit_code: int) -> None:
+        """Ends the run, publishes the stages it closed and its verdict, and
+        closes the broker, which wakes every subscriber.
+
+        Args:
+            now: When it ended.
+            exit_code: pr-check's exit status.
+        """
+        with self.lock:
+            self.state.end_run(now, exit_code)
+            self.publish_changes()
+            verdict, code = self.state.verdict, self.state.exit_code
+        self.broker.publish("run", {"verdict": verdict, "exit_code": code})
+        self.broker.close()
+        self.finished.set()
 
     def add_memory(self, t: float, mb: float) -> None:
         """Records a memory sample.

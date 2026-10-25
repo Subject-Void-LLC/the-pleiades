@@ -36,6 +36,7 @@ from typing import Callable, List, Mapping, Optional, Sequence, TextIO, TypedDic
 
 import actions  # noqa: E402
 import binsize  # noqa: E402
+import events  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
 import prstate as ps  # noqa: E402
@@ -179,6 +180,14 @@ class App:
         return StateDoc(mode=self.mode, now=time.time(), run_id=self.run_id,
                         run=self.live_run.snapshot() if self.live_run is not None else None,
                         actions=acts, memory=memory, memory_floor_mb=memwatch.THRESHOLD_MB)
+
+    def broker(self) -> Optional[events.Broker]:
+        """Returns the live run's event broker, or None with no live run.
+
+        Returns:
+            What /events and /wait subscribe to.
+        """
+        return self.live_run.broker if self.live_run is not None else None
 
     def history(self) -> Mapping[str, object]:
         """Builds the /history document.
@@ -566,9 +575,7 @@ def finish_run(live_run: live.LiveRun, store: history.HistoryStore, run_id: str,
     """
     live_run.poll_pr_dir()
     live_run.copy_outputs(store, run_id)
-    with live_run.lock:
-        live_run.state.end_run(time.time(), rc)
-    live_run.finished.set()
+    live_run.end(time.time(), rc)
     store.save_run(run_id, live_run.full_snapshot(), meta)
     if log is not None:
         log.close()
@@ -629,9 +636,7 @@ def follow_log(path: str, live_run: live.LiveRun, store: history.HistoryStore, r
         print("monitor: the run ended; saved as %s" % run_id, flush=True)
     else:
         live_run.poll_pr_dir()
-        with live_run.lock:
-            live_run.state.end_run(time.time(), rc)
-        live_run.finished.set()
+        live_run.end(time.time(), rc)
 
 
 def cmd_watch(opts: Options) -> int:

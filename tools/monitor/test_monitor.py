@@ -22,11 +22,14 @@ import os  # noqa: E402
 import socket  # noqa: E402
 import stat  # noqa: E402
 import tempfile  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
 import unittest  # noqa: E402
 from typing import Dict, List, Mapping, Optional, Tuple  # noqa: E402
 
 import actions  # noqa: E402
 import binsize  # noqa: E402
+import events  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
 import memwatch  # noqa: E402
@@ -759,6 +762,92 @@ class ServerTest(unittest.TestCase):
                 self.assertEqual(size_doc.get("path") if size_doc else None, os.path.join(".IGNORE", "ci", "binsize.jsonl"))
                 self.assertEqual(self.get(port, "/history/20990101T000000Z")[0], 404)
                 self.assertEqual(self.get(port, "/../monitor.py")[0], 404)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+
+class ObserverTest(unittest.TestCase):
+    """The run as a subject: its changes are published, and /events and
+    /wait tell a subscriber instead of being polled."""
+
+    def test_broker(self) -> None:
+        """A waiter wakes on a publish, a late subscriber gets what it
+        missed, matches reads each kind, and a closed broker publishes no
+        more."""
+        b = events.Broker()
+        got: List[events.Event] = []
+        waiter = threading.Thread(target=lambda: got.extend(b.wait(0, 5.0)))
+        waiter.start()
+        b.publish("stage", {"name": "win", "status": "fail"})
+        waiter.join(5.0)
+        self.assertEqual([e["name"] for e in got], ["win"])
+        b.publish("run", {"verdict": "fail", "exit_code": 2})
+        self.assertEqual([e["type"] for e in b.since(1)], ["run"])
+        stage, run = b.since(0)
+        self.assertTrue(events.matches(stage, ["fail"]) and events.matches(run, ["end"]))
+        self.assertFalse(events.matches(stage, ["end"]) or events.matches(run, ["fail"]))
+        self.assertTrue(events.matches(stage, ["stage"]) and events.matches(run, ["any"]))
+        b.close()
+        self.assertIsNone(b.publish("stage", {"name": "x", "status": "pass"}))
+        self.assertEqual(b.wait(2, 5.0), [])
+
+    def test_live_run_publishes(self) -> None:
+        """Feeding a real run's log publishes each stage change once, with
+        the failed stage among them; ending the run publishes its verdict
+        and closes the stream."""
+        run = live.LiveRun(redact.Redactor([]), os.path.join(TESTDATA))
+        for line in fixture("prcheck-run.txt").splitlines():
+            run.feed_main(line)
+        stages = run.broker.since(0)
+        self.assertTrue(stages and all(e["type"] == "stage" for e in stages))
+        self.assertTrue(any(e["status"] == "fail" for e in stages))
+        pairs = [(e["name"], e["status"]) for e in stages]
+        self.assertEqual(len(pairs), len(set(pairs)), "a status was published twice")
+        run.end(time.time(), 2)
+        last = run.broker.since(0)[-1]
+        self.assertEqual((last["type"], last["verdict"]), ("run", "fail"))
+        self.assertTrue(run.broker.is_closed() and run.finished.is_set())
+
+    def test_wait_and_events_over_http(self) -> None:
+        """/wait answers once with the first failed stage, published after
+        it was asked; /events streams every event and ends when the run
+        does; a bad query is refused; with no live run both say so."""
+        with tempfile.TemporaryDirectory() as d:
+            store = history.HistoryStore(d)
+            run = live.LiveRun(redact.Redactor([]), d)
+            port = free_port()
+            httpd = server.start_server(monitor.App("run", store, run, "r1"), port)
+            try:
+                def later() -> None:
+                    time.sleep(0.3)
+                    run.broker.publish("stage", {"name": "fast", "status": "pass"})
+                    run.broker.publish("stage", {"name": "win", "status": "fail"})
+                threading.Thread(target=later).start()
+                code, _, body = ServerTest().get(port, "/wait?for=fail,end&timeout=10")
+                answer = as_object(loads(body.decode("utf-8"))) or {}
+                event = as_object(answer.get("event")) or {}
+                self.assertEqual((code, event.get("name"), event.get("status")), (200, "win", "fail"))
+                code, _, body = ServerTest().get(port, "/wait?for=end&timeout=1")
+                self.assertIn(b'"timeout": true', body)
+                self.assertEqual(ServerTest().get(port, "/wait?for=bogus")[0], 400)
+                self.assertEqual(ServerTest().get(port, "/wait?timeout=-1")[0], 400)
+                run.end(time.time(), 1)
+                code, headers, body = ServerTest().get(port, "/events?since=0")
+                self.assertEqual((code, headers["content-type"]), (200, "text/event-stream"))
+                text = body.decode("utf-8")
+                for want in ("event: stage", '"name": "win"', "event: run", "event: closed"):
+                    self.assertIn(want, text)
+                code, _, body = ServerTest().get(port, "/wait?for=fail&since=3")
+                self.assertIn(b'"closed": true', body)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+            port = free_port()
+            httpd = server.start_server(monitor.App("serve", store), port)
+            try:
+                self.assertEqual(ServerTest().get(port, "/wait")[0], 404)
+                self.assertEqual(ServerTest().get(port, "/events")[0], 404)
             finally:
                 httpd.shutdown()
                 httpd.server_close()

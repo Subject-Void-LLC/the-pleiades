@@ -688,8 +688,14 @@ async function getJson(path) {
   } catch (e) { return null; }
 }
 
-// pollState refreshes the live state, and history when a run's verdict changes.
-async function pollState() {
+// pollDelay is how often /state is read: every two seconds unless the page
+// is subscribed to /events, when a change is pushed and the poll only keeps
+// the timers and memory current.
+let pollDelay = 2000;
+
+// refreshState reads the live state once, and history when a run's verdict
+// changes.
+async function refreshState() {
   const s = await getJson('/state');
   if (s) {
     liveState = s;
@@ -697,7 +703,28 @@ async function pollState() {
     if (verdict !== lastVerdict) { lastVerdict = verdict; pollHistory(); }
     draw();
   }
-  setTimeout(pollState, 2000);
+}
+
+// pollState refreshes the live state on a timer.
+async function pollState() {
+  await refreshState();
+  setTimeout(pollState, pollDelay);
+}
+
+// subscribe is the page as an observer: the server pushes each stage change
+// and the run's end over /events, and the page redraws at once. The browser
+// reconnects on its own, naming the last event it saw (Last-Event-ID), so
+// nothing is missed; with no live run, or once the run has ended, the
+// stream is closed and the page falls back to polling.
+function subscribe() {
+  if (typeof EventSource === 'undefined') { return; }
+  const source = new EventSource('/events');
+  source.onopen = () => { pollDelay = 10000; };
+  const changed = () => { refreshState(); };
+  source.addEventListener('stage', changed);
+  source.addEventListener('run', changed);
+  source.addEventListener('closed', () => { source.close(); pollDelay = 2000; changed(); });
+  source.onerror = () => { pollDelay = 2000; if (source.readyState === EventSource.CLOSED) { source.close(); } };
 }
 
 // pollHistory refreshes the saved runs.
@@ -725,6 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('size-group').addEventListener('change', renderBinsize);
   window.addEventListener('resize', () => Object.values(charts).forEach((c) => c.resize()));
   pollState();
+  subscribe();
   pollHistory();
   pollActionsHistory();
   pollBinsize();
