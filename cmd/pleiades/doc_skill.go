@@ -322,11 +322,14 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  key) only when the person has accepted that for that device; never add it to make a task pass. The device's\n" +
 	"  record chooses the carrier: a `cisco_router` or `cisco_switch` is reached over Telnet only with its property\n" +
 	"  `transport: telnet` (`pleiades set-host <device> --set transport=telnet`; `import-cml --via telnet` sets it),\n" +
-	"  and over SSH otherwise, whatever a task's parameters say. The device's login and enable secret are stored\n" +
+	"  through its controller's console server with `transport: console`, and over SSH otherwise, whatever a task's\n" +
+	"  parameters say. The device's login and enable secret are stored\n" +
 	"  with `pleiades add-credential` (`--enable-password-stdin` for the enable secret), never written in a runbook.\n" +
 	"- A Cisco command or configuration line that asks a question (`[yes/no]`, `[confirm]`, a filename) is answered\n" +
 	"  by the task's `prompts:` on `net.ios.command` and `net.ios.config`, each answer written by you; in\n" +
-	"  configuration mode a question nobody answers fails the task at once, naming it. `ask:` hands a question\n" +
+	"  configuration mode a line left on a question (ending in `?`, `[confirm]`, `[yes/no]` or asking for a password)\n" +
+	"  that nobody answers fails the task at once, naming it; anything else a device waits on (a banner's text)\n" +
+	"  still waits until the read limit. `ask:` hands a question\n" +
 	"  nobody listed to a model on an `ai_provider` device, which may only pick one of the task's own `choices` by id,\n" +
 	"  or refuse, and never types an answer of its own. A model served on this machine by Ollama is added with\n" +
 	"  `pleiades add-host local-ai --type ai_provider --set ai_kind=ollama --set api_base=http://127.0.0.1:11434\n" +

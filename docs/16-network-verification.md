@@ -277,8 +277,11 @@ configuring `net.ios.command` record no undo either; give their tasks a `rollbac
 A configuration line that asks a question (removing a key pair asks to confirm) is
 answered from `prompts`, each answer written in the task, or by a model with `ask`, which picks one of
 the task's own choices by id and never types its own, as `net.ios.command` does. A question nothing
-answers fails the line at once and names it, rather than leaving the device waiting until the session's
-time runs out. IOS prints some `% ` lines for a line it accepted (an access list entry or IKEv2 proposal
+answers (a line left ending in `?`, `[confirm]`, `[yes/no]` or asking for a password) fails the line at once
+and names it, rather than leaving the device waiting until the session's time runs out; anything else a
+device waits on, such as a banner's text, still waits until the read limit. A line that changes key material
+(`crypto key generate`, `zeroize`, `import`) reports changed whatever the configuration shows, and its undo is
+never exact, since no checkpoint holds a key. IOS prints some `% ` lines for a line it accepted (an access list entry or IKEv2 proposal
 already there, a key pair being made, or replaced when its label is already taken, which IOS does without
 asking); `net.ios.config` reports those under `notices` instead of
 failing, and `accept` names more, each matched from the start of the line. Every other `% ` line still
@@ -286,19 +289,22 @@ fails the task. A `% ` line `configure replace` prints fails `net.ios.replace` o
 not match the checkpoint afterwards; otherwise it is a warning.
 
 ```yaml
-  - name: Remove the old key pair
+  - name: Remove the old key pair, which no rollback brings back
     net.ios.config:
       lines:
         - crypto key zeroize rsa OLDKEY
       prompts:
         - match: 'Do you really want to remove these keys\? \[yes/no\]'
           answer: "yes"
+      accept:
+        - '% The specified keypair does not exist'
 ```
 
 Measured on IOL XE 17.15: without the prompt, the task fails at once naming "Do you really want to remove
 these keys? [yes/no]:", and with it the key pair is removed. A key pair made again under a label it already
-has is replaced with no question, so its notices say so; a run that changes no line of the configuration
-reports unchanged even when a key was replaced, since key material is not in the configuration.
+has is replaced with no question, so its notices say so. Since a key pair is not in the configuration,
+such a run reports changed and warns that no undo returns the key pair; the example accepts a key pair that
+is already gone, so it can run again.
 
 ## Running Batfish
 
