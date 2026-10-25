@@ -107,6 +107,11 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	lab, err := client.FindLab(ctx, ref)
 	if errors.Is(err, cml.ErrNotFound) {
+		// Gone already, unless an earlier task in the same run makes it,
+		// which a check cannot tell.
+		if err := cml.Gone(mode, err); err != nil {
+			return fail(err)
+		}
 		return collection.Result{}, nil
 	}
 	if err != nil {
@@ -131,6 +136,9 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	} else {
 		a, err := client.FindEndpoint(ctx, lab.ID, nodes, ends.a, ends.aIface)
 		if errors.Is(err, cml.ErrNotFound) {
+			if err := cml.Gone(mode, err); err != nil {
+				return fail(err)
+			}
 			return collection.Result{}, nil
 		}
 		if err != nil {
@@ -138,6 +146,9 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		}
 		b, err := client.FindEndpoint(ctx, lab.ID, nodes, ends.b, ends.bIface)
 		if errors.Is(err, cml.ErrNotFound) {
+			if err := cml.Gone(mode, err); err != nil {
+				return fail(err)
+			}
 			return collection.Result{}, nil
 		}
 		if err != nil {
@@ -146,6 +157,9 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		link, found = cml.Between(links, a.Interface.ID, b.Interface.ID)
 	}
 	if !found {
+		if err := cml.Gone(mode, fmt.Errorf("lab %q has no such link: %w", lab.Title, cml.ErrNotFound)); err != nil {
+			return fail(err)
+		}
 		return collection.Result{}, nil
 	}
 	undo, described, err := endsOf(ctx, client, lab.ID, nodes, link)

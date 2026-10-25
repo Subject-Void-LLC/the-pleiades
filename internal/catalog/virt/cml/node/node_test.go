@@ -6,6 +6,7 @@ package node_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -291,5 +292,24 @@ func TestCreate_AddsInterfacesUpToTheCountAsked(t *testing.T) {
 	_, rc, err = f.run("virt.cml.node.create", false, params, nil)
 	if inv, kept := rc.Inverse(); err == nil || !kept || inv[sdk.InverseKeepOnFailureKey] != true {
 		t.Errorf("interfaces refused: %v, undo %v", err, inv)
+	}
+}
+
+// TestDelete_UncheckedBeforeItExists: a check of removing a node an earlier
+// task would make, or one in a lab it would make, is unchecked; a real run
+// finds it gone and changes nothing.
+func TestDelete_UncheckedBeforeItExists(t *testing.T) {
+	f := newFixture(t)
+	for name, params := range map[string]map[string]any{
+		"no lab yet":  {"lab": "later", "node": "BR3"},
+		"no node yet": {"lab": "cvd", "node": "BR9"},
+	} {
+		var unchecked *collection.CannotCheckError
+		if _, _, err := f.run("virt.cml.node.delete", true, params, nil); !errors.As(err, &unchecked) {
+			t.Errorf("%s, checked: %v", name, err)
+		}
+		if res, _, err := f.run("virt.cml.node.delete", false, params, nil); err != nil || res.Changed {
+			t.Errorf("%s, run: %+v %v", name, res, err)
+		}
 	}
 }

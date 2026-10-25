@@ -174,7 +174,7 @@ var cmlCollections = []collectionscaffold.Config{
 				{Name: "management_prefix", Type: "int", Default: "24", Description: "The management address's prefix length."},
 				{Name: "management_gateway", Type: "string", Description: "The management network's gateway, the Mgmt-intf VRF's default route. Required with device."},
 				{Name: "configuration", Type: "string", Description: "Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device."},
-				{Name: "interfaces", Type: "int", Description: "The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). Up to 128, and no more than the definition allows, which the controller enforces."},
+				{Name: "interfaces", Type: "int", Description: "The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). Up to 128, and no more than the definition allows, which the controller enforces when the node is made, so a check, which makes nothing, cannot see that limit."},
 				{Name: "x", Type: "int", Default: "0", Description: "The node's place on the lab's canvas, left to right."},
 				{Name: "y", Type: "int", Default: "0", Description: "The node's place on the lab's canvas, top to bottom."},
 			},

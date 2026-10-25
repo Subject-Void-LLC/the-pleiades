@@ -231,3 +231,23 @@ func TestLink_FailureWalk(t *testing.T) {
 		}
 	}
 }
+
+// TestDelete_UncheckedBeforeItExists: a check of removing a link in a lab,
+// to a node, or between interfaces an earlier task would make is
+// unchecked; a real run finds it gone and changes nothing.
+func TestDelete_UncheckedBeforeItExists(t *testing.T) {
+	ctl, _ := withLab(t)
+	for name, params := range map[string]map[string]any{
+		"no lab yet":  with(map[string]any{"lab": "later"}),
+		"no node yet": with(map[string]any{"b": "BR9"}),
+		"no link yet": ends,
+	} {
+		var unchecked *collection.CannotCheckError
+		if _, _, err := run(t, ctl, "virt.cml.link.delete", true, params); !errors.As(err, &unchecked) {
+			t.Errorf("%s, checked: %v", name, err)
+		}
+		if res, _, err := run(t, ctl, "virt.cml.link.delete", false, params); err != nil || res.Changed {
+			t.Errorf("%s, run: %+v %v", name, res, err)
+		}
+	}
+}

@@ -93,6 +93,11 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	lab, err := client.FindLab(ctx, ref)
 	if missing(err) {
+		// Gone already, unless an earlier task in the same run makes it,
+		// which a check cannot tell.
+		if err := cml.Gone(mode, err); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 		return collection.Result{}, nil
 	}
 	if err != nil {

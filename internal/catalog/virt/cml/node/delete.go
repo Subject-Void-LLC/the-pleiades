@@ -104,6 +104,11 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	lab, err := client.FindLab(ctx, ref)
 	if errors.Is(err, cml.ErrNotFound) {
+		// Gone already, unless an earlier task in the same run makes it,
+		// which a check cannot tell.
+		if err := cml.Gone(mode, err); err != nil {
+			return fail(err)
+		}
 		return collection.Result{}, nil
 	}
 	if err != nil {
@@ -115,6 +120,11 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	n, err := cml.FindNode(nodes, nodeRef)
 	if errors.Is(err, cml.ErrNotFound) {
+		// Gone already, unless an earlier task in the same run makes it,
+		// which a check cannot tell.
+		if err := cml.Gone(mode, err); err != nil {
+			return fail(err)
+		}
 		return collection.Result{}, nil
 	}
 	if err != nil {

@@ -36,3 +36,14 @@ func Unchecked(mode collection.Mode, err error) error {
 	}
 	return err
 }
+
+// Gone is a remove's or a read's answer to a lab, node or link that does
+// not exist (err is ErrNotFound): nothing in a run, where it is simply
+// gone, and the could-not-check answer in a check, since an earlier task in
+// the same run may be what makes it.
+func Gone(mode collection.Mode, err error) error {
+	if mode != collection.ModeCheck {
+		return nil
+	}
+	return Unchecked(mode, err)
+}

@@ -65,13 +65,26 @@ func init() {
 			},
 		},
 		Invoke: Info,
-		Check:  Info,
+		Check:  CheckInfo,
 	})
 }
 
-// Info implements "virt.cml.lab.info", and is its own check, since it
-// only reads. A lab that does not exist is reported as exists false.
+// Info implements "virt.cml.lab.info". A lab that does not exist is
+// reported as exists false.
 func Info(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runInfo(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckInfo is "virt.cml.lab.info"'s check: the same read, except that a
+// lab that does not exist is unchecked, since an earlier task in the run
+// may be what makes it, and a later condition on exists would otherwise be
+// predicted from a state the run never sees.
+func CheckInfo(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return runInfo(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// runInfo reads the lab, its state and its nodes.
+func runInfo(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "virt.cml.lab.info"
 	ref, err := sdk.RequiredStringParam(params, paramLab)
 	if err != nil {
@@ -83,6 +96,9 @@ func Info(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	lab, err := client.FindLab(ctx, ref)
 	if missing(err) {
+		if err := cml.Gone(mode, err); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 		return collection.Result{}, rc.SetStat("exists", false)
 	}
 	if err != nil {

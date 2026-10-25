@@ -306,3 +306,20 @@ func TestLab_AnUndoNamesNoMoreNodesThanTheJournalKeeps(t *testing.T) {
 		}
 	}
 }
+
+// TestLab_DeleteAndInfoUncheckedBeforeItExists: a check of removing or
+// reading a lab an earlier task would make is unchecked; a real run finds
+// it gone (delete unchanged, info exists false).
+func TestLab_DeleteAndInfoUncheckedBeforeItExists(t *testing.T) {
+	r, _ := newRunner(t)
+	for _, fqcn := range []string{"virt.cml.lab.delete", "virt.cml.lab.info"} {
+		var unchecked *collection.CannotCheckError
+		if _, _, err := r.run(fqcn, true, map[string]any{"lab": "later"}); !errors.As(err, &unchecked) {
+			t.Errorf("%s, checked: %v", fqcn, err)
+		}
+		res, rc, err := r.run(fqcn, false, map[string]any{"lab": "later"})
+		if err != nil || res.Changed || (fqcn == "virt.cml.lab.info" && rc.Stats["exists"] != false) {
+			t.Errorf("%s, run: %+v %v %v", fqcn, res, err, rc.Stats)
+		}
+	}
+}
