@@ -46,9 +46,14 @@ func TestMask(t *testing.T) {
 		"crypto key generate rsa general-keys label PLTEST modulus 2048",
 		"crypto key zeroize rsa PLTEST",
 		"% The key modulus size is 2048 bits",
+		"crypto key import rsa K pem terminal s14",
+		"crypto key export rsa K pem url tftp://10.0.0.9/k 3des s15",
+		"key config-key password-encrypt s16",
+		" passphrase s17",
+		"crypto key import rsa K pem terminal",
 	}
 	masked := strings.Split(netcfg.Mask(strings.Join(lines, "\n")), "\n")
-	for _, secret := range []string{"zebra", "abcd", "s1", "s2", "s3", "s4", "s5", "$9$abc", "s6", "s7", "s8", "123", "s9", "s10", "s11", "s12", "s13"} {
+	for _, secret := range []string{"zebra", "abcd", "s1", "s2", "s3", "s4", "s5", "$9$abc", "s6", "s7", "s8", "123", "s9", "s10", "s11", "s12", "s13", "s14", "s15", "s16", "s17"} {
 		for _, l := range masked {
 			if slices.Contains(strings.Fields(l), secret) {
 				t.Errorf("%s survived in %q", secret, l)
@@ -64,6 +69,8 @@ func TestMask(t *testing.T) {
 		29: " pre-shared-key address 10.0.0.9 key ",
 		30: "crypto key generate rsa general-keys label PLTEST modulus 2048", 31: "crypto key zeroize rsa PLTEST",
 		32: "% The key modulus size is 2048 bits",
+		33: "crypto key import rsa K pem terminal ", 34: "crypto key export rsa K pem url tftp://10.0.0.9/k 3des ",
+		35: "key config-key password-encrypt ", 37: "crypto key import rsa K pem terminal",
 	} {
 		if !strings.Contains(masked[i], kept) {
 			t.Errorf("line %d lost %q: %q", i, kept, masked[i])

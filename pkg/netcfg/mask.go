@@ -33,7 +33,7 @@ const MaskPrefix = "pleiades-masked-"
 var secretWords = []string{
 	"password", "secret", "authentication-key", "message-digest-key", "key-string",
 	"area-password", "domain-password", "community", "key", "authentication",
-	"pre-shared-key",
+	"pre-shared-key", "passphrase", "password-encrypt",
 }
 
 // skipped are the words that can stand between a secret word and its
@@ -51,7 +51,11 @@ var notSecret = []string{"message-digest", "null", "key-chain", "mode", "key-id"
 // command does, not a secret: crypto key generate rsa, crypto key zeroize
 // rsa, crypto key pubkey-chain rsa, and IOS's "% The key modulus size is
 // 2048 bits" (measured on IOL XE 17.15).
-var keyCommands = []string{"generate", "zeroize", "modulus", "pubkey-chain", "import", "export", "storage", "move", "decrypt", "encrypt", "lock", "unlock"}
+var keyCommands = []string{"generate", "zeroize", "modulus", "pubkey-chain", "import", "export", "storage", "move", "decrypt", "encrypt", "lock", "unlock", "config-key"}
+
+// keyTransferEnds are what crypto key import or export may end with that is
+// not its passphrase: where the key comes from or goes, and its form.
+var keyTransferEnds = []string{"terminal", "exportable", "pem", "rsa", "ec", "general-purpose", "signature", "encryption"}
 
 // pskSides are the words that can stand between pre-shared-key and its
 // secret in an IKEv2 keyring: the side of the exchange the key is for.
@@ -133,6 +137,15 @@ func words(line string) []word {
 // leading "key" names a key.
 func maskLine(line string, inKeyChain bool) string {
 	ws := words(line)
+	// crypto key import|export ... <passphrase>: the passphrase is the last
+	// word, after no word that names it.
+	if len(ws) >= 4 && ws[0].text == "crypto" && ws[1].text == "key" && (ws[2].text == "import" || ws[2].text == "export") {
+		last := ws[len(ws)-1]
+		if !slices.Contains(keyTransferEnds, last.text) && !strings.Contains(last.text, ":") && !strings.HasPrefix(last.text, MaskPrefix) {
+			return replaceWord(line, last)
+		}
+		return line
+	}
 	if len(ws) >= 3 && ws[0].text == "snmp-server" && ws[1].text == "host" {
 		return maskSNMPHost(line, ws)
 	}
