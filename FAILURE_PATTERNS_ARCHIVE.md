@@ -15597,3 +15597,149 @@ comparison with no Windows answer before that leg runs, and this one was written
 **Lesson.** A permission-bit assertion is the most repeated Windows defect here (544, 567, 615, 616, 636). When a
 test or code compares `Mode().Perm()`, give Windows its answer in the same line or a build-tagged file, at the
 moment it is written.
+
+## 637. A test file named login_seed_ios_test.go built only for GOOS=ios, so its tests never ran on Linux (a repeat of 374 and 428) (fixed before push)
+
+**Symptom.** 2026-10-24, on feat/virt-cml. `7e917737` added `internal/engine/login_seed_ios_test.go`, the tests of
+the Cisco IOS login seed. Go reads a trailing `_ios` as the GOOS of Apple's mobile system, so the file built for no
+platform this project tests on, and its tests passed by not running. `internal/archtest`'s
+`TestFileNamesConstrainBuildsOnlyOnPurpose` failed on the name.
+
+**Root cause.** The file was named for its subject, IOS the router system, and `ios` is also a GOOS value. A name
+that describes what the tests are about read to the toolchain as where they may run.
+
+**Fix.** `bbf4ae95` renames it `internal/engine/login_seed_cisco_test.go`, with no other change.
+
+**Why 374's and 428's fixes did not prevent it.** 374's fix was a rename and a lesson (put the OS word first), which
+held only as long as it was remembered. 428 added the archtest that caught this one, so 428's fix did hold: the file
+was refused before it was pushed. What did not hold is the habit. The archtest runs only when `internal/archtest`
+runs, after the name is already in a commit; nothing warns at the moment a file is named.
+
+**Lesson.** A vendor's system name can be a GOOS value (`ios`, `aix`, `solaris`, `zos`, `hurd`, `js`). Never end a
+Go file name with one; name a Cisco IOS file for `cisco` or put `ios` first, and let the archtest catch the rest.
+
+## 638. virt.cml's lab.create, node.create and link.create dropped the undo of what they made when a later read failed, so rollback could not remove it (a repeat of 452 and 563) (fixed before push)
+
+**Symptom.** 2026-10-24, on feat/virt-cml. `virt.cml.node.create` made the node, recorded its undo, and then read
+the node's interfaces back. When that read failed, the method returned the error. The engine drops a failed task's
+undo unless the method marks it to be kept, so the node existed with no undo in the journal: `pleiades rollback`
+could not remove it, and a second run was refused on the node's label. `lab.create` and `link.create` had the same
+order: a read after the change, and no mark on the undo.
+
+**Root cause.** 452's class. The engine has kept a marked undo through a failure since `e3ab59fc` (2026-10-22):
+`sdk.Inverse.KeepOnFailure` on the recorded undo, allowed per undo by `sdk.InverseSpec.MayKeepOnFailure` in the
+manifest. The mechanism is opt-in, and the new methods did not opt in.
+
+**Fix.** `815f4c0e`: each of the three records its undo as soon as the controller confirms the change, with
+`KeepOnFailure: true`, and declares `MayKeepOnFailure` on that inverse in its manifest. The node's failure walk in
+`internal/catalog/virt/cml/node/node_test.go` now requires the undo and its keep mark once the node is made, for a
+failure of every later controller call. The engine's keeping of a marked undo is proven by
+`internal/engine/rollback_kept_test.go` (`e3ab59fc`). The same commit names a link's nodes by id in its undo, not by
+label (the class of 570), and answers could-not-check for a lab or node an earlier task makes.
+
+**Why 452's and 563's fixes did not prevent it.** Each fixed its own methods. `e3ab59fc` then built the general
+mechanism, but nothing requires a method that records an undo before a read that can fail to mark it, so a new
+method gets 452's defect by default. 563's lesson also says an undo is proven where a rollback reads it, the journal;
+the new test reads the undo from the method's context, below the step that would drop it, and no test named here
+drives a `virt.cml` failure through to the journal.
+
+**Lesson.** A method that makes something and then reads anything back marks its undo `KeepOnFailure` in the same
+change that records it. Until a check enforces that, ask it of every new creating method in review.
+
+## 639. Console reads in pkg/cmlconsole had only a byte bound and the task's context, which the Crawl tier leaves unbounded, so a silent console server held a run forever (a repeat of 620) (fixed before push)
+
+**Symptom.** 2026-10-24, on feat/virt-cml. `pkg/cmlconsole` (`1300569d`) reaches a node through a CML controller's
+console server: it reads the server's `consoles> ` prompt, its answer to `connect`, and the node's login prompts.
+Each read was bounded by a byte limit and by the task's context. A run sets no deadline by default, so a console
+server that never prompted, or a line that stayed quiet, held the run with no end.
+
+**Root cause.** The reads relied on the caller's context for time, and on the Crawl tier that context has no
+deadline unless the task sets `timeout:`.
+
+**Fix.** `38df8b73`: every read goes through one helper with its own time limit, 30 seconds for the console server
+and 3 minutes for the node's login (long enough for a node still printing its boot log), and says "no answer within"
+the limit. `TestReads_EndOnTheirOwn` in `pkg/cmlconsole/console_test.go`. The same commit logs out only from an exec
+prompt (it asks for the prompt first and types nothing at a login prompt), cuts a server's refusal text on whole
+characters, and names a credential with no username or password rather than reporting a refused login.
+
+**Why 620's fix did not prevent it.** 620 bounded the time of a whole read in `pkg/telnetexec`, through its own
+`Options.MaxReadDuration`. The console is a new reader over an SSH shell (`netcli.Shell`), written beside it, and
+620's three bounds lived in that one package and in a lesson. Nothing shared the bound.
+
+**Lesson.** 620's lesson applies to every new reader of a remote peer: bytes kept, bytes read, and time for the whole
+read. A task's context is not a time bound on the Crawl tier.
+
+## 640. pkg/netcfg.Mask had no pre-shared-key rule, so an IKEv2 keyring's key went out unmasked, and it masked the command word after crypto key (a repeat of 577) (fixed)
+
+**Symptom.** 2026-10-24, the blind CVD lab's turn A. The agent built an IKEv2 keyring with a pre-shared key and saw
+the key in plain text in `net.ios.replace`'s differences. The same lines reach `net.ios.config`'s differences and
+`undo_lines`, `net.ios.parse` and `net.batfish.check`'s input. Two forms leaked: `pre-shared-key [local|remote] x`
+inside an IKEv2 keyring, and an IKEv2 profile's `authentication local pre-share key x`, where Mask took `local` as
+the secret and left the key. An ISAKMP keyring's `pre-shared-key address y key x` was also checked.
+
+Later the same day, measuring `net.ios.config` against the lab's BR3, the opposite fault showed: Mask replaced the word
+after `key` in `crypto key generate rsa ...` and `crypto key zeroize rsa ...`, so `undo_lines` held a line a rollback
+could not replay, and it masked IOS's `% The key modulus size is 2048 bits` notice.
+
+**Root cause.** Mask is a denylist (577): it masks the word after each secret word it knows, and `pre-shared-key`
+was not one. `key` is one, and Mask had no list of the words after it that name a command.
+
+**Fix.** `fa10a343`: `pre-shared-key` is a secret word, `local` and `remote` are skipped between it and its key, and
+`address` and `hostname` name a peer whose key follows a later `key`; `local` and `remote` after `authentication` are
+not secrets. `d6f47b1f`: the words after `key` that name a crypto key command (`generate`, `zeroize`, `modulus`,
+`pubkey-chain` and eight more) are kept. `TestMask` in `pkg/netcfg/netcfg_test.go` holds each form, the generate and
+zeroize lines and the measured notice. `changelog/ike-psk-mask.fixed.md` tells a user to rotate a key that went
+through one of those outputs in an earlier run.
+
+**Why 577's fix did not prevent it.** 577 left Mask a denylist by design and said so: a secret form not in the table
+passes unmasked. 577's sweep listed RADIUS, TACACS, FHRP, RIP, NHRP and SNMP forms; IKE and IPsec keys were not
+among them, and its lesson (write the tests from each vendor's list of secret-bearing commands) was not carried to
+the crypto commands. The pre-shared key was on `main` from Phase 127b.
+
+**Lesson.** A denylist mask is checked against the vendor's whole list of secret-bearing commands, crypto ones
+first, and against the commands that share a secret word without holding a secret. A blind user found this one; a
+review against IOS's command reference would have found it before.
+
+## 641. kubernetes_cluster accepted tls_fingerprint and ignored it (a repeat of 441) (fixed before push)
+
+**Symptom.** 2026-10-24, on feat/virt-cml. `eb6faa41` added `tls_fingerprint` to `pkg/devicetls`, a SHA-256 pin of
+one certificate for any device. A `kubernetes_cluster` record took the property, warned about it on every use, and
+reached its API server through the Kubernetes client, which verifies against an authority and never reads the pin.
+The pin appeared to work and did nothing.
+
+**Root cause.** The property was added to the shared settings parser, so every device type that parses TLS settings
+accepted it. The cluster's client builds its TLS from `tls_ca_pem` alone.
+
+**Fix.** `39ca982f`: a cluster with `tls_fingerprint` is refused at construction, saying its API server is verified
+against its authority and naming `tls_ca_pem`. `TestNewCluster_Refusals` in
+`internal/inventory/devices/kubernetes/cluster_test.go` has the case.
+
+**Why 441's fix did not prevent it.** 441 fixed `container_host`, whose TLS settings were parsed and not exposed, and
+its lesson was to test a setting through its reader. The fix was for one type. Adding a setting to the shared parser
+adds it to every type that parses it, and no test asks each type's reader to use, or refuse, each setting.
+
+**Lesson.** When a shared settings parser gains a setting, list every device type that parses it and decide for
+each: use it through its reader, with a test, or refuse it at construction.
+
+## 642. An example and a test fake were written from remembered IOS wording that the device never prints (a repeat of 90) (fixed before push)
+
+**Symptom.** 2026-10-24, on feat/virt-cml, while building `net.ios.config`'s question answering (`a2495ddb`). A forked
+subagent wrote an example and a test fake in which IOS asks "% You already have RSA keys defined ... Do you really
+want to replace them? [yes/no]" when a key pair is made under a label that already has one. Measured on IOL XE 17.15
+through `net.ios.config` on the lab's BR3, IOS prints "% You already have RSA keys defined named PLTEST." and "% They
+will be replaced." and asks nothing. The example would have taught a
+user to answer a question that never comes, and the fake would have proven a dialog that does not happen.
+
+**Root cause.** The wording came from memory of IOS, not from a device. Nothing required a measurement behind it.
+
+**Fix.** Before the commit, the example became the measured removal (`crypto key zeroize rsa`, whose question IOS
+does ask), in `docs/reference/modules/net/ios/config.md` and `docs/16-network-verification.md`, and the fake follows
+the measured transcript: `TestConfigWith_AKeyPairMadeTwiceAndRemoved` in `pkg/netcli/config_dialog_test.go` makes a
+key pair, makes it again and removes it.
+
+**Why 90's fix did not prevent it.** 90's lesson was to run the real tool before designing against it, and LESSONS
+109 and 317 say the same of claims about another system. Each is a sentence. The subagent was given a task, not
+those records, and a fake built from memory passes its own test.
+
+**Lesson.** Device wording in an example or a fake is measured on a device, never recalled: name the device, its
+release and the run in the commit or beside the fixture. A fake that cannot cite a transcript is a guess.

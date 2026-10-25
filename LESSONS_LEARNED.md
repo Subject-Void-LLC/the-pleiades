@@ -354,6 +354,11 @@ story, per `.AGENTS/AGENTS.md`.
 319. **An empty parse is a state to compare, not a failure: a before-and-after parser returns an empty result marked empty (2026-10-23).**
 320. **When every node of a CML sandbox lab stops answering while its controller answers, stop and start the lab through the CML API before reading the failure as code (2026-10-23).**
 321. **Run a whole-branch failure-pattern review before every pull request, and ask of each new destructive device command what happens if its argument names the operator's own file (2026-10-23).**
+322. **A repeat of 109 and 317: device wording in an example, a fake or a doc is measured through the product on a real device before it is published, never recalled; name the device, release and run beside it (2026-10-24).**
+323. **A blind agent's friction log is a backlog: check each item against the code, fix the small ones on the open branch, and propose the rest as a phase with its evidence (2026-10-24).**
+324. **A repeat of 104: a grader is code that can be wrong; run it against a known pass and a known fail, and make each check read the artifact it judges (2026-10-24).**
+325. **Size a blind lab turn from a run that finished (turn A took 105 minutes), and have the harness say how a turn ended: a limit extended by pausing timeout still reports exit 124 (2026-10-24).**
+326. **A blind agent follows a design guide literally; a prompt that allows any design asks for the simplest one that meets the requirements (2026-10-24).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

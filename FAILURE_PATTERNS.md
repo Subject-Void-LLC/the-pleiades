@@ -639,6 +639,12 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 634. tools/failures' captured logs matched *.log in .gitignore, so they were never committed and its tests failed on every machine but this one (a repeat of 401) (fixed before push)
 635. Windows: a file standing where the failure ledgers' directory belongs read as an empty ledger (a repeat of 628) (fixed before push)
 636. Windows: a tools/failures test asserted the ledger directory's 0700 mode, which Windows does not keep (a repeat of 544, 567 and 615) (fixed before push)
+637. A test file named login_seed_ios_test.go built only for GOOS=ios, so its tests never ran on Linux (a repeat of 374 and 428) (fixed before push)
+638. virt.cml's lab.create, node.create and link.create dropped the undo of what they made when a later read failed, so rollback could not remove it (a repeat of 452 and 563) (fixed before push)
+639. Console reads in pkg/cmlconsole had only a byte bound and the task's context, which the Crawl tier leaves unbounded, so a silent console server held a run forever (a repeat of 620) (fixed before push)
+640. pkg/netcfg.Mask had no pre-shared-key rule, so an IKEv2 keyring's key went out unmasked, and it masked the command word after crypto key (a repeat of 577) (fixed)
+641. kubernetes_cluster accepted tls_fingerprint and ignored it (a repeat of 441) (fixed before push)
+642. An example and a test fake were written from remembered IOS wording that the device never prints (a repeat of 90) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
