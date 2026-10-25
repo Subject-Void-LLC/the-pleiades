@@ -94,9 +94,9 @@ func TestTestScript(t *testing.T) {
 		`Remove-Item -LiteralPath (Join-Path $tree $f) -Force`,
 		`$race = 'false'`,
 		`if (Get-Command gcc.exe -ErrorAction SilentlyContinue) { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' } else { 'wincheck: no gcc, so cgo and the race detector are off' }`,
-		`& cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out .pleiades-record-full.json -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
+		`& cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out .pleiades-record-full.json -p $parallel -packages-file .pleiades-packages.txt 2>&1"`,
 		`C:\mingw64\bin`,
-		`& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out .pleiades-record-repeat.json -p $parallel $env:PLEIADES_PACKAGES 2>&1"`,
+		`& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out .pleiades-record-repeat.json -p $parallel -packages-file .pleiades-packages.txt 2>&1"`,
 		`Remove-Item -LiteralPath $pidFile`,
 		`C:\mingit\cmd`,
 	} {

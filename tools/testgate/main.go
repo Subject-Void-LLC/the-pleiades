@@ -82,9 +82,18 @@ func main() {
 	flag.StringVar(&o.commit, "commit", "", "stamp the record with the full commit hash pr-check began at (needs -clean)")
 	flag.StringVar(&o.clean, "clean", "", "yes or no: stamp the record with whether the working tree was clean as pr-check began (needs -commit)")
 	list := flag.Bool("list", false, "print the packages this run would test, one per line, and test nothing")
+	packagesFile := flag.String("packages-file", "", "read the packages to test from this file as well, separated by spaces or lines: how a caller passes a list longer than a command line holds (cmd.exe stops at 8191 characters)")
 	checkDurations := flag.Bool("durations-check", false, "hold the -coverage-out measurements named as arguments to durations.json: fail on a measured package it has no time for, warn on one whose time moved a lot")
 	flag.Parse()
 	o.packages = flag.Args()
+	if *packagesFile != "" {
+		listed, err := readPackagesFile(*packagesFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(2)
+		}
+		o.packages = append(o.packages, listed...)
+	}
 	o.noRace = !*race
 
 	// -durations-check keeps -shard balanced as packages are added and

@@ -253,12 +253,17 @@ $pidFile = Join-Path $tree '` + pidFile + `'
 Set-Content -LiteralPath $pidFile -Value $PID
 foreach ($f in '` + recordFull + `', '` + recordRepeat + `') { Remove-Item -LiteralPath (Join-Path $tree $f) -Force -ErrorAction SilentlyContinue }
 $parallel = [int]$env:PLEIADES_PARALLEL
+# The list goes in a file: cmd.exe refuses a command line past 8191
+# characters, which 143 packages passed (2026-10-25), failing the run in a
+# second with nothing to show for it.
+$packages = Join-Path $tree '` + packagesFile + `'
+Set-Content -LiteralPath $packages -Value $env:PLEIADES_PACKAGES -Encoding ascii
 $race = 'false'
 if (Get-Command gcc.exe -ErrorAction SilentlyContinue) { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' } else { 'wincheck: no gcc, so cgo and the race detector are off' }
-& cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out ` + recordFull + ` -p $parallel $env:PLEIADES_PACKAGES 2>&1"
+& cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out ` + recordFull + ` -p $parallel -packages-file ` + packagesFile + ` 2>&1"
 $code = $LASTEXITCODE
 if ($code -eq 0) {
-	& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out ` + recordRepeat + ` -p $parallel $env:PLEIADES_PACKAGES 2>&1"
+	& cmd.exe /d /c "go run ./tools/testgate -repeat 3 -strict -report-out ` + recordRepeat + ` -p $parallel -packages-file ` + packagesFile + ` 2>&1"
 	$code = $LASTEXITCODE
 }
 Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
@@ -271,6 +276,10 @@ const (
 	recordFull   = ".pleiades-record-full.json"
 	recordRepeat = ".pleiades-record-repeat.json"
 )
+
+// packagesFile is where testScript writes the packages for testgate to read
+// (-packages-file), in the tree it runs in.
+const packagesFile = ".pleiades-packages.txt"
 
 // Records reads back the testgate records testScript's passes wrote in
 // sha's tree, those that exist.
