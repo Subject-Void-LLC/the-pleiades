@@ -163,15 +163,14 @@ func (c Config) FilePath() (string, bool) {
 }
 
 // fileURLPath is a file URL's path as goos names files: file:///C:/x/y.yaml
-// has the path /C:/x/y.yaml, which Windows opens only as C:\x\y.yaml.
+// has the path /C:/x/y.yaml, and Windows cannot open a drive behind a
+// leading slash, so it is dropped there. Forward slashes stay: Windows
+// takes them as separators.
 func fileURLPath(path, goos string) string {
-	if goos != "windows" {
-		return path
+	if goos == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		return path[1:]
 	}
-	if len(path) >= 3 && path[0] == '/' && path[2] == ':' {
-		path = path[1:]
-	}
-	return strings.ReplaceAll(path, "/", `\`)
+	return path
 }
 
 // EffectivePageSize returns the page size to actually request, resolving an
