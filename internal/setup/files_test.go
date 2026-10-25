@@ -6,11 +6,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
+
+// ownerOnly reports whether info's mode is owner-only (0600). Windows has
+// no POSIX modes, so a file's access there is its ACL and any mode passes.
+func ownerOnly(info os.FileInfo) bool {
+	return runtime.GOOS == "windows" || info.Mode().Perm() == 0o600
+}
 
 // openTestDir opens a fresh directory as a setup.Dir.
 func openTestDir(t *testing.T) (*setup.Dir, string) {
@@ -37,7 +45,7 @@ func TestDir_CreateNewWritesOwnerOnlyAndNeverReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if !ownerOnly(info) {
 		t.Fatalf("the file was written at mode %v, want 0600", info.Mode().Perm())
 	}
 
@@ -113,7 +121,7 @@ func TestDir_ReplaceRefusesAFileThatChangedSinceItWasRead(t *testing.T) {
 	}
 	data, _ := os.ReadFile(file)
 	info, _ := os.Stat(file)
-	if string(data) != "A=new\n" || info.Mode().Perm() != 0o600 {
+	if string(data) != "A=new\n" || !ownerOnly(info) {
 		t.Fatalf("after Replace the file holds %q at %v; want the new content at 0600", data, info.Mode().Perm())
 	}
 }
@@ -144,6 +152,7 @@ func TestDir_CheckWritableFailsBeforeAnythingIsGenerated(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root writes through directory permissions")
 	}
+	need.Require(t, "posix-modes", runtime.GOOS != "windows", "Windows has no POSIX directory modes; chmod 0500 does not make a directory read-only there")
 	d, path := openTestDir(t)
 	if err := d.CheckWritable(); err != nil {
 		t.Fatalf("CheckWritable() on a writable directory: %v", err)

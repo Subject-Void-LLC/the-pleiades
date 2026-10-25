@@ -184,7 +184,7 @@ func TestRun_HelmWritesNewFilesOnlyAndRefusesARerun(t *testing.T) {
 	}
 	for _, name := range []string{setup.HelmSecretFile, setup.HelmValuesFile} {
 		info, err := os.Stat(filepath.Join(dir, name))
-		if err != nil || info.Mode().Perm() != 0o600 {
+		if err != nil || !ownerOnly(info) {
 			t.Fatalf("%s: %v, mode %v; want it written at 0600", name, err, info)
 		}
 	}
