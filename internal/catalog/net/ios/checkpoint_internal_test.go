@@ -34,6 +34,9 @@ type configDevice struct {
 	noDisk     bool // show file systems lists no writable disk
 	noArchive  bool // show archive config differences is not a command
 	failConfig error
+	// keys counts the key-material lines applied, which change no line of
+	// the configuration.
+	keys int
 	// replaceSays is a line configure replace prints beside its own, as
 	// IOS prints a routing protocol's notice while a replace runs.
 	replaceSays string
@@ -170,6 +173,12 @@ func (d *configDevice) Config(_ context.Context, cfg []string) error {
 	var block *iosconfig.Node
 	for _, l := range cfg {
 		l = strings.TrimSpace(l)
+		if keyMaterial.MatchString(l) {
+			// IOS keeps key pairs outside the configuration (measured on
+			// IOL XE 17.15): the line changes no line of it.
+			d.keys++
+			continue
+		}
 		opens := strings.HasPrefix(l, "interface ") || strings.HasPrefix(l, "router ") || strings.HasPrefix(l, "ip access-list ")
 		if neg, ok := strings.CutPrefix(l, "no "); ok && (strings.HasPrefix(neg, "interface ") || strings.HasPrefix(neg, "router ")) {
 			roots = slices.DeleteFunc(roots, func(n *iosconfig.Node) bool { return n.Line == neg })
@@ -265,6 +274,7 @@ func recordedInverse(t *testing.T, rc *stubContext) (sdk.Inverse, bool) {
 		inv.FQCN, _ = m[sdk.InverseFQCNKey].(string)
 		inv.Params, _ = m[sdk.InverseParamsKey].(map[string]any)
 		inv.KeepOnFailure, _ = m[sdk.InverseKeepOnFailureKey].(bool)
+		inv.Partial, _ = m[sdk.InversePartialKey].(bool)
 	}
 	return inv, true
 }
@@ -614,4 +624,56 @@ func (s *stuckReplace) Command(ctx context.Context, line string) (string, error)
 		s.running = s.keep
 	}
 	return out, err
+}
+
+// TestConfig_AKeyChangeReportsChangedAndNoExactUndo: a key line that
+// changes no line of the configuration still reports changed, warns that
+// no undo returns the key pair, and leaves no checkpoint; one beside a
+// configuration change records the configuration's undo as partial; and a
+// call holding one is never an exact undo.
+func TestConfig_AKeyChangeReportsChangedAndNoExactUndo(t *testing.T) {
+	dev := newConfigDevice()
+	swapOpenSession(t, dev.open)
+	rc := newStubContext()
+	res, err := Config(context.Background(), rc, nil, map[string]any{paramLines: []any{"crypto key zeroize rsa OLDKEY"}})
+	if err != nil || !res.Changed || dev.keys != 1 {
+		t.Fatalf("a key line alone: %+v, %v, keys %d", res, err, dev.keys)
+	}
+	if _, ok := recordedInverse(t, rc); ok || len(dev.files) != 0 {
+		t.Errorf("a key line alone recorded an undo or left a checkpoint: %v", dev.files)
+	}
+	if w, _ := rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "no undo returns the key pair") {
+		t.Errorf("warnings = %v", rc.stats[sdk.StatWarnings])
+	}
+
+	rc = newStubContext()
+	if _, err := Config(context.Background(), rc, nil, map[string]any{paramLines: []any{"crypto key generate rsa general-keys label K modulus 2048", "interface Loopback9", "description k"}}); err != nil {
+		t.Fatal(err)
+	}
+	if inv, ok := recordedInverse(t, rc); !ok || !inv.Partial {
+		t.Errorf("a key line beside a change: undo %+v, want it partial", inv)
+	}
+	if configUndoCall(map[string]any{paramLines: []any{" crypto key import rsa K pem terminal"}}) == "" {
+		t.Error("a call importing a key pair was taken as exactly undoable")
+	}
+}
+
+// TestConfig_ARejectionIsMaskedAndBounded: a rejected line is quoted with
+// its secret masked, and a long answer is cut.
+func TestConfig_ARejectionIsMaskedAndBounded(t *testing.T) {
+	dev := newConfigDevice()
+	dev.failConfig = errors.New(`device rejected "username u secret 0 hunter2": ` + strings.Repeat("x", 3*maxErrorText))
+	swapOpenSession(t, dev.open)
+	_, err := Config(context.Background(), newStubContext(), nil, map[string]any{paramLines: []any{"username u secret 0 hunter2"}})
+	if err == nil || strings.Contains(err.Error(), "hunter2") || len(err.Error()) > maxErrorText+200 {
+		t.Errorf("err = %.200v (%d bytes)", err, len(err.Error()))
+	}
+}
+
+// TestReadConfigOptions_AnAcceptPatternCannotEscapeItsAnchor: a pattern
+// that would close the group around it is refused.
+func TestReadConfigOptions_AnAcceptPatternCannotEscapeItsAnchor(t *testing.T) {
+	if _, err := readConfigOptions(context.Background(), newStubContext(), map[string]any{paramAccept: []any{"%)|(?:.*"}}); err == nil {
+		t.Error("an escaping accept pattern was taken")
+	}
 }

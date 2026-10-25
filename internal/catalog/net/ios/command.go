@@ -113,8 +113,8 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	// A command the device refused is not a command that ran: IOS reports
 	// it in its output, not as a transport failure.
-	if netcli.IOS.ErrorPattern.MatchString(res.Output) {
-		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, line, strings.TrimSpace(firstErrorLine(res.Output)))
+	if rejected, ok := netcli.IOS.Rejection(res.Output); ok {
+		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, line, strings.TrimSpace(rejected))
 	}
 	if err := rc.SetStat(statCommandStdout, res.Output); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

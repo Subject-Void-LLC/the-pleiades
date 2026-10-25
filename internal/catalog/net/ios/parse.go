@@ -115,8 +115,8 @@ func Parse(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		out = maskDiff(out)
 	}
 	// A command the device refused printed an IOS error, not its output.
-	if netcli.IOS.ErrorPattern.MatchString(out) {
-		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, command, strings.TrimSpace(firstErrorLine(out)))
+	if rejected, ok := netcli.IOS.Rejection(out); ok {
+		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, command, strings.TrimSpace(rejected))
 	}
 	if err := rc.SetStat(statCommandStdout, out); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

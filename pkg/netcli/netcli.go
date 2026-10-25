@@ -486,3 +486,21 @@ func dialectName(d Dialect) string {
 	}
 	return d.Name
 }
+
+// Rejection is the first line of out in d's error form that none of d's
+// Notices matches, and whether there is one. A command's output can carry
+// a notice as well as a rejection: show crypto key mypubkey rsa prints "%
+// Key pair was generated at: ..." for each key pair (measured on IOL XE
+// 17.15), which no reader should take as the command failing.
+func (d Dialect) Rejection(out string) (string, bool) {
+	if d.ErrorPattern == nil {
+		return "", false
+	}
+	for l := range strings.SplitSeq(out, "\n") {
+		l = strings.TrimRight(l, "\r \t")
+		if d.ErrorPattern.MatchString(l) && !matchesAny(d.Notices, l) {
+			return l, true
+		}
+	}
+	return "", false
+}

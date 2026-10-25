@@ -87,7 +87,7 @@ func init() {
 				Reversible: true,
 				Notes:      "Its undo returns the device to a checkpoint of its running configuration kept on the device (net.ios.replace, named by the file's path alone, so no configuration text reaches the journal), refusing when the device has changed since. A device with nowhere to keep one records no undo: the configuration lines that would undo the change are shown, masked, for the task's rollback: list, since lines read off the device never reach the journal.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: replaceFQCN, Record: []string{"checkpoint", "expect", sdk.ParamInsecureTelnet}, MayKeepOnFailure: true},
+					{FQCN: replaceFQCN, Record: []string{"checkpoint", "expect", sdk.ParamInsecureTelnet}, MayKeepOnFailure: true, MayBePartial: true},
 				},
 			},
 			NoCheckReason: "what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS " +
@@ -102,8 +102,8 @@ func init() {
 func configDoc() collection.Doc {
 	return collection.Doc{
 		Summary: "Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly.",
-		Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, and the time a key pair was made; accept adds the task's own. " +
-			"A line that asks a question (crypto pki server's no shutdown asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers fails the line at once, naming it, rather than waiting. " +
+		Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, a key pair being made or replaced, and what removing one says first; accept adds the task's own. A line that changes key material (crypto key generate, zeroize, import, move, decrypt, encrypt) changes what the configuration does not hold, so its run reports changed whatever the configuration shows, and no checkpoint returns it: such a call's undo is never exact. " +
+			"A line that asks a question (removing a key pair asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers (a line left ending in ?, [confirm], [yes/no] or asking for a password) fails the line at once, naming it, rather than waiting; anything else a device waits on, such as a banner's text, still waits until the read limit. " +
 			"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
 			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
 		Params: append(append([]collection.Param{
@@ -129,7 +129,7 @@ func configDoc() collection.Doc {
 			},
 			{
 				Name:        "Remove a key pair, answering the question IOS asks first",
-				RunbookYAML: "- name: Remove the old key pair\n  net.ios.config:\n    lines:\n      - crypto key zeroize rsa OLDKEY\n    prompts:\n      - match: 'Do you really want to remove these keys\\? \\[yes/no\\]'\n        answer: \"yes\"\n",
+				RunbookYAML: "- name: Remove the old key pair, which no rollback brings back\n  net.ios.config:\n    lines:\n      - crypto key zeroize rsa OLDKEY\n    prompts:\n      - match: 'Do you really want to remove these keys\\? \\[yes/no\\]'\n        answer: \"yes\"\n    accept:\n      - '% The specified keypair does not exist'\n",
 			},
 		},
 		SeeAlso: []string{"net.ios.replace", "net.ios.parse", "net.cli.command", "net.cli.config"},
@@ -145,7 +145,46 @@ func configUndoCall(params map[string]any) string {
 	if v, present := params[paramCheckpoint]; present && v != true {
 		return "checkpoint is not true, so no checkpoint is kept and the undo is lines only shown, never recorded"
 	}
+	if lines, _, err := sdk.StringSlice(params, paramLines); err == nil && changesKeys(lines) {
+		return "a crypto key line changes key material the configuration does not hold, so no checkpoint returns it"
+	}
 	return ""
+}
+
+// keyMaterial is a line that changes a key pair, which IOS keeps outside
+// the configuration: no difference shows it and no configure replace
+// returns it (measured on IOL XE 17.15: a key pair made again under its
+// label is replaced, and the configuration reads the same).
+var keyMaterial = regexp.MustCompile(`^\s*crypto\s+key\s+(?:generate|zeroize|import|move|decrypt|encrypt)\b`)
+
+// keysWarning is what a run that changed key material says.
+const keysWarning = "a crypto key line changed key material, which the configuration does not hold: the run reports changed whatever its differences show, and no undo returns the key pair"
+
+// changesKeys reports whether any of lines changes key material.
+func changesKeys(lines []string) bool {
+	for _, l := range lines {
+		if keyMaterial.MatchString(l) {
+			return true
+		}
+	}
+	return false
+}
+
+// maxErrorText bounds how much of the device's output a failure quotes.
+const maxErrorText = 2048
+
+// maskedError is err with the secrets in its text masked and the text
+// bounded: a rejected or unanswered line is quoted with the device's
+// output, and either can hold a password or a passphrase.
+func maskedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	if len(text) > maxErrorText {
+		text = text[:maxErrorText] + " ..."
+	}
+	return errors.New(netcfg.Mask(text))
 }
 
 // Config implements the "net.ios.config" collection method.
@@ -202,7 +241,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		switch {
 		case err == nil:
 			applyErr := applyLines(ctx, rc, session, lines, opts)
-			return finishCheckpoint(ctx, rc, session, params, before, after, applyErr)
+			return finishCheckpoint(ctx, rc, session, params, before, after, changesKeys(lines), applyErr)
 		case !errors.Is(err, errNoCheckpoint):
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
@@ -214,7 +253,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		}
 	}
 	applyErr := applyLines(ctx, rc, session, lines, opts)
-	return finishLines(ctx, rc, session, running, applyErr, warnings)
+	return finishLines(ctx, rc, session, running, changesKeys(lines), applyErr, warnings)
 }
 
 // readConfigOptions reads prompts and ask (clidialog.ReadConfig) when the
@@ -238,6 +277,11 @@ func readConfigOptions(ctx context.Context, rc sdk.RunbookContext, params map[st
 		if !strings.HasPrefix(text, "%") {
 			return opts, fmt.Errorf("%s[%d] %q does not begin with %%: it is matched from the start of an IOS \"%% \" line", paramAccept, i, text)
 		}
+		// Compiled alone first, so a pattern cannot close the anchoring
+		// group around it ("%)|(?:.*" would accept every rejection).
+		if _, err := regexp.Compile(text); err != nil {
+			return opts, fmt.Errorf("%s[%d]: %w", paramAccept, i, err)
+		}
 		re, err := regexp.Compile("^(?:" + text + ")")
 		if err != nil {
 			return opts, fmt.Errorf("%s[%d]: %w", paramAccept, i, err)
@@ -252,6 +296,7 @@ func readConfigOptions(ctx context.Context, rc sdk.RunbookContext, params map[st
 // went on to the end.
 func applyLines(ctx context.Context, rc sdk.RunbookContext, session iosSession, lines []string, opts netcli.ConfigOptions) error {
 	res, applyErr := session.ConfigWith(ctx, lines, opts)
+	applyErr = maskedError(applyErr)
 	if len(opts.Dialog.Prompts) > 0 || opts.Dialog.Ask != nil {
 		if err := rc.SetStat("exchanges", clidialog.Stats(netcli.DialogResult{Exchanges: res.Exchanges})["exchanges"]); err != nil {
 			return err
@@ -271,11 +316,11 @@ func applyLines(ctx context.Context, rc sdk.RunbookContext, session iosSession, 
 // that returns to the checkpoint. A change that failed part way keeps an
 // undo with no second checkpoint, since whatever reached the device is
 // on it.
-func finishCheckpoint(ctx context.Context, rc sdk.RunbookContext, session iosSession, params map[string]any, before, after string, applyErr error) (collection.Result, error) {
+func finishCheckpoint(ctx context.Context, rc sdk.RunbookContext, session iosSession, params map[string]any, before, after string, keys bool, applyErr error) (collection.Result, error) {
 	const fqcn = configFQCN
 	diffs, diffErr := differences(ctx, session, before, runningConfig)
 	if applyErr != nil || diffErr != nil {
-		if recErr := recordReplace(rc, params, before, "", true); recErr != nil {
+		if recErr := recordReplace(rc, params, before, "", keys, true); recErr != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, recErr)
 		}
 		if applyErr != nil {
@@ -290,7 +335,13 @@ func finishCheckpoint(ctx context.Context, rc sdk.RunbookContext, session iosSes
 		if err := deleteFile(ctx, session, before); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
-		return collection.Result{Changed: false}, nil
+		if keys {
+			// The configuration reads the same, and a key pair changed.
+			if err := sdk.RecordWarnings(rc, []string{keysWarning}); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
+		}
+		return collection.Result{Changed: keys}, nil
 	}
 	if err := rc.SetStat(statCheckpoint, before); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -298,12 +349,17 @@ func finishCheckpoint(ctx context.Context, rc sdk.RunbookContext, session iosSes
 	if err := saveRunning(ctx, session, after); err != nil {
 		// The change is on the device and its checkpoint is kept: the
 		// undo stands, only without the refusal a later change would get.
-		if recErr := recordReplace(rc, params, before, "", true); recErr != nil {
+		if recErr := recordReplace(rc, params, before, "", keys, true); recErr != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, recErr)
 		}
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if err := recordReplace(rc, params, before, after, true); err != nil {
+	if keys {
+		if err := sdk.RecordWarnings(rc, []string{keysWarning}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+	if err := recordReplace(rc, params, before, after, keys, true); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return collection.Result{Changed: true}, nil
@@ -312,7 +368,7 @@ func finishCheckpoint(ctx context.Context, rc sdk.RunbookContext, session iosSes
 // recordReplace records the undo that returns the device to before,
 // refusing if it no longer matches after when after is not empty. It
 // reaches the device the way the change did.
-func recordReplace(rc sdk.RunbookContext, params map[string]any, before, after string, keepOnFailure bool) error {
+func recordReplace(rc sdk.RunbookContext, params map[string]any, before, after string, partial, keepOnFailure bool) error {
 	undo := map[string]any{"checkpoint": before}
 	if after != "" {
 		undo["expect"] = after
@@ -323,6 +379,9 @@ func recordReplace(rc sdk.RunbookContext, params map[string]any, before, after s
 		Params:        undo,
 		Description:   fmt.Sprintf("Returns the device's configuration to the checkpoint %s, kept before this change.", before),
 		KeepOnFailure: keepOnFailure,
+		// A key pair the change made or removed is not in the checkpoint,
+		// so returning to it puts back the configuration and not the key.
+		Partial: partial,
 	})
 }
 
@@ -341,7 +400,7 @@ func carryTransport(params, undo map[string]any) {
 // configuration again and writes, masked, the lines that would undo the
 // difference, for the task's rollback: list. It records no undo: the
 // lines are read off the device, which the journal never holds.
-func finishLines(ctx context.Context, rc sdk.RunbookContext, session iosSession, before string, applyErr error, warnings []string) (collection.Result, error) {
+func finishLines(ctx context.Context, rc sdk.RunbookContext, session iosSession, before string, keys bool, applyErr error, warnings []string) (collection.Result, error) {
 	const fqcn = configFQCN
 	after, err := session.Command(ctx, "show running-config")
 	if err != nil {
@@ -351,7 +410,10 @@ func finishLines(ctx context.Context, rc sdk.RunbookContext, session iosSession,
 		return collection.Result{}, fmt.Errorf("%s: reading the configuration after the change: %w", fqcn, err)
 	}
 	undo, invErr := iosconfig.Inverse(iosconfig.Parse(before), iosconfig.Parse(after))
-	changed := invErr != nil || len(undo) > 0
+	changed := invErr != nil || len(undo) > 0 || keys
+	if keys {
+		warnings = append(warnings, keysWarning)
+	}
 	switch {
 	case invErr != nil:
 		warnings = append(warnings, fmt.Sprintf("no undo was recorded, and none can be written: %v; give the task a rollback: list", invErr))
