@@ -15743,3 +15743,35 @@ those records, and a fake built from memory passes its own test.
 
 **Lesson.** Device wording in an example or a fake is measured on a device, never recalled: name the device, its
 release and the run in the commit or beside the fixture. A fake that cannot cite a transcript is a guess.
+
+## 643. Closing a console session to abandon a refused question ran the logout, whose Enter answered the question yes (a repeat of 105) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent, 2026-10-24, on feat/virt-cml, before push. `38df8b73` made
+`cmlconsole.LogOut` press Enter first, to find the node's prompt before typing. `netcli.Session.stop` abandons a
+question a task refused, or one nobody answered, by closing the session, and on a console device that Close ran
+`LogOut`. The Enter answered the pending question. IOS takes Enter at `[confirm]` as yes, so a task refusing reload's
+`[confirm]` would have reloaded the router, and a refused `no username` `[confirm]` would have removed the user. The
+task would have reported a refusal over the change it refused.
+
+**Root cause.** Two rules, each right alone. The dialog's rule was "closing the session abandons the command", which
+holds over SSH: the device drops the command when its session goes. A console line outlives the session, so the
+question was still open when the session closed. `38df8b73`'s rule was "log out on every exit", and the refusal path
+was one of those exits. Nothing asked what the logout's first keystroke would answer.
+
+**Fix.** `4924895f`: `Session.stop` hands the question to a shell implementing `netcli.Abandoner` before it closes.
+`cmlconsole.Abandon` answers `n` to `[confirm]` and `no` to `[yes/no]` (both measured on IOL XE 17.15 on the CVD
+lab's BR3), types nothing at any other question and skips the logout then. A refused login is not logged out either,
+since an Enter there is an empty password that counts toward a lockout (617's class). Tests:
+`TestAbandon_DeclinesOnlyWhatIsCertain` and `TestLogIn_ARefusalIsErrRefused` in `pkg/cmlconsole/console_test.go`,
+`TestDialog_AnAbandonerHearsTheQuestionBeforeItCloses` in `pkg/netcli/dialog_test.go`, and
+`TestConsoleShell_AbandonsAQuestionWithoutAnsweringIt` in `pkg/sdk/console_test.go`.
+
+**Why 105's fix did not prevent it.** 105's fix was local: one guard moved ahead of the deletions, inside a
+transaction. Its lesson is about a guard and a multi-row write, and a session's close is neither, so nothing tied it
+to a dialog's refusal. LESSONS 214 names the review that would have found it: list every path that could act without
+the rule, here "a refused question is never answered", and test each. `38df8b73` changed what Close does without
+listing who calls Close, and the refusal path was one caller.
+
+**Lesson.** On a carrier that outlives the session (a console line), abandoning a command means declining it, never
+closing and never pressing Enter. When a cleanup step starts typing, list every path that reaches it and ask what
+each keystroke answers there.

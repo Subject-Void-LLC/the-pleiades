@@ -645,6 +645,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 640. pkg/netcfg.Mask had no pre-shared-key rule, so an IKEv2 keyring's key went out unmasked, and it masked the command word after crypto key (a repeat of 577) (fixed)
 641. kubernetes_cluster accepted tls_fingerprint and ignored it (a repeat of 441) (fixed before push)
 642. An example and a test fake were written from remembered IOS wording that the device never prints (a repeat of 90) (fixed before push)
+643. Closing a console session to abandon a refused question ran the logout, whose Enter answered the question yes (a repeat of 105) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
