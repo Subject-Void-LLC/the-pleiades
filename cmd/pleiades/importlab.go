@@ -44,6 +44,13 @@ func labPlace(hosts []inventory.HostSpec, spec inventory.HostSpec, replace bool)
 		}
 		spec.ID, spec.Tags, spec.Properties = hosts[index].ID, hosts[index].Tags, kept
 	}
+	// A nil value names a property the import takes away, so a node reached
+	// another way since its last import keeps nothing of the old way.
+	for k, v := range spec.Properties {
+		if v == nil {
+			delete(spec.Properties, k)
+		}
+	}
 	if _, err := inventory.NewItemFactory().Build(record.Record{ID: pkginventory.DeviceID(spec.ID), Name: spec.Name, Type: spec.Type, Properties: spec.Properties}); err != nil {
 		return nil, fmt.Errorf("node %s not imported: %w", spec.Name, err)
 	}

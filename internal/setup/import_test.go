@@ -38,7 +38,7 @@ func TestImportKey_WritesANewFileAndReadsBack(t *testing.T) {
 	if _, set := file.Get(setup.VarMasterKeyVersion); set {
 		t.Fatal("the default tag was written out, which a later edit of the default would contradict")
 	}
-	if info, _ := os.Stat(filepath.Join(path, ".env")); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(filepath.Join(path, ".env")); !ownerOnly(info) {
 		t.Fatalf("mode %v, want 0600", info.Mode().Perm())
 	}
 }

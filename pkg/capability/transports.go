@@ -45,6 +45,12 @@ const (
 	// login answered at the terminal, in cleartext. A method that takes it
 	// is reached over it only with the task's explicit opt-in.
 	TransportTelnet = "telnet"
+
+	// TransportConsole is a terminal reached through a console server
+	// (ConsoleServedCapable): an SSH login to the server with its own
+	// credential and verified host key, then the device's console line,
+	// where the device's own login is answered.
+	TransportConsole = "console"
 )
 
 // EngineTransports lists the container engine transports, in the order a
@@ -72,13 +78,14 @@ var reachedBy = map[string][]Name{
 	TransportSSH:          {NameSSHTransport},
 	TransportWinRM:        {NameWinRM},
 	TransportNetconf:      {NameNetconf},
-	TransportHTTPS:        {NameHTTPAPI, NameCatalystAPI, NameAIProvider, NameCloudflareAPI, NameBatfishAPI},
+	TransportHTTPS:        {NameHTTPAPI, NameCatalystAPI, NameAIProvider, NameCloudflareAPI, NameBatfishAPI, NameCMLAPI},
 	TransportEngineLocal:  {NameEngineLocal},
 	TransportEngineSocket: {NameEngineSocket},
 	TransportEngineStdio:  {NameEngineStdio},
 	TransportEngineTLS:    {NameEngineTLS},
 	TransportKubernetes:   {NameKubernetes},
 	TransportTelnet:       {NameTelnet},
+	TransportConsole:      {NameConsoleServed},
 }
 
 // ReachedBy returns the capabilities that reach transport, any one of

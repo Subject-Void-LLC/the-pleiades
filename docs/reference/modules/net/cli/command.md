@@ -13,7 +13,7 @@ Opens an interactive session over SSH (or over Telnet, with insecure_telnet) and
 |  |  |
 | --- | --- |
 | Capabilities | `NetworkCLICapable` |
-| Transports | `ssh`, `telnet` |
+| Transports | `ssh`, `telnet`, `console` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since an arbitrary CLI line can be anything the device accepts, and what it changes, if anything, is known only once the device has run it |

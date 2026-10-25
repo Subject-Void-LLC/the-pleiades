@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -291,6 +292,10 @@ func buildPleiadesBinary(root string) (binPath string, cleanup func(), err error
 	cleanup = func() { _ = os.RemoveAll(tmpDir) }
 
 	binPath = filepath.Join(tmpDir, "pleiades")
+	if runtime.GOOS == "windows" {
+		// Windows runs only what is named as an executable.
+		binPath += ".exe"
+	}
 	build := exec.Command("go", "build", "-o", binPath, "./cmd/pleiades") // #nosec G204 -- "go" is a fixed literal; binPath is this tool's own os.MkdirTemp output, not external input; "./cmd/pleiades" is a fixed literal
 	build.Dir = root
 	if out, buildErr := build.CombinedOutput(); buildErr != nil {

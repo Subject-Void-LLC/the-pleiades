@@ -20,6 +20,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cloudflare"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cml"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/console"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"

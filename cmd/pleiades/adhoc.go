@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -37,7 +39,8 @@ var paramKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 func runAdhoc(args []string) error {
 	fs := flag.NewFlagSet("adhoc", flag.ContinueOnError)
 	flags := addRunFlags(fs)
-	timeout := fs.Int("timeout", 0, "seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound)")
+	var timeout secondsFlag
+	fs.Var(&timeout, "timeout", "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)")
 	positionals, rest := splitPositionals(args, runBoolFlags)
 	if len(positionals) < 2 {
 		return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
@@ -55,11 +58,36 @@ func runAdhoc(args []string) error {
 	if err != nil {
 		return refuseAdhoc(opts, label, err, fmt.Errorf("%w\n%s", err, usageLine(adhocCommand, fs)))
 	}
-	payload, err := adhocRunbook(hosts, method, params, *timeout)
+	payload, err := adhocRunbook(hosts, method, params, int(timeout))
 	if err != nil {
 		return refuseAdhoc(opts, label, err, err)
 	}
 	return runPipeline(opts, runSource{label: label, yaml: payload})
+}
+
+// secondsFlag is a number of whole seconds, written as a number (40) or as
+// a Go duration (40s, 5m), since both are how people write a timeout.
+type secondsFlag int
+
+// String implements flag.Value.
+func (s *secondsFlag) String() string { return strconv.Itoa(int(*s)) }
+
+// Set implements flag.Value, refusing a fraction of a second, which a
+// task's timeout key cannot hold.
+func (s *secondsFlag) Set(text string) error {
+	if n, err := strconv.Atoi(text); err == nil {
+		*s = secondsFlag(n)
+		return nil
+	}
+	d, err := time.ParseDuration(text)
+	if err != nil {
+		return fmt.Errorf("%q is neither whole seconds nor a duration such as 40s or 5m", text)
+	}
+	if d%time.Second != 0 {
+		return fmt.Errorf("%q is not a whole number of seconds", text)
+	}
+	*s = secondsFlag(d / time.Second)
+	return nil
 }
 
 // refuseAdhoc ends an ad-hoc run refused before it started. With --json,

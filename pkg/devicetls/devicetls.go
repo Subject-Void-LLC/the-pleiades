@@ -1,7 +1,8 @@
 // Package devicetls builds the TLS client configuration for one device
 // from its inventory record and its stored credential: the version floor,
 // the name its certificate is checked against, a pinned certificate
-// authority, and a client certificate for mutual TLS.
+// authority or a pinned certificate, and a client certificate for mutual
+// TLS.
 //
 // The floor is TLS 1.2 and nothing lowers it by default. An old device
 // that cannot do better is reached only through a per-device opt-in that
@@ -12,14 +13,23 @@
 // exchange). Each is reported by Warnings wherever the device is used.
 // SSL 3.0 is not reachable at all: Go does not implement it.
 //
+// A device whose certificate no authority vouches for (a lab controller's
+// self-signed one, or one past its dates) is reached by pinning that one
+// certificate, tls_fingerprint ("sha256:" and its SHA-256 in hex): the pin
+// is then the identity, whatever the certificate's issuer, dates or names,
+// and it is reported by Warnings too, since a renewed certificate needs a
+// new pin.
+//
 // generic_http and generic_grpc read their settings here, as do the
 // onboarding probes and http.request's device mode, so the device, its
 // probe and its method can never disagree about how it is reached.
 package devicetls
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -38,12 +48,13 @@ const (
 	ServerNameProperty         = "tls_server_name"
 	CAPEMProperty              = "tls_ca_pem"
 	ClientCertificateProperty  = "tls_client_certificate"
+	FingerprintProperty        = "tls_fingerprint"
 )
 
 // Properties returns every property this package reads, for a device
 // type's dispatch allowlist.
 func Properties() []string {
-	return []string{MinVersionProperty, AllowDeprecatedProperty, AllowLegacyCiphersProperty, ServerNameProperty, CAPEMProperty, ClientCertificateProperty}
+	return []string{MinVersionProperty, AllowDeprecatedProperty, AllowLegacyCiphersProperty, ServerNameProperty, CAPEMProperty, ClientCertificateProperty, FingerprintProperty}
 }
 
 // versions maps each accepted tls_min_version to its protocol version.
@@ -70,6 +81,9 @@ type Settings struct {
 	// caPEM is the pinned authority as written, for a client that takes
 	// PEM rather than a pool (pkg/winrmexec's does).
 	caPEM []byte
+	// fingerprint is the one certificate trusted, "sha256:" and lowercase
+	// hex, or empty.
+	fingerprint string
 }
 
 // Configured is implemented by a device whose TLS is set from its record.
@@ -139,7 +153,26 @@ func Parse(props inventory.Properties) (Settings, error) {
 		s.roots = pool
 		s.caPEM = []byte(text)
 	}
+	if pin, present := raw[FingerprintProperty]; present {
+		text, _ := pin.(string)
+		if s.fingerprint, err = normalizeFingerprint(text); err != nil {
+			return Settings{}, fmt.Errorf("property %s: %w", FingerprintProperty, err)
+		}
+		if s.roots != nil {
+			return Settings{}, fmt.Errorf("properties %s and %s are two answers to what this device's certificate is trusted by: keep one", FingerprintProperty, CAPEMProperty)
+		}
+	}
 	return s, nil
+}
+
+// normalizeFingerprint reads a pin, "sha256:" and 64 hex digits in either
+// case, as "sha256:" and lowercase hex.
+func normalizeFingerprint(text string) (string, error) {
+	hexPart, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(text)), "sha256:")
+	if b, err := hex.DecodeString(hexPart); !ok || err != nil || len(b) != sha256.Size {
+		return "", errors.New(`a certificate fingerprint is "sha256:" and 64 hex digits`)
+	}
+	return "sha256:" + hexPart, nil
 }
 
 // floor is the settings' lowest version, TLS 1.2 for settings that name
@@ -162,6 +195,10 @@ func (s Settings) PinnedCA() bool { return s.roots != nil }
 // the system's roots.
 func (s Settings) CAPEM() []byte { return s.caPEM }
 
+// PinnedFingerprint returns the one certificate the settings trust,
+// "sha256:" and lowercase hex, or "" when they trust a chain.
+func (s Settings) PinnedFingerprint() string { return s.fingerprint }
+
 // Warnings says, in words a person acts on, what each weakening in s
 // allows for the named device. It is empty for the default settings.
 func (s Settings) Warnings(device string) []string {
@@ -174,18 +211,29 @@ func (s Settings) Warnings(device string) []string {
 		out = append(out, fmt.Sprintf("device %q allows legacy TLS cipher suites (%s): 3DES, RC4 and RSA key exchange are broken or give no forward secrecy; keep it only while the device cannot be upgraded",
 			device, AllowLegacyCiphersProperty))
 	}
+	if s.fingerprint != "" {
+		out = append(out, fmt.Sprintf("device %q trusts one pinned certificate (%s) whatever its issuer, dates or names: pin the new one when the certificate is renewed, and check it with the device's owner first",
+			device, FingerprintProperty))
+	}
 	return out
 }
 
 // Config builds the client configuration for a connection to the device,
 // taking the client certificate from secrets (the device's flattened
 // credential) when the settings present one. Certificates are always
-// verified: there is no setting here that turns verification off.
+// verified: there is no setting here that turns verification off. A pin
+// replaces Go's chain, date and name checks with an exact match of the
+// certificate the device presents, done on every handshake.
 func (s Settings) Config(secrets map[string]string) (*tls.Config, error) {
 	cfg := &tls.Config{
 		MinVersion: s.floor(),
 		ServerName: s.ServerName,
 		RootCAs:    s.roots,
+	}
+	if s.fingerprint != "" {
+		// Go's verification is replaced by the pin below, never skipped.
+		cfg.InsecureSkipVerify = true // #nosec G402 -- VerifyConnection below checks every handshake against the pin
+		cfg.VerifyConnection = verifyPin(s.fingerprint)
 	}
 	if s.AllowLegacyCiphers {
 		for _, suite := range tls.CipherSuites() {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 )
 
@@ -158,7 +159,18 @@ func (c Config) FilePath() (string, bool) {
 	if err != nil || parsed.Scheme != "file" {
 		return "", false
 	}
-	return parsed.Path, true
+	return fileURLPath(parsed.Path, runtime.GOOS), true
+}
+
+// fileURLPath is a file URL's path as goos names files: file:///C:/x/y.yaml
+// has the path /C:/x/y.yaml, and Windows cannot open a drive behind a
+// leading slash, so it is dropped there. Forward slashes stay: Windows
+// takes them as separators.
+func fileURLPath(path, goos string) string {
+	if goos == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		return path[1:]
+	}
+	return path
 }
 
 // EffectivePageSize returns the page size to actually request, resolving an

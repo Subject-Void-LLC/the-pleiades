@@ -4,51 +4,63 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-23. Branch `feat/lab-importers`, off `main` at `62be86d4` (PR #88's merge). Phase 127c's importers and
-Telnet back end, the IOS checkpoint undo, Genie's IOS parsers in Go, `http.wait`, nine routing lab gaps, and the fixes
-from a whole-branch failure-pattern review. Tip `01cdbb70`, plus the uncommitted records for it. Not pushed; no pull
-request yet. Tracker: 127c is 5 of 11 done, 127b 15 of 24.**
+**2026-10-24. Branch `feat/virt-cml`, off `main` at `0caadb17`, tip `d6f47b1f` (38 commits) plus these uncommitted
+records. Phase 127d is built and proven; next is `make pr-check`, the push and the pull request. Not pushed. Tracker:
+127d is 11 of 13 done (open: the Walk tier item, the Release Gate, the commit message).**
 
-### Built and proven
+### What works
 
-- Everything in the previous entry (`HANDOFF_ARCHIVE.md`).
-- `01cdbb70`: the fifteen findings of the fp-reviewer agent's whole-branch review, FAILURE_PATTERNS 613 to 627, each
-  with its test named in its archive entry. Among them: `net.ios.replace` deletes only checkpoints it made (613,
-  `TestReplace_NeverDeletesAFileItDidNotMake`); `Descriptor.UndoCall` (614); a Telnet password is sent once (617);
-  `project.write`'s path reads only `vars` and `.pleiades` is matched by identity (618); Telnet reads bounded by time
-  and raw bytes (620).
-- Not yet run: the Windows-only tests from 615, 616 and 618 (`TestOthersMayWrite_IgnoresAModeThisSystemDoesNotKeep`,
-  `TestModeHolds_ComparesOnlyTheReadOnlyBit`, `TestProjectFiles_RefuseThePleiadesShortName`). They compile for
-  Windows (`GOOS=windows` vet).
+- The ten `virt.cml.*` methods, the `cml_controller` device type, the IOS login seed (type 9 secrets), `import-cml
+  --controller` and `--via console`, and the console transport through a CML controller. Proven on the DevNet sandbox
+  by `TestCLI_BuildsACMLLabAndReachesItsNode` (`040c5fd3`).
+- The blind CVD lab, run 1: turn A met all three requirements in 105 minutes ($19.12), graded from the routers
+  (`~/pleiades-cvd/runs/claude-run1/grade-a.txt`); turn B tore the lab down by `pleiades rollback` in 4.5 minutes
+  (`grade-b.txt`). After-action report: `~/pleiades-cvd/runs/AAR-turn-a.md`.
+- Fixed from the lab's findings: `net.ios.config` answers questions (`prompts`, `ask`, `accept`) and fails at once on
+  an unanswered one (`a2495ddb`); IKE pre-shared keys masked and `crypto key` command words kept (`fa10a343`,
+  `d6f47b1f`, FAILURE_PATTERNS 640); `node.create` takes `interfaces` (`c4e231df`); the `transport: telnet` hint
+  (`f33aff1f`); `pleiades doc <device type>`, `doc --dir`, `adhoc --timeout 40s`, `init --dir` making its directory
+  (`3436e0d6`).
+- Gate work: prscope direct importers, pr-check record stamps and `LEGS=` reruns, `tools/failures watch-pr`.
+- Records: FAILURE_PATTERNS 637 to 642, LESSONS 322 to 326, seven new changelog fragments.
+
+### Blocker
+
+- None. `make pr-check` has not run on this tip yet.
 
 ### Open
 
-- 618's residual: a hard link at the project root to a file inside `.pleiades` can still be read (needs write access
-  to both directories).
-- 574 stays open: `TemplateRule` now reaches `rollback:` steps, but no test writes a misspelled register in one.
-- 610, 611, 612, 602, 598 (other commands), 562, 560, 551, 470 and 471 as before.
-- Not built, as before: Walk-tier enable secret, onboarding a `--via telnet` node, `until`/`retries`, 127c's fuzz,
-  adversarial, security and hardening gates; the routing lab items listed in the previous entry.
-- `tests/cml/.env` is valid until about 2026-10-25 (LESSONS 315).
+- The blind lab's rerun of turn A stopped at 29.5 minutes on the account's weekly usage limit. Afterwards another
+  agent, citing Groundconfig, worked in the CML sandbox from 20:23 to 21:17, so the sandbox's `pleiades-cvd` lab is up
+  and modified. Phase 129's harness item (lock the sandbox for a turn) covers it.
+- The Groundconfig external Collection is built in `~/Groundconfig/pleiades`, not committed. The owner is deciding
+  whether to share it.
+- Proposed, not approved: Phase 128 (IOS candidate merge), 129 (what the blind lab asked for), 130 (firewalls and
+  IDS/IPS).
+- 127d's Walk tier item: a Runner refuses a console server; a `cml_controller` task from a Runner is untested.
+- 638: no test drives a `virt.cml` failure through to the journal. 640: Mask is still a denylist.
+- Carried: `TestCheck_RealRoutersAgainstRealBatfish`'s readiness wait, 629's GNS3 retries, 618's hard link residual,
+  574, 610, 611, 612, 602, 598, 562, 560, 551, 470, 471.
 
-### Next
+### Next, in order
 
-1. Commit the records.
-2. `make pr-check` with `PR_CHECK_PARALLELISM=1`, under the memory cap. Its Windows leg is the first real run of the
-   Windows tests from 615, 616 and 618.
-3. Push and open the pull request; stay on it until it is green.
-4. Then the `virt.cml` pull request, then release tooling (which must ship `LICENSE.genieparser`).
+1. Commit these records, then `make pr-check` on the clean tip; push; open the pull request; `go run ./tools/failures
+   watch-pr -pr N`.
+2. After it merges: the release tooling pull request (a dry-run binary release; no tag until the owner says).
+3. Then Phase 117b part 3, then Phase 126.
 
-### Files changed (since the last records)
+### Files changed
 
-`01cdbb70`: `internal/catalog/net/ios/` (`checkpoint.go`, `replace.go`, `config.go`), `internal/catalog/net/trace.go`,
-`internal/catalog/pleiades/builtin/project/write.go`, `internal/engine/` (project guard, project mode, render),
-`internal/journal/` (`active.go`, `reader_unix.go`, `reader_other.go`), `internal/validate/` (`param_tasks.go`,
-`template_rule.go`, `vars_rule.go`, `rollback_rule.go`), `pkg/collection` (`UndoCall`), `pkg/telnetexec`, `pkg/cml`,
-`pkg/gns3`, `internal/testsupport/gns3.go`, `internal/inventory/file_repository.go`, `cmd/pleiades` (add-credential,
-importers, run pipeline, validate), docs, the generated reference, changelog fragments. Records: FAILURE_PATTERNS 613
-to 627 (and an update to 574), LESSONS 321, changelog `project-files-windows-short-name.security.md`.
+- This branch: `internal/catalog/virt/cml`, `pkg/cml`, `pkg/cmlconsole`, `pkg/iossecret`, `pkg/devicetls`,
+  `pkg/netcfg`, `pkg/netcli`, `internal/catalog/net/ios`, `internal/engine` (login seed, console dialer),
+  `cmd/pleiades` (doc, adhoc, init, import-cml), `tools/prscope`, `tools/prreport`, `tools/gatereceipt`,
+  `tools/testgate`, `tools/failures`, docs and generated references.
+- This session's records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
+  `LESSONS_LEARNED_ARCHIVE.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, seven files under `changelog/`, and
+  `.SPECIFICATION/IMPLEMENTATION.md` (127d's blind lab item ticked).
 
 ### Lab state
 
-Unchanged: no lab VM was touched; `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved as last recorded.
+Changed: the CML sandbox's `pleiades-cvd` lab is up and modified (see Open). The VirtualBox lab was not reported
+changed; last recorded, `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved, and
+`~/pleiades-lab/bin/pleiades` is built from `main` at `0caadb17`.

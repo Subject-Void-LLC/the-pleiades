@@ -41,13 +41,14 @@ func TestReachedBy_TheRows(t *testing.T) {
 		capability.TransportSSH:          {capability.NameSSHTransport},
 		capability.TransportWinRM:        {capability.NameWinRM},
 		capability.TransportNetconf:      {capability.NameNetconf},
-		capability.TransportHTTPS:        {capability.NameHTTPAPI, capability.NameCatalystAPI, capability.NameAIProvider, capability.NameCloudflareAPI, capability.NameBatfishAPI},
+		capability.TransportHTTPS:        {capability.NameHTTPAPI, capability.NameCatalystAPI, capability.NameAIProvider, capability.NameCloudflareAPI, capability.NameBatfishAPI, capability.NameCMLAPI},
 		capability.TransportEngineLocal:  {capability.NameEngineLocal},
 		capability.TransportEngineSocket: {capability.NameEngineSocket},
 		capability.TransportEngineStdio:  {capability.NameEngineStdio},
 		capability.TransportEngineTLS:    {capability.NameEngineTLS},
 		capability.TransportKubernetes:   {capability.NameKubernetes},
 		capability.TransportTelnet:       {capability.NameTelnet},
+		capability.TransportConsole:      {capability.NameConsoleServed},
 	}
 	if got := capability.Transports(); len(got) != len(want) {
 		t.Fatalf("Transports() = %v, want exactly %d", got, len(want))

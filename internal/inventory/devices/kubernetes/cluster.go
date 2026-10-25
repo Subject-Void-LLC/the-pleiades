@@ -101,6 +101,10 @@ func NewCluster(rec record.Record) (inventory.InventoryItem, error) {
 		return nil, fmt.Errorf("%s %s: a Kubernetes API server speaks TLS 1.2 or later with current ciphers, so the weak-TLS settings do not apply", TypeCluster, rec.Name)
 	case settings.ClientCertificate:
 		return nil, fmt.Errorf("%s %s: property %s does not apply: a cluster presents a client certificate exactly when its stored credential holds one", TypeCluster, rec.Name, devicetls.ClientCertificateProperty)
+	case settings.PinnedFingerprint() != "":
+		// The Kubernetes client verifies against an authority, never one
+		// pinned certificate, so a pin here would only appear to work.
+		return nil, fmt.Errorf("%s %s: property %s does not apply: a cluster's API server is verified against its authority; set %s to the cluster's CA", TypeCluster, rec.Name, devicetls.FingerprintProperty, devicetls.CAPEMProperty)
 	}
 	caps, stale, err := record.Declared(TypeCluster, rec, nil)
 	if err != nil {

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
 // options is one run's configuration, parsed from the command line.
@@ -46,6 +48,16 @@ type options struct {
 	reportOut string
 	// packages are the import paths to test; empty means ./...
 	packages []string
+	// commit and clean are the record's stamp as given on the command line
+	// (-commit, -clean): the commit pr-check began at and yes or no for
+	// whether its tree was clean then. Both empty stamps nothing.
+	commit, clean string
+}
+
+// stamp is the stamp o's record carries, or why the values given for it
+// cannot be one (flakegate.ParseStamp).
+func (o options) stamp() (flakegate.Stamp, error) {
+	return flakegate.ParseStamp(o.commit, o.clean)
 }
 
 // goTestArgs is the go test argument list for o's mode, before -json and
@@ -92,6 +104,9 @@ func (o options) validate() error {
 	}
 	if o.shard != "" && len(o.packages) == 0 {
 		return fmt.Errorf("-shard needs an explicit package list: ./... cannot be divided without listing it")
+	}
+	if _, err := o.stamp(); err != nil {
+		return err
 	}
 	return nil
 }

@@ -34,9 +34,14 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.test",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.test",
 	)
-	out, err := cmd.CombinedOutput()
+	// Standard error is kept apart: git warns there (on Windows, that a
+	// file's line endings will change), and a warning is not the output a
+	// test reads.
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		t.Fatalf("git %s: %v\n%s%s", strings.Join(args, " "), err, out, stderr.String())
 	}
 	return strings.TrimSpace(string(out))
 }
@@ -98,7 +103,14 @@ func gateRun(t *testing.T, target string) []string {
 	if dirty {
 		clean = "no"
 	}
-	return []string{"--target", target, "--started-at", headOf(t), "--started-clean", clean}
+	args := []string{"--target", target, "--started-at", headOf(t), "--started-clean", clean}
+	if target == "pr-check" {
+		// pr-check's receipt is written only over its run's report, which
+		// make pr-check passes; a passing one for HEAD, as a real run
+		// merges it.
+		args = append(args, "--report", passingReport(t, headOf(t), time.Now().Add(-time.Hour)))
+	}
+	return args
 }
 
 // pushLines puts the lines git gives a pre-push hook on os.Stdin, through a

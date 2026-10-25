@@ -157,10 +157,10 @@ func TestLoginSeed_Refusals(t *testing.T) {
 		engine.WithLoginSeeder(engine.NewCredentialLoginSeeder(failingStore{err: errors.New("wrong master key")}, inventoryOf{}))), map[string]any{"login": "x"}); err == nil || !strings.Contains(err.Error(), "resolve credential") {
 		t.Errorf("an unreadable store: %v", err)
 	}
-	if _, err := engine.NewCredentialLoginSeeder(nil, inventoryOf{})(context.Background(), "x", false); err == nil {
+	if _, err := engine.NewCredentialLoginSeeder(nil, inventoryOf{})(context.Background(), "x", engine.SeedForms{}); err == nil {
 		t.Error("a nil store seeded")
 	}
-	if _, err := engine.NewCredentialLoginSeeder(store, nil)(context.Background(), "key-only", false); err == nil {
+	if _, err := engine.NewCredentialLoginSeeder(store, nil)(context.Background(), "key-only", engine.SeedForms{}); err == nil {
 		t.Error("seeded with no inventory")
 	}
 }

@@ -105,12 +105,19 @@ func appendLedger(path string, entries []Entry) (int, error) {
 // writeLedger writes entries to path through a temporary file renamed over
 // it, creating its directory private to this user.
 func writeLedger(path string, entries []Entry) error {
+	return writeLines(path, entries)
+}
+
+// writeLines writes items to path as one JSON object per line, through a
+// temporary file renamed over it, creating its directory private to this
+// user, so a reader never finds half a file.
+func writeLines[T any](path string, items []T) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	var b bytes.Buffer
-	for _, e := range entries {
-		line, err := json.Marshal(e)
+	for _, item := range items {
+		line, err := json.Marshal(item)
 		if err != nil {
 			return err
 		}

@@ -22,6 +22,10 @@ const testCommit = "1fa9390d9e6736bec053983246a95a3b2b81ba39"
 // testAt is when the fixtures' runs began.
 var testAt = time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 
+// testStamp is what the fixtures' records carry: testCommit, on a clean
+// tree.
+var testStamp = flakegate.Stamp{Commit: testCommit, Clean: true}
+
 // writeRecords writes a records directory as a pr-check run does: a fast
 // pass with a real failure and a contention, a strict repeat with a failure,
 // a Mac leg that could not reach its machine, a Windows leg whose repeat
@@ -35,13 +39,13 @@ func writeRecords(t *testing.T, dir string) {
 	full := "testgate -race -timeout 30m -tags integration -cover -count=1 -p 1"
 	repeat := "testgate -count=3 -timeout 30m -p 1"
 	runs := map[string]flakegate.Run{
-		"fast": {Label: full, OS: "linux", Arch: "amd64", Started: testAt, Verdict: flakegate.VerdictFail, Failures: []flakegate.RunFailure{
+		"fast": {Label: full, OS: "linux", Arch: "amd64", Packages: []string{modulePrefix + "x/a", modulePrefix + "x/b"}, Commit: testCommit, Clean: true, Started: testAt, Verdict: flakegate.VerdictFail, Failures: []flakegate.RunFailure{
 			{Package: "x/a", Test: "TestBroken", Kind: "test", Outcome: flakegate.OutcomeFailed,
 				Output: "=== RUN   TestBroken\n    a_test.go:9: dial someone@192.0.2.10 from /home/someone/src: got refused\n--- FAIL: TestBroken (0.01s)"},
 			{Package: "x/a", Test: "TestRace", Kind: "test", Outcome: flakegate.OutcomeContention, Output: "--- FAIL: TestRace"},
 			{Package: "x/b", Kind: "package", Outcome: flakegate.OutcomeNotRerun},
 		}},
-		"repeat": {Label: repeat, OS: "linux", Arch: "amd64", Started: testAt, Verdict: flakegate.VerdictFail, Failures: []flakegate.RunFailure{
+		"repeat": {Label: repeat, OS: "linux", Arch: "amd64", Packages: []string{modulePrefix + "x/a"}, Commit: testCommit, Clean: true, Started: testAt, Verdict: flakegate.VerdictFail, Failures: []flakegate.RunFailure{
 			{Package: "x/a", Test: "TestFlaky", Kind: "test", Outcome: flakegate.OutcomeFailed},
 		}},
 	}
@@ -67,10 +71,10 @@ func writeRecords(t *testing.T, dir string) {
 			t.Fatal(err)
 		}
 	}
-	if err := prreport.WriteStep(dir, "coverage", 1, ""); err != nil {
+	if err := prreport.WriteStep(dir, "coverage", 1, "", testStamp, testAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := prreport.WriteStep(dir, "images", 0, "no Docker daemon answered"); err != nil {
+	if err := prreport.WriteStep(dir, "images", 0, "no Docker daemon answered", testStamp, testAt); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -190,6 +194,31 @@ func TestRecordPRCheck_FromALog(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := run([]string{"record-prcheck", "-dir", dir, "-log", filepath.Join("testdata", "prcheck-summary-15.log"), "-at", "yesterday"}, &bytes.Buffer{}, &stderr, nil); code != 2 {
 		t.Errorf("a bad -at: exit %d, %s", code, stderr.String())
+	}
+}
+
+// TestFromReport_KeptRecordsAreNotCountedAgain: a pass, leg and step that
+// began before the run (kept by make pr-check LEGS=..., and recorded by the
+// run that wrote them) add no entry, while this run's own do.
+func TestFromReport_KeptRecordsAreNotCountedAgain(t *testing.T) {
+	started := testAt
+	earlier := testAt.Add(-2 * time.Hour)
+	failed := flakegate.Run{OS: "linux", Started: earlier, Verdict: flakegate.VerdictFail,
+		Failures: []flakegate.RunFailure{{Package: "x/a", Test: "TestOld", Kind: "test", Outcome: flakegate.OutcomeFailed}}}
+	fresh := failed
+	fresh.Started = testAt.Add(time.Minute)
+	fresh.Failures = []flakegate.RunFailure{{Package: "x/a", Test: "TestNew", Kind: "test", Outcome: flakegate.OutcomeFailed}}
+	r := prreport.Report{Commit: testCommit, Started: &started, Generated: testAt.Add(time.Hour),
+		Passes: []prreport.Pass{{Name: "fast", Run: failed}, {Name: "repeat", Run: fresh}},
+		Legs:   []prreport.Leg{{Name: "mac", Leg: oscheck.LegRecord{OS: "macOS", Started: earlier, Verdict: flakegate.VerdictNotRun, Step: oscheck.StepReachable}}},
+		Steps:  []prreport.Step{{Name: "coverage", Verdict: flakegate.VerdictFail, ExitCode: 1, At: earlier}, {Name: "sizes", Verdict: flakegate.VerdictFail, ExitCode: 2, At: testAt.Add(time.Minute)}},
+	}
+	want := []brief{
+		{KindTest, "repeat", "", "linux", "x/a", "TestNew", VerdictReal, ""},
+		{KindLeg, "sizes", "", "", "", "", VerdictFail, "exit 2"},
+	}
+	if b := briefs(fromReport(r, "b", testAt)); !equalBriefs(b, want) {
+		t.Errorf("\n got %+v\nwant %+v", b, want)
 	}
 }
 

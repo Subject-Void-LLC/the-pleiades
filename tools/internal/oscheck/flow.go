@@ -199,6 +199,13 @@ func (f Flow) run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg
 	}
 	if len(o.Packages) == 0 {
 		fmt.Fprintf(stdout, "%s: the branch changes no container-free package, so nothing runs on %s\n", f.Tool, f.Machine)
+		// The record still names its commit, so pr-check's merge ties it to
+		// the run that wrote it rather than calling it an earlier run's. A
+		// commit that does not resolve leaves it unnamed: nothing ran, so
+		// nothing is lost but the tie, which the merge then reports.
+		if sha, _, err := ResolveCommit(o.Commit); err == nil {
+			rec.Commit = sha
+		}
 		rec.Verdict = flakegate.VerdictPass
 		return 0, true
 	}

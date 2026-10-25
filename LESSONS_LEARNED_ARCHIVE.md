@@ -6169,3 +6169,70 @@ written and tested. Three were security-relevant: `net.ios.replace` would have r
 password (626). Two were Windows-only (615, 616), which no Linux test could show. Twelve of the fifteen repeat an
 entry already in the archive and one more is a sibling of one, so the archive knew those classes; the per-change
 reviews did not ask it of the whole branch. `01cdbb70` fixed all fifteen, apart from 618's hard-link residual.
+
+## 322. A repeat of 109 and 317: device wording in an example, a fake or a doc is measured through the product on a real device before it is published, never recalled
+
+**Rule.** Before an example, a test fake or a document states what a device prints or asks, run the command through
+The Pleiades on a real device and copy what came back. Name the device, its release and the run beside the text.
+
+**Why.** 2026-10-24, feat/virt-cml (FAILURE_PATTERNS 642). A forked subagent wrote an example and a fake in which IOS
+asks before replacing a key pair. A short run on the blind CVD lab's BR3 (IOL XE 17.15), making a key pair, making it
+again and removing it through `net.ios.config`, showed in minutes that IOS asks nothing there, and that masking took
+the command word out of `crypto key generate` and `crypto key zeroize` lines (FAILURE_PATTERNS 640). Neither had been
+measured before. LESSONS 109 and 317 already say to measure a claim about another system before building on it; they
+did not hold because the claim was a device's wording, written by an agent that was not given those records, and a
+fake built from the same memory passes its own test.
+
+## 323. A blind agent's friction log is a backlog: read each item against the code, fix what is small on the branch, and propose the rest as a phase
+
+**Rule.** When an agent new to The Pleiades works only from its skill and the tool, keep its friction log as a list
+of work. Check each item against the code before accepting it, fix the small ones on the branch that is open, and
+write the rest as a proposed phase with the evidence beside each item.
+
+**Why.** 2026-10-24, the blind CVD lab (`~/pleiades-cvd`). Turn A's after-action report listed what the agent hit:
+`net.ios.config` hanging five minutes on a `[yes/no]` question, IOS notices failing a rerun, `node.create` unable to
+add interfaces, a Telnet error that did not name `transport: telnet`, `adhoc --timeout` refusing `40s`, a pre-shared
+key unmasked. Each was checked, and those were fixed on feat/virt-cml (`a2495ddb`, `c4e231df`, `f33aff1f`,
+`3436e0d6`, `fa10a343`). Turn B's teardown and the rerun added more. The rest became Phase 129 (proposed, not yet
+approved), each item naming the run that showed it. None of these had been found by the test suite, which tests what
+its authors thought to ask.
+
+## 324. A repeat of 104: a grader is code that can be wrong; run it against a known result before a run is judged by it
+
+**Rule.** Before a grader judges an agent's run, run it against a result known to pass and one known to fail, and
+read every FAIL it reports as a claim to check, not a verdict. A grader check reads the artifact it means to judge
+(the router's configuration, the runbook, the journal's run list), not every file that matches a pattern.
+
+**Why.** 2026-10-24, the blind CVD lab's grader (`grade.sh`, outside the repository). Run 1 met all three
+requirements, and the grader still reported five false failures: a plaintext-login regex matched prose in the agent's
+journal; a snapshot of the untouched default lab differed from its baseline by one `!` line; a runbook that needs a
+variable from `-e` was validated without one; a check for something saving the configuration matched a
+`pleiades doc --json` dump (`.catalog.json`); and a Python step crashed on a JSON line that was not an object. LESSONS
+104 says a measurement is code and fails in the shape of what it measures; it did not hold because it was written
+about a parity suite inside the repository, and the grader was written fresh for this run, with no run it was known to
+pass. LESSONS 306 keeps the grader out of the agent's sight; this keeps it honest.
+
+## 325. A blind lab turn is sized to the task: turn A needed 105 minutes, not an hour, and a limit extended by pausing timeout reports exit 124
+
+**Rule.** Give a blind lab's build turn a limit measured from a run that finished, and say in the harness's summary
+how the turn ended (finished, timed out, extended, stopped by a usage limit). Do not read `timeout`'s exit 124 as a
+time-out when the limit was extended by hand.
+
+**Why.** 2026-10-24, the blind CVD lab. Turn A was started with a 60-minute limit; the agent needed 105 minutes
+(16:10 to 17:55, 299 turns, $19.12) and met all three requirements. The limit was extended while it ran by stopping
+the `timeout` process with SIGSTOP. That worked, and `summary-a.txt` still said exit 124, although the agent finished
+on its own. The rerun of turn A later ended after 29.5 minutes on the account's weekly usage limit, which the summary
+recorded only as exit 1. Phase 129's harness item asks for a usage-limit stop to be reported as such and for turn A
+to be split into build, configure and prove.
+
+## 326. A blind agent follows a design guide literally: a prompt that allows any design says the simplest one that meets the requirements is wanted
+
+**Rule.** When a blind agent is told to follow a published design guide, the prompt or the skill also says to choose
+the simplest design that meets the stated requirements, and that parts of a guide the requirements do not need are
+optional.
+
+**Why.** 2026-10-24, the blind CVD lab. The request asked for a hub-and-spoke WAN following Cisco Validated Designs
+and allowed any WAN. In run 1 the agent followed the IWAN guide's PKI section and built an IOS certificate authority:
+about 25 of a 30-minute detour, ending when CORE1 could not enroll because IOL XE serves no HTTP, and it switched to
+a pre-shared key. The rerun built a certificate authority again. Neither the requirements nor the request needed
+one. Phase 129's skill item adds "the simplest design that meets the requirements".

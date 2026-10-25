@@ -26,10 +26,12 @@ func fullPRReport(t *testing.T) prreport.Report {
 	t.Helper()
 	dir := t.TempDir()
 	at := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
-	if _, err := prreport.Begin(dir, "abc123", []string{"fast", "mac", "win", "coverage", "images", "durations"}, at); err != nil {
+	commit := strings.Repeat("abc123", 6) + "abcd"
+	stamp := flakegate.Stamp{Commit: commit, Clean: true}
+	if _, err := prreport.Begin(dir, commit, []string{"fast", "mac", "win", "coverage", "images", "durations"}, at); err != nil {
 		t.Fatal(err)
 	}
-	fast := flakegate.Run{Label: "testgate -race -cover", OS: "linux", Arch: "amd64", Packages: []string{"x/a"}, Started: at, Seconds: 12.5,
+	fast := flakegate.Run{Label: "testgate -race -cover", OS: "linux", Arch: "amd64", Packages: []string{"x/a"}, Commit: commit, Clean: true, Started: at, Seconds: 12.5,
 		Verdict: flakegate.VerdictFail, Error: "1 failure(s)",
 		Failures: []flakegate.RunFailure{
 			{Package: "x/a", Test: "TestBroken", Kind: "test", Outcome: flakegate.OutcomeFailed, Output: "want 1, got 2"},
@@ -53,9 +55,9 @@ func fullPRReport(t *testing.T) prreport.Report {
 		t.Fatal(err)
 	}
 	legs := map[string]oscheck.LegRecord{
-		"mac": {Tool: "maccheck", OS: "macOS", Target: "mac", Commit: "abc123", Packages: []string{"x/a"}, Started: at, Seconds: 80,
+		"mac": {Tool: "maccheck", OS: "macOS", Target: "mac", Commit: commit, Packages: []string{"x/a"}, Started: at, Seconds: 80,
 			Verdict: flakegate.VerdictPass, Error: "the box could not be put back", Runs: []flakegate.Run{machine}},
-		"win": {Tool: "wincheck", OS: "Windows", Target: "win-check", Commit: "abc123", Packages: []string{"x/a"}, Started: at, Seconds: 9,
+		"win": {Tool: "wincheck", OS: "Windows", Target: "win-check", Commit: commit, Packages: []string{"x/a"}, Started: at, Seconds: 9,
 			Verdict: flakegate.VerdictNotRun, Step: oscheck.StepShip, Error: "401 - invalid content type"},
 	}
 	for name, leg := range legs {
@@ -63,14 +65,14 @@ func fullPRReport(t *testing.T) prreport.Report {
 			t.Fatal(err)
 		}
 	}
-	if err := prreport.WriteStep(dir, "coverage", 1, ""); err != nil {
+	if err := prreport.WriteStep(dir, "coverage", 1, "", stamp, at); err != nil {
 		t.Fatal(err)
 	}
-	if err := prreport.WriteStep(dir, "images", 0, "no Docker daemon answered"); err != nil {
+	if err := prreport.WriteStep(dir, "images", 0, "no Docker daemon answered", stamp, at); err != nil {
 		t.Fatal(err)
 	}
 	one := 1
-	r, err := prreport.Merge(dir, prreport.MergeOptions{Commit: "abc123", ExitCode: &one, Now: at.Add(time.Hour)})
+	r, err := prreport.Merge(dir, prreport.MergeOptions{Commit: commit, ExitCode: &one, Now: at.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}

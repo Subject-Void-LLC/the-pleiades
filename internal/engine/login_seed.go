@@ -10,15 +10,41 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/iossecret"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/shacrypt"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
+// SeedForms are the forms of a login a seeding method can write into the
+// machine it creates beyond a key and a hash, from its manifest.
+type SeedForms struct {
+	// Password is SeedsLoginPassword: a device reached over WinRM may be
+	// seeded, with its password itself.
+	Password bool
+	// IOSSecret is SeedsLoginIOSSecret: a Cisco IOS device may be seeded,
+	// with IOS type 9 hashes of its passwords.
+	IOSSecret bool
+	// Required says the parameter naming the device is required, so an
+	// empty one is refused; an optional one left empty seeds nothing.
+	Required bool
+}
+
+// requiredParam reports whether desc declares the parameter named name as
+// required.
+func requiredParam(desc collection.Descriptor, name string) bool {
+	for _, p := range desc.Manifest.Doc.Params {
+		if p.Name == name {
+			return p.Required
+		}
+	}
+	return false
+}
+
 // LoginSeeder resolves the device named device into the secrets a seeding
-// method receives. password says the method sets SeedsLoginPassword, so
-// a device reached over WinRM may be seeded, with its password itself.
-type LoginSeeder func(ctx context.Context, device string, password bool) (map[string]string, error)
+// method receives, in a form forms allows.
+type LoginSeeder func(ctx context.Context, device string, forms SeedForms) (map[string]string, error)
 
 // DeviceFinder finds an inventory device by its name.
 type DeviceFinder interface {
@@ -45,8 +71,11 @@ func WithLoginSeeder(seed LoginSeeder) CollectionActionExecutorOption {
 // over WinRM (a Windows machine) is admitted by its password, and a
 // Windows answer file can hold nothing else, so the method gets the
 // password itself; only a method that says it can seed one gets that far.
+// One that is a Cisco IOS device admits a password at its login prompt and
+// keeps only a hash of it, so the method gets IOS type 9 hashes, again only
+// when it says it can seed one.
 func NewCredentialLoginSeeder(store credential.Store, devices DeviceFinder) LoginSeeder {
-	return func(ctx context.Context, device string, password bool) (map[string]string, error) {
+	return func(ctx context.Context, device string, forms SeedForms) (map[string]string, error) {
 		if store == nil || devices == nil {
 			return nil, fmt.Errorf("no credential store or inventory to seed %q's login from", device)
 		}
@@ -61,8 +90,11 @@ func NewCredentialLoginSeeder(store credential.Store, devices DeviceFinder) Logi
 		if err != nil {
 			return nil, fmt.Errorf("resolve credential for device %q: %w", device, err)
 		}
+		if item.HasCapability(capability.NameCiscoIOS) {
+			return iosSeed(device, item, cred, forms.IOSSecret)
+		}
 		if item.HasCapability(capability.NameWinRM) {
-			return passwordSeed(device, cred, password)
+			return passwordSeed(device, cred, forms.Password)
 		}
 		return keySeed(device, cred)
 	}
@@ -81,6 +113,40 @@ func passwordSeed(device string, cred credential.Credential, allowed bool) (map[
 		wire.SecretSeedUsername: cred.Username,
 		wire.SecretSeedPassword: cred.Password,
 	}, nil
+}
+
+// iosSeed is what a method seeding a Cisco IOS device receives: the
+// username and IOS type 9 hashes of the password and, only when the
+// credential has one, the enable password, each under a fresh salt; and the
+// device's address, where the machine made for it must answer.
+func iosSeed(device string, item inventory.InventoryItem, cred credential.Credential, allowed bool) (map[string]string, error) {
+	if !allowed {
+		return nil, fmt.Errorf("device %q is a Cisco IOS device, admitted by a password, and this method cannot seed one", device)
+	}
+	if cred.Username == "" || cred.Password == "" {
+		return nil, fmt.Errorf("device %q is a Cisco IOS device, so its credential needs a username and a password to seed it with (a key alone cannot log in at its console)", device)
+	}
+	secret, err := iossecret.Hash(iossecret.Type9, cred.Password)
+	if err != nil {
+		return nil, fmt.Errorf("device %q: %w", device, err)
+	}
+	seed := map[string]string{
+		wire.SecretSeedUsername:  cred.Username,
+		wire.SecretSeedIOSSecret: secret,
+	}
+	// Only a device that claims an address of its own hands one over: a
+	// console-served device has none, whatever a stale host property says.
+	if addressed, ok := item.(interface{ IPAddress() string }); ok && addressed.IPAddress() != "" && item.HasCapability(capability.NameNetworkAddressable) {
+		seed[wire.SecretSeedHost] = addressed.IPAddress()
+	}
+	if cred.EnablePassword != "" {
+		enable, err := iossecret.Hash(iossecret.Type9, cred.EnablePassword)
+		if err != nil {
+			return nil, fmt.Errorf("device %q: %w", device, err)
+		}
+		seed[wire.SecretSeedIOSEnableSecret] = enable
+	}
+	return seed, nil
 }
 
 // keySeed is what a method seeding a machine reached over SSH receives:
@@ -112,15 +178,20 @@ func keySeed(device string, cred credential.Credential) (map[string]string, erro
 // refuses when this executor has no seeder, when the method would run
 // in another process (which the seed cannot yet cross to), and when the
 // parameter names no device.
-func (e *collectionActionExecutor) seedLogin(ctx context.Context, fqcn, param string, password bool, params map[string]interface{}) (map[string]string, error) {
+func (e *collectionActionExecutor) seedLogin(ctx context.Context, fqcn, param string, forms SeedForms, params map[string]interface{}) (map[string]string, error) {
+	device, _ := params[param].(string)
+	if device == "" && !forms.Required {
+		// An optional device left empty: the machine stands for no
+		// inventory device, so there is no login to seed, on any tier.
+		return nil, nil
+	}
 	if e.seed == nil || e.invoke != nil {
 		return nil, fmt.Errorf("collection method %q seeds a login into the machine it creates, which only the pleiades CLI resolves so far", fqcn)
 	}
-	device, _ := params[param].(string)
 	if device == "" {
 		return nil, fmt.Errorf("collection method %q: %s must name the inventory device whose login the machine gets", fqcn, param)
 	}
-	seed, err := e.seed(ctx, device, password)
+	seed, err := e.seed(ctx, device, forms)
 	if err != nil {
 		return nil, fmt.Errorf("collection method %q: %w", fqcn, err)
 	}

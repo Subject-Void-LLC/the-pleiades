@@ -10,6 +10,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -26,7 +27,7 @@ func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: replaceFQCN,
 		Manifest: collection.Manifest{
-			SupportedTransports:  []string{"ssh", "telnet"},
+			SupportedTransports:  []string{"ssh", "telnet", "console"},
 			RequiredCapabilities: []capability.Name{capability.NameCiscoIOS},
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
@@ -53,7 +54,7 @@ func init() {
 func replaceDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Replaces a Cisco IOS device's running configuration with a checkpoint file on the device.",
-		Description: "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files net.ios.config made (named pleiades-<id>.cfg) are deleted afterwards unless keep is true; any other file, such as nvram:startup-config or a configuration kept on flash:, is never deleted. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
+		Description: "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails; a line in IOS's \"% \" form the replace prints fails it only then, and when the device matches it is reported as a warning, masked. The checkpoint files net.ios.config made (named pleiades-<id>.cfg) are deleted afterwards unless keep is true; any other file, such as nvram:startup-config or a configuration kept on flash:, is never deleted. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
 		Params: []collection.Param{
 			{Name: paramReplaceCheckpoint, Type: "string", Required: true, Description: "The checkpoint to return to, a file on the device such as unix:pleiades-3f2a.cfg or flash:pleiades-3f2a.cfg."},
 			{Name: paramReplaceExpect, Type: "string", Description: "A checkpoint the running configuration must still match before anything is replaced, refusing otherwise: the configuration as the change left it."},
@@ -154,15 +155,23 @@ func replace(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
-		if netcli.IOS.ErrorPattern.MatchString(out) {
-			return collection.Result{}, fmt.Errorf("%s: configure replace %s: %s", fqcn, plan.checkpoint, strings.TrimSpace(firstErrorLine(out)))
-		}
+		// A "% " line is a failure only when the device does not match the
+		// checkpoint afterwards: a replace that removes a routing protocol
+		// prints its notices in IOS's error form and still succeeds, so the
+		// comparison, not the wording, decides.
+		complained := netcli.IOS.ErrorPattern.MatchString(out)
 		left, err := differences(ctx, session, plan.checkpoint, runningConfig)
-		if err != nil {
+		switch {
+		case complained && (err != nil || len(left) > 0):
+			return collection.Result{}, fmt.Errorf("%s: configure replace %s: %s", fqcn, plan.checkpoint, strings.TrimSpace(netcfg.Mask(firstErrorLine(out))))
+		case err != nil:
 			return collection.Result{}, fmt.Errorf("%s: after the replace: %w", fqcn, err)
-		}
-		if len(left) > 0 {
+		case len(left) > 0:
 			return collection.Result{}, fmt.Errorf("%s: after configure replace the device still differs from %s: %s", fqcn, plan.checkpoint, shownDifferences(left))
+		case complained:
+			if err := sdk.RecordWarnings(rc, replaceNotices(out, plan.checkpoint)); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
 		}
 	}
 	if !plan.keep {
@@ -192,4 +201,17 @@ func shownDifferences(lines []string) string {
 		return strings.Join(lines, "; ")
 	}
 	return fmt.Sprintf("%s; and %d more", strings.Join(lines[:errorDifferences], "; "), len(lines)-errorDifferences)
+}
+
+// replaceNotices are the "% " lines a replace that left the device matching
+// checkpoint printed, masked, as warnings.
+func replaceNotices(out, checkpoint string) []string {
+	var warnings []string
+	for line := range strings.SplitSeq(out, "\n") {
+		line = strings.TrimSpace(line)
+		if netcli.IOS.ErrorPattern.MatchString(line) {
+			warnings = append(warnings, fmt.Sprintf("configure replace printed %q, and the device matches %s afterwards", netcfg.Mask(line), checkpoint))
+		}
+	}
+	return warnings
 }

@@ -75,6 +75,17 @@
 // default would be this command guessing at the one fact it cannot
 // observe, and guessing in the permissive direction.
 //
+// # A pr-check receipt also needs its report to pass
+//
+// make pr-check LEGS=... runs only the parts it names and keeps the other
+// parts' records from the last run, so the gate's exit status says only
+// that the parts it ran passed. A pr-check receipt is therefore written
+// only over the run's merged report (--report): a pass, of HEAD, with
+// nothing missing and no problem listed, which the merge guarantees only
+// when every record is stamped with this commit on a clean tree. The
+// receipt keeps the report's oldest record time, and the age bound below
+// is counted from it.
+//
 // # What a receipt cannot tell you
 //
 // Every check `make ci` runs is a pure function of the tree except one.
@@ -208,6 +219,15 @@ type Receipt struct {
 
 	// WrittenAt is when the gate finished, in UTC.
 	WrittenAt time.Time `json:"written_at"`
+
+	// Oldest is, on a pr-check receipt, when the oldest record in the run's
+	// report began. make pr-check LEGS=... keeps the records of the parts it
+	// does not run, govulncheck's among them, so a run finished today can
+	// hold an answer from yesterday; verify counts the age bound from the
+	// older of this and WrittenAt, so a reused advisory answer cannot
+	// outlive the bound. Absent on other receipts, and on a pr-check
+	// receipt whose report did not say.
+	Oldest *time.Time `json:"oldest,omitempty"`
 }
 
 func main() {
@@ -234,12 +254,14 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `Usage: gatereceipt <command> [flags]
 
-  write  --target <name> --started-at <sha> --started-clean <yes|no>
+  write  --target <name> --started-at <sha> --started-clean <yes|no> [--report <file>]
          record that the gate passed. Run it through `+"`make ci`"+`,
          `+"`make push-gate`"+` or `+"`make pr-check`"+`, which capture where the
          gate started; a receipt naming HEAD as it is when the gate FINISHES
          would cover a commit made while it ran. pr-check's receipt is kept
-         apart from the other two's.
+         apart from the other two's, and needs --report: the run's merged
+         report, which must be a pass of HEAD with nothing missing and no
+         problem listed. Its age is counted from the report's oldest record.
 
   verify --push-stdin [--remote <name>]
          read git's pre-push lines from standard input and answer for every
@@ -264,6 +286,7 @@ func runWrite(args []string) error {
 	target := fs.String("target", "", "which gate ran: ci, push-gate or pr-check")
 	startedAt := fs.String("started-at", "", "the commit HEAD named when the gate STARTED, captured by the Makefile")
 	startedClean := fs.String("started-clean", "", "yes if the working tree had no uncommitted changes when the gate started")
+	report := fs.String("report", "", "with --target pr-check, the run's merged report (.coverage/pr/records/report.json), which must be a pass of this commit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -280,6 +303,17 @@ func runWrite(args []string) error {
 		// be a guess in the permissive direction.
 		return errors.New("gatereceipt write: --started-at <sha> and --started-clean <yes|no> are required, and name where the gate started rather than where it ended.\n" +
 			"Run the gate through `make ci`, `make push-gate` or `make pr-check`, which capture both before the first check instead of after the last")
+	}
+	// pr-check's exit status alone no longer says every part ran at this
+	// commit, since LEGS keeps earlier records; its report does. The whole
+	// suite writes no such report, so one given there is a mistake rather
+	// than evidence.
+	switch {
+	case *target == "pr-check" && *report == "":
+		return errors.New("gatereceipt write: --target pr-check needs --report, the run's merged report, which must be a pass of this commit.\n" +
+			"Run the gate through `make pr-check`, which passes it")
+	case *target != "pr-check" && *report != "":
+		return fmt.Errorf("gatereceipt write: --report is pr-check's report, and says nothing about the %s gate", *target)
 	}
 
 	head, err := headCommit()
@@ -308,6 +342,13 @@ func runWrite(args []string) error {
 		return errors.New("gatereceipt write: the working tree has uncommitted changes, so this run proved nothing about any commit and no receipt was written")
 	}
 
+	var oldest *time.Time
+	if *report != "" {
+		if oldest, err = checkReport(*report, head); err != nil {
+			return err
+		}
+	}
+
 	dir, err := gitDir()
 	if err != nil {
 		return err
@@ -316,6 +357,7 @@ func runWrite(args []string) error {
 		Commit:    head,
 		Target:    *target,
 		WrittenAt: time.Now().UTC(),
+		Oldest:    oldest,
 	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("gatereceipt write: encoding the receipt: %w", err)
@@ -324,8 +366,13 @@ func runWrite(args []string) error {
 	if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
 		return fmt.Errorf("gatereceipt write: %w", err)
 	}
-	fmt.Printf("gatereceipt: %s passed at %s; a push of that commit is allowed for %s\n",
-		*target, short(head), MaxReceiptAge)
+	if oldest != nil && time.Since(*oldest) > time.Minute {
+		fmt.Printf("gatereceipt: %s passed at %s; its oldest record began %s ago, and a push of that commit is allowed until that record is %s old\n",
+			*target, short(head), time.Since(*oldest).Round(time.Minute), MaxReceiptAge)
+	} else {
+		fmt.Printf("gatereceipt: %s passed at %s; a push of that commit is allowed for %s\n",
+			*target, short(head), MaxReceiptAge)
+	}
 	warnIfHooksDisabled()
 	return nil
 }
@@ -682,6 +729,17 @@ func loadReceipt(refs []pushRef, kind receiptKind) (Receipt, error) {
 		// being refused.
 		return Receipt{}, fmt.Errorf("the gate receipt for %s is %s old, past the %s bound.\nEverything a gate checks is fixed by the commit except govulncheck, which reads a live advisory database, so an old pass no longer answers that one question.\nRun %s, then push again",
 			short(r.Commit), age.Round(time.Minute), MaxReceiptAge, kind.command)
+	}
+	if r.Oldest != nil && r.Oldest.Before(r.WrittenAt) {
+		// A receipt written today over a record kept from yesterday
+		// (make pr-check LEGS=...) is as old as that record, govulncheck's
+		// answer included.
+		if age := time.Since(*r.Oldest); age > MaxReceiptAge {
+			return Receipt{}, fmt.Errorf("the gate receipt for %s was written %s ago, and the oldest record in its run began %s ago, past the %s bound: make pr-check LEGS=... kept it from an earlier run.\n"+
+				"Everything a gate checks is fixed by the commit except govulncheck, which reads a live advisory database, so a kept answer that old no longer answers that one question.\n"+
+				"Run %s (in full, or with LEGS naming the old parts), then push again",
+				short(r.Commit), time.Since(r.WrittenAt).Round(time.Minute), age.Round(time.Minute), MaxReceiptAge, kind.command)
+		}
 	}
 	return r, nil
 }

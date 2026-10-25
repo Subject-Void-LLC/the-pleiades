@@ -77,7 +77,7 @@ func TestChangedPackages_NamesThePackageAboveEachChange(t *testing.T) {
 	write(t, dir, "docs/guide.md", "# guide, changed\n")
 	write(t, dir, "go.mod", "module example.com/scope\n\ngo 1.23\n")
 
-	got, _, err := changedPackages(dir, "main")
+	got, _, _, err := changedPackages(dir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestChangedPackages_NamesThePackageAboveEachChange(t *testing.T) {
 // TestChangedPackages_NothingChangedNamesNothing is a branch with no
 // change of its own.
 func TestChangedPackages_NothingChangedNamesNothing(t *testing.T) {
-	got, _, err := changedPackages(scratchModule(t), "main")
+	got, _, _, err := changedPackages(scratchModule(t), "main")
 	if err != nil || len(got) != 0 {
 		t.Errorf("an unchanged branch = %v, %v; want nothing", got, err)
 	}
@@ -99,14 +99,14 @@ func TestChangedPackages_NothingChangedNamesNothing(t *testing.T) {
 // exist, and a directory that is no module.
 func TestChangedPackages_AnUnknownBaseIsRefused(t *testing.T) {
 	dir := scratchModule(t)
-	if _, _, err := changedPackages(dir, "no-such-ref"); err == nil || !strings.Contains(err.Error(), "no-such-ref") {
+	if _, _, _, err := changedPackages(dir, "no-such-ref"); err == nil || !strings.Contains(err.Error(), "no-such-ref") {
 		t.Errorf("an unknown base: %v, want a refusal naming it", err)
 	}
 	if err := os.Remove(filepath.Join(dir, "go.mod")); err != nil {
 		t.Fatal(err)
 	}
 	write(t, dir, "a/a.go", "// Package a is changed.\npackage a\n")
-	if _, _, err := changedPackages(dir, "main"); err == nil || !strings.Contains(err.Error(), "go list") {
+	if _, _, _, err := changedPackages(dir, "main"); err == nil || !strings.Contains(err.Error(), "go list") {
 		t.Errorf("a directory with no module: %v, want go list's refusal", err)
 	}
 	if _, err := run(dir, "no-such-program-prscope"); err == nil {
@@ -131,5 +131,44 @@ func TestRealMain_PrintsOnePackagePerLineAndExitsByOutcome(t *testing.T) {
 	}
 	if code := realMain(dir, []string{"-bogus"}, &stdout, &stderr); code != 2 {
 		t.Errorf("an unknown flag: exit %d, want 2", code)
+	}
+}
+
+// TestChangedPackages_AddsEachDirectImporter changes a package that one
+// package imports in its code, one only in its internal tests and one only
+// in its external tests, and one imports only through another: the three
+// direct importers run too, named as added, and the indirect one does not
+// (FAILURE_PATTERNS 631: pkg/netcli changed, and internal/catalog/wait,
+// which imports it, broke only in CI).
+func TestChangedPackages_AddsEachDirectImporter(t *testing.T) {
+	dir := scratchModule(t)
+	for name, body := range map[string]string{
+		"user/user.go":          "// Package user imports c.\npackage user\n\nimport _ \"example.com/scope/c\"\n",
+		"intest/intest.go":      "// Package intest imports c in its tests.\npackage intest\n",
+		"intest/intest_test.go": "package intest\n\nimport _ \"example.com/scope/c\"\n",
+		"xtest/xtest.go":        "// Package xtest imports c in its external tests.\npackage xtest\n",
+		"xtest/xtest_test.go":   "package xtest_test\n\nimport _ \"example.com/scope/c\"\n",
+		"indirect/indirect.go":  "// Package indirect imports c only through user.\npackage indirect\n\nimport _ \"example.com/scope/user\"\n",
+	} {
+		write(t, dir, name, body)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "-c", "user.name=scope", "-c", "user.email=scope@example.com", "commit", "-q", "-m", "importers")
+	git(t, dir, "branch", "-f", "main", "HEAD")
+	write(t, dir, "c/c.go", "// Package c is changed.\npackage c\n")
+
+	got, importers, _, err := changedPackages(dir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "example.com/scope/c example.com/scope/intest example.com/scope/user example.com/scope/xtest"; strings.Join(got, " ") != want {
+		t.Errorf("changed packages = %v, want %s", got, want)
+	}
+	if want := "example.com/scope/intest example.com/scope/user example.com/scope/xtest"; strings.Join(importers, " ") != want {
+		t.Errorf("importers added = %v, want %s", importers, want)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := realMain(dir, []string{"-base", "main"}, &stdout, &stderr); code != 0 || !strings.Contains(stderr.String(), "3 package(s) import a changed one, so they run too (FAILURE_PATTERNS 631)") {
+		t.Errorf("exit %d, stderr %q", code, stderr.String())
 	}
 }

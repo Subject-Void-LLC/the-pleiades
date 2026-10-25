@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 )
@@ -13,9 +14,12 @@ import (
 // happened.
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	dir := fs.String("dir", ".", "project directory to scaffold")
+	dir := fs.String("dir", ".", "project directory to scaffold, made when it does not exist")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if err := os.MkdirAll(*dir, 0o750); err != nil {
+		return fmt.Errorf("init: %w", err)
 	}
 
 	created, err := inventory.Scaffold(*dir)

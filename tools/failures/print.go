@@ -37,9 +37,8 @@ func printReport(w io.Writer, r Report) {
 		fmt.Fprintf(w, " (filtered: since %s, source %q, test %q)", since, f.Source, f.Test)
 	}
 	fmt.Fprintf(w, "\n\nTests (%d):\n", len(r.Tests))
-	byName := map[string]TestSummary{}
+	byName := summariesByName(r)
 	for _, t := range r.Tests {
-		byName[testName(t)] = t
 		fmt.Fprintf(w, "\n  %s\n", short(testName(t)))
 		fmt.Fprintf(w, "      %s | %s\n", counts(t, SourcePRCheck), counts(t, SourceActions))
 		var commits []string
@@ -63,16 +62,10 @@ func printReport(w io.Writer, r Report) {
 			fmt.Fprintf(w, "      %s\n", t.LastError)
 		}
 	}
-	section(w, "Actions only (failed in Actions, never in pr-check: a hole in the pre-push gate's scope, tier or environment)", r.ActionsOnly, byName)
+	printActionsOnly(w, r, byName)
 	section(w, "pr-check only (failed here, never in Actions: this machine's environment)", r.PRCheckOnly, byName)
 	section(w, "Both", r.Both, byName)
-	fmt.Fprintf(w, "\nRecurring contention (called contention %d or more times; a test seen here run after run needs a look) (%d):\n", recurringAt, len(r.RecurringContention))
-	if len(r.RecurringContention) == 0 {
-		fmt.Fprintln(w, "  none")
-	}
-	for _, name := range r.RecurringContention {
-		fmt.Fprintf(w, "  %s: %d times, in %s\n", short(name), byName[name].Contention, strings.Join(byName[name].Legs, ", "))
-	}
+	printRecurring(w, r, byName)
 	fmt.Fprintf(w, "\nLegs and steps (%d):\n", len(r.Legs))
 	if len(r.Legs) == 0 {
 		fmt.Fprintln(w, "  none")
@@ -86,7 +79,35 @@ func printReport(w io.Writer, r Report) {
 	}
 }
 
-// section prints one crossover list, each test with its counts.
+// summariesByName is each test in r by its package.Test.
+func summariesByName(r Report) map[string]TestSummary {
+	byName := map[string]TestSummary{}
+	for _, t := range r.Tests {
+		byName[testName(t)] = t
+	}
+	return byName
+}
+
+// printActionsOnly prints the tests that failed only in Actions, each one
+// pr-check did not test at a commit where it ran saying so.
+func printActionsOnly(w io.Writer, r Report, byName map[string]TestSummary) {
+	section(w, "Actions only (failed in Actions, never in pr-check: a hole in the pre-push gate's scope, tier or environment)", r.ActionsOnly, byName)
+}
+
+// printRecurring prints the tests called contention recurringAt times or
+// more.
+func printRecurring(w io.Writer, r Report, byName map[string]TestSummary) {
+	fmt.Fprintf(w, "\nRecurring contention (called contention %d or more times; a test seen here run after run needs a look) (%d):\n", recurringAt, len(r.RecurringContention))
+	if len(r.RecurringContention) == 0 {
+		fmt.Fprintln(w, "  none")
+	}
+	for _, name := range r.RecurringContention {
+		fmt.Fprintf(w, "  %s: %d times, in %s\n", short(name), byName[name].Contention, strings.Join(byName[name].Legs, ", "))
+	}
+}
+
+// section prints one crossover list, each test with its counts, and, for a
+// test outside pr-check's scope where it failed, that.
 func section(w io.Writer, title string, names []string, byName map[string]TestSummary) {
 	fmt.Fprintf(w, "\n%s (%d):\n", title, len(names))
 	if len(names) == 0 {
@@ -95,6 +116,9 @@ func section(w io.Writer, title string, names []string, byName map[string]TestSu
 	for _, name := range names {
 		t := byName[name]
 		fmt.Fprintf(w, "  %s  [%s | %s]\n", short(name), counts(t, SourcePRCheck), counts(t, SourceActions))
+		if len(t.OutsideScopeAt) > 0 {
+			fmt.Fprintf(w, "      %s\n", outsideScopeNote(t.OutsideScopeAt))
+		}
 	}
 }
 

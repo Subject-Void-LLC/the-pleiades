@@ -29,11 +29,17 @@ import (
 // configDevice is a device double holding a running configuration and the
 // files on its one disk, unix:.
 type configDevice struct {
-	running     string
-	files       map[string]string
-	noDisk      bool // show file systems lists no writable disk
-	noArchive   bool // show archive config differences is not a command
-	failConfig  error
+	running    string
+	files      map[string]string
+	noDisk     bool // show file systems lists no writable disk
+	noArchive  bool // show archive config differences is not a command
+	failConfig error
+	// keys counts the key-material lines applied, which change no line of
+	// the configuration.
+	keys int
+	// replaceSays is a line configure replace prints beside its own, as
+	// IOS prints a routing protocol's notice while a replace runs.
+	replaceSays string
 	commands    []string
 	configCalls [][]string
 	closed      bool
@@ -117,7 +123,7 @@ func (d *configDevice) Command(_ context.Context, line string) (string, error) {
 			return "%Error opening " + path + " (No such file or directory)\r\n", nil
 		}
 		d.running = text
-		return "Total number of passes: 1\r\nRollback Done\r\n", nil
+		return d.replaceSays + "Total number of passes: 1\r\nRollback Done\r\n", nil
 	case strings.HasPrefix(line, "delete /force "):
 		path := strings.Fields(line)[2]
 		if _, ok := d.files[path]; !ok {
@@ -149,6 +155,11 @@ func (d *configDevice) Dialog(_ context.Context, line string, _ netcli.DialogOpt
 	return netcli.DialogResult{Output: "Destination filename [x]? \r\n3623 bytes copied in 0.027 secs\r\n"}, nil
 }
 
+// ConfigWith applies lines as Config does.
+func (d *configDevice) ConfigWith(ctx context.Context, cfg []string, _ netcli.ConfigOptions) (netcli.ConfigResult, error) {
+	return netcli.ConfigResult{}, d.Config(ctx, cfg)
+}
+
 // Config applies lines as IOS would to the double's configuration: a line
 // opening a block (interface, router, ip access-list) starts one, a "no"
 // of a block removes it, and each other line lands in the open block,
@@ -162,6 +173,12 @@ func (d *configDevice) Config(_ context.Context, cfg []string) error {
 	var block *iosconfig.Node
 	for _, l := range cfg {
 		l = strings.TrimSpace(l)
+		if keyMaterial.MatchString(l) {
+			// IOS keeps key pairs outside the configuration (measured on
+			// IOL XE 17.15): the line changes no line of it.
+			d.keys++
+			continue
+		}
 		opens := strings.HasPrefix(l, "interface ") || strings.HasPrefix(l, "router ") || strings.HasPrefix(l, "ip access-list ")
 		if neg, ok := strings.CutPrefix(l, "no "); ok && (strings.HasPrefix(neg, "interface ") || strings.HasPrefix(neg, "router ")) {
 			roots = slices.DeleteFunc(roots, func(n *iosconfig.Node) bool { return n.Line == neg })
@@ -257,6 +274,7 @@ func recordedInverse(t *testing.T, rc *stubContext) (sdk.Inverse, bool) {
 		inv.FQCN, _ = m[sdk.InverseFQCNKey].(string)
 		inv.Params, _ = m[sdk.InverseParamsKey].(map[string]any)
 		inv.KeepOnFailure, _ = m[sdk.InverseKeepOnFailureKey].(bool)
+		inv.Partial, _ = m[sdk.InversePartialKey].(bool)
 	}
 	return inv, true
 }
@@ -547,5 +565,115 @@ func TestShownDifferences(t *testing.T) {
 	}
 	if got := shownDifferences(many[:2]); got != "+line 0; +line 1" {
 		t.Errorf("shownDifferences of two = %q", got)
+	}
+}
+
+// TestReplace_ANoticeDuringAReplaceThatMatchesIsAWarning: configure replace
+// printing a "% " line still succeeds when the device matches the
+// checkpoint afterwards, warning with the line masked; when the device
+// still differs, the line is the failure's reason.
+func TestReplace_ANoticeDuringAReplaceThatMatchesIsAWarning(t *testing.T) {
+	dev := newConfigDevice()
+	dev.replaceSays = "% Removing the EIGRP process cleared its key 7 0822455D0A16\r\n"
+	swapOpenSession(t, dev.open)
+	rc := newStubContext()
+	if _, err := Config(context.Background(), rc, nil, loopback); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ := recordedInverse(t, rc)
+	undo := newStubContext()
+	if res, err := Replace(context.Background(), undo, nil, inv.Params); err != nil || !res.Changed || dev.running != iosBase {
+		t.Fatalf("Replace = %+v, %v", res, err)
+	}
+	warnings, _ := undo.stats[sdk.StatWarnings].([]string)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "% Removing the EIGRP process") || strings.Contains(warnings[0], "0822455D0A16") {
+		t.Errorf("warnings %q, want the line, masked", warnings)
+	}
+
+	dev = newConfigDevice()
+	swapOpenSession(t, dev.open)
+	rc = newStubContext()
+	if _, err := Config(context.Background(), rc, nil, loopback); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ = recordedInverse(t, rc)
+	// A replace that prints its failure and leaves the device as it was.
+	before := inv.Params["checkpoint"].(string)
+	dev.replaceSays = "% Rollback aborted\r\n"
+	stuck := &stuckReplace{configDevice: dev, keep: dev.running}
+	swapOpenSession(t, stuck.open)
+	if _, err := Replace(context.Background(), newStubContext(), nil, map[string]any{"checkpoint": before}); err == nil || !strings.Contains(err.Error(), "% Rollback aborted") {
+		t.Errorf("a replace that changed nothing and complained: %v", err)
+	}
+}
+
+// stuckReplace is a device whose configure replace prints its notice and
+// changes nothing.
+type stuckReplace struct {
+	*configDevice
+	keep string
+}
+
+func (s *stuckReplace) open(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any, string) (iosSession, error) {
+	return s, nil
+}
+
+func (s *stuckReplace) Command(ctx context.Context, line string) (string, error) {
+	out, err := s.configDevice.Command(ctx, line)
+	if strings.HasPrefix(line, "configure replace ") {
+		s.running = s.keep
+	}
+	return out, err
+}
+
+// TestConfig_AKeyChangeReportsChangedAndNoExactUndo: a key line that
+// changes no line of the configuration still reports changed, warns that
+// no undo returns the key pair, and leaves no checkpoint; one beside a
+// configuration change records the configuration's undo as partial; and a
+// call holding one is never an exact undo.
+func TestConfig_AKeyChangeReportsChangedAndNoExactUndo(t *testing.T) {
+	dev := newConfigDevice()
+	swapOpenSession(t, dev.open)
+	rc := newStubContext()
+	res, err := Config(context.Background(), rc, nil, map[string]any{paramLines: []any{"crypto key zeroize rsa OLDKEY"}})
+	if err != nil || !res.Changed || dev.keys != 1 {
+		t.Fatalf("a key line alone: %+v, %v, keys %d", res, err, dev.keys)
+	}
+	if _, ok := recordedInverse(t, rc); ok || len(dev.files) != 0 {
+		t.Errorf("a key line alone recorded an undo or left a checkpoint: %v", dev.files)
+	}
+	if w, _ := rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "no undo returns the key pair") {
+		t.Errorf("warnings = %v", rc.stats[sdk.StatWarnings])
+	}
+
+	rc = newStubContext()
+	if _, err := Config(context.Background(), rc, nil, map[string]any{paramLines: []any{"crypto key generate rsa general-keys label K modulus 2048", "interface Loopback9", "description k"}}); err != nil {
+		t.Fatal(err)
+	}
+	if inv, ok := recordedInverse(t, rc); !ok || !inv.Partial {
+		t.Errorf("a key line beside a change: undo %+v, want it partial", inv)
+	}
+	if configUndoCall(map[string]any{paramLines: []any{" crypto key import rsa K pem terminal"}}) == "" {
+		t.Error("a call importing a key pair was taken as exactly undoable")
+	}
+}
+
+// TestConfig_ARejectionIsMaskedAndBounded: a rejected line is quoted with
+// its secret masked, and a long answer is cut.
+func TestConfig_ARejectionIsMaskedAndBounded(t *testing.T) {
+	dev := newConfigDevice()
+	dev.failConfig = errors.New(`device rejected "username u secret 0 hunter2": ` + strings.Repeat("x", 3*maxErrorText))
+	swapOpenSession(t, dev.open)
+	_, err := Config(context.Background(), newStubContext(), nil, map[string]any{paramLines: []any{"username u secret 0 hunter2"}})
+	if err == nil || strings.Contains(err.Error(), "hunter2") || len(err.Error()) > maxErrorText+200 {
+		t.Errorf("err = %.200v (%d bytes)", err, len(err.Error()))
+	}
+}
+
+// TestReadConfigOptions_AnAcceptPatternCannotEscapeItsAnchor: a pattern
+// that would close the group around it is refused.
+func TestReadConfigOptions_AnAcceptPatternCannotEscapeItsAnchor(t *testing.T) {
+	if _, err := readConfigOptions(context.Background(), newStubContext(), map[string]any{paramAccept: []any{"%)|(?:.*"}}); err == nil {
+		t.Error("an escaping accept pattern was taken")
 	}
 }

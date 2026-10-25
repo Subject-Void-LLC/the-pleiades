@@ -33,13 +33,17 @@ func TestRegister_SeedsLogin(t *testing.T) {
 	if err := collection.Register(descriptor("seedtest.ok", []collection.Param{login}, nil)); err != nil {
 		t.Fatalf("a declared required string: %v", err)
 	}
+	// An optional one is accepted: left empty, the machine stands for no
+	// inventory device and nothing is seeded (the engine's seedLogin).
+	if err := collection.Register(descriptor("seedtest.optional", []collection.Param{{Name: "login", Type: "string"}}, nil)); err != nil {
+		t.Fatalf("a declared optional string: %v", err)
+	}
 	for name, tt := range map[string]struct {
 		params   []collection.Param
 		provider *collection.Provider
 		want     string
 	}{
 		"no such parameter":  {nil, nil, "does not declare"},
-		"an optional one":    {[]collection.Param{{Name: "login", Type: "string"}}, nil, "does not declare"},
 		"not a string":       {[]collection.Param{{Name: "login", Type: "list", Required: true}}, nil, "does not declare"},
 		"an external method": {[]collection.Param{login}, &collection.Provider{}, "external Collection"},
 	} {

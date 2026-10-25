@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**188 of 191 methods are implemented.**
+**198 of 201 methods are implemented.**
 
 ## Implemented
 
@@ -180,6 +180,16 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.vbox.vm.delete](modules/virt/vbox/vm/delete.md)
 - [virt.vbox.vm.host_keys](modules/virt/vbox/vm/host_keys.md)
 - [virt.vbox.vm.list](modules/virt/vbox/vm/list.md)
+- [virt.cml.lab.list](modules/virt/cml/lab/list.md)
+- [virt.cml.lab.info](modules/virt/cml/lab/info.md)
+- [virt.cml.lab.create](modules/virt/cml/lab/create.md)
+- [virt.cml.lab.start](modules/virt/cml/lab/start.md)
+- [virt.cml.lab.stop](modules/virt/cml/lab/stop.md)
+- [virt.cml.lab.delete](modules/virt/cml/lab/delete.md)
+- [virt.cml.node.create](modules/virt/cml/node/create.md)
+- [virt.cml.node.delete](modules/virt/cml/node/delete.md)
+- [virt.cml.link.create](modules/virt/cml/link/create.md)
+- [virt.cml.link.delete](modules/virt/cml/link/delete.md)
 - [win.file.copy](modules/win/file/copy.md)
 - [win.file.download](modules/win/file/download.md)
 - [win.cpu.topology](modules/win/cpu/topology.md)

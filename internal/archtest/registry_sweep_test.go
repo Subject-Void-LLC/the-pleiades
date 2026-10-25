@@ -32,6 +32,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/ai"
 	bfdevice "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/batfish"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cloudflare"
+	cmldevice "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cml"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -681,6 +682,10 @@ func genericProbeProperties(typeKey string) map[string]inventory.PropertyValue {
 	// address.
 	if typeKey == bfdevice.TypeService {
 		return map[string]inventory.PropertyValue{bfdevice.APIBaseProperty: "https://archtest.invalid"}
+	}
+	// So does a CML controller.
+	if typeKey == cmldevice.TypeController {
+		return map[string]inventory.PropertyValue{cmldevice.APIBaseProperty: "https://archtest.invalid"}
 	}
 	grants := generic.Discoverable(typeKey)
 	if grants == nil {

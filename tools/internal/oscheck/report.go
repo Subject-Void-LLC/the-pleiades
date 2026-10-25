@@ -48,7 +48,10 @@ type LegRecord struct {
 	OS string `json:"os"`
 	// Target is the machine: its device or ssh name.
 	Target string `json:"target"`
-	// Commit is the commit whose tree the leg tested.
+	// Commit is the commit whose tree the leg tested. A leg tests the tree
+	// git archive makes of that commit, never the working tree, so it is
+	// clean by construction and the record has no clean field: a merge
+	// compares only this commit with the run's.
 	Commit string `json:"commit,omitempty"`
 	// Packages are the import paths the leg tested.
 	Packages []string `json:"packages"`

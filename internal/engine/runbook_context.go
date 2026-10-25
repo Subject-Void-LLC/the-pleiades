@@ -49,6 +49,10 @@ type runbookContext struct {
 	// route dials through the device's hops, nil when it has none
 	// (sdk.Router); the Collection executor sets it per task.
 	route sdk.RouteDial
+	// console dials the device's console line through its console server,
+	// nil when it has none (sdk.Consoler); the Collection executor sets it
+	// per task.
+	console sdk.ConsoleDial
 	// projectDir is the project directory a method may read files from
 	// (sdk.ProjectFiles), "" where the run has none on this machine; see
 	// WithProjectFiles.
@@ -287,3 +291,7 @@ func (c *runbookContext) RegisteredSecrets() []string {
 
 // DeviceRoute implements sdk.Router.
 func (rc *runbookContext) DeviceRoute() sdk.RouteDial { return rc.route }
+
+// DeviceConsole implements sdk.Consoler: the dialer to the device's console
+// line, or nil when the device has no console server.
+func (rc *runbookContext) DeviceConsole() sdk.ConsoleDial { return rc.console }

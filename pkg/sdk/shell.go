@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
@@ -22,7 +23,8 @@ import (
 const ParamInsecureTelnet = "insecure_telnet"
 
 // OpenShell opens an interactive CLI session on device for a method that
-// speaks a device's CLI through pkg/netcli: over SSH when the device is
+// speaks a device's CLI through pkg/netcli: through its console server
+// when the device is reached by one (openConsole), over SSH when it is
 // reachable over SSH, else over Telnet when it is reachable over Telnet
 // and the method is given insecure_telnet: true among its parameters, its
 // login answered with the task's credential. The shell's Close ends the
@@ -31,9 +33,26 @@ func OpenShell(ctx context.Context, rc RunbookContext, device inventory.Inventor
 	if device == nil {
 		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
 	}
+	// A device behind a console server is reached only through it: it has
+	// no address of its own, and no other carrier is tried.
+	if _, ok := device.(capability.ConsoleServedCapable); ok && device.HasCapability(capability.NameConsoleServed) {
+		return openConsole(ctx, rc, device, fqcn)
+	}
 	if _, ok := device.(capability.SSHTransportCapable); ok && device.HasCapability(capability.NameSSHTransport) {
 		conn, err := Connect(ctx, rc, device, params, fqcn)
 		if err != nil {
+			var dialErr *remoteexec.DialError
+			// An open circuit counts too: only a device that did not answer
+			// opens one, never a refused login or host key.
+			unreached := errors.As(err, &dialErr) && dialErr.Unreached() || errors.Is(err, breaker.ErrOpen)
+			if BoolParam(params, ParamInsecureTelnet) && unreached {
+				// The task asked for Telnet, and the device's own record says
+				// SSH: insecure_telnet only accepts Telnet's exposure, it never
+				// chooses the carrier, so say where the carrier is chosen. Only
+				// for a device that never answered SSH: a refused host key or
+				// login is an answer, and Telnet would be no fix for either.
+				return nil, fmt.Errorf("%w (device %q is reached over SSH, its transport property; %s: true only accepts Telnet for a device whose transport is telnet: pleiades set-host %s --set transport=telnet)", err, device.Name(), ParamInsecureTelnet, device.Name())
+			}
 			return nil, err
 		}
 		shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})

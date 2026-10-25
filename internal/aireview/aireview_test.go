@@ -5,6 +5,7 @@ package aireview
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -30,7 +31,8 @@ func TestCreateLoadDecide(t *testing.T) {
 	if r, err := Create(dir, held("second")); err != nil || r.Answer != "first" {
 		t.Fatalf("a second hold: %q %v", r.Answer, err)
 	}
-	if info, _ := os.Stat(filepath.Join(dir, File(key))); info.Mode().Perm() != 0o600 {
+	// Windows has no POSIX modes; a review file's access there is its ACL.
+	if info, _ := os.Stat(filepath.Join(dir, File(key))); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", info.Mode().Perm())
 	}
 	if _, err := Decide(dir, key, sdk.ReviewApproved, "ops", "t", "", AnswerSHA256("another")); err == nil {

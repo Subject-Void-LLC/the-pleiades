@@ -95,7 +95,7 @@ func TestRun_FirstWriteWithNoDatabaseWritesAllThreeAndSaysNothingWasCounted(t *t
 	if budget, _ := f.Get(setup.VarMaxOutage); budget != "30m" {
 		t.Fatalf("PLEIADES_MAX_OUTAGE = %q, want the default 30m", budget)
 	}
-	if info, _ := os.Stat(filepath.Join(dir, setup.ComposeFile)); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(filepath.Join(dir, setup.ComposeFile)); !ownerOnly(info) {
 		t.Fatalf(".env was written at %v, want 0600", info.Mode().Perm())
 	}
 	if result.Possession != keyregistry.PossessionNotChecked {

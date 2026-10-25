@@ -89,6 +89,26 @@ func TestRun_WritesTheLegsRecord(t *testing.T) {
 	if code := flow.Run(context.Background(), options(t, "-report-out", filepath.Join(t.TempDir(), "absent", "leg.json"), "a/b"), &bytes.Buffer{}, &bytes.Buffer{}, &fakeLeg{passed: true}); code != 2 {
 		t.Errorf("a pass whose record could not be written returned %d", code)
 	}
+
+	// A leg with no package to run still names its commit, so the merge
+	// ties it to this run; one whose commit does not resolve names none.
+	none := filepath.Join(t.TempDir(), "leg.json")
+	if code := flow.Run(context.Background(), options(t, "-report-out", none), &bytes.Buffer{}, &bytes.Buffer{}, &fakeLeg{}); code != 0 {
+		t.Fatalf("no packages: %d", code)
+	}
+	head, _, err := ResolveCommit("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := readLegRecord(t, none); rec.Verdict != flakegate.VerdictPass || rec.Commit != head {
+		t.Errorf("no packages: record %+v, want a pass at %s", rec, head)
+	}
+	if code := flow.Run(context.Background(), options(t, "-report-out", none, "-commit", strings.Repeat("e", 40)), &bytes.Buffer{}, &bytes.Buffer{}, &fakeLeg{}); code != 0 {
+		t.Fatalf("no packages, an unknown commit: %d", code)
+	}
+	if rec := readLegRecord(t, none); rec.Verdict != flakegate.VerdictPass || rec.Commit != "" {
+		t.Errorf("no packages, an unknown commit: record %+v", rec)
+	}
 }
 
 // TestRunWithBox_ABoxThatWillNotStartIsRecorded: the leg's record says it

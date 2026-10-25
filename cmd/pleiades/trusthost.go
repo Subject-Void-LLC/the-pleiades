@@ -99,11 +99,22 @@ func runTrustHost(args []string) error {
 	return nil
 }
 
-// sshAddress is the host and port a device is reached at over SSH.
+// sshAddress is the host and port a device is reached at over SSH, or a
+// CML controller's console server at.
 func sshAddress(device inventory.InventoryItem) (string, error) {
+	// A CML controller's console server is an SSH service on its own host,
+	// whose key is trusted here like any device's, so a console node is
+	// reached through it verified.
+	if console, ok := device.(capability.CMLAPICapable); ok && device.HasCapability(capability.NameCMLAPI) {
+		host, port := console.CMLConsoleAddress()
+		if port == 22 {
+			return host, nil
+		}
+		return host + ":" + strconv.Itoa(port), nil
+	}
 	ssh, ok := device.(capability.SSHTransportCapable)
 	if !ok || ssh.SSHHost() == "" {
-		return "", fmt.Errorf("device %q is not reached over SSH at an address", device.Name())
+		return "", fmt.Errorf("device %q is not reached over SSH at an address, and is not a console server", device.Name())
 	}
 	port := ssh.SSHPort()
 	if port == 0 || port == 22 {

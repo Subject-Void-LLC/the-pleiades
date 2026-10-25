@@ -63,6 +63,14 @@ type Run struct {
 	Arch string `json:"arch"`
 	// Packages are the import paths the run tested.
 	Packages []string `json:"packages"`
+	// Commit is the commit pr-check began at, which the run tested
+	// (testgate -commit); absent on a record nobody stamped, which a merge
+	// cannot tie to any commit.
+	Commit string `json:"commit,omitempty"`
+	// Clean is true when the working tree had no uncommitted changes as
+	// pr-check began (testgate -clean yes). A stamped record without it ran
+	// over code that is in no commit.
+	Clean bool `json:"clean,omitempty"`
 	// Started is when the run began.
 	Started time.Time `json:"started"`
 	// Seconds is how long the run took.

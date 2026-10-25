@@ -10264,7 +10264,8 @@
   "net.cli.command": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "NetworkCLICapable"
@@ -10361,7 +10362,8 @@
   "net.cli.config": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "NetworkCLICapable"
@@ -10796,7 +10798,8 @@
   "net.ios.command": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -10898,7 +10901,8 @@
   "net.ios.config": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -10920,6 +10924,7 @@
             "expect",
             "insecure_telnet"
           ],
+          "mayBePartial": true,
           "mayKeepOnFailure": true
         }
       ]
@@ -10928,7 +10933,7 @@
     "noCheckReason": "what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS offers no way to ask without applying it",
     "doc": {
       "summary": "Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly.",
-      "description": "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
+      "description": "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, a key pair being made or replaced, and what removing one says first; accept adds the task's own. A line that changes key material (crypto key generate, zeroize, import, move, decrypt, encrypt) changes what the configuration does not hold, so its run reports changed whatever the configuration shows, and no checkpoint returns it: such a call's undo is never exact. A line that asks a question (removing a key pair asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers (a line left ending in ?, [confirm], [yes/no] or asking for a password) fails the line at once, naming it, rather than waiting; anything else a device waits on, such as a banner's text, still waits until the read limit. Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
       "params": [
         {
           "name": "lines",
@@ -10948,6 +10953,21 @@
           "type": "bool",
           "default": "false",
           "description": "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."
+        },
+        {
+          "name": "accept",
+          "type": "list of string",
+          "description": "Further IOS \"% \" lines to take as notices rather than rejections, each RE2 matched from the start of the line and so beginning with %, e.g. \"% Frob is deprecated\". Every other \"% \" line still fails the task."
+        },
+        {
+          "name": "prompts",
+          "type": "list of dict",
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+        },
+        {
+          "name": "ask",
+          "type": "dict",
+          "description": "A model for questions no prompts entry matches, on the Crawl tier: choices, a list of {id, answer, means} the model picks from by id (it never types its own answer, and may refuse, which fails the task, or say the line was no question); max, how many it may answer (1 to 10, default 3); shape, the RE2 a waiting line must match to be asked about (default: ending in ?, ] or ]:); and ai.chat's own provider, model, residency, prompt or prompt_file (a built-in prompt when neither), signing, review, usage_sink and call options. Its provider is resolved before the device is reached. A held answer fails the task as held, which abandons the command; decided with pleiades ai review, running again reuses the decision for that same question."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -10986,12 +11006,28 @@
           "type": "string",
           "returned": "when backup is true",
           "description": "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."
+        },
+        {
+          "name": "notices",
+          "type": "list of string",
+          "returned": "when the device printed one",
+          "description": "The \"% \" lines the device printed that were taken as notices rather than rejections, masked."
+        },
+        {
+          "name": "exchanges",
+          "type": "list of dict",
+          "returned": "when prompts or ask is set",
+          "description": "Each question a line asked and what was typed: question and answer, with prompt (the entry's index) or, for the model, choice, reason, provider, model, confidence, usage and review."
         }
       ],
       "examples": [
         {
           "name": "Create a loopback interface, undoable by pleiades rollback",
           "runbookYaml": "- name: Add a loopback interface\n  net.ios.config:\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n"
+        },
+        {
+          "name": "Remove a key pair, answering the question IOS asks first",
+          "runbookYaml": "- name: Remove the old key pair, which no rollback brings back\n  net.ios.config:\n    lines:\n      - crypto key zeroize rsa OLDKEY\n    prompts:\n      - match: 'Do you really want to remove these keys\\? \\[yes/no\\]'\n        answer: \"yes\"\n    accept:\n      - '% The specified keypair does not exist'\n"
         }
       ],
       "seeAlso": [
@@ -11005,7 +11041,8 @@
   "net.ios.facts": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11115,7 +11152,8 @@
   "net.ios.parse": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11197,7 +11235,8 @@
   "net.ios.ping": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11307,7 +11346,8 @@
   "net.ios.replace": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -11325,7 +11365,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Replaces a Cisco IOS device's running configuration with a checkpoint file on the device.",
-      "description": "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails. The checkpoint files net.ios.config made (named pleiades-<id>.cfg) are deleted afterwards unless keep is true; any other file, such as nvram:startup-config or a configuration kept on flash:, is never deleted. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
+      "description": "Runs IOS's configure replace with a checkpoint file the device holds (net.ios.config writes one before each change and records this method as its undo), so the device itself puts back exactly the configuration the checkpoint holds: lines a change added are removed and lines it replaced or removed come back, with no inverse line written by anyone. When expect names a second checkpoint (the one net.ios.config writes after its change), the device must still match it, by the device's own show archive config differences, or this refuses before replacing anything, unless force is true: configure replace returns the whole configuration to the checkpoint, so a change someone made since would be undone with it. After the replace, the device must report no differences from the checkpoint, or the task fails; a line in IOS's \"% \" form the replace prints fails it only then, and when the device matches it is reported as a warning, masked. The checkpoint files net.ios.config made (named pleiades-<id>.cfg) are deleted afterwards unless keep is true; any other file, such as nvram:startup-config or a configuration kept on flash:, is never deleted. A check reports what the replace would change, from the same comparison, and changes nothing. The configuration lines this reports are masked as net.batfish.check masks a candidate: a password, secret or key is never shown.",
       "params": [
         {
           "name": "checkpoint",
@@ -11386,7 +11426,8 @@
   "net.ios.save": {
     "supportedTransports": [
       "ssh",
-      "telnet"
+      "telnet",
+      "console"
     ],
     "requiredCapabilities": [
       "CiscoIOSCapable"
@@ -14341,6 +14382,735 @@
         "svc.windows.start",
         "svc.windows.disable",
         "svc.stop"
+      ]
+    }
+  },
+  "virt.cml.lab.create": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that made a lab emits virt.cml.lab.delete naming its id, so a rollback removes exactly that lab and whatever was later built in it.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.lab.delete",
+          "record": [
+            "lab"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Creates an empty CML lab with a title.",
+      "description": "Makes a lab with no nodes. A title a lab already has is refused, since CML lets two labs share one and every later task names its lab by title; a second run of the same task is therefore a refusal, not a second lab. Its undo is virt.cml.lab.delete of the lab's id, so a rollback removes exactly the lab this task made. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads whether the title is free and changes nothing.",
+      "params": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "description": "The new lab's title."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "on change",
+          "description": "The new lab's id."
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "returned": "always",
+          "description": "The lab's title."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Make a lab",
+          "runbookYaml": "- name: Make the CVD lab\n  virt.cml.lab.create:\n    title: cvd\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.node.create",
+        "virt.cml.lab.delete"
+      ]
+    }
+  },
+  "virt.cml.lab.delete": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Every node's disk and configuration is wiped before the lab is removed, and nothing keeps them, so nothing can put the lab back as it was."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops, wipes and deletes a CML lab.",
+      "description": "Stops every node, wipes every node's disks and removes the lab. A lab that does not exist is unchanged. It cannot be undone: every node's disk and configuration is gone, which is why it is a method of its own and never part of another. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads whether the lab exists and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        }
+      ],
+      "returns": [
+        {
+          "name": "lab_id",
+          "type": "string",
+          "returned": "on change",
+          "description": "The id of the lab removed."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove a lab",
+          "runbookYaml": "- name: Remove the CVD lab\n  virt.cml.lab.delete:\n    lab: cvd\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.lab.create"
+      ]
+    }
+  },
+  "virt.cml.lab.info": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the controller.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports one CML lab: its nodes, their interfaces and its links.",
+      "description": "Reads one lab and changes nothing. A lab that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the controller holds the lab."
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "when exists",
+          "description": "The lab's id."
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "returned": "when exists",
+          "description": "The lab's title."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when exists",
+          "description": "DEFINED_ON_CORE, STARTED or STOPPED."
+        },
+        {
+          "name": "nodes",
+          "type": "list",
+          "returned": "when exists",
+          "description": "Each node as id, label, definition, state and interfaces (each as label and connected)."
+        },
+        {
+          "name": "links",
+          "type": "list",
+          "returned": "when exists",
+          "description": "Each link as id, a, a_interface, b and b_interface, by node label and interface label."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a lab",
+          "runbookYaml": "- name: Read the CVD lab\n  virt.cml.lab.info:\n    lab: cvd\n  register: lab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.lab.list",
+        "virt.cml.lab.create"
+      ]
+    }
+  },
+  "virt.cml.lab.list": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the controller.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the labs on a CML controller.",
+      "description": "Reads every lab the controller's account can see, with its title, state and node count, and changes nothing. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read.",
+      "returns": [
+        {
+          "name": "labs",
+          "type": "list",
+          "returned": "always",
+          "description": "Each lab as id, title, state (DEFINED_ON_CORE, STARTED or STOPPED) and nodes (its node count), by title."
+        }
+      ],
+      "examples": [
+        {
+          "name": "List the labs",
+          "runbookYaml": "- name: List the controller's labs\n  virt.cml.lab.list: {}\n  register: labs\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.lab.info"
+      ]
+    }
+  },
+  "virt.cml.lab.start": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that started nodes emits virt.cml.lab.stop naming exactly those nodes, kept when the wait for them to boot fails, so a rollback never stops a node someone else started. Stopping them does not undo what they did while they ran.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.lab.stop",
+          "record": [
+            "lab",
+            "nodes"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a CML lab's nodes and waits until they boot.",
+      "description": "Starts each of the lab's nodes (or those nodes names) that is not running, then waits until every one of them reports BOOTED, up to timeout. A node already running is left alone, and a lab whose nodes all run is unchanged. Its undo is virt.cml.lab.stop of exactly the nodes this task started, so a rollback never stops a node someone else started. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads which nodes it would start and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "nodes",
+          "type": "list",
+          "description": "The nodes to act on, by label or id; every node of the lab when empty. A rollback sets it to exactly the nodes the run changed."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "900",
+          "description": "Seconds to wait for every node started to report BOOTED."
+        }
+      ],
+      "returns": [
+        {
+          "name": "started",
+          "type": "list",
+          "returned": "always",
+          "description": "The labels of the nodes this task started."
+        },
+        {
+          "name": "lab_id",
+          "type": "string",
+          "returned": "always",
+          "description": "The lab's id."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start a lab",
+          "runbookYaml": "- name: Start the CVD lab\n  virt.cml.lab.start:\n    lab: cvd\n    timeout: 1200\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.lab.stop"
+      ]
+    }
+  },
+  "virt.cml.lab.stop": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that stopped nodes emits virt.cml.lab.start naming exactly those nodes, kept when a stop fails partway, so a rollback starts only what this task stopped.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.lab.start",
+          "record": [
+            "lab",
+            "nodes"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops a CML lab's nodes.",
+      "description": "Stops each of the lab's nodes (or those nodes names) that is running, keeping their disks. A node already stopped is left alone. Its undo is virt.cml.lab.start of exactly the nodes this task stopped. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads which nodes it would stop and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "nodes",
+          "type": "list",
+          "description": "The nodes to act on, by label or id; every node of the lab when empty. A rollback sets it to exactly the nodes the run changed."
+        }
+      ],
+      "returns": [
+        {
+          "name": "stopped",
+          "type": "list",
+          "returned": "always",
+          "description": "The labels of the nodes this task stopped."
+        },
+        {
+          "name": "lab_id",
+          "type": "string",
+          "returned": "always",
+          "description": "The lab's id."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Stop one node",
+          "runbookYaml": "- name: Take CORE1 down to prove the second hub carries the branches\n  virt.cml.lab.stop:\n    lab: cvd\n    nodes:\n      - CORE1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.lab.start"
+      ]
+    }
+  },
+  "virt.cml.link.create": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that made a link emits virt.cml.link.delete naming its lab's id and its own; one that found the same link already there emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.link.delete",
+          "record": [
+            "lab",
+            "link"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Links two nodes' interfaces in a CML lab.",
+      "description": "Links interface a_interface of node a to interface b_interface of node b. The same link already there is unchanged; an interface already linked to anything else is refused. Its undo is virt.cml.link.delete of the link's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads both interfaces and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "required": true,
+          "description": "One node, by label or id."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "required": true,
+          "description": "Its interface, by label, e.g. Ethernet0/1."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "required": true,
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "required": true,
+          "description": "Its interface, by label."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Link a branch to a core",
+          "runbookYaml": "- name: Link BR1 to CORE1\n  virt.cml.link.create:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: BR1\n    b_interface: Ethernet0/1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.link.delete",
+        "virt.cml.node.create"
+      ]
+    }
+  },
+  "virt.cml.link.delete": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that removed a link emits virt.cml.link.create of the same two interfaces, each node by its id and each interface by its label; one that found no such link emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.link.create",
+          "record": [
+            "lab",
+            "a",
+            "a_interface",
+            "b",
+            "b_interface"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes a link from a CML lab.",
+      "description": "Removes the link named by link, or the one between a's a_interface and b's b_interface (one way or the other, never both). A link that does not exist is unchanged. Its undo is virt.cml.link.create of the same two interfaces. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads whether the link exists and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "on change",
+          "description": "The id of the link removed."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Cut a branch's uplink",
+          "runbookYaml": "- name: Cut BR1's link to CORE1\n  virt.cml.link.delete:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: BR1\n    b_interface: Ethernet0/1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.link.create"
+      ]
+    }
+  },
+  "virt.cml.node.create": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that made a node emits virt.cml.node.delete naming its lab's id and its own, so a rollback removes exactly that node.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.node.delete",
+          "record": [
+            "lab",
+            "node"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "seedsLogin": "device",
+    "seedsLoginIOSSecret": true,
+    "doc": {
+      "summary": "Creates a node in a CML lab, optionally seeded with an inventory device's login and address.",
+      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. configuration adds lines after those. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "required": true,
+          "description": "The node's label in the lab, also its hostname when device is set."
+        },
+        {
+          "name": "definition",
+          "type": "string",
+          "required": true,
+          "description": "The node definition's id, e.g. iol-xe."
+        },
+        {
+          "name": "device",
+          "type": "string",
+          "description": "The inventory device the node stands for: its host becomes the management address and its stored login is seeded as IOS secrets."
+        },
+        {
+          "name": "management_interface",
+          "type": "string",
+          "default": "Ethernet0/0",
+          "description": "The interface that carries the management address."
+        },
+        {
+          "name": "management_prefix",
+          "type": "int",
+          "default": "24",
+          "description": "The management address's prefix length."
+        },
+        {
+          "name": "management_gateway",
+          "type": "string",
+          "description": "The management network's gateway, the Mgmt-intf VRF's default route. Required with device."
+        },
+        {
+          "name": "configuration",
+          "type": "string",
+          "description": "Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device."
+        },
+        {
+          "name": "interfaces",
+          "type": "int",
+          "description": "The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). Up to 128, and no more than the definition allows, which the controller enforces when the node is made, so a check, which makes nothing, cannot see that limit."
+        },
+        {
+          "name": "x",
+          "type": "int",
+          "default": "0",
+          "description": "The node's place on the lab's canvas, left to right."
+        },
+        {
+          "name": "y",
+          "type": "int",
+          "default": "0",
+          "description": "The node's place on the lab's canvas, top to bottom."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "on change",
+          "description": "The new node's id."
+        },
+        {
+          "name": "interfaces",
+          "type": "list",
+          "returned": "on change",
+          "description": "Its interfaces' labels, in slot order."
+        },
+        {
+          "name": "management_address",
+          "type": "string",
+          "returned": "when device is set",
+          "description": "The address the node's management interface was given."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A core router standing for an inventory device",
+          "runbookYaml": "- name: Make CORE1\n  virt.cml.node.create:\n    lab: cvd\n    label: CORE1\n    definition: iol-xe\n    device: CORE1\n    management_gateway: 10.10.20.254\n    x: 0\n    y: 0\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.link.create",
+        "virt.cml.node.delete",
+        "virt.cml.lab.start"
+      ]
+    }
+  },
+  "virt.cml.node.delete": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "The node's disk and configuration are wiped before it is removed, and nothing keeps them, so nothing can put it back as it was."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops, wipes and deletes one node of a CML lab.",
+      "description": "Stops the node, wipes its disks and removes it with its links. A node that does not exist is unchanged. It cannot be undone: the node's disk and configuration are gone. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads whether the node exists and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node, by label or id."
+        }
+      ],
+      "returns": [
+        {
+          "name": "node_id",
+          "type": "string",
+          "returned": "on change",
+          "description": "The id of the node removed."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove a node",
+          "runbookYaml": "- name: Remove BR3\n  virt.cml.node.delete:\n    lab: cvd\n    node: BR3\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.node.create"
       ]
     }
   },

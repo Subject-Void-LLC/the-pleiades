@@ -80,6 +80,21 @@ const DefaultAskMax = 3
 // output lines do not.
 var QuestionShape = regexp.MustCompile(`(?:\?|\]|\]:)[ \t]*\z`)
 
+// UnansweredShape is a question no Prompt answers when a configuration line
+// is left waiting on it: an open last line ending in a question mark, in
+// one of IOS's answer brackets ("[yes/no]:", "[confirm]", "[y/n]"), or in a
+// request for a password or passphrase ("Password:", which crypto pki
+// server's "no shutdown" asks after its "[yes/no]:" is answered, to protect
+// the CA's key: measured on IOL XE 17.15, 2026-10-24). It is
+// narrower than QuestionShape on purpose: a configuration line's output can
+// leave "[OK]" open for a moment before its line break ("Building
+// configuration...", crypto key generation), and failing on that would
+// fail a line that succeeded. A question that matches it fails the line at
+// once rather than waiting, unanswered, for the read's bound (the blind CVD
+// lab lost five minutes to crypto pki server's "no shutdown" asking
+// "Are you sure you want to do this? [yes/no]:", 2026-10-24).
+var UnansweredShape = regexp.MustCompile(`(?i)(?:\?|\[(?:yes/no|yes|no|y/n|confirm)\]|\b(?:password|passphrase))[: \t]*\z`)
+
 // Ask is how Dialog handles a question no Prompt matched. Without one,
 // such a question is waited on until the context ends.
 type Ask struct {
@@ -155,13 +170,29 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 	if err := checkDialog(opts); err != nil {
 		return DialogResult{}, err
 	}
-	exec := s.dialect.Prompt(false)
+	asked := 0
+	return s.converse(ctx, line, s.dialect.Prompt(false), opts, false, &asked)
+}
+
+// converse sends line and reads its output to end, the prompt of the mode
+// the line leaves the device in, answering the device's questions on the
+// way as opts says; asked counts the questions a Chooser has been asked so
+// far, so a batch of lines shares one limit. With failFast, a line left
+// waiting on a question (UnansweredShape) that no prompt matches and no
+// Chooser is there to answer fails at once, naming the question: the
+// device would otherwise wait for an answer nothing will type until the
+// read's bound ends it.
+func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp, opts DialogOptions, failFast bool, asked *int) (DialogResult, error) {
 	prompts := make([]*regexp.Regexp, len(opts.Prompts))
 	for i, p := range opts.Prompts {
 		prompts[i] = openLine(p.Match)
 	}
 	shape := askShape(opts.Ask)
-	until := dialogPattern(exec, prompts, shape)
+	var unanswered *regexp.Regexp
+	if failFast && shape == nil {
+		unanswered = openLine(UnansweredShape)
+	}
+	until := dialogPattern(end, prompts, shape, unanswered)
 
 	if err := s.shell.WriteLine(ctx, line); err != nil {
 		return DialogResult{}, fmt.Errorf("netcli: %w", err)
@@ -169,7 +200,6 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 	var res DialogResult
 	var transcript strings.Builder
 	answered := make([]bool, len(opts.Prompts))
-	asked := 0
 	for {
 		raw, err := s.shell.ReadUntil(ctx, until, s.maxBytes)
 		if err != nil {
@@ -180,23 +210,28 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 			}
 			if opts.ExpectDisconnect && len(res.Exchanges) > 0 && errors.Is(err, io.EOF) {
 				transcript.Write(partial)
-				res.Output, res.Disconnected = stripEcho(transcript.String(), line, exec), true
+				res.Output, res.Disconnected = stripEcho(transcript.String(), line, end), true
 				return res, nil
 			}
 			return res, fmt.Errorf("netcli: %w%s", err, waitingOn(partial))
 		}
 		transcript.WriteString(raw)
-		if endsWith(exec, raw) {
-			res.Output = stripEcho(transcript.String(), line, exec)
+		if endsWith(end, raw) {
+			res.Output = stripEcho(transcript.String(), line, end)
 			return res, nil
+		}
+		if echoing(transcript.String(), line) {
+			// The device's echo of line itself, not yet ended by its line
+			// break: a line that ends in "?" reads as a question until then.
+			continue
 		}
 		question := lastLine(raw)
 		if i, again := pickPrompt(prompts, answered, raw); i >= 0 || again {
 			if again {
-				return res, s.stop("the device asked %q again after it was answered, so the answer did not take", question)
+				return res, s.stop(question, "the device asked %q again after it was answered, so the answer did not take", question)
 			}
 			if opts.Prompts[i].Refuse {
-				return res, s.stop("the device asked %q, which this task refuses", question)
+				return res, s.stop(question, "the device asked %q, which this task refuses", question)
 			}
 			if err := s.answer(ctx, question, opts.Prompts[i].Answer); err != nil {
 				return res, err
@@ -205,12 +240,15 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 			res.Exchanges = append(res.Exchanges, Exchange{Question: question, Answer: opts.Prompts[i].Answer, Prompt: i})
 			continue
 		}
+		if unanswered != nil && endsWith(unanswered, raw) {
+			return res, s.stop(question, "the device asked %q, which no prompt answers: list it in prompts with its answer (or refuse: true), or let ask choose among answers the task writes", question)
+		}
 		if shape == nil || !endsWith(shape, raw) {
 			// The pattern matched something none of its parts recognizes
 			// at the end; read on rather than guess.
 			continue
 		}
-		ex, done, err := s.choose(ctx, opts.Ask, question, &asked)
+		ex, done, err := s.choose(ctx, opts.Ask, question, asked)
 		if err != nil {
 			return res, err
 		}
@@ -218,6 +256,15 @@ func (s *Session) Dialog(ctx context.Context, line string, opts DialogOptions) (
 			res.Exchanges = append(res.Exchanges, ex)
 		}
 	}
+}
+
+// echoing reports whether everything read so far is the device's echo of
+// line, or the start of it, its line break not yet arrived: an echo can
+// arrive in pieces, and "service password" is a prefix of a line, not a
+// question.
+func echoing(read, line string) bool {
+	read = strings.TrimRight(read, " \t")
+	return read != "" && strings.HasPrefix(line, read)
 }
 
 // choose asks the Chooser about question and acts on its decision: an
@@ -228,19 +275,19 @@ func (s *Session) choose(ctx context.Context, ask *Ask, question string, asked *
 		limit = DefaultAskMax
 	}
 	if *asked >= limit {
-		return Exchange{}, false, s.stop("the device asked %q, and the %d questions this task lets a chooser answer are used", question, limit)
+		return Exchange{}, false, s.stop(question, "the device asked %q, and the %d questions this task lets a chooser answer are used", question, limit)
 	}
 	*asked++
 	d, err := ask.Choose(ctx, question, ask.Choices)
 	if err != nil {
-		_ = s.shell.Close()
-		return Exchange{}, false, fmt.Errorf("netcli: choosing an answer to %q: %w", question, err)
+		left := s.abandon(question)
+		return Exchange{}, false, fmt.Errorf("netcli: choosing an answer to %q: %w; %s", question, err, left)
 	}
 	switch d.ID {
 	case ChoiceWait:
 		return Exchange{}, false, nil
 	case ChoiceRefuse:
-		return Exchange{}, false, s.stop("the device asked %q, and the chooser refused it: %s", question, d.Reason)
+		return Exchange{}, false, s.stop(question, "the device asked %q, and the chooser refused it: %s", question, d.Reason)
 	}
 	for _, c := range ask.Choices {
 		if c.ID == d.ID {
@@ -250,14 +297,14 @@ func (s *Session) choose(ctx context.Context, ask *Ask, question string, asked *
 			return Exchange{Question: question, Answer: c.Answer, Prompt: -1, Choice: c.ID, Reason: d.Reason, Detail: d.Detail}, true, nil
 		}
 	}
-	return Exchange{}, false, s.stop("the chooser picked %q for %q, which is not one of this task's choices", d.ID, question)
+	return Exchange{}, false, s.stop(question, "the chooser picked %q for %q, which is not one of this task's choices", d.ID, question)
 }
 
 // answer types text and Enter at question, refusing text for a question
 // that asks for a credential.
 func (s *Session) answer(ctx context.Context, question, text string) error {
 	if text != "" && credentialQuestion.MatchString(question) {
-		return s.stop("the device asked %q for a credential, and an answer written in a task is never a secret, so none is sent", question)
+		return s.stop(question, "the device asked %q for a credential, and an answer written in a task is never a secret, so none is sent", question)
 	}
 	if err := s.shell.WriteLine(ctx, text); err != nil {
 		return fmt.Errorf("netcli: answering %q: %w", question, err)
@@ -265,9 +312,35 @@ func (s *Session) answer(ctx context.Context, question, text string) error {
 	return nil
 }
 
-// stop closes the session, which a device takes as abandoning the command
-// it was asking about, and returns the reason as an error.
-func (s *Session) stop(format string, args ...any) error {
+// Abandoner is a Shell whose device keeps a question open after the shell
+// closes: a console line, whose node outlives the connection to its console
+// server, so closing it abandons nothing, and whatever its Close types next
+// would answer the question. Session closes such a shell only after
+// Abandon, which declines the question itself where a decline is certain,
+// or leaves the line alone; it reports whether it declined.
+type Abandoner interface {
+	Abandon(question string) (declined bool)
+}
+
+// stop ends the command at question, whose reason format and args give,
+// and returns that reason as an error saying what became of the command.
+func (s *Session) stop(question, format string, args ...any) error {
+	return fmt.Errorf("netcli: "+format+"; %s", append(args, s.abandon(question))...)
+}
+
+// abandon closes the session at question and says what became of the
+// command. Closing a session abandons it, except on an Abandoner, which
+// declines the question first or reports the line left waiting on it.
+func (s *Session) abandon(question string) string {
+	a, ok := s.shell.(Abandoner)
+	if !ok {
+		_ = s.shell.Close()
+		return "the session was closed, which abandons the command"
+	}
+	declined := a.Abandon(question)
 	_ = s.shell.Close()
-	return fmt.Errorf("netcli: "+format+"; the session was closed, which abandons the command", args...)
+	if declined {
+		return "the question was declined and the session closed"
+	}
+	return fmt.Sprintf("the line was left waiting at %q, unanswered: clear it at the device's console", question)
 }

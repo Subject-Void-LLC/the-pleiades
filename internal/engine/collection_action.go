@@ -187,7 +187,8 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 
 	var seed map[string]string
 	if param := desc.Manifest.SeedsLogin; param != "" {
-		if seed, err = e.seedLogin(ctx, task.FQCN, param, desc.Manifest.SeedsLoginPassword, task.Params); err != nil {
+		forms := SeedForms{Password: desc.Manifest.SeedsLoginPassword, IOSSecret: desc.Manifest.SeedsLoginIOSSecret, Required: requiredParam(desc, param)}
+		if seed, err = e.seedLogin(ctx, task.FQCN, param, forms, task.Params); err != nil {
 			return ActionResult{}, err
 		}
 	}
@@ -240,6 +241,21 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 			}
 			routed.route = dial
 			secrets = append(secrets, hopSecrets...)
+		}
+		// A device reached through a console server hands the method a
+		// dialer to its line (sdk.Consoler), and the server's secrets join
+		// the masking set the same way.
+		console, serverSecrets, err := ConsoleDialerFor(ctx, e.routeRepo, e.routeCredentials, device)
+		if err != nil {
+			return ActionResult{Secrets: secrets}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+		}
+		if console != nil {
+			consoled, ok := rc.(*runbookContext)
+			if !ok {
+				return ActionResult{Secrets: secrets}, fmt.Errorf("collection method %q: device %q is reached through a console server, which this run's context cannot carry", task.FQCN, device.Name())
+			}
+			consoled.console = console
+			secrets = append(secrets, serverSecrets...)
 		}
 	}
 
@@ -391,7 +407,7 @@ func credentialSecrets(secrets map[string]string) []string {
 	out := make([]string, 0, len(secrets))
 	for key, value := range secrets {
 		switch key {
-		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey:
+		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey, wire.SecretSeedHost:
 			continue
 		}
 		out = append(out, value)

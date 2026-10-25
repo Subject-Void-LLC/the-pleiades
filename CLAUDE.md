@@ -64,11 +64,11 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 191 registered FQCNs; 188 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 201 registered FQCNs; 198 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
-  this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 19, `ai` 11,
+  this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 29, `ai` 11,
   `svc` 16, `net` 23, `file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
   `http` 3, `pleiades` 3, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
@@ -157,7 +157,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 175 of the 188 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 185 of the 198 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -591,7 +591,7 @@ and markdown.
 
 ### Project subagents
 
-`.claude/agents/` defines five agents. Delegate to them instead of writing a general-purpose prompt that
+`.claude/agents/` defines six agents. Delegate to them instead of writing a general-purpose prompt that
 repeats the house rules: each one already carries the gopls ladder, the no-build rule, the evidence format,
 and the writing rules. Each reads `.IGNORE/agents-local.md` first when it exists (git-ignored; this machine's
 memory limits, `gh` setup and lab names).
@@ -603,8 +603,10 @@ memory limits, `gh` setup and lab names).
 | `claim-refuter` | testing a finding, a "fixed" claim, a ticked roadmap item or a doc claim | no |
 | `ci-triager` | a failed Actions run or a local `prreport`: real, contention, infrastructure, or a repeat of N | no |
 | `records-keeper` | the end-of-branch records: failure patterns, lessons, handoff, changelog, roadmap ticks | records only |
+| `docker-cleaner` | Docker itself failing a container test, or tens of GB reclaimable: prunes only what nothing uses, through `.claude/skills/docker-clean` | Docker only |
 
-None commits, pushes, comments, reruns CI or touches a lab VM. The main thread keeps to the machine's
+None commits, pushes, comments, reruns CI or touches a lab VM, and `docker-cleaner` refuses while a gate or test
+run is using Docker. The main thread keeps to the machine's
 concurrency limit across all of them.
 
 ### ent code generation

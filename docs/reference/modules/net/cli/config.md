@@ -13,7 +13,7 @@ Splits config into non-blank lines and sends each one through the same generic s
 |  |  |
 | --- | --- |
 | Capabilities | `NetworkCLICapable` |
-| Transports | `ssh`, `telnet` |
+| Transports | `ssh`, `telnet`, `console` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what a configuration line changes is decided by the device's own parser as it applies the line, and a CLI offers no way to ask without applying it |

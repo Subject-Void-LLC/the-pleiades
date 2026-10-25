@@ -37,6 +37,7 @@ func TestNewCluster_Refusals(t *testing.T) {
 		{"an empty node engine host", map[string]inventory.PropertyValue{kubernetes.APIServerProperty: "https://k.example", kubernetes.NodeEngineHostProperty: ""}, "container_host"},
 		{"deprecated TLS", map[string]inventory.PropertyValue{kubernetes.APIServerProperty: "https://k.example", devicetls.MinVersionProperty: "1.1", devicetls.AllowDeprecatedProperty: true}, "weak-TLS"},
 		{"the client-certificate switch", map[string]inventory.PropertyValue{kubernetes.APIServerProperty: "https://k.example", devicetls.ClientCertificateProperty: true}, "stored credential"},
+		{"a pinned certificate", map[string]inventory.PropertyValue{kubernetes.APIServerProperty: "https://k.example", devicetls.FingerprintProperty: "sha256:" + strings.Repeat("ab", 32)}, "verified against its authority"},
 		{"an EKS name without a region", map[string]inventory.PropertyValue{kubernetes.APIServerProperty: "https://k.example", kubernetes.EKSClusterProperty: "prod"}, "set both or neither"},
 		{"a region without an EKS name", map[string]inventory.PropertyValue{kubernetes.APIServerProperty: "https://k.example", kubernetes.AWSRegionProperty: "us-east-1"}, "set both or neither"},
 		{"a bad EKS name", map[string]inventory.PropertyValue{kubernetes.APIServerProperty: "https://k.example", kubernetes.EKSClusterProperty: "prod cluster", kubernetes.AWSRegionProperty: "us-east-1"}, "not an EKS cluster name"},

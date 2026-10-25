@@ -56,6 +56,11 @@ func printSummary(w io.Writer, r prreport.Report, path string) {
 	if r.Verdict == prreport.VerdictRunning {
 		fmt.Fprintf(w, "  pr-check began this run and has not ended it: this is not a result. Expected: %s\n", strings.Join(r.Expected, ", "))
 	}
+	if r.Oldest != nil && r.Started != nil && r.Oldest.Before(*r.Started) {
+		// Records kept by make pr-check LEGS=...: the receipt's age counts
+		// from this time, not from the run's start.
+		fmt.Fprintf(w, "  the oldest record began %s, before this run: it was kept from an earlier one\n", r.Oldest.Format("2006-01-02 15:04 MST"))
+	}
 	for _, p := range r.Passes {
 		fmt.Fprintf(w, "  %-11s %-8s %s\n", p.Name, p.Run.Verdict, runLine(p.Run))
 	}

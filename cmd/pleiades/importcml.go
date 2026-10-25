@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,9 +19,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
@@ -49,12 +51,13 @@ var cmlCiscoTypes = map[string]string{
 func cmlSpec(n cml.Node, addr netip.Addr, via string) (string, map[string]pkginventory.PropertyValue) {
 	host := addr.String()
 	if t, ok := cmlCiscoTypes[n.NodeDefinition]; ok {
+		// transport is written either way, and a console's properties
+		// taken away, so a node imported again with --replace keeps nothing
+		// of how it was reached before.
 		if via == "telnet" {
-			return t, map[string]pkginventory.PropertyValue{"host": host, "transport": "telnet"}
+			return t, map[string]pkginventory.PropertyValue{"host": host, "transport": "telnet", "console_server": nil, "console_line": nil}
 		}
-		// transport is written either way, so a node imported again over
-		// SSH with --replace stops being reached over Telnet.
-		return t, map[string]pkginventory.PropertyValue{"host": host, "port": 22, "transport": "ssh"}
+		return t, map[string]pkginventory.PropertyValue{"host": host, "port": 22, "transport": "ssh", "console_server": nil, "console_line": nil}
 	}
 	if via == "telnet" {
 		return gns3DeviceType, map[string]pkginventory.PropertyValue{"telnet_host": host, "telnet_port": 23}
@@ -118,6 +121,7 @@ func runImportCML(args []string) error {
 	only := fs.String("nodes", "", "comma-separated nodes to import; every node when empty")
 	addresses := addressFlags{}
 	fs.Var(addresses, "address", "NODE=IP: the node's management address, where the controller observed none or several (repeatable)")
+	controller := fs.String("controller", "", "a cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password")
 	username := fs.String("username", "", "the controller account to log in as")
 	passwordStdin := fs.Bool("password-stdin", false, "read the password from the first line of standard input, instead of "+cmlPasswordEnv)
 	fingerprint := fs.String("tls-fingerprint", "", "trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates")
@@ -125,20 +129,33 @@ func runImportCML(args []string) error {
 	allowPlaintext := fs.Bool("allow-plaintext", false, "send the password over plain HTTP to a controller that is not this machine")
 	trust := fs.Bool("trust-first-connect", false, "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does")
 	onboardNodes := fs.Bool("onboard", false, "onboard each node once it is imported (needs a credential and trusted host keys)")
-	via := fs.String("via", "ssh", "how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext)")
+	via := fs.String("via", "ssh", "how the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here")
 	replace := fs.Bool("replace", false, "replace the address of a node already in the inventory as the same device type")
 	asJSON := fs.Bool("json", false, "print the result as one JSON document")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return errors.New("usage: pleiades import-cml --server <url> --lab <title|id> --username <user> [--password-stdin] [--tls-fingerprint sha256:<hex> | --tls-ca <pem>] [--nodes a,b] [--address NODE=IP]... [--trust-first-connect] [--onboard] [--replace] [--json]")
+		return errors.New("usage: pleiades import-cml (--controller <device> | --server <url> --username <user> [--password-stdin] [--tls-fingerprint sha256:<hex> | --tls-ca <pem>]) --lab <title|id> [--nodes a,b] [--address NODE=IP]... [--trust-first-connect] [--onboard] [--replace] [--json]")
 	}
-	if *server == "" || *lab == "" || *username == "" {
-		return errors.New("--server, --lab and --username are all required: the import logs in to the controller it names and reads the lab it names")
+	switch {
+	case *controller != "" && (*server != "" || *username != "" || *passwordStdin || *fingerprint != "" || *caFile != "" || *allowPlaintext):
+		return errors.New("--controller reads the server, its TLS and the login from that cml_controller device: give none of --server, --username, --password-stdin, --tls-fingerprint, --tls-ca or --allow-plaintext with it")
+	case *lab == "":
+		return errors.New("--lab is required: the import reads the lab it names")
+	case *controller == "" && (*server == "" || *username == ""):
+		return errors.New("--server and --username are required without --controller: the import logs in to the controller it names")
 	}
-	if *via != "ssh" && *via != "telnet" {
-		return fmt.Errorf("--via is ssh or telnet, not %q", *via)
+	if *via != "ssh" && *via != "telnet" && *via != "console" {
+		return fmt.Errorf("--via is ssh, telnet or console, not %q", *via)
+	}
+	if *via == "console" {
+		switch {
+		case *controller == "":
+			return errors.New("--via console needs --controller: each node is reached through that cml_controller's console server, and names it")
+		case len(addresses) > 0 || *trust || *onboardNodes:
+			return errors.New("a node reached through the console server has no address of its own: --address, --trust-first-connect and --onboard do not apply with --via console")
+		}
 	}
 	if *via == "telnet" && (*trust || *onboardNodes) {
 		return errors.New("--trust-first-connect and --onboard are SSH's; a node reached over Telnet has no host key and is used as imported")
@@ -149,43 +166,19 @@ func runImportCML(args []string) error {
 	if *trust && os.Getenv(remoteexec.KnownHostsEnv) == "" {
 		return fmt.Errorf("--trust-first-connect needs %s set to a known_hosts file of the lab's own: a lab's host keys must not go in your own ~/.ssh/known_hosts", remoteexec.KnownHostsEnv)
 	}
-	password, err := labPassword(*passwordStdin, cmlPasswordEnv, os.Stdin)
-	if err != nil {
-		return err
-	}
-	base, err := url.Parse(strings.TrimRight(*server, "/"))
-	if err != nil || base.Host == "" {
-		return fmt.Errorf("--server %q is not a URL", *server)
-	}
-	warning, err := labPlaintext(base, true, *allowPlaintext)
-	if err != nil {
-		return err
-	}
-	var roots *x509.CertPool
-	if *caFile != "" {
-		pem, err := os.ReadFile(*caFile) // #nosec G304 -- the operator names the CA file
-		if err != nil {
-			return fmt.Errorf("reading --tls-ca: %w", err)
-		}
-		roots = x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(pem) {
-			return fmt.Errorf("--tls-ca %s holds no PEM certificate", *caFile)
-		}
-	}
-	tlsConfig, err := cml.TLSConfig(base.Hostname(), *fingerprint, roots)
-	if err != nil {
-		return err
-	}
-	client, err := cml.New(*server, labHTTPClient(tlsConfig), cml.Credentials{Username: *username, Password: password})
-	if err != nil {
-		return err
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	version, err := client.Connect(ctx)
+	var conn cmlConnection
+	var err error
+	if *controller != "" {
+		conn, err = cmlByController(ctx, *dir, *controller)
+	} else {
+		conn, err = cmlByFlags(ctx, *server, *username, *passwordStdin, *fingerprint, *caFile, *allowPlaintext)
+	}
 	if err != nil {
 		return err
 	}
+	client, version := conn.client, conn.version
 	picked, err := cmlPickLab(ctx, client, *lab)
 	if err != nil {
 		return err
@@ -204,16 +197,31 @@ func runImportCML(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)
 	}
-	res := cmlResult{Server: base.Redacted(), Version: version, Lab: picked.Title}
-	if warning != "" {
-		res.Warnings = append(res.Warnings, warning)
-	}
+	res := cmlResult{Server: conn.server, Version: version, Lab: picked.Title, Warnings: conn.warnings}
 	tags := []string{"cml"}
 	if clabNodeName.MatchString(picked.Title) {
 		tags = append(tags, "cml-"+picked.Title)
 	}
 	for _, n := range nodes {
 		out := cmlImported{Device: n.Label, NodeDefinition: n.NodeDefinition, State: n.State}
+		if *via == "console" {
+			deviceType, props, skip, err := cmlConsoleSpec(ctx, client, picked.ID, n, *controller)
+			if err != nil {
+				return err
+			}
+			if skip != "" {
+				out.Skipped = skip
+				res.Nodes = append(res.Nodes, out)
+				continue
+			}
+			spec := inventory.HostSpec{ID: uuid.New().String(), Name: n.Label, Type: deviceType, Tags: tags, Properties: props}
+			if hosts, err = labPlace(hosts, spec, *replace); err != nil {
+				return err
+			}
+			out.Address, out.Type, out.Via = "console of "+*controller, deviceType, *via
+			res.Nodes = append(res.Nodes, out)
+			continue
+		}
 		addr, from, skip := cmlAddress(n, addresses)
 		if skip != "" {
 			out.Skipped = skip
@@ -273,12 +281,18 @@ func runImportCML(args []string) error {
 			fmt.Printf("skipped %q (%q): %s\n", n.Device, n.NodeDefinition, n.Skipped)
 			continue
 		}
+		if n.Via == "console" {
+			fmt.Printf("imported %s (%q, %s) as a %s reached through the %s\n", n.Device, n.NodeDefinition, termsafe.EscapeLine(n.State), n.Type, termsafe.EscapeLine(n.Address))
+			continue
+		}
 		fmt.Printf("imported %s (%q, %s) as a %s at %s over %s, from %s\n", n.Device, n.NodeDefinition, termsafe.EscapeLine(n.State), n.Type, n.Host, n.Via, termsafe.EscapeLine(n.Address))
 	}
 	if follow != nil {
 		return follow
 	}
 	switch {
+	case *via == "console":
+		fmt.Printf("next, for each node: pleiades add-credential (the node's own login, answered on its console line; the console server's login is %s's)\n", *controller)
 	case *via == "telnet":
 		fmt.Println("next, for each node: pleiades add-credential (with --enable-password for a router's enable secret); every method reaching one takes insecure_telnet: true among its parameters")
 	case !*trust || !*onboardNodes:
@@ -381,4 +395,115 @@ func cmlAddress(n cml.Node, addresses addressFlags) (netip.Addr, string, string)
 		s = append(s, a.String())
 	}
 	return netip.Addr{}, "", fmt.Sprintf("the controller observed several addresses on it (%s); pass --address %s=<one>", strings.Join(s, ", "), n.Label)
+}
+
+// cmlConnection is a logged-in client and what the import reports about
+// how it reached the controller.
+type cmlConnection struct {
+	client   *cml.Client
+	version  string
+	server   string
+	warnings []string
+}
+
+// cmlByFlags logs in to the controller --server names, with --username and
+// the password from standard input or cmlPasswordEnv, trusting what
+// --tls-fingerprint or --tls-ca says, read by the same rule as a
+// cml_controller record's properties so a flag and a record can never
+// trust differently.
+func cmlByFlags(ctx context.Context, server, username string, passwordStdin bool, fingerprint, caFile string, allowPlaintext bool) (cmlConnection, error) {
+	if fingerprint != "" && caFile != "" {
+		return cmlConnection{}, errors.New("give --tls-fingerprint or --tls-ca, not both: a pinned certificate needs no CA")
+	}
+	password, err := labPassword(passwordStdin, cmlPasswordEnv, os.Stdin)
+	if err != nil {
+		return cmlConnection{}, err
+	}
+	base, err := url.Parse(strings.TrimRight(server, "/"))
+	if err != nil || base.Host == "" {
+		return cmlConnection{}, fmt.Errorf("--server %q is not a URL", server)
+	}
+	warning, err := labPlaintext(base, true, allowPlaintext)
+	if err != nil {
+		return cmlConnection{}, err
+	}
+	props := map[string]pkginventory.PropertyValue{}
+	if fingerprint != "" {
+		props[devicetls.FingerprintProperty] = fingerprint
+	}
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile) // #nosec G304 -- the operator names the CA file
+		if err != nil {
+			return cmlConnection{}, fmt.Errorf("reading --tls-ca: %w", err)
+		}
+		props[devicetls.CAPEMProperty] = string(pem)
+	}
+	settings, err := devicetls.Parse(pkginventory.NewProperties(props))
+	if err != nil {
+		return cmlConnection{}, fmt.Errorf("--tls-fingerprint or --tls-ca: %w", err)
+	}
+	tlsConfig, err := settings.Config(nil)
+	if err != nil {
+		return cmlConnection{}, err
+	}
+	client, err := cml.New(server, labHTTPClient(tlsConfig), cml.Credentials{Username: username, Password: password})
+	if err != nil {
+		return cmlConnection{}, err
+	}
+	version, err := client.Connect(ctx)
+	if err != nil {
+		return cmlConnection{}, err
+	}
+	conn := cmlConnection{client: client, version: version, server: base.Redacted()}
+	if warning != "" {
+		conn.warnings = append(conn.warnings, warning)
+	}
+	return conn, nil
+}
+
+// cmlByController logs in to the controller the project's cml_controller
+// device named name stands for, with its stored login and its own TLS
+// settings, so the controller's password comes from the vault and never
+// from standard input or the environment.
+func cmlByController(ctx context.Context, dir, name string) (cmlConnection, error) {
+	repo := inventory.NewFileRepository(filepath.Join(dir, inventory.DefaultInventoryFilename), inventory.NewItemFactory())
+	device, err := repo.GetByName(ctx, name)
+	if err != nil {
+		return cmlConnection{}, fmt.Errorf("--controller %s: %w", name, err)
+	}
+	cred, err := credential.NewLazyFileStore(dir).Lookup(ctx, name)
+	if errors.Is(err, credential.ErrNotFound) {
+		return cmlConnection{}, fmt.Errorf("--controller %s has no login stored (pleiades add-credential %s --username <user> --password-stdin)", name, name)
+	}
+	if err != nil {
+		return cmlConnection{}, fmt.Errorf("--controller %s: %w", name, err)
+	}
+	client, version, warnings, err := cml.ClientFor(ctx, device, name, credential.Flatten(cred))
+	if err != nil {
+		return cmlConnection{}, fmt.Errorf("--controller %s: %w", name, err)
+	}
+	server := ""
+	if c, ok := device.(capability.CMLAPICapable); ok {
+		server = c.CMLBaseURL()
+	}
+	return cmlConnection{client: client, version: version, server: server, warnings: warnings}, nil
+}
+
+// cmlConsoleSpec is the device a node becomes when it is reached through
+// controller's console server: its Cisco type, with transport console,
+// console_server naming controller and console_line the node's console
+// UUID from the controller, which names exactly one node's line. A node
+// that is not IOS or IOS XE is skipped, saying why.
+func cmlConsoleSpec(ctx context.Context, client *cml.Client, lab string, n cml.Node, controller string) (string, map[string]pkginventory.PropertyValue, string, error) {
+	deviceType, ok := cmlCiscoTypes[n.NodeDefinition]
+	if !ok {
+		return "", nil, "a console import is for IOS and IOS XE nodes, whose login it answers", nil
+	}
+	key, err := client.ConsoleKey(ctx, lab, n.ID)
+	if err != nil {
+		return "", nil, "", err
+	}
+	// An address left from an import over SSH or Telnet is taken away: a
+	// console device has none.
+	return deviceType, map[string]pkginventory.PropertyValue{"transport": "console", "console_server": controller, "console_line": key, "host": nil, "port": nil}, "", nil
 }

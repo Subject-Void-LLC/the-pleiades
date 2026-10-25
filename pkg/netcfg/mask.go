@@ -25,12 +25,15 @@ const MaskPrefix = "pleiades-masked-"
 // configurations: password zebra, neighbor 10.0.0.2 password x, ip ospf
 // message-digest-key 1 md5 x, area-password md5 x, enable secret 9 x,
 // snmp-server community x RO, crypto isakmp key x address y, standby 1
-// authentication x, ip rip authentication string x. A key chain's "key 1"
+// authentication x, ip rip authentication string x, an IKEv2 keyring
+// peer's pre-shared-key [local|remote] x, and an IKEv2 profile's
+// authentication local pre-share key x. A key chain's "key 1"
 // names a key, not a secret, so a line's leading "key" counts only outside
 // a key chain block (a RADIUS or TACACS server's "key 7 x" holds one).
 var secretWords = []string{
 	"password", "secret", "authentication-key", "message-digest-key", "key-string",
 	"area-password", "domain-password", "community", "key", "authentication",
+	"pre-shared-key", "passphrase", "password-encrypt",
 }
 
 // skipped are the words that can stand between a secret word and its
@@ -39,8 +42,29 @@ var skipped = []string{"md5", "sha1", "sha256", "sha384", "sha512", "hmac-sha-25
 
 // notSecret are the words after "authentication" that name a mode rather
 // than hold a secret: ip ospf authentication message-digest, ip rip
-// authentication mode md5, isis authentication key-chain k.
-var notSecret = []string{"message-digest", "null", "key-chain", "mode", "key-id"}
+// authentication mode md5, isis authentication key-chain k, and an IKEv2
+// profile's authentication local|remote pre-share, whose key, when the
+// line holds one, follows a later "key".
+var notSecret = []string{"message-digest", "null", "key-chain", "mode", "key-id", "local", "remote"}
+
+// keyCommands are the words after "key" that name what a crypto key
+// command does, not a secret: crypto key generate rsa, crypto key zeroize
+// rsa, crypto key pubkey-chain rsa, and IOS's "% The key modulus size is
+// 2048 bits" (measured on IOL XE 17.15).
+var keyCommands = []string{"generate", "zeroize", "modulus", "pubkey-chain", "import", "export", "storage", "move", "decrypt", "encrypt", "lock", "unlock", "config-key"}
+
+// keyTransferEnds are what crypto key import or export may end with that is
+// not its passphrase: where the key comes from or goes, and its form.
+var keyTransferEnds = []string{"terminal", "exportable", "pem", "rsa", "ec", "general-purpose", "signature", "encryption"}
+
+// pskSides are the words that can stand between pre-shared-key and its
+// secret in an IKEv2 keyring: the side of the exchange the key is for.
+var pskSides = []string{"local", "remote"}
+
+// pskPeers are the words after pre-shared-key that name a peer rather than
+// hold a secret: an ISAKMP keyring's pre-shared-key address y key x, whose
+// secret follows the later "key".
+var pskPeers = []string{"address", "hostname"}
 
 // maskKey keys the placeholders: random, made once per process and never
 // written anywhere, so a placeholder is the same for one secret throughout
@@ -113,6 +137,15 @@ func words(line string) []word {
 // leading "key" names a key.
 func maskLine(line string, inKeyChain bool) string {
 	ws := words(line)
+	// crypto key import|export ... <passphrase>: the passphrase is the last
+	// word, after no word that names it.
+	if len(ws) >= 4 && ws[0].text == "crypto" && ws[1].text == "key" && (ws[2].text == "import" || ws[2].text == "export") {
+		last := ws[len(ws)-1]
+		if !slices.Contains(keyTransferEnds, last.text) && !strings.Contains(last.text, ":") && !strings.HasPrefix(last.text, MaskPrefix) {
+			return replaceWord(line, last)
+		}
+		return line
+	}
 	if len(ws) >= 3 && ws[0].text == "snmp-server" && ws[1].text == "host" {
 		return maskSNMPHost(line, ws)
 	}
@@ -120,8 +153,9 @@ func maskLine(line string, inKeyChain bool) string {
 		if !slices.Contains(secretWords, w.text) || (w.text == "key" && i == 0 && inKeyChain) {
 			continue
 		}
+		psk := w.text == "pre-shared-key"
 		j := i + 1
-		for j < len(ws)-1 && (isSmallNumber(ws[j].text) || slices.Contains(skipped, ws[j].text)) {
+		for j < len(ws)-1 && (isSmallNumber(ws[j].text) || slices.Contains(skipped, ws[j].text) || psk && slices.Contains(pskSides, ws[j].text)) {
 			j++
 		}
 		if j >= len(ws) {
@@ -133,7 +167,7 @@ func maskLine(line string, inKeyChain bool) string {
 		}
 		// A mode, or another secret word whose own secret follows it
 		// (standby 1 authentication md5 key-string x), is not the secret.
-		if slices.Contains(secretWords, target) || (w.text == "authentication" && slices.Contains(notSecret, target)) {
+		if slices.Contains(secretWords, target) || (w.text == "authentication" && slices.Contains(notSecret, target)) || (psk && slices.Contains(pskPeers, target)) || (w.text == "key" && slices.Contains(keyCommands, target)) {
 			continue
 		}
 		return replaceWord(line, ws[j])

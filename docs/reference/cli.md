@@ -14,7 +14,7 @@ scaffold a new project in the current directory
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
-| --dir | `string` | `.` | project directory to scaffold |
+| --dir | `string` | `.` | project directory to scaffold, made when it does not exist |
 
 `pleiades init`
 
@@ -286,12 +286,13 @@ make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management a
 | --lab | `string` | - | the lab to import, by title or id |
 | --nodes | `string` | - | comma-separated nodes to import; every node when empty |
 | --address | `string` | - | NODE=IP: the node's management address, where the controller observed none or several (repeatable) |
+| --controller | `string` | - | a cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password |
 | --username | `string` | - | the controller account to log in as |
 | --password-stdin | `bool` | `false` | read the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD |
 | --tls-fingerprint | `string` | - | trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates |
 | --tls-ca | `string` | - | a PEM file of the CAs the controller's certificate must chain to |
 | --allow-plaintext | `bool` | `false` | send the password over plain HTTP to a controller that is not this machine |
-| --via | `string` | `ssh` | how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext) |
+| --via | `string` | `ssh` | how the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here |
 | --trust-first-connect | `bool` | `false` | trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does |
 | --onboard | `bool` | `false` | onboard each node once it is imported (needs a credential and trusted host keys) |
 | --replace | `bool` | `false` | replace the address of a node already in the inventory as the same device type |
@@ -414,7 +415,7 @@ run one method against a device or a tag, with no runbook written
 | --allow-unchecked | `string` | - | with --mode check, a method that may go unchecked without making the check incomplete |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
-| --timeout | `int` | `0` | seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound) |
+| --timeout | `seconds` | `0` | how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound) |
 
 `pleiades adhoc web01 facts.gather`
 
@@ -811,15 +812,16 @@ convert an Ansible playbook into native runbooks, with a report of everything a 
 
 ## pleiades doc
 
-look up a Collection method's reference from the live registry (see 'pleiades doc --help')
+look up a Collection method's or a device type's reference from the live registry (see 'pleiades doc --help')
 
-`pleiades doc [fqcn] [flags]`
+`pleiades doc [fqcn | device type] [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --list | `bool` | `false` | list every registered FQCN, or those in one namespace if fqcn is given as a prefix |
 | --snippet | `bool` | `false` | print a paste-ready runbook task stanza for fqcn |
 | --json | `bool` | `false` | print the full catalog, or one fqcn's Manifest, as JSON |
+| --dir | `string` | `.` | project directory whose external Collections are read, as run --dir |
 | --create-skill | `bool` | `false` | create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method |
 
 `pleiades doc --create-skill`
@@ -833,6 +835,8 @@ look up a Collection method's reference from the live registry (see 'pleiades do
 `pleiades doc --snippet net.catalyst.device_facts`
 
 `pleiades doc --json net.catalyst.device_facts`
+
+`pleiades doc cisco_router`
 
 ## pleiades version
 

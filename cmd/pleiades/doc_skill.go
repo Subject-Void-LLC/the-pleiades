@@ -182,6 +182,7 @@ const skillGuide = "## Starting in a project\n\n" +
 	"   package and account methods (`pkg.apt.*`, `pkg.dnf.*`, `identity.*`) need its family: add a Debian or Ubuntu\n" +
 	"   server with `--classify linux_server,debian_family` and a RHEL, Rocky or Fedora one with\n" +
 	"   `--classify linux_server,rhel_family`, in place of `--type`. Choose when adding it: `set-host` cannot change it.\n" +
+	"   `pleiades doc <device type>` (`pleiades doc cisco_router`) lists the properties a type's record is read for.\n" +
 	"3. `pleiades add-credential` stores a device's login, encrypted. Get the password from the person you work for:\n" +
 	"   - as a sealed file, which never shows the password and needs no shell redirect:\n" +
 	"     `pleiades add-credential web01 --username <name> --password-file <file>`. One sealed to this project's key\n" +
@@ -256,6 +257,13 @@ const skillGuide = "## Starting in a project\n\n" +
 	"- A task names its method as its key, with the parameters under it. Never `fqcn:` with `params:`.\n" +
 	"- The file opens with a comment saying what it does, its blast radius, what it changes, and how to undo it.\n" +
 	"- `register: <name>` keeps a task's result; a later `when:` reads it as `result.<name>`.\n" +
+	"- A condition (`when:`, `when_or:`, `when_cel:`) is an expression such as `result.kernel.rc == 0`; a parameter\n" +
+	"  holding `{{ }}` is a template, rendered from `vars`, `nodes` and `result` when the task runs.\n" +
+	"- `-e name=value` types its value as `add-host --set` does: `true` and `false` are booleans and a whole number\n" +
+	"  is an integer, so a condition reads `vars.clear == true`, never `vars.clear == \"true\"`.\n" +
+	"- `block:` runs its tasks in order, `rescue:` runs where one of them failed, and `always:` runs either way;\n" +
+	"  `rollback_on_failure: true` on a block undoes what it completed before its rescue. A key a runbook may not\n" +
+	"  hold, such as `retries` or `until`, is refused naming it: a wait is a method (`pleiades doc --list wait`).\n" +
 	"- A list of one item is still written as a list.\n" +
 	"- A command method (`exec.command`, `exec.shell`) cannot tell what its command did, so it reports `changed` on\n" +
 	"  every run, even one that only reads, and a check of it is unchecked. To read a device, prefer a method that\n" +
@@ -312,8 +320,23 @@ const skillNetwork = "## Changing a network\n\n" +
 	"- A device with no SSH (a GNS3 console, a lab router before SSH is enabled) is reached over Telnet, which sends\n" +
 	"  its login in cleartext: a method gets `insecure_telnet: true` (a parameter, beside its others, never a task\n" +
 	"  key) only when the person has accepted that for that device; never add it to make a task pass. The device's\n" +
-	"  login and enable secret are stored with `pleiades add-credential` (`--enable-password-stdin` for the enable\n" +
-	"  secret), never written in a runbook.\n" +
+	"  record chooses the carrier: a `cisco_router` or `cisco_switch` is reached over Telnet only with its property\n" +
+	"  `transport: telnet` (`pleiades set-host <device> --set transport=telnet`; `import-cml --via telnet` sets it),\n" +
+	"  through its controller's console server with `transport: console`, and over SSH otherwise, whatever a task's\n" +
+	"  parameters say. The device's login and enable secret are stored\n" +
+	"  with `pleiades add-credential` (`--enable-password-stdin` for the enable secret), never written in a runbook.\n" +
+	"- A Cisco command or configuration line that asks a question (`[yes/no]`, `[confirm]`, a filename) is answered\n" +
+	"  by the task's `prompts:` on `net.ios.command` and `net.ios.config`, each answer written by you; in\n" +
+	"  configuration mode a line left on a question (ending in `?`, `[confirm]`, `[yes/no]` or asking for a password)\n" +
+	"  that nobody answers fails the task at once, naming it; anything else a device waits on (a banner's text)\n" +
+	"  still waits until the read limit. `ask:` hands a question\n" +
+	"  nobody listed to a model on an `ai_provider` device, which may only pick one of the task's own `choices` by id,\n" +
+	"  or refuse, and never types an answer of its own. A model served on this machine by Ollama is added with\n" +
+	"  `pleiades add-host local-ai --type ai_provider --set ai_kind=ollama --set api_base=http://127.0.0.1:11434\n" +
+	"  --set residency=local`, then `pleiades onboard local-ai`; `pleiades doc ai.chat` has its parameters.\n" +
+	"- IOS reports a line it took as already done with a notice (`% Duplicate permit statement ignored`), which\n" +
+	"  `net.ios.config` accepts; any other `% ` line fails the task. `accept:` lists the notices a task also accepts,\n" +
+	"  each a pattern you write after reading the device's own words; never accept a rejection to make a task pass.\n" +
 	"- `net.ios.config` keeps a checkpoint of the running configuration on the device and records an exact undo\n" +
 	"  (`net.ios.replace`), so `pleiades rollback` and a block's `rollback_on_failure` work with no `rollback:` list,\n" +
 	"  and a second run of the same lines reports unchanged. When its result warns that no undo was recorded (a\n" +

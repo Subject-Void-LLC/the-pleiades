@@ -43,6 +43,12 @@ signal killed it). It refuses to start without `capped`.
 - **The watchdog** samples MemAvailable every 5 seconds. Below 700 MB it
   sends SIGTERM to the group and marks the run as stopped by the watchdog.
   If memory is still short 60 seconds later, it sends SIGKILL.
+- It also reads swap in use when the run starts, and sends the same SIGTERM
+  once swap has grown 3 GB past that, logging each 1 GB of growth to the
+  run's log. MemAvailable alone missed the 2026-10-25 crash: swap filled all
+  8 GB, load reached 600 and the sampler itself was starved, while
+  MemAvailable never went under 700 MB. Growth in swap does not escalate to
+  SIGKILL, since swapped pages stay out after the run stops.
 - After the run ends, the dashboard stays up for `--linger` seconds (120 by
   default) so the final state can be read, or until Ctrl-C.
 
@@ -53,6 +59,29 @@ signal killed it). It refuses to start without `capped`.
 attach time, and the page says so. A log that already ends in pr-check's
 summary is a replay and is never saved. Without `--log`, only `.coverage/pr`
 is read, so the static checks and pass progress are not visible.
+
+## Subscribing instead of polling
+
+The run is the subject and anything watching it is an observer: each change of
+a stage's status, and the run's end with its verdict, is published as a
+numbered event. Two routes subscribe to them, and the page itself is one of
+their subscribers (it redraws the moment a stage changes):
+
+- **`/events`** streams them as Server-Sent Events (`event: stage`,
+  `event: run`, then `event: closed` when the run has ended). `?since=<seq>`
+  starts after an event already seen, and a browser reconnecting sends
+  `Last-Event-ID`, so nothing is missed.
+- **`/wait`** holds one request until an event answers it, then returns that
+  event as JSON: `?for=fail,end` (the default; `fail` is a stage that failed or
+  was stopped, `end` the run's end, `stage` any stage change, `any` everything),
+  `?since=<seq>`, `?timeout=<seconds>` (3600 by default). A script, or an
+  agent, waits for a gate's first failure with one call and no loop:
+
+  ```sh
+  curl -s 'http://127.0.0.1:8765/wait?for=fail,end&timeout=21600'
+  ```
+
+Both answer 404 when the monitor has no live run (`serve`).
 
 ## What it reads
 

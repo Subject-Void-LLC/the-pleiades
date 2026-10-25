@@ -84,7 +84,7 @@ var Root = Command{
 			Name:     "init",
 			Synopsis: "scaffold a new project in the current directory",
 			Flags: []Flag{
-				{Name: "dir", Type: "string", Default: ".", Doc: "project directory to scaffold"},
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory to scaffold, made when it does not exist"},
 			},
 			Examples: []string{"pleiades init"},
 		},
@@ -311,12 +311,13 @@ var Root = Command{
 				{Name: "lab", Type: "string", Default: "", Doc: "the lab to import, by title or id"},
 				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
 				{Name: "address", Type: "string", Default: "", Doc: "NODE=IP: the node's management address, where the controller observed none or several (repeatable)"},
+				{Name: "controller", Type: "string", Default: "", Doc: "a cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password"},
 				{Name: "username", Type: "string", Default: "", Doc: "the controller account to log in as"},
 				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD"},
 				{Name: "tls-fingerprint", Type: "string", Default: "", Doc: "trust only the controller certificate with this SHA-256 fingerprint (sha256:<hex>), whatever its issuer or dates"},
 				{Name: "tls-ca", Type: "string", Default: "", Doc: "a PEM file of the CAs the controller's certificate must chain to"},
 				{Name: "allow-plaintext", Type: "bool", Default: "false", Doc: "send the password over plain HTTP to a controller that is not this machine"},
-				{Name: "via", Type: "string", Default: "ssh", Doc: "how the nodes are reached: ssh, or telnet for a lab whose nodes run no SSH server (a login crossing in cleartext)"},
+				{Name: "via", Type: "string", Default: "ssh", Doc: "how the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here"},
 				{Name: "trust-first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does"},
 				{Name: "onboard", Type: "bool", Default: "false", Doc: "onboard each node once it is imported (needs a credential and trusted host keys)"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the address of a node already in the inventory as the same device type"},
@@ -415,7 +416,7 @@ var Root = Command{
 				{Name: "allow-unchecked", Type: "string", Default: "", Doc: "with --mode check, a method that may go unchecked without making the check incomplete"},
 				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open; =false logs in afresh"},
-				{Name: "timeout", Type: "int", Default: "0", Doc: "seconds the call may run on each device before it is stopped and fails, as a task's timeout key, 1 to 86400 (0: no bound)"},
+				{Name: "timeout", Type: "seconds", Default: "0", Doc: "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)"},
 			},
 			Examples: []string{
 				"pleiades adhoc web01 facts.gather",
@@ -745,12 +746,13 @@ var Root = Command{
 		},
 		{
 			Name:       "doc",
-			Positional: "[fqcn]",
-			Synopsis:   "look up a Collection method's reference from the live registry (see 'pleiades doc --help')",
+			Positional: "[fqcn | device type]",
+			Synopsis:   "look up a Collection method's or a device type's reference from the live registry (see 'pleiades doc --help')",
 			Flags: []Flag{
 				{Name: "list", Type: "bool", Default: "false", Doc: "list every registered FQCN, or those in one namespace if fqcn is given as a prefix"},
 				{Name: "snippet", Type: "bool", Default: "false", Doc: "print a paste-ready runbook task stanza for fqcn"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print the full catalog, or one fqcn's Manifest, as JSON"},
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory whose external Collections are read, as run --dir"},
 				{Name: "create-skill", Type: "bool", Default: "false", Doc: "create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method"},
 			},
 			Examples: []string{
@@ -760,6 +762,7 @@ var Root = Command{
 				"pleiades doc net.catalyst.device_facts",
 				"pleiades doc --snippet net.catalyst.device_facts",
 				"pleiades doc --json net.catalyst.device_facts",
+				"pleiades doc cisco_router",
 			},
 		},
 		{
