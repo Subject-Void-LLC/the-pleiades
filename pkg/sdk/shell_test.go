@@ -7,6 +7,8 @@ import (
 	"bufio"
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -149,6 +152,18 @@ func TestOpenShell_FailuresAfterTheChoice(t *testing.T) {
 	telnetAsked := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true, sdk.ParamInsecureTelnet: true}
 	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), refused, telnetAsked, "test.cli"); err == nil || !strings.Contains(err.Error(), "--set transport=telnet") {
 		t.Errorf("an SSH device given insecure_telnet = %v", err)
+	}
+	// A device that answered and was refused (its host key unknown) gets no
+	// such advice: Telnet is no fix for a key that may be a machine in the
+	// middle.
+	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(knownHosts, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(remoteexec.KnownHostsEnv, knownHosts)
+	answered := newCLIDevice(srv.Host, srv.Port, 0, capability.NameSSHTransport)
+	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), answered, map[string]any{sdk.ParamInsecureTelnet: true}, "test.cli"); err == nil || strings.Contains(err.Error(), "transport=telnet") {
+		t.Errorf("a refused host key given insecure_telnet = %v", err)
 	}
 	noShell := newCLIDevice(srv.Host, srv.Port, 0, capability.NameSSHTransport)
 	if _, err := sdk.OpenShell(ctx, newSecretContext(srv.Secrets()), noShell, skip, "test.cli"); err == nil || !strings.Contains(err.Error(), "test.cli") {
