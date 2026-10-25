@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
@@ -41,7 +42,10 @@ func OpenShell(ctx context.Context, rc RunbookContext, device inventory.Inventor
 		conn, err := Connect(ctx, rc, device, params, fqcn)
 		if err != nil {
 			var dialErr *remoteexec.DialError
-			if BoolParam(params, ParamInsecureTelnet) && errors.As(err, &dialErr) && dialErr.Unreached() {
+			// An open circuit counts too: only a device that did not answer
+			// opens one, never a refused login or host key.
+			unreached := errors.As(err, &dialErr) && dialErr.Unreached() || errors.Is(err, breaker.ErrOpen)
+			if BoolParam(params, ParamInsecureTelnet) && unreached {
 				// The task asked for Telnet, and the device's own record says
 				// SSH: insecure_telnet only accepts Telnet's exposure, it never
 				// chooses the carrier, so say where the carrier is chosen. Only
