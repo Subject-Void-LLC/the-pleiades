@@ -674,6 +674,25 @@ class MemwatchTest(unittest.TestCase):
         self.assertTrue(memwatch.should_kill(1000.0, 1060.0, 100))
         self.assertFalse(memwatch.should_kill(1000.0, 1100.0, 900))
 
+    def test_parse_swap_used(self) -> None:
+        """Reads SwapTotal minus SwapFree in MB, and nothing without both."""
+        text = "SwapTotal:       8388608 kB\nSwapFree:        7340032 kB\n"
+        self.assertEqual(memwatch.parse_swap_used(text), 1024)
+        self.assertIsNone(memwatch.parse_swap_used("SwapTotal:       8388608 kB\n"))
+
+    def test_swap_growth_stops_the_run(self) -> None:
+        """Stops at the growth limit over the baseline, never on a missing reading."""
+        self.assertTrue(memwatch.swap_grown(900 + memwatch.SWAP_GROWTH_MB, 900))
+        self.assertFalse(memwatch.swap_grown(899 + memwatch.SWAP_GROWTH_MB, 900))
+        self.assertFalse(memwatch.swap_grown(None, 900))
+        self.assertFalse(memwatch.swap_grown(8000, None))
+
+    def test_swap_steps(self) -> None:
+        """Counts whole steps of growth, and none for a shrink or a missing reading."""
+        self.assertEqual(memwatch.swap_step(900 + 2 * memwatch.SWAP_STEP_MB + 5, 900), 2)
+        self.assertEqual(memwatch.swap_step(500, 900), 0)
+        self.assertEqual(memwatch.swap_step(None, 900), 0)
+
 
 class RedactTest(unittest.TestCase):
     """Masking secrets."""

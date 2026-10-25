@@ -43,6 +43,12 @@ signal killed it). It refuses to start without `capped`.
 - **The watchdog** samples MemAvailable every 5 seconds. Below 700 MB it
   sends SIGTERM to the group and marks the run as stopped by the watchdog.
   If memory is still short 60 seconds later, it sends SIGKILL.
+- It also reads swap in use when the run starts, and sends the same SIGTERM
+  once swap has grown 3 GB past that, logging each 1 GB of growth to the
+  run's log. MemAvailable alone missed the 2026-10-25 crash: swap filled all
+  8 GB, load reached 600 and the sampler itself was starved, while
+  MemAvailable never went under 700 MB. Growth in swap does not escalate to
+  SIGKILL, since swapped pages stay out after the run stops.
 - After the run ends, the dashboard stays up for `--linger` seconds (120 by
   default) so the final state can be read, or until Ctrl-C.
 

@@ -487,6 +487,7 @@ def cmd_run(opts: Options) -> int:
     meta: Mapping[str, object] = {"mode": "run", "cap": opts.cap, "parallelism": opts.parallelism}
 
     log = store.open_log(run_id)
+    swap_baseline = memwatch.read_swap_used_mb()
     cmd = ["env", "PR_CHECK_PARALLELISM=%d" % opts.parallelism, CAPPED, opts.cap, "make", "--trace", "pr-check"]
     print("monitor: running make --trace pr-check under capped %s (history %s)" % (opts.cap, run_id), flush=True)
     # start_new_session is setsid(): pr-check gets its own session and
@@ -506,6 +507,8 @@ def cmd_run(opts: Options) -> int:
             sys.stdout.write(masked + "\n")
             sys.stdout.flush()
 
+    swap_logged: List[int] = [0]
+
     def on_sample(mb: Optional[int], now: float) -> None:
         """Applies the watchdog to one memory sample.
 
@@ -513,13 +516,23 @@ def cmd_run(opts: Options) -> int:
             mb: MemAvailable in MB, or None.
             now: When it was taken.
         """
-        if proc.poll() is not None or mb is None:
+        if proc.poll() is not None:
             return
-        if memwatch.should_kill(stopper.terminated_at, now, mb):
+        swap = memwatch.read_swap_used_mb()
+        step = memwatch.swap_step(swap, swap_baseline)
+        if step > swap_logged[0]:
+            swap_logged[0] = step
+            line = "monitor: swap in use %d MB, %d MB more than when the run began" % (swap or 0, (swap or 0) - (swap_baseline or 0))
+            log.write(line + "\n")
+            print(line, file=sys.stderr, flush=True)
+        if mb is not None and memwatch.should_kill(stopper.terminated_at, now, mb):
             stopper.kill("watchdog", "MemAvailable still %d MB a minute after SIGTERM" % mb)
         elif memwatch.should_terminate(mb):
             stopper.term("watchdog", "the watchdog stopped the run: MemAvailable %d MB, under %d MB"
-                         % (mb, memwatch.THRESHOLD_MB))
+                         % (mb or 0, memwatch.THRESHOLD_MB))
+        elif memwatch.swap_grown(swap, swap_baseline):
+            stopper.term("watchdog", "the watchdog stopped the run: swap in use grew %d MB since it began, %d MB allowed"
+                         % ((swap or 0) - (swap_baseline or 0), memwatch.SWAP_GROWTH_MB))
 
     interrupts: List[int] = [0]
 
