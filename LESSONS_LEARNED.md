@@ -359,6 +359,12 @@ story, per `.AGENTS/AGENTS.md`.
 324. **A repeat of 104: a grader is code that can be wrong; run it against a known pass and a known fail, and make each check read the artifact it judges (2026-10-24).**
 325. **Size a blind lab turn from a run that finished (turn A took 105 minutes), and have the harness say how a turn ended: a limit extended by pausing timeout still reports exit 124 (2026-10-24).**
 326. **A blind agent follows a design guide literally; a prompt that allows any design asks for the simplest one that meets the requirements (2026-10-24).**
+327. **A process stopped by a PID from pgrep -o is not proven stopped: stop by process group, confirm with ps, and lock an unattended driver from its start (2026-10-25).**
+328. **A repeat of 114: a detector for "is X running" is checked against the live process as it is really invoked, flags and wrappers included (2026-10-25).**
+329. **A repeat of 192: gate an unattended next step on the graded state it needs, not on the previous step's exit status (2026-10-25).**
+330. **A reference corpus without source URLs cannot satisfy a citation requirement, however good its content: every entry carries its document's title and URL (2026-10-25).**
+331. **When an agent's rules forbid a secret in a file, the platform must first offer a way to reference a stored secret, masked everywhere (2026-10-25).**
+332. **An agent learns a feature from the tool at the moment it needs it: the warning or refusal at the wrong way names the feature and its exact command, beside what the skill teaches (2026-10-25).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

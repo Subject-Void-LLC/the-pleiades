@@ -646,6 +646,16 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 641. kubernetes_cluster accepted tls_fingerprint and ignored it (a repeat of 441) (fixed before push)
 642. An example and a test fake were written from remembered IOS wording that the device never prints (a repeat of 90) (fixed before push)
 643. Closing a console session to abandon a refused question ran the logout, whose Enter answered the question yes (a repeat of 105) (fixed before push)
+644. pkg/netcfg.Mask masked a GRE tunnel's `tunnel key 100`, a number that is not a secret, because the last word after `key` is always taken as the secret (a repeat of 640) (fixed in 129a)
+645. net.batfish.check's reach from a node[interface] start location ended in Batfish's TERMINATEDABNORMALLY, and route and no_route cannot name a VRF (open)
+646. IOS informational % lines from PKI and front-door VRF commands failed net.ios.config reruns and rollbacks, and a % line in show output failed net.ios.command (a repeat of run 1's notices, fixed in a2495ddb with no entry of its own; the class of 549) (fixed in 129a)
+647. pleiades adhoc required a hosts argument for a method that needs no device, took the method name as the hosts, and accepted localhost only because the target is never resolved (open)
+648. --help exits 1 with "missing positional argument" for adhoc, rollback, add-credential and seal, and journal --help exits 2 printing nothing (a repeat of 562) (open)
+649. A YAML alias in a runbook failed with "got a YAML node of kind 16", because normalization never resolves aliases (a sibling of 486) (open)
+650. net.ios.command reported ping, traceroute, terminal and debug as changes, so diagnostic runs blocked rollback (a repeat of 599) (fixed in 129a, its rollback side open with 652)
+651. A net.ios.command or net.ios.config timeout dropped the device's last output, so the question it waited on was never shown (fixed in 129a)
+652. Rollback refused a later run that left nothing to undo (a node stop, then a start) the same way as one that must be undone first, and check mode judged each undo against the device as it is now (a sibling of 551) (open)
+653. net.ios.command returned the device's text unmasked, so a show of the running configuration gave an IKEv2 pre-shared key in the clear (a repeat of 578) (fixed in 129a)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

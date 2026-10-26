@@ -14024,6 +14024,8 @@ command that takes a name answers `--help` without one.
 **Lesson.** A tool an agent learns from its own help needs that help to succeed, and to be reachable without
 already knowing the command's arguments.
 
+**Seen again (2026-10-25).** Blind CVD run 3 met it on four commands, and the cause is now traced; see 648.
+
 ## 563. Four methods recorded their undo only after reads that can fail, and a failed task's undo never reaches the journal (a repeat of 452 and 487) (fixed)
 
 **Symptom.** 2026-10-22, the review of `feat/doc-create-skill`: `pkg.apt.install` (its read of the installed set and
@@ -15775,3 +15777,245 @@ listing who calls Close, and the refusal path was one caller.
 **Lesson.** On a carrier that outlives the session (a console line), abandoning a command means declining it, never
 closing and never pressing Enter. When a cleanup step starts typing, list every path that reaches it and ask what
 each keystroke answers there.
+
+## 644. pkg/netcfg.Mask masked a GRE tunnel's `tunnel key 100`, a number that is not a secret, because the last word after `key` is always taken as the secret (a repeat of 640) (fixed in 129a)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A, pleiades `0.0.0-dev+d17b732f8197`. The configuration `net.batfish.check`
+sent to Batfish held `tunnel key pleiades-masked-...` where the candidate said `tunnel key 100`, the mGRE tunnel's GRE
+key, an identifier and not a secret. Batfish could not use the line, and the agent had to accept `tunnel key` by name
+with the reason "mGRE tunnel key 100, not a secret (masked by mistake)" (`~/pleiades-cvd/claude/project/runbooks/
+model_check.yaml`, line 156). Mask's output also feeds `net.ios.config`'s differences and `undo_lines` and
+`net.ios.parse` (640), so the same line would be masked there; that part is reasoned from the code, not observed.
+
+**Root cause.** `key` is one of Mask's secret words. `maskLine` (`pkg/netcfg/mask.go`) skips small numbers, encryption
+types and modes after a secret word so that `key 7 <secret>` masks the secret and not the `7`, but the skip loop runs
+only while `j < len(ws)-1`. The last word is never skipped, so in `tunnel key 100` the `100` becomes the target and is
+masked.
+
+**Fix.** Planned in Phase 129a. Whatever the rule, a line whose secret really is a number (a numeric password) must
+still be masked, so the fix names the non-secret command (`tunnel key`) rather than sparing every final number.
+
+**Why 640's fix did not prevent it.** 640 added a list of the words after `key` that name a command (`keyCommands`:
+`generate`, `zeroize` and others), written from the crypto key lines the lab printed then. `tunnel key` puts a number
+after `key`, which neither that list nor the small-number skip handles. 640's lesson asked for a check against "the
+commands that share a secret word without holding a secret"; the check covered the crypto commands only, not
+interface commands.
+
+**Lesson.** For each secret word, list from the vendor's command reference the commands where the word holds no
+secret, and test each one. Where a word sits in a line says nothing about whether it is secret.
+
+**Fixed (2026-10-25, `2b12066f`):** `maskLine` in `pkg/netcfg/mask.go` keeps `key` when it is the second word of a line
+whose first word is `tunnel`, so `tunnel key 100` is no longer masked. The rule names the command, as planned, so a
+numeric secret anywhere else is still masked. `TestMask_ByVendor` in `pkg/netcfg/netcfg_test.go` holds both sides: it
+keeps `interface Tunnel100` with ` tunnel key 100`, and masks `98765` in `tacacs server t2` with ` key 98765`.
+
+## 645. net.batfish.check's reach from a node[interface] start location ended in Batfish's TERMINATEDABNORMALLY, and route and no_route cannot name a VRF (open)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. Model runs `ad98f613` and `4c4feb1f` asserted underlay reach from an
+interface (`from: node[interface]`), and Batfish's traceroute answered TERMINATEDABNORMALLY. Nine ad hoc probes
+narrowed it; `reach.from` refused Batfish's own quoted interface form, and a raw `reachability` question worked. In
+run `ef01d6ac`, a `no_route` assertion for the default route failed on a router whose default route is in the
+front-door VRF `WAN-TRANSPORT-INET`, since the assertion has no way to say which VRF it means. Turn A spent six model
+runs and nine ad hoc probes (16:51 to 16:59) before `6a1a25e1` passed, and it dropped interface start locations
+(`~/pleiades-cvd/runs/analysis-a.md`, section 4).
+
+**Root cause.** `holdReach` (`internal/catalog/net/batfish/model.go`) asks Batfish's `traceroute` question with
+`startLocation` `@enter(node[iface])` and headers holding `dstIps` only, no `srcIps`. The assertion parser
+(`assertions.go`, the `kindReach` case) builds that location from `node[interface]` and refuses every other form.
+Which part of the question Batfish fails on is not measured yet. `holdRoute` asks the `routes` question with `nodes`
+and `network` only, so a route check covers whatever VRFs Batfish returns and cannot name one.
+
+**Fix.** Planned in Phase 129c: reach from an interface either works or fails with a clear message, and `route` and
+`no_route` take a VRF.
+
+**Lesson.** An assertion that wraps a model's question is tested against the real model with every start location
+form it accepts, not only from a node. A route check names its VRF, because which table answers depends on it.
+
+## 646. IOS informational % lines from PKI and front-door VRF commands failed net.ios.config reruns and rollbacks, and a % line in show output failed net.ios.command (a repeat of run 1's notices, fixed in a2495ddb with no entry of its own; the class of 549) (fixed in 129a)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. Four `net.ios.config` reruns failed on lines IOS had accepted, each
+on one `%` line: "% Policy already has the same matching fvrf statement", "% certificate map already used in
+ikev2/isakmp profiles" and "% Trustpoint ... is already configured". Three rollbacks failed on "% Be sure to ask the
+CA administrator..." and "% Can't find policy". `net.ios.command` failed on `show` output that held "% Self-signed CA
+certificate:". The reruns alone took 10 minutes (18:20 to 18:30).
+
+**Root cause.** `netcli.IOS` reads every line that starts with "% " as a rejection unless it matches one of
+`iosNotices` (`pkg/netcli/netcli.go`), a list of the notices measured in run 1. `Dialect.Rejection` runs over the
+whole output, and `net.ios.command` calls it on a show command's output too (`internal/catalog/net/ios/command.go`),
+so a "% " line a show command prints as data fails the task.
+
+**Fix.** Planned in Phase 129a: each notice is measured on IOL XE 17.15 first, then added.
+
+**Why run 1's fix did not prevent it.** Run 1's fix (`a2495ddb`, and `15271a27` for show output; recorded in LESSONS
+323 as a friction item, with no failure pattern of its own) listed only the notices run 1 printed: duplicate access
+list entries, IKEv2 proposals and profile matches, and the crypto key lines. The list is an allowlist on purpose, since
+an unknown "% " line rejecting is the safe default. Run 1's design used a pre-shared key; run 3's used PKI and a
+front-door VRF, whose commands print notices nobody had measured.
+
+**Lesson.** A list of device notices grows by feature: before a design area (PKI, VRF-aware IKE) is called supported,
+apply its commands twice and undo them on a real device, and add what it prints. A show command's output is data, so
+a rejection check over it must tell a refused command from a "%" line the device prints as content.
+
+**Fixed (2026-10-25, `2b12066f`):** each notice was measured first, on IOL XE 17.15.1 through `net.ios.config` with
+`accept: '%.*'` (2026-10-25). Four are now notices in `pkg/netcli`'s `iosNotices`: "% certificate map already used in
+ikev2/isakmp profiles", "% Profile already contains this keyring", "% Removing an enrolled trustpoint will destroy all
+certificates" and "% Be sure to ask the CA administrator to revoke your certificates.". "% Specified proposal NOPE
+does not exist" stays a rejection, so a mistyped name cannot pass for one already gone. Two notices from run 3 were
+not reproduced and were not added: "% Policy already has the same matching fvrf statement" (`match fvrf any` applied
+twice printed nothing) and a trustpoint's "already configured". "% Can't find policy", from a run 3 rollback, is
+not in the list either, so that rollback would still fail on it. For show output, `net.ios.command` gained `accept` (through the same `readAccept`
+as `net.ios.config`), and a read-only command now fails only on a `netcli.IOSCommandError`: "Invalid input",
+"Incomplete command", "Ambiguous command", "Unrecognized command" or "%Error". So a "%" line a show command prints as
+data no longer fails the task. Tests: `internal/catalog/net/ios/command_output_internal_test.go`.
+
+## 647. pleiades adhoc required a hosts argument for a method that needs no device, took the method name as the hosts, and accepted localhost only because the target is never resolved (open)
+
+**Symptom.** 2026-10-25, setting up blind CVD run 3: `pleiades adhoc groundconfig.search query=...` failed, reading the
+method name as the hosts. Turn A met the same thing and passed `localhost`, which names no device in its inventory,
+and the call worked. The skill tells an agent to use `adhoc` to call a method once.
+
+**Root cause.** `adhoc`'s usage is `adhoc <hosts> <method> ...`, and `runAdhoc` (`cmd/pleiades/adhoc.go`) requires two
+positionals before it writes the hosts into a runbook (`adhocRunbook`). Since Phase 117a, a task whose method needs no
+device (`collection.ExecutionContext`'s `Device` none) skips `hosts:` and runs once (`engine.TaskTarget`), so any word
+given as hosts is ignored for such a method. `adhoc` still asks for one.
+
+**Fix.** Planned in Phase 129d: `adhoc` takes a method with no device and no hosts.
+
+**Lesson.** When the engine stops needing an input for a kind of call, change every front end that asks for it. An
+input that is silently ignored teaches an agent something false: `localhost` "worked".
+
+## 648. --help exits 1 with "missing positional argument" for adhoc, rollback, add-credential and seal, and journal --help exits 2 printing nothing (a repeat of 562) (open)
+
+**Symptom.** 2026-10-25, blind CVD run 3. `pleiades adhoc --help`, `rollback --help`, `add-credential --help` and
+`seal --help` each exit 1 with "missing positional argument". `pleiades journal --help` exits 2 and prints nothing.
+An agent that checks exit codes reads each as a failure.
+
+**Root cause.** 562 said its cause was "not yet traced further". Read from the code now: `main` (`cmd/pleiades/main.go`)
+prints any error a command returns and exits 1, and nothing maps `flag.ErrHelp` to 0. Commands that take a name call
+`splitPositionals` (`cmd/pleiades/addhost.go`) and check the count before their flag set parses, so `--help` without
+the names is refused as a missing argument. `journal`'s dispatcher (`cmd/pleiades/journal_cmd.go`) wraps
+`errUnknownCommand` for `--help`, and `main` returns 2 for that error without printing it.
+
+**Fix.** Planned in Phase 129d: `--help` exits 0 everywhere, without the command's names.
+
+**Why 562's fix did not hold.** 562 has no fix. Its stopgap was a sentence in the skill, and a second blind agent met
+the failure on four commands anyway.
+
+**Lesson.** A defect an agent meets in its first commands is fixed, not documented around: a skill sentence did not
+stop the next agent.
+
+## 649. A YAML alias in a runbook failed with "got a YAML node of kind 16", because normalization never resolves aliases (a sibling of 486) (open)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. A runbook using a YAML anchor and alias failed with "got a YAML node
+of kind 16", which names neither the alias nor what to do.
+
+**Root cause.** The runbook normalizer reads YAML nodes as written and does not follow an alias. Its errors print
+`yaml.Node.Kind` with `%v` (`internal/engine/task_syntax.go`, three messages, and `internal/engine/conditional.go`),
+and 16 is `yaml.AliasNode`. A helper that follows aliases, `yamlKeyTree.resolved` (`internal/engine/schema_keys_yaml.go`),
+already exists and is not used there.
+
+**Fix.** Planned in Phase 129d: aliases are resolved, or refused by name.
+
+**Why 486 did not prevent it.** 486 taught the build-file reader to follow merge keys and aliases. That was a
+different reader, and its lesson (a reader must read what the consumer reads) was not carried to the runbook parser.
+
+**Lesson.** Every reader that walks YAML nodes either follows aliases and merge keys or refuses them by name. An error
+never prints a library's enum number.
+
+## 650. net.ios.command reported ping, traceroute, terminal and debug as changes, so diagnostic runs blocked rollback (a repeat of 599) (fixed in 129a, its rollback side open with 652)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. Diagnostic `net.ios.command` runs (ping, traceroute, terminal
+settings, debug) each reported changed. The journal then held them as later runs that changed the device, and
+rollbacks needed up to six `--despite-run` flags.
+
+**Root cause.** `iosShow` (`internal/catalog/net/ios/command.go`) counts only `show` and its abbreviations, and `dir`
+and `more` in full, as commands that change nothing. Every other command reports changed.
+
+**Fix.** Planned in Phase 129a for ping, traceroute and terminal, which change no configuration. `debug` changes device
+state though not configuration, so it belongs to Phase 129c's rollback classification rather than the read list.
+
+**Why 599's fix did not prevent it.** 599 named `show`, the read an agent runs to prove a second run changed nothing.
+It did not list the other exec commands an agent runs to diagnose a network.
+
+**Lesson.** Sort a device's exec commands by effect (configuration, session settings, device state, none) from its
+command reference, not by the one command the last incident used.
+
+**Fixed (2026-10-25, `2b12066f`), for ping, traceroute and terminal:** they join `dir` and `more` in
+`readOnlyCommands` (`internal/catalog/net/ios/command.go`), so `net.ios.command` reports them unchanged. `debug` still
+reports changed, since it changes device state and its undo is `undebug`. The rollback side of this entry (how a
+later run that changed only device state is judged) stays open with 652, in Phase 129c.
+
+## 651. A net.ios.command or net.ios.config timeout dropped the device's last output, so the question it waited on was never shown (fixed in 129a)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. `net.ios.command` timed out three times on `request pkcs10` and
+showed nothing the device had printed. The agent wrote an EEM diagnostic applet to read the one prompt, about 7
+minutes.
+
+**Root cause.** `Session.command` (`pkg/netcli/netcli.go`) returns an empty string with the error when its read fails,
+dropping whatever it had read. `converse` (`pkg/netcli/dialog.go`) keeps only a last line shaped like a question.
+
+**Fix.** Planned in Phase 129a: a timeout's error carries the device's last output. It must be masked and bounded, as
+627 and 578 require of every output path.
+
+**Lesson.** A timeout's error says what the far side printed last, masked and bounded. "Timed out" alone sends the user
+off to build a probe of their own.
+
+**Fixed (2026-10-25, `2b12066f`):** a failed read keeps what it read. `pkg/netcli/read_failure.go`'s `ReadFailure`
+holds the output and never prints it in its own text; `netcli.LastOutput` returns it. `net.ios`'s `maskedError`
+(`internal/catalog/net/ios/config.go`) appends "the device last printed:" with the last 20 lines, at most 1 KB, masked
+with the rest of the error. `TestCommand_ATimeoutSaysWhatTheDeviceLastPrinted` in
+`internal/catalog/net/ios/command_output_internal_test.go` holds it.
+
+## 652. Rollback refused a later run that left nothing to undo (a node stop, then a start) the same way as one that must be undone first, and check mode judged each undo against the device as it is now (a sibling of 551) (open)
+
+**Symptom.** 2026-10-25, blind CVD run 3. Turn A's and turn C's core failure tests stopped a core router's node and
+started it again. Rolling back the earlier build beneath those runs was refused, and the refusal suggested
+`--despite-run` exactly as it would for a later run that must be undone first. Turn B read each of the four runs'
+journals and then stepped over them with `--despite-run`. In turn A, rollback check mode reported three undos failing
+that would have worked after the undos planned before them.
+
+**Root cause.** `laterRunProblems` (`internal/rollback/history.go`) refuses for any later run that recorded a change
+on the same device. It never classifies that run: changes that cancel out (a stop, then a start) are refused like
+changes that must be undone first. Check mode runs each undo's check against the live device, not against the
+device as the earlier undos would leave it.
+
+**Fix.** Planned in Phase 129c.
+
+**Lesson.** A refusal that offers an override must say which kind of case it is. When a harmless later run is
+refused the same way as a conflicting one, users learn to pass the override, and the override then passes the
+dangerous case too.
+
+## 653. net.ios.command returned the device's text unmasked, so a show of the running configuration gave an IKEv2 pre-shared key in the clear (a repeat of 578) (fixed in 129a)
+
+**Symptom.** 2026-10-25, measured live on the CML sandbox with this branch's binary before the fix. `net.ios.command`
+running `show running-config | section keyring` returned an IKEv2 pre-shared key (24 characters) in the clear in its
+`stdout`. From there it reached the run report, the run's text output and any register that held the result.
+
+**Security.** This is a secret exposure. Anyone who can run a read-only show command through `net.ios.command`, or read
+its report, output or a register, could read any key the device shows in the clear. A key that went through such a run
+before this fix should be treated as exposed and rotated.
+
+**Root cause.** Masking in the IOS package is done per method. `net.ios.config`, `net.ios.replace` and `net.ios.parse`
+pass device text through `pkg/netcfg`; `net.ios.command` set `stdout` to the device's text as read
+(`internal/catalog/net/ios/command.go`). The engine masks only the values it was told about, and a key that sits in
+the device's configuration was never resolved by the run, so the engine did not know it.
+
+**Fix.** `2b12066f`: `net.ios.command`'s `stdout` goes through `netcfg.MaskFound`, and every value it finds of 8 or
+more characters (`netcfg.Learnable`, `netcfg.MinLearnedLength` = 8, the engine's own minimum) is registered for the
+run (`learnSecrets`), so it is masked everywhere else the run writes it. Every named secret the project holds is
+masked from the start of each run (`credential.SecretValues`, `engine.WithKnownSecrets`), whether or not the run uses
+it. `net.ios.parse` and `net.ios.config`'s backup and running-configuration reads learn values the same way. Verified
+live on the same sandbox: the same show then printed `pre-shared-key pleiades-masked-...`. The live gate
+`TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows` (`cmd/pleiades/cml_secret_release_gate_test.go`) requires that no
+report, journal file or text output of its runs holds the key, a show of the configuration included.
+
+**Why 578's fix did not prevent it.** 578 was the same shape in the FRR package: `net.frr.facts` masked its output and
+`net.frr.command`, written beside it, did not. Its lesson was to mask once where the device's text comes in and to give
+every new method a test that reads a secret back through it, and it said plainly that its own fix was still per path.
+The lesson was applied to FRR only. `net.ios.command` already existed (added in `e933b71e`, 2026-10-20, two days
+before 578's fix in `26dca552`), and nobody swept the IOS package. 640's `pre-shared-key` rule covers this line form,
+but `net.ios.command` never called the mask, so 640's fix could not reach it either.
+
+**Lesson.** A method that returns device text masks it, and a test reads a secret back through that method. Masking
+only the values a run resolved is not enough: a secret the run never touched can still be in the device's text, so
+the run must know every secret the project holds, and must learn the ones it finds.

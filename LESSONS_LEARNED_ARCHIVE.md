@@ -6236,3 +6236,85 @@ and allowed any WAN. In run 1 the agent followed the IWAN guide's PKI section an
 about 25 of a 30-minute detour, ending when CORE1 could not enroll because IOL XE serves no HTTP, and it switched to
 a pre-shared key. The rerun built a certificate authority again. Neither the requirements nor the request needed
 one. Phase 129's skill item adds "the simplest design that meets the requirements".
+
+## 327. A process stopped by a PID from pgrep -o is not proven stopped: stop by process group, confirm with ps, and lock an unattended driver from its start
+
+**Rule.** To stop a script and everything it started, read its process group from `ps -eo pid,pgid,cmd`, stop the
+group, and confirm with `ps` that nothing in it is left. Give any unattended driver a lock (`flock`) from its first
+line, so a second copy cannot run beside one that was thought stopped.
+
+**Why.** 2026-10-25, blind CVD run 3 (`~/pleiades-cvd/runs/run3-bootstrap.md`, steps 11 and 13). The first driver was
+stopped through the PID `pgrep -o` returned. That was a short-lived parent (290195), not the driver (290201), which
+lived on in its own process group, with turn A running inside it. When turn A ended, the old driver and its
+replacement both graded it at once, and each stopped the other's core links in the middle of a failover test. Both
+drivers were then stopped by process group, both cores' links were started again, turn A was regraded alone, and
+`run3-rest2.sh` now holds a `flock`. This is the class of FAILURE_PATTERNS 504 ("a test of a stop asserts something
+was running before it and nothing after") and of LESSONS 192, where `setsid` reports the fork rather than the work.
+
+## 328. A repeat of 114: a detector for "is X running" is checked against the live process as it is really invoked
+
+**Rule.** Before a guard that asks "is X running" protects anything, run it against a live X started the way people
+really start it, flags and wrappers included, and test it with the near misses.
+
+**Why.** 2026-10-25, blind CVD run 3. `~/pleiades-cvd/lib.sh`'s `pr_check_running` matched `make pr-check`, and the
+pr-check running then was `make --trace pr-check`, so the guard had been blind to every `--trace` run since it was
+written. The run's driver started turn A beside a running pr-check. The overlap was harmless only because
+pr-check's CML gate skips without `PLEIADES_CML_*` in its environment, checked as 0 such variables in that process's
+`/proc/<pid>/environ`. The pattern is now `make( .*)? pr-check`, checked against the running pr-check. LESSONS 114
+says a guard written after an incident matches the incident's literal; it did not hold because this guard lives in a
+harness outside the repository, written fresh, with no test of any kind.
+
+## 329. A repeat of 192: gate an unattended next step on the graded state, not on the previous step's exit status
+
+**Rule.** When an unattended driver decides whether to take the next step, it asks the state that step needs (the
+grader's proof), not the exit status of the step before.
+
+**Why.** 2026-10-25, blind CVD run 3. Turn A hit its two-hour limit (exit 124) with the lab fully working: the grader
+passed steady-state reachability and 4/4/4 encrypted sessions. The driver's rule, "run turn C only if turn A exited
+0", would have skipped turn C and gone on to turn B, tearing down a working lab. The rule became "the grader's
+steady-state proof passed", and turn C then passed 47 of 48 checks. LESSONS 192 says an exit code is a claim about a
+process and the outcome is the thing being claimed; it did not hold because it was written about gates reported to a
+person, and LESSONS 325, a day earlier, had just recorded that exit 124 does not say how a turn ended.
+
+## 330. A reference corpus without source URLs cannot satisfy a citation requirement, however good its content
+
+**Rule.** A corpus an agent is told to cite from carries, on every entry, the document's title and its public URL.
+A design label and a local file path are not a citation.
+
+**Why.** 2026-10-25, blind CVD run 3. The request asked for each design choice to name its CVD by title and URL, and
+web access was replaced by the Groundconfig corpus. Its `cvd_patterns` entries carry a label ("Cisco IWAN / DMVPN
+Phase 3 with IKEv2 Design Guide") and a `source_url` that is a local path (`namespaces/...txt`, `knowledge/...md`).
+Turn A could cite no CVD URL, and its journal says so; turn C cited seven cisco.com command reference pages and said
+plainly that the corpus gives no URL for the CVD itself. Run 1, with web search, cited six CVD PDFs. The corpus
+rebuild in the approved plan gives every design entry a `url`.
+
+## 331. When an agent's rules forbid a secret in a file, the platform must first offer a way to reference a stored secret
+
+**Rule.** If an agent may not write a secret into a file, the platform must let a configuration line or a prompt
+answer refer to a stored secret by name, masked in every output. Without one, the agent either leaks the secret or
+designs around it, at great cost.
+
+**Why.** Both blind CVD runs lost their biggest block of time here. Run 1 (2026-10-24) spent 30 minutes and then
+leaked its pre-shared key. Run 3 (2026-10-25) rejected the corpus's own pre-shared-key design and spent 48 minutes,
+and about 127 of its 202 runs, building a certificate authority instead (`~/pleiades-cvd/runs/analysis-a.md`,
+sections 1 and 6). The CA's passphrase was then the EEM event's timestamp (`configure_wan.yaml`, lines 105 and 106),
+weak and guessable from a syslog line the agent printed. LESSONS 326 explained run 1's detour by the agent following
+the design guide literally; run 3 shows the missing reference was a cause in both runs. Phase 129a's named secrets
+are the fix.
+
+## 332. An agent learns a feature from the tool at the moment it needs it, not only from the skill
+
+**Rule.** When a feature exists to replace something an agent is about to do the wrong way, the tool says so at the
+point where the agent does it: the warning or refusal names the feature and the exact command to use. The skill and
+the docs teach it too, but an agent working blind meets the tool's message where it writes the line, and may never
+have read the part of the skill that applies.
+
+**Why.** 2026-10-25, Phase 129a. The owner's direction: "The agent needs to learn how to use the tools FROM the
+tools." LESSONS 331 found that both blind CVD runs lost their largest block of time because no way to name a stored
+secret existed; with named secrets built, the agent still has to find them. So the tool now points to them in three
+places. `pleiades validate` warns on a key written out in a `net.ios.config` line and names `pleiades add-secret` and
+the `{{ secret.<name>.<field> }}` reference (`internal/validate/literal_secret.go`). The refusal of a typed answer to a
+password question names `add-secret`. An unresolved secret reference names the `add-secret` command with its name and
+field filled in (`pkg/secretref/secretref.go`). The skill the binary generates teaches the same feature. This follows from 331 (which asked for the
+feature) and from 304 (which asked that the skill teach only what an agent's allow list can run); neither said where
+the teaching must happen.
