@@ -54,3 +54,18 @@ Note that no rollback engine reads this yet. What exists today is the recording,
 - `virt.cml.capture.start`
 - `net.pcap.summary`
 
+## Examples
+
+Keep a capture for net.pcap.summary:
+
+```yaml
+- name: Stop the capture and keep the file
+  virt.cml.capture.stop:
+    lab: cvd
+    a: CORE1
+    a_interface: Ethernet0/1
+    b: WAN1
+    b_interface: Ethernet0/0
+    dest: captures/core1-wan.pcap
+```
+

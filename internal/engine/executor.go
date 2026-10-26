@@ -832,6 +832,11 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	if r.dag.Guarded(r.dag.Scopes[nodeID]) {
 		return r.runGuarded(ctx, nodeID, task, started)
 	}
+	// A task that reads the device it runs on is decided and rendered on
+	// each device (device_root.go).
+	if r.readsDevice(nodeID, task) {
+		return r.runPerDevice(ctx, nodeID, task, started)
+	}
 
 	prepared, early := r.prepare(nodeID, task, started, "", nil)
 	if early != nil {
@@ -850,10 +855,11 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 
 // prepare evaluates task's condition, applies its secret_mask and renders
 // its parameters, returning the task to run, or the result that ends the
-// node here: a skip, or a failure. errorRoot, when not nil, is the failure
-// a rescue task reads as error, for device (a rescue renders per device);
+// node here: a skip, or a failure. roots are the roots this evaluation adds
+// to the condition's and the parameters' (error, the failure a rescue task
+// reads; device, the device a per-device task runs on), nil for none;
 // device names the device a per-device skip belongs to, empty otherwise.
-func (r *run) prepare(nodeID string, task *Task, started time.Time, device string, errorRoot map[string]any) (*Task, *NodeResult) {
+func (r *run) prepare(nodeID string, task *Task, started time.Time, device string, roots map[string]any) (*Task, *NodeResult) {
 	if cp := r.dag.Conditions[nodeID]; cp != nil {
 		tree, err := r.x.workflow.Read()
 		if err != nil {
@@ -878,8 +884,8 @@ func (r *run) prepare(nodeID string, task *Task, started time.Time, device strin
 			extraVars = map[string]interface{}{}
 		}
 		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars, "result": singleWriters(tree)}
-		if errorRoot != nil {
-			condVars[TemplateRootError] = errorRoot
+		for k, v := range roots {
+			condVars[k] = v
 		}
 		var res ConditionResult
 		if r.modeFor(task) == collection.ModeCheck {
@@ -939,7 +945,7 @@ func (r *run) prepare(nodeID string, task *Task, started time.Time, device strin
 	// Params render here, after the condition decided the task runs and
 	// before its targets resolve, since a target may itself be rendered
 	// (render_params.go). The DAG's own task is left as authored.
-	rendered, err := r.renderTask(task, errorRoot)
+	rendered, err := r.renderTask(task, roots)
 	if err != nil {
 		wrapped := fmt.Errorf("failed to render the parameters of %s: %w", taskLabel(nodeID, task), err)
 		r.publish(nodeID, task, "", "failed", wrapped.Error())

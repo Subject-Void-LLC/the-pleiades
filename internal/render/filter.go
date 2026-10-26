@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -60,6 +61,10 @@ type filterSpec struct {
 	// handles itself because it acts on the undefined state rather than on
 	// a value.
 	apply func(value any, args []any) (any, error)
+
+	// usage and doc are what Filters reports: how it is written, and what
+	// it does, for `pleiades doc filters`.
+	usage, doc string
 }
 
 // filters is the closed set. A name absent from this map is ErrUnknownFilter.
@@ -68,36 +73,71 @@ var filters = map[string]filterSpec{
 	// why it takes exactly one argument: an author declaring an input
 	// optional must say what it falls back to. It is handled in eval.go
 	// rather than here, so apply stays nil.
-	filterDefault: {minArgs: 1, maxArgs: 1},
+	filterDefault: {minArgs: 1, maxArgs: 1, usage: "{{ x | default('fallback') }}", doc: "x, or the fallback when x was never supplied: the only way to make a name optional, since any other name that is missing is an error"},
 
 	// quote wraps a value in POSIX single quotes so it can be embedded in
 	// a shell-sourced file without the shell reinterpreting it. AWX's own
 	// types use it for values that land in an rc file.
-	filterQuote: {apply: applyQuote},
+	filterQuote: {apply: applyQuote, usage: "{{ x | quote }}", doc: "x in POSIX single quotes, safe as one word on a shell command line (an apostrophe in it included)"},
 
 	// to_json is what makes a nested extra-var expressible. Without it a
 	// structure has no string form, because Go's default formatting of a
 	// map is not valid input to anything.
-	filterToJSON:    {apply: applyToJSON},
-	filterToJSONAlt: {apply: applyToJSON},
+	filterToJSON:    {apply: applyToJSON, usage: "{{ x | to_json }}", doc: "x as JSON, the one way to render a list or a map as text"},
+	filterToJSONAlt: {apply: applyToJSON, usage: "{{ x | tojson }}", doc: "the same as to_json"},
 
 	// b64encode and b64decode appear in AWX's kubernetes and gpg types,
 	// where a certificate or a key travels base64-wrapped.
-	filterB64Encode: {apply: applyB64Encode},
-	filterB64Decode: {apply: applyB64Decode},
+	filterB64Encode: {apply: applyB64Encode, usage: "{{ x | b64encode }}", doc: "x's text, base64-encoded"},
+	filterB64Decode: {apply: applyB64Decode, usage: "{{ x | b64decode }}", doc: "x base64-decoded; text that is not base64 is an error, never passed through"},
 
 	// lower, upper and trim are total, allocation-bounded, and present in
 	// real AWX types that normalize a region name or strip a pasted
 	// trailing newline.
-	filterLower: {apply: applyLower},
-	filterUpper: {apply: applyUpper},
-	filterTrim:  {apply: applyTrim},
+	filterLower: {apply: applyLower, usage: "{{ x | lower }}", doc: "x's text in lowercase"},
+	filterUpper: {apply: applyUpper, usage: "{{ x | upper }}", doc: "x's text in uppercase"},
+	filterTrim:  {apply: applyTrim, usage: "{{ x | trim }}", doc: "x's text without leading or trailing whitespace"},
 
 	// urlencode and cli_token make a rendered task parameter safe where it
 	// lands (Phase 117a): a value from a ticket placed in a URL, or on a
 	// network device's command line, where there is no quoting at all.
-	filterURLEncode: {apply: applyURLEncode},
-	filterCLIToken:  {apply: applyCLIToken},
+	filterURLEncode: {apply: applyURLEncode, usage: "{{ x | urlencode }}", doc: "x percent-encoded as one URL path segment or query value; / is encoded too, so a value cannot add a path segment"},
+	filterCLIToken:  {apply: applyCLIToken, usage: "{{ x | cli_token }}", doc: "x as one token on a network device's command line, which has no quoting: letters, digits and . _ - : / @ , only, up to 255 bytes, or the task fails"},
+}
+
+// FilterDoc is one filter as `pleiades doc filters` shows it.
+type FilterDoc struct {
+	Name        string `json:"name"`
+	Usage       string `json:"usage"`
+	Description string `json:"description"`
+}
+
+// Filters returns every filter a template may use, by name.
+func Filters() []FilterDoc {
+	out := make([]FilterDoc, 0, len(filters))
+	for name, f := range filters {
+		out = append(out, FilterDoc{Name: name, Usage: f.usage, Description: f.doc})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// ExcludedFilter is a Jinja2 filter this renderer refuses on purpose, and
+// why: the list this file's opening comment gives.
+type ExcludedFilter struct {
+	Name string `json:"name"`
+	Why  string `json:"why"`
+}
+
+// ExcludedFilters returns the filters left out on purpose, each with why.
+func ExcludedFilters() []ExcludedFilter {
+	return []ExcludedFilter{
+		{"regex_replace", "a pattern given in the runbook is unbounded work on a large input"},
+		{"password_hash", "a work factor the runbook controls is a denial of service"},
+		{"from_yaml", "a second deserializer on a path that already has one"},
+		{"lookup", "it reads the filesystem and the environment by design"},
+		{"map, select", "they need a callable, which this grammar cannot express"},
+	}
 }
 
 // isKnownFilter reports whether name is in the closed set.

@@ -15,7 +15,10 @@
 //   - result: each register that exactly one device (or one device-less
 //     task) wrote, by name alone, so an author need not type a device id;
 //   - error: inside a rescue: only, the failure its block is handling on the
-//     device the task runs on (handlers.go's errorContext).
+//     device the task runs on (handlers.go's errorContext);
+//   - device: the device the task runs on (its name, id, tags, properties,
+//     capabilities and state, deviceRoot), which makes the task render and
+//     decide its condition once per device (device_root.go).
 //
 // A value with no "{{" is passed through untouched, so a runbook that
 // renders nothing costs nothing and behaves as it always did.
@@ -42,12 +45,13 @@ const (
 	TemplateRootNodes  = "nodes"
 	TemplateRootResult = "result"
 	TemplateRootError  = "error"
+	TemplateRootDevice = "device"
 )
 
 // TemplateRoots are the roots a rendered parameter may read, for plan-time
 // validation.
 func TemplateRoots() []string {
-	return []string{TemplateRootError, TemplateRootNodes, TemplateRootResult, TemplateRootVars}
+	return []string{TemplateRootDevice, TemplateRootError, TemplateRootNodes, TemplateRootResult, TemplateRootVars}
 }
 
 // WithRenderer hands the Executor the template renderer its tasks' params
@@ -83,8 +87,9 @@ func HasTemplate(v any) bool {
 // renderTask returns task with its params rendered, or task itself when no
 // param holds a template. The copy shares everything but Params, so the
 // DAG's own task is never changed and a later node reads the authored text.
-// errorRoot, when not nil, is what a rescue task reads as error.
-func (r *run) renderTask(task *Task, errorRoot map[string]any) (*Task, error) {
+// roots are the roots this one evaluation adds (a rescue task's error, the
+// device a per-device task runs on).
+func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 	if !HasTemplate(task.Params) {
 		return task, nil
 	}
@@ -101,8 +106,8 @@ func (r *run) renderTask(task *Task, errorRoot map[string]any) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	if errorRoot != nil {
-		ctx[TemplateRootError] = errorRoot
+	for k, v := range roots {
+		ctx[k] = v
 	}
 	rendered, err := renderParams(r.x.renderer, task.FQCN, task.Params, ctx)
 	if err != nil {
@@ -523,7 +528,11 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 			if err != nil {
 				return fmt.Errorf("parameter %s: %w", key, err)
 			}
-			if problems := TemplateProblems(tmpl, formats[key]); len(problems) > 0 {
+			problems := TemplateProblems(tmpl, formats[key])
+			if key == collection.TargetParam {
+				problems = append(problems, TargetTemplateProblems(tmpl)...)
+			}
+			if len(problems) > 0 {
 				return fmt.Errorf("parameter %s: %s", key, problems[0])
 			}
 		}

@@ -97,7 +97,7 @@ func newWaitStub() *inventorytest.Stub {
 	return &inventorytest.Stub{
 		StubID:    "wait-1",
 		StubName:  "wait-target",
-		Caps:      []capability.Name{capability.NameSSHTransport, capability.NamePOSIXFileSystem},
+		Caps:      []capability.Name{capability.NameSSHTransport, capability.NamePOSIXFileSystem, capability.NameFRR, capability.NameCommandExec},
 		StubState: inventory.StateActive,
 	}
 }

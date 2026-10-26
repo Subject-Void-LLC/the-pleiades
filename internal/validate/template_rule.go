@@ -66,6 +66,11 @@ func TemplateRule(world WorldView) []Finding {
 		for _, key := range keys {
 			for _, source := range engine.TemplateStrings(task.Params[key]) {
 				problems := checkTemplate(eng, source, formats[key], registered, task.Register)
+				if key == collection.TargetParam {
+					if tmpl, err := eng.Compile(source); err == nil {
+						problems = append(problems, engine.TargetTemplateProblems(tmpl)...)
+					}
+				}
 				// A secret reference is the method's to resolve, never the
 				// renderer's: it is judged by its own rule and not compiled.
 				if isRef, refProblems := engine.SecretRefProblems(source, secretRefs[key]); isRef {

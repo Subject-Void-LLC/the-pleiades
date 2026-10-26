@@ -6,14 +6,14 @@ status: beta
 
 Waits until a router has a route to every prefix given and its routing table has stopped changing.
 
-A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing.
+A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it.
 
 ## Attributes
 
 |  |  |
 | --- | --- |
-| Capabilities | `FRRCapable`, `CommandExecCapable` |
-| Transports | `ssh` |
+| Capabilities | - |
+| Transports | `ssh`, `telnet`, `console` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds |
@@ -28,6 +28,7 @@ A full OSPF adjacency is not convergence: shortest paths are computed after it, 
 | `stable_for` | `int` | no | `5` | Seconds the routing table must stay unchanged. |
 | `timeout` | `int` | no | `120` | Seconds to wait in all. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
+| `insecure_telnet` | `bool` | no | `false` | Reach a Cisco IOS device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 
 ## Returns
 
@@ -57,5 +58,16 @@ Wait for OSPF to settle:
 - name: Every router routes both LANs
   wait.routes:
     prefixes: [10.1.1.0/24, 10.3.3.0/24]
+```
+
+Wait for a branch to learn the data center over its tunnel:
+
+```yaml
+- name: BR1 routes the data center through the hub
+  wait.routes:
+    target: BR1
+    prefixes: [10.0.0.0/16]
+    next_hops: {10.0.0.0/16: [10.255.0.1]}
+    timeout: 180
 ```
 

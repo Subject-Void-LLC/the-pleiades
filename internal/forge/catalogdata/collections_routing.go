@@ -118,18 +118,19 @@ var routingCollections = []collectionscaffold.Config{
 	},
 	{
 		Name:          "wait.routes",
-		Capabilities:  []capability.Name{capability.NameFRR, capability.NameCommandExec},
-		Transports:    []string{"ssh"},
+		Capabilities:  []capability.Name{},
+		Transports:    []string{"ssh", "telnet", "console"},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
-			Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing.",
+			Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it.",
 			Params: []collection.Param{
 				{Name: "prefixes", Type: "list of string", Required: true, Description: "The IPv4 prefixes that must each have a selected route, e.g. 10.3.3.0/24; the IPv4 routing table is the one read."},
 				{Name: "next_hops", Type: "dict", Description: "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}."},
 				{Name: "stable_for", Type: "int", Default: "5", Description: "Seconds the routing table must stay unchanged."},
 				{Name: "timeout", Type: "int", Default: "120", Description: "Seconds to wait in all."},
 				hostKeyParam,
+				{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a Cisco IOS device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "waited", Type: "float", Returned: "always", Description: "Seconds waited."},
@@ -137,6 +138,7 @@ var routingCollections = []collectionscaffold.Config{
 			},
 			Examples: []collection.Example{
 				{Name: "Wait for OSPF to settle", RunbookYAML: "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"},
+				{Name: "Wait for a branch to learn the data center over its tunnel", RunbookYAML: "- name: BR1 routes the data center through the hub\n  wait.routes:\n    target: BR1\n    prefixes: [10.0.0.0/16]\n    next_hops: {10.0.0.0/16: [10.255.0.1]}\n    timeout: 180\n"},
 			},
 			SeeAlso: []string{"net.frr.config", "net.trace"},
 		},

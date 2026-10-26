@@ -76,7 +76,7 @@ func catalogEntries(external *loader.Set) ([]catalogEntry, error) {
 	return entries, nil
 }
 
-const docUsage = "usage: pleiades doc [--list [namespace]] [--snippet <fqcn>] [--json] [--create-skill] [fqcn | device type]"
+const docUsage = "usage: pleiades doc [--list [namespace]] [--snippet <fqcn>] [--json] [--create-skill] [fqcn | device type | filters | conditions]"
 
 // runDoc dispatches the doc subcommand's five modes: --create-skill,
 // --list, --snippet, --json, and a bare fqcn lookup. They are mutually
@@ -93,15 +93,18 @@ func runDoc(args []string) error {
 	jsonFlag := fs.Bool("json", false, "print the full catalog, or one fqcn's Manifest, as JSON")
 	dirFlag := fs.String("dir", ".", "project directory whose external Collections are read, as run --dir")
 	skillFlag := fs.Bool("create-skill", false, "create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method")
-	if err := fs.Parse(args); err != nil {
+	// Flags may follow the method or topic too: pleiades doc conditions --json.
+	positionals, rest := splitPositionals(args, map[string]bool{"list": true, "snippet": true, "json": true, "create-skill": true})
+	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	if fs.NArg() > 1 {
+	positionals = append(positionals, fs.Args()...)
+	if len(positionals) > 1 {
 		return fmt.Errorf("%s", docUsage)
 	}
 	var fqcn string
-	if fs.NArg() == 1 {
-		fqcn = fs.Arg(0)
+	if len(positionals) == 1 {
+		fqcn = positionals[0]
 	}
 
 	if *skillFlag {
@@ -133,6 +136,10 @@ func runDoc(args []string) error {
 	}
 
 	switch {
+	case fqcn == docTopicFilters && !*listFlag && !*snippetFlag:
+		return printTemplateFilters(*jsonFlag)
+	case fqcn == docTopicConditions && !*listFlag && !*snippetFlag:
+		return printConditions(*jsonFlag)
 	case *listFlag:
 		return printDocList(entries, fqcn)
 	case *snippetFlag:

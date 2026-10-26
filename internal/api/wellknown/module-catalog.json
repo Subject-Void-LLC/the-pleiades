@@ -14769,6 +14769,12 @@
           "description": "Its SHA-256, in hex."
         }
       ],
+      "examples": [
+        {
+          "name": "Keep a capture for net.pcap.summary",
+          "runbookYaml": "- name: Stop the capture and keep the file\n  virt.cml.capture.stop:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n    dest: captures/core1-wan.pcap\n"
+        }
+      ],
       "seeAlso": [
         "virt.cml.capture.start",
         "net.pcap.summary"
@@ -15396,6 +15402,12 @@
           "type": "string",
           "returned": "always",
           "description": "The link's state before the task: STARTED, STOPPED or DEFINED_ON_CORE."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restore a link a test cut",
+          "runbookYaml": "- name: Restore CORE1's WAN link\n  virt.cml.link.start:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n"
         }
       ],
       "seeAlso": [
@@ -17427,11 +17439,9 @@
   },
   "wait.routes": {
     "supportedTransports": [
-      "ssh"
-    ],
-    "requiredCapabilities": [
-      "FRRCapable",
-      "CommandExecCapable"
+      "ssh",
+      "telnet",
+      "console"
     ],
     "executionContext": {
       "site": "target",
@@ -17448,7 +17458,7 @@
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
-      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing.",
+      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it.",
       "params": [
         {
           "name": "prefixes",
@@ -17478,6 +17488,12 @@
           "type": "bool",
           "default": "false",
           "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        },
+        {
+          "name": "insecure_telnet",
+          "type": "bool",
+          "default": "false",
+          "description": "Reach a Cisco IOS device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."
         }
       ],
       "returns": [
@@ -17498,6 +17514,10 @@
         {
           "name": "Wait for OSPF to settle",
           "runbookYaml": "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"
+        },
+        {
+          "name": "Wait for a branch to learn the data center over its tunnel",
+          "runbookYaml": "- name: BR1 routes the data center through the hub\n  wait.routes:\n    target: BR1\n    prefixes: [10.0.0.0/16]\n    next_hops: {10.0.0.0/16: [10.255.0.1]}\n    timeout: 180\n"
         }
       ],
       "seeAlso": [

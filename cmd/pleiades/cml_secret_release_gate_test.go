@@ -6,7 +6,9 @@
 // a ping across the tunnel) and that no report, journal file or text output
 // of the runs holds it, a show of the configuration included.
 //
-// It is Phase 129b's gate too, on the same lab: the P1-P2 link is stopped
+// It holds wait.routes to both routers' IOS tables (Phase 129d), P1's over
+// SSH and P2's through the console. It is Phase 129b's gate too, on the same
+// lab: the P1-P2 link is stopped
 // (a ping across it fails) and started again (one answers), then captured
 // while P1 pings across the tunnel, the capture written into the project
 // and counted by net.pcap.summary, which must find the tunnel's ESP and
@@ -184,6 +186,8 @@ tasks:
 		"  - name: P1 side\n    net.ios.config:\n      target: P1\n      checkpoint: false\n      lines:\n" + gateTunnel("10.0.12.1", "10.0.12.2", "P2", "172.31.0.1") +
 		"  - name: P2 side\n    net.ios.config:\n      target: P2\n      checkpoint: false\n      lines:\n" + gateTunnel("10.0.12.2", "10.0.12.1", "P1", "172.31.0.2") +
 		"  - name: across the tunnel\n    net.ios.ping:\n      target: P1\n      dest: 172.31.0.2\n      count: 20\n      state: present\n" +
+		"  - name: P1 routes the tunnel and the link\n    wait.routes:\n      target: P1\n      prefixes: [172.31.0.0/30, 10.0.12.0/30]\n      stable_for: 2\n      timeout: 60\n" +
+		"  - name: P2 too, through the console\n    wait.routes:\n      target: P2\n      prefixes: [172.31.0.0/30]\n      stable_for: 2\n      timeout: 60\n" +
 		"  - name: the SA\n    net.ios.command:\n      target: P1\n      command: show crypto ikev2 sa\n" +
 		"  - name: the keyring as configured\n    net.ios.command:\n      target: P1\n      command: show running-config | section keyring\n"
 	if err := os.WriteFile(filepath.Join(dir, "runbooks", "tunnel.yaml"), []byte(tunnel), 0o600); err != nil {

@@ -21,7 +21,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // paramLines and paramBackup match cisco.ios.ios_config's own parameter
@@ -544,16 +543,9 @@ var openSession = realOpenSession
 // task's opt-in (sdk.OpenShell), in IOS's dialect. The Session's Close ends
 // the connection as well, so a method closes one thing.
 func realOpenSession(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (iosSession, error) {
-	shell, err := sdk.OpenShell(ctx, rc, device, params, fqcn)
+	session, err := sdk.OpenCLI(ctx, rc, device, params, fqcn, netcli.IOS)
 	if err != nil {
 		return nil, err
-	}
-	// The enable secret, when the credential holds one, takes an account
-	// that lands in user mode ("R1>") to privileged mode.
-	session, err := netcli.Open(ctx, shell, netcli.IOS, netcli.Options{EnableSecret: rc.InjectSecrets()[wire.SecretEnablePassword]})
-	if err != nil {
-		_ = shell.Close()
-		return nil, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return session, nil
 }

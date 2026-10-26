@@ -136,6 +136,9 @@ func CELVariableOptions() []cel.EnvOption {
 		// errorContext), bound only when a rescue task runs; validation
 		// refuses it anywhere else.
 		cel.Variable("error", cel.MapType(cel.StringType, cel.DynType)),
+		// device is the device a task decides on (device_root.go's
+		// deviceRoot); a condition reading it is decided once per device.
+		cel.Variable("device", cel.MapType(cel.StringType, cel.DynType)),
 	}
 }
 

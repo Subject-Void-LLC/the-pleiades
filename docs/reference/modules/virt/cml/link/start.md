@@ -50,3 +50,17 @@ Note that no rollback engine reads this yet. What exists today is the recording,
 - `virt.cml.link.stop`
 - `virt.cml.lab.start`
 
+## Examples
+
+Restore a link a test cut:
+
+```yaml
+- name: Restore CORE1's WAN link
+  virt.cml.link.start:
+    lab: cvd
+    a: CORE1
+    a_interface: Ethernet0/1
+    b: WAN1
+    b_interface: Ethernet0/0
+```
+

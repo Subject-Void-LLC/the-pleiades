@@ -98,3 +98,20 @@ func (s *sshShell) Close() error {
 	}
 	return connErr
 }
+
+// OpenCLI opens device's CLI (OpenShell) in dialect, taking an account that
+// lands in user mode ("R1>") to privileged mode with the credential's enable
+// secret when it holds one. The session's Close ends the connection under
+// it too.
+func OpenCLI(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, dialect netcli.Dialect) (*netcli.Session, error) {
+	shell, err := OpenShell(ctx, rc, device, params, fqcn)
+	if err != nil {
+		return nil, err
+	}
+	session, err := netcli.Open(ctx, shell, dialect, netcli.Options{EnableSecret: rc.InjectSecrets()[wire.SecretEnablePassword]})
+	if err != nil {
+		_ = shell.Close()
+		return nil, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return session, nil
+}

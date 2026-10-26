@@ -102,6 +102,7 @@ func startDoc() collection.Doc {
 		Description: "Starts the link named by link, or the one between a's a_interface and b's b_interface, so it carries traffic again. A link already started is unchanged. Its undo is virt.cml.link.stop of the same link. The task's target is a cml_controller device; the method runs on this machine and talks to the controller's REST API. A check reads the link's state and changes nothing.",
 		Params:      stateParams(),
 		Returns:     stateReturns(),
+		Examples:    []collection.Example{{Name: "Restore a link a test cut", RunbookYAML: "- name: Restore CORE1's WAN link\n  virt.cml.link.start:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n"}},
 		SeeAlso:     []string{"virt.cml.link.stop", "virt.cml.lab.start"},
 	}
 }

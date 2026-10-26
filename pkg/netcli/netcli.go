@@ -82,6 +82,13 @@ type Dialect struct {
 	// unprivileged, where commands run and Config refuses.
 	Unprivileged *regexp.Regexp
 	Enable       string
+
+	// AsyncMessage matches a line the device prints on its own, between
+	// commands rather than in answer to one: IOS's syslog on a console
+	// line ("*Oct 26 04:51:29.496: %SEC_LOGIN-5-LOGIN_SUCCESS: ..."),
+	// which arrives after the login and is followed by a prompt of its
+	// own. Nil means the dialect knows of none.
+	AsyncMessage *regexp.Regexp
 }
 
 var (
@@ -112,6 +119,14 @@ var (
 	iosExecPrompt   = regexp.MustCompile(`(?m)^[\w.\-]+[>#]\s*$`)
 	iosUserPrompt   = regexp.MustCompile(`(?m)^[\w.\-]+>\s*$`)
 	iosConfigPrompt = regexp.MustCompile(`(?m)^[\w.\-]+\([^)]*\)#\s*$`)
+
+	// iosAsyncMessage matches one IOS syslog line as a console prints it:
+	// an optional sequence number, a timestamp (marked * or . when the
+	// clock is not synchronized), then %FACILITY-SEVERITY-MNEMONIC:.
+	// Measured on IOL XE 17.15 through the CML console (2026-10-26, Phase
+	// 129d), where the login's own %SEC_LOGIN-5-LOGIN_SUCCESS and the
+	// prompt after it were read as the next command's whole answer.
+	iosAsyncMessage = regexp.MustCompile(`^(?:\d+:\s*)?[*.]?[A-Za-z0-9:. ]*:\s*%[A-Z][A-Z0-9_]*-[0-7]-[A-Z0-9_]+:`)
 
 	// iosErrorPattern matches IOS's own line-start "% " error
 	// convention ("% Invalid input detected at '^' marker.", "%
@@ -188,6 +203,7 @@ var IOS = Dialect{
 	Notices:         iosNotices,
 	Unprivileged:    iosUserPrompt,
 	Enable:          "enable",
+	AsyncMessage:    iosAsyncMessage,
 }
 
 // FromPrompt builds a best-effort generic Dialect from a device's own
@@ -456,11 +472,49 @@ func (s *Session) command(ctx context.Context, line string, configMode bool) (st
 	if err := s.shell.WriteLine(ctx, line); err != nil {
 		return "", fmt.Errorf("netcli: %w", err)
 	}
-	raw, err := s.shell.ReadUntil(ctx, s.dialect.Prompt(configMode), s.maxBytes)
+	prompt := s.dialect.Prompt(configMode)
+	raw, err := s.shell.ReadUntil(ctx, prompt, s.maxBytes)
+	// A read that ended on the prompt the device printed after a message
+	// of its own, before the line's echo, is not the line's answer: that
+	// is still coming, to the next prompt.
+	for tries := 0; err == nil && tries < maxAsyncReads && s.asyncOnly(raw, line, prompt); tries++ {
+		raw, err = s.shell.ReadUntil(ctx, prompt, s.maxBytes)
+	}
 	if err != nil {
 		return "", readFailure(err, "", "")
 	}
-	return stripEcho(raw, line, s.dialect.Prompt(configMode)), nil
+	return stripEcho(raw, line, prompt), nil
+}
+
+// maxAsyncReads bounds how many reads of the device's own messages one
+// command passes over before taking what it reads as its answer.
+const maxAsyncReads = 3
+
+// asyncOnly reports whether raw, read for line, holds nothing before its
+// prompt but the device's own messages (Dialect.AsyncMessage): no echo of
+// line, and at least one message. A read that is empty, or holds anything
+// else, is the line's answer as it always was, so a device that does not
+// echo never waits.
+func (s *Session) asyncOnly(raw, line string, prompt *regexp.Regexp) bool {
+	if s.dialect.AsyncMessage == nil || strings.HasPrefix(raw, line) {
+		return false
+	}
+	body := raw
+	if locs := prompt.FindAllStringIndex(body, -1); len(locs) > 0 {
+		body = body[:locs[len(locs)-1][0]]
+	}
+	messages := 0
+	for l := range strings.SplitSeq(body, "\n") {
+		l = strings.TrimSpace(l)
+		switch {
+		case l == "":
+		case s.dialect.AsyncMessage.MatchString(l):
+			messages++
+		default:
+			return false
+		}
+	}
+	return messages > 0
 }
 
 // stripEcho removes WriteLine's own echoed line and the trailing prompt

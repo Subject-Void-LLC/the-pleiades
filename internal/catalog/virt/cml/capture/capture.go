@@ -127,7 +127,8 @@ func StopDoc() collection.Doc {
 			{Name: "bytes", Type: "int", Returned: "when dest is set", Description: "Its size."},
 			{Name: "sha256", Type: "string", Returned: "when dest is set", Description: "Its SHA-256, in hex."},
 		},
-		SeeAlso: []string{"virt.cml.capture.start", "net.pcap.summary"},
+		Examples: []collection.Example{{Name: "Keep a capture for net.pcap.summary", RunbookYAML: "- name: Stop the capture and keep the file\n  virt.cml.capture.stop:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n    dest: captures/core1-wan.pcap\n"}},
+		SeeAlso:  []string{"virt.cml.capture.start", "net.pcap.summary"},
 	}
 }
 

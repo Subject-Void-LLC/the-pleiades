@@ -348,7 +348,7 @@ func TestRunAndAdhocUsage_NameTheFlagsTheyParse(t *testing.T) {
 		want []string
 	}{
 		{"run", runRunbook, []string{"usage: pleiades run <runbook.yaml>", "[--allow-unchecked X]", "[--fail-on-rescue]", "[--extra-vars X]", "[--tags X]"}},
-		{"adhoc", runAdhoc, []string{"usage: pleiades adhoc <hosts> <method>", "[--allow-unchecked X]", "[--fail-on-rescue]", "[--timeout X]"}},
+		{"adhoc", runAdhoc, []string{"usage: pleiades adhoc <hosts | a,b,c | -> <method>", "[--allow-unchecked X]", "[--fail-on-rescue]", "[--timeout X]"}},
 	} {
 		err := tc.run(nil)
 		if err == nil {

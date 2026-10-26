@@ -1,5 +1,6 @@
 // Package wait: wait.routes, waiting for a router's routing table to hold
-// the routes a change needs and to stop changing.
+// the routes a change needs and to stop changing: FRR's, read through vtysh,
+// or Cisco IOS's, read through its CLI and pkg/iosparse.
 package wait
 
 import (
@@ -16,6 +17,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -30,8 +34,11 @@ func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: routesFQCN,
 		Manifest: collection.Manifest{
-			SupportedTransports:  []string{capability.TransportSSH},
-			RequiredCapabilities: []capability.Name{capability.NameFRR, capability.NameCommandExec},
+			// FRR is read over SSH, Cisco IOS over whatever reaches its CLI.
+			// The capability is decided per device (routeReader): a device
+			// that is neither is refused before it is contacted.
+			SupportedTransports:  []string{capability.TransportSSH, capability.TransportTelnet, capability.TransportConsole},
+			RequiredCapabilities: []capability.Name{},
 			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
@@ -43,13 +50,14 @@ func init() {
 				"its timeout and fail where the real run succeeds",
 			Doc: collection.Doc{
 				Summary:     "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
-				Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing.",
+				Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it.",
 				Params: []collection.Param{
 					{Name: "prefixes", Type: "list of string", Required: true, Description: "The IPv4 prefixes that must each have a selected route, e.g. 10.3.3.0/24; the IPv4 routing table is the one read."},
 					{Name: "next_hops", Type: "dict", Description: "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}."},
 					{Name: "stable_for", Type: "int", Default: "5", Description: "Seconds the routing table must stay unchanged."},
 					{Name: "timeout", Type: "int", Default: "120", Description: "Seconds to wait in all."},
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+					{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a Cisco IOS device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "waited", Type: "float", Returned: "always", Description: "Seconds waited."},
@@ -57,6 +65,7 @@ func init() {
 				},
 				Examples: []collection.Example{
 					{Name: "Wait for OSPF to settle", RunbookYAML: "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"},
+					{Name: "Wait for a branch to learn the data center over its tunnel", RunbookYAML: "- name: BR1 routes the data center through the hub\n  wait.routes:\n    target: BR1\n    prefixes: [10.0.0.0/16]\n    next_hops: {10.0.0.0/16: [10.255.0.1]}\n    timeout: 180\n"},
 				},
 				SeeAlso: []string{"net.frr.config", "net.trace"},
 			},
@@ -81,11 +90,11 @@ func Routes(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return collection.Result{}, err
 	}
-	conn, err := sdk.Connect(ctx, rc, device, params, routesFQCN)
+	readRoutes, closeReader, err := routeReader(ctx, rc, device, params)
 	if err != nil {
 		return collection.Result{}, err
 	}
-	defer func() { _ = conn.Close() }()
+	defer closeReader()
 
 	start := time.Now()
 	deadline := start.Add(want.timeout)
@@ -93,7 +102,7 @@ func Routes(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	var stableSince time.Time
 	var missing []string
 	for {
-		table, err := readRoutes(ctx, conn)
+		table, err := readRoutes(ctx)
 		if err != nil {
 			return collection.Result{}, err
 		}
@@ -212,8 +221,115 @@ type nextHop struct {
 	FIB       bool   `json:"fib,omitempty"`
 }
 
-// readRoutes reads show ip route json.
-func readRoutes(ctx context.Context, conn *remoteexec.Conn) (map[string][]route, error) {
+// routeReader returns how to read device's routing table, and how to close
+// what it opened: FRR's through vtysh over SSH, or Cisco IOS's through its
+// CLI. A device that is neither is refused before anything is opened.
+func routeReader(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (func(context.Context) (map[string][]route, error), func(), error) {
+	switch {
+	case device != nil && device.HasCapability(capability.NameFRR) && device.HasCapability(capability.NameCommandExec):
+		conn, err := sdk.Connect(ctx, rc, device, params, routesFQCN)
+		if err != nil {
+			return nil, nil, err
+		}
+		return func(ctx context.Context) (map[string][]route, error) { return readFRRRoutes(ctx, conn) }, func() { _ = conn.Close() }, nil
+	case device != nil && device.HasCapability(capability.NameCiscoIOS):
+		session, err := sdk.OpenCLI(ctx, rc, device, params, routesFQCN, netcli.IOS)
+		if err != nil {
+			return nil, nil, err
+		}
+		return func(ctx context.Context) (map[string][]route, error) { return readIOSRoutes(ctx, session) }, func() { _ = session.Close() }, nil
+	case device == nil:
+		return nil, nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", routesFQCN)
+	}
+	return nil, nil, fmt.Errorf("%s: device %q is neither an FRR router (FRRCapable and CommandExecCapable) nor a Cisco IOS one (CiscoIOSCapable), whose routing tables this method reads", routesFQCN, device.Name())
+}
+
+// readIOSRoutes reads a Cisco IOS router's global table, show ip route, as
+// pkg/iosparse parses it, into the shape FRR's JSON takes: every route IOS
+// lists is one it installed, so each is selected.
+func readIOSRoutes(ctx context.Context, session *netcli.Session) (map[string][]route, error) {
+	out, err := session.Command(ctx, "show ip route")
+	if err != nil {
+		return nil, fmt.Errorf("%s: reading the routing table: %w", routesFQCN, err)
+	}
+	_, parsed, err := iosparse.Parse("show ip route", out)
+	if err != nil {
+		// What was read, bounded and masked, says why far better than the
+		// parser can.
+		return nil, fmt.Errorf("%s: the routing table did not parse: %w (it read %s)", routesFQCN, err, deviceText(netcfg.Mask(out)))
+	}
+	return iosRoutes(parsed), nil
+}
+
+// iosRoutes is iosparse's show ip route, the default VRF's IPv4 routes, as
+// FRR's route shape.
+func iosRoutes(parsed map[string]any) map[string][]route {
+	table := map[string][]route{}
+	routes := dig(parsed, "vrf", "default", "address_family", "ipv4", "routes")
+	for prefix, v := range routes {
+		entry, _ := v.(map[string]any)
+		r := route{Protocol: text(entry["source_protocol"]), Selected: true, Distance: number(entry["route_preference"]), Metric: number(entry["metric"])}
+		hops, _ := entry["next_hop"].(map[string]any)
+		list := dig(hops, "next_hop_list")
+		indexes := make([]string, 0, len(list))
+		for i := range list {
+			indexes = append(indexes, i)
+		}
+		sort.Slice(indexes, func(a, b int) bool { return number(indexes[a]) < number(indexes[b]) })
+		for _, i := range indexes {
+			hop, _ := list[i].(map[string]any)
+			r.NextHops = append(r.NextHops, nextHop{IP: text(hop["next_hop"]), Interface: text(hop["outgoing_interface"]), Active: true})
+		}
+		names := make([]string, 0)
+		for name := range dig(hops, "outgoing_interface") {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			r.NextHops = append(r.NextHops, nextHop{Interface: name, Active: true})
+		}
+		table[prefix] = append(table[prefix], r)
+	}
+	return table
+}
+
+// dig follows keys through nested maps, returning the map at the end or
+// nil when one is missing.
+func dig(m map[string]any, keys ...string) map[string]any {
+	for _, k := range keys {
+		next, ok := m[k].(map[string]any)
+		if !ok {
+			return nil
+		}
+		m = next
+	}
+	return m
+}
+
+// text is v as a string, or empty.
+func text(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// number is v as an int: a parsed number of any width, or digits.
+func number(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case string:
+		i, _ := strconv.Atoi(n)
+		return i
+	}
+	return 0
+}
+
+// readFRRRoutes reads show ip route json.
+func readFRRRoutes(ctx context.Context, conn *remoteexec.Conn) (map[string][]route, error) {
 	res, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"vtysh", "-c", "show ip route json"}))
 	if err != nil {
 		return nil, fmt.Errorf("%s: reading the routing table: %w", routesFQCN, err)

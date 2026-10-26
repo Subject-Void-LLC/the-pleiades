@@ -260,7 +260,7 @@ that is NOT implemented, all three of them: `file.template`, `net.junos.config` 
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `container` 37, `virt` 29, `ai` 11, `svc` 16, `net` 23,
+is ever entered. By namespace, implemented: `container` 37, `virt` 33, `ai` 11, `svc` 16, `net` 25,
 `file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4,
 `archive` 2, `fs` 2, `gate` 2, `http` 3, `pleiades` 3, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
