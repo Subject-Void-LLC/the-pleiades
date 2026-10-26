@@ -67,7 +67,11 @@ func renderDoc(doc collection.Doc) string {
 			}
 			// Format is a named constant rather than a quoted string, so a
 			// generated method reads as a hand-written one does.
+			// A format with no constant here is kept by value rather than
+			// dropped, as Risk below is: a dropped format is a rendered value
+			// the generated method stops holding to its rule.
 			switch p.Format {
+			case "":
 			case collection.ParamFormatCommand:
 				fields = append(fields, "Format: collection.ParamFormatCommand")
 			case collection.ParamFormatURL:
@@ -76,6 +80,8 @@ func renderDoc(doc collection.Doc) string {
 				fields = append(fields, "Format: collection.ParamFormatKubernetesManifest")
 			case collection.ParamFormatProjectPath:
 				fields = append(fields, "Format: collection.ParamFormatProjectPath")
+			default:
+				fields = append(fields, "Format: collection.ParamFormat("+strconv.Quote(string(p.Format))+")")
 			}
 			// Risk likewise, and one with no constant yet is kept by value
 			// rather than dropped: a dropped risk is a host escape the
