@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,6 +88,41 @@ func TestSecrets_SaveListLookupRemove(t *testing.T) {
 	}
 	if list, _ := credential.ListSecrets(dir); len(list) != 0 {
 		t.Fatalf("secrets left after removing every field: %+v", list)
+	}
+}
+
+// TestSecrets_ValuesAndGenerated: every stored value comes back for a run to
+// mask, a project with none needs no master key, and a generated value is
+// letters and digits of the length asked, within its bounds.
+func TestSecrets_ValuesAndGenerated(t *testing.T) {
+	dir := t.TempDir()
+	if values, err := credential.SecretValues(dir); err != nil || values != nil {
+		t.Fatalf("an empty project: %v, %v", values, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".pleiades", "master.key")); !os.IsNotExist(err) {
+		t.Fatalf("an empty project made a master key: %v", err)
+	}
+	key, err := credential.ResolveMasterKey(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := credential.GenerateSecret(32)
+	if err != nil || len(generated) != 32 || strings.Trim(generated, "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789") != "" {
+		t.Fatalf("GenerateSecret(32) = %q, %v", generated, err)
+	}
+	for _, bad := range []int{0, credential.MinSecretLength - 1, credential.MaxGeneratedSecretLength + 1} {
+		if _, err := credential.GenerateSecret(bad); err == nil {
+			t.Errorf("GenerateSecret(%d) was not refused", bad)
+		}
+	}
+	for field, value := range map[string]string{"psk": generated, "nhrp": "Nhrp-Value-77"} {
+		if err := credential.SaveSecretField(dir, key, "dmvpn", field, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	values, err := credential.SecretValues(dir)
+	if err != nil || len(values) != 2 || !slices.Contains(values, generated) || !slices.Contains(values, "Nhrp-Value-77") {
+		t.Fatalf("SecretValues = %d values, %v", len(values), err)
 	}
 }
 

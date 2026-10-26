@@ -123,7 +123,7 @@ func Resolve(text string, lookup Lookup) (string, []string, error) {
 			firstErr = fmt.Errorf("%s: %w", ref, err)
 			return m
 		case !ok:
-			firstErr = fmt.Errorf("%s: no such secret or field in this project (pleiades add-secret %s --field %s)", ref, ref.Name, ref.Field)
+			firstErr = fmt.Errorf("%s: no such secret or field in this project (pleiades add-secret %s --field %s --generate 32, or --value-stdin for a value you have)", ref, ref.Name, ref.Field)
 			return m
 		}
 		if err := CheckValue(value); err != nil {

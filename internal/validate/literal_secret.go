@@ -39,7 +39,7 @@ func LiteralSecretWarnings(dag *engine.DAG) []Finding {
 					out = append(out, Finding{
 						RuleName: "literal_secret",
 						Node:     pt.id,
-						Message: fmt.Sprintf("task %s, parameter %s: a line holds a secret written out (after %q); store it with `pleiades add-secret <name> --field <field> --value-stdin` and write {{ secret.<name>.<field> }} in its place, so the runbook never holds it",
+						Message: fmt.Sprintf("task %s, parameter %s: a line holds a secret written out (after %q); store it with `pleiades add-secret <name> --field <field>` (--generate 32 for a new key, --value-stdin or --value-file for one you have) and write {{ secret.<name>.<field> }} in its place, so the runbook never holds it",
 							taskName(pt.id, pt.task), key, secretWordBefore(written)),
 					})
 				}

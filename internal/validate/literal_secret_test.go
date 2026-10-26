@@ -48,4 +48,40 @@ tasks:
 	if strings.Contains(w.Message, "WrittenOut-9876") {
 		t.Error("the warning quotes the secret")
 	}
+	if validate.LiteralSecretWarnings(nil) != nil {
+		t.Error("a nil DAG has warnings")
+	}
+}
+
+// TestLiteralSecretWarnings_InPromptAnswers: a prompts answer written out
+// for a passphrase question is warned about too, from inside the list of
+// maps, and one answered by reference is not.
+func TestLiteralSecretWarnings_InPromptAnswers(t *testing.T) {
+	eval, err := engine.NewCELEvaluator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte(`id: answers
+hosts: r1
+tasks:
+  - name: written out
+    net.ios.command:
+      command: crypto pki server CA start
+      prompts:
+        - match: 'Password:'
+          answer: "password Typed-Out-555"
+  - name: by reference
+    net.ios.command:
+      command: crypto pki server CA start
+      prompts:
+        - match: 'Password:'
+          answer: "{{ secret.ca.passphrase }}"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := validate.LiteralSecretWarnings(dag)
+	if len(warnings) != 1 || !strings.Contains(warnings[0].Message, "parameter prompts") || strings.Contains(warnings[0].Message, "Typed-Out-555") {
+		t.Fatalf("warnings = %+v", warnings)
+	}
 }

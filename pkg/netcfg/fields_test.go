@@ -65,3 +65,20 @@ func reflectString(v any) string {
 	walk(v)
 	return b.String()
 }
+
+// TestMaskFound_ReturnsEachSecretOnce: MaskFound masks as Mask does and
+// returns each secret it replaced once, and Learnable keeps only those long
+// enough to mask by value.
+func TestMaskFound_ReturnsEachSecretOnce(t *testing.T) {
+	config := "crypto ikev2 keyring K\n peer A\n  pre-shared-key Shared-Key-001\n peer B\n  pre-shared-key Shared-Key-001\nsnmp-server community short RO"
+	masked, found := netcfg.MaskFound(config)
+	if masked != netcfg.Mask(config) {
+		t.Fatal("MaskFound and Mask disagree")
+	}
+	if len(found) != 2 || found[0] != "Shared-Key-001" || found[1] != "short" {
+		t.Fatalf("found = %q, want each secret once", found)
+	}
+	if learn := netcfg.Learnable(found); len(learn) != 1 || learn[0] != "Shared-Key-001" {
+		t.Fatalf("Learnable = %q, want the short community left out", learn)
+	}
+}

@@ -319,7 +319,7 @@ func (s *Session) choose(ctx context.Context, ask *Ask, question string, asked *
 // that asks for a credential unless the text came from a secret (secret).
 func (s *Session) answer(ctx context.Context, question, text string, secret bool) error {
 	if text != "" && !secret && credentialQuestion.MatchString(question) {
-		return s.stop(question, "the device asked %q for a credential, and an answer written in a task is never a secret, so none is sent: store the answer with `pleiades add-secret <name> --field <field> --value-stdin` and answer with {{ secret.<name>.<field> }}", question)
+		return s.stop(question, "the device asked %q for a credential, and an answer written in a task is never a secret, so none is sent: store the answer with `pleiades add-secret <name> --field <field>` (--value-stdin or --value-file) and answer with {{ secret.<name>.<field> }}", question)
 	}
 	if err := s.shell.WriteLine(ctx, text); err != nil {
 		return fmt.Errorf("netcli: answering %q: %w", question, err)
