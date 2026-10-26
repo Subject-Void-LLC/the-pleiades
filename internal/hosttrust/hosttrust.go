@@ -92,6 +92,30 @@ func Merge(path, address string, keys []ssh.PublicKey, replace bool) (Outcome, e
 	return out, writeFile(path, b.Bytes(), mode)
 }
 
+// Remove drops every line of the known_hosts file at path naming address
+// (a host with an optional :port) exactly, returning how many it dropped. A
+// file with none, or none at all, is left as it is.
+func Remove(path, address string) (int, error) {
+	host := knownhosts.Normalize(address)
+	existing, mode, err := readFile(path)
+	if err != nil || len(existing) == 0 {
+		return 0, err
+	}
+	var b bytes.Buffer
+	removed := 0
+	for _, line := range strings.SplitAfter(string(existing), "\n") {
+		if names(line, host) {
+			removed++
+			continue
+		}
+		b.WriteString(line)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	return removed, writeFile(path, b.Bytes(), mode)
+}
+
 // check reports whether the file already trusts key for address, and
 // whether it trusts other keys for it instead. A file that does not parse
 // is refused: every connection verifying against it fails, and adding to

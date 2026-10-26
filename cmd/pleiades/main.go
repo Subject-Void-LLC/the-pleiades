@@ -9,8 +9,10 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
@@ -41,6 +43,8 @@ var commands = map[string]commandFunc{
 	"add-secret":                 runAddSecret,
 	"list-secrets":               runListSecrets,
 	"remove-secret":              runRemoveSecret,
+	"remove-host":                runRemoveHost,
+	"remove-credential":          runRemoveCredential,
 	"import-containerlab":        runImportContainerlab,
 	"import-cml":                 runImportCML,
 	"import-gns3":                runImportGNS3,
@@ -102,6 +106,15 @@ func run(args []string) int {
 	}
 
 	if err := cmd(args[1:]); err != nil {
+		// Asked for help, a command that stops on its usage has answered:
+		// the flag package printed its flags, or the usage line is the
+		// error's text, and asking is not a failure.
+		if asksHelp(args[1:]) && (errors.Is(err, flag.ErrHelp) || errors.Is(err, errMissingPositional) || strings.HasPrefix(err.Error(), "usage: ")) {
+			if !errors.Is(err, flag.ErrHelp) {
+				fmt.Fprintln(os.Stderr, strings.TrimSuffix(err.Error(), ": "+errMissingPositional.Error()))
+			}
+			return 0
+		}
 		// A nested dispatcher (e.g. forge.go) has already printed its own
 		// unknown-command message and usage block; do not print a second,
 		// redundant error line for it, and report the same exit code this
@@ -117,6 +130,20 @@ func run(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// asksHelp reports whether args ask for help: -h, -help or --help, before
+// any "--" that ends a command's flags.
+func asksHelp(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--":
+			return false
+		case "-h", "-help", "--help", "--h":
+			return true
+		}
+	}
+	return false
 }
 
 // exitCoder is an error that carries the status the command ends with,

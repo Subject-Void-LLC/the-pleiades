@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -19,7 +18,10 @@ import (
 )
 
 // adhocCommand is adhoc's positionals, the start of its usage line.
-const adhocCommand = "adhoc <hosts> <method> [key=value | key:=yaml ...]"
+const adhocCommand = "adhoc <hosts | a,b,c | -> <method> [key=value | key:=yaml ...]"
+
+// noHosts is the hosts adhoc takes for a method that needs no device.
+const noHosts = "-"
 
 // adhocRunbookID is the id an ad-hoc run is journaled under.
 const adhocRunbookID = "adhoc"
@@ -42,6 +44,10 @@ func runAdhoc(args []string) error {
 	var timeout secondsFlag
 	fs.Var(&timeout, "timeout", "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)")
 	positionals, rest := splitPositionals(args, runBoolFlags)
+	// A method that needs no device may be named first, with no hosts.
+	if len(positionals) >= 1 && needsNoDevice(positionals[0]) && (len(positionals) == 1 || strings.Contains(positionals[1], "=")) {
+		positionals = append([]string{noHosts}, positionals...)
+	}
 	if len(positionals) < 2 {
 		return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
 	}
@@ -75,18 +81,11 @@ func (s *secondsFlag) String() string { return strconv.Itoa(int(*s)) }
 // Set implements flag.Value, refusing a fraction of a second, which a
 // task's timeout key cannot hold.
 func (s *secondsFlag) Set(text string) error {
-	if n, err := strconv.Atoi(text); err == nil {
-		*s = secondsFlag(n)
-		return nil
-	}
-	d, err := time.ParseDuration(text)
+	n, err := engine.ParseSeconds(text)
 	if err != nil {
-		return fmt.Errorf("%q is neither whole seconds nor a duration such as 40s or 5m", text)
+		return err
 	}
-	if d%time.Second != 0 {
-		return fmt.Errorf("%q is not a whole number of seconds", text)
-	}
-	*s = secondsFlag(d / time.Second)
+	*s = secondsFlag(n)
 	return nil
 }
 
@@ -105,8 +104,18 @@ func refuseAdhoc(opts runOptions, label string, why, shown error) error {
 	return shown
 }
 
+// needsNoDevice reports whether name is a registered method that runs with
+// no device (collection.DeviceNone), which adhoc then takes without hosts.
+func needsNoDevice(name string) bool {
+	d, ok := collection.Lookup(name)
+	return ok && d.Manifest.ExecutionContext.Device == collection.DeviceNone
+}
+
 // adhocLabel is how the plan and the report name an ad-hoc run.
 func adhocLabel(hosts, method string) string {
+	if hosts == noHosts {
+		return fmt.Sprintf("adhoc %s, on no device", method)
+	}
 	return fmt.Sprintf("adhoc %s on %s", method, hosts)
 }
 
@@ -173,6 +182,10 @@ func declaredTypes(method string) map[string]string {
 // strings, so no value can change the runbook's shape. The builder holds
 // the timeout to its range, as it would in a file.
 //
+// hosts "-" writes no hosts: at all, for a method that needs no device. A
+// comma list of devices (r1,r2) writes one task per device, each naming its
+// device as its target:, since a runbook's hosts: takes one name or tag.
+//
 // A method named as one of a task's own keys (name, when, block and the
 // rest) would be read as that key rather than as a method, so it is
 // refused here; every other name is left to the runbook parser and
@@ -186,17 +199,62 @@ func adhocRunbook(hosts, method string, params map[string]any, timeout int) ([]b
 	case engine.ReservedTaskKeys[method] || method == "import_tasks":
 		return nil, fmt.Errorf("%q is a task keyword, not a method; name a method, like exec.command", method)
 	}
-	task := map[string]any{"name": method, method: nil}
-	if len(params) > 0 {
-		task[method] = params
+	task := func(name, target string) (map[string]any, error) {
+		t := map[string]any{"name": name, method: nil}
+		p := make(map[string]any, len(params)+1)
+		for k, v := range params {
+			p[k] = v
+		}
+		if target != "" {
+			if _, given := p[collection.TargetParam]; given {
+				return nil, fmt.Errorf("a comma list of hosts names each task's %s itself; give the hosts or %s=, not both", collection.TargetParam, collection.TargetParam)
+			}
+			p[collection.TargetParam] = target
+		}
+		if len(p) > 0 {
+			t[method] = p
+		}
+		if timeout != 0 {
+			t["timeout"] = timeout
+		}
+		return t, nil
 	}
-	if timeout != 0 {
-		task["timeout"] = timeout
+	runbookHosts := hosts
+	var tasks []map[string]any
+	switch {
+	case hosts == noHosts:
+		runbookHosts = ""
+		t, err := task(method, "")
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	case strings.Contains(hosts, ","):
+		runbookHosts = ""
+		seen := map[string]bool{}
+		for _, h := range strings.Split(hosts, ",") {
+			h = strings.TrimSpace(h)
+			if h == "" || seen[h] {
+				return nil, fmt.Errorf("hosts %q holds an empty or repeated name", hosts)
+			}
+			seen[h] = true
+			t, err := task(method+" on "+h, h)
+			if err != nil {
+				return nil, err
+			}
+			tasks = append(tasks, t)
+		}
+	default:
+		t, err := task(method, "")
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
 	}
 	return yaml.Marshal(struct {
 		ID    string           `yaml:"id"`
 		Name  string           `yaml:"name"`
-		Hosts string           `yaml:"hosts"`
+		Hosts string           `yaml:"hosts,omitempty"`
 		Tasks []map[string]any `yaml:"tasks"`
-	}{ID: adhocRunbookID, Name: adhocLabel(hosts, method), Hosts: hosts, Tasks: []map[string]any{task}})
+	}{ID: adhocRunbookID, Name: adhocLabel(hosts, method), Hosts: runbookHosts, Tasks: tasks})
 }

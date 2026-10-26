@@ -89,10 +89,11 @@ func taskSchema() map[string]any {
 			"rollback_on_failure": map[string]any{"type": "boolean", "description": "On a block: when one of its own tasks fails on a device, undo what its tasks completed there, newest first, before its rescue starts, journaled as a rollback of each. Only on a block, and only over tasks whose undo is exact."},
 			"tags":                tagsSchema("Names --tags and --skip-tags select this task by. On a block or parallel group they pass down to every task inside."),
 			"timeout": map[string]any{
-				"description": "Ansible's timeout: whole seconds this task may run on each device before it is stopped and fails; 0 or none is no bound of its own. Only on a method call.",
+				"description": "Ansible's timeout: whole seconds this task may run on each device before it is stopped and fails, as a number (1800) or a duration of whole seconds (150s, 30m, 1h30m); 0 or none is no bound of its own. Only on a method call.",
 				"oneOf": []any{
 					map[string]any{"type": "integer", "minimum": 0, "maximum": engine.MaxTaskTimeout},
 					map[string]any{"type": "string", "pattern": "^[0-9]+$"},
+					map[string]any{"type": "string", "pattern": "^([0-9]+h)?([0-9]+m)?([0-9]+s)?$", "minLength": 2},
 				},
 			},
 		},

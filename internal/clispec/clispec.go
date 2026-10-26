@@ -305,6 +305,28 @@ var Root = Command{
 			Examples: []string{"pleiades remove-secret dmvpn", "pleiades remove-secret dmvpn --field psk"},
 		},
 		{
+			Name:       "remove-host",
+			Positional: "<name>",
+			Synopsis:   "remove a host from the inventory, and with flags its credential and the known_hosts lines trusting its address; the journal keeps its runs",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "credential", Type: "bool", Default: "false", Doc: "also remove the host's stored credential"},
+				{Name: "forget-host-keys", Type: "bool", Default: "false", Doc: "also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there"},
+				{Name: "leave-references", Type: "bool", Default: "false", Doc: "remove the host even when another host names it in a property (a console node's console_server)"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+			},
+			Examples: []string{"pleiades remove-host br4 --credential --forget-host-keys", "pleiades remove-host cml --credential --json"},
+		},
+		{
+			Name:       "remove-credential",
+			Positional: "<device>",
+			Synopsis:   "remove a device's stored credential, leaving the device in the inventory",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+			},
+			Examples: []string{"pleiades remove-credential br4"},
+		},
+		{
 			Name:       "import-kubeconfig",
 			Positional: "<device>",
 			Synopsis:   "make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file",
@@ -443,8 +465,8 @@ var Root = Command{
 		},
 		{
 			Name:       "adhoc",
-			Positional: "<hosts> <method> [key=value | key:=yaml ...]",
-			Synopsis:   "run one method against a device or a tag, with no runbook written",
+			Positional: "<hosts | a,b,c | -> <method> [key=value | key:=yaml ...]",
+			Synopsis:   "run one method against a device, a tag or a comma list of devices, or with - (or no hosts at all) one that needs no device, with no runbook written",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "mode", Type: "string", Default: "execute", Doc: "execute applies changes; check reports what the method would change and changes nothing"},
@@ -463,6 +485,8 @@ var Root = Command{
 				"pleiades adhoc win01 exec.winrm.shell shell=powershell command='Get-Service WinRM' --json",
 				"pleiades adhoc web pkg.apt.install name=nginx --mode check",
 				"pleiades adhoc lab exec.command argv:='[cat, /etc/os-release]'",
+				"pleiades adhoc br1,br2 net.ios.command command='show crypto ikev2 sa' --json",
+				"pleiades adhoc net.pcap.summary src=captures/core1-wan.pcap --json",
 			},
 		},
 		{
@@ -500,8 +524,11 @@ var Root = Command{
 					Synopsis: "every run recorded in this project, oldest first, with what it changed and whether it was rolled back",
 					Flags: []Flag{
 						{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+						{Name: "since", Type: "string", Default: "", Doc: "only runs that began this long ago or later (2h, 30m), or at or after this RFC 3339 time"},
+						{Name: "changed", Type: "bool", Default: "false", Doc: "only runs that changed something: the ones a rollback could undo"},
 						{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 					},
+					Examples: []string{"pleiades journal list --changed --since 4h --json"},
 				},
 				{
 					Name:       "show",

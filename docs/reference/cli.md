@@ -281,6 +281,36 @@ remove a stored named secret, or one of its fields
 
 `pleiades remove-secret dmvpn --field psk`
 
+## pleiades remove-host
+
+remove a host from the inventory, and with flags its credential and the known_hosts lines trusting its address; the journal keeps its runs
+
+`pleiades remove-host <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --credential | `bool` | `false` | also remove the host's stored credential |
+| --forget-host-keys | `bool` | `false` | also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there |
+| --leave-references | `bool` | `false` | remove the host even when another host names it in a property (a console node's console_server) |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades remove-host br4 --credential --forget-host-keys`
+
+`pleiades remove-host cml --credential --json`
+
+## pleiades remove-credential
+
+remove a device's stored credential, leaving the device in the inventory
+
+`pleiades remove-credential <device> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+
+`pleiades remove-credential br4`
+
 ## pleiades import-kubeconfig
 
 make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file
@@ -450,9 +480,9 @@ build, validate, and run a runbook
 
 ## pleiades adhoc
 
-run one method against a device or a tag, with no runbook written
+run one method against a device, a tag or a comma list of devices, or with - (or no hosts at all) one that needs no device, with no runbook written
 
-`pleiades adhoc <hosts> <method> [key=value | key:=yaml ...] [flags]`
+`pleiades adhoc <hosts | a,b,c | -> <method> [key=value | key:=yaml ...] [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -477,6 +507,10 @@ run one method against a device or a tag, with no runbook written
 `pleiades adhoc web pkg.apt.install name=nginx --mode check`
 
 `pleiades adhoc lab exec.command argv:='[cat, /etc/os-release]'`
+
+`pleiades adhoc br1,br2 net.ios.command command='show crypto ikev2 sa' --json`
+
+`pleiades adhoc net.pcap.summary src=captures/core1-wan.pcap --json`
 
 ## pleiades rollback
 
@@ -523,7 +557,11 @@ every run recorded in this project, oldest first, with what it changed and wheth
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --since | `string` | - | only runs that began this long ago or later (2h, 30m), or at or after this RFC 3339 time |
+| --changed | `bool` | `false` | only runs that changed something: the ones a rollback could undo |
 | --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades journal list --changed --since 4h --json`
 
 ### pleiades journal show
 

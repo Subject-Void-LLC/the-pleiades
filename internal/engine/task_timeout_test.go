@@ -20,8 +20,8 @@ import (
 
 // TestBuild_TaskTimeout: timeout is a task key in YAML (beside a method
 // written as the key) and JSON alike, and is refused on a block or
-// parallel group, below one second, past a day, and as anything but a
-// whole number.
+// parallel group, below one second, past a day, and as anything but whole
+// seconds, written as a number or as a duration (150s, 30m).
 func TestBuild_TaskTimeout(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
@@ -37,13 +37,24 @@ func TestBuild_TaskTimeout(t *testing.T) {
 	if err != nil || quoted.Tasks[0].Timeout != 90 {
 		t.Errorf("a quoted number, as Ansible takes one: %v", err)
 	}
+	// A duration of whole seconds is read as one, in YAML and JSON alike.
+	for text, want := range map[string]engine.TimeoutSeconds{"150s": 150, "30m": 1800, "1h30m": 5400} {
+		d, err := builder.BuildFromYAML([]byte("id: t\ntasks:\n  - timeout: " + text + "\n    noop: {}\n"))
+		if err != nil || d.Tasks[0].Timeout != want {
+			t.Errorf("timeout %s in YAML: %v", text, err)
+		}
+		j, err := builder.Build([]byte(`{"id": "t", "tasks": [{"timeout": "` + text + `", "fqcn": "noop"}]}`))
+		if err != nil || j.Tasks[0].Timeout != want {
+			t.Errorf("timeout %s in JSON: %v", text, err)
+		}
+	}
 	// JSON takes what YAML takes, as the published schema says: a quoted
 	// whole number too, and nothing fractional or wordy.
 	quotedJSON, err := builder.Build([]byte(`{"id": "t", "tasks": [{"timeout": "90", "fqcn": "noop"}]}`))
 	if err != nil || quotedJSON.Tasks[0].Timeout != 90 {
 		t.Errorf("a quoted number in JSON: %v", err)
 	}
-	for _, bad := range []string{`1.5`, `"30m"`, `true`, `[90]`} {
+	for _, bad := range []string{`1.5`, `"1.5s"`, `"soon"`, `true`, `[90]`} {
 		if _, err := builder.Build([]byte(`{"id": "t", "tasks": [{"timeout": ` + bad + `, "fqcn": "noop"}]}`)); err == nil || !strings.Contains(err.Error(), "timeout "+bad+"; a timeout is a whole number") {
 			t.Errorf("timeout %s in JSON: %v", bad, err)
 		}
@@ -67,7 +78,8 @@ func TestBuild_TaskTimeout(t *testing.T) {
 		"on a parallel":   {"id: t\ntasks:\n  - name: g\n    timeout: 5\n    parallel:\n      - noop: {}\n", "sets timeout directly on a parallel task"},
 		"negative":        {"id: t\ntasks:\n  - timeout: -1\n    noop: {}\n", "from 1 to 86400"},
 		"past a day":      {"id: t\ntasks:\n  - timeout: 86401\n    noop: {}\n", "from 1 to 86400"},
-		"words":           {"id: t\ntasks:\n  - timeout: 30m\n    noop: {}\n", `timeout "30m"; a timeout is a whole number of seconds`},
+		"words":           {"id: t\ntasks:\n  - timeout: soon\n    noop: {}\n", `timeout "soon"; a timeout is a whole number of seconds`},
+		"a fraction":      {"id: t\ntasks:\n  - timeout: 1500ms\n    noop: {}\n", `timeout "1500ms"; a timeout is a whole number of seconds`},
 		"inside a rescue": {"id: t\ntasks:\n  - block:\n      - noop: {}\n    rescue:\n      - timeout: 0x\n        noop: {}\n", `line 6: timeout "0x"`},
 		"a mapping":       {"id: t\ntasks:\n  - timeout:\n      seconds: 5\n", "timeout is a YAML map"},
 	} {
