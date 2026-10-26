@@ -16149,8 +16149,9 @@ a task (`run.prepare`) were not listed when it was added.
 **Fix.** `ac7af458`: a unit's task that reads `device` runs through `runPerDevice`, every device reading the unit's
 failure as `error`; an undo step is prepared with its device's root; and `renderTarget` renders a `within:` target
 before its devices resolve. `TestDeviceRoot_EveryPathAndItsLimits` (`internal/engine/device_root_test.go`) covers the
-rendered target and the unit block. Its comment also names the undo step, but its body runs no undo step, so no test
-holds that path yet.
+rendered target, the unit block and an authored undo step reading `device` (`77bcc32e` added the undo case), and
+`TestDevicePaths_FailureBranches` (`internal/engine/device_paths_test.go`) covers the failure branches of each of
+those paths, including an undo step that cannot render.
 
 **Why 572 and 574 did not prevent it.** Both found a path that runs a task (an undo step) held to fewer rules than the
 forward run. LESSONS 309 says to list every caller of `run.prepare` before changing how a task runs. The device root
@@ -16171,7 +16172,11 @@ runbook's `reversible:` flag: a new path that runs a task carries over fewer of 
 
 **Fix.** `ac7af458`: refused in the engine (`ErrDeviceRootLockAll`, failure stage `FailureStageLockAll`) and in
 `validate`'s `TemplateRule` (`internal/validate/template_rule.go`), with the reason. `TestDeviceRoot_EveryPathAndItsLimits`
-holds the engine side; no validate test holds the validate side yet.
+holds the engine side, and `TestTemplateRule_RefusesDeviceWithAllAtPlanTime` (`internal/validate/unmatched_target_test.go`)
+holds the validate side, in a parameter and in a condition. A review of the six commits after this one found the engine's
+refusal was still missing on the rescue path (`handlers_run.go` dispatched a rescue task per device with no check, so a
+runbook that never passed through validate ran it without the lock), a repeat of this entry; `ErrRescueLockAll` is the
+engine's backstop there, held by the rescue case in `TestDeviceRoot_EveryPathAndItsLimits`.
 
 **Why 540 did not prevent it.** 540's lesson was about a field-by-field struct copy. Here nothing was copied: the new
 path simply had no way to honor the setting. LESSONS 309 names "every behavior that ties devices together" as a thing

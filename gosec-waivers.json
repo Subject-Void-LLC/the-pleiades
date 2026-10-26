@@ -191,7 +191,7 @@
       "file": "cmd/pleiades/secret.go",
       "line": "21",
       "rule_id": "G101",
-      "reason": "Phase 129a. This is addSecretUsage, the usage line of the add-secret command, a constant string that spells the flags --value-stdin and --value-file. G101 is a heuristic over identifier and literal text, and it matches the word secret in the identifier's neighbourhood; the literal holds no credential, only the names of flags through which a person supplies one. The value is read from standard input, a sealed file or generated, never from a flag or a constant, and TestCLI_SecretReferencesReachTheDeviceOnly keeps it so."
+      "reason": "Phase 129a. This is addSecretUsage, the usage line of the add-secret command, a constant string that spells the flags --value-stdin and --value-file. G101 is a heuristic over identifier and literal text, and it matches the word secret near the identifier; the literal holds no credential, only the names of flags through which a person supplies one. The value is read from standard input, a sealed file or generated: the command defines no flag that carries it (the flags are declared beside this constant in secret.go), so none can put it on a command line. TestCLI_SecretReferencesReachTheDeviceOnly guards a different claim, that a stored secret's value reaches the device and never appears in a run report or the project."
     }
   ]
 }

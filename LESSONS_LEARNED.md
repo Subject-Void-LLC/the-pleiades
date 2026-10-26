@@ -369,7 +369,7 @@ story, per `.AGENTS/AGENTS.md`.
 334. **Hold every other input still before blaming a server: one change at a time, on the same link with the same traffic (2026-10-25).**
 335. **A method that claims several carriers is proven live through each one; text a device prints unasked can appear on one carrier only (2026-10-26).**
 336. **A repeat of 301 and 322: a method's documentation is checked by tests in internal/archtest and tools/gendocs, and both run in the commit that adds or changes a method (2026-10-26).**
-337. **A repeat of 190: what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip (2026-10-26).**
+337. **A repeat of 190 (the one on content rules written as denylists of known-bad shapes): what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip (2026-10-26).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

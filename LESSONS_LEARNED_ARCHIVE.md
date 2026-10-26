@@ -6367,7 +6367,7 @@ from that commit until a later refactor of `tools/gendocs` ran them. LESSONS 301
 validation in a test pr-check always runs, and 322 says an example is measured, never recalled. They did not hold
 because the branch put off `make pr-check` to its end, and nothing before then ran those two packages.
 
-## 337. A repeat of 190: what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip
+## 337. A repeat of 190 (the one on content rules written as denylists of known-bad shapes): what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip
 
 **Rule.** Decide what a reader may see by what each value is: the keys its type declares, and a value not shaped like
 a secret. Never by removing the names known to be secret, which passes every secret stored under another name.
