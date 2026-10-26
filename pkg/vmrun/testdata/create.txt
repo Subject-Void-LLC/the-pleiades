@@ -1,0 +1,2 @@
+VMX file is created, filepath: /tmp/pleiades-fusion-sample.QkHAJ5/sample.vmx
+Virtual disk file creation is successful, filepath: /tmp/pleiades-fusion-sample.QkHAJ5/sample.vmdk

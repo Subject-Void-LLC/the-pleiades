@@ -1,0 +1,5 @@
+Error: A snapshot with the name already exists
+Error: The snapshot does not exist
+Error: The virtual machine is not powered on: /private/tmp/pleiades-fusion-sample.QkHAJ5/sample.vmx
+Error: Cannot open VM: /nonexistent/x.vmx, The virtual machine cannot be found
+Error: The VMware Tools are not running in the virtual machine: /tmp/pleiades-fusion-sample.enWDKX/s2.vmx
