@@ -156,6 +156,11 @@ func TestCapture_Refusals(t *testing.T) {
 			t.Errorf("%s: started", name)
 		}
 	}
+	for _, dest := range []string{"runbooks/site.yaml", "captures/x.pcap.txt"} {
+		if _, _, err := run(t, ctl, dir, "virt.cml.capture.stop", false, map[string]any{"lab": "cvd", "link": link, "dest": dest}); err == nil || !strings.Contains(err.Error(), "must name a .pcap or .pcapng file") {
+			t.Errorf("dest %s: %v", dest, err)
+		}
+	}
 	if _, _, err := run(t, ctl, dir, "virt.cml.capture.stop", false, map[string]any{"lab": "cvd", "link": link, "dest": "x.pcap"}); err == nil || !strings.Contains(err.Error(), "no capture to write") {
 		t.Errorf("a stop with nothing captured: %v", err)
 	}

@@ -89,6 +89,17 @@ func TestSummary_CountsAWANCapture(t *testing.T) {
 		t.Fatalf("pairs = %v", pairs)
 	}
 
+	// A frame carrying no IP (an 802.3 length, as CDP's) is unexamined, never
+	// cleartext.
+	cdp := append(make([]byte, 12), 0x00, 0x40)
+	if err := os.WriteFile(filepath.Join(dir, "captures", "cdp.pcap"), capture(frame(a, b, 50, esp), cdp), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, rc, err := run(t, dir, map[string]any{"src": "captures/cdp.pcap"}); err != nil {
+		t.Fatal(err)
+	} else if s := rc.(interface{ Facts() map[string]any }).Facts(); s["unexamined"] != 1 || s["cleartext"] != 0 {
+		t.Errorf("a non-IP frame: %v", s)
+	}
 	if _, rc, err := run(t, dir, map[string]any{"src": "captures/wan.pcap", "pairs": 1}); err != nil || len(rc.(interface{ Facts() map[string]any }).Facts()["pairs"].([]any)) != 1 {
 		t.Fatalf("pairs 1: %v", err)
 	}

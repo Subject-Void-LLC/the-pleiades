@@ -65,6 +65,12 @@ func TestState_StopAndStartWithTheirUndos(t *testing.T) {
 	if _, _, err := run(t, ctl, "virt.cml.link.start", false, with(nil)); err == nil || !strings.Contains(err.Error(), "never run") {
 		t.Fatalf("a link never run: %v", err)
 	}
+	// Stopping a link that never ran changes nothing and records no undo,
+	// which would start a link that never ran.
+	res, rc, err = run(t, ctl, "virt.cml.link.stop", false, with(nil))
+	if _, recorded := rc.Inverse(); err != nil || res.Changed || recorded || stateNow() != "DEFINED_ON_CORE" {
+		t.Fatalf("stop of a link never run: %+v, %v, undo recorded %v, state %s", res, err, recorded, stateNow())
+	}
 }
 
 // TestState_RefusesAnUnclearLinkAndChecksALaterOne: a link named both ways,

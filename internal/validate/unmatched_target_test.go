@@ -55,3 +55,37 @@ tasks:
 		}
 	}
 }
+
+// TestTemplateRule_RefusesDeviceWithAllAtPlanTime: a task reading device runs
+// on each device on its own, so validate refuses it lock_acquisition:
+// all_at_plan_time, in a parameter and in a condition alike.
+func TestTemplateRule_RefusesDeviceWithAllAtPlanTime(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	none := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		return collection.Result{}, nil
+	}
+	if err := collection.Register(collection.Descriptor{Name: "ut.note", Invoke: none, Manifest: collection.Manifest{
+		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "fixture", ReadOnly: true},
+		Doc: collection.Doc{Params: []collection.Param{{Name: "note", Type: "string"}}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	eval, _ := engine.NewCELEvaluator()
+	for name, task := range map[string]string{
+		"a parameter": "  - ut.note: {note: \"{{ device.name }}\"}\n    lock_acquisition: all_at_plan_time\n",
+		"a condition": "  - ut.note: {note: x}\n    when: [\"'hq' in device.tags\"]\n    lock_acquisition: all_at_plan_time\n",
+	} {
+		dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte("id: l\nhosts: r1\ntasks:\n" + task))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		report := validate.Validate(validate.WorldView{Items: []inventory.InventoryItem{&inventorytest.Stub{StubName: "r1", StubState: inventory.StateActive}}, DAG: dag})
+		found := false
+		for _, f := range report.Findings {
+			found = found || strings.Contains(f.Message, engine.ErrDeviceRootLockAll)
+		}
+		if !found {
+			t.Errorf("%s: findings %+v", name, report.Findings)
+		}
+	}
+}

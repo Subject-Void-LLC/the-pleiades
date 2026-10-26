@@ -53,6 +53,11 @@ func TemplateRule(world WorldView) []Finding {
 	// the task, held by the executor to the same rules (renderTask).
 	for _, pt := range paramTasks(world.DAG) {
 		id, task := pt.id, pt.task
+		// A condition reads device with no template in any parameter, so
+		// this comes before the parameters are looked at.
+		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime && (engine.ParamsReadRoot(eng, task.Params, engine.TemplateRootDevice) || conditionReadsDevice(task)) {
+			findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s: %s", taskName(id, task), engine.ErrDeviceRootLockAll)})
+		}
 		if !engine.HasTemplate(task.Params) {
 			continue
 		}
@@ -63,9 +68,6 @@ func TemplateRule(world WorldView) []Finding {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime && (engine.ParamsReadRoot(eng, task.Params, engine.TemplateRootDevice) || conditionReadsDevice(task)) {
-			findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s: %s", taskName(id, task), engine.ErrDeviceRootLockAll)})
-		}
 		for _, key := range keys {
 			for _, source := range engine.TemplateStrings(task.Params[key]) {
 				problems := checkTemplate(eng, source, formats[key], registered, task.Register)

@@ -162,6 +162,35 @@ tasks:
 		t.Fatalf("a unit's task with device: %v, %s", seen.seen, nodeErrors(result))
 	}
 
+	// An authored undo step a block's rollback_on_failure runs reads the
+	// device it undoes on: rendering it fails otherwise, and the rescue never
+	// runs.
+	undoing := &undoable{fail: map[string]bool{"b1@web1": true}}
+	x := engine.NewExecutor(twoDevices(), undoing, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0, engine.WithRenderer(render.New()))
+	rescued, err := x.Run(context.Background(), yamlRunbook(t, `id: f
+hosts: web
+tasks:
+  - name: guarded
+    rollback_on_failure: true
+    block:
+      - name: b0
+        rbtest.make: {name: zero}
+        rollback:
+          - name: "undo on {{ device.name }}"
+            rbtest.make: {name: "back-{{ device.name }}"}
+      - name: b1
+        rbtest.make: {name: one}
+    rescue:
+      - name: r0
+        noop: {}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rescued.Rescued() || !slices.Contains(undoing.calls("web1"), "r0") {
+		t.Fatalf("an undo step reading device: web1 ran %v, %s", undoing.calls("web1"), nodeErrors(rescued))
+	}
+
 	result = run("id: l\nhosts: web\ntasks:\n  - rbtest.make: {name: x, note: \"{{ device.name }}\"}\n    lock_acquisition: all_at_plan_time\n")
 	if !strings.Contains(nodeErrors(result), engine.ErrDeviceRootLockAll) {
 		t.Errorf("device with all_at_plan_time: %s", nodeErrors(result))
