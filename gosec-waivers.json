@@ -186,6 +186,12 @@
       "line": "164",
       "rule_id": "G101",
       "reason": "Owned by Phase 127d (seeding a Cisco IOS device's login). This is the SecretSeedIOSEnableSecret constant, the string \"seed_ios_enable_secret\", and it is the NAME of a key in a seeding method's injected secrets, under which the engine hands virt.cml.node.create an IOS type 9 (scrypt) hash of the seeded device's enable password, freshly salted, never the password. G101 is a heuristic over identifier and literal text: the identifier begins with Secret because every key of that map does, and the literal contains \"secret\" because IOS calls the line it is written into \"enable secret 9\". Neither is a credential and neither can become one: the value is supplied by the engine at dispatch and never appears in this package. SecretSeedIOSSecret on the line above it, the same kind of name, does not fire, which shows the rule reacting to the literal's text rather than to how the constant is used. Identical in kind to the SecretPFXBase64 and SecretClusterCAPEM entries above. Renaming it to quiet the scanner was rejected for the reason those entries give: the literal is a wire key the engine and the method agree on, and a name chosen to satisfy a heuristic describes nothing. Reviewed 2026-10-24. Keyed on an exact line: if the block moves, re-review it rather than renumbering on faith."
+    },
+    {
+      "file": "cmd/pleiades/secret.go",
+      "line": "21",
+      "rule_id": "G101",
+      "reason": "Phase 129a. This is addSecretUsage, the usage line of the add-secret command, a constant string that spells the flags --value-stdin and --value-file. G101 is a heuristic over identifier and literal text, and it matches the word secret in the identifier's neighbourhood; the literal holds no credential, only the names of flags through which a person supplies one. The value is read from standard input, a sealed file or generated, never from a flag or a constant, and TestCLI_SecretReferencesReachTheDeviceOnly keeps it so."
     }
   ]
 }
