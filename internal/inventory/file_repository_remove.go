@@ -35,13 +35,18 @@ func RemoveHost(hostsPath, name string, leaveReferences bool) (HostSpec, error) 
 			return HostSpec{}, fmt.Errorf("host %s is named by %s; remove or change those first, or remove it anyway with --leave-references", name, strings.Join(names, ", "))
 		}
 	}
-	if err := WriteHosts(hostsPath, slices.Delete(slices.Clone(hosts), at, at+1)); err != nil {
-		return HostSpec{}, err
-	}
+	// The sidecar is read before anything is removed: a state file that cannot
+	// be read leaves the host in place and says so, rather than removing the
+	// row first and returning a bare error to a caller that then skips the
+	// credential and host-key cleanup for a host that is already gone
+	// (FAILURE_PATTERNS 105, LESSONS 294).
 	sidecarPath := filepath.Join(filepath.Dir(hostsPath), sidecarFileName)
 	doc, err := readSidecar(sidecarPath)
 	if err != nil {
-		return removed, err
+		return HostSpec{}, fmt.Errorf("host %s was not removed, because its state in %s could not be read: %w", name, filepath.Base(sidecarPath), err)
+	}
+	if err := WriteHosts(hostsPath, slices.Delete(slices.Clone(hosts), at, at+1)); err != nil {
+		return HostSpec{}, err
 	}
 	id := removed.ID
 	if id == "" {

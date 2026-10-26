@@ -49,11 +49,20 @@ func TestRemoveHost(t *testing.T) {
 		t.Fatalf("sidecar left: %+v, %v", doc, err)
 	}
 
-	// A sidecar that cannot be read is named, with the host already gone.
+	// A sidecar that cannot be read refuses the removal before it starts: the
+	// error names the state file, and the host is still in hosts.yaml, so the
+	// caller has nothing half done to clean up.
 	if err := os.WriteFile(sidecar, []byte("hosts: [unclosed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RemoveHost(hosts, "r3", false); err == nil {
-		t.Error("an unreadable sidecar was ignored")
+	removed, err = RemoveHost(hosts, "r3", false)
+	if err == nil || !strings.Contains(err.Error(), "was not removed") || !strings.Contains(err.Error(), sidecarFileName) {
+		t.Fatalf("an unreadable sidecar: %v", err)
+	}
+	if removed.Name != "" {
+		t.Errorf("a refused removal returned the row %+v as removed", removed)
+	}
+	if still, err := ReadHosts(hosts); err != nil || len(still) != 1 || still[0].Name != "r3" {
+		t.Errorf("hosts after a refused removal: %+v, %v; want r3 still there", still, err)
 	}
 }
