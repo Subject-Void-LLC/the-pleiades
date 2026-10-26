@@ -89,3 +89,30 @@ func TestTemplateRule_RefusesDeviceWithAllAtPlanTime(t *testing.T) {
 		}
 	}
 }
+
+// TestTemplateRule_RefusesATargetThatReadsDevice: the target is what chooses
+// the device, so it may not read it.
+func TestTemplateRule_RefusesATargetThatReadsDevice(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	none := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		return collection.Result{}, nil
+	}
+	if err := collection.Register(collection.Descriptor{Name: "ut.note", Invoke: none, Manifest: collection.Manifest{
+		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "fixture", ReadOnly: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	eval, _ := engine.NewCELEvaluator()
+	dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte("id: t\ntasks:\n  - ut.note: {target: \"{{ device.name }}\"}\n    within: r1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := validate.Validate(validate.WorldView{Items: []inventory.InventoryItem{&inventorytest.Stub{StubName: "r1", StubState: inventory.StateActive}}, DAG: dag})
+	found := false
+	for _, f := range report.Findings {
+		found = found || strings.Contains(f.Message, "a target cannot read device")
+	}
+	if !found {
+		t.Errorf("findings %+v", report.Findings)
+	}
+}

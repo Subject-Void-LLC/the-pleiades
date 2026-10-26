@@ -53,10 +53,13 @@ tasks:
 	}
 
 	for name, tc := range map[string]struct{ runbook, want string }{
-		"aliases without bound": {laughs(), "holds more than"},
-		"two merge keys":        {"id: m\ntasks:\n  - noop:\n      <<: {a: 1}\n      <<: {a: 2}\n", "two merge keys"},
-		"a merge of a scalar":   {"id: m\ntasks:\n  - noop:\n      <<: just text\n", "takes a mapping or a list of mappings"},
-		"an anchor-only key":    {"id: a\nx-common: &c\n  command: x\ntasks:\n  - noop: *c\n", `"x-common" is there only to hold an anchor`},
+		"aliases without bound":              {laughs(), "holds more than"},
+		"a merge of a list holding a scalar": {"id: m\ntasks:\n  - noop:\n      <<: [{a: 1}, 2]\n", "takes a mapping or a list of mappings"},
+		"an alias inside its own anchor":     {"id: r\ntasks:\n  - noop: &a\n      x: *a\n", "nests deeper"},
+		"a merge that recurses":              {"id: r\ntasks:\n  - noop:\n      <<: &m\n        x: *m\n", "nests deeper"},
+		"two merge keys":                     {"id: m\ntasks:\n  - noop:\n      <<: {a: 1}\n      <<: {a: 2}\n", "two merge keys"},
+		"a merge of a scalar":                {"id: m\ntasks:\n  - noop:\n      <<: just text\n", "takes a mapping or a list of mappings"},
+		"an anchor-only key":                 {"id: a\nx-common: &c\n  command: x\ntasks:\n  - noop: *c\n", `"x-common" is there only to hold an anchor`},
 	} {
 		if _, err := builder.BuildFromYAML([]byte(tc.runbook)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want an error saying %q", name, err, tc.want)

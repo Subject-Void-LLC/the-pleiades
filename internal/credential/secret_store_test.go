@@ -3,6 +3,7 @@ package credential_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -153,5 +154,33 @@ func TestSecrets_RefusesNamesAReferenceCannotName(t *testing.T) {
 	store := credential.NewLazyFileStore(dir).(credential.SecretStore)
 	if _, _, err := store.LookupSecret(context.Background(), "Bad.Name", "psk"); err == nil {
 		t.Error("a lookup by a name no reference can hold was not refused")
+	}
+}
+
+// TestRemoveFileStore: one device's credential goes and the others stay, a
+// device with none reports false, and no master key is needed to remove.
+func TestRemoveFileStore(t *testing.T) {
+	dir := t.TempDir()
+	key := make([]byte, 32)
+	for _, name := range []string{"r1", "r2"} {
+		if err := credential.SaveFileStore(dir, key, name, credential.Credential{Username: "ops", Password: "not-a-real-one"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if removed, err := credential.RemoveFileStore(dir, "r1"); err != nil || !removed {
+		t.Fatalf("RemoveFileStore(r1) = %v, %v", removed, err)
+	}
+	if removed, err := credential.RemoveFileStore(dir, "r1"); err != nil || removed {
+		t.Fatalf("a second removal = %v, %v", removed, err)
+	}
+	store, err := credential.NewFileStore(dir, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Lookup(context.Background(), "r1"); !errors.Is(err, credential.ErrNotFound) {
+		t.Errorf("a removed credential still resolves: %v", err)
+	}
+	if got, err := store.Lookup(context.Background(), "r2"); err != nil || got.Username != "ops" {
+		t.Errorf("the other credential = %+v, %v", got, err)
 	}
 }

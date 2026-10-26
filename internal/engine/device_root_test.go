@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
@@ -194,5 +195,94 @@ tasks:
 	result = run("id: l\nhosts: web\ntasks:\n  - rbtest.make: {name: x, note: \"{{ device.name }}\"}\n    lock_acquisition: all_at_plan_time\n")
 	if !strings.Contains(nodeErrors(result), engine.ErrDeviceRootLockAll) {
 		t.Errorf("device with all_at_plan_time: %s", nodeErrors(result))
+	}
+}
+
+// nodeErrs is every error a run's nodes report, joined.
+func nodeErrs(r engine.RunResult) string {
+	var b strings.Builder
+	for _, n := range r.Nodes {
+		if n.Err != nil {
+			b.WriteString(n.Err.Error() + "; ")
+		}
+	}
+	return b.String()
+}
+
+// typedStub2 reports the second test device type, whose declared keys
+// include a number and a boolean.
+type typedStub2 struct{ *inventorytest.Stub }
+
+// DeviceType reports the type with port and enabled declared.
+func (typedStub2) DeviceType() string { return deviceRootTestType + "2" }
+
+// TestDeviceRoot_CapabilitiesScalarsAndTheFailuresOfTheDevicePath: a
+// condition reads the device's capabilities, a plain number and boolean its
+// type reads are there, a target that cannot render or resolve fails the
+// node naming that, a render that fails does so on the device path, a
+// unit's rescue reads error beside device, and a run with no renderer
+// refuses a rendered target.
+func TestDeviceRoot_CapabilitiesScalarsAndTheFailuresOfTheDevicePath(t *testing.T) {
+	registerRollbackFixtures(t)
+	record.RegisterDispatchProperties(deviceRootTestType+"2", "port", "enabled")
+	web1 := typedStub2{&inventorytest.Stub{StubID: "web1", StubName: "web1", StubState: inventory.StateActive,
+		Caps: []capability.Name{capability.NameSSHTransport}, Props: map[string]any{"port": 22, "enabled": true}}}
+	resolver := mapResolver{"web": {web1}}
+	seen := &paramsSeen{}
+	withRenderer := engine.WithRenderer(render.New())
+	run := func(actions engine.ActionExecutor, runbook string, opts ...engine.ExecutorOption) engine.RunResult {
+		t.Helper()
+		x := engine.NewExecutor(resolver, actions, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0, opts...)
+		result, err := x.Run(context.Background(), yamlRunbook(t, runbook))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+
+	result := run(seen, `id: c
+hosts: web
+tasks:
+  - rbtest.make: {name: x, note: "{{ device.properties.port }} {{ device.properties.enabled }}"}
+    when: ["'SSHTransportCapable' in device.capabilities"]
+`, withRenderer)
+	if result.HasErrors() || !slices.Equal(seen.seen, []string{"web1: 22 true"}) {
+		t.Fatalf("capabilities and scalars: %v, %s", seen.seen, nodeErrs(result))
+	}
+
+	for name, tc := range map[string]struct{ runbook, want string }{
+		"a target that cannot render":    {"id: a\ntasks:\n  - rbtest.make: {name: x, target: \"{{ vars.nosuch }}\", note: \"{{ device.name }}\"}\n    within: web\n", "failed to render the target"},
+		"a target that resolves nowhere": {"id: b\nhosts: nosuch\ntasks:\n  - rbtest.make: {name: x, note: \"{{ device.name }}\"}\n", "failed to resolve target"},
+		"a render that fails":            {"id: c\nhosts: web\ntasks:\n  - rbtest.make: {name: x, note: \"{{ device.name }} {{ vars.nosuch }}\"}\n", "failed to render"},
+	} {
+		if r := run(seen, tc.runbook, withRenderer); !strings.Contains(nodeErrs(r), tc.want) {
+			t.Errorf("%s: %s", name, nodeErrs(r))
+		}
+	}
+
+	// A unit's rescue task reads error beside device: it renders only if the
+	// unit's failure reached the per-device path.
+	failing := &undoable{fail: map[string]bool{"boom@web1": true}}
+	rescued := run(failing, `id: u
+hosts: web
+tasks:
+  - name: a unit
+    block:
+      - name: boom
+        rbtest.make: {name: one}
+      - name: elsewhere
+        rbtest.make: {name: two, target: web}
+    rescue:
+      - name: r0
+        rbtest.make: {name: r, note: "{{ device.name }} answers {{ error.task }}"}
+`, withRenderer)
+	if !rescued.Rescued() || !slices.Contains(failing.calls("web1"), "r0") {
+		t.Errorf("a unit's rescue reading device and error: rescued %v, web1 ran %v, %s", rescued.Rescued(), failing.calls("web1"), nodeErrs(rescued))
+	}
+
+	// No renderer: a target rendered from data cannot be.
+	r := run(seen, "id: n\ntasks:\n  - rbtest.make: {name: x, target: \"{{ vars.which }}\"}\n    within: web\n    when: [\"'x' in device.tags\"]\n")
+	if !strings.Contains(nodeErrs(r), "no template renderer") {
+		t.Errorf("no renderer: %s", nodeErrs(r))
 	}
 }
