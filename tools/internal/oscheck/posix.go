@@ -40,6 +40,10 @@ type POSIX struct {
 	// Files is the directory, relative to Pleiades.Project, the archive is
 	// written in to be sent; each archive is deleted once sent.
 	Files string
+	// Containers, when set, makes Test run the container-dependent packages
+	// against the machine's Podman (ContainerTestScript) in place of the
+	// container-free passes.
+	Containers *Containers
 }
 
 // Kept is how many trees a machine keeps, the newest.
@@ -160,8 +164,12 @@ func (x POSIX) Test(ctx context.Context, target, sha string, parallel int, packa
 		return false, fmt.Errorf("this worktree has no pleiades for %s yet; run -phase prepare first", target)
 	}
 	fmt.Fprintf(stdout, "%s: running on %s; Pleiades returns the output when the run ends, since it does not stream it yet\n", x.Tool, x.Machine)
+	script := x.TestScript(sha, parallel, packages)
+	if x.Containers != nil {
+		script = x.ContainerTestScript(sha, parallel, packages)
+	}
 	run := func(ctx context.Context) (Outcome, error) {
-		return x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.TestScript(sha, parallel, packages)), fmt.Sprintf("--timeout=%d", TestTimeout))
+		return x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", script), fmt.Sprintf("--timeout=%d", TestTimeout))
 	}
 	stop := func(ctx context.Context) error {
 		_, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.StopScript(sha)))
@@ -269,9 +277,13 @@ func (x POSIX) Records(ctx context.Context, sha string) ([]flakegate.Run, error)
 // RecordsScript prints each of RecordFiles in sha's tree that exists, one
 // after another.
 func (x POSIX) RecordsScript(sha string) string {
+	files := RecordFiles
+	if x.Containers != nil {
+		files = []string{ContainerRecordFile}
+	}
 	return fmt.Sprintf(`cd "$HOME/%s/%s" || exit 0
 for f in %s; do [ -f "$f" ] && cat "$f"; done
-exit 0`, x.Dir, sha, strings.Join(RecordFiles, " "))
+exit 0`, x.Dir, sha, strings.Join(files, " "))
 }
 
 // stopRun defines the shell function both scripts end a run with: SIGTERM to

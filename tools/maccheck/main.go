@@ -94,6 +94,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, remote fu
 	fs.SetOutput(stderr)
 	o := oscheck.Flags(fs, "the Mac")
 	target := fs.String("mac", "", "the Mac to use, instead of "+envKey)
+	containers := fs.Bool("containers", false, "run the container-dependent packages against the Mac's Podman, with a coverage measurement for -coverage-out, instead of the container-free passes")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -123,8 +124,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, remote fu
 		fmt.Fprintf(stderr, "maccheck: %v\n%s\n", err, changeOrRemove(file))
 		return 2
 	}
+	leg := remote(mac)
+	if *containers {
+		c, ok := leg.(interface{ forContainers() pleiadesRemote })
+		if !ok {
+			fmt.Fprintf(stderr, "maccheck: -containers needs the real Mac end, which can run Podman\n")
+			return 2
+		}
+		leg = c.forContainers()
+	}
 	flow := oscheck.Flow{Tool: "maccheck", Machine: "the Mac", OS: "macOS", Target: mac, Advice: changeOrRemove(file)}
-	return flow.Run(ctx, o, stdout, stderr, remote(mac))
+	return flow.Run(ctx, o, stdout, stderr, leg)
 }
 
 // checkTarget refuses a Mac target that ssh would read as an option, or

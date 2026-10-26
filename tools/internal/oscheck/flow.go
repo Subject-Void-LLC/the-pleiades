@@ -57,6 +57,9 @@ type Options struct {
 	// Govulncheck, with PhaseVuln, is the govulncheck release to scan with
 	// (the Makefile's GOVULNCHECK_VERSION).
 	Govulncheck string
+	// CoverageOut, when set, is where a leg that measures coverage (a
+	// container pass) has it written, read back from the machine.
+	CoverageOut string
 }
 
 // Flags registers the shared flags on fs; machine names the machine in
@@ -70,6 +73,7 @@ func Flags(fs *flag.FlagSet, machine string) *Options {
 	fs.StringVar(&o.ReadyFile, "ready-file", "", "with -phase prepare, a file written once the tree is on "+machine+", so a caller knows -phase test has something to run")
 	fs.StringVar(&o.ReportOut, "report-out", "", "write the run's record to this JSON file: where it stopped, and the tests' own records read back from "+machine)
 	fs.StringVar(&o.Govulncheck, "govulncheck", "", "with -phase vuln, the govulncheck release to scan with (v1.6.0)")
+	fs.StringVar(&o.CoverageOut, "coverage-out", "", "write the coverage a container run measured on "+machine+" to this JSON file, where coverage-check reads it")
 	return o
 }
 
@@ -263,6 +267,7 @@ func (f Flow) run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg
 		return 2, true
 	}
 	f.readRecords(leg, sha, rec, stderr)
+	f.writeCoverage(leg, sha, o, rec, stderr)
 	if !passed {
 		fmt.Fprintf(stderr, "%s: the tests failed on %s (%s) in %s\n", f.Tool, f.Target, f.OS, took)
 		rec.Verdict, rec.Step = flakegate.VerdictFail, StepTest
