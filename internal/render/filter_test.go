@@ -8,8 +8,9 @@ import (
 )
 
 // TestFilters_DescribesEveryFilterTheRendererHas: each filter has a usage
-// and a description, in name order, and one the renderer applies is accepted
-// by it; the excluded ones are named with why and are refused by it.
+// and a description, in name order, and each usage compiles in the renderer;
+// each excluded filter is named with a reason. That the renderer refuses an
+// excluded filter is not checked here.
 func TestFilters_DescribesEveryFilterTheRendererHas(t *testing.T) {
 	eng := render.New()
 	got := render.Filters()

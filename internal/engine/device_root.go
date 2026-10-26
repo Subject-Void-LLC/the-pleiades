@@ -95,6 +95,13 @@ func ParamsReadRoot(eng render.Engine, params map[string]any, root string) bool 
 // its devices' locks cannot all be taken together.
 const ErrDeviceRootLockAll = "a task that reads device runs on each device on its own, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
 
+// ErrRescueLockAll is why a rescue task cannot take lock_acquisition:
+// all_at_plan_time: it runs on each device on its own, reading that device's
+// failure, so its devices' locks cannot all be taken together. Validation
+// refuses it too; this is the engine's own backstop for a runbook that did not
+// pass through it.
+const ErrRescueLockAll = "a rescue task runs on each device on its own, reading that device's failure, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
+
 // readsRoot reports whether tmpl has an expression reading root.
 func readsRoot(tmpl render.Template, root string) bool {
 	for _, e := range tmpl.Expressions() {

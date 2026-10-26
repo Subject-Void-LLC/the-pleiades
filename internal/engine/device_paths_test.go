@@ -1,7 +1,7 @@
 // Tests of the failure branches of the paths that run a task per device or
 // per unit: a task reading device with no hosts, a guarded task whose target
-// resolves nowhere, a unit's task that fails to render, an authored undo step
-// that fails to render, and an alias that merges into itself.
+// resolves nowhere, a unit's task that fails to render or resolves nowhere,
+// and an authored undo step that fails to render.
 package engine_test
 
 import (

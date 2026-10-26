@@ -117,7 +117,17 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 	}
 
 	// A rescue task, each device reading its own failure, or a task reading
-	// the device it runs on.
+	// the device it runs on. Both run on each device on its own, so neither
+	// can take every device's lock together.
+	if task.LockAcquisition == AcquisitionAllAtPlanTime {
+		reason := ErrDeviceRootLockAll
+		if rescue {
+			reason = ErrRescueLockAll
+		}
+		wrapped := fmt.Errorf("%s: %s", taskLabel(nodeID, task), reason)
+		r.publish(nodeID, task, "", "failed", wrapped.Error())
+		return append(results, failedNode(nodeID, started, FailureStageLockAll, wrapped))
+	}
 	if runsWithNoDevice {
 		return append(results, r.rescueOn(ctx, nodeID, task, nil, started, mask, rescue)...)
 	}
