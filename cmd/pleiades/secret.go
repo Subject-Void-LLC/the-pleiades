@@ -147,7 +147,7 @@ func runListSecrets(args []string) error {
 		return nil
 	}
 	for _, s := range secrets {
-		fmt.Printf("%s  %s\n", s.Name, termsafe.EscapeLine(strings.Join(s.Fields, ", ")))
+		fmt.Printf("%s  %s\n", termsafe.EscapeLine(s.Name), termsafe.EscapeLine(strings.Join(s.Fields, ", ")))
 	}
 	return nil
 }
@@ -174,9 +174,9 @@ func runRemoveSecret(args []string) error {
 	case !removed:
 		return fmt.Errorf("no secret named %s", termsafe.EscapeLine(name))
 	case *field != "":
-		fmt.Printf("removed field %s of secret %s\n", *field, name)
+		fmt.Printf("removed field %s of secret %s\n", termsafe.EscapeLine(*field), termsafe.EscapeLine(name))
 	default:
-		fmt.Printf("removed secret %s\n", name)
+		fmt.Printf("removed secret %s\n", termsafe.EscapeLine(name))
 	}
 	return nil
 }

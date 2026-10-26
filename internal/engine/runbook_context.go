@@ -47,8 +47,10 @@ type runbookContext struct {
 	// store, for the name the method asks for and no other.
 	databases credential.DatabaseStore
 	// namedSecrets, when set, answers a method's request for one field of a
-	// named secret (sdk.NamedSecrets), from the project's credential store,
-	// for the name and field a task's reference gives and no other.
+	// named secret (sdk.NamedSecrets), from the project's credential store.
+	// It answers any name a method asks for: a built-in method asks only for
+	// the references its task wrote (sdk.ResolveSecretRefs), and an external
+	// Collection's context has none of this.
 	namedSecrets credential.SecretStore
 	// route dials through the device's hops, nil when it has none
 	// (sdk.Router); the Collection executor sets it per task.

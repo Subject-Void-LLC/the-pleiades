@@ -263,7 +263,9 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 			// at the end; read on rather than guess.
 			continue
 		}
-		ex, done, err := s.choose(ctx, opts.Ask, question, asked)
+		// A question that echoes an answer typed from a secret goes to a
+		// model with that answer replaced: the model is a remote party.
+		ex, done, err := s.choose(ctx, opts.Ask, withoutSecretAnswers(question, opts.Prompts), asked)
 		if err != nil {
 			return res, err
 		}
@@ -271,6 +273,17 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 			res.Exchanges = append(res.Exchanges, ex)
 		}
 	}
+}
+
+// withoutSecretAnswers is question with every answer that came from a secret
+// (Prompt.Secret) replaced by SecretAnswer.
+func withoutSecretAnswers(question string, prompts []Prompt) string {
+	for _, p := range prompts {
+		if p.Secret && p.Answer != "" {
+			question = strings.ReplaceAll(question, p.Answer, SecretAnswer)
+		}
+	}
+	return question
 }
 
 // echoing reports whether everything read so far is the device's echo of

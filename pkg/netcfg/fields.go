@@ -67,13 +67,37 @@ func MaskFields(v any) any {
 // cannot import.
 const MinLearnedLength = 8
 
-// Learnable returns the values of found long enough to mask by value.
+// Learnable returns the values of found worth masking by value: long
+// enough (MinLearnedLength), and not shaped like a configuration word. Mask
+// reads some keywords as secrets (password encryption aes, authentication
+// host-mode, login authentication VTY-AUTH), and masking such a word by
+// value would scrub it from every later line of the run, so a value of one
+// case of letters, hyphens and underscores alone is left to keyword masking;
+// a secret with a digit, both cases or another symbol is learned.
 func Learnable(found []string) []string {
 	var out []string
 	for _, f := range found {
-		if len(f) >= MinLearnedLength {
+		if len(f) >= MinLearnedLength && !wordShaped(f) {
 			out = append(out, f)
 		}
 	}
 	return out
+}
+
+// wordShaped reports whether s is letters of one case, hyphens and
+// underscores only, as a configuration keyword or a list name is.
+func wordShaped(s string) bool {
+	lower, upper := false, false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			lower = true
+		case r >= 'A' && r <= 'Z':
+			upper = true
+		case r == '-' || r == '_':
+		default:
+			return false
+		}
+	}
+	return !(lower && upper)
 }

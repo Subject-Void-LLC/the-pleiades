@@ -527,13 +527,15 @@ func (d Dialect) RejectionWith(out string, accept []*regexp.Regexp) (string, boo
 // IOSCommandError matches the lines IOS prints when it did not run an
 // exec-mode command at all: the parser's own refusals of the line ("%
 // Invalid input detected at '^' marker.", "% Incomplete command.", "%
-// Ambiguous command: ...", "% Unrecognized command") and a file operation's
+// Ambiguous command: ...", "% Unrecognized command"), a ping or traceroute IOS
+// could not send ("% Unrecognized host or address, or protocol not running.",
+// "% Bad IP address"), and a file operation's
 // "%Error ..." (more or dir of a file that is not there). A command that only
 // reads is held to these alone: what it prints is the device's data, and a "%
 // " line inside it ("% Self-signed CA certificate:" in show crypto pki
 // certificates pem, measured in the blind CVD lab, 2026-10-25) is output, not
 // a refusal.
-var IOSCommandError = regexp.MustCompile(`^%(?: (?:Invalid input detected|Incomplete command|Ambiguous command|Unrecognized command)|Error\b)`)
+var IOSCommandError = regexp.MustCompile(`^%(?: (?:Invalid input detected|Incomplete command|Ambiguous command|Unrecognized command|Unrecognized host|Bad IP address)|Error\b)`)
 
 // CommandRejection returns the first line of out matching IOSCommandError.
 func CommandRejection(out string) (string, bool) {

@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/clidialog"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -109,7 +110,7 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
-		if err := rc.SetStat(statStdout, out); err != nil {
+		if err := rc.SetStat(statStdout, maskOutput(rc, out)); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		return collection.Result{Changed: true}, nil
@@ -120,11 +121,21 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	stats := clidialog.Stats(res)
-	stats[statStdout] = res.Output
+	stats[statStdout] = maskOutput(rc, res.Output)
 	for k, v := range stats {
 		if err := rc.SetStat(k, v); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}
 	return collection.Result{Changed: true}, nil
+}
+
+// maskOutput masks the secrets a device printed (a show of its
+// configuration), as net.ios.command masks its own, and adds each one long
+// enough to the run's masking set, so it is masked wherever else the run
+// prints it.
+func maskOutput(rc sdk.RunbookContext, out string) string {
+	masked, found := netcfg.MaskFound(out)
+	sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
+	return masked
 }

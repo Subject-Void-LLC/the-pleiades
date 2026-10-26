@@ -72,8 +72,8 @@ func Problems(text string) []string {
 	if looseRef.MatchString(rest) {
 		problems = append(problems, "a secret reference is written {{ secret.<name>.<field> }}, a lowercase name and field, with no filter")
 	}
-	if strings.Contains(rest, "{{") {
-		problems = append(problems, "a string holding a secret reference may hold no other template expression, so nothing a run supplies sits next to a secret")
+	if strings.Contains(rest, "{{") || strings.Contains(rest, "{%") || strings.Contains(rest, "{#") {
+		problems = append(problems, "a string holding a secret reference may hold no other template expression, block or comment, so nothing a run supplies sits next to a secret")
 	}
 	return problems
 }

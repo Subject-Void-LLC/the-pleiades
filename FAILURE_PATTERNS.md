@@ -614,7 +614,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 609. net.ios.config, net.cli.config and net.netconf.config applied lines holding a masked placeholder, and net.ios.config's new undo_lines would hand an author such lines (a repeat of 580) (fixed)
 610. pkg/iosparse's ShowInterfaces keeps genieparser's failure on an "Encapsulation X, medium is Y" line (open)
 611. pkg/iosparse's ShowVlan joins wrapped lines quadratically on pathological output, bounded only by netcli's read limit (a sibling of 48) (open)
-612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (open)
+612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (fixed in 129a)
 613. net.ios.replace deleted whatever file checkpoint or expect named after a replace, so checkpoint: nvram:startup-config would have erased the saved configuration (a repeat of 570) (fixed before push)
 614. validate accepted reversible: and rollback_on_failure over net.ios.config calls that record no undo (checkpoint: false), so the in-run undo would stop halfway (a repeat of 156) (fixed before push)
 615. Windows: the active-run reader skipped every record, because Windows reports every writable file as group and world writable (a repeat of 544 and 567) (fixed before push)

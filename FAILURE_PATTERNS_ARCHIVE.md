@@ -15093,7 +15093,7 @@ takes from the device.
 **Lesson.** As 48 found, a loop that rebuilds its accumulated text on every step needs either a builder or a bound on
 its input, and a read limit sized for transport is not a bound sized for a parser.
 
-## 612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (open)
+## 612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (fixed in 129a)
 
 **Symptom.** 2026-10-23, by design of `9ab84fe4`: each `net.ios.config` run that changes the configuration leaves two
 files on the device's default writable file system (the checkpoint before and the configuration after), named
@@ -15107,6 +15107,8 @@ undo runs, and how to delete them by hand with `net.ios.command` once the undo i
 
 **Lesson.** An undo that keeps state on a device owes a way to list and prune that state, or a limit on how much of it
 builds up.
+
+**Fixed (2026-10-25, Phase 129a):** `net.ios.checkpoints` lists the checkpoints `net.ios.config` left (only files `mintedCheckpoint` matches) and, with `prune` and `keep` or `older_than`, deletes the older ones. Age is measured by the device's own clock (`show clock`), so a router whose clock was never set is measured against itself. Proven by `TestCheckpoints_ListsAndPrunesOnlyMintedFiles`, `TestCheckpoints_AgeIsTheDevicesOwn` and `TestCheckpoints_AFailedDeleteSaysWhatWent`, and listed and pruned live on the CML sandbox. Pruning a change's checkpoint makes that change's `net.ios.replace` undo refuse, which the method's reversibility note says.
 
 ## 613. net.ios.replace deleted whatever file checkpoint or expect named after a replace, so checkpoint: nvram:startup-config would have erased the saved configuration (a repeat of 570) (fixed before push)
 

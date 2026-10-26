@@ -43,8 +43,8 @@ func checkSecretNames(name, field string) error {
 }
 
 // SecretStore resolves one field of a named secret. The Crawl tier's run
-// hands it to a method through sdk.NamedSecrets, for the name and field a
-// task's reference gives, and no other.
+// hands it to a method through sdk.NamedSecrets, which asks for the
+// references its task wrote.
 type SecretStore interface {
 	// LookupSecret returns the value of field in the secret named name, and
 	// false when there is no such secret or field.

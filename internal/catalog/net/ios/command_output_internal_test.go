@@ -24,7 +24,10 @@ const (
 	pingLine    = "ping 10.0.0.1"
 	clearLine   = "clear crypto session remote 10.0.0.9"
 	bannerLine  = "banner motd %"
+	badPingLine = "ping no-such-host"
 	outputPSK   = "OutputPsk-4242"
+	secondPSK   = "SecondPsk-8686"
+	chainKey    = "ChainKey-5151"
 )
 
 // outputDevice starts a scripted IOS device for these tests.
@@ -37,9 +40,12 @@ func outputDevice(t *testing.T) (*remoteexectest.Server, *sshDevice) {
 			keyringLine: "crypto ikev2 keyring GATE\r\n peer R2\r\n  pre-shared-key " + outputPSK,
 			pingLine:    "Sending 5, 100-byte ICMP Echos to 10.0.0.1, timeout is 2 seconds:\r\n!!!!!\r\nSuccess rate is 100 percent (5/5)",
 			clearLine:   "% No active sessions for this peer",
+			badPingLine: "Translating \"no-such-host\"\r\n% Unrecognized host or address, or protocol not running.",
 		},
 		Asks: map[string][]remoteexectest.Question{
-			bannerLine: {{Text: "Building banner, key 7 " + outputPSK + "\r\nEnter TEXT message.  End with the character '%'.\r\n", Want: "never"}},
+			// A tail holding several secrets, one a key chain's, as a keyring's
+			// or key chain's show does (the review's F1).
+			bannerLine: {{Text: " peer A\r\n  pre-shared-key " + outputPSK + "\r\n peer B\r\n  pre-shared-key " + secondPSK + "\r\nkey chain K\r\n key 1\r\n  key-string 7 " + chainKey + "\r\nEnter TEXT message.  End with the character '%'.\r\n", Want: "never"}},
 		},
 	}})
 	if err != nil {
@@ -73,6 +79,17 @@ func TestCommand_AReadOnlyCommandsPercentLinesAreItsData(t *testing.T) {
 	}
 }
 
+// TestCommand_APingToAnUnknownHostFails: a ping IOS could not even send,
+// to a name it cannot resolve, fails as it did before ping became a
+// read-only command (the review's F4).
+func TestCommand_APingToAnUnknownHostFails(t *testing.T) {
+	srv, device := outputDevice(t)
+	rc := &secretContext{stubContext: newStubContext(), secrets: srv.Secrets()}
+	if _, err := Command(context.Background(), rc, device, sessionParams(map[string]any{"command": badPingLine})); err == nil || !strings.Contains(err.Error(), "Unrecognized host") {
+		t.Fatalf("err %v, want the unknown host refused", err)
+	}
+}
+
 // TestCommand_AcceptTakesAFurtherPercentLine: a command that changes things
 // still fails on a "% " line, unless accept names it.
 func TestCommand_AcceptTakesAFurtherPercentLine(t *testing.T) {
@@ -97,14 +114,18 @@ func TestCommand_AcceptTakesAFurtherPercentLine(t *testing.T) {
 func TestCommand_ATimeoutSaysWhatTheDeviceLastPrinted(t *testing.T) {
 	srv, device := outputDevice(t)
 	rc := &secretContext{stubContext: newStubContext(), secrets: srv.Secrets()}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// Long enough that a loaded machine's dial and login fit inside it, so
+	// the failure is the banner's wait and not the connection's.
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	_, err := Command(ctx, rc, device, sessionParams(map[string]any{"command": bannerLine}))
 	if err == nil || !strings.Contains(err.Error(), "the device last printed") || !strings.Contains(err.Error(), "End with the character") {
 		t.Fatalf("err %v, want the device's last lines", err)
 	}
-	if strings.Contains(err.Error(), outputPSK) {
-		t.Fatalf("the error holds the key: %v", err)
+	for _, secret := range []string{outputPSK, secondPSK, chainKey} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("the error holds a secret: %v", err)
+		}
 	}
 }
 

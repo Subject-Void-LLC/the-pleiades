@@ -223,8 +223,11 @@ func renderKeepingRefs(eng render.Engine, v any, ctx map[string]any, text bool) 
 		if err != nil {
 			return nil, err
 		}
-		if s, ok := rendered.(string); ok && secretref.Has(s) {
-			return nil, errors.New("renders to text holding a secret reference, and only the runbook's author may write one")
+		// The whole value is held, not only text: a one-expression template
+		// keeps its value's type, so a variable or a register holding a list
+		// of maps could otherwise carry a reference in (the review's F2).
+		if holdsRef(rendered) {
+			return nil, errors.New("renders to a value holding a secret reference, and only the runbook's author may write one")
 		}
 		return rendered, nil
 	case map[string]any:
@@ -249,6 +252,28 @@ func renderKeepingRefs(eng render.Engine, v any, ctx map[string]any, text bool) 
 		return out, nil
 	}
 	return v, nil
+}
+
+// holdsRef reports whether v, at any depth, holds a string that reads the
+// secret root, or a map key that does.
+func holdsRef(v any) bool {
+	switch t := v.(type) {
+	case string:
+		return secretref.Has(t)
+	case []any:
+		for _, e := range t {
+			if holdsRef(e) {
+				return true
+			}
+		}
+	case map[string]any:
+		for k, e := range t {
+			if secretref.Has(k) || holdsRef(e) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // templateContext is what a rendered parameter reads: vars, nodes and

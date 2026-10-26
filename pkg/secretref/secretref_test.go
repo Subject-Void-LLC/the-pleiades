@@ -72,15 +72,17 @@ func TestResolve_RefusesWithoutTheValue(t *testing.T) {
 // reference and text without one are not.
 func TestProblems_OnlyExactReferencesStandAlone(t *testing.T) {
 	for text, bad := range map[string]bool{
-		"key {{ secret.dmvpn.psk }}":                         false,
-		"no template here":                                   false,
-		"{{ vars.site }} only":                               false,
-		"key {{ secret.dmvpn.psk | quote }}":                 true,
-		"key {{ secret.DMVPN.psk }}":                         true,
-		"key {{ secret.dmvpn }}":                             true,
-		"key {{- secret.dmvpn.psk }}":                        true,
-		"{{ vars.peer }} key {{ secret.dmvpn.psk }}":         true,
-		"key {{ secret.dmvpn.psk }}{{ secret.dmvpn.other }}": false,
+		"key {{ secret.dmvpn.psk }}":                           false,
+		"no template here":                                     false,
+		"{{ vars.site }} only":                                 false,
+		"key {{ secret.dmvpn.psk | quote }}":                   true,
+		"key {{ secret.DMVPN.psk }}":                           true,
+		"key {{ secret.dmvpn }}":                               true,
+		"key {{- secret.dmvpn.psk }}":                          true,
+		"{{ vars.peer }} key {{ secret.dmvpn.psk }}":           true,
+		"key {{ secret.dmvpn.psk }}{{ secret.dmvpn.other }}":   false,
+		"{% if vars.x %}key {{ secret.dmvpn.psk }}{% endif %}": true,
+		"key {{ secret.dmvpn.psk }} {# a comment #}":           true,
 	} {
 		if got := len(secretref.Problems(text)) > 0; got != bad {
 			t.Errorf("Problems(%q) = %v, want refused %v", text, secretref.Problems(text), bad)

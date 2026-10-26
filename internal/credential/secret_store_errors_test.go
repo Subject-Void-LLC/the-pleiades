@@ -14,6 +14,12 @@ import (
 // that is not a key, and a master key that changed under a stored secret are
 // each an error, never a missing secret.
 func TestSecrets_ABrokenStoreIsReported(t *testing.T) {
+	// The developer's own PLEIADES_MASTER_KEY, if set, would give both
+	// projects one key: the test starts with none, restored when it ends.
+	t.Setenv("PLEIADES_MASTER_KEY", "")
+	if err := os.Unsetenv("PLEIADES_MASTER_KEY"); err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	key, err := credential.ResolveMasterKey(dir)
 	if err != nil {

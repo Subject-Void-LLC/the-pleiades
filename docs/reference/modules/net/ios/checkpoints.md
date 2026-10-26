@@ -6,7 +6,7 @@ status: beta
 
 Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones.
 
-Reads the file system net.ios.config keeps its checkpoints on (the device's default writable disk or flash, such as unix: or flash:) with dir, and reports each change's checkpoints, newest first: its id, the configuration before it and, for a change that completed, after it, with the time and size the device gives. Only files named as net.ios.config names them (pleiades-<12 hex digits>.cfg and -after.cfg) are ever listed or deleted, so a startup configuration or an image is never touched. Each checkpoint holds the whole configuration, its secrets included, and stays on the device until its change's undo runs. With prune, the checkpoints of every change but the newest keep, or of every change older than older_than, or both (a change goes when either says so), are deleted with delete /force; a check reports what would go. A deleted checkpoint's undo (the net.ios.replace net.ios.config recorded) then refuses, so prune only changes no rollback will need, such as those of a lab about to be deleted.
+Reads the file system net.ios.config keeps its checkpoints on (the device's default writable disk or flash, such as unix: or flash:) with dir, and reports each change's checkpoints, newest first: its id, the configuration before it and, for a change that completed, after it, with the time and size the device gives. Only files named as net.ios.config names them (pleiades-<12 hex digits>.cfg and -after.cfg) are ever listed or deleted, so a startup configuration or an image is never touched. Each checkpoint holds the whole configuration, its secrets included, and stays on the device until its change's undo runs. With prune, the checkpoints of every change but the newest keep, or of every change older than older_than by the device's own clock (show clock, so a router whose clock was never set is measured against itself), or both (a change goes when either says so), are deleted with delete /force; a check reports what would go. A deleted checkpoint's undo (the net.ios.replace net.ios.config recorded) then refuses, so prune only changes no rollback will need, such as those of a lab about to be deleted.
 
 ## Attributes
 
@@ -25,7 +25,7 @@ Reads the file system net.ios.config keeps its checkpoints on (the device's defa
 | --- | --- | --- | --- | --- |
 | `prune` | `bool` | no | `false` | Delete the checkpoints keep and older_than select. Without it the method only lists. |
 | `keep` | `int` | no | - | With prune, keep the checkpoints of this many of the newest changes and delete the rest; 0 deletes every one. |
-| `older_than` | `string` | no | - | With prune, delete the checkpoints of every change older than this, a Go duration such as 72h, by the time the device gives its files. |
+| `older_than` | `string` | no | - | With prune, delete the checkpoints of every change older than this, a Go duration such as 72h, measured by the device's own clock against the times it gives its files. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 | `insecure_telnet` | `bool` | no | `false` | Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 

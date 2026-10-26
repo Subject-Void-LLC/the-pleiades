@@ -69,11 +69,11 @@ func checkpointsDoc() collection.Doc {
 	return collection.Doc{
 		Summary: "Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones.",
 		Description: "Reads the file system net.ios.config keeps its checkpoints on (the device's default writable disk or flash, such as unix: or flash:) with dir, and reports each change's checkpoints, newest first: its id, the configuration before it and, for a change that completed, after it, with the time and size the device gives. Only files named as net.ios.config names them (pleiades-<12 hex digits>.cfg and -after.cfg) are ever listed or deleted, so a startup configuration or an image is never touched. " +
-			"Each checkpoint holds the whole configuration, its secrets included, and stays on the device until its change's undo runs. With prune, the checkpoints of every change but the newest keep, or of every change older than older_than, or both (a change goes when either says so), are deleted with delete /force; a check reports what would go. A deleted checkpoint's undo (the net.ios.replace net.ios.config recorded) then refuses, so prune only changes no rollback will need, such as those of a lab about to be deleted.",
+			"Each checkpoint holds the whole configuration, its secrets included, and stays on the device until its change's undo runs. With prune, the checkpoints of every change but the newest keep, or of every change older than older_than by the device's own clock (show clock, so a router whose clock was never set is measured against itself), or both (a change goes when either says so), are deleted with delete /force; a check reports what would go. A deleted checkpoint's undo (the net.ios.replace net.ios.config recorded) then refuses, so prune only changes no rollback will need, such as those of a lab about to be deleted.",
 		Params: []collection.Param{
 			{Name: paramPrune, Type: "bool", Default: "false", Description: "Delete the checkpoints keep and older_than select. Without it the method only lists."},
 			{Name: paramKeep, Type: "int", Description: "With prune, keep the checkpoints of this many of the newest changes and delete the rest; 0 deletes every one."},
-			{Name: paramOlderThan, Type: "string", Description: "With prune, delete the checkpoints of every change older than this, a Go duration such as 72h, by the time the device gives its files."},
+			{Name: paramOlderThan, Type: "string", Description: "With prune, delete the checkpoints of every change older than this, a Go duration such as 72h, measured by the device's own clock against the times it gives its files."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 		},
@@ -98,11 +98,40 @@ const dirTime = "Jan 2 2006 15:04:05 -07:00"
 
 // checkpointSet is one change's checkpoints.
 type checkpointSet struct {
-	id       string
-	before   string
-	after    string
+	id     string
+	before string
+	after  string
+	// modified is the before file's time as the device gives it; wall is
+	// the same clock reading with its offset dropped, which older_than
+	// compares with the device's own clock (show clock), never this
+	// machine's.
 	modified time.Time
+	wall     time.Time
 	bytes    int64
+}
+
+// wallClock is t's clock reading as a time in UTC, its offset dropped.
+func wallClock(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.UTC)
+}
+
+// showClock is IOS's show clock: an optional * (not set by NTP or a
+// calendar) or . (set, unsynchronized), the time with its milliseconds, a
+// zone, the weekday, the month, the day and the year ("*01:16:19.193 UTC
+// Mon Oct 26 2026", IOL XE 17.15.1, 2026-10-25).
+var showClock = regexp.MustCompile(`[*.]?(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?\s+\S+\s+[A-Z][a-z]{2}\s+([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})`)
+
+// deviceClock reads the device's own clock, as a wall-clock time.
+func deviceClock(out string) (time.Time, bool) {
+	m := showClock.FindStringSubmatch(out)
+	if m == nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse("Jan 2 2006 15:04:05", m[2]+" "+m[3]+" "+m[4]+" "+m[1])
+	if err != nil {
+		return time.Time{}, false
+	}
+	return wallClock(t), true
 }
 
 // readCheckpoints lists the checkpoint sets on fileSystem from dir, newest
@@ -129,7 +158,7 @@ func readCheckpoints(out, fileSystem string) []checkpointSet {
 		} else {
 			set.before = name
 			if err == nil {
-				set.modified = when
+				set.modified, set.wall = when, wallClock(when)
 			}
 		}
 	}
@@ -152,7 +181,7 @@ func readCheckpoints(out, fileSystem string) []checkpointSet {
 func pruneSelect(sets []checkpointSet, keep int, keepSet bool, olderThan time.Duration, now time.Time) []checkpointSet {
 	var out []checkpointSet
 	for i, s := range sets {
-		old := olderThan > 0 && !s.modified.IsZero() && now.Sub(s.modified) > olderThan
+		old := olderThan > 0 && !s.wall.IsZero() && now.Sub(s.wall) > olderThan
 		if (keepSet && i >= keep) || old {
 			out = append(out, s)
 		}
@@ -230,8 +259,21 @@ func runCheckpoints(ctx context.Context, rc sdk.RunbookContext, device inventory
 		return collection.Result{}, nil
 	}
 
+	// Age is the device's own: a router whose clock was never set dates
+	// its files by that clock, and this machine's would make every one old.
+	var now time.Time
+	if olderThan > 0 {
+		clock, err := session.Command(ctx, "show clock")
+		if err != nil {
+			return collection.Result{}, maskedError(fmt.Errorf("%s: %w", fqcn, err))
+		}
+		var ok bool
+		if now, ok = deviceClock(clock); !ok {
+			return collection.Result{}, fmt.Errorf("%s: the device's clock (show clock) did not read, so %s cannot be measured; prune by %s instead", fqcn, paramOlderThan, paramKeep)
+		}
+	}
 	var deleted []string
-	for _, s := range pruneSelect(sets, keep, keepSet, olderThan, time.Now()) {
+	for _, s := range pruneSelect(sets, keep, keepSet, olderThan, now) {
 		for _, path := range []string{s.after, s.before} {
 			if path == "" {
 				continue

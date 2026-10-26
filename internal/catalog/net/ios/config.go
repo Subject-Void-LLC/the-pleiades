@@ -187,10 +187,14 @@ func maskedError(err error) error {
 	// A read that ended before its prompt says what the device last
 	// printed, so a timeout names what it was waiting on (FAILURE_PATTERNS
 	// 651); masked with the rest.
+	// The output is masked as the lines it is, before its tail is joined
+	// into one: masking finds one secret on a line, and a tail of a keyring
+	// holds several (FAILURE_PATTERNS 651's fix, reviewed).
+	text = netcfg.Mask(text)
 	if out, ok := netcli.LastOutput(err); ok {
-		text += "; the device last printed: " + lastLines(out)
+		text += "; the device last printed: " + lastLines(netcfg.Mask(out))
 	}
-	return &masked{text: netcfg.Mask(text), cause: err}
+	return &masked{text: text, cause: err}
 }
 
 // The bounds of what a failure quotes of the device's last output.

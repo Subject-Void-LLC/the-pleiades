@@ -82,3 +82,18 @@ func TestMaskFound_ReturnsEachSecretOnce(t *testing.T) {
 		t.Fatalf("Learnable = %q, want the short community left out", learn)
 	}
 }
+
+// TestLearnable_LeavesWordsToKeywordMasking: words Mask misreads as secrets
+// are not learned; secrets with a digit, both cases or a symbol are.
+func TestLearnable_LeavesWordsToKeywordMasking(t *testing.T) {
+	got := netcfg.Learnable([]string{"encryption", "host-mode", "port-control", "VTY-AUTH", "Shared-Key-001", "MixedCaseSecret", "sym!bol_key", "short"})
+	want := []string{"Shared-Key-001", "MixedCaseSecret", "sym!bol_key"}
+	if len(got) != len(want) {
+		t.Fatalf("Learnable = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Learnable = %q, want %q", got, want)
+		}
+	}
+}

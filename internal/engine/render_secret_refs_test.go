@@ -61,10 +61,14 @@ func TestRenderKeepingRefs_PassesReferencesAndRefusesMadeOnes(t *testing.T) {
 		t.Fatalf("a nested reference: %v, %v", nested, err)
 	}
 
+	ctx[TemplateRootVars].(map[string]any)["prompts"] = []any{map[string]any{"match": "Password:", "answer": "{{ secret.ca.passphrase }}"}}
 	for name, v := range map[string]any{
 		"in text":        "answer {{ vars.evil }}",
 		"in a list item": []any{"{{ vars.evil }}"},
 		"in a map":       []any{map[string]any{"answer": "{{ vars.evil }}"}},
+		// A one-expression template keeps its value's type: a variable
+		// holding the whole prompts list (the review's F2).
+		"a whole list from a variable": "{{ vars.prompts }}",
 	} {
 		if _, err := renderKeepingRefs(eng, v, ctx, false); err == nil || !strings.Contains(err.Error(), "only the runbook's author") {
 			t.Errorf("%s: a reference made by rendering was not refused: %v", name, err)

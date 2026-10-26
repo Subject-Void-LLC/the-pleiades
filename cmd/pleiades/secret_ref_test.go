@@ -32,9 +32,11 @@ const (
 func secretRouter(t *testing.T) *remoteexectest.Server {
 	t.Helper()
 	srv, err := remoteexectest.Start(remoteexectest.Options{Device: &remoteexectest.Device{
-		Prompt:  "r1#",
-		Config:  &remoteexectest.ConfigMode{Enter: "configure terminal", Exit: "end", Prompt: "r1(config)#"},
-		Replies: map[string]string{"show running-config": "hostname r1\r\nend"},
+		Prompt: "r1#",
+		Config: &remoteexectest.ConfigMode{Enter: "configure terminal", Exit: "end", Prompt: "r1(config)#"},
+		// show gate raw prints the key with no word before it, so only
+		// masking by value can hide it (the review's F7).
+		Replies: map[string]string{"show running-config": "hostname r1\r\nend", "show gate raw": "  " + gatePSK},
 		Asks:    map[string][]remoteexectest.Question{gateStart: {{Text: "Password: ", Want: gatePassphrase, Declined: "% Bad passphrase"}}},
 	}})
 	if err != nil {
@@ -175,6 +177,18 @@ func TestCLI_SecretReferencesReachTheDeviceOnly(t *testing.T) {
 			if strings.Contains(text, value) {
 				t.Errorf("the run's text output holds a secret's value")
 			}
+		}
+
+		// A run that resolves no reference, and reads a show printing the key
+		// bare: only the project's named secrets, masked from the run's start,
+		// can hide it.
+		show := writeSecretRunbook(t, dir, "show-raw", "# What this does: reads a show that prints the key bare.\n# Blast radius: r1, read only. Changes: nothing. Undo: none.\nid: show-raw\nhosts: r1\ntasks:\n  - name: raw\n    net.ios.command:\n      command: show gate raw\n")
+		showRep, showRaw, showCode := runPleiadesJSONWithHome(t, dir, home, "run", show)
+		if showCode != 0 || showRep.Outcome.Status != "complete" {
+			t.Fatalf("the show run: exit %d, %+v\n%s", showCode, showRep.Outcome, showRaw)
+		}
+		if strings.Contains(showRaw, gatePSK) {
+			t.Error("a run that resolved no reference reported the key a show printed bare")
 		}
 	})
 

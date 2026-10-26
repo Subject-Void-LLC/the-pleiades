@@ -116,6 +116,11 @@ func readPrompts(rc sdk.RunbookContext, raw any) ([]netcli.Prompt, error) {
 		if err := onlyKeys(m, keyMatch, keyAnswer, keyRefuse); err != nil {
 			return nil, fmt.Errorf("%s[%d]: %w", ParamPrompts, i, err)
 		}
+		// Only an answer is resolved: a reference in match would be compiled
+		// as a pattern, never filled in.
+		if text, _ := m[keyMatch].(string); secretref.Has(text) {
+			return nil, fmt.Errorf("%s[%d]: a secret reference belongs in %s, never in %s", ParamPrompts, i, keyAnswer, keyMatch)
+		}
 		re, err := pattern(m, keyMatch, true)
 		if err != nil {
 			return nil, fmt.Errorf("%s[%d]: %w", ParamPrompts, i, err)
