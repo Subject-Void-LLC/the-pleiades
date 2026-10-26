@@ -561,11 +561,25 @@ What it asserts:
 | Assertion | Holds when |
 | --- | --- |
 | `ospf_established: true`, `bgp_established: true` | every session of that protocol the model finds is established, and there is at least one |
-| `route: {node, prefix, next_hops, protocol}` | the node has a route to the prefix, through those next hops, by that protocol |
-| `no_route: {node, prefix}` | the node has no route to the prefix |
-| `reach: {from, dst, delivered, through, avoids, accepted_by}` | a flow from a node, or `node[interface]`, to an address is delivered (or not), every path goes through or around the nodes named, and `accepted_by` names the node that answers, such as an HSRP or VRRP group's elected owner of a virtual address |
-| `routes_match: {node, routes, ignore}` | the model's routes for the node equal the routes `net.frr.facts` read from it live, compared by prefix, protocol and next hop for connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes; `ignore` lists prefixes no configuration holds, such as a management network |
+| `route: {node, prefix, next_hops, protocol, vrf}` | the node has a route to the prefix, through those next hops, by that protocol, in that VRF |
+| `no_route: {node, prefix, vrf}` | the node has no route to the prefix in that VRF |
+| `reach: {from, dst, delivered, through, avoids, accepted_by}` | a flow from `from` to an address is delivered (or not), every path goes through or around the nodes named, and `accepted_by` names the node that answers, such as an HSRP or VRRP group's elected owner of a virtual address |
+| `routes_match: {node, routes, ignore, vrf}` | the model's routes for the node equal the routes `net.frr.facts` read from it live, compared by prefix, protocol and next hop for connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes; `ignore` lists prefixes no configuration holds, such as a management network |
 | `question: {name, variables, where, min_rows, max_rows}` | any Batfish question (filters, peers, first-hop redundancy properties) returns between `min_rows` and `max_rows` rows whose cells equal `where` |
+
+Without `vrf`, `route`, `no_route` and `routes_match` count every VRF the model has: a router whose WAN
+interface is in a front-door VRF with a default route there has a route to `0.0.0.0/0`, so `no_route` for
+it fails unless it names `vrf: default`.
+
+`reach.from` is one of three things:
+
+- a node, meaning every interface of it;
+- `node[interface]`, the node sending from that interface's address, in that interface's VRF;
+- `@enter(node[interface])`, a packet arriving on that interface from the wire.
+
+The interface may be quoted as Batfish writes it, `node["Ethernet0/1"]`. Batfish cannot trace a packet
+entering an interface in a VRF other than the default (measured on the pinned release: the question ends
+abnormally), so such a task fails saying so and names the `node[interface]` form to ask instead.
 
 A scenario is a fork of the snapshot with interfaces or nodes down (`down_interfaces: ["r1[eth2]"]`,
 `down_nodes: [r3]`), checked against its own assertions. That is how a link failure is checked
@@ -602,8 +616,8 @@ for a line or by `feature` for a feature, with a reason.
 | | FRR | Cisco IOS |
 | --- | --- | --- |
 | Modelled | connected and static routes, OSPF (including passive interfaces), BGP | the same, HSRP with interface tracking (failover included), VRRP |
-| Reported unrecognised | `ip ospf authentication-key` (so a key mismatch is not modelled), `no bgp ebgp-requires-policy`, VRRP | |
-| Parsed, then ignored | | GLBP (no forwarder is elected), IP SLA, SLA tracking (an SLA-tracked route never fails over), BFD |
+| Reported unrecognised | `ip ospf authentication-key` (so a key mismatch is not modelled), `no bgp ebgp-requires-policy`, VRRP | DMVPN's `tunnel mode gre multipoint`, `tunnel vrf`, `if-state nhrp`, IKEv2's `match fvrf` and `prf`, and an mGRE tunnel's missing destination (a convert warning) |
+| Parsed, then ignored | | GLBP (no forwarder is elected), IP SLA, SLA tracking (an SLA-tracked route never fails over), BFD, NHRP (nothing is resolved over a DMVPN cloud, and BGP over it never establishes in the model) |
 
 The configuration formats taken are `frr` and `cisco_ios`. Batfish reads Arista EOS and Junos as
 they are too. They will be accepted once their device types exist and each format is proven against

@@ -457,6 +457,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	entry.ActionChanged = n.journalChanged
 	// Non-nil, not non-empty: rollback: [] is an authored undo of nothing.
 	entry.AuthoredRollback = task.Rollback != nil
+	entry.AuthoredRollbackEmpty = task.Rollback != nil && len(task.Rollback) == 0
 	switch {
 	case n.Undo != nil:
 		// A step of a block's rollback_on_failure: a rollback of this very

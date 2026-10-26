@@ -66,8 +66,11 @@ type runOptions struct {
 	// rollbackOf, set only by `pleiades rollback`, names the run this run
 	// undoes; undoes says which node and step of it each of this run's
 	// nodes undoes (engine.WithRollback). Empty for an ordinary run.
-	rollbackOf string
-	undoes     map[string]engine.Undo
+	// provisional names the nodes whose check meets a device an earlier
+	// step changes first (engine.WithProvisionalChecks).
+	rollbackOf  string
+	undoes      map[string]engine.Undo
+	provisional map[string]string
 
 	// holdsRunLock says the caller already holds the project's run lock,
 	// exclusive, as a rollback does; carryOut then takes none itself,
@@ -522,6 +525,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// Marks each entry of a rollback with what it undoes; a no-op for an
 		// ordinary run, whose rollbackOf is empty.
 		engine.WithRollback(opts.rollbackOf, opts.undoes),
+		engine.WithProvisionalChecks(opts.provisional),
 		// This command's user may run every loaded program for real, so a
 		// check may run their checks too (the simulate-lock rule still
 		// keeps them off a device being onboarded).

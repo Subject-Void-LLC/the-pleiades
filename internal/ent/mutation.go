@@ -14300,6 +14300,7 @@ type JournalEntryMutation struct {
 	inverse_partial                   *bool
 	action_changed                    *bool
 	authored_rollback                 *bool
+	authored_rollback_empty           *bool
 	rollback_of                       *string
 	undoes_node                       *string
 	undoes_step                       *int
@@ -16165,6 +16166,42 @@ func (m *JournalEntryMutation) ResetAuthoredRollback() {
 	m.authored_rollback = nil
 }
 
+// SetAuthoredRollbackEmpty sets the "authored_rollback_empty" field.
+func (m *JournalEntryMutation) SetAuthoredRollbackEmpty(b bool) {
+	m.authored_rollback_empty = &b
+}
+
+// AuthoredRollbackEmpty returns the value of the "authored_rollback_empty" field in the mutation.
+func (m *JournalEntryMutation) AuthoredRollbackEmpty() (r bool, exists bool) {
+	v := m.authored_rollback_empty
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthoredRollbackEmpty returns the old "authored_rollback_empty" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldAuthoredRollbackEmpty(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthoredRollbackEmpty is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthoredRollbackEmpty requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthoredRollbackEmpty: %w", err)
+	}
+	return oldValue.AuthoredRollbackEmpty, nil
+}
+
+// ResetAuthoredRollbackEmpty resets all changes to the "authored_rollback_empty" field.
+func (m *JournalEntryMutation) ResetAuthoredRollbackEmpty() {
+	m.authored_rollback_empty = nil
+}
+
 // SetRollbackOf sets the "rollback_of" field.
 func (m *JournalEntryMutation) SetRollbackOf(s string) {
 	m.rollback_of = &s
@@ -16353,7 +16390,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 40)
+	fields := make([]string, 0, 41)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -16465,6 +16502,9 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.authored_rollback != nil {
 		fields = append(fields, journalentry.FieldAuthoredRollback)
 	}
+	if m.authored_rollback_empty != nil {
+		fields = append(fields, journalentry.FieldAuthoredRollbackEmpty)
+	}
 	if m.rollback_of != nil {
 		fields = append(fields, journalentry.FieldRollbackOf)
 	}
@@ -16556,6 +16596,8 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.ActionChanged()
 	case journalentry.FieldAuthoredRollback:
 		return m.AuthoredRollback()
+	case journalentry.FieldAuthoredRollbackEmpty:
+		return m.AuthoredRollbackEmpty()
 	case journalentry.FieldRollbackOf:
 		return m.RollbackOf()
 	case journalentry.FieldUndoesNode:
@@ -16645,6 +16687,8 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldActionChanged(ctx)
 	case journalentry.FieldAuthoredRollback:
 		return m.OldAuthoredRollback(ctx)
+	case journalentry.FieldAuthoredRollbackEmpty:
+		return m.OldAuthoredRollbackEmpty(ctx)
 	case journalentry.FieldRollbackOf:
 		return m.OldRollbackOf(ctx)
 	case journalentry.FieldUndoesNode:
@@ -16918,6 +16962,13 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAuthoredRollback(v)
+		return nil
+	case journalentry.FieldAuthoredRollbackEmpty:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthoredRollbackEmpty(v)
 		return nil
 	case journalentry.FieldRollbackOf:
 		v, ok := value.(string)
@@ -17315,6 +17366,9 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldAuthoredRollback:
 		m.ResetAuthoredRollback()
+		return nil
+	case journalentry.FieldAuthoredRollbackEmpty:
+		m.ResetAuthoredRollbackEmpty()
 		return nil
 	case journalentry.FieldRollbackOf:
 		m.ResetRollbackOf()

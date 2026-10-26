@@ -48,6 +48,11 @@ func TestReadParams_Refusals(t *testing.T) {
 		"a where holding a map":         {"devices": dev(nil), "assertions": []any{map[string]any{"question": map[string]any{"name": "routes", "where": map[string]any{"Node": map[string]any{}}}}}},
 		"max_rows under min_rows":       {"devices": dev(nil), "assertions": []any{map[string]any{"question": map[string]any{"name": "routes", "min_rows": 2, "max_rows": 1}}}},
 		"accepted_by on a drop":         {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": "r1", "dst": "10.0.0.1", "delivered": false, "accepted_by": "r1"}}}},
+		"an @enter never closed":        {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": "@enter(r1[eth1]", "dst": "10.0.0.1"}}}},
+		"@enter of a whole node":        {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": "@enter(r1)", "dst": "10.0.0.1"}}}},
+		"an interface of no device":     {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": `r9["eth1"]`, "dst": "10.0.0.1"}}}},
+		"a vrf that is no name":         {"devices": dev(nil), "assertions": []any{map[string]any{"route": map[string]any{"node": "r1", "prefix": "10.0.0.0/8", "vrf": "a b"}}}},
+		"a vrf on reach":                {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": "r1", "dst": "10.0.0.1", "vrf": "INET"}}}},
 	} {
 		if _, err := readParams(nil, p); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -62,7 +67,17 @@ func TestReadParams_Refusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req.devices[0].format != formatFRR || req.scenarios[0].interfaces[0].Hostname != "r1" || req.scenarios[0].assertions[0].from != "@enter(r1[eth3])" || !req.scenarios[0].assertions[0].delivered {
+	for from, want := range map[string]string{
+		"R1":                        "r1",
+		`r1["eth3"]`:                `r1["eth3"]`,
+		"@enter(r1[eth3])":          `@enter(r1["eth3"])`,
+		`@enter(R1["Ethernet0/1"])`: `@enter(r1["Ethernet0/1"])`,
+	} {
+		if got, err := reachFrom(from, map[string]bool{"r1": true}); err != nil || got != want {
+			t.Errorf("reachFrom(%q) = %q, %v, want %q", from, got, err, want)
+		}
+	}
+	if req.devices[0].format != formatFRR || req.scenarios[0].interfaces[0].Hostname != "r1" || req.scenarios[0].assertions[0].from != `r1["eth3"]` || !req.scenarios[0].assertions[0].delivered {
 		t.Errorf("read %+v", req)
 	}
 }

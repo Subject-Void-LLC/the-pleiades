@@ -459,6 +459,20 @@ func (_c *JournalEntryCreate) SetNillableAuthoredRollback(v *bool) *JournalEntry
 	return _c
 }
 
+// SetAuthoredRollbackEmpty sets the "authored_rollback_empty" field.
+func (_c *JournalEntryCreate) SetAuthoredRollbackEmpty(v bool) *JournalEntryCreate {
+	_c.mutation.SetAuthoredRollbackEmpty(v)
+	return _c
+}
+
+// SetNillableAuthoredRollbackEmpty sets the "authored_rollback_empty" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableAuthoredRollbackEmpty(v *bool) *JournalEntryCreate {
+	if v != nil {
+		_c.SetAuthoredRollbackEmpty(*v)
+	}
+	return _c
+}
+
 // SetRollbackOf sets the "rollback_of" field.
 func (_c *JournalEntryCreate) SetRollbackOf(v string) *JournalEntryCreate {
 	_c.mutation.SetRollbackOf(v)
@@ -592,6 +606,10 @@ func (_c *JournalEntryCreate) defaults() {
 		v := journalentry.DefaultAuthoredRollback
 		_c.mutation.SetAuthoredRollback(v)
 	}
+	if _, ok := _c.mutation.AuthoredRollbackEmpty(); !ok {
+		v := journalentry.DefaultAuthoredRollbackEmpty
+		_c.mutation.SetAuthoredRollbackEmpty(v)
+	}
 	if _, ok := _c.mutation.UndoesStep(); !ok {
 		v := journalentry.DefaultUndoesStep
 		_c.mutation.SetUndoesStep(v)
@@ -714,6 +732,9 @@ func (_c *JournalEntryCreate) check() error {
 	}
 	if _, ok := _c.mutation.AuthoredRollback(); !ok {
 		return &ValidationError{Name: "authored_rollback", err: errors.New(`ent: missing required field "JournalEntry.authored_rollback"`)}
+	}
+	if _, ok := _c.mutation.AuthoredRollbackEmpty(); !ok {
+		return &ValidationError{Name: "authored_rollback_empty", err: errors.New(`ent: missing required field "JournalEntry.authored_rollback_empty"`)}
 	}
 	if _, ok := _c.mutation.UndoesStep(); !ok {
 		return &ValidationError{Name: "undoes_step", err: errors.New(`ent: missing required field "JournalEntry.undoes_step"`)}
@@ -896,6 +917,10 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.AuthoredRollback(); ok {
 		_spec.SetField(journalentry.FieldAuthoredRollback, field.TypeBool, value)
 		_node.AuthoredRollback = value
+	}
+	if value, ok := _c.mutation.AuthoredRollbackEmpty(); ok {
+		_spec.SetField(journalentry.FieldAuthoredRollbackEmpty, field.TypeBool, value)
+		_node.AuthoredRollbackEmpty = value
 	}
 	if value, ok := _c.mutation.RollbackOf(); ok {
 		_spec.SetField(journalentry.FieldRollbackOf, field.TypeString, value)

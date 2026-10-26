@@ -195,7 +195,10 @@ func journalShow(dir, runID string, asJSON bool) error {
 		if e.InverseFQCN != "" {
 			fmt.Printf("        undo: %s%s\n", termsafe.EscapeLine(e.InverseFQCN), undoNote(e))
 		}
-		if e.AuthoredRollback {
+		switch {
+		case e.AuthoredRollbackEmpty:
+			fmt.Println("        undo: nothing (the task's rollback: list is empty)")
+		case e.AuthoredRollback:
 			fmt.Println("        undo: the task's own rollback: list")
 		}
 	}

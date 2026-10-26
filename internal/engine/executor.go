@@ -419,6 +419,10 @@ type Executor struct {
 	// journals as part of a rollback (WithRollback).
 	rollback rollbackLink
 
+	// provisional names the nodes whose check is provisional, with why
+	// (WithProvisionalChecks).
+	provisional map[string]string
+
 	// mode is collection.ModeExecute unless WithMode set it. See check.go
 	// for what check mode does and refuses to do.
 	mode collection.Mode
@@ -1153,6 +1157,18 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 			result.SkipReason = unchecked.Error()
 			r.publish(cmd.NodeID, cmd.Task, host, "skipped", "could not check: "+unchecked.Reason)
 			return finish(result)
+		}
+		// A provisional check that failed says nothing about the step: what
+		// it was checked against is not what the step will meet.
+		if reason, ok := r.x.provisional[cmd.NodeID]; ok && err != nil && ctx.Err() == nil {
+			if _, held := HoldOf(err); !held {
+				r.markUnchecked(cmd.Task, result.Device, false)
+				result.Skipped = true
+				result.Unchecked = true
+				result.SkipReason = "provisional: " + reason + "; checked against the device as it is now, it failed: " + err.Error()
+				r.publish(cmd.NodeID, cmd.Task, host, "skipped", "could not check: provisional: "+reason)
+				return finish(result)
+			}
 		}
 	default:
 		// Never treated as execute: see WithMode.

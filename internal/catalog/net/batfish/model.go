@@ -206,13 +206,21 @@ func (m *model) holdSessions(ctx context.Context, snapshot, protocol, question, 
 // holdRoute: node has (or, for no_route, has not) a route to prefix,
 // through the next hops and protocol named.
 func (m *model) holdRoute(ctx context.Context, snapshot string, a assertion) (bool, string, error) {
-	t, err := m.ask(ctx, snapshot, "routes", map[string]any{"nodes": a.node, "network": a.prefix})
+	vars := map[string]any{"nodes": a.node, "network": a.prefix}
+	if a.vrf != "" {
+		vars["vrfs"] = a.vrf
+	}
+	t, err := m.ask(ctx, snapshot, "routes", vars)
 	if err != nil {
 		return false, "", err
 	}
+	node := a.node
+	if a.vrf != "" {
+		node += " (VRF " + a.vrf + ")"
+	}
 	var hops, protocols []string
 	for _, r := range t.Rows {
-		if str(r["Network"]) != a.prefix {
+		if str(r["Network"]) != a.prefix || (a.vrf != "" && str(r["VRF"]) != a.vrf) {
 			continue
 		}
 		protocols = append(protocols, protocolFamily(str(r["Protocol"])))
@@ -222,22 +230,22 @@ func (m *model) holdRoute(ctx context.Context, snapshot string, a assertion) (bo
 	}
 	if a.kind == kindNoRoute {
 		if len(protocols) > 0 {
-			return false, fmt.Sprintf("%s routes %s (%s)", a.node, a.prefix, strings.Join(protocols, ", ")), nil
+			return false, fmt.Sprintf("%s routes %s (%s)", node, a.prefix, strings.Join(protocols, ", ")), nil
 		}
-		return true, fmt.Sprintf("%s has no route to %s", a.node, a.prefix), nil
+		return true, fmt.Sprintf("%s has no route to %s", node, a.prefix), nil
 	}
 	if len(protocols) == 0 {
-		return false, fmt.Sprintf("%s has no route to %s", a.node, a.prefix), nil
+		return false, fmt.Sprintf("%s has no route to %s", node, a.prefix), nil
 	}
 	if a.protocol != "" && !slices.Contains(protocols, a.protocol) {
-		return false, fmt.Sprintf("%s routes %s by %s, not %s", a.node, a.prefix, strings.Join(protocols, ", "), a.protocol), nil
+		return false, fmt.Sprintf("%s routes %s by %s, not %s", node, a.prefix, strings.Join(protocols, ", "), a.protocol), nil
 	}
 	for _, h := range a.nextHops {
 		if !slices.Contains(hops, h) {
-			return false, fmt.Sprintf("%s routes %s through %s, not %s", a.node, a.prefix, orNone(hops), h), nil
+			return false, fmt.Sprintf("%s routes %s through %s, not %s", node, a.prefix, orNone(hops), h), nil
 		}
 	}
-	return true, fmt.Sprintf("%s routes %s by %s through %s", a.node, a.prefix, strings.Join(protocols, ", "), orNone(hops)), nil
+	return true, fmt.Sprintf("%s routes %s by %s through %s", node, a.prefix, strings.Join(protocols, ", "), orNone(hops)), nil
 }
 
 // deliveredDispositions are the trace endings that count as delivered.
@@ -247,6 +255,13 @@ var deliveredDispositions = map[string]bool{"ACCEPTED": true, "DELIVERED_TO_SUBN
 // path goes through the nodes named and around the ones to avoid.
 func (m *model) holdReach(ctx context.Context, snapshot string, a assertion) (bool, string, error) {
 	t, err := m.ask(ctx, snapshot, "traceroute", map[string]any{"startLocation": a.from, "headers": map[string]any{"dstIps": a.dst}})
+	if err != nil && strings.HasPrefix(a.from, enterPrefix) && strings.Contains(err.Error(), "TERMINATEDABNORMALLY") {
+		// Measured on the pinned Batfish (2026-10-25): a trace of a packet
+		// entering an interface in a VRF other than default crashes it,
+		// while the same router sending from that interface traces.
+		return false, "", fmt.Errorf("%w; Batfish cannot trace a packet entering that interface (it does this for an interface in a VRF), so ask from %s, the router sending from it, instead",
+			err, strings.TrimSuffix(strings.TrimPrefix(a.from, enterPrefix), ")"))
+	}
 	if err != nil {
 		return false, "", err
 	}
@@ -297,14 +312,18 @@ var compared = map[string]bool{"connected": true, "static": true, "ospf": true, 
 // holdRoutesMatch: the model's routes for node, by prefix and next hop,
 // equal the routes net.frr.facts read from the router live.
 func (m *model) holdRoutesMatch(ctx context.Context, snapshot string, a assertion) (bool, string, error) {
-	t, err := m.ask(ctx, snapshot, "routes", map[string]any{"nodes": a.node})
+	vars := map[string]any{"nodes": a.node}
+	if a.vrf != "" {
+		vars["vrfs"] = a.vrf
+	}
+	t, err := m.ask(ctx, snapshot, "routes", vars)
 	if err != nil {
 		return false, "", err
 	}
 	model := map[string]map[string]bool{}
 	for _, r := range t.Rows {
 		protocol := protocolFamily(str(r["Protocol"]))
-		if !compared[protocol] || slices.Contains(a.ignore, str(r["Network"])) {
+		if !compared[protocol] || slices.Contains(a.ignore, str(r["Network"])) || (a.vrf != "" && str(r["VRF"]) != a.vrf) {
 			continue
 		}
 		key := str(r["Network"]) + " " + protocol

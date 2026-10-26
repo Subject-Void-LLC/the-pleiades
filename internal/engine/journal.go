@@ -344,6 +344,13 @@ type JournalEntry struct {
 	// never the journal's.
 	AuthoredRollback bool `json:"authored_rollback"`
 
+	// AuthoredRollbackEmpty reports that the task's rollback: list is
+	// present and empty, rollback: [] (kind 3): its runbook says undoing it
+	// means doing nothing. A rollback of another run reads it from the
+	// journal alone, with no runbook, to tell a later run that has nothing
+	// to undo from one that should be undone first.
+	AuthoredRollbackEmpty bool `json:"authored_rollback_empty"`
+
 	// RollbackOf names the run this run undoes (kind 1): the run id on the
 	// Crawl tier, the job id on the Walk tier. Empty for a run that is not
 	// a rollback.

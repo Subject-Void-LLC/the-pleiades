@@ -624,6 +624,25 @@ ordinary run of ordinary tasks, journaled like any other.
   every problem, each with the flag or field that accepts it: leave a change in
   place, run a partial undo anyway, accept an unknown effect, or undo beneath a
   later run. You accept exactly what you read.
+- **A later run, by kind.** A later run on the same device is refused in one of three
+  ways, each accepted with `--despite-run <run-id>` but each with its own advice. If it
+  has changes of its own to undo, roll it back first (`pleiades rollback <run-id>`). If
+  its changes there recorded no undo (a capture stopped, a command run), rolling it back
+  first would refuse too, so read it (`pleiades journal show <run-id>`) and step over it.
+  If its runbook says none of them needs undoing (`rollback: []`, which the journal
+  records), stepping over it is safe as long as that still holds. `--json` gives each
+  problem's `kind`: `undo_first`, `cannot_undo` or `nothing_to_undo`.
+- **A runbook edited since the run.** A `rollback:` list is read from the runbook the
+  run ran, found under `runbooks/` by its id and version. When it was edited (a task
+  added, a name changed) it is no longer that runbook, and the refusal's first line
+  says to name the right file with `--runbook <file>`. Each such problem's `kind` is
+  `no_runbook`.
+- **Checking a rollback.** `pleiades rollback <run-id> --mode check` checks each step
+  against the device as it is now. A step on a device that an earlier step of the same
+  rollback changes first (starting a link the step before it stops) meets a device
+  that step has not yet changed, so its check is provisional: the rollback names those
+  steps, and one whose check fails is reported unchecked with the reason rather than
+  failed, so the check ends incomplete (exit 3) instead of wrong.
 - **What it cannot know.** A task that failed partway may have changed part of what
   it meant to, and a run whose process was killed has no seal on its journal, so its
   last level may be missing. Neither is guessed at. The CLI runs everything else and

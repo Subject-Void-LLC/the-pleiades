@@ -128,6 +128,7 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		SetInversePartial(entry.InversePartial).
 		SetActionChanged(entry.ActionChanged).
 		SetAuthoredRollback(entry.AuthoredRollback).
+		SetAuthoredRollbackEmpty(entry.AuthoredRollbackEmpty).
 		SetRollbackOf(entry.RollbackOf).
 		SetUndoesNode(entry.UndoesNode).
 		SetUndoesStep(entry.UndoesStep)
@@ -302,6 +303,7 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		InversePartial:              row.InversePartial,
 		ActionChanged:               row.ActionChanged,
 		AuthoredRollback:            row.AuthoredRollback,
+		AuthoredRollbackEmpty:       row.AuthoredRollbackEmpty,
 		RollbackOf:                  row.RollbackOf,
 		UndoesNode:                  row.UndoesNode,
 		UndoesStep:                  row.UndoesStep,

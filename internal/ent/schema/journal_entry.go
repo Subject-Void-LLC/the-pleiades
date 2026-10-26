@@ -187,6 +187,7 @@ func (JournalEntry) Fields() []ent.Field {
 		field.Bool("inverse_partial").Immutable().Default(false),
 		field.Bool("action_changed").Immutable().Default(false),
 		field.Bool("authored_rollback").Immutable().Default(false),
+		field.Bool("authored_rollback_empty").Immutable().Default(false),
 		// rollback_of is the job this row's job undoes, empty for a job that
 		// is not a rollback; undoes_node and undoes_step say which node,
 		// and step, of that job's journal this row's node undoes.

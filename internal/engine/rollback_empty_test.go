@@ -84,10 +84,14 @@ tasks:
 	if result.HasErrors() || !result.Rescued() {
 		t.Errorf("HasErrors %v, Rescued %v: %+v", result.HasErrors(), result.Rescued(), result.Nodes)
 	}
-	var authored bool
+	var authored, empty bool
 	for _, e := range journal.entries {
 		if e.NodeID == "tasks[0].block[1]" && e.DeviceID != "" {
 			authored = authored || e.AuthoredRollback
+			empty = empty || e.AuthoredRollbackEmpty
+		}
+		if e.NodeID == "tasks[0].block[0]" && e.AuthoredRollbackEmpty {
+			t.Errorf("a task with no rollback: list journaled as an empty one: %+v", e)
 		}
 		if e.UndoesNode == "tasks[0].block[1]" {
 			t.Errorf("journaled an undo of the read: %+v", e)
@@ -95,5 +99,8 @@ tasks:
 	}
 	if !authored {
 		t.Error("the read's entry does not say it had an authored rollback: list, so a later rollback would look for a recorded undo")
+	}
+	if !empty {
+		t.Error("the read's entry does not say its rollback: list is empty, so a rollback of an earlier run cannot tell it needs no undo")
 	}
 }

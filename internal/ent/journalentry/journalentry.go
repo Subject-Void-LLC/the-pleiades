@@ -88,6 +88,8 @@ const (
 	FieldActionChanged = "action_changed"
 	// FieldAuthoredRollback holds the string denoting the authored_rollback field in the database.
 	FieldAuthoredRollback = "authored_rollback"
+	// FieldAuthoredRollbackEmpty holds the string denoting the authored_rollback_empty field in the database.
+	FieldAuthoredRollbackEmpty = "authored_rollback_empty"
 	// FieldRollbackOf holds the string denoting the rollback_of field in the database.
 	FieldRollbackOf = "rollback_of"
 	// FieldUndoesNode holds the string denoting the undoes_node field in the database.
@@ -138,6 +140,7 @@ var Columns = []string{
 	FieldInversePartial,
 	FieldActionChanged,
 	FieldAuthoredRollback,
+	FieldAuthoredRollbackEmpty,
 	FieldRollbackOf,
 	FieldUndoesNode,
 	FieldUndoesStep,
@@ -204,6 +207,8 @@ var (
 	DefaultActionChanged bool
 	// DefaultAuthoredRollback holds the default value on creation for the "authored_rollback" field.
 	DefaultAuthoredRollback bool
+	// DefaultAuthoredRollbackEmpty holds the default value on creation for the "authored_rollback_empty" field.
+	DefaultAuthoredRollbackEmpty bool
 	// DefaultUndoesStep holds the default value on creation for the "undoes_step" field.
 	DefaultUndoesStep int
 	// UndoesStepValidator is a validator for the "undoes_step" field. It is called by the builders before save.
@@ -407,6 +412,11 @@ func ByActionChanged(opts ...sql.OrderTermOption) OrderOption {
 // ByAuthoredRollback orders the results by the authored_rollback field.
 func ByAuthoredRollback(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAuthoredRollback, opts...).ToFunc()
+}
+
+// ByAuthoredRollbackEmpty orders the results by the authored_rollback_empty field.
+func ByAuthoredRollbackEmpty(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAuthoredRollbackEmpty, opts...).ToFunc()
 }
 
 // ByRollbackOf orders the results by the rollback_of field.

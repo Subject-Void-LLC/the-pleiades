@@ -65,17 +65,20 @@ const (
 type assertion struct {
 	kind                   string
 	node, prefix, protocol string
-	nextHops               []string
-	from, dst              string
-	delivered              bool
-	acceptedBy             string
-	through, avoids        []string
-	liveRoutes             map[string]any
-	ignore                 []string
-	question               string
-	variables              map[string]any
-	where                  map[string]any
-	minRows, maxRows       int
+	// vrf narrows route, no_route and routes_match to one VRF; empty is
+	// every VRF the model has.
+	vrf              string
+	nextHops         []string
+	from, dst        string
+	delivered        bool
+	acceptedBy       string
+	through, avoids  []string
+	liveRoutes       map[string]any
+	ignore           []string
+	question         string
+	variables        map[string]any
+	where            map[string]any
+	minRows, maxRows int
 }
 
 // readParams reads the task.

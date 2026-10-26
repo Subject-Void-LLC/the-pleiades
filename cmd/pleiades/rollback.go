@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -79,6 +80,29 @@ type rollbackReport struct {
 	NothingToUndo []rollback.Gap `json:"nothing_to_undo,omitempty"`
 	// Problems are why the rollback was refused, when it was.
 	Problems []rollback.Problem `json:"problems,omitempty"`
+	// Provisional are, in a check, the steps on a device an earlier step of
+	// the rollback changes first: their checks meet the device as it is now.
+	Provisional []provisionalStep `json:"provisional,omitempty"`
+}
+
+// provisionalStep is one step whose check is provisional, and why.
+type provisionalStep struct {
+	Name   string `json:"name"`
+	Device string `json:"device"`
+	Reason string `json:"reason"`
+}
+
+// provisionalSteps lists levels' provisional steps, in the order they run.
+func provisionalSteps(levels [][]rollback.Step, nodes map[string]string) []provisionalStep {
+	var out []provisionalStep
+	for i, level := range levels {
+		for j, s := range level {
+			if why, ok := nodes[rollback.NodeID(levels, i, j)]; ok {
+				out = append(out, provisionalStep{Name: s.Name, Device: s.DeviceName, Reason: why})
+			}
+		}
+	}
+	return out
 }
 
 // rollbackFlags are the flags only rollback takes.
@@ -152,6 +176,16 @@ func runRollback(args []string) error {
 		return refuseRollback(opts, label, report, err)
 	}
 	opts.rollbackOf, opts.undoes, opts.rollback = runID, undoes, report
+	if opts.mode == collection.ModeCheck {
+		opts.provisional = rollback.Provisional(plan.Levels)
+		report.Provisional = provisionalSteps(plan.Levels, opts.provisional)
+		if !opts.asJSON && len(report.Provisional) > 0 {
+			fmt.Printf("%d step(s) meet a device an earlier step of this rollback changes first, so their checks are provisional: checked against the device as it is now, and a failed one is reported unchecked, not failed\n", len(report.Provisional))
+			for _, p := range report.Provisional {
+				fmt.Printf("  provisional: %s\n", termsafe.EscapeLine(p.Name+" on "+p.Device))
+			}
+		}
+	}
 	return runPipeline(opts, runSource{label: label, yaml: payload})
 }
 
@@ -329,6 +363,11 @@ func refuseRollback(opts runOptions, label string, report *rollbackReport, why e
 // printRefusal prints every problem, with the flag that accepts it.
 func printRefusal(runID string, problems []rollback.Problem) {
 	fmt.Printf("rollback of run %s refused, before any device was contacted:\n", runID)
+	if slices.ContainsFunc(problems, func(p rollback.Problem) bool { return p.Kind == rollback.KindNoRunbook }) {
+		// First, since it answers every such problem at once: a runbook
+		// edited since the run is no longer found "as it ran".
+		fmt.Println("  the runbook this run ran was not found as it ran (edited since?); name it with --runbook <file> to use its rollback: lists")
+	}
 	for _, p := range problems {
 		fmt.Printf("  %s\n", problemText(p))
 		if p.Accept != "" {

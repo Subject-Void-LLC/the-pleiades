@@ -294,6 +294,11 @@ func TestRollbackCommand_FindsTheRunbookThatRan(t *testing.T) {
 	if rerr == nil || !strings.Contains(out, "--runbook") {
 		t.Errorf("a rollback whose list cannot be found: %v\n%s", rerr, out)
 	}
+	// Said first, before any problem's own --leave, since naming the runbook
+	// answers every such problem at once.
+	if lines := strings.Split(out, "\n"); len(lines) < 2 || !strings.Contains(lines[1], "name it with --runbook <file>") {
+		t.Errorf("the refusal does not open with --runbook:\n%s", out)
+	}
 }
 
 // TestRollbackOutcome_AnUnknownMakesACompleteRollbackIncomplete covers the

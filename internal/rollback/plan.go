@@ -187,6 +187,10 @@ type Problem struct {
 	DeviceID   string `json:"device_id,omitempty"`
 	DeviceName string `json:"device,omitempty"`
 	Reason     string `json:"reason"`
+	// Kind says which sort of refusal this is when there are several to
+	// tell apart: one of the Kind constants for a later run, empty for
+	// every other refusal.
+	Kind string `json:"kind,omitempty"`
 	// Accept names the flag, and its argument, that accepts this problem,
 	// empty when nothing can.
 	Accept string `json:"accept,omitempty"`
@@ -266,8 +270,12 @@ func Build(req Request) (Plan, error) {
 			if errors.As(err, &se) && se.accept != "" {
 				accept = se.accept
 			}
+			kind := ""
+			if errors.As(err, &se) && se.noRunbook {
+				kind = KindNoRunbook
+			}
 			problems = append(problems, Problem{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name,
-				Reason: err.Error(), Accept: accept})
+				Reason: err.Error(), Kind: kind, Accept: accept})
 			continue
 		}
 		var remaining []Step

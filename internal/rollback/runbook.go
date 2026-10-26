@@ -37,13 +37,13 @@ func Runbook(id string, levels [][]Step, targets bool) ([]byte, map[string]engin
 	for i, level := range levels {
 		if len(level) == 1 {
 			tasks = append(tasks, stepTask(level[0]))
-			undoes[fmt.Sprintf("tasks[%d]", i)] = engine.Undo{Node: level[0].Node, Step: level[0].Index}
+			undoes[NodeID(levels, i, 0)] = engine.Undo{Node: level[0].Node, Step: level[0].Index}
 			continue
 		}
 		children := make([]map[string]any, 0, len(level))
 		for j, s := range level {
 			children = append(children, stepTask(s))
-			undoes[fmt.Sprintf("tasks[%d].parallel[%d]", i, j)] = engine.Undo{Node: s.Node, Step: s.Index}
+			undoes[NodeID(levels, i, j)] = engine.Undo{Node: s.Node, Step: s.Index}
 		}
 		tasks = append(tasks, map[string]any{"name": fmt.Sprintf("undo %s on %d devices", level[0].Node, len(level)), "parallel": children})
 	}
@@ -52,4 +52,34 @@ func Runbook(id string, levels [][]Step, targets bool) ([]byte, map[string]engin
 		return nil, nil, fmt.Errorf("writing the rollback runbook: %w", err)
 	}
 	return payload, undoes, nil
+}
+
+// NodeID is the node id Runbook gives level i's step j.
+func NodeID(levels [][]Step, i, j int) string {
+	if len(levels[i]) == 1 {
+		return fmt.Sprintf("tasks[%d]", i)
+	}
+	return fmt.Sprintf("tasks[%d].parallel[%d]", i, j)
+}
+
+// Provisional returns, by the node id Runbook gives it, each step on a
+// device an earlier level of the same plan changes first, with why, for
+// engine.WithProvisionalChecks: a check of it meets the device before that
+// step has run.
+func Provisional(levels [][]Step) map[string]string {
+	out := map[string]string{}
+	earlier := map[string]Step{}
+	for i, level := range levels {
+		for j, s := range level {
+			if first, ok := earlier[s.DeviceID]; ok {
+				out[NodeID(levels, i, j)] = fmt.Sprintf("an earlier step of this rollback (%s) changes %s first", first.Name, s.DeviceName)
+			}
+		}
+		for _, s := range level {
+			if _, ok := earlier[s.DeviceID]; !ok {
+				earlier[s.DeviceID] = s
+			}
+		}
+	}
+	return out
 }

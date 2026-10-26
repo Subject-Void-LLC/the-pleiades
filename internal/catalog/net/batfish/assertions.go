@@ -11,6 +11,42 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
+// vrfName is what a VRF's name may be: a name IOS and FRR both take.
+var vrfName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
+
+// enterPrefix begins Batfish's form for a packet arriving on an interface.
+const enterPrefix = "@enter("
+
+// reachFrom reads reach.from as Batfish's start location: a device given
+// (its every interface), node[interface] (the device sending from that
+// interface, its address, in its VRF), or @enter(node[interface]) (a packet
+// arriving on that interface from the wire). The interface may be quoted,
+// node["Ethernet0/1"], as Batfish writes it.
+func reachFrom(from string, nodes map[string]bool) (string, error) {
+	inner, enter := strings.CutPrefix(from, enterPrefix)
+	if enter {
+		var closed bool
+		if inner, closed = strings.CutSuffix(inner, ")"); !closed {
+			return "", fmt.Errorf("reach.from %q opens @enter( and never closes it", from)
+		}
+	}
+	unquoted := quotedInterface.ReplaceAllString(inner, "[$1]")
+	if mm := interfaceRef.FindStringSubmatch(unquoted); mm != nil && nodes[strings.ToLower(mm[1])] {
+		loc := strings.ToLower(mm[1]) + `["` + mm[2] + `"]`
+		if enter {
+			return enterPrefix + loc + ")", nil
+		}
+		return loc, nil
+	}
+	if !enter && nodes[strings.ToLower(from)] {
+		return strings.ToLower(from), nil
+	}
+	return "", fmt.Errorf("reach.from must be a device given, node[interface] (the device sending from it) or @enter(node[interface]) (a packet arriving on it), got %q", from)
+}
+
+// quotedInterface is an interface written in quotes, as Batfish writes one.
+var quotedInterface = regexp.MustCompile(`\["([^"\]]+)"\]$`)
+
 // questionName is what a Batfish question's name may be.
 var questionName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{1,63}$`)
 
@@ -50,10 +86,10 @@ func readAssertion(kind string, v any, nodes map[string]bool) (assertion, error)
 		return a, fmt.Errorf("%s takes a map", kind)
 	}
 	allowed := map[string][]string{
-		kindRoute:       {"node", "prefix", "next_hops", "protocol"},
-		kindNoRoute:     {"node", "prefix"},
+		kindRoute:       {"node", "prefix", "next_hops", "protocol", "vrf"},
+		kindNoRoute:     {"node", "prefix", "vrf"},
 		kindReach:       {"from", "dst", "delivered", "through", "avoids", "accepted_by"},
-		kindRoutesMatch: {"node", "routes", "ignore"},
+		kindRoutesMatch: {"node", "routes", "ignore", "vrf"},
 		kindQuestion:    {"name", "variables", "where", "min_rows", "max_rows"},
 	}[kind]
 	if allowed == nil {
@@ -70,6 +106,13 @@ func readAssertion(kind string, v any, nodes map[string]bool) (assertion, error)
 			return "", fmt.Errorf("%s.%s must name a device given, got %q", kind, key, n)
 		}
 		return strings.ToLower(n), nil
+	}
+	if v, present := m["vrf"]; present {
+		name, _ := v.(string)
+		if !vrfName.MatchString(name) {
+			return a, fmt.Errorf("%s.vrf must be a VRF's name, such as default or WAN-TRANSPORT, got %v", kind, v)
+		}
+		a.vrf = name
 	}
 	var err error
 	switch kind {
@@ -97,12 +140,8 @@ func readAssertion(kind string, v any, nodes map[string]bool) (assertion, error)
 		}
 	case kindReach:
 		from, _ := m["from"].(string)
-		if mm := interfaceRef.FindStringSubmatch(from); mm != nil && nodes[strings.ToLower(mm[1])] {
-			a.from = "@enter(" + strings.ToLower(mm[1]) + "[" + mm[2] + "])"
-		} else if nodes[strings.ToLower(from)] {
-			a.from = strings.ToLower(from)
-		} else {
-			return a, fmt.Errorf("reach.from must be a device given or node[interface], got %q", from)
+		if a.from, err = reachFrom(from, nodes); err != nil {
+			return a, err
 		}
 		dst, _ := m["dst"].(string)
 		addr, err := netip.ParseAddr(dst)
