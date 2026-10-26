@@ -6318,3 +6318,63 @@ password question names `add-secret`. An unresolved secret reference names the `
 field filled in (`pkg/secretref/secretref.go`). The skill the binary generates teaches the same feature. This follows from 331 (which asked for the
 feature) and from 304 (which asked that the skill teach only what an agent's allow list can run); neither said where
 the teaching must happen.
+
+## 333. Measure a fallback on the case it is for before adopting it; a fallback that asks a different question can return a confident false answer
+
+**Rule.** Before a fallback goes in, run it on the exact case that makes the first method fail, and compare its answer
+with the truth. A fallback that answers a different question is refused, not adopted, because its "nothing found" can
+mean "could not look".
+
+**Why.** 2026-10-25, Phase 129c (FAILURE_PATTERNS 645, 665). Batfish's traceroute from `@enter(node[iface])` in a
+non-default VRF ends TERMINATEDABNORMALLY on the pinned release. Its `reachability` question looked like the obvious
+fallback. Measured first, it returned 0 rows from the same start location, which a check reads as "no flow delivered",
+for a path the traceroute from the node did deliver. The task now fails naming the form that works. LESSONS 214 says a
+fix is not reviewed until its fallbacks are; 310 says to measure what a model models. Neither said to measure the
+fallback before writing it.
+
+## 334. Hold every other input still before blaming a server: one change at a time, on the same link with the same traffic
+
+**Rule.** When a remote system seems to misbehave, repeat the experiment with only the suspected input changed: the
+same target, the same traffic, the same state. If two things changed between the run that worked and the one that did
+not, the experiment says nothing about either.
+
+**Why.** 2026-10-25, Phase 129b's GNS3 captures (FAILURE_PATTERNS 664). A capture stream returned 0 bytes, and gzip in
+the request was blamed. The first capture had run while the nodes started and carried their traffic; the later ones
+ran on a quiet link. With pings on the link, the stream and the file both returned the whole capture on both GNS3
+versions, and gzip had no effect. The cause was the capture writer buffering a quiet link. The owner's standing rule is
+to prove a cause before naming it, above all before blaming an upstream project.
+
+## 335. A method that claims several carriers is proven live through each one; text a device prints unasked can appear on one carrier only
+
+**Rule.** A method that reaches a device over SSH, Telnet and a console is run live through each carrier it claims
+before it is called done. A scripted device in a unit test shows only what its author knew to script.
+
+**Why.** 2026-10-26, Phase 129d (FAILURE_PATTERNS 654). `wait.routes` for IOS passed its unit tests and passed live over
+SSH on P1. Through the CML console on P2, IOS printed its own login log line and a prompt after it, and the session
+read them as the next command's answer, one response behind from then on. Earlier console-reached methods could have
+shown a log line as output. Only running the live gate through the console found it, and the unit test that holds it
+now was written from that measurement.
+
+## 336. A repeat of 301 and 322: a method's documentation is checked by tests in internal/archtest and tools/gendocs, and both run in the commit that adds or changes a method
+
+**Rule.** Adding a method, or changing its `Doc`, runs `go test ./internal/archtest/ ./tools/gendocs/` before the
+commit. An example names only methods the registry has, and is never written from memory of Ansible or another tool.
+
+**Why.** 2026-10-25 and 2026-10-26, Phases 129b to 129d (FAILURE_PATTERNS 660, 661). `net.pcap.summary`'s example used
+`pleiades.builtin.assert`, which does not exist; the live CML gate, which copied it, found that. Phase 129b's commit
+also left two methods with no examples and the README and start-here counts stale, and the tests that say so failed
+from that commit until a later refactor of `tools/gendocs` ran them. LESSONS 301 says a documented example is held to
+validation in a test pr-check always runs, and 322 says an example is measured, never recalled. They did not hold
+because the branch put off `make pr-check` to its end, and nothing before then ran those two packages.
+
+## 337. A repeat of 190: what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip
+
+**Rule.** Decide what a reader may see by what each value is: the keys its type declares, and a value not shaped like
+a secret. Never by removing the names known to be secret, which passes every secret stored under another name.
+
+**Why.** 2026-10-26, Phase 129d (FAILURE_PATTERNS 655). The first device root gave templates every scalar property
+except secret-looking names, while its own comment claimed the opposite. The review caught it before any push; the
+root now holds only the keys a device type declares its accessors read (`record.DispatchProperties`), never a
+secret-named key or a secret-shaped text. LESSONS 190 and FAILURE_PATTERNS 577 already said a denylist fails open; they
+did not hold because they were written about content checks and masking, and choosing a template's data was not seen
+as the same decision.
