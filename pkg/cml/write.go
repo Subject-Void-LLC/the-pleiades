@@ -52,6 +52,9 @@ type Link struct {
 	InterfaceB string `json:"interface_b"`
 	NodeA      string `json:"node_a"`
 	NodeB      string `json:"node_b"`
+	// State is the link's own state: StateStarted carries traffic,
+	// StateStopped is cut as if unplugged, StateDefined has never run.
+	State string `json:"state"`
 }
 
 // NodeSpec is what a node is made from.
@@ -218,7 +221,21 @@ func (c *Client) CreateLink(ctx context.Context, lab, a, b string) (string, erro
 
 // DeleteLink removes link id of lab.
 func (c *Client) DeleteLink(ctx context.Context, lab, id string) error {
-	return c.send(ctx, http.MethodDelete, labPath(lab)+"/links/"+url.PathEscape(id), nil, nil)
+	return c.send(ctx, http.MethodDelete, linkPath(lab, id), nil, nil)
+}
+
+// linkPath is the API path of link id in lab, escaped.
+func linkPath(lab, id string) string { return labPath(lab) + "/links/" + url.PathEscape(id) }
+
+// StartLink starts link id of lab, as if plugged in again.
+func (c *Client) StartLink(ctx context.Context, lab, id string) error {
+	return c.send(ctx, http.MethodPut, linkPath(lab, id)+"/state/start", nil, nil)
+}
+
+// StopLink stops link id of lab: it carries nothing, as if unplugged, while
+// both nodes keep running with their configurations.
+func (c *Client) StopLink(ctx context.Context, lab, id string) error {
+	return c.send(ctx, http.MethodPut, linkPath(lab, id)+"/state/stop", nil, nil)
 }
 
 // NodeDefinitions lists the ids of the node definitions the controller

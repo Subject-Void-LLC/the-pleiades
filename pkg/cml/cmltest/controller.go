@@ -58,6 +58,21 @@ type Interface struct {
 // Link is one link between two interfaces.
 type Link struct {
 	ID, A, B, NodeA, NodeB string
+	// State is the link's own state; empty reads as STARTED.
+	State string
+	// Capture is the link's packet capture, nil before one starts.
+	Capture *Capture
+}
+
+// Capture is one link's packet capture as the controller keeps it.
+type Capture struct {
+	// Key fetches its file from /pcap/{key}.
+	Key string
+	// Running is whether it is still capturing.
+	Running bool
+	// MaxPackets, MaxTime and Filter are what it was started with.
+	MaxPackets, MaxTime int
+	Filter              string
 }
 
 // Controller is the controller and what it holds, for a test to read and
@@ -80,8 +95,15 @@ type Controller struct {
 	// (under /api/v0) ends in /stop, and a key "/nodes" every call whose
 	// path ends there, whatever its method.
 	Fail map[string]bool
+	// PCAP is what /pcap/{key} answers for any capture's key; nil answers a
+	// minimal empty pcap file.
+	PCAP []byte
 	next int
 }
+
+// emptyPCAP is a pcap file's global header and nothing else: little endian,
+// version 2.4, Ethernet.
+var emptyPCAP = []byte{0xd4, 0xc3, 0xb2, 0xa1, 2, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 1, 0, 0, 0}
 
 // New starts a controller accepting username and password, closed when t
 // ends.
@@ -157,6 +179,9 @@ func (c *Controller) serve(w http.ResponseWriter, r *http.Request) {
 		lab := &Lab{ID: c.id(), Title: body.Title, Nodes: map[string]*Node{}, Links: map[string]*Link{}}
 		c.Labs[lab.ID] = lab
 		reply(w, c.labJSON(lab))
+		return
+	case strings.HasPrefix(path, "/pcap/"):
+		c.servePCAP(w, strings.TrimPrefix(path, "/pcap/"))
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/labs/"), "/")
@@ -236,7 +261,7 @@ func (c *Controller) serveLab(w http.ResponseWriter, r *http.Request, lab *Lab, 
 	case route == "links" && r.Method == http.MethodGet:
 		var out []map[string]string
 		for _, l := range sortedLinks(lab) {
-			out = append(out, map[string]string{"id": l.ID, "interface_a": l.A, "interface_b": l.B, "node_a": l.NodeA, "node_b": l.NodeB})
+			out = append(out, map[string]string{"id": l.ID, "interface_a": l.A, "interface_b": l.B, "node_a": l.NodeA, "node_b": l.NodeB, "state": linkState(l)})
 		}
 		reply(w, out)
 	case route == "links" && r.Method == http.MethodPost:
@@ -258,6 +283,13 @@ func (c *Controller) serveLab(w http.ResponseWriter, r *http.Request, lab *Lab, 
 		}
 		delete(lab.Links, l.ID)
 		w.WriteHeader(http.StatusNoContent)
+	case len(rest) >= 3 && rest[0] == "links":
+		l, ok := lab.Links[rest[1]]
+		if !ok {
+			fail(w, http.StatusNotFound, "link not found: %s", rest[1])
+			return
+		}
+		c.serveLink(w, r, l, strings.Join(rest[2:], "/"))
 	case len(rest) >= 2 && rest[0] == "nodes":
 		n, ok := lab.Nodes[rest[1]]
 		if !ok {
@@ -469,4 +501,85 @@ func sortedLinks(lab *Lab) []*Link {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// linkState is a link's state as CML reports it.
+func linkState(l *Link) string {
+	if l.State == "" {
+		return "STARTED"
+	}
+	return l.State
+}
+
+// serveLink answers a link's state and capture calls; route is the path
+// after the link's id.
+func (c *Controller) serveLink(w http.ResponseWriter, r *http.Request, l *Link, route string) {
+	switch {
+	case route == "state/start" && r.Method == http.MethodPut:
+		l.State = "STARTED"
+		w.WriteHeader(http.StatusNoContent)
+	case route == "state/stop" && r.Method == http.MethodPut:
+		l.State = "STOPPED"
+		w.WriteHeader(http.StatusNoContent)
+	case route == "capture/start" && r.Method == http.MethodPut:
+		var body struct {
+			MaxPackets int    `json:"maxpackets"`
+			MaxTime    int    `json:"maxtime"`
+			BPFilter   string `json:"bpfilter"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil || (body.MaxPackets == 0 && body.MaxTime == 0) {
+			fail(w, http.StatusBadRequest, "maxpackets or maxtime is required")
+			return
+		}
+		if l.Capture != nil && l.Capture.Running {
+			fail(w, http.StatusBadRequest, "a capture is already running on link %s", l.ID)
+			return
+		}
+		l.Capture = &Capture{Key: c.id(), Running: true, MaxPackets: body.MaxPackets, MaxTime: body.MaxTime, Filter: body.BPFilter}
+		reply(w, map[string]any{})
+	case route == "capture/stop" && r.Method == http.MethodPut:
+		if l.Capture == nil {
+			fail(w, http.StatusBadRequest, "no capture on link %s", l.ID)
+			return
+		}
+		l.Capture.Running = false
+		reply(w, map[string]any{})
+	case route == "capture/status" && r.Method == http.MethodGet:
+		// As CML 2.7.2 answers it: the capture's config, packets and start
+		// while it runs, and {} otherwise (measured 2026-10-25).
+		if l.Capture == nil || !l.Capture.Running {
+			reply(w, map[string]any{})
+			return
+		}
+		reply(w, map[string]any{
+			"config":          map[string]any{"bpfilter": l.Capture.Filter, "link_capture_key": l.Capture.Key, "maxpackets": l.Capture.MaxPackets, "maxtime": l.Capture.MaxTime},
+			"packetscaptured": 0, "starttime": "2026-10-26T01:56:26Z",
+		})
+	case route == "capture/key" && r.Method == http.MethodGet:
+		if l.Capture == nil {
+			fail(w, http.StatusNotFound, "no capture on link %s", l.ID)
+			return
+		}
+		reply(w, l.Capture.Key)
+	default:
+		fail(w, http.StatusNotFound, "no such call: %s %s", r.Method, r.URL.Path)
+	}
+}
+
+// servePCAP answers a capture's file by its key.
+func (c *Controller) servePCAP(w http.ResponseWriter, key string) {
+	for _, lab := range c.Labs {
+		for _, l := range lab.Links {
+			if l.Capture != nil && l.Capture.Key == key {
+				w.Header().Set("Content-Type", "application/cap")
+				data := c.PCAP
+				if data == nil {
+					data = emptyPCAP
+				}
+				_, _ = w.Write(data)
+				return
+			}
+		}
+	}
+	fail(w, http.StatusNotFound, "no capture with key %s", key)
 }

@@ -4,8 +4,14 @@
 // `pleiades add-secret` and is named only as {{ secret.gate.psk }}. It proves
 // the routers negotiate with the key (an IKEv2 SA READY, authenticated by PSK,
 // a ping across the tunnel) and that no report, journal file or text output
-// of the runs holds it, a show of the configuration included. It skips
-// without the CML sandbox, as every CML test does.
+// of the runs holds it, a show of the configuration included.
+//
+// It is Phase 129b's gate too, on the same lab: the P1-P2 link is stopped
+// (a ping across it fails) and started again (one answers), then captured
+// while P1 pings across the tunnel, the capture written into the project
+// and counted by net.pcap.summary, which must find the tunnel's ESP and
+// nothing in the clear between the two routers. It skips without the CML
+// sandbox, as every CML test does.
 package main_test
 
 import (
@@ -203,6 +209,57 @@ tasks:
 	}
 	run("journal", "list")
 
+	link := "      lab: " + title + "\n      a: P1\n      a_interface: Ethernet0/1\n      b: P2\n      b_interface: Ethernet0/1\n"
+	wire := "# What this does: cuts the P1-P2 link and restores it, then captures it while P1 pings across the tunnel.\n" +
+		"# Blast radius: the gate's lab. Changes: the link's state, a capture on it, captures/p1-p2.pcap. Undo: the lab is deleted.\n" +
+		"id: capture-gate\ntasks:\n" +
+		"  - name: cut the link\n    virt.cml.link.stop:\n      target: cml\n" + link +
+		"  - name: nothing crosses\n    net.ios.ping:\n      target: P1\n      dest: 10.0.12.2\n      count: 3\n      state: absent\n" +
+		"  - name: restore it\n    virt.cml.link.start:\n      target: cml\n" + link +
+		"  - name: it crosses again\n    net.ios.ping:\n      target: P1\n      dest: 10.0.12.2\n      count: 20\n      state: present\n" +
+		"  - name: capture it\n    virt.cml.capture.start:\n      target: cml\n" + link + "      packets: 2000\n      seconds: 120\n" +
+		"  - name: across the tunnel again\n    net.ios.ping:\n      target: P1\n      dest: 172.31.0.2\n      count: 20\n      state: present\n" +
+		"  - name: keep the capture\n    virt.cml.capture.stop:\n      target: cml\n" + link + "      dest: captures/p1-p2.pcap\n" +
+		"  - name: count it\n    net.pcap.summary:\n      src: captures/p1-p2.pcap\n    register: wire\n" +
+		"  - name: only when the wire was clean\n    net.ios.command:\n      target: P1\n      command: show clock\n    when:\n      - result.wire.cleartext == 0\n      - result.wire.encrypted > 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "runbooks", "wire.yaml"), []byte(wire), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("validate", "runbooks/wire.yaml")
+	wireRun, tasks := cmlReport(t, run("run", "runbooks/wire.yaml", "--json"))
+	var summary map[string]any
+	for _, task := range tasks {
+		if task["name"] == "count it" {
+			summary, _ = task["stats"].(map[string]any)
+		}
+	}
+	if summary == nil {
+		t.Fatalf("no summary in %v", tasks)
+	}
+	// A deviceless task's register is read by a later task's condition.
+	ranClean := false
+	for _, task := range tasks {
+		if task["name"] == "only when the wire was clean" {
+			ranClean = task["status"] != "skipped"
+		}
+	}
+	if !ranClean {
+		t.Fatalf("the condition on the registered summary did not hold: %v", tasks)
+	}
+	pairs, _ := summary["pairs"].([]any)
+	var routers map[string]any
+	for _, p := range pairs {
+		if pair, _ := p.(map[string]any); fmt.Sprint(pair["a"], " ", pair["b"]) == "10.0.12.1 10.0.12.2" {
+			routers = pair
+		}
+	}
+	// Every echo and its reply crossed as ESP, and nothing between the two
+	// routers was readable on the wire.
+	if encrypted, _ := routers["encrypted"].(float64); routers == nil || fmt.Sprint(routers["cleartext"]) != "0" || encrypted < 40 {
+		t.Fatalf("the capture between P1 and P2: %v (all %v)", routers, summary)
+	}
+	t.Logf("the capture: %v packets, %v encrypted, %v key exchange, %v cleartext in all; P1-P2 %v", summary["packets"], summary["encrypted"], summary["key_exchange"], summary["cleartext"], routers)
+
 	for _, out := range outputs {
 		if strings.Contains(out, psk) {
 			t.Fatal("a run's output holds the pre-shared key")
@@ -212,7 +269,10 @@ tasks:
 		t.Fatalf("the project holds the pre-shared key in the clear: %v", hits)
 	}
 
-	run("rollback", runID)
+	// The capture run changed the controller after the build began (a link
+	// stopped and started, a capture taken), so the build's rollback names it
+	// and is told to go ahead beneath it: the lab goes with everything on it.
+	run("rollback", runID, "--despite-run", wireRun)
 	_, tasks = cmlReport(t, run("adhoc", "cml", "virt.cml.lab.info", "lab="+title, "--json"))
 	if stats, _ := tasks[0]["stats"].(map[string]any); stats["exists"] != false {
 		t.Errorf("the lab is still there after the rollback: %v", tasks[0])

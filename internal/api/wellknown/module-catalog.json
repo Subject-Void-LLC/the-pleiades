@@ -11873,6 +11873,110 @@
       ]
     }
   },
+  "net.pcap.summary": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads a capture file and changes nothing, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext.",
+      "description": "Reads a pcap or pcapng file from the project (virt.cml.capture.stop writes one; up to 16 MiB) and counts every frame by protocol: IPsec's ESP, ESP inside UDP 4500 (NAT traversal) and IKE (UDP 500, or 4500 behind the non-ESP marker), and in the clear GRE, ICMP, OSPF, EIGRP, BGP, HSRP, VRRP, PIM, TCP, UDP, ARP and frames carrying no IP (CDP, keepalives). Each IP packet is one of three kinds: encrypted (ESP, ESP in UDP), the key exchange that set it up (IKE), or cleartext (everything else carried over IP, which anyone on the wire can read). The same counts are given for each address pair, most packets first, so \"the sites' traffic crosses encrypted\" is a pair whose cleartext is 0 and whose encrypted count grew while traffic was sent; GRE in the clear between two sites is DMVPN without its IPsec. It reads Ethernet (VLAN tags included), raw IP and Linux cooked captures; a frame of another link type is counted as unread. A file cut short is read up to the cut, and the task fails naming where. It changes nothing, and a check runs it as a run does. It runs on this machine with no device: write it without hosts.",
+      "params": [
+        {
+          "name": "src",
+          "type": "string",
+          "required": true,
+          "description": "The capture file, a path relative to the project directory, such as captures/core1-wan.pcap."
+        },
+        {
+          "name": "pairs",
+          "type": "int",
+          "default": "20",
+          "description": "How many address pairs to list, most packets first; 0 lists none."
+        }
+      ],
+      "returns": [
+        {
+          "name": "format",
+          "type": "string",
+          "returned": "always",
+          "description": "pcap or pcapng."
+        },
+        {
+          "name": "packets",
+          "type": "int",
+          "returned": "always",
+          "description": "Every frame in the capture."
+        },
+        {
+          "name": "bytes",
+          "type": "int",
+          "returned": "always",
+          "description": "Their lengths on the wire, summed."
+        },
+        {
+          "name": "protocols",
+          "type": "dict",
+          "returned": "always",
+          "description": "Packets and bytes by protocol name (esp, esp-udp, ike, gre, icmp, ospf, bgp, tcp, udp, arp, non-ip and the rest)."
+        },
+        {
+          "name": "encrypted",
+          "type": "int",
+          "returned": "always",
+          "description": "IP packets that were ESP or ESP in UDP."
+        },
+        {
+          "name": "key_exchange",
+          "type": "int",
+          "returned": "always",
+          "description": "IP packets that were IKE."
+        },
+        {
+          "name": "cleartext",
+          "type": "int",
+          "returned": "always",
+          "description": "Every other IP packet: what a reader of the wire saw in the clear."
+        },
+        {
+          "name": "pairs",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each address pair (a, b), most packets first: its protocols, encrypted, key_exchange and cleartext."
+        },
+        {
+          "name": "link_types",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The link types the capture declares."
+        },
+        {
+          "name": "unread",
+          "type": "int",
+          "returned": "always",
+          "description": "Frames of a link type this method does not read."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Count what crossed a WAN link",
+          "runbookYaml": "- name: Count what crossed CORE1's WAN link\n  net.pcap.summary:\n    src: captures/core1-wan.pcap\n  register: wan\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.capture.start",
+        "virt.cml.capture.stop"
+      ]
+    }
+  },
   "net.ssh.ping": {
     "supportedTransports": [
       "ssh"
@@ -14473,6 +14577,204 @@
       ]
     }
   },
+  "virt.cml.capture.start": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that started a capture emits virt.cml.capture.stop of the same link, which ends it and writes nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.capture.stop",
+          "record": [
+            "lab",
+            "link"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a packet capture on a link of a CML lab.",
+      "description": "Starts the controller capturing every packet that crosses the link named by link, or the one between a's a_interface and b's b_interface, until packets have been taken or seconds have passed (at least one is required; CML allows 1 to 1000000 packets and 1 to 86400 seconds), optionally only those a Berkeley packet filter (tcpdump's syntax) admits. The capture runs on the controller while the run goes on, so start it, send the traffic to prove (net.ios.ping), then stop it with virt.cml.capture.stop, which writes the file into the project for net.pcap.summary or another analyzer to read. A link that is already capturing is refused: stop that capture first. Its undo is virt.cml.capture.stop of the same link, which writes nothing. The link must be started (its lab started); the task's target is a cml_controller device. A check reads the link and its capture and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "packets",
+          "type": "int",
+          "description": "Stop after this many packets."
+        },
+        {
+          "name": "seconds",
+          "type": "int",
+          "description": "Stop after this many seconds."
+        },
+        {
+          "name": "filter",
+          "type": "string",
+          "description": "A Berkeley packet filter, at most 128 characters, such as \"esp or udp port 500 or udp port 4500 or icmp\"."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Prove a WAN link carries only encrypted traffic",
+          "runbookYaml": "- name: Capture CORE1's WAN link\n  virt.cml.capture.start:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n    packets: 2000\n    seconds: 60\n- name: Ping across the tunnel from a branch\n  net.ios.ping:\n    target: BR1\n    dest: 10.0.0.1\n    source: 10.1.1.1\n    count: 50\n- name: Stop it and keep the file\n  virt.cml.capture.stop:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n    dest: captures/core1-wan.pcap\n- name: Count what crossed\n  net.pcap.summary:\n    src: captures/core1-wan.pcap\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.capture.stop",
+        "net.pcap.summary",
+        "virt.cml.link.stop"
+      ]
+    }
+  },
+  "virt.cml.capture.stop": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A stopped capture cannot be resumed, and the file it wrote is the record of what crossed the link, which no undo should take away."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops a packet capture on a link of a CML lab and writes its file into the project.",
+      "description": "Stops the capture on the link named by link, or the one between a's a_interface and b's b_interface, and, with dest, fetches its pcap file from the controller and writes it into the project at dest (a path under the project directory, never .pleiades; up to 16 MiB, so bound a long capture with packets or seconds). A capture that already stopped at its bound is not stopped again, and its file is still fetched. The file is the packets as they crossed the wire: any cleartext that crossed is in it, so keep it with the project's other private files. Its result names the file, its size and SHA-256. The task's target is a cml_controller device; it writes only on the command line (pleiades run and adhoc), which holds the project. A check reads the capture and reports what it would do, writing nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "description": "Where in the project to write the capture file, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.",
+          "format": "project_path"
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        },
+        {
+          "name": "packets",
+          "type": "int",
+          "returned": "when a capture was running",
+          "description": "How many packets the capture had taken when it was stopped."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "returned": "when dest is set",
+          "description": "The file written."
+        },
+        {
+          "name": "bytes",
+          "type": "int",
+          "returned": "when dest is set",
+          "description": "Its size."
+        },
+        {
+          "name": "sha256",
+          "type": "string",
+          "returned": "when dest is set",
+          "description": "Its SHA-256, in hex."
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.capture.start",
+        "net.pcap.summary"
+      ]
+    }
+  },
   "virt.cml.lab.create": {
     "supportedTransports": [
       "https"
@@ -15015,6 +15317,181 @@
       ],
       "seeAlso": [
         "virt.cml.link.create"
+      ]
+    }
+  },
+  "virt.cml.link.start": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the link's state emits virt.cml.link.stop of the same link, by its lab's id and its own; one that found the link already so emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.link.stop",
+          "record": [
+            "lab",
+            "link"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a stopped link in a CML lab, as if plugged in again.",
+      "description": "Starts the link named by link, or the one between a's a_interface and b's b_interface, so it carries traffic again. A link already started is unchanged. Its undo is virt.cml.link.stop of the same link. The task's target is a cml_controller device; the method runs on this machine and talks to the controller's REST API. A check reads the link's state and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's state before the task: STARTED, STOPPED or DEFINED_ON_CORE."
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.link.stop",
+        "virt.cml.lab.start"
+      ]
+    }
+  },
+  "virt.cml.link.stop": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the link's state emits virt.cml.link.start of the same link, by its lab's id and its own; one that found the link already so emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.link.start",
+          "record": [
+            "lab",
+            "link"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops a link in a CML lab, as if unplugged, leaving both nodes running.",
+      "description": "Stops the link named by link, or the one between a's a_interface and b's b_interface: it carries nothing until started again, while both nodes keep running with their running configurations. This is how to fail a path or a site for a test without stopping a router, which loses a configuration that was never saved. A link already stopped is unchanged. Its undo is virt.cml.link.start of the same link. The task's target is a cml_controller device; the method runs on this machine and talks to the controller's REST API. A check reads the link's state and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's state before the task: STARTED, STOPPED or DEFINED_ON_CORE."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Fail a core's WAN link, then restore it",
+          "runbookYaml": "- name: Cut CORE1's WAN link\n  virt.cml.link.stop:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n- name: Restore it\n  virt.cml.link.start:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.link.start",
+        "virt.cml.capture.start",
+        "virt.cml.lab.stop"
       ]
     }
   },

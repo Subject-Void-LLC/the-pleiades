@@ -77,12 +77,12 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// wait.routes, net.trace, and net.ovs.bridge and port; net.batfish.check
 	// is the 187th. net.ios.parse, net.ios.replace, http.wait and
 	// pleiades.builtin.project.write are the 188th through 191st. Building
-	// Phase 129a added the 202nd, net.ios.checkpoints. CML labs (Phase 127d) added the 192nd through 201st: virt.cml.lab.list,
+	// Phase 129a added the 202nd, net.ios.checkpoints; Phase 129b the 203rd through 207th, virt.cml.link.stop and start, virt.cml.capture.start and stop, and net.pcap.summary. CML labs (Phase 127d) added the 192nd through 201st: virt.cml.lab.list,
 	// info, create, start, stop and delete, virt.cml.node.create and delete,
 	// and virt.cml.link.create and delete.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 202
+	const wantCollections = 207
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

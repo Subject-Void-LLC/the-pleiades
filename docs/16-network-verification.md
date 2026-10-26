@@ -154,7 +154,8 @@ the controller's password stays in the vault.
 The `virt.cml` methods build and take apart labs through it, one verb each, every one with a check (a lab or node an earlier task in the same run makes is reported
 unchecked, since it is not there yet):
 `virt.cml.lab.create`, `lab.start`, `lab.stop`, `lab.delete`, `lab.info`, `lab.list`, `node.create`,
-`node.delete`, `link.create` and `link.delete`. Each change records its undo, so `pleiades rollback`
+`node.delete`, `link.create`, `link.delete`, `link.stop`, `link.start`, `capture.start` and `capture.stop`
+(the last four in the next section). Each change records its undo, so `pleiades rollback`
 removes exactly what a run made: a lab's start is undone by stopping exactly the nodes it started, and a
 node or lab delete, which wipes disks, cannot be undone and says so.
 
@@ -226,6 +227,90 @@ task that ran out of time, a dropped network). For that case a node `virt.cml.no
 idle console session out itself after five minutes (`exec-timeout 5 0`). The controller resolves only on
 the CLI so far; a Runner refuses a console device, and `virt.cml.node.create` with `device:`, whose seed a
 Runner cannot resolve either.
+
+### Failing a link and reading what crossed it
+
+A failover test needs a link to fail, and a claim that traffic crosses encrypted needs the packets that
+crossed. Four `virt.cml` methods give both, each naming a link by `link:` (its id) or by its ends (`a`,
+`a_interface`, `b`, `b_interface`):
+
+- `virt.cml.link.stop` takes a link down, as pulling its cable would, and `virt.cml.link.start` brings it
+  back. Each acts only when the link is not already in that state, and each one's undo is the other.
+- `virt.cml.capture.start` has the controller capture the link until `packets` have been taken or `seconds`
+  have passed (at least one is required), optionally through a Berkeley packet `filter`. Its undo stops the
+  capture.
+- `virt.cml.capture.stop` stops it and, with `dest`, writes the pcap file into the project (up to 16 MiB).
+  The file holds whatever crossed in the clear, so keep it with the project's other private files.
+
+`net.pcap.summary` then counts the file on this machine, with no device: every frame by protocol, and each
+IP packet as encrypted (ESP, ESP in UDP 4500), key exchange (IKE) or cleartext (everything else carried
+over IP), in all and per address pair. "The sites' traffic crosses encrypted" is then a pair whose
+`cleartext` is 0 and whose `encrypted` count grew while traffic was sent. The file is an ordinary pcap, so
+any other analyzer reads it too.
+
+```yaml
+# What this does: fails CORE1's WAN link and restores it, then proves a branch's traffic crosses it encrypted.
+# Blast radius: the lab cvd; the link CORE1-WAN1 is down for the length of one ping.
+# Changes: the link's state, a capture on it, captures/core1-wan.pcap in the project.
+# Undo: none needed; the link is restored by the run and the capture stopped.
+id: wan-proof
+tasks:
+  - name: cut CORE1's WAN link
+    virt.cml.link.stop:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+  - name: the branch still reaches the data center
+    net.ios.ping:
+      target: BR1
+      dest: 10.0.0.1
+      count: 20
+  - name: restore it
+    virt.cml.link.start:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+  - name: capture it
+    virt.cml.capture.start:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+      packets: 2000
+      seconds: 120
+  - name: traffic from the branch
+    net.ios.ping:
+      target: BR1
+      dest: 10.0.0.1
+      source: 10.1.1.1
+      count: 50
+  - name: keep the capture
+    virt.cml.capture.stop:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+      dest: captures/core1-wan.pcap
+  - name: count what crossed
+    net.pcap.summary:
+      src: captures/core1-wan.pcap
+```
+
+Its counts are in the run's report (`pleiades run --json`), and `register: wan` puts them where a later
+task's `when:` can read them (`result.wan.cleartext == 0`).
+
+An IOL node's interfaces start shut down, so a link between two of them carries nothing, and captures
+nothing, until each end is configured `no shutdown`. The GNS3 methods for the same work are not built yet.
 
 ### Undoing an IOS change
 
