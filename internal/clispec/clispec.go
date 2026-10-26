@@ -267,6 +267,44 @@ var Root = Command{
 			Examples: []string{"pleiades remove-database-connection appdb"},
 		},
 		{
+			Name:       "add-secret",
+			Positional: "<name>",
+			Synopsis:   "store one field of a named secret, encrypted, for a runbook to name as {{ secret.<name>.<field> }} in a parameter its method resolves",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "field", Type: "string", Default: "", Doc: "the field of the secret to store, a lowercase identifier"},
+				{Name: "value-stdin", Type: "bool", Default: "false", Doc: "read the value as one line on standard input"},
+				{Name: "value-file", Type: "string", Default: "", Doc: "a file `pleiades seal` wrote holding the value"},
+				{Name: "passphrase", Type: "bool", Default: "false", Doc: "prompt for the passphrase of a passphrase-sealed --value-file"},
+				{Name: "passphrase-stdin", Type: "bool", Default: "false", Doc: "read the passphrase of a passphrase-sealed --value-file as one line on standard input"},
+				{Name: "generate", Type: "int", Default: "0", Doc: "generate a random value of this many letters and digits (8 to 128) instead of reading one"},
+				{Name: "replace", Type: "bool", Default: "false", Doc: "replace a value already stored for the field"},
+			},
+			Examples: []string{
+				"pleiades add-secret dmvpn --field psk --generate 32",
+				"pleiades add-secret dmvpn --field psk --value-file psk.sealed",
+			},
+		},
+		{
+			Name:     "list-secrets",
+			Synopsis: "list the stored named secrets and their fields, never a value",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+			},
+			Examples: []string{"pleiades list-secrets --json"},
+		},
+		{
+			Name:       "remove-secret",
+			Positional: "<name>",
+			Synopsis:   "remove a stored named secret, or one of its fields",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "field", Type: "string", Default: "", Doc: "remove only this field; the whole secret when empty"},
+			},
+			Examples: []string{"pleiades remove-secret dmvpn", "pleiades remove-secret dmvpn --field psk"},
+		},
+		{
 			Name:       "import-kubeconfig",
 			Positional: "<device>",
 			Synopsis:   "make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file",

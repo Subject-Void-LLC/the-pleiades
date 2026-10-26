@@ -194,6 +194,7 @@ func buildCheck(builder *engine.Builder, path string) runbookCheck {
 			return check
 		}
 		check.dag, check.warnings = dag, append(validate.HeaderWarnings(source), validate.TaskFormWarnings(source)...)
+		check.warnings = append(check.warnings, validate.LiteralSecretWarnings(dag)...)
 	}
 	return check
 }

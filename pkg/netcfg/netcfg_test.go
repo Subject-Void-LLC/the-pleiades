@@ -143,6 +143,8 @@ func TestMask_ByVendor(t *testing.T) {
 		{"router bgp 65001\n neighbor 10.0.0.2 password bgpPw", "bgpPw"},
 		{"interface eth1\n ip ospf message-digest-key 1 md5 ospfMd5", "ospfMd5"},
 		{"username admin privilege 15 secret 9 $9$hashval", "$9$hashval"},
+		// A numeric secret after a key that is not a tunnel's stays masked.
+		{"tacacs server t2\n key 98765", "98765"},
 	} {
 		masked := netcfg.Mask(tc.config)
 		if strings.Contains(masked, tc.secret) || !strings.Contains(masked, netcfg.MaskPrefix) {
@@ -157,6 +159,9 @@ func TestMask_ByVendor(t *testing.T) {
 		"interface eth1\n isis authentication key-chain k",
 		"snmp-server host 10.0.0.1 version 3 priv v3user",
 		"interface Gi1\n standby 1 authentication md5 key-chain hsrp-chain",
+		// The GRE key field is an identifier every packet carries in the
+		// clear (FAILURE_PATTERNS 644).
+		"interface Tunnel100\n tunnel key 100",
 	} {
 		if netcfg.Mask(kept) != kept {
 			t.Errorf("%q was masked:\n%s", kept, netcfg.Mask(kept))

@@ -127,7 +127,7 @@ var networkCollections = []collectionscaffold.Config{
 				"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
 				"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
 			Params: append(append([]collection.Param{
-				{Name: "lines", Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.", Format: collection.ParamFormatCommand},
+				{Name: "lines", Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself. A line may name a stored secret, such as a pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the line is sent, and masked in everything the run reports. A line holding one holds no other template expression, and a value with whitespace, a control character or ? is refused.", Format: collection.ParamFormatCommand, SecretRefs: true},
 				{Name: "checkpoint", Type: "bool", Default: "true", Description: "Keep a checkpoint of the running configuration on the device before the change, which its undo returns to exactly. false records no undo, and reports the lines that would undo the change for the task's rollback: list."},
 				{Name: "backup", Type: "bool", Default: "false", Description: "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."},
 				{Name: "accept", Type: "list of string", Description: "Further IOS \"% \" lines to take as notices rather than rejections, each RE2 matched from the start of the line and so beginning with %, e.g. \"% Frob is deprecated\". Every other \"% \" line still fails the task."},
@@ -291,6 +291,32 @@ var networkCollections = []collectionscaffold.Config{
 				},
 			},
 			SeeAlso: []string{"net.ios.config", "net.ios.parse"},
+		},
+	},
+	{
+		Name:          "net.ios.checkpoints",
+		Capabilities:  []capability.Name{capability.NameCiscoIOS},
+		Transports:    []string{"ssh", "telnet", "console"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones.",
+			Description: "Reads the file system net.ios.config keeps its checkpoints on (the device's default writable disk or flash, such as unix: or flash:) with dir, and reports each change's checkpoints, newest first: its id, the configuration before it and, for a change that completed, after it, with the time and size the device gives. Only files named as net.ios.config names them (pleiades-<12 hex digits>.cfg and -after.cfg) are ever listed or deleted, so a startup configuration or an image is never touched. " +
+				"Each checkpoint holds the whole configuration, its secrets included, and stays on the device until its change's undo runs. With prune, the checkpoints of every change but the newest keep, or of every change older than older_than, or both (a change goes when either says so), are deleted with delete /force; a check reports what would go. A deleted checkpoint's undo (the net.ios.replace net.ios.config recorded) then refuses, so prune only changes no rollback will need, such as those of a lab about to be deleted.",
+			Params: []collection.Param{
+				{Name: "prune", Type: "bool", Default: "false", Description: "Delete the checkpoints keep and older_than select. Without it the method only lists."},
+				{Name: "keep", Type: "int", Description: "With prune, keep the checkpoints of this many of the newest changes and delete the rest; 0 deletes every one."},
+				{Name: "older_than", Type: "string", Description: "With prune, delete the checkpoints of every change older than this, a Go duration such as 72h, by the time the device gives its files."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+				{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "checkpoints", Type: "list of dict", Returned: "always", Description: "Each change's checkpoints, newest first: id, before, after (empty when the change did not complete), modified (RFC 3339, empty when the device's time did not read) and bytes."},
+				{Name: "deleted", Type: "list of string", Returned: "when prune is true", Description: "The files deleted, or in a check the files that would be."},
+			},
+			Examples: []collection.Example{
+				{Name: "Keep the checkpoints of the last five changes", RunbookYAML: "- name: Prune old checkpoints\n  net.ios.checkpoints:\n    prune: true\n    keep: 5\n"},
+			},
+			SeeAlso: []string{"net.ios.config", "net.ios.replace"},
 		},
 	},
 	{

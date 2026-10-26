@@ -222,6 +222,12 @@ const skillGuide = "## Starting in a project\n\n" +
 	"   changed on every run and is journaled, so a later rollback has to be told to step over it.\n" +
 	"8. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
 	"   (`pleiades add-credential <device> --username <name> --password-file <file>`) and reaches its methods on its own.\n" +
+	"   A secret a configuration needs that is no device's login (a pre-shared key several routers share, a CA's\n" +
+	"   passphrase) is a named secret: `pleiades add-secret <name> --field <field> --generate 32` (or `--value-stdin`,\n" +
+	"   or `--value-file` from `pleiades seal`), written in a runbook only as `{{ secret.<name>.<field> }}` in a\n" +
+	"   parameter that takes one (`pleiades doc` says so: `net.ios.config`'s `lines`, a `prompts:` answer). It is\n" +
+	"   filled in just before the device reads it and masked in everything a run reports; `pleiades list-secrets`\n" +
+	"   names what is stored, never a value, and `pleiades remove-secret` removes it.\n" +
 	"9. `pleiades <command> --help` lists every flag a command takes, and exits 1 after printing it, which is not a\n" +
 	"   failure. A command that takes a name needs one first: `pleiades add-host x --help` (it adds nothing).\n\n" +
 	"## When something fails\n\n" +
@@ -334,6 +340,10 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  or refuse, and never types an answer of its own. A model served on this machine by Ollama is added with\n" +
 	"  `pleiades add-host local-ai --type ai_provider --set ai_kind=ollama --set api_base=http://127.0.0.1:11434\n" +
 	"  --set residency=local`, then `pleiades onboard local-ai`; `pleiades doc ai.chat` has its parameters.\n" +
+	"- A key a design shares between routers (an IKE pre-shared key) is a named secret, never a line you write out:\n" +
+	"  `pre-shared-key {{ secret.<name>.<field> }}` in `net.ios.config`'s `lines`, and a question asking for a\n" +
+	"  passphrase is answered by `answer: \"{{ secret.<name>.<field> }}\"` in `prompts:`. A `show` of the configuration\n" +
+	"  afterwards comes back with the key masked.\n" +
 	"- IOS reports a line it took as already done with a notice (`% Duplicate permit statement ignored`), which\n" +
 	"  `net.ios.config` accepts; any other `% ` line fails the task. `accept:` lists the notices a task also accepts,\n" +
 	"  each a pattern you write after reading the device's own words; never accept a rejection to make a task pass.\n" +

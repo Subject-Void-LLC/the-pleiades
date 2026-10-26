@@ -53,6 +53,21 @@ func Generate(username, comment string) (Credential, error) {
 	return Credential{Username: username, Password: password, PrivateKeyPEM: pem.EncodeToMemory(block)}, nil
 }
 
+// MaxGeneratedSecretLength bounds a generated named secret (add-secret
+// --generate): longer than any key a network device takes.
+const MaxGeneratedSecretLength = 128
+
+// GenerateSecret returns a new random value of length characters for a named
+// secret, letters and digits only (so it is safe on any device's command
+// line, secretref.CheckValue), drawn from crypto/rand as a generated password
+// is. length is MinSecretLength to MaxGeneratedSecretLength.
+func GenerateSecret(length int) (string, error) {
+	if length < MinSecretLength || length > MaxGeneratedSecretLength {
+		return "", fmt.Errorf("credential: a generated secret is %d to %d characters", MinSecretLength, MaxGeneratedSecretLength)
+	}
+	return randomPassword(length)
+}
+
 // randomPassword returns length characters of passwordAlphabet, each
 // chosen uniformly by crypto/rand, drawn again until they hold an upper
 // case letter, a lower case letter and a digit. Windows' default policy

@@ -31,7 +31,10 @@ import (
 //     where the request goes;
 //   - an expression in a parameter the method marks as a project path the
 //     run writes reads only vars, so a device's output cannot choose which
-//     project file is replaced.
+//     project file is replaced;
+//   - a secret reference, {{ secret.<name>.<field> }}, appears only in a
+//     parameter its method resolves itself (collection.Param.SecretRefs),
+//     written exactly so and standing apart from any other expression.
 //
 // A rendered target is held to the same rules, and to within: besides,
 // which the runbook builder requires beside it. A task's rollback: steps
@@ -54,6 +57,7 @@ func TemplateRule(world WorldView) []Finding {
 			continue
 		}
 		formats := engine.ParamFormats(task.FQCN)
+		secretRefs := engine.ParamSecretRefs(task.FQCN)
 		keys := make([]string, 0, len(task.Params))
 		for k := range task.Params {
 			keys = append(keys, k)
@@ -61,7 +65,13 @@ func TemplateRule(world WorldView) []Finding {
 		sort.Strings(keys)
 		for _, key := range keys {
 			for _, source := range engine.TemplateStrings(task.Params[key]) {
-				for _, problem := range checkTemplate(eng, source, formats[key], registered, task.Register) {
+				problems := checkTemplate(eng, source, formats[key], registered, task.Register)
+				// A secret reference is the method's to resolve, never the
+				// renderer's: it is judged by its own rule and not compiled.
+				if isRef, refProblems := engine.SecretRefProblems(source, secretRefs[key]); isRef {
+					problems = refProblems
+				}
+				for _, problem := range problems {
 					findings = append(findings, Finding{
 						RuleName: "template",
 						Node:     id,

@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 )
 
 // The parameters.
@@ -72,7 +73,7 @@ func Read(ctx context.Context, rc sdk.RunbookContext, fqcn string, params map[st
 	if opts.ExpectDisconnect, err = sdk.BoolParamOr(params, ParamExpectDisconnect, false); err != nil {
 		return opts, err
 	}
-	if opts.Prompts, err = readPrompts(params[ParamPrompts]); err != nil {
+	if opts.Prompts, err = readPrompts(rc, params[ParamPrompts]); err != nil {
 		return opts, err
 	}
 	if raw, ok := params[ParamAsk]; ok && raw != nil {
@@ -94,8 +95,11 @@ func ReadConfig(ctx context.Context, rc sdk.RunbookContext, fqcn string, params 
 }
 
 // readPrompts reads prompts: a list of {match, answer} or {match, refuse:
-// true}.
-func readPrompts(raw any) ([]netcli.Prompt, error) {
+// true}. An answer holding a secret reference is resolved from rc's named
+// secrets (sdk.ResolveSecretRefs, which adds the value to the run's masking
+// set) and marked Secret, so it may answer a password question and its
+// exchange records netcli.SecretAnswer, never the value.
+func readPrompts(rc sdk.RunbookContext, raw any) ([]netcli.Prompt, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -127,7 +131,13 @@ func readPrompts(raw any) ([]netcli.Prompt, error) {
 		if refuse == hasAnswer {
 			return nil, fmt.Errorf("%s[%d]: give %s (\"\" is Enter alone) or %s: true, not both or neither", ParamPrompts, i, keyAnswer, keyRefuse)
 		}
-		out = append(out, netcli.Prompt{Match: re, Answer: answer, Refuse: refuse})
+		secret := secretref.Has(answer)
+		if secret {
+			if answer, _, err = sdk.ResolveSecretRefs(rc, answer); err != nil {
+				return nil, fmt.Errorf("%s[%d]: %s: %w", ParamPrompts, i, keyAnswer, err)
+			}
+		}
+		out = append(out, netcli.Prompt{Match: re, Answer: answer, Refuse: refuse, Secret: secret})
 	}
 	return out, nil
 }
@@ -264,7 +274,7 @@ func Stats(res netcli.DialogResult) map[string]any {
 // them.
 func Params() []collection.Param {
 	return []collection.Param{
-		{Name: ParamPrompts, Type: collection.ParamTypeListOfDict, Description: "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."},
+		{Name: ParamPrompts, Type: collection.ParamTypeListOfDict, Description: "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text written in the task is never sent to a question asking for a password, passphrase or secret; answer one with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret), which is resolved just before it is typed, may stand only with literal text, and is recorded in exchanges as (secret).", SecretRefs: true},
 		{Name: ParamAsk, Type: collection.ParamTypeDict, Description: "A model for questions no prompts entry matches, on the Crawl tier: choices, a list of {id, answer, means} the model picks from by id (it never types its own answer, and may refuse, which fails the task, or say the line was no question); max, how many it may answer (1 to 10, default 3); shape, the RE2 a waiting line must match to be asked about (default: ending in ?, ] or ]:); and ai.chat's own provider, model, residency, prompt or prompt_file (a built-in prompt when neither), signing, review, usage_sink and call options. Its provider is resolved before the device is reached. A held answer fails the task as held, which abandons the command; decided with pleiades ai review, running again reuses the decision for that same question."},
 		{Name: ParamExpectDisconnect, Type: collection.ParamTypeBool, Default: "false", Description: "Count the device closing the session after at least one answer as success, which is how a reload ends. A close before any answer still fails."},
 	}

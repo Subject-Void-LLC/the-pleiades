@@ -33,6 +33,14 @@ type Param struct {
 	// with it, so whoever reads a method's page before using it sees which
 	// settings reach the host; nothing at run time reads it.
 	Risk ParamRisk `json:"risk,omitempty"`
+
+	// SecretRefs marks a parameter that may hold secret references,
+	// {{ secret.<name>.<field> }} (pkg/secretref), which the method itself
+	// resolves from the project's named secrets just before the text reaches
+	// the device, and masks by value in everything it returns. The engine
+	// never renders one, validation refuses one in any parameter not marked,
+	// and a string holding one may hold no other template expression.
+	SecretRefs bool `json:"secretRefs,omitempty"`
 }
 
 // ParamRisk is the kind of reach a parameter's setting adds.

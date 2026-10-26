@@ -46,6 +46,10 @@ type credentialsDocument struct {
 	// (wire.DatabaseConnection.Name), in a namespace of their own like
 	// Registries.
 	Databases map[string]databaseEntry `yaml:"databases,omitempty"`
+	// Secrets holds named secrets, keyed by name and then by field, each
+	// value base64(AES-256-GCM ciphertext) like every other secret here; a
+	// namespace of its own like Registries (secret_store.go).
+	Secrets map[string]map[string]string `yaml:"secrets,omitempty"`
 }
 
 // credentialEntry is one device's stored credential. Username is stored

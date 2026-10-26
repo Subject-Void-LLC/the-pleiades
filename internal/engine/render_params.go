@@ -33,6 +33,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 )
 
 // The roots a rendered parameter may read.
@@ -123,6 +124,7 @@ func (r *run) renderTask(task *Task, errorRoot map[string]any) (*Task, error) {
 // left as it is.
 func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map[string]any) (map[string]any, error) {
 	types := ParamTypes(fqcn)
+	secretRefs := ParamSecretRefs(fqcn)
 	out := make(map[string]any, len(params))
 	for key, value := range params {
 		if !HasTemplate(value) {
@@ -130,10 +132,13 @@ func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map
 			continue
 		}
 		typ := types[key]
+		text := typ == collection.ParamTypeString || typ == collection.ParamTypeListOfString
 		var rendered any
 		var err error
-		switch typ {
-		case collection.ParamTypeString, collection.ParamTypeListOfString:
+		switch {
+		case secretRefs[key]:
+			rendered, err = renderKeepingRefs(eng, value, ctx, text)
+		case text:
 			rendered, err = renderText(eng, value, ctx)
 		default:
 			rendered, err = renderValue(eng, value, ctx)
@@ -186,6 +191,56 @@ func renderText(eng render.Engine, v any, ctx map[string]any) (any, error) {
 		out := make([]any, len(t))
 		for i, e := range t {
 			rendered, err := renderText(eng, e, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("item %d: %w", i, err)
+			}
+			out[i] = rendered
+		}
+		return out, nil
+	}
+	return v, nil
+}
+
+// renderKeepingRefs renders a parameter that may hold secret references
+// (collection.Param.SecretRefs): a string holding one is passed on exactly as
+// written, for the method to resolve, and any other templated string renders
+// as usual, text or typed as text says. A rendered string that comes out
+// holding a reference is refused, so a run's variables or a device's output
+// can never write one: only the runbook's author does.
+func renderKeepingRefs(eng render.Engine, v any, ctx map[string]any, text bool) (any, error) {
+	switch t := v.(type) {
+	case string:
+		if secretref.Has(t) {
+			return t, nil
+		}
+		var rendered any
+		var err error
+		if text {
+			rendered, err = renderText(eng, t, ctx)
+		} else {
+			rendered, err = renderValue(eng, t, ctx)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if s, ok := rendered.(string); ok && secretref.Has(s) {
+			return nil, errors.New("renders to text holding a secret reference, and only the runbook's author may write one")
+		}
+		return rendered, nil
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			rendered, err := renderKeepingRefs(eng, e, ctx, false)
+			if err != nil {
+				return nil, fmt.Errorf("parameter %s: %w", k, err)
+			}
+			out[k] = rendered
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			rendered, err := renderKeepingRefs(eng, e, ctx, text)
 			if err != nil {
 				return nil, fmt.Errorf("item %d: %w", i, err)
 			}
@@ -345,6 +400,40 @@ func ParamFormats(fqcn string) map[string]collection.ParamFormat {
 	return out
 }
 
+// ParamSecretRefs returns the declared parameters of fqcn that may hold
+// secret references (collection.Param.SecretRefs), or an empty map for a name
+// that is not a registered method.
+func ParamSecretRefs(fqcn string) map[string]bool {
+	out := map[string]bool{}
+	desc, ok := collection.Lookup(fqcn)
+	if !ok {
+		return out
+	}
+	for _, p := range desc.Manifest.Doc.Params {
+		if p.SecretRefs {
+			out[p.Name] = true
+		}
+	}
+	return out
+}
+
+// SecretRefProblems judges a template string that reads the secret root
+// (secretref.Has), for a parameter that does or does not take secret
+// references. It reports whether source is such a string, which the caller
+// then neither compiles nor renders, and what is wrong with it: a reference
+// in a parameter that takes none, or one that is not exactly
+// {{ secret.<name>.<field> }} standing apart from any other expression.
+// Validation and the executor share it, as they share TemplateProblems.
+func SecretRefProblems(source string, takes bool) (bool, []string) {
+	if !secretref.Has(source) {
+		return false, nil
+	}
+	if !takes {
+		return true, []string{"a secret reference may appear only in a parameter its method resolves itself (pleiades doc names them), and the engine renders this one"}
+	}
+	return true, secretref.Problems(source)
+}
+
 // ParamTypes returns each declared parameter's type for fqcn, its own and
 // its fragments' (fragment.Types), or an empty map for a name that is not a
 // registered method.
@@ -391,6 +480,7 @@ func TemplateStrings(v any) []string {
 // (resolveBounded).
 func checkTaskTemplates(eng render.Engine, task *Task) error {
 	formats := ParamFormats(task.FQCN)
+	secretRefs := ParamSecretRefs(task.FQCN)
 	keys := make([]string, 0, len(task.Params))
 	for k := range task.Params {
 		keys = append(keys, k)
@@ -398,6 +488,12 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 	sort.Strings(keys)
 	for _, key := range keys {
 		for _, source := range TemplateStrings(task.Params[key]) {
+			if isRef, problems := SecretRefProblems(source, secretRefs[key]); isRef {
+				if len(problems) > 0 {
+					return fmt.Errorf("parameter %s: %s", key, problems[0])
+				}
+				continue
+			}
 			tmpl, err := eng.Compile(source)
 			if err != nil {
 				return fmt.Errorf("parameter %s: %w", key, err)

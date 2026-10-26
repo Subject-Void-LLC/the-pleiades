@@ -151,6 +151,18 @@ var (
 		// label must not pass for a key already gone.
 		regexp.MustCompile(`^% Keys to be removed are named '[^']*'\.$`),
 		regexp.MustCompile(`^% All router certs issued using these keys will also be removed\.$`),
+		// Measured through net.ios.config on IOL XE 17.15.1 (2026-10-25,
+		// Phase 129a), each from a line that left the configuration as it
+		// was or did what it said: entering a certificate map an IKEv2 profile
+		// already uses, naming a keyring a profile already has, and what
+		// removing an enrolled trustpoint says before its "[yes/no]:", which
+		// a task answers with prompts (FAILURE_PATTERNS 646). Removing what is
+		// not there ("% Specified proposal NOPE does not exist") still
+		// rejects: a mistyped name must not pass for one already gone.
+		regexp.MustCompile(`^% certificate map already used in ikev2/isakmp profiles$`),
+		regexp.MustCompile(`^% Profile already contains this keyring$`),
+		regexp.MustCompile(`^% Removing an enrolled trustpoint will destroy all certificates`),
+		regexp.MustCompile(`^% Be sure to ask the CA administrator to revoke your certificates\.$`),
 	}
 )
 
@@ -446,7 +458,7 @@ func (s *Session) command(ctx context.Context, line string, configMode bool) (st
 	}
 	raw, err := s.shell.ReadUntil(ctx, s.dialect.Prompt(configMode), s.maxBytes)
 	if err != nil {
-		return "", fmt.Errorf("netcli: %w", err)
+		return "", readFailure(err, "", "")
 	}
 	return stripEcho(raw, line, s.dialect.Prompt(configMode)), nil
 }
@@ -493,12 +505,41 @@ func dialectName(d Dialect) string {
 // Key pair was generated at: ..." for each key pair (measured on IOL XE
 // 17.15), which no reader should take as the command failing.
 func (d Dialect) Rejection(out string) (string, bool) {
+	return d.RejectionWith(out, nil)
+}
+
+// RejectionWith is Rejection taking each line accept matches as a notice
+// too: a task's own list of "% " lines it expects (net.ios.command's
+// accept, as net.ios.config's).
+func (d Dialect) RejectionWith(out string, accept []*regexp.Regexp) (string, bool) {
 	if d.ErrorPattern == nil {
 		return "", false
 	}
 	for l := range strings.SplitSeq(out, "\n") {
 		l = strings.TrimRight(l, "\r \t")
-		if d.ErrorPattern.MatchString(l) && !matchesAny(d.Notices, l) {
+		if d.ErrorPattern.MatchString(l) && !matchesAny(d.Notices, l) && !matchesAny(accept, l) {
+			return l, true
+		}
+	}
+	return "", false
+}
+
+// IOSCommandError matches the lines IOS prints when it did not run an
+// exec-mode command at all: the parser's own refusals of the line ("%
+// Invalid input detected at '^' marker.", "% Incomplete command.", "%
+// Ambiguous command: ...", "% Unrecognized command") and a file operation's
+// "%Error ..." (more or dir of a file that is not there). A command that only
+// reads is held to these alone: what it prints is the device's data, and a "%
+// " line inside it ("% Self-signed CA certificate:" in show crypto pki
+// certificates pem, measured in the blind CVD lab, 2026-10-25) is output, not
+// a refusal.
+var IOSCommandError = regexp.MustCompile(`^%(?: (?:Invalid input detected|Incomplete command|Ambiguous command|Unrecognized command)|Error\b)`)
+
+// CommandRejection returns the first line of out matching IOSCommandError.
+func CommandRejection(out string) (string, bool) {
+	for l := range strings.SplitSeq(out, "\n") {
+		l = strings.TrimRight(l, "\r \t")
+		if IOSCommandError.MatchString(l) {
 			return l, true
 		}
 	}

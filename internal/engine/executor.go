@@ -397,6 +397,10 @@ func (r RunResult) Rescued() bool {
 // taking the correct branch, not about failure recovery, so that stays a
 // named, separate follow-up rather than being folded in silently.
 type Executor struct {
+	// knownSecrets join every run's masking set as the run starts
+	// (WithKnownSecrets).
+	knownSecrets []string
+
 	resolver       TargetResolver
 	actions        ActionExecutor
 	locks          lock.Manager
@@ -645,6 +649,11 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
+	for _, s := range x.knownSecrets {
+		if s != "" {
+			r.secrets.Add(s)
+		}
+	}
 
 	defer func() {
 		result.Secrets = r.secrets.Snapshot()

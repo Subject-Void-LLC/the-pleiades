@@ -9,7 +9,6 @@ package main_test
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,14 +58,7 @@ func TestCLI_BuildsACMLLabAndReachesItsNode(t *testing.T) {
 	}
 	report := func(out string) (string, []map[string]any) {
 		t.Helper()
-		var r struct {
-			RunID string           `json:"run_id"`
-			Tasks []map[string]any `json:"tasks"`
-		}
-		if err := json.NewDecoder(strings.NewReader(out[max(strings.Index(out, "{"), 0):])).Decode(&r); err != nil {
-			t.Fatalf("not a report: %v\n%s", err, out)
-		}
-		return r.RunID, r.Tasks
+		return cmlReport(t, out)
 	}
 	secret := func() string {
 		b := make([]byte, 12)

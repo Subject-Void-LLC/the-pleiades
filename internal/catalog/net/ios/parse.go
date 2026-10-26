@@ -111,6 +111,9 @@ func Parse(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	// What a show prints can hold the device's secrets: each one found is
+	// learned for the run's masking set before the output is recorded.
+	_ = learnSecrets(rc, out)
 	if parser == parserArchiveDiffs {
 		out = maskDiff(out)
 	}
@@ -137,7 +140,9 @@ func Parse(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err := rc.SetStat(statParser, parser); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if err := rc.SetStat(statParsed, parsed); err != nil {
+	// A field Genie's schema names as a secret (a neighbor's password, a
+	// community) is masked as configuration text is (netcfg's one table).
+	if err := rc.SetStat(statParsed, netcfg.MaskFields(parsed)); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return collection.Result{Changed: false}, nil
