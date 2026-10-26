@@ -60,6 +60,11 @@ func renderDoc(doc collection.Doc) string {
 			fields = appendStringSliceField(fields, "Choices", p.Choices)
 			fields = appendStringField(fields, "Description", p.Description)
 			fields = appendStringField(fields, "AliasOf", p.AliasOf)
+			// A parameter that may hold {{ secret.x.y }} references: dropping
+			// the mark would make the generated method refuse the reference.
+			if p.SecretRefs {
+				fields = append(fields, "SecretRefs: true")
+			}
 			// Format is a named constant rather than a quoted string, so a
 			// generated method reads as a hand-written one does.
 			switch p.Format {
