@@ -276,7 +276,8 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  holding `{{ }}` is a template, rendered from `vars`, `nodes`, `result` and `device` when the task runs.\n" +
 	"  `pleiades doc filters` lists every template filter (there is no `replace` or `split`) and\n" +
 	"  `pleiades doc conditions` every function a condition may call. `device` is the device the task runs on\n" +
-	"  (`{{ device.name }}`, `device.properties.site == 'hq'`); a task reading it is decided on each device.\n" +
+	"  (`{{ device.name }}`, `'hq' in device.tags`); a task reading it is decided on each device. Its properties are\n" +
+	"  only the ones its device type reads (such as `host`): group devices of your own with tags.\n" +
 	"- `target: <device>` inside a task's parameters, beside the others, runs that task on one device other than the\n" +
 	"  runbook's `hosts:`; a runbook may leave out `hosts:` and give each task its own target.\n" +
 	"- `timeout:` on a task is seconds (`300`) or a duration (`150s`, `5m`). YAML anchors and aliases work in a task\n" +

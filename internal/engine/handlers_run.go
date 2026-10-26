@@ -52,6 +52,11 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		if rescue {
 			errorRoot = r.handlers.errorContext(nodeID, "", r.dag, mask)
 		}
+		// A unit's task that reads device still runs on each device, every
+		// one reading the unit's failure.
+		if r.readsDevice(nodeID, task) {
+			return r.runPerDevice(ctx, nodeID, task, started, errorRoot)
+		}
 		prepared, early := r.prepare(nodeID, task, started, "", errorRoots(errorRoot))
 		if early != nil {
 			return []NodeResult{*early}

@@ -161,6 +161,10 @@ func runState(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	switch {
 	case stopping && link.State == cml.StateStopped, !stopping && link.State == cml.StateStarted:
 		return collection.Result{}, nil
+	case stopping && link.State == cml.StateDefined:
+		// A link that never ran carries nothing already. Stopping it would
+		// record a start as its undo, starting a link that never ran.
+		return collection.Result{}, nil
 	case !stopping && link.State == cml.StateDefined:
 		return fail(fmt.Errorf("%s has never run: start the lab (virt.cml.lab.start), which starts its links", ref))
 	case mode == collection.ModeCheck:

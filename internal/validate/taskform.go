@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // TaskFormRule is the RuleName of the task form's warning.
@@ -21,7 +23,9 @@ const TaskFormRule = "task-form"
 // refuses it.
 func TaskFormWarnings(source []byte) []Finding {
 	var doc yaml.Node
-	if yaml.Unmarshal(source, &doc) != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+	// Read as the builder reads it, aliases and merges expanded, so a task
+	// written through one is held to its form too.
+	if yaml.Unmarshal(source, &doc) != nil || engine.ExpandAliases(&doc) != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil
 	}
 	var out []Finding

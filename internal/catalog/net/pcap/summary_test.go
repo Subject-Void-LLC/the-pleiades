@@ -80,7 +80,7 @@ func TestSummary_CountsAWANCapture(t *testing.T) {
 		t.Fatalf("%+v, %v", res, err)
 	}
 	stats := rc.(interface{ Facts() map[string]any }).Facts()
-	if stats["format"] != "pcap" || stats["packets"] != 4 || stats["encrypted"] != 3 || stats["cleartext"] != 1 || stats["key_exchange"] != 0 {
+	if stats["format"] != "pcap" || stats["packets"] != 4 || stats["encrypted"] != 3 || stats["cleartext"] != 1 || stats["key_exchange"] != 0 || stats["unexamined"] != 0 {
 		t.Fatalf("stats = %v", stats)
 	}
 	pairs := stats["pairs"].([]any)

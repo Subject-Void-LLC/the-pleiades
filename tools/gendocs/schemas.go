@@ -93,7 +93,8 @@ func taskSchema() map[string]any {
 				"oneOf": []any{
 					map[string]any{"type": "integer", "minimum": 0, "maximum": engine.MaxTaskTimeout},
 					map[string]any{"type": "string", "pattern": "^[0-9]+$"},
-					map[string]any{"type": "string", "pattern": "^([0-9]+h)?([0-9]+m)?([0-9]+s)?$", "minLength": 2},
+					// A Go duration (ParseSeconds), whole seconds in all.
+					map[string]any{"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(h|m|s|ms|us|ns))+$"},
 				},
 			},
 		},

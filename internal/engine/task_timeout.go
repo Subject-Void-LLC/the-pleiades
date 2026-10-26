@@ -45,8 +45,8 @@ func ParseSeconds(text string) (int, error) {
 	return int(d / time.Second), nil
 }
 
-// UnmarshalYAML accepts a YAML integer and refuses everything else with
-// what the key takes.
+// UnmarshalYAML accepts a YAML integer, or a duration of whole seconds
+// (ParseSeconds), and refuses everything else with what the key takes.
 func (t *TimeoutSeconds) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.ScalarNode {
 		return fmt.Errorf("line %d: timeout is a YAML %s; %s", node.Line, yamlKindName(node.Kind), timeoutTakes)

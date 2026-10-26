@@ -75,7 +75,7 @@ func validateTask(task *Task, id string) error {
 	}
 
 	if task.Timeout < 0 || task.Timeout > MaxTaskTimeout {
-		return fmt.Errorf("task %s sets timeout %d: it is a whole number of seconds from 1 to %d (a day), or left out", taskLabel(id, task), task.Timeout, MaxTaskTimeout)
+		return fmt.Errorf("task %s sets timeout %d: it is from 1 to %d seconds (a day), written as seconds or a duration such as 30m, or left out", taskLabel(id, task), task.Timeout, MaxTaskTimeout)
 	}
 
 	if err := validateTarget(task, id); err != nil {

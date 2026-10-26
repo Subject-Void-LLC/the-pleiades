@@ -66,7 +66,7 @@ func SummaryDoc() collection.Doc {
 	return collection.Doc{
 		Summary: "Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext.",
 		Description: "Reads a pcap or pcapng file from the project (virt.cml.capture.stop writes one; up to 16 MiB) and counts every frame by protocol: IPsec's ESP, ESP inside UDP 4500 (NAT traversal) and IKE (UDP 500, or 4500 behind the non-ESP marker), and in the clear GRE, ICMP, OSPF, EIGRP, BGP, HSRP, VRRP, PIM, TCP, UDP, ARP and frames carrying no IP (CDP, keepalives). Each IP packet is one of three kinds: encrypted (ESP, ESP in UDP), the key exchange that set it up (IKE), or cleartext (everything else carried over IP, which anyone on the wire can read). The same counts are given for each address pair, most packets first, so \"the sites' traffic crosses encrypted\" is a pair whose cleartext is 0 and whose encrypted count grew while traffic was sent; GRE in the clear between two sites is DMVPN without its IPsec. " +
-			"It reads Ethernet (VLAN tags included), raw IP and Linux cooked captures; a frame of another link type is counted as unread. A file cut short is read up to the cut, and the task fails naming where. It changes nothing, and a check runs it as a run does. It runs on this machine with no device: write it without hosts.",
+			"It reads Ethernet (VLAN tags included), raw IP and Linux cooked captures; a frame of another link type is counted as unread. A frame carrying no IP (CDP, a keepalive, but also anything inside MPLS or PPPoE) and an unread frame are not examined, so they are counted apart as unexamined, never as cleartext: \"nothing crossed in the clear\" is cleartext 0 and unexamined 0 (or every unexamined frame accounted for by its protocol). IKE and ESP in UDP are told by their ports, and ESP is counted encrypted whatever its cipher, ESP-NULL included. A file cut short is read up to the cut, and the task fails naming where. It changes nothing, and a check runs it as a run does. It runs on this machine with no device: write it without hosts.",
 		Params: []collection.Param{
 			{Name: paramSrc, Type: "string", Required: true, Description: "The capture file, a path relative to the project directory, such as captures/core1-wan.pcap."},
 			{Name: paramPairs, Type: "int", Default: "20", Description: "How many address pairs to list, most packets first; 0 lists none."},
@@ -82,6 +82,7 @@ func SummaryDoc() collection.Doc {
 			{Name: "pairs", Type: "list of dict", Returned: "always", Description: "Each address pair (a, b), most packets first: its protocols, encrypted, key_exchange and cleartext."},
 			{Name: "link_types", Type: "list of string", Returned: "always", Description: "The link types the capture declares."},
 			{Name: "unread", Type: "int", Returned: "always", Description: "Frames of a link type this method does not read."},
+			{Name: "unexamined", Type: "int", Returned: "always", Description: "Frames this method could not judge encrypted or not: unread ones, and every one carrying no IP (non-ip)."},
 		},
 		Examples: []collection.Example{
 			{Name: "Count what crossed a WAN link", RunbookYAML: "- name: Count what crossed CORE1's WAN link\n  net.pcap.summary:\n    src: captures/core1-wan.pcap\n  register: wan\n"},
@@ -134,6 +135,7 @@ func Summary(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem
 		"format": s.Format, "packets": s.Packets, "bytes": s.Bytes, "protocols": counters(s.Protocols),
 		"encrypted": s.Encrypted, "key_exchange": s.KeyExchange, "cleartext": s.Cleartext,
 		"pairs": listed, "link_types": linkTypes, "unread": s.Unread,
+		"unexamined": s.Unread + s.Protocols[pcapsum.NonIP].Packets,
 	} {
 		if err := rc.SetStat(k, v); err != nil {
 			return collection.Result{}, err

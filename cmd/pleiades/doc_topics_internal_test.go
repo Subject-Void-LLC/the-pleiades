@@ -5,8 +5,11 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 )
@@ -27,6 +30,18 @@ func TestDocTopics(t *testing.T) {
 	}
 	if !strings.Contains(out, "regex_replace") || !strings.Contains(out, "secret.<name>.<field>") {
 		t.Errorf("doc filters:\n%s", out)
+	}
+	// Every root the engine renders, and no other besides secret (which the
+	// method, not the renderer, resolves).
+	var listed []string
+	for _, r := range templateRoots {
+		if r.Name != "secret" {
+			listed = append(listed, r.Name)
+		}
+	}
+	slices.Sort(listed)
+	if want := engine.TemplateRoots(); !slices.Equal(listed, want) {
+		t.Errorf("doc filters lists the roots %v, and the engine renders %v", listed, want)
 	}
 
 	var topic conditionsTopic

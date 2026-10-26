@@ -835,7 +835,7 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	// A task that reads the device it runs on is decided and rendered on
 	// each device (device_root.go).
 	if r.readsDevice(nodeID, task) {
-		return r.runPerDevice(ctx, nodeID, task, started)
+		return r.runPerDevice(ctx, nodeID, task, started, nil)
 	}
 
 	prepared, early := r.prepare(nodeID, task, started, "", nil)

@@ -53,7 +53,8 @@ tasks:
 	}
 
 	for name, tc := range map[string]struct{ runbook, want string }{
-		"aliases without bound": {laughs(), "expand it past"},
+		"aliases without bound": {laughs(), "holds more than"},
+		"two merge keys":        {"id: m\ntasks:\n  - noop:\n      <<: {a: 1}\n      <<: {a: 2}\n", "two merge keys"},
 		"a merge of a scalar":   {"id: m\ntasks:\n  - noop:\n      <<: just text\n", "takes a mapping or a list of mappings"},
 		"an anchor-only key":    {"id: a\nx-common: &c\n  command: x\ntasks:\n  - noop: *c\n", `"x-common" is there only to hold an anchor`},
 	} {

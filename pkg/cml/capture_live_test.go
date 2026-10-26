@@ -76,7 +76,13 @@ func TestClient_LinkStateAndCaptureOnARealController(t *testing.T) {
 	if err != nil || !status.Running || status.Spec.Packets != 20 {
 		t.Fatalf("a running capture's status = %+v, %v", status, err)
 	}
-	time.Sleep(30 * time.Second)
+	// Until the capture has taken a packet (the day-0 configuration brings
+	// the port up, and the routers greet each other), within its own bound.
+	for deadline := time.Now().Add(45 * time.Second); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		if s, err := c.CaptureStatus(ctx, lab.ID, link); err == nil && s.Packets > 0 {
+			break
+		}
+	}
 	if err := c.StopCapture(ctx, lab.ID, link); err != nil {
 		t.Fatal(err)
 	}

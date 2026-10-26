@@ -210,6 +210,7 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 	var res DialogResult
 	var transcript strings.Builder
 	answered := make([]bool, len(opts.Prompts))
+	passed := 0
 	for {
 		raw, err := s.shell.ReadUntil(ctx, until, s.maxBytes)
 		if err != nil {
@@ -227,6 +228,14 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 		}
 		transcript.WriteString(raw)
 		if endsWith(end, raw) {
+			// The device's own message and its prompt, ahead of the line's
+			// echo, as in command: the answer is still coming.
+			if passed < maxAsyncReads && s.asyncOnly(transcript.String(), line, end) {
+				passed++
+				transcript.Reset()
+				continue
+			}
+			s.noteEcho(transcript.String(), line)
 			res.Output = stripEcho(transcript.String(), line, end)
 			return res, nil
 		}

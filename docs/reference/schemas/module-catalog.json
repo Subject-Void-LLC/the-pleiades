@@ -9994,7 +9994,7 @@
         {
           "name": "accept_unrecognized",
           "type": "list of dict",
-          "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd), and a reason (why the model may ignore it). Every other unrecognised line fails the task."
+          "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd, nhrp), and a reason (why the model may ignore it). Every other unrecognised line fails the task."
         }
       ],
       "returns": [
@@ -11888,7 +11888,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext.",
-      "description": "Reads a pcap or pcapng file from the project (virt.cml.capture.stop writes one; up to 16 MiB) and counts every frame by protocol: IPsec's ESP, ESP inside UDP 4500 (NAT traversal) and IKE (UDP 500, or 4500 behind the non-ESP marker), and in the clear GRE, ICMP, OSPF, EIGRP, BGP, HSRP, VRRP, PIM, TCP, UDP, ARP and frames carrying no IP (CDP, keepalives). Each IP packet is one of three kinds: encrypted (ESP, ESP in UDP), the key exchange that set it up (IKE), or cleartext (everything else carried over IP, which anyone on the wire can read). The same counts are given for each address pair, most packets first, so \"the sites' traffic crosses encrypted\" is a pair whose cleartext is 0 and whose encrypted count grew while traffic was sent; GRE in the clear between two sites is DMVPN without its IPsec. It reads Ethernet (VLAN tags included), raw IP and Linux cooked captures; a frame of another link type is counted as unread. A file cut short is read up to the cut, and the task fails naming where. It changes nothing, and a check runs it as a run does. It runs on this machine with no device: write it without hosts.",
+      "description": "Reads a pcap or pcapng file from the project (virt.cml.capture.stop writes one; up to 16 MiB) and counts every frame by protocol: IPsec's ESP, ESP inside UDP 4500 (NAT traversal) and IKE (UDP 500, or 4500 behind the non-ESP marker), and in the clear GRE, ICMP, OSPF, EIGRP, BGP, HSRP, VRRP, PIM, TCP, UDP, ARP and frames carrying no IP (CDP, keepalives). Each IP packet is one of three kinds: encrypted (ESP, ESP in UDP), the key exchange that set it up (IKE), or cleartext (everything else carried over IP, which anyone on the wire can read). The same counts are given for each address pair, most packets first, so \"the sites' traffic crosses encrypted\" is a pair whose cleartext is 0 and whose encrypted count grew while traffic was sent; GRE in the clear between two sites is DMVPN without its IPsec. It reads Ethernet (VLAN tags included), raw IP and Linux cooked captures; a frame of another link type is counted as unread. A frame carrying no IP (CDP, a keepalive, but also anything inside MPLS or PPPoE) and an unread frame are not examined, so they are counted apart as unexamined, never as cleartext: \"nothing crossed in the clear\" is cleartext 0 and unexamined 0 (or every unexamined frame accounted for by its protocol). IKE and ESP in UDP are told by their ports, and ESP is counted encrypted whatever its cipher, ESP-NULL included. A file cut short is read up to the cut, and the task fails naming where. It changes nothing, and a check runs it as a run does. It runs on this machine with no device: write it without hosts.",
       "params": [
         {
           "name": "src",
@@ -11963,6 +11963,12 @@
           "type": "int",
           "returned": "always",
           "description": "Frames of a link type this method does not read."
+        },
+        {
+          "name": "unexamined",
+          "type": "int",
+          "returned": "always",
+          "description": "Frames this method could not judge encrypted or not: unread ones, and every one carrying no IP (non-ip)."
         }
       ],
       "examples": [
@@ -14733,7 +14739,7 @@
         {
           "name": "dest",
           "type": "string",
-          "description": "Where in the project to write the capture file, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.",
+          "description": "Where in the project to write the capture file, a name ending in .pcap or .pcapng, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.",
           "format": "project_path"
         }
       ],
@@ -17458,7 +17464,7 @@
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
-      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it.",
+      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
       "params": [
         {
           "name": "prefixes",

@@ -20,12 +20,12 @@ const maxNodeDepth = 64
 // pairs into the mapping it is written in.
 const mergeKey = "<<"
 
-// expandAliases replaces every alias in doc with a copy of the node its
+// ExpandAliases replaces every alias in doc with a copy of the node its
 // anchor marks, and folds every merge key's mappings into the mapping that
 // holds it, a pair written there winning over a merged one. A runbook's
 // readers (its key checks, its sugar rewrite, the decoder) then see plain
 // mappings and lists, never an alias node to refuse by its kind number.
-func expandAliases(doc *yaml.Node) error {
+func ExpandAliases(doc *yaml.Node) error {
 	count := 0
 	expanded, err := expandNode(doc, 0, &count)
 	if err != nil {
@@ -41,7 +41,7 @@ func expandNode(n *yaml.Node, depth int, count *int) (*yaml.Node, error) {
 		return nil, fmt.Errorf("line %d: the YAML nests deeper than %d levels once its aliases are expanded (an alias inside its own anchor?)", n.Line, maxNodeDepth)
 	}
 	if *count++; *count > maxExpandedNodes {
-		return nil, fmt.Errorf("line %d: the YAML's aliases expand it past %d nodes", n.Line, maxExpandedNodes)
+		return nil, fmt.Errorf("line %d: the YAML, its aliases expanded, holds more than %d nodes", n.Line, maxExpandedNodes)
 	}
 	if n.Kind == yaml.AliasNode {
 		if n.Alias == nil {
@@ -64,9 +64,15 @@ func expandNode(n *yaml.Node, depth int, count *int) (*yaml.Node, error) {
 	}
 	var merged []*yaml.Node
 	written := map[string]bool{}
+	merges := 0
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		key, val := n.Content[i], n.Content[i+1]
 		if key.Kind == yaml.ScalarNode && key.Value == mergeKey && key.Tag != "!!str" {
+			// YAML readers disagree on two (Go's refuses them, PyYAML takes
+			// the last), so a runbook says which with one, a list.
+			if merges++; merges > 1 {
+				return nil, fmt.Errorf("line %d: a mapping has two merge keys (<<); merge several with one, <<: [*a, *b], the first winning a key both hold", key.Line)
+			}
 			pairs, err := mergePairs(val, depth+1, count)
 			if err != nil {
 				return nil, err

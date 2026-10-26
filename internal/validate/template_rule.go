@@ -63,6 +63,9 @@ func TemplateRule(world WorldView) []Finding {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
+		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime && (engine.ParamsReadRoot(eng, task.Params, engine.TemplateRootDevice) || conditionReadsDevice(task)) {
+			findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s: %s", taskName(id, task), engine.ErrDeviceRootLockAll)})
+		}
 		for _, key := range keys {
 			for _, source := range engine.TemplateStrings(task.Params[key]) {
 				problems := checkTemplate(eng, source, formats[key], registered, task.Register)
@@ -111,6 +114,13 @@ func checkTemplate(eng render.Engine, source string, format collection.ParamForm
 		}
 	}
 	return problems
+}
+
+// conditionReadsDevice reports whether task's condition reads the device
+// root.
+func conditionReadsDevice(task *engine.Task) bool {
+	uses, err := engine.ConditionUsesRoot(task.Conditional, engine.TemplateRootDevice)
+	return err == nil && uses
 }
 
 // taskName is a task's label for a finding: its id and, when it has one,

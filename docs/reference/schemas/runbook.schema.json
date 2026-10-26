@@ -149,8 +149,7 @@
               "type": "string"
             },
             {
-              "minLength": 2,
-              "pattern": "^([0-9]+h)?([0-9]+m)?([0-9]+s)?$",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(h|m|s|ms|us|ns))+$",
               "type": "string"
             }
           ]

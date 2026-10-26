@@ -29,7 +29,7 @@ Stops the capture on the link named by link, or the one between a's a_interface 
 | `a_interface` | `string` | no | - | Its interface, by label. |
 | `b` | `string` | no | - | The other node, by label or id. |
 | `b_interface` | `string` | no | - | Its interface, by label. |
-| `dest` | `string` | no | - | Where in the project to write the capture file, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller. |
+| `dest` | `string` | no | - | Where in the project to write the capture file, a name ending in .pcap or .pcapng, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller. |
 
 ## Returns
 

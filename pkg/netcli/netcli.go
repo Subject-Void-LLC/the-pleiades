@@ -126,7 +126,9 @@ var (
 	// Measured on IOL XE 17.15 through the CML console (2026-10-26, Phase
 	// 129d), where the login's own %SEC_LOGIN-5-LOGIN_SUCCESS and the
 	// prompt after it were read as the next command's whole answer.
-	iosAsyncMessage = regexp.MustCompile(`^(?:\d+:\s*)?[*.]?[A-Za-z0-9:. ]*:\s*%[A-Z][A-Z0-9_]*-[0-7]-[A-Z0-9_]+:`)
+	// The sequence number and timestamp are each optional: with no
+	// service timestamps log, the line is the mnemonic alone.
+	iosAsyncMessage = regexp.MustCompile(`^(?:\d+:\s*)?(?:[*.]?[A-Za-z0-9:. ]*:\s*)?%[A-Z][A-Z0-9_]*-[0-7]-[A-Z0-9_]+:`)
 
 	// iosErrorPattern matches IOS's own line-start "% " error
 	// convention ("% Invalid input detected at '^' marker.", "%
@@ -279,6 +281,12 @@ type Session struct {
 	// unprivileged is set when the device left the session in a mode
 	// its Dialect calls unprivileged, so Config refuses at once.
 	unprivileged bool
+
+	// echoes is set once the device has echoed a line back, which every
+	// IOS device does: only then is a read with no echo taken for the
+	// device's own message (asyncOnly), so one that never echoes is never
+	// waited on.
+	echoes bool
 }
 
 // Open reads the device's first prompt and, when dialect names one,
@@ -483,7 +491,15 @@ func (s *Session) command(ctx context.Context, line string, configMode bool) (st
 	if err != nil {
 		return "", readFailure(err, "", "")
 	}
+	s.noteEcho(raw, line)
 	return stripEcho(raw, line, prompt), nil
+}
+
+// noteEcho records that the device echoed line, when raw begins with it.
+func (s *Session) noteEcho(raw, line string) {
+	if line != "" && strings.HasPrefix(raw, line) {
+		s.echoes = true
+	}
 }
 
 // maxAsyncReads bounds how many reads of the device's own messages one
@@ -492,11 +508,11 @@ const maxAsyncReads = 3
 
 // asyncOnly reports whether raw, read for line, holds nothing before its
 // prompt but the device's own messages (Dialect.AsyncMessage): no echo of
-// line, and at least one message. A read that is empty, or holds anything
-// else, is the line's answer as it always was, so a device that does not
-// echo never waits.
+// line, and at least one message, on a session whose device echoes. A read
+// that is empty, or holds anything else, is the line's answer as it always
+// was, and a device that has never echoed is never waited on.
 func (s *Session) asyncOnly(raw, line string, prompt *regexp.Regexp) bool {
-	if s.dialect.AsyncMessage == nil || strings.HasPrefix(raw, line) {
+	if s.dialect.AsyncMessage == nil || !s.echoes || strings.HasPrefix(raw, line) {
 		return false
 	}
 	body := raw

@@ -26,8 +26,9 @@ func UnmatchedTargetWarnings(world WorldView) []Finding {
 		if !ok || desc.Manifest.ExecutionContext.Device == collection.DeviceNone || world.DAG.Conditional(id) {
 			continue
 		}
+		// A target rendered from data (within:) is not known until the run.
 		target := engine.TaskTarget(world.DAG, task)
-		if target == "" || len(world.Resolve(target)) > 0 {
+		if task.Within != "" || target == "" || len(world.Resolve(target)) > 0 {
 			continue
 		}
 		unmatched[target] = append(unmatched[target], id)

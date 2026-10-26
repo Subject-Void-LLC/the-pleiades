@@ -13,6 +13,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -35,12 +36,16 @@ func (p *paramsSeen) Execute(_ context.Context, task *engine.Task, d inventory.I
 
 func TestDeviceRoot_RendersAndDecidesPerDevice(t *testing.T) {
 	registerRollbackFixtures(t)
+	// site is a key the type declares its accessors read; snmp_password,
+	// nested and note are not, and an operator's own key is never there.
+	record.RegisterDispatchProperties(deviceRootTestType, "site", "snmp_password", "nested", "token_text")
 	props := func(site string) map[string]any {
-		return map[string]any{"site": site, "snmp_password": "not-shown", "nested": map[string]any{"a": 1}}
+		return map[string]any{"site": site, "snmp_password": "not-shown", "nested": map[string]any{"a": 1},
+			"note": "an operator's own", "token_text": "AKIAIOSFODNN7EXAMPLEKEYS0123456789abcdefABCDEF"}
 	}
 	resolver := mapResolver{"web": {
-		&inventorytest.Stub{StubID: "web1", StubName: "web1", StubState: inventory.StateActive, Props: props("hq")},
-		&inventorytest.Stub{StubID: "web2", StubName: "web2", StubState: inventory.StateActive, Props: props("br1")},
+		typedStub{&inventorytest.Stub{StubID: "web1", StubName: "web1", StubState: inventory.StateActive, Props: props("hq"), StubTags: []inventory.Tag{"hq"}}},
+		typedStub{&inventorytest.Stub{StubID: "web2", StubName: "web2", StubState: inventory.StateActive, Props: props("br1")}},
 	}}
 	seen := &paramsSeen{}
 	x := engine.NewExecutor(resolver, seen, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0,
@@ -53,7 +58,7 @@ tasks:
       name: x
       note: "{{ device.name }} at {{ device.properties.site }}"
   - name: only at hq
-    when: ["device.properties.site == 'hq'"]
+    when: ["'hq' in device.tags"]
     rbtest.make:
       name: y
       note: "hq only"
@@ -71,7 +76,7 @@ tasks:
 
 	// A secret-named or structured property is not in the root, so a
 	// template reading one fails as reading any absent name does.
-	for _, read := range []string{"device.properties.snmp_password", "device.properties.nested"} {
+	for _, read := range []string{"device.properties.snmp_password", "device.properties.nested", "device.properties.note", "device.properties.token_text"} {
 		seen.seen = nil
 		result, err := x.Run(context.Background(), yamlRunbook(t, "id: s\nhosts: web\ntasks:\n  - rbtest.make:\n      name: z\n      note: \"{{ "+read+" }}\"\n"))
 		if err != nil {
@@ -95,5 +100,70 @@ tasks:
 	}
 	if !failed {
 		t.Errorf("a target reading device: %+v", result.Nodes)
+	}
+}
+
+// deviceRootTestType is the device type the test's devices report.
+const deviceRootTestType = "device_root_test"
+
+// typedStub is a stub that reports a device type, as record.Base does.
+type typedStub struct{ *inventorytest.Stub }
+
+// DeviceType reports the test's type.
+func (typedStub) DeviceType() string { return deviceRootTestType }
+
+// TestDeviceRoot_EveryPathAndItsLimits: a task reading device with a target
+// rendered from data resolves its devices from the rendered target; a task
+// in a block that runs as one unit, and a rollback_on_failure undo step,
+// read the device they run on too; and lock_acquisition: all_at_plan_time
+// with device is refused.
+func TestDeviceRoot_EveryPathAndItsLimits(t *testing.T) {
+	registerRollbackFixtures(t)
+	seen := &paramsSeen{}
+	run := func(runbook string, opts ...engine.ExecutorOption) engine.RunResult {
+		t.Helper()
+		opts = append([]engine.ExecutorOption{engine.WithRenderer(render.New())}, opts...)
+		x := engine.NewExecutor(twoDevices(), seen, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0, opts...)
+		result, err := x.Run(context.Background(), yamlRunbook(t, runbook))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	nodeErrors := func(r engine.RunResult) string {
+		var b strings.Builder
+		for _, n := range r.Nodes {
+			if n.Err != nil {
+				b.WriteString(n.Err.Error() + "; ")
+			}
+		}
+		return b.String()
+	}
+
+	result := run("id: r\ntasks:\n  - rbtest.make:\n      name: x\n      target: \"{{ vars.which }}\"\n      note: \"{{ device.name }}\"\n    within: web\n",
+		engine.WithVariables(map[string]any{"which": "web2"}))
+	if result.HasErrors() || !slices.Equal(seen.seen, []string{"web2: web2"}) {
+		t.Fatalf("a rendered target with device: %v, %s", seen.seen, nodeErrors(result))
+	}
+
+	seen.seen = nil
+	result = run(`id: u
+hosts: web
+tasks:
+  - name: a unit
+    block:
+      - rbtest.make: {name: one, note: "{{ device.name }} in the unit"}
+      - rbtest.make: {name: two, target: web, note: "its own target"}
+    rescue:
+      - noop: {}
+`)
+	slices.Sort(seen.seen)
+	if result.HasErrors() || !slices.Contains(seen.seen, "web1: web1 in the unit") || !slices.Contains(seen.seen, "web2: web2 in the unit") {
+		t.Fatalf("a unit's task with device: %v, %s", seen.seen, nodeErrors(result))
+	}
+
+	result = run("id: l\nhosts: web\ntasks:\n  - rbtest.make: {name: x, note: \"{{ device.name }}\"}\n    lock_acquisition: all_at_plan_time\n")
+	if !strings.Contains(nodeErrors(result), engine.ErrDeviceRootLockAll) {
+		t.Errorf("device with all_at_plan_time: %s", nodeErrors(result))
 	}
 }

@@ -1,7 +1,9 @@
 // The doc topics that are not a method or a device type: `pleiades doc
 // filters`, every filter a task parameter's {{ }} template may use, and
 // `pleiades doc conditions`, what a when, when_or or when_cel condition may
-// read and call. Both read the real engine, never a second list.
+// read and call. The filters and functions come from the engine itself; the
+// lists of roots below are written here, and a test holds them to the
+// engine's.
 package main
 
 import (
@@ -19,18 +21,20 @@ const (
 	docTopicConditions = "conditions"
 )
 
-// templateRoots are the names a task parameter's template may read.
+// templateRoots are the names a task parameter's template may read, each of
+// engine.TemplateRoots (TestDocTopics holds the two equal).
 var templateRoots = []docRoot{
-	{"device", "the device the task runs on: device.name, device.id, device.tags, device.capabilities, device.state and device.properties.<key> (plain values whose name names no secret); a task reading it renders once per device, and a target may not read it"},
+	{"device", "the device the task runs on: device.name, device.id, device.tags, device.capabilities, device.state and device.properties.<key> (only the keys its type reads, such as host, and never a secret); a task reading it renders once per device, and a target may not read it"},
 	{"vars", "the run's variables (pleiades run -e key=value, a launch's extra variables); never a secret"},
 	{"result", "result.<register>: the result an earlier task registered, when one device (or no device) wrote it"},
 	{"nodes", "nodes.<register>[\"<device id>\"]: an earlier task's registered result on each device, by the device's inventory id"},
+	{"error", "in a rescue task only: the failure it answers (error.message, error.task, error.name, error.method, error.device, error.unreached)"},
 	{"secret", "secret.<name>.<field>: a named secret (pleiades add-secret), only in a parameter whose method resolves one; never rendered into the runbook or its output"},
 }
 
 // conditionRoots are the names a condition may read.
 var conditionRoots = []docRoot{
-	{"device", "the device the task decides on, as in templates: device.properties.site == 'hq' runs the task only on those devices"},
+	{"device", "the device the task decides on, as in templates: 'hq' in device.tags runs the task only on the devices tagged hq"},
 	{"result", "result.<register>: an earlier task's registered result, as in templates"},
 	{"nodes", "nodes.<register>[\"<device id>\"]: each device's registered result"},
 	{"vars", "the run's variables"},

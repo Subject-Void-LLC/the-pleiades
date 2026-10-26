@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
@@ -118,7 +119,7 @@ func StopDoc() collection.Doc {
 		Summary:     "Stops a packet capture on a link of a CML lab and writes its file into the project.",
 		Description: "Stops the capture on the link named by link, or the one between a's a_interface and b's b_interface, and, with dest, fetches its pcap file from the controller and writes it into the project at dest (a path under the project directory, never .pleiades; up to 16 MiB, so bound a long capture with packets or seconds). A capture that already stopped at its bound is not stopped again, and its file is still fetched. The file is the packets as they crossed the wire: any cleartext that crossed is in it, so keep it with the project's other private files. Its result names the file, its size and SHA-256. The task's target is a cml_controller device; it writes only on the command line (pleiades run and adhoc), which holds the project. A check reads the capture and reports what it would do, writing nothing.",
 		Params: append(linkParams(),
-			collection.Param{Name: paramDest, Type: "string", Description: "Where in the project to write the capture file, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.", Format: collection.ParamFormatProjectPath},
+			collection.Param{Name: paramDest, Type: "string", Description: "Where in the project to write the capture file, a name ending in .pcap or .pcapng, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.", Format: collection.ParamFormatProjectPath},
 		),
 		Returns: []collection.ReturnField{
 			{Name: "id", Type: "string", Returned: "always", Description: "The link's id."},
@@ -231,6 +232,11 @@ func runStop(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", stopFQCN, err)
 	}
 	dest := sdk.StringParam(params, paramDest)
+	// A capture file, never another of the project's files: a runbook a
+	// later rollback reads as it ran must not be replaced by a pcap.
+	if dest != "" && !strings.HasSuffix(dest, ".pcap") && !strings.HasSuffix(dest, ".pcapng") {
+		return fail(fmt.Errorf("%s %q must name a .pcap or .pcapng file", paramDest, dest))
+	}
 	var writer sdk.ProjectFileWriter
 	if dest != "" {
 		w, ok := rc.(sdk.ProjectFileWriter)

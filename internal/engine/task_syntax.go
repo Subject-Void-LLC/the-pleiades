@@ -64,7 +64,7 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 	if err := yaml.Unmarshal(payload, &doc); err != nil {
 		return fmt.Errorf("failed to unmarshal YAML: %w", err)
 	}
-	if err := expandAliases(&doc); err != nil {
+	if err := ExpandAliases(&doc); err != nil {
 		return err
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
@@ -115,7 +115,7 @@ func normalizeWorkflowYAMLTaskList(data []byte, out *[]Task) error {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return err
 	}
-	if err := expandAliases(&doc); err != nil {
+	if err := ExpandAliases(&doc); err != nil {
 		return err
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.SequenceNode {
