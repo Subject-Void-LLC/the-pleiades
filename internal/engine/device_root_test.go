@@ -39,7 +39,7 @@ func TestDeviceRoot_RendersAndDecidesPerDevice(t *testing.T) {
 	registerRollbackFixtures(t)
 	// site is a key the type declares its accessors read; snmp_password,
 	// nested and note are not, and an operator's own key is never there.
-	record.RegisterDispatchProperties(deviceRootTestType, "site", "snmp_password", "nested", "token_text")
+	registerDeviceRootTypes()
 	props := func(site string) map[string]any {
 		return map[string]any{"site": site, "snmp_password": "not-shown", "nested": map[string]any{"a": 1},
 			"note": "an operator's own", "token_text": "AKIAIOSFODNN7EXAMPLEKEYS0123456789abcdefABCDEF"}
@@ -103,6 +103,14 @@ tasks:
 		t.Errorf("a target reading device: %+v", result.Nodes)
 	}
 }
+
+// registerDeviceRootTypes declares the two test device types' accessor keys,
+// once per process: the registry refuses a second declaration, and a test
+// run again in the same process (go test -count) would otherwise panic.
+var registerDeviceRootTypes = sync.OnceFunc(func() {
+	record.RegisterDispatchProperties(deviceRootTestType, "site", "snmp_password", "nested", "token_text")
+	record.RegisterDispatchProperties(deviceRootTestType+"2", "port", "enabled")
+})
 
 // deviceRootTestType is the device type the test's devices report.
 const deviceRootTestType = "device_root_test"
@@ -224,7 +232,7 @@ func (typedStub2) DeviceType() string { return deviceRootTestType + "2" }
 // refuses a rendered target.
 func TestDeviceRoot_CapabilitiesScalarsAndTheFailuresOfTheDevicePath(t *testing.T) {
 	registerRollbackFixtures(t)
-	record.RegisterDispatchProperties(deviceRootTestType+"2", "port", "enabled")
+	registerDeviceRootTypes()
 	web1 := typedStub2{&inventorytest.Stub{StubID: "web1", StubName: "web1", StubState: inventory.StateActive,
 		Caps: []capability.Name{capability.NameSSHTransport}, Props: map[string]any{"port": 22, "enabled": true}}}
 	resolver := mapResolver{"web": {web1}}
