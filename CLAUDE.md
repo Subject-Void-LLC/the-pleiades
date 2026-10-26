@@ -64,12 +64,20 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 201 registered FQCNs; 198 implemented, 3 declared-not-implemented.** These counts
+- **Named secrets are real on the Crawl tier (Phase 129a).** `pleiades add-secret <name> --field f`
+  stores a value no device's login holds (a shared IKE key, a CA passphrase) in the credential file's
+  `secrets:` section; a runbook names it `{{ secret.<name>.<field> }}` only in a parameter declaring
+  `collection.Param.SecretRefs` (`net.ios.config`'s `lines`, every `prompts` answer), which the engine never
+  renders and the method resolves through `sdk.NamedSecrets` just before the device reads it. Every named
+  secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
+  and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
+  (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
+- **Module catalog: 202 registered FQCNs; 199 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 29, `ai` 11,
-  `svc` 16, `net` 23, `file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
+  `svc` 16, `net` 24, `file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
   `http` 3, `pleiades` 3, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -157,7 +165,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 185 of the 198 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 186 of the 199 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an

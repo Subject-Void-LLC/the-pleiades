@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**198 of 201 methods are implemented.**
+**199 of 202 methods are implemented.**
 
 ## Implemented
 
@@ -65,6 +65,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [net.ios.ping](modules/net/ios/ping.md)
 - [net.ios.save](modules/net/ios/save.md)
 - [net.ios.replace](modules/net/ios/replace.md)
+- [net.ios.checkpoints](modules/net/ios/checkpoints.md)
 - [net.ios.parse](modules/net/ios/parse.md)
 - [net.catalyst.device_facts](modules/net/catalyst/device_facts.md)
 - [net.catalyst.site_facts](modules/net/catalyst/site_facts.md)

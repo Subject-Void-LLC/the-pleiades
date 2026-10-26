@@ -23,7 +23,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 25 | 23 |
+| `net` | 26 | 24 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
@@ -31,7 +31,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 29 | 29 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **201** | **198** |
+| **total** | **202** | **199** |
 
 ## All methods
 
@@ -149,6 +149,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.frr.config](net/frr/config.md) | implemented | Makes an FRRouting router run exactly the configuration given, and saves what it ran before so the change can be undone. |
 | [net.frr.facts](net/frr/facts.md) | implemented | Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data. |
 | [net.frr.interface](net/frr/interface.md) | implemented | Sets an FRRouting interface administratively up or down, recording the state it found. |
+| [net.ios.checkpoints](net/ios/checkpoints.md) | implemented | Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones. |
 | [net.ios.command](net/ios/command.md) | implemented | Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says. |
 | [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly. |
 | [net.ios.facts](net/ios/facts.md) | implemented | Gathers structured facts from a Cisco IOS device over its CLI. |

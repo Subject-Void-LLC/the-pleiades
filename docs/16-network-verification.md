@@ -306,6 +306,48 @@ has is replaced with no question, so its notices say so. Since a key pair is not
 such a run reports changed and warns that no undo returns the key pair; the example accepts a key pair that
 is already gone, so it can run again.
 
+### Keys a design shares: named secrets
+
+A secret a configuration needs that is no device's own login, such as an IKE pre-shared key every site of a
+VPN shares or the passphrase a CA asks for when it starts, is a named secret. It is stored once, encrypted
+like a device's credential, and a runbook names it rather than holding it:
+
+```bash
+pleiades add-secret dmvpn --field psk --generate 32      # or --value-stdin, or --value-file from pleiades seal
+pleiades list-secrets                                     # names and fields, never a value
+```
+
+```yaml
+  - name: The hub's keyring
+    net.ios.config:
+      lines:
+        - crypto ikev2 keyring DMVPN
+        - " peer ANY"
+        - "  address 0.0.0.0 0.0.0.0"
+        - "  pre-shared-key {{ secret.dmvpn.psk }}"
+  - name: Start the CA, answering its passphrase
+    net.ios.command:
+      command: crypto pki server CA start
+      prompts:
+        - match: 'Password:'
+          answer: "{{ secret.ca.passphrase }}"
+```
+
+The reference is filled in by the method just before the device reads the line, and only in a parameter
+that takes one (`pleiades doc` says which: `net.ios.config`'s `lines` and every `prompts` answer). Validation
+refuses one anywhere else, with a filter, or beside another template expression, and a run refuses a
+template whose value would write one, so a run's variables can never choose which secret is read. A value
+holding whitespace, a control character or `?` is refused, since a device's command line would read it as
+more than one word or as a request for help.
+
+Every named secret of the project is masked by value in everything a run reports, its errors and its text
+output included, whether or not a task of that run resolved it. A `show running-config` that prints the key
+afterwards comes back masked, and so does the stdout of every `net.ios.command`, by the same rules a
+configuration's differences are masked by. A prompt answered from a secret is recorded as `(secret)`.
+`pleiades validate` warns about a key written out in a configuration line and names the command that stores
+it. Named secrets are resolved by `pleiades run` and `pleiades adhoc`; a Runner, and an external Collection,
+cannot resolve one yet, and a task that holds one fails there naming why.
+
 ## Running Batfish
 
 Batfish runs as a container on a machine you choose; this runbook runs it on the machine `pleiades`

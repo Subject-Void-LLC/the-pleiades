@@ -10296,7 +10296,8 @@
         {
           "name": "prompts",
           "type": "list of dict",
-          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text written in the task is never sent to a question asking for a password, passphrase or secret; answer one with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret), which is resolved just before it is typed, may stand only with literal text, and is recorded in exchanges as (secret).",
+          "secretRefs": true
         },
         {
           "name": "ask",
@@ -10795,6 +10796,85 @@
       ]
     }
   },
+  "net.ios.checkpoints": {
+    "supportedTransports": [
+      "ssh",
+      "telnet",
+      "console"
+    ],
+    "requiredCapabilities": [
+      "CiscoIOSCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A checkpoint deleted is gone, and the undo net.ios.config recorded for its change (net.ios.replace naming it) then refuses: prune only what no rollback will need. Listing changes nothing."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones.",
+      "description": "Reads the file system net.ios.config keeps its checkpoints on (the device's default writable disk or flash, such as unix: or flash:) with dir, and reports each change's checkpoints, newest first: its id, the configuration before it and, for a change that completed, after it, with the time and size the device gives. Only files named as net.ios.config names them (pleiades-<12 hex digits>.cfg and -after.cfg) are ever listed or deleted, so a startup configuration or an image is never touched. Each checkpoint holds the whole configuration, its secrets included, and stays on the device until its change's undo runs. With prune, the checkpoints of every change but the newest keep, or of every change older than older_than, or both (a change goes when either says so), are deleted with delete /force; a check reports what would go. A deleted checkpoint's undo (the net.ios.replace net.ios.config recorded) then refuses, so prune only changes no rollback will need, such as those of a lab about to be deleted.",
+      "params": [
+        {
+          "name": "prune",
+          "type": "bool",
+          "default": "false",
+          "description": "Delete the checkpoints keep and older_than select. Without it the method only lists."
+        },
+        {
+          "name": "keep",
+          "type": "int",
+          "description": "With prune, keep the checkpoints of this many of the newest changes and delete the rest; 0 deletes every one."
+        },
+        {
+          "name": "older_than",
+          "type": "string",
+          "description": "With prune, delete the checkpoints of every change older than this, a Go duration such as 72h, by the time the device gives its files."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        },
+        {
+          "name": "insecure_telnet",
+          "type": "bool",
+          "default": "false",
+          "description": "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."
+        }
+      ],
+      "returns": [
+        {
+          "name": "checkpoints",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each change's checkpoints, newest first: id, before, after (empty when the change did not complete), modified (RFC 3339, empty when the device's time did not read) and bytes."
+        },
+        {
+          "name": "deleted",
+          "type": "list of string",
+          "returned": "when prune is true",
+          "description": "The files deleted, or in a check the files that would be."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep the checkpoints of the last five changes",
+          "runbookYaml": "- name: Prune old checkpoints\n  net.ios.checkpoints:\n    prune: true\n    keep: 5\n"
+        }
+      ],
+      "seeAlso": [
+        "net.ios.config",
+        "net.ios.replace"
+      ]
+    }
+  },
   "net.ios.command": {
     "supportedTransports": [
       "ssh",
@@ -10818,7 +10898,7 @@
     "noCheckReason": "an arbitrary command can be anything the device accepts, and what it changes, if anything, is known only once the device has run it",
     "doc": {
       "summary": "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
-      "description": "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task. A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed. A command that only reads (show, or IOS's abbreviation of it, and dir and more written in full) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command cannot be inspected, so it reports changed every time it runs without error.",
+      "description": "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task, unless accept takes it; a command that only reads fails only on IOS's own refusal of the line (% Invalid input, % Incomplete command, % Ambiguous command, % Unrecognized command, %Error), since a \"% \" line in what it shows is the device's data. A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed and its secrets (a pre-shared key, a password, a community) masked; every named secret of the project is masked by value besides. A command that only reads (show, or IOS's abbreviation of it, and dir, more, ping, traceroute and terminal written in full, the last changing only this session) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command, debug among them, cannot be inspected, so it reports changed every time it runs without error.",
       "params": [
         {
           "name": "command",
@@ -10828,9 +10908,15 @@
           "format": "command"
         },
         {
+          "name": "accept",
+          "type": "list of string",
+          "description": "Further IOS \"% \" lines to take as output rather than a refusal, each RE2 matched from the start of the line and so beginning with %, as net.ios.config's accept. A command that only reads needs none: it fails only on IOS's own refusal of the line."
+        },
+        {
           "name": "prompts",
           "type": "list of dict",
-          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text written in the task is never sent to a question asking for a password, passphrase or secret; answer one with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret), which is resolved just before it is typed, may stand only with literal text, and is recorded in exchanges as (secret).",
+          "secretRefs": true
         },
         {
           "name": "ask",
@@ -10939,8 +11025,9 @@
           "name": "lines",
           "type": "list of string",
           "required": true,
-          "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.",
-          "format": "command"
+          "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself. A line may name a stored secret, such as a pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the line is sent, and masked in everything the run reports. A line holding one holds no other template expression, and a value with whitespace, a control character or ? is refused.",
+          "format": "command",
+          "secretRefs": true
         },
         {
           "name": "checkpoint",
@@ -10962,7 +11049,8 @@
         {
           "name": "prompts",
           "type": "list of dict",
-          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text written in the task is never sent to a question asking for a password, passphrase or secret; answer one with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret), which is resolved just before it is typed, may stand only with literal text, and is recorded in exchanges as (secret).",
+          "secretRefs": true
         },
         {
           "name": "ask",

@@ -232,6 +232,55 @@ remove a stored database connection
 
 `pleiades remove-database-connection appdb`
 
+## pleiades add-secret
+
+store one field of a named secret, encrypted, for a runbook to name as {{ secret.<name>.<field> }} in a parameter its method resolves
+
+`pleiades add-secret <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --field | `string` | - | the field of the secret to store, a lowercase identifier |
+| --value-stdin | `bool` | `false` | read the value as one line on standard input |
+| --value-file | `string` | - | a file `pleiades seal` wrote holding the value |
+| --passphrase | `bool` | `false` | prompt for the passphrase of a passphrase-sealed --value-file |
+| --passphrase-stdin | `bool` | `false` | read the passphrase of a passphrase-sealed --value-file as one line on standard input |
+| --generate | `int` | `0` | generate a random value of this many letters and digits (8 to 128) instead of reading one |
+| --replace | `bool` | `false` | replace a value already stored for the field |
+
+`pleiades add-secret dmvpn --field psk --generate 32`
+
+`pleiades add-secret dmvpn --field psk --value-file psk.sealed`
+
+## pleiades list-secrets
+
+list the stored named secrets and their fields, never a value
+
+`pleiades list-secrets [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades list-secrets --json`
+
+## pleiades remove-secret
+
+remove a stored named secret, or one of its fields
+
+`pleiades remove-secret <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --field | `string` | - | remove only this field; the whole secret when empty |
+
+`pleiades remove-secret dmvpn`
+
+`pleiades remove-secret dmvpn --field psk`
+
 ## pleiades import-kubeconfig
 
 make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file
