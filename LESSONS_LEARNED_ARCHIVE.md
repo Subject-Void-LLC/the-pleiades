@@ -6438,3 +6438,70 @@ Setting up the guest through `win.archive.extract` found that Windows 11 build 2
 folder under a drive root, which Server 2025's never showed (675). LESSONS 257 (run a recovery feature end to end on
 real infrastructure) and 335 (prove a method through each carrier it claims) say the same for features; this applies
 it to the gate's own machinery.
+
+## 343. A repeat in kind of 273: detect a capability by asking for it, never by a proxy for it
+
+**Rule.** A test, script or check that needs a capability asks for the capability itself: `docker info` answering and
+`docker compose version` running, not a `docker` on the PATH; Go's list of race detector platforms, not
+`CGO_ENABLED=1` or a `gcc.exe` on the PATH. When a tool is installed on a check machine (a C compiler, a docker CLI),
+look for every check that used it as a proxy, because the set of tests that run there has just changed.
+
+**Why.** 2026-10-27, two of the day's six gate stops. Installing llvm-mingw on the Windows ARM VM made cgo true, and
+both wincheck's script and testgate's live tests read cgo as "the race detector is here"; Go has none for
+windows/arm64 (FAILURE_PATTERNS 683, a repeat of 502). Installing Homebrew's docker CLI on the Mac for Podman made two
+tests that checked only `exec.LookPath("docker")` run in a pass with no daemon and no compose plugin (684).
+
+**Repeat.** LESSONS 273 says a guard reads the property a list stands for, not a proxy for it, and 114 says a guard
+written after an incident is narrower than its rule. 273 was written about guards over hand-kept lists, and nobody
+swept capability checks in test helpers and check scripts for the same shape. Each proxy was right on every machine it
+had met, and became wrong when a machine gained a tool.
+
+## 344. A program that runs make, or reads make's output, clears what a parent make exports from the child's environment
+
+**Rule.** Before starting a make, or a program that may start one, remove `MAKEFLAGS`, `MFLAGS`, `MAKELEVEL`,
+`MAKEFILES`, `MAKEOVERRIDES` and `GNUMAKEFLAGS` from the child's environment, so the child runs as an operator's make
+would. A test that checks what make printed is the one this matters to most.
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 686). The gate monitor runs `make --trace pr-check`. make exported `--trace`
+through `MAKEFLAGS`, `go test` passed it on, and the upgrade gate's own `make up` printed a recipe line holding a backup
+message for a branch that never ran. The gate's "no second backup" check failed on that text, twice in two days, and
+the cause stayed hidden because a run by hand, outside make, passed. Entry 284 had shown `-n` crossing into a sub-make
+the same way inside one Makefile; here the flags crossed `go test` too.
+
+## 345. A dashboard's stage state comes from an explicit marker the producer prints, not from inferring order from other lines
+
+**Rule.** When a tool shows a stage as pending, running or done, the producer prints a line for each change (`the fast
+pass begins`), and the tool reads that line. It never infers that a stage began from the state of a different stage.
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 680). The monitor started the fast pass only while the mac leg was pending, an
+inference from the recipe's old order. When the machine checks moved to start at t0, the inference silently reported
+the running fast pass as pending. The owner caught it: "dont gaslight me everything else is pending". The caller
+reports that the containers stage had shown the same symptom before. An explicit marker survives a change of order; an
+inference lies when the order changes, and nothing in it notices.
+
+## 346. A machine kept only for checks cleans before every run instead of refusing with advice
+
+**Rule.** A check run on a machine kept only for checks, which the check starts and puts back, clears the leftovers
+its own kind of work leaves before every run: the login's Go build cache, `go-build*` and `Test*` folders in its
+temporary directory, and, while still short of room, its module cache. It cleans only what is Go's and the login's,
+and never on a machine someone else uses (the Mac is left untouched).
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 688, a repeat of 537). bsd-check refused a gate with 3 GB free: about 5 GB of
+`go-build` work folders were left by `go test` runs killed when the day's gates were interrupted. Interrupted runs are
+the normal case on a lab box, not the exception, so a refusal that names a cleanup to run by hand stops the next gate
+every time. The owner directed the fix ("bsd and windows vms need to free space before each run", "arm windows needs
+it too"). LESSONS 292's limit still holds: on a machine that is not kept for checks, a check removes only what it made.
+
+## 347. A repeat in kind of 342: each new leg or configuration's first full run finds a different first failure, so run it end to end early and expect it to fail
+
+**Rule.** After any change to how the gate runs (a leg moved, a tool installed on a check machine, the gate started
+through a new wrapper), run the whole gate early, before the change it is meant to verify is ready, and plan for that
+first run to fail on something new.
+
+**Why.** 2026-10-27: six gate runs in one day each stopped on a different first failure: a missing C compiler (682),
+the race platform (683), docker detection (684), a waiver's line (685), `MAKEFLAGS` (686) and a timing test (687).
+Each was invisible to unit tests and to the run before it, because the run before it stopped earlier.
+
+**Repeat.** LESSONS 342 says to run a new check leg end to end on its real machine before relying on it, and that was
+done for `winarm`. It did not hold for configuration changes, which are new legs in all but name: installing a compiler
+or a docker CLI changed which tests ran, and starting legs at t0 changed what the monitor saw.

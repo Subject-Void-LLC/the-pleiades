@@ -375,6 +375,11 @@ story, per `.AGENTS/AGENTS.md`.
 340. **vmcli's MKS sendKeyEvent takes a HID usage shifted left 16 bits and a modifier mask; sendKeySequence garbles long strings, so send short chunks (2026-10-27).**
 341. **What a Collection does not carry goes into the Groundconfig corpus, not only into these records (2026-10-27).**
 342. **A repeat in kind of 257 and 335: run a new check leg end to end on its real machine before relying on it; that run finds what unit tests cannot (2026-10-27).**
+343. **A repeat in kind of 273: detect a capability by asking for it, never by a proxy for it (2026-10-27).**
+344. **A program that runs make, or reads make's output, clears what a parent make exports from the child's environment (2026-10-27).**
+345. **A dashboard's stage state comes from an explicit marker the producer prints, not from inferring order from other lines (2026-10-27).**
+346. **A machine kept only for checks cleans before every run instead of refusing with advice (2026-10-27).**
+347. **A repeat in kind of 342: each new leg or configuration's first full run finds a different first failure, so run it end to end early and expect it to fail (2026-10-27).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

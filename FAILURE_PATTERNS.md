@@ -670,7 +670,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 665. A reachability-question fallback for a Batfish traceroute that ends abnormally would have answered "not delivered" for a path that is delivered (fixed before push)
 666. virt.cml.link.stop on a link that never ran recorded a start as its undo, so a rollback would start a link the run never found running (a repeat of 156) (fixed before push)
 667. virt.cml.capture.stop's dest could name any project file, a runbook included, and replace it with a pcap (fixed before push)
-668. testgate's run record kept a failure's last 40 lines, so tests/e2e's upgrade gate, which logs every command, left only its teardown and the cause was lost (a repeat of 414) (fixed; the upgrade gate's own failure is open)
+668. testgate's run record kept a failure's last 40 lines, so tests/e2e's upgrade gate, which logs every command, left only its teardown and the cause was lost (a repeat of 414) (fixed; the upgrade gate's own failure is 686, fixed before push)
 669. remove-host rewrote hosts.yaml before reading the host's state file, so an unreadable state file left the host removed and --credential and --forget-host-keys skipped (a repeat of 105) (fixed before push)
 670. A rescue task reading device with lock_acquisition: all_at_plan_time ran per device without the lock; only validate refused it (a repeat of 657) (fixed before push)
 671. vmrun start forks vmware-vmx, which inherits and holds vmrun's standard output, so a start read through a pipe or an SSH channel never ended (fixed before push)
@@ -682,6 +682,17 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 677. go generate ./internal/forge/catalogdata wrote eight scaffold files for the CML link and capture start and stop methods, which already exist in other files, so the methods would register twice (a sibling of 160) (open)
 678. README's check-mode count stayed at 191 of 204 after three Fusion methods were added (a repeat of 459 and 661) (fixed before push)
 679. A scripted edit to box_test.go silently did not apply, so the Fusion fake never answered info and the first test case passed by accident (fixed before push)
+680. The pr-check monitor showed the fast pass as pending while it ran, because it started that pass only while the mac leg was still pending (fixed before push)
+681. Made concurrent, the Mac's container-free tests and its Podman container half would have shared one job file in the same tree, so stopping either could kill the other (fixed before push)
+682. The Windows ARM VM had no C compiler, so go-sqlite3 was its stub; internal/ui/resources' shared fixture failed once, and 76 later tests failed with 404s the cgo-off skip could not tell from real failures (fixed before push; the classification gap is open)
+683. With a C compiler installed, wincheck turned -race on and testgate's live tests said the race detector was there, and Go has none for windows/arm64 (a repeat of 502) (fixed before push)
+684. Tests decided Docker was available from a docker on the PATH, so Homebrew's docker CLI on the Mac made them run where no daemon answers and no compose plugin exists (fixed before push)
+685. Three lines added above a waived docker build call moved its gosec G204 finding from line 38 to 41, and the gate stopped on an unwaived finding and a stale waiver (fixed before push)
+686. The monitor's make --trace reached the upgrade gate's own make up through MAKEFLAGS, which echoed a backup line that never ran, and the gate's no-second-backup check failed on the echo (fixed before push)
+687. localauth's timing test averaged five calls in a row per side, and a stall on the busy Windows ARM VM failed the strict repeat (a repeat of 422) (fixed before push)
+688. bsd-check stopped a gate at its readiness step with 3 GB free, because about 5 GB of go-build and Test* folders left by interrupted runs sat in /tmp and the check cleaned only its own trees (a repeat of 537) (fixed before push)
+689. A for loop over pgrep -f "tools/monitor/monitor.py run" matched the agent's own shell, whose command line held that text, and killed it (a repeat of 153) (open: the guard does not catch pgrep -f)
+690. On win-check, the full -race pass reported internal/ui/resources/credentialtypes as [build failed] with no compiler output, and the same build alone passed in 2.4 s (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

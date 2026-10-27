@@ -16407,6 +16407,10 @@ the failure can no longer be rerun, had no more room than the console.
 **Lesson.** The record read after the run keeps far more than the console shows. A cause lost from it cannot be told
 from contention, and the failure cannot be asked again.
 
+**Resolution (2026-10-27).** The upgrade gate's own failure recurred at `53fc9a61` and its cause was found: the
+monitor's `make --trace` reached the gate's own `make up` through `MAKEFLAGS`. It is entry 686, fixed before push in
+`d560109b`.
+
 ## 669. remove-host rewrote hosts.yaml before reading the host's state file, so an unreadable state file left the host removed and --credential and --forget-host-keys skipped (a repeat of 105) (fixed before push)
 
 **Symptom.** 2026-10-26, in `pleiades remove-host`, added on this branch and not yet pushed. `RemoveHost` rewrote `hosts.yaml`
@@ -16607,3 +16611,213 @@ and 440, a check that passes without looking.
 
 **Lesson.** Every scripted edit asserts that its anchor matched exactly once before it writes, and every new case is
 checked against a case that must fail (LESSONS 338).
+
+## 680. The pr-check monitor showed the fast pass as pending while it ran, because it started that pass only while the mac leg was still pending (fixed before push)
+
+**Symptom.** 2026-10-27, after `830e3399` started the Mac's chain before the fast pass: the monitor's dashboard showed
+the fast pass as pending while its packages ran. The owner caught it ("dont gaslight me everything else is pending").
+The caller reports that the containers stage had shown the same symptom before; that instance was never recorded, and
+the archive holds no earlier monitor entry, so this is not marked a repeat.
+
+**Root cause.** `current_pass` in `tools/monitor/prlog.py` started the fast pass on its first package line only when
+the fast stage was pending, had packages, and the mac leg was still pending. The last condition inferred the recipe's
+order from another stage: the Mac's leg used to begin after the fast pass. Once the Mac's chain started at t0, the mac
+leg was always running by then, so the fast pass was never started.
+
+**Fix.** `01710eb9`: each local pass prints `pr-check: the <fast|repeat|containers> pass begins`, and the monitor reads
+that line (`PASS_BEGIN`); `current_pass` no longer looks at the mac leg. A leg started at t0 prints a "run from the
+start, beside" line, which `LEG_AT_START` and `LAB_AT_START` read: each starts its leg and leaves the recipe's own
+stage alone. `test_legs_from_the_start` (`tools/monitor/test_monitor.py`) holds it.
+
+**Lesson.** A dashboard learns that a stage began from a marker its producer prints, not from the order of other lines;
+the order changes, and the inference then reports a running stage as pending (LESSONS 345).
+
+## 681. Made concurrent, the Mac's container-free tests and its Podman container half would have shared one job file in the same tree, so stopping either could kill the other (fixed before push)
+
+**Symptom.** 2026-10-27, found by reading the code before the first run that started the Mac's two halves together.
+Both wrote their test job's process to `.maccheck.pid` in the same unpacked tree.
+
+**Root cause.** `POSIX.PIDFile` named one file per tool. The two halves had always run one after the other, so one
+file was enough; running them at once made the second write replace the first, and the stop script reads that file
+to end a run.
+
+**Fix.** `01710eb9`: `POSIX.PIDFile` (`tools/internal/oscheck/posix.go`) gives a container pass its own file,
+`.<tool>-containers.pid`. `TestPIDFile_TheContainerPassHasItsOwn` (`tools/internal/oscheck/containers_test.go`)
+holds it.
+
+**Lesson.** When two runs that were serial become concurrent, list every file and name they write and give each run
+its own.
+
+## 682. The Windows ARM VM had no C compiler, so go-sqlite3 was its stub; internal/ui/resources' shared fixture failed once, and 76 later tests failed with 404s the cgo-off skip could not tell from real failures (fixed before push; the classification gap is open)
+
+**Symptom.** 2026-10-27, the `winarm` leg on the Windows 11 ARM VM: `internal/ui/resources` failed 77 tests. One
+printed go-sqlite3's stub error and was turned into a skip; the other 76 failed with 404 answers that look like real
+defects. The leg also printed 19 `FAIL` lines, which the monitor counted as 19 failed packages, where the leg's record
+held one.
+
+**Root cause.** With no C compiler, Go builds with cgo off and go-sqlite3 links a stub that fails every open.
+`internal/ui/resources` opens SQLite once, behind a `sync.Once`, so only its first test printed the stub's error.
+`flakegate.CgoStubSkips` (added in `a6ab9f35`, 2026-10-19) turns a test into a "needs cgo" skip only when that test's
+own output carries the stub's error, so it skipped the first test and left the rest as failures: each got a fixture
+with no views. The monitor counts a leg's raw `FAIL` lines rather than reading the leg's record.
+
+**Fix.** `c4c56d71`: the VM has llvm-mingw 20261020 (ucrt, aarch64, SHA-256 checked), installed through the lab's
+pleiades runbook, and wincheck's script puts its newest `C:\llvm-mingw-*` folder's `bin` on the PATH, so cgo is on and
+the real driver links. `TestTestScript` (`tools/wincheck/device_test.go`) holds the script. Open, as Phase 129e items:
+a shared fixture still hides the stub from `CgoStubSkips` on a machine with no compiler, and the monitor still counts
+raw `FAIL` lines.
+
+**Lesson.** A failure classifier that reads one test's output misses a cause a shared fixture reported once; when
+dozens of tests in one package fail with ordinary-looking errors, read the package's first failure.
+
+## 683. With a C compiler installed, wincheck turned -race on and testgate's live tests said the race detector was there, and Go has none for windows/arm64 (a repeat of 502) (fixed before push)
+
+**Symptom.** 2026-10-27, the first `winarm` run after llvm-mingw was installed (682): `go test` refused `-race` on
+windows/arm64, and `tools/testgate`'s own live tests failed the same way.
+
+**Root cause.** wincheck's script turned `-race` on whenever `gcc.exe` was found, and `raceOff`
+(`tools/testgate/gate_live_test.go`) said the race detector was available whenever `go env CGO_ENABLED` was 1. Go has
+no race detector for windows/arm64, so both proxies were wrong there.
+
+**Fix.** `c4c56d71`: the script turns `-race` on only when `go env GOARCH` is amd64, and says why otherwise
+(`TestTestScript`). `5de01920`: `racePlatforms` in `tools/testgate/gate_live_test.go` lists the GOOS/GOARCH pairs Go
+1.26 builds the race detector for, and the live tests read it.
+
+**Why 502 did not prevent it.** 502 keyed the race detector's availability on cgo, which was true only while every
+Windows machine with a compiler was amd64. Installing a compiler on an ARM machine made the proxy wrong.
+
+**Lesson.** Ask for the capability itself (the race detector's platform list), not a precondition of it (LESSONS 343).
+
+## 684. Tests decided Docker was available from a docker on the PATH, so Homebrew's docker CLI on the Mac made them run where no daemon answers and no compose plugin exists (fixed before push)
+
+**Symptom.** 2026-10-27, the Mac's container-free pass: tests in `internal/engine`, `internal/forge/playbook` and
+`internal/setup` failed. The owner named it: "a docker misdetect when podman is there".
+
+**Root cause.** `testsupport.BuildAnsibleRunnerImage` and the docker compose comparison test
+(`internal/setup/envfile_compose_test.go`) decided Docker was available from `exec.LookPath("docker")` alone.
+Homebrew's docker CLI was installed on the Mac for Podman. In the container-free pass no daemon answers it
+(`DOCKER_HOST` is set only in the container half), and the CLI has no compose plugin, so the tests ran and failed
+instead of skipping.
+
+**Fix.** `f929ec68`: both call `testsupport.Require("docker")` on `docker info` succeeding, and the compose test also on
+`docker compose version`. CI's fast job now requires docker (`PLEIADES_TEST_REQUIRE` in `.github/workflows/ci.yml`),
+so a runner that loses its daemon still fails rather than skipping.
+
+**Lesson.** A test asks for what it needs (a daemon that answers, a plugin that runs), not for a file that is usually
+installed beside it (LESSONS 343).
+
+## 685. Three lines added above a waived docker build call moved its gosec G204 finding from line 38 to 41, and the gate stopped on an unwaived finding and a stale waiver (fixed before push)
+
+**Symptom.** 2026-10-27, `make pr-check` after `f929ec68`: gosec reported G204 at
+`internal/testsupport/ansible_image.go:41` as unwaived, and the waiver for line 38 as matching nothing.
+
+**Root cause.** `gosec-waivers.json` keys each waiver by file and line. `f929ec68` added the `Require` checks above
+the unchanged `docker build` call, which moved it three lines. The archive holds no earlier entry for this class,
+though the history shows the same drift fixed at least four times without a record (`d80932da`, `8ae74370`,
+`180f6e85`, `c9df9ba9`).
+
+**Fix.** `53fc9a61`: the waiver was re-reviewed, moved to line 41, and its reason updated to name the new checks.
+
+**Lesson.** An edit to a file that holds a waived finding runs `make gosec` before the commit, and the waiver is
+reviewed again, not only moved.
+
+## 686. The monitor's make --trace reached the upgrade gate's own make up through MAKEFLAGS, which echoed a backup line that never ran, and the gate's no-second-backup check failed on the echo (fixed before push)
+
+**Symptom.** `tests/e2e`'s `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed in pr-check's containers pass at
+`e3560066` (2026-10-26) and at `53fc9a61` (2026-10-27), and in testgate's isolated rerun each time, yet passed when run
+alone by hand. This is the failure 668 left open.
+
+**Root cause.** `tools/monitor` runs `make --trace pr-check`. make exports `--trace` in `MAKEFLAGS` to every recipe's
+commands, `go test` passed it on, and the upgrade gate's own `make up` read it as its own flag. With `--trace`, make
+printed the `up` recipe's line holding `echo "... backed up first."`, though the branch that runs it never ran, and the
+gate's check that no second backup was taken matched the printed text. `scrubbedPackagingEnv`
+(`tests/e2e/packaging_support_test.go`) removed setup's and compose's variables but not make's. testgate's isolated
+rerun inherits the same environment, which is why it failed too, and a run by hand outside make did not. It is related
+in kind to 284, where `-n` reached a sub-make through `MAKEFLAGS`, but 284 was inside one Makefile.
+
+**Fix.** `d560109b`: `scrubbedPackagingEnv` also drops `MAKEFLAGS`, `MFLAGS`, `MAKELEVEL`, `MAKEFILES`,
+`MAKEOVERRIDES` and `GNUMAKEFLAGS` (`makeInherited`), so a gate's make runs as an operator's would.
+`TestScrubbedPackagingEnv_DropsWhatAParentMakePasses` (`tests/e2e/packaging_env_test.go`) holds it. Reproduced before
+the fix: the gate fails with `MAKEFLAGS=--trace` set and passes with the fix.
+
+**Lesson.** A program that runs make, or reads make's output, clears what a parent make exports before it starts the
+child (LESSONS 344).
+
+## 687. localauth's timing test averaged five calls in a row per side, and a stall on the busy Windows ARM VM failed the strict repeat (a repeat of 422) (fixed before push)
+
+**Symptom.** 2026-10-27, the `winarm` leg's strict repeat pass: `internal/localauth`'s
+`TestAuthenticate_UnknownAccountIsNotFasterThanAKnownOne` failed with the known account's side at 146 ms against the
+unknown account's 35 ms. The unknown side still ran a full key derivation; a shortcut costs microseconds.
+
+**Root cause.** The test averaged five calls in a row for each side, so one stall during the known side's calls
+counted against that side alone.
+
+**Fix.** `3012d852` (`internal/localauth/ent_store_test.go`): each side's fastest of 15 alternating rounds, 422's
+method. The account's lockout is raised past the rounds, so every known attempt still derives. A planted shortcut
+still fails the test (45 us against 15 ms).
+
+**Why 422 did not prevent it.** 422 fixed `TestSecureCompare_ConstantTime`, and its sweep reported no other test
+comparing two timings. This one did, and the sweep missed it.
+
+**Lesson.** A sweep for a class is a search by shape (two measured durations compared), not by the names a first fix
+touched; record how the sweep searched so a miss can be found.
+
+## 688. bsd-check stopped a gate at its readiness step with 3 GB free, because about 5 GB of go-build and Test* folders left by interrupted runs sat in /tmp and the check cleaned only its own trees (a repeat of 537) (fixed before push)
+
+**Symptom.** 2026-10-27, `make pr-check` at `3012d852`: the `bsd` leg stopped at its readiness step, with 3 GB free
+where its tests unpack and build, under the 4 GB a run needs.
+
+**Root cause.** About 5 GB of `/tmp/go-build*` work folders, and `Test*` temporary folders, were left by `go test` runs
+that were killed when the day's gates were interrupted. The readiness step removed only the check's own trees and
+cache, then refused.
+
+**Fix.** `aa5e5b64`, at the owner's direction ("bsd and windows vms need to free space before each run", "arm windows
+needs it too"): a check run on a box it starts and puts back (`oscheck.Dedicating`) clears, before every run, the
+login's default Go build cache, `go-build*` and `Test*` folders in its temporary directory, and, while still short, its
+module cache. A machine that is not such a box (the Mac) is untouched. `TestReadyScript_ADedicatedMachineClearsItsLoginsGoLeftovers`
+(`tools/internal/oscheck/posix_test.go`), `TestDedicate` (`tools/internal/oscheck/lab_test.go`), `TestDedicated`
+(`tools/bsdcheck/device_test.go`) and `TestDedicatedReadyScript` (`tools/wincheck/device_test.go`) hold it. Proven live:
+bsd-check went from 3 to 8.2 GB free; on win-check and win11-arm a planted `go-build` and `Test*` folder were removed
+and an unrelated folder kept.
+
+**Why 537 did not prevent it.** 537 made the readiness step refuse under 4 GB with the fix named, cleaning only what the
+check itself wrote, and added a lab runbook to clean by hand. Leftovers from killed runs are outside the check's own
+trees, and a runbook run by hand is not run before every check.
+
+**Lesson.** A machine kept only for checks cleans the leftovers its own kind of work leaves before every run, rather
+than refusing with advice (LESSONS 346).
+
+## 689. A for loop over pgrep -f "tools/monitor/monitor.py run" matched the agent's own shell, whose command line held that text, and killed it (a repeat of 153) (open: the guard does not catch pgrep -f)
+
+**Symptom.** 2026-10-27, stopping the gate monitor before starting a new gate:
+`for p in $(pgrep -f "tools/monitor/monitor.py run"); do kill ...` ended its own shell with exit 144, before the next
+command (which started the new gate) ran. A tooling mistake by the agent, not a product defect.
+
+**Root cause.** `pgrep -f` matches whole command lines, and the loop's shell had the pattern in its own.
+
+**Fix.** None in this repository. Match a process by the exact start of its argv
+(`pgrep -f "^.venv/bin/python tools/monitor/monitor.py run"`) or by its pid. The agent's guard hook, which lives outside
+this repository, refuses `pkill -f` and `killall` but not `kill` fed by `pgrep -f`.
+
+**Why 153 did not prevent it.** 153's fix was a lesson only, and LESSONS 292 restated it for `pkill -f`. The guard
+added later blocks that one spelling; the same match written as `kill $(pgrep -f ...)` passes it.
+
+**Lesson.** A guard against a hazard covers each way of writing it, not the spelling of the last incident (LESSONS 114).
+
+## 690. On win-check, the full -race pass reported internal/ui/resources/credentialtypes as [build failed] with no compiler output, and the same build alone passed in 2.4 s (open)
+
+**Symptom.** 2026-10-27, `make pr-check` at `aa5e5b64`, the `win` leg (4 vCPUs and 4 GB since that day): the full
+`-race` pass reported `FAIL .../internal/ui/resources/credentialtypes [build failed]` with no compiler output at all,
+and testgate could not re-run it. The same build alone, on the same tree and cache, passed in 2.4 s with 32 GB of disk
+and 3 GB of memory free. The same shape was seen on 2026-10-20 in `internal/forge/collectionscaffold`, when win-check
+had 2 vCPUs and 2 GB; that one was not recorded.
+
+**Root cause.** Not proven. testgate keeps a build failure's output (`flakegate.FailureOutput` collects build-output
+events since 537), so the toolchain printed nothing. Most likely a compiler or linker process ended without a message
+under the pass's load, as a memory limit would end it; 512 is the related case where FreeBSD's kernel said so.
+
+**Fix.** None yet. The next instance should record the machine's free memory and the Windows event log at the time of
+the failure, before it is rerun.
+
+**Lesson.** A build failure with no words is unexplained, not real and not contention: record what the machine had
+free when it happened, and build the package alone on the same tree before naming a cause.
