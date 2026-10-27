@@ -15,7 +15,10 @@ const AnsibleRunnerImageTag = "pleiades/legacy-ansible-runner:release-gate"
 // BuildAnsibleRunnerImage builds the real, repository-committed
 // Dockerfile.legacy-ansible-runner via a real `docker build`, the same
 // image a real Runner deployment would run, rather than a synthetic
-// stand-in. Skips the calling test if docker is not on PATH.
+// stand-in. Stops the calling test through Require("docker") when docker is
+// not on PATH or no daemon answers it: a Mac with the docker CLI for Podman
+// has the command and, outside a container pass, no daemon (2026-10-27), and
+// a build there failed rather than saying what was missing.
 //
 // It lives here rather than in cmd/runner's release gate, where it first
 // shipped, because two suites now need the identical image: the release
@@ -25,9 +28,9 @@ const AnsibleRunnerImageTag = "pleiades/legacy-ansible-runner:release-gate"
 // the wiring existing (FAILURE_PATTERNS.md #112).
 func BuildAnsibleRunnerImage(tb testing.TB) string {
 	tb.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		tb.Skip("docker not found on PATH")
-	}
+	_, err := exec.LookPath("docker")
+	Require(tb, "docker", err == nil, "docker not found on PATH")
+	Require(tb, "docker", exec.Command("docker", "info").Run() == nil, "no Docker daemon answered docker info")
 
 	root := RepoRoot(tb)
 	dockerfile := filepath.Join(root, "Dockerfile.legacy-ansible-runner")

@@ -30,10 +30,13 @@ import (
 // refusing is always allowed, and is what the parser does whenever compose
 // has a rule it would otherwise have to copy.
 //
-// It runs no container and needs no daemon, only the docker CLI.
+// It runs no container and needs no daemon, only the docker CLI and its
+// compose plugin, which a docker CLI installed alone (Homebrew's, beside
+// Podman) lacks.
 func TestParseEnvFile_AgreesWithDockerCompose(t *testing.T) {
 	docker, err := exec.LookPath("docker")
 	testsupport.Require(t, "docker", err == nil, "the docker CLI is not installed")
+	testsupport.Require(t, "docker", exec.Command(docker, "compose", "version").Run() == nil, "the docker CLI has no compose plugin")
 
 	key := crypto.EncodeKey([]byte(strings.Repeat("c", 32)))
 	jwt := crypto.EncodeKey([]byte(strings.Repeat("w", 32)))
