@@ -157,6 +157,10 @@ var builtinCheckable = map[string]bool{
 	"pleiades.builtin.set_metadata": true,
 	"set_fact":                      true,
 	"pleiades.builtin.set_fact":     true,
+	"assert":                        true,
+	"pleiades.builtin.assert":       true,
+	"fail":                          true,
+	"pleiades.builtin.fail":         true,
 }
 
 // Checkable reports whether a task calling fqcn with params can run in

@@ -204,6 +204,11 @@ func (builtinActionExecutor) Execute(_ context.Context, task *Task, _ inventory.
 			return ActionResult{}, fmt.Errorf("fqcn %q requires a non-empty params.data map", task.FQCN)
 		}
 		return ActionResult{Stats: data, IsMetadata: true}, nil
+	case FailName, FailFQCN:
+		return ActionResult{}, fmt.Errorf("%s", failMessage(task))
+	case AssertName, AssertFQCN:
+		// runOne evaluates an assert itself, which it alone can (assert.go).
+		return ActionResult{}, fmt.Errorf("fqcn %q is evaluated by the engine, not run as a method", task.FQCN)
 	case SetFactName, SetFactFQCN:
 		// The facts are the params, already rendered; runOne records them for
 		// the device (vars.go), so a later task reads them as vars.

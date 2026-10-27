@@ -241,6 +241,25 @@ type Task struct {
 	// a set_fact and to a launch's extra variables (vars.go).
 	Vars map[string]interface{} `json:"vars,omitempty" yaml:"vars,omitempty"`
 
+	// Loop runs this task once per item: a list written in the runbook, or a
+	// string that is one {{ }} expression rendering to a list (Phase 89). Each
+	// run reads its item as {{ item }}, or under loop_control's loop_var. A
+	// leaf task only. WithItems is Ansible's older name for it, accepted with
+	// the same meaning; naming both is refused.
+	Loop      interface{} `json:"loop,omitempty" yaml:"loop,omitempty"`
+	WithItems interface{} `json:"with_items,omitempty" yaml:"with_items,omitempty"`
+
+	// LoopControl names the loop's variable and gives each item a label.
+	LoopControl *LoopControl `json:"loop_control,omitempty" yaml:"loop_control,omitempty"`
+
+	// Until runs this task again, up to Retries more times and Delay seconds
+	// apart, until its conditions hold (written as when: is, ANDed). They read
+	// the task's own result as it stands after each run, under the task's
+	// register. A leaf task with a register only (Phase 88).
+	Until   StringList `json:"until,omitempty" yaml:"until,omitempty"`
+	Retries *int       `json:"retries,omitempty" yaml:"retries,omitempty"`
+	Delay   *int       `json:"delay,omitempty" yaml:"delay,omitempty"`
+
 	// Register names a variable this task's result is stored under, for
 	// later tasks to reference, mirroring Ansible's register:.
 	Register string `json:"register,omitempty" yaml:"register,omitempty"`
@@ -363,6 +382,28 @@ type Task struct {
 	// repeat them (rollback_on_failure.go). Unlike Rollback it changes what
 	// the forward run does, so it is hashed into DAG.Version.
 	RollbackOnFailure bool `json:"rollback_on_failure,omitempty" yaml:"rollback_on_failure,omitempty"`
+
+	// ChangedWhen and FailedWhen override how a finished run of the task is
+	// classified (Phase 88): changed_when sets whether it counts as having
+	// changed something, failed_when whether it counts as failed. Both are
+	// conditions written as when: is (ANDed) and read the task's own result
+	// under its register, which they therefore need. IgnoreErrors lets the
+	// run go on past a failure of the task; the failure is still recorded as
+	// one. A leaf task only.
+	ChangedWhen  StringList `json:"changed_when,omitempty" yaml:"changed_when,omitempty"`
+	FailedWhen   StringList `json:"failed_when,omitempty" yaml:"failed_when,omitempty"`
+	IgnoreErrors bool       `json:"ignore_errors,omitempty" yaml:"ignore_errors,omitempty"`
+
+	// evalRoots are the roots the task was decided with (its loop's item, a
+	// rescue's error), kept on the copy a run executes so changed_when and
+	// failed_when read what the task's own condition did.
+	evalRoots map[string]any
+
+	// noMerge, set on the copy of a task that runs inside a loop or a retry,
+	// leaves its register to the driver (loop.go), which records one result
+	// for the whole task. progs holds the programs compiled from Until.
+	noMerge bool
+	progs   *taskPrograms
 
 	// synthetic marks a structural fan-out/join marker node the Builder
 	// constructs itself (synthesizeParallel), never one a runbook author

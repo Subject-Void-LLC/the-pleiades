@@ -139,6 +139,11 @@ func CELVariableOptions() []cel.EnvOption {
 		// device is the device a task decides on (device_root.go's
 		// deviceRoot); a condition reading it is decided once per device.
 		cel.Variable("device", cel.MapType(cel.StringType, cel.DynType)),
+		// item and loop are a looped task's current item and its position
+		// (loop.go); a condition reads them only inside a loop, and a custom
+		// loop_var is read as item there too.
+		cel.Variable("item", cel.DynType),
+		cel.Variable("loop", cel.MapType(cel.StringType, cel.DynType)),
 	}
 }
 

@@ -30,7 +30,7 @@ const (
 // the Runner asks again before it runs one: a row claiming a node ran a
 // method it does not run cannot steer either.
 func Verify(dag *engine.DAG, s Step) error {
-	task, ok := dag.Nodes[s.Node]
+	task, ok := dag.NodeFor(s.Node)
 	if !ok {
 		return fmt.Errorf("the runbook has no node %s", s.Node)
 	}

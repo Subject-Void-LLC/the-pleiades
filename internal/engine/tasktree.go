@@ -35,6 +35,12 @@ func (b *Builder) registerTask(dag *DAG, task *Task, id string) error {
 		dag.Conditions[id] = prg
 	}
 
+	progs, err := compileTaskPrograms(b.cel, task)
+	if err != nil {
+		return fmt.Errorf("task %s: %w", taskLabel(id, task), err)
+	}
+	task.progs = progs
+
 	dag.Nodes[id] = task
 	return nil
 }

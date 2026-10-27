@@ -25,32 +25,23 @@ var ansibleTaskKeywords = map[string]bool{
 	"become_flags":       true,
 	"become_method":      true,
 	"become_user":        true,
-	"changed_when":       true,
 	"collections":        true,
 	"connection":         true,
 	"debugger":           true,
-	"delay":              true,
 	"delegate_facts":     true,
 	"delegate_to":        true,
 	"diff":               true,
 	"environment":        true,
-	"failed_when":        true,
-	"ignore_errors":      true,
 	"ignore_unreachable": true,
 	"local_action":       true,
-	"loop":               true,
-	"loop_control":       true,
 	"module_defaults":    true,
 	"no_log":             true,
 	"notify":             true,
 	"poll":               true,
 	"port":               true,
 	"remote_user":        true,
-	"retries":            true,
 	"run_once":           true,
 	"throttle":           true,
-	"until":              true,
-	"vars":               true,
 }
 
 // ansiblePlayKeywords are Ansible's play keywords that a native runbook's
@@ -97,7 +88,8 @@ const (
 // isAnsibleTaskKeyword reports whether key is an Ansible task or block
 // keyword a native task does not accept.
 func isAnsibleTaskKeyword(key string) bool {
-	return ansibleTaskKeywords[key] || strings.HasPrefix(key, "with_")
+	// with_items is accepted as loop's older name; the rest of the family is not.
+	return ansibleTaskKeywords[key] || (strings.HasPrefix(key, "with_") && key != "with_items")
 }
 
 // isAnsiblePlayKeyword reports whether key is an Ansible play keyword a

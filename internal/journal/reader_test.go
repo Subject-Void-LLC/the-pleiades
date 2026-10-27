@@ -155,3 +155,37 @@ func FuzzReadJournalLine(f *testing.F) {
 		}
 	})
 }
+
+// TestReadRun_AcceptsEachItemAndTryOfATask: a looped task and an until task
+// journal one entry per item and per try, under the node id with the run
+// appended, and the strict reader takes them; a run suffix it does not know
+// is still refused.
+func TestReadRun_AcceptsEachItemAndTryOfATask(t *testing.T) {
+	root := t.TempDir()
+	store, err := journal.NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{"tasks[0].item[0]", "tasks[0].item[1]", "tasks[1].attempt[2]", "tasks[2].block[0].item[3].attempt[1]"}
+	var entries []engine.JournalEntry
+	for i, id := range ids {
+		entries = append(entries, engine.JournalEntry{RunID: readerRun, Sequence: i + 1, NodeID: id, DAGVersion: digest,
+			Outcome: engine.OutcomeChanged, StartedAt: time.Now().UTC(), FinishedAt: time.Now().UTC()})
+	}
+	if err := store.Record(context.Background(), entries); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	run, err := journal.ReadRun(root, readerRun)
+	if err != nil || len(run.Entries) != len(ids) {
+		t.Fatalf("ReadRun = %d entries, %v", len(run.Entries), err)
+	}
+	for _, bad := range []string{"tasks[0].item[x]", "tasks[0].item[1].item[2].item[3]", "tasks[0].round[1]"} {
+		other := t.TempDir()
+		s, _ := journal.NewFileStore(other)
+		_ = s.Record(context.Background(), []engine.JournalEntry{{RunID: readerRun, Sequence: 1, NodeID: bad, DAGVersion: digest,
+			Outcome: engine.OutcomeChanged, StartedAt: time.Now().UTC(), FinishedAt: time.Now().UTC()}})
+		if _, err := journal.ReadRun(other, readerRun); err == nil {
+			t.Errorf("node id %q was read", bad)
+		}
+	}
+}

@@ -46,6 +46,15 @@ var ReservedTaskKeys = map[string]bool{
 	"timeout":             true,
 	"rollback":            true,
 	"vars":                true,
+	"loop":                true,
+	"with_items":          true,
+	"loop_control":        true,
+	"until":               true,
+	"retries":             true,
+	"delay":               true,
+	"changed_when":        true,
+	"failed_when":         true,
+	"ignore_errors":       true,
 }
 
 // --- YAML path -------------------------------------------------------

@@ -404,11 +404,23 @@ var commandSafeFilters = []string{"quote", "cli_token"}
 // the executor share it, so the rule is held once at plan time and again
 // when the task renders.
 func TemplateProblems(tmpl render.Template, format collection.ParamFormat) []string {
+	return TaskTemplateProblems(tmpl, format, nil)
+}
+
+// TaskTemplateProblems is TemplateProblems for a parameter of task, which may
+// also read the roots its own loop gives it (item or the loop_var, loop and
+// the index_var). The loop's values are held to the same rules as vars are:
+// in command text they must be quoted, and they never name a project path.
+func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, task *Task) []string {
+	roots := TemplateRoots()
+	if task != nil {
+		roots = append(roots, task.loopRoots()...)
+	}
 	var problems []string
 	for _, expr := range tmpl.Expressions() {
 		root := expr.Path[0]
-		if !slices.Contains(TemplateRoots(), root) {
-			problems = append(problems, fmt.Sprintf("an expression reads %q, and a parameter may read only %s", root, strings.Join(TemplateRoots(), ", ")))
+		if !slices.Contains(roots, root) {
+			problems = append(problems, fmt.Sprintf("an expression reads %q, and a parameter may read only %s", root, strings.Join(roots, ", ")))
 			continue
 		}
 		if format == collection.ParamFormatCommand && (len(expr.Filters) == 0 || !slices.Contains(commandSafeFilters, expr.Filters[len(expr.Filters)-1])) {
@@ -559,7 +571,7 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 			if err != nil {
 				return fmt.Errorf("parameter %s: %w", key, err)
 			}
-			problems := TemplateProblems(tmpl, formats[key])
+			problems := TaskTemplateProblems(tmpl, formats[key], task)
 			if key == collection.TargetParam {
 				problems = append(problems, TargetTemplateProblems(tmpl)...)
 			}

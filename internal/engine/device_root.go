@@ -68,6 +68,10 @@ func deviceRoot(d inventory.InventoryItem) map[string]any {
 // its condition (its syntax tree, never its text, so a string holding the
 // word does not count) or in a parameter's template.
 func (r *run) readsDevice(nodeID string, task *Task) bool {
+	// A loop or a retry runs on each device on its own (loop.go).
+	if task.iterates() {
+		return true
+	}
 	if r.dag.Conditions[nodeID] != nil {
 		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootDevice); err == nil && uses {
 			return true
@@ -161,11 +165,7 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 		if errorRoot != nil {
 			roots[TemplateRootError] = errorRoot
 		}
-		prepared, early := r.prepare(nodeID, task, started, key, roots)
-		if early != nil {
-			return []NodeResult{*early}
-		}
-		return r.dispatch(ctx, nodeID, prepared, one, started)
+		return r.runTask(ctx, nodeID, task, started, key, one, roots)
 	}
 	if len(devices) == 0 {
 		return on(nil)

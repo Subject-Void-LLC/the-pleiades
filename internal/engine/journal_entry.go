@@ -105,6 +105,10 @@ var engineActionStatKeys = map[string][]string{
 	"pleiades.builtin.set_metadata": nil,
 	"set_fact":                      nil,
 	"pleiades.builtin.set_fact":     nil,
+	"assert":                        nil,
+	"pleiades.builtin.assert":       nil,
+	"fail":                          nil,
+	"pleiades.builtin.fail":         nil,
 	"ssh_exec":                      transportExecStatKeys,
 	"serial_exec":                   transportExecStatKeys,
 	"serialtcp_exec":                transportExecStatKeys,
@@ -382,6 +386,9 @@ func validSkipKind(kind SkipKind) bool {
 // nobody can vouch for is worse than a missing one that was logged and
 // counted, because the first is read as fact.
 func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
+	// A task that ran more than once on a device is one entry per run, under
+	// the node id with the run appended (NodeResult.Iteration); the task is
+	// the node's.
 	task := r.taskFor(n.NodeID)
 	if task == nil {
 		// Unreachable through runNode, which looks the task up by this
@@ -398,7 +405,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	// guess about someone else's identifier.
 	entry := JournalEntry{
 		RunID:      r.runID,
-		NodeID:     n.NodeID,
+		NodeID:     n.NodeID + n.Iteration,
 		DAGID:      r.dag.ID,
 		DAGVersion: r.dag.Version,
 		TaskName:   task.Name,

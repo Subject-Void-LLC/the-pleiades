@@ -2,7 +2,11 @@
 // must satisfy, checked as the builder registers it.
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+)
 
 // validateTask checks the structural rules a Task must satisfy regardless
 // of where it appears in the tree: exactly one of FQCN (a leaf task),
@@ -74,6 +78,10 @@ func validateTask(task *Task, id string) error {
 		}
 	}
 
+	if err := validateIteration(task, id); err != nil {
+		return err
+	}
+
 	if task.Timeout < 0 || task.Timeout > MaxTaskTimeout {
 		return fmt.Errorf("task %s sets timeout %d: it is from 1 to %d seconds (a day), written as seconds or a duration such as 30m, or left out", taskLabel(id, task), task.Timeout, MaxTaskTimeout)
 	}
@@ -93,3 +101,94 @@ func validateTask(task *Task, id string) error {
 
 	return validateRollback(task, id)
 }
+
+// loopVarReserved are the names a loop_var or index_var may not take: the
+// roots a template or a condition already reads.
+var loopVarReserved = map[string]bool{
+	TemplateRootVars: true, TemplateRootNodes: true, TemplateRootResult: true, TemplateRootError: true,
+	TemplateRootDevice: true, "stat": true, "loop": true,
+}
+
+// validateIteration holds a task's loop, until, retries and delay keys to
+// what the executor can run: a leaf task only, one way to say the loop, a
+// list or one expression, a loop_control that names a loop, an until that
+// has a register to read, and bounded counts.
+func validateIteration(task *Task, id string) error {
+	label := taskLabel(id, task)
+	leaf := task.Kind() == TaskKindLeaf
+	if task.Loop != nil && task.WithItems != nil {
+		return fmt.Errorf("task %s sets both loop and with_items: they are the same keyword, so write one", label)
+	}
+	if src := task.loopSource(); src != nil {
+		if !leaf {
+			return fmt.Errorf("task %s sets loop on a block or parallel group: a loop runs one method call once per item, so set it on each task inside instead", label)
+		}
+		switch v := src.(type) {
+		case []any:
+			if len(v) > MaxLoopItems {
+				return fmt.Errorf("task %s has a loop of %d items, and a loop runs at most %d", label, len(v), MaxLoopItems)
+			}
+		case string:
+			if !HasTemplate(v) {
+				return fmt.Errorf("task %s writes its loop as text %q: a loop is a list, or one {{ }} expression that renders to a list", label, v)
+			}
+		default:
+			return fmt.Errorf("task %s writes its loop as %s: a loop is a list, or one {{ }} expression that renders to a list", label, collectionKind(src))
+		}
+	}
+	if (task.loopSource() != nil || len(task.Until) > 0) && len(task.Rollback) > 0 {
+		return fmt.Errorf("task %s sets rollback: on a task that loops or retries: its method runs more than once, and an authored undo written once cannot say which run it undoes; leave rollback: off and each run's own recorded undo is replayed, newest first", label)
+	}
+	if task.LoopControl != nil {
+		if task.loopSource() == nil {
+			return fmt.Errorf("task %s sets loop_control without a loop", label)
+		}
+		for _, name := range []string{task.LoopControl.LoopVar, task.LoopControl.IndexVar} {
+			if name == "" {
+				continue
+			}
+			if err := CheckVarNames([]string{name}); err != nil {
+				return fmt.Errorf("task %s loop_control: %w", label, err)
+			}
+			if loopVarReserved[name] {
+				return fmt.Errorf("task %s loop_control names %q, which a template already reads as something else", label, name)
+			}
+		}
+	}
+	if isAssert(task.FQCN) {
+		if err := validateAssert(task, id); err != nil {
+			return err
+		}
+	}
+	if len(task.ChangedWhen) > 0 || len(task.FailedWhen) > 0 {
+		if !leaf {
+			return fmt.Errorf("task %s sets changed_when or failed_when on a block or parallel group: they classify one method call's result, so set them on the task inside instead", label)
+		}
+		if task.Register == "" {
+			return fmt.Errorf("task %s sets changed_when or failed_when without a register: they read the task's own result, so name it with register", label)
+		}
+	}
+	if task.IgnoreErrors && !leaf {
+		return fmt.Errorf("task %s sets ignore_errors on a block or parallel group: it applies to one method call, so set it on the task inside (a block's failure is answered by rescue)", label)
+	}
+	if len(task.Until) > 0 {
+		if !leaf {
+			return fmt.Errorf("task %s sets until on a block or parallel group: it runs one method call again, so set it on the task inside instead", label)
+		}
+		if task.Register == "" {
+			return fmt.Errorf("task %s sets until without a register: until reads the task's own result, so name it with register", label)
+		}
+	} else if task.Retries != nil || task.Delay != nil {
+		return fmt.Errorf("task %s sets retries or delay without until: they only say how an until task is tried again", label)
+	}
+	if task.Retries != nil && (*task.Retries < 0 || *task.Retries > MaxRetries) {
+		return fmt.Errorf("task %s sets retries %d: it is from 0 to %d", label, *task.Retries, MaxRetries)
+	}
+	if task.Delay != nil && (*task.Delay < 0 || *task.Delay > MaxDelaySeconds) {
+		return fmt.Errorf("task %s sets delay %d: it is from 0 to %d seconds", label, *task.Delay, MaxDelaySeconds)
+	}
+	return nil
+}
+
+// collectionKind names the kind of v for an error message.
+func collectionKind(v any) string { return collection.ValueKind(v) }
