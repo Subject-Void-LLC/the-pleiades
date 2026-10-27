@@ -41,6 +41,7 @@ var Collections = concatCollections(
 	smallCollections,
 	sessionCollections,
 	virtCollections,
+	fusionCollections,
 	cmlCollections,
 	winFileCollections,
 	winCPUCollections,

@@ -28,10 +28,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
-| `virt` | 33 | 33 |
+| `virt` | 36 | 36 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **207** | **204** |
+| **total** | **210** | **207** |
 
 ## All methods
 
@@ -209,6 +209,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.cml.link.stop](virt/cml/link/stop.md) | implemented | Stops a link in a CML lab, as if unplugged, leaving both nodes running. |
 | [virt.cml.node.create](virt/cml/node/create.md) | implemented | Creates a node in a CML lab, optionally seeded with an inventory device's login and address. |
 | [virt.cml.node.delete](virt/cml/node/delete.md) | implemented | Stops, wipes and deletes one node of a CML lab. |
+| [virt.fusion.vm.info](virt/fusion/vm/info.md) | implemented | Reports a VMware Fusion VM's power state and its guest's address. |
+| [virt.fusion.vm.start](virt/fusion/vm/start.md) | implemented | Starts a VMware Fusion VM with no window, and holds the Mac awake while it runs. |
+| [virt.fusion.vm.stop](virt/fusion/vm/stop.md) | implemented | Stops or suspends a VMware Fusion VM. |
 | [virt.vbox.snapshot.delete](virt/vbox/snapshot/delete.md) | implemented | Deletes a snapshot of a VirtualBox VM. |
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |

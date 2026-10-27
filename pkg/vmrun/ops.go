@@ -279,3 +279,53 @@ func (h Host) SendKeys(ctx context.Context, vmx, sequence string) error {
 	_, err := h.vmcli(ctx, "sendKeys", vmx, "MKS", "sendKeySequence", sequence)
 	return err
 }
+
+// VMXExists reports whether a file is at vmx on the host. A VM whose file is
+// gone is an answer, not a failure, which is why this is asked before any tool
+// that would fail on it.
+func (h Host) VMXExists(ctx context.Context, vmx string) (bool, error) {
+	if err := CheckVMX(vmx); err != nil {
+		return false, err
+	}
+	out, err := h.Runner.Run(ctx, []string{"/bin/test", "-f", vmx})
+	if err != nil {
+		return false, err
+	}
+	return out.ExitCode == 0, nil
+}
+
+// keepAwakeScript finds the vmware-vmx process running the VM whose vmx is $1,
+// matching the path as a fixed string, and starts caffeinate in the background
+// to hold the Mac awake until that process ends. It prints the process ID, or
+// exits 3 when no such process runs.
+//
+// It exists because a VM started headless from an SSH session is throttled by
+// macOS as background work: on 2026-10-26 a Windows 11 guest ran about five
+// times slower than its own clock and its VMware Tools install hung, and
+// "caffeinate -dimsu -w <pid>" brought it to full speed at once. -w ends the
+// assertion with the VM, so nothing is left holding the Mac awake after it.
+const keepAwakeScript = `p=$(ps -axo pid=,command= | grep -F -- vmware-vmx | grep -F -- "$1" | grep -v -F -- grep | awk '{print $1; exit}')
+[ -n "$p" ] || exit 3
+nohup /usr/bin/caffeinate -dimsu -w "$p" >/dev/null 2>&1 </dev/null &
+printf '%s\n' "$p"`
+
+// KeepAwake holds a Mac awake for as long as the VM at vmx runs (see
+// keepAwakeScript) and returns the VM process's ID. It is Fusion's alone:
+// caffeinate is macOS's.
+func (h Host) KeepAwake(ctx context.Context, vmx string) (int, error) {
+	if h.Product != Fusion {
+		return 0, fmt.Errorf("keeping the host awake is a Mac's, and this host runs %q", h.Product)
+	}
+	if err := CheckVMX(vmx); err != nil {
+		return 0, err
+	}
+	out, err := h.run(ctx, "keepAwake", "/bin/sh", "-c", keepAwakeScript, "sh", vmx)
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out.Stdout))
+	if err != nil || pid <= 0 {
+		return 0, fmt.Errorf("keeping the host awake named %q as the VM's process", strings.TrimSpace(out.Stdout))
+	}
+	return pid, nil
+}

@@ -67,3 +67,35 @@ func TestDetachScript_TheHazardIsReal(t *testing.T) {
 		t.Fatalf("the bare command returned in %s, so the stand-in does not hold its output open", took)
 	}
 }
+
+// TestKeepAwakeScript_FindsTheVMProcessByItsPath runs the script under sh with
+// a stand-in ps that lists two VMs, and a stand-in caffeinate that records what
+// it was asked to wait for: the process holding this vmx is the one chosen,
+// matched as a fixed string so a path with regular-expression characters in it
+// is not misread.
+func TestKeepAwakeScript_FindsTheVMProcessByItsPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh: the script runs on a Mac")
+	}
+	dir := t.TempDir()
+	vmx := "/Users/me/Virtual Machines/win 11 (arm).vmx"
+	ps := "#!/bin/sh\necho '  101 /Applications/VMware Fusion.app/Contents/Library/vmware-vmx -s x /Users/me/Virtual Machines/other.vmx'\necho '  202 /Applications/VMware Fusion.app/Contents/Library/vmware-vmx -s x " + vmx + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte(ps), 0o700); err != nil { // #nosec G306 -- a test's own stand-in program
+		t.Fatal(err)
+	}
+	script := strings.Replace(keepAwakeScript, "/usr/bin/caffeinate", "echo", 1)
+	cmd := exec.Command("/bin/sh", "-c", script, "sh", vmx)
+	cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin")
+	out, err := cmd.Output()
+	if err != nil || strings.TrimSpace(string(out)) != "202" {
+		t.Fatalf("output %q, err %v; want the process running this vmx, 202", out, err)
+	}
+
+	cmd = exec.Command("/bin/sh", "-c", script, "sh", "/Users/me/nothing.vmx")
+	cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("a VM with no process was answered with one")
+	} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 3 {
+		t.Fatalf("err %v, want exit 3", err)
+	}
+}

@@ -15697,6 +15697,224 @@
       ]
     }
   },
+  "virt.fusion.vm.info": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "VMwareFusionCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: this runs vmcli's power query and vmrun's getGuestIPAddress and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports a VMware Fusion VM's power state and its guest's address.",
+      "description": "Reads a VM on a Mac running VMware Fusion, through vmcli's power query and vmrun's getGuestIPAddress, and changes nothing. A VM whose vmx file is not there is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check is the same read.",
+      "params": [
+        {
+          "name": "vmx",
+          "type": "string",
+          "required": true,
+          "description": "The absolute path of the VM's .vmx file on the Mac, such as /Users/me/pleiades-vms/win11-arm/win11-arm.vmx. Spaces are allowed; a path that is not absolute, does not end in .vmx, or holds a control character is refused."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the VM's vmx file is on the Mac."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when exists",
+          "description": "Fusion's power state for it: on, off, suspended or paused."
+        },
+        {
+          "name": "guest_ip",
+          "type": "string",
+          "returned": "when the VM is on and VMware Tools in its guest answers",
+          "description": "The guest's IP address, as VMware Tools reports it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a VM",
+          "runbookYaml": "- name: Read the Windows VM\n  virt.fusion.vm.info:\n    vmx: /Users/me/pleiades-vms/win11-arm/win11-arm.vmx\n  register: vm\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.fusion.vm.start",
+        "virt.fusion.vm.stop"
+      ]
+    }
+  },
+  "virt.fusion.vm.start": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "VMwareFusionCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that started a VM that was off emits virt.fusion.vm.stop with mode soft; one that resumed a suspended VM emits it with mode suspend; one that found it on emits nothing. Stopping it does not undo what the guest did while it ran.",
+      "inverses": [
+        {
+          "fqcn": "virt.fusion.vm.stop",
+          "record": [
+            "vmx",
+            "mode"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a VMware Fusion VM with no window, and holds the Mac awake while it runs.",
+      "description": "Makes sure a VM is running, started headless with vmrun. A VM that is already on reports no change. A suspended VM resumes where it was. A paused VM is refused, since starting is not resuming. Unless keep_awake is false, the Mac is held awake for as long as the VM's process runs (caffeinate -w on that process): macOS throttles a VM started from an SSH session as background work, and a Windows guest started that way ran about five times slower than its own clock until it was held awake. vmrun's output is read from a file rather than a pipe, because the VM process it starts keeps that output open for its whole life. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check reads the VM and sends nothing.",
+      "params": [
+        {
+          "name": "vmx",
+          "type": "string",
+          "required": true,
+          "description": "The absolute path of the VM's .vmx file on the Mac, such as /Users/me/pleiades-vms/win11-arm/win11-arm.vmx. Spaces are allowed; a path that is not absolute, does not end in .vmx, or holds a control character is refused."
+        },
+        {
+          "name": "keep_awake",
+          "type": "bool",
+          "default": "true",
+          "description": "Hold the Mac awake while the VM runs. Set it false only for a Mac that is kept awake some other way: a throttled VM runs, slowly, and can stall its own guest's work."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The VM's power state after this task, read back from the Mac."
+        },
+        {
+          "name": "kept_awake",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task started holding the Mac awake for the VM. False when nothing was started."
+        },
+        {
+          "name": "vmx_pid",
+          "type": "int",
+          "returned": "when kept_awake",
+          "description": "The process ID of the VM's vmware-vmx, which the hold on the Mac lasts as long as."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The VM's power state before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start a VM",
+          "runbookYaml": "- name: Start the Windows VM\n  virt.fusion.vm.start:\n    vmx: /Users/me/pleiades-vms/win11-arm/win11-arm.vmx\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.fusion.vm.stop",
+        "virt.fusion.vm.info"
+      ]
+    }
+  },
+  "virt.fusion.vm.stop": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "VMwareFusionCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that stopped or suspended a running VM emits virt.fusion.vm.start naming it; one that found it already stopped emits nothing. Starting it again is not the state it had: a soft or hard stop loses what was in its memory.",
+      "inverses": [
+        {
+          "fqcn": "virt.fusion.vm.start",
+          "record": [
+            "vmx"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops or suspends a VMware Fusion VM.",
+      "description": "Makes sure a VM is no longer running. Mode soft asks the guest to shut down, and needs VMware Tools running in the guest: vmrun refuses it without them. Mode hard powers it off at once, as pulling the plug would. Mode suspend writes its memory to disk, and virt.fusion.vm.start resumes it where it was. A VM that is already off reports no change, and so does a suspended one when the mode is suspend. A suspended VM asked for soft or hard is refused, since it is not running, and so is a paused one. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check reads the VM and sends nothing.",
+      "params": [
+        {
+          "name": "vmx",
+          "type": "string",
+          "required": true,
+          "description": "The absolute path of the VM's .vmx file on the Mac, such as /Users/me/pleiades-vms/win11-arm/win11-arm.vmx. Spaces are allowed; a path that is not absolute, does not end in .vmx, or holds a control character is refused."
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "default": "soft",
+          "choices": [
+            "soft",
+            "hard",
+            "suspend"
+          ],
+          "description": "How to stop it: soft (the guest shuts down), hard (powered off at once) or suspend (its memory written to disk)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The VM's power state after this task, read back from the Mac."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The VM's power state before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Suspend a VM",
+          "runbookYaml": "- name: Put the Windows VM away\n  virt.fusion.vm.stop:\n    vmx: /Users/me/pleiades-vms/win11-arm/win11-arm.vmx\n    mode: suspend\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.fusion.vm.start",
+        "virt.fusion.vm.info"
+      ]
+    }
+  },
   "virt.vbox.snapshot.delete": {
     "supportedTransports": [
       "winrm"

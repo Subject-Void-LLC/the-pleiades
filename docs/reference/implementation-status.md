@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**204 of 207 methods are implemented.**
+**207 of 210 methods are implemented.**
 
 ## Implemented
 
@@ -182,6 +182,9 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.vbox.vm.delete](modules/virt/vbox/vm/delete.md)
 - [virt.vbox.vm.host_keys](modules/virt/vbox/vm/host_keys.md)
 - [virt.vbox.vm.list](modules/virt/vbox/vm/list.md)
+- [virt.fusion.vm.info](modules/virt/fusion/vm/info.md)
+- [virt.fusion.vm.start](modules/virt/fusion/vm/start.md)
+- [virt.fusion.vm.stop](modules/virt/fusion/vm/stop.md)
 - [virt.cml.lab.list](modules/virt/cml/lab/list.md)
 - [virt.cml.lab.info](modules/virt/cml/lab/info.md)
 - [virt.cml.lab.create](modules/virt/cml/lab/create.md)

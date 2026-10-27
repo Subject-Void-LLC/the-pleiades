@@ -64,6 +64,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/lab"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/link"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/node"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/fusion/vm"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/vbox/snapshot"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/vbox/vm"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait"
