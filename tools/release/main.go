@@ -41,6 +41,10 @@ const DefaultPlatforms = "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,wind
 // ./cmd.
 const DefaultBinaries = "pleiades,controller,runner"
 
+// TitleFile is the name of the file holding the release's title, v0.3.0 and its
+// codename, which the tag workflow reads and does not upload.
+const TitleFile = "RELEASE_TITLE"
+
 // ChecksumFile is the name of the checksum list written beside the archives.
 const ChecksumFile = "SHA256SUMS"
 
@@ -325,6 +329,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		archives = append(archives, name)
 		fmt.Fprintf(stdout, "built %s\n", name)
+	}
+	title := "v" + v
+	if name := buildinfo.CodenameFor(v); name != "" {
+		title += " \"" + name + "\""
+	}
+	if err := os.WriteFile(filepath.Join(*out, TitleFile), []byte(title+"\n"), 0o644); err != nil { // #nosec G306 -- a public title
+		fmt.Fprintf(stderr, "release: %v\n", err)
+		return 1
 	}
 	if err := writeChecksums(*out, archives); err != nil {
 		fmt.Fprintf(stderr, "release: %v\n", err)

@@ -200,4 +200,12 @@ func TestReleaseBuildReportsItsVersion(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, ChecksumFile)); err != nil {
 		t.Error(err)
 	}
+	// 9.8.7 has no codename, so its title is the tag alone; the runner's
+	// version command prints no second line for it.
+	if title, _ := os.ReadFile(filepath.Join(out, TitleFile)); string(title) != "v9.8.7\n" {
+		t.Errorf("release title = %q", title)
+	}
+	if lines := strings.Split(strings.TrimSpace(string(got)), "\n"); len(lines) != 1 {
+		t.Errorf("an unnamed release printed %q", got)
+	}
 }

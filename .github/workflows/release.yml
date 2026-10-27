@@ -63,4 +63,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-        run: gh release create "$TAG" dist/* --repo "$REPO" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS --repo "$REPO" --title "$(cat dist/RELEASE_TITLE)" --generate-notes

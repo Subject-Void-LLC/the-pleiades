@@ -23,5 +23,8 @@ func isVersionCommand(args []string) bool {
 // version, or 0.0.0-dev+<commit> for anything else) and returns exit code 0.
 func runVersion(out io.Writer) int {
 	fmt.Fprintln(out, buildinfo.Version())
+	if name := buildinfo.Codename(); name != "" {
+		fmt.Fprintln(out, name)
+	}
 	return 0
 }

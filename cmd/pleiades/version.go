@@ -21,5 +21,10 @@ func runVersion(args []string) error {
 		return err
 	}
 	fmt.Println("pleiades " + version)
+	// A release build also names its release, on a line of its own so the
+	// first line stays what a script reads.
+	if name := buildinfo.CodenameFor(version); name != "" {
+		fmt.Println(name)
+	}
 	return nil
 }
