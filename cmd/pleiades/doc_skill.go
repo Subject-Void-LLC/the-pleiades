@@ -299,10 +299,17 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  list, or `\"{{ vars.names }}\"`, runs the task once per item in order (at most 1000), and reads the item as\n" +
 	"  `{{ item }}`, `{{ item.field }}`, `{{ loop.index }}`. An item put in command text is quoted with `| quote`.\n" +
 	"  `loop_control:` renames the item (`loop_var`), names the position (`index_var`) and labels each result\n" +
-	"  (`label`). A failed item does not stop the others, and each item is its own journal entry.\n" +
+	"  (`label`). A failed item does not stop the others, and each item is its own journal entry. An item put in a\n" +
+	"  network config line or a ping target needs `| cli_token` (or `| quote` in a shell command); `validate` says\n" +
+	"  which. An item may name a project file (`dest: captures/{{ item }}.pcap`) only when the loop's list is\n" +
+	"  written in the runbook or read from `vars`, never when it came from a device's output.\n" +
+	"- A target chosen from data (`target: \"{{ item }}\"`) needs `within:` naming the device or tag it must stay\n" +
+	"  inside, written out; without it the runbook is refused. Prefer a loop over `hosts:` devices to a rendered target.\n" +
 	"- `until:` (conditions over the task's own `register`), `retries:` (default 3, at most 100) and `delay:`\n" +
-	"  (seconds) run a task again until it holds. Use it only over a method that only reads; `validate` warns\n" +
-	"  otherwise. A check runs the task once.\n" +
+	"  (seconds) run a task again until it holds. In `until:`, `changed_when:` and `failed_when:`, `result.<register>`\n" +
+	"  is always this run's own result, for this device and this item, even when other devices registered the same\n" +
+	"  name; a result of another device is `nodes.<register>[<device id>]`. Use `until:` only over a method that\n" +
+	"  only reads; `validate` warns otherwise. A check runs the task once.\n" +
 	"- `failed_when:` and `changed_when:` (conditions over the task's own `register`) decide what counts as a\n" +
 	"  failure or a change; `ignore_errors: true` goes on past a failure; `assert: {that: [...], fail_msg: ...}` and\n" +
 	"  `fail: {msg: ...}` are tasks that fail the run on purpose. `rescue:` answers any of them.\n" +

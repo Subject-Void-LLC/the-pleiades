@@ -429,8 +429,8 @@ func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, t
 		// A project path the run writes may take only what the person
 		// running the work supplied: nodes, result and error hold what a
 		// device returned, which must not choose the file replaced.
-		if format == collection.ParamFormatProjectPath && root != TemplateRootVars {
-			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, so an expression may read only vars, never %s, which holds what a device returned", root))
+		if format == collection.ParamFormatProjectPath && root != TemplateRootVars && !(task != nil && task.authoredLoopRoot(root)) {
+			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, so an expression may read only vars (or the item of a loop written in the runbook or read from vars), never %s, which holds what a device returned", root))
 		}
 	}
 	if format == collection.ParamFormatURL && !URLPrefixFixed(tmpl.Source()) {

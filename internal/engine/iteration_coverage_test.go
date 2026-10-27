@@ -222,3 +222,60 @@ func TestIteration_RefusedCombinations(t *testing.T) {
 		})
 	}
 }
+
+// TestUntil_ReadsItsOwnResultWhenOtherDevicesRegisteredToo: with two devices
+// writing one register, result.<register> would be left out of a condition
+// unless the task's own result is put there, so a retry on each device reads
+// its own.
+func TestUntil_ReadsItsOwnResultWhenOtherDevicesRegisteredToo(t *testing.T) {
+	varsFixtures.Do(func() {
+		registerRollbackFixtures(t)
+		registerDeviceRootTypes()
+	})
+	seen := &stepper{fn: func(n int, _ *engine.Task) (engine.ActionResult, error) {
+		return engine.ActionResult{Stats: map[string]any{"up": true}}, nil
+	}, builtin: engine.NewBuiltinActionExecutor()}
+	x := engine.NewExecutor(varsDevices(nil, nil), seen, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0, engine.WithRenderer(render.New()))
+	result, err := x.Run(context.Background(), yamlRunbook(t, `id: two
+hosts: web
+tasks:
+  - rbtest.step: {note: x}
+    register: r
+    until: ["result.r.up == true"]
+    retries: 2
+    delay: 0
+`))
+	if err != nil || result.HasErrors() {
+		t.Fatalf("until on two devices: %v %+v", err, result.Nodes)
+	}
+}
+
+// TestProjectPath_TakesTheItemOfALoopTheAuthorWrote: a parameter that names a
+// project file may read the item of a loop written in the runbook or read
+// from vars, which are the author's, and never the item of a loop read from a
+// device's output.
+func TestProjectPath_TakesTheItemOfALoopTheAuthorWrote(t *testing.T) {
+	for loop, wantRefusal := range map[string]bool{
+		"[a, b]":                       false,
+		"\"{{ vars.sites }}\"":         false,
+		"\"{{ result.found.names }}\"": true,
+	} {
+		eval, _ := engine.NewCELEvaluator()
+		dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte("id: p\nvars:\n  sites: [a, b]\ntasks:\n  - noop: {}\n    register: found\n  - pleiades.builtin.project.write:\n      path: \"captures/{{ item }}.txt\"\n      content: x\n    loop: " + loop + "\n"))
+		if err != nil {
+			t.Fatalf("loop %s: %v", loop, err)
+		}
+		task := dag.Nodes["tasks[1]"]
+		problems := false
+		for _, src := range engine.TemplateStrings(task.Params["path"]) {
+			tmpl, cerr := render.New().Compile(src)
+			if cerr != nil {
+				t.Fatal(cerr)
+			}
+			problems = problems || len(engine.TaskTemplateProblems(tmpl, collection.ParamFormatProjectPath, task)) > 0
+		}
+		if problems != wantRefusal {
+			t.Errorf("loop %s: refused = %v, want %v", loop, problems, wantRefusal)
+		}
+	}
+}

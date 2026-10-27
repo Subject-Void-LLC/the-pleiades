@@ -237,7 +237,20 @@ How a loop behaves:
 value changed is the shape a loop exists for. A loop is shorter, validates
 once, and journals each pass on its own.
 
+A loop item can name a project file only when the list is the author's: written in the runbook
+or read from `vars`. A list read from a device's output cannot choose which file the run writes,
+and `validate` refuses it. An item used in a network config line or a ping target needs
+`| cli_token`, and one used in a shell command needs `| quote`.
+
+A target chosen from data, such as `target: "{{ item }}"`, needs `within:` naming the device or
+tag it must stay inside, written out in the runbook. Looping over the devices of `hosts:` is
+usually simpler.
+
 ## Retries with until
+
+In `until`, `changed_when` and `failed_when`, `result.<register>` is always the result of this run, for this device and
+this loop item, even when other devices registered the same name. Another device's result is
+`nodes.<register>[<device id>]`.
 
 `until` runs a task again until its conditions hold. It reads the task's own
 result under its `register`. `retries` is how many more runs it gets (default

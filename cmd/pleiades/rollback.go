@@ -264,7 +264,7 @@ func authoredFrom(dir, explicit string, entries []engine.JournalEntry) func(stri
 		if err != nil {
 			return nil, err
 		}
-		task, ok := dag.Nodes[node]
+		task, ok := dag.NodeFor(node)
 		if !ok {
 			return nil, fmt.Errorf("the runbook %s has no node %s", id, node)
 		}

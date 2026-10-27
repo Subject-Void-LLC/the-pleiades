@@ -203,7 +203,15 @@ func (r *run) holds(prg *ConditionProgram, task *Task, key string, roots map[str
 	if err != nil {
 		return false, err
 	}
-	condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": vars, "result": singleWriters(tree)}
+	result := singleWriters(tree)
+	if task.Register != "" && stats != nil {
+		// The task's own result is always result.<register>, whatever other
+		// devices or items have registered under the name: singleWriters
+		// leaves a register out when several wrote it, which is exactly when
+		// a condition on one's own result still needs to read it.
+		result[task.Register] = stats
+	}
+	condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": vars, "result": result}
 	for k, v := range roots {
 		if k != hostVarsRoot {
 			condVars[k] = v

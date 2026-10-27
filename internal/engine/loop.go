@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -140,6 +141,33 @@ func (t *Task) loopRoots() []string {
 		}
 	}
 	return roots
+}
+
+// authoredLoopRoot reports whether root is one of the task's loop roots and
+// the loop's list comes from the author: written out in the runbook with no
+// template in it, or one expression reading only vars. Such an item is the
+// author's, so it may choose a project file; an item read from a device's
+// output may not (render_params.go's project-path rule).
+func (t *Task) authoredLoopRoot(root string) bool {
+	if !slices.Contains(t.loopRoots(), root) {
+		return false
+	}
+	switch src := t.loopSource().(type) {
+	case []any:
+		return !HasTemplate(src)
+	case string:
+		tmpl, err := render.New().Compile(src)
+		if err != nil {
+			return false
+		}
+		for _, e := range tmpl.Expressions() {
+			if len(e.Path) == 0 || e.Path[0] != TemplateRootVars {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // triesAllowed is how many times an until task may run: its first run and its
