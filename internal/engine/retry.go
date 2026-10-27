@@ -43,6 +43,7 @@ func (r *run) tries(ctx context.Context, nodeID string, task *Task, started time
 			results[i].Iteration, results[i].Label = sfx, label
 		}
 		out.stats, out.failed, out.changed, out.skipped = summarize(results)
+		out.methodRan = !out.failed && !out.skipped
 		if !untilTask || r.modeFor(task) == collection.ModeCheck {
 			out.results = append(out.results, results...)
 			return out
@@ -191,7 +192,7 @@ func (r *run) holds(prg *ConditionProgram, task *Task, key string, roots map[str
 // registerFinal writes the register of a task that retries but does not loop:
 // the last try's result, when it did not fail.
 func (r *run) registerFinal(nodeID string, task *Task, key string, out outcome) {
-	if task.Register == "" || out.failed || out.stats == nil {
+	if task.Register == "" || !out.methodRan || out.stats == nil {
 		return
 	}
 	if err := r.x.workflow.Merge(task.Register, key, out.stats); err != nil {

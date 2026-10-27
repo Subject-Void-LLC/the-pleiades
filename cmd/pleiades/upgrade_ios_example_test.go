@@ -156,7 +156,17 @@ func TestCLI_UpgradeIOSExamplesAnswerRefuseAndRecover(t *testing.T) {
 		dir, home := upgradeProject(t, scriptedSwitch(t, false), aitest.NewOllama(t, "gemma4:e4b-it-qat"))
 		for _, rb := range []string{"upgrade_ios_xe.yaml", "upgrade_ios_xe_ai.yaml"} {
 			out, err := runPleiadesWithEnv(t, dir, personEnv(map[string]string{"HOME": home}), "validate", "runbooks/"+rb)
-			if err != nil || !strings.Contains(out, "no issues found") || strings.Contains(out, "[warning]") {
+			// The post-reload re-check retries net.ios.command with until, which
+			// validate warns about on any method not declared read-only: the one
+			// warning this example is written to earn, since show version is
+			// safe to ask again.
+			var other []string
+			for _, line := range strings.Split(out, "\n") {
+				if strings.Contains(line, "[warning]") && !strings.Contains(line, "[warning] until: task posttasks[1]") {
+					other = append(other, line)
+				}
+			}
+			if err != nil || !strings.Contains(out, "no issues found") || len(other) > 0 {
 				t.Errorf("validate %s: %v\n%s", rb, err, out)
 			}
 		}

@@ -216,7 +216,7 @@ tasks:
 		t.Errorf("first try %+v", result.Nodes[0])
 	}
 
-	_, result, _ = runStepper(t, collection.ModeExecute, `id: u3
+	_, result, wf2 := runStepper(t, collection.ModeExecute, `id: u3
 hosts: web
 tasks:
   - rbtest.step:
@@ -230,6 +230,11 @@ tasks:
 	})
 	if !result.HasErrors() || !strings.Contains(result.Nodes[len(result.Nodes)-1].Err.Error(), "until never held") {
 		t.Fatalf("no failure naming until: %+v", result.Nodes)
+	}
+	// The last try ran, so its result is registered for a later task to read.
+	tree, _ := wf2.Read()
+	if got := tree["r"].(map[string]any)["a"].(map[string]any)["ok"]; got != false {
+		t.Errorf("the last try was not registered: %v", tree["r"])
 	}
 }
 

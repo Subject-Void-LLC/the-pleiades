@@ -181,6 +181,9 @@ type outcome struct {
 	// stats are the last try's, empty when it did not run.
 	stats                    map[string]any
 	changed, failed, skipped bool
+	// methodRan says the last try's method finished without failing, so its
+	// result is one to register even when until never held.
+	methodRan bool
 }
 
 // loop runs task once for each of its items, in order, whatever one of them
