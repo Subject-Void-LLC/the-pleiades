@@ -26,6 +26,14 @@
 // -phase, -ready-file and an interrupt behave as maccheck's
 // (tools/internal/oscheck). With -optional, a clone with no Windows
 // machine configured is a skip, said so, which is how pr-check calls it.
+//
+// -arm64, first on the command line, checks the Windows ARM machine instead:
+// the same steps against a Windows 11 ARM VM on a Mac running VMware Fusion,
+// named by PLEIADES_WINARM_PROJECT and PLEIADES_WINARM_DEVICE in
+// tests/winarm/.env, its VM by PLEIADES_WINARM_VM_HOST (the Mac, a device in
+// the same project granted VMwareFusionCapable) and PLEIADES_WINARM_VM (its
+// vmx path). It names itself winarmcheck, so its build and its records never
+// meet the x64 check's when both run at once.
 // Exit status: 0 passed or skipped, 1 a test failed, 2 the machine could
 // not be used.
 package main
@@ -54,9 +62,34 @@ var check = oscheck.LabCheck{
 	BoxWait:    oscheck.WindowsWait,
 }
 
+// checkARM is the Windows ARM machine's check: a VM on a Mac running VMware
+// Fusion, started and suspended through virt.fusion.* around a run.
+var checkARM = oscheck.LabCheck{
+	Tool:       "winarmcheck",
+	Kind:       "Windows ARM machine",
+	OS:         "Windows (arm64)",
+	EnvFile:    "tests/winarm/.env",
+	ProjectKey: "PLEIADES_WINARM_PROJECT",
+	DeviceKey:  "PLEIADES_WINARM_DEVICE",
+	VMHostKey:  "PLEIADES_WINARM_VM_HOST",
+	VMKey:      "PLEIADES_WINARM_VM",
+	BoxWait:    oscheck.WindowsWait,
+	Box:        oscheck.FusionBox,
+}
+
+// pick is the check args select, and the arguments left for it: -arm64,
+// first, selects checkARM.
+func pick(args []string) (oscheck.LabCheck, []string) {
+	if len(args) > 0 && args[0] == "-arm64" {
+		return checkARM, args[1:]
+	}
+	return check, args
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := check.Run(ctx, os.Args[1:], os.Stdout, os.Stderr, newLeg)
+	c, args := pick(os.Args[1:])
+	code := c.Run(ctx, args, os.Stdout, os.Stderr, newLeg)
 	stop()
 	os.Exit(code)
 }

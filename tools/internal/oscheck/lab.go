@@ -102,6 +102,16 @@ type LabCheck struct {
 	// BoxWait is how a VM this run started is waited for (Box.Wait):
 	// SteadyWait when empty.
 	BoxWait []string
+	// Box is the hypervisor the VM is on: VirtualBoxBox when unset.
+	Box BoxMethods
+}
+
+// boxMethods is c's hypervisor, VirtualBox's when unset.
+func (c LabCheck) boxMethods() BoxMethods {
+	if c.Box.Info == "" {
+		return VirtualBoxBox
+	}
+	return c.Box
 }
 
 // keys is every setting c reads.
@@ -147,7 +157,7 @@ func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "%[1]s: no %[2]s is configured. Name one, then run this again:\n  cp %[3]s.example %[3]s, and set %[4]s and %[5]s in it\n", c.Tool, c.Kind, c.EnvFile, c.ProjectKey, c.DeviceKey)
 		return 2
 	}
-	host, vm, err := LabBox(s, c.VMHostKey, c.VMKey, device)
+	host, vm, err := LabBoxOf(s, c.VMHostKey, c.VMKey, device, c.boxMethods())
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n%s\n", c.Tool, err, advice)
 		return 2
@@ -187,7 +197,7 @@ func (c LabCheck) box(project, device, host, vm string) (Box, error) {
 	}
 	onHost := lab.Pleiades
 	onHost.Device = host
-	return Box{Host: onHost, Device: lab.Pleiades, VM: vm, Wait: c.BoxWait}, nil
+	return Box{Host: onHost, Device: lab.Pleiades, VM: vm, Wait: c.BoxWait, Methods: c.boxMethods()}, nil
 }
 
 // LabAdvice is what ends a lab check's refusals: how to point it at
