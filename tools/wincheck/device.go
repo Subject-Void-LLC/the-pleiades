@@ -38,6 +38,16 @@ const files = ".wincheck"
 // windows is the real machine.
 type windows struct {
 	oscheck.Lab
+	// dedicated says the machine is a lab VM kept for checks, whose login's
+	// Go caches the readiness step clears before every run (Dedicated).
+	dedicated bool
+}
+
+// Dedicated is the machine as a lab VM a check starts and puts back
+// (oscheck.Dedicating): win-check on VirtualBox, win11-arm on Fusion.
+func (w windows) Dedicated() oscheck.Leg {
+	w.dedicated = true
+	return w
 }
 
 // newLeg is device in project, driven by the pleiades tool builds under its
@@ -84,11 +94,15 @@ func (w windows) Ready() error {
 	if err := w.Pleiades.Build(); err != nil {
 		return err
 	}
-	out, err := w.shell(context.Background(), readyScript, nil, 300)
+	script := readyScript
+	if w.dedicated {
+		script = dedicatedReadyScript
+	}
+	out, err := w.shell(context.Background(), script, nil, 300)
 	if err != nil {
 		return fmt.Errorf("checking %s: %v", w.Target, err)
 	}
-	note, err := readyAnswer(w.Target, out)
+	note, err := readyAnswer(w.Target, out, w.dedicated)
 	if note != "" {
 		fmt.Printf("wincheck: %s\n", note)
 	}
@@ -110,18 +124,36 @@ func (w windows) Ready() error {
 // newest Kept-1, and, while the space free is still under MinFreeGB,
 // oscheck.CacheDir, which the prune passes over by name (a leading dot hides
 // nothing on Windows).
-var readyScript = `$env:Path = '` + winPath + `;' + $env:Path
+var readyScript = readyScriptWith("")
+
+// dedicatedReadyScript is readyScript for a lab VM kept for checks: before
+// anything else it clears the login's own Go build cache (GOCACHE removed
+// names its default, %LocalAppData%\go-build), the go-build work folders and
+// Test* temporary folders a stopped go test left in its TEMP, and, while
+// still under MinFreeGB, its
+// module cache, which the next build downloads again (owner, 2026-10-27).
+var dedicatedReadyScript = readyScriptWith(`Remove-Item Env:GOCACHE -ErrorAction SilentlyContinue
+if (Get-Command go.exe -ErrorAction SilentlyContinue) { & go.exe clean -cache 2>&1 | Out-Null }
+foreach ($f in 'go-build*', 'Test*') { Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter $f -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+if ([int](Get-FreeGB) -lt ` + strconv.Itoa(oscheck.MinFreeGB) + ` -and (Get-Command go.exe -ErrorAction SilentlyContinue)) { & go.exe clean -modcache 2>&1 | Out-Null }
+`)
+
+// readyScriptWith is the readiness script with first run after the space
+// free is first measured, before the check's own room is made.
+func readyScriptWith(first string) string {
+	return `$env:Path = '` + winPath + `;' + $env:Path
 [string][Environment]::OSVersion.Platform
 foreach ($c in 'go', 'git', 'tar') { if (Get-Command "$c.exe" -ErrorAction SilentlyContinue) { $c } else { "no-$c" } }
 function Get-FreeGB { [string][math]::Floor((Get-Item $env:USERPROFILE).PSDrive.Free / 1GB) }
 $base = Join-Path $env:USERPROFILE '` + winDir + `'
 $before = Get-FreeGB
-if (Test-Path -LiteralPath $base) {
+` + first + `if (Test-Path -LiteralPath $base) {
 	` + pruneLine + `
 	if ([int](Get-FreeGB) -lt ` + strconv.Itoa(oscheck.MinFreeGB) + `) { Remove-Item -LiteralPath (Join-Path $base '` + oscheck.CacheDir + `') -Recurse -Force -ErrorAction SilentlyContinue }
 }
 $before
 Get-FreeGB`
+}
 
 // pruneLine removes every tree under $base but the newest Kept-1, passing
 // over oscheck.CacheDir, which is not a tree.
@@ -137,8 +169,9 @@ if ($LASTEXITCODE -ne 0) {
   Set-Date -Date ([DateTime]::Parse($env:PLEIADES_UTC, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal).ToLocalTime()) | Out-Null
 }`
 
-// readyAnswer checks readyScript's output, returning what room it made.
-func readyAnswer(target, out string) (string, error) {
+// readyAnswer checks readyScript's output, returning what room it made;
+// dedicated says the script was dedicatedReadyScript.
+func readyAnswer(target, out string, dedicated bool) (string, error) {
 	lines := strings.Fields(out)
 	switch {
 	case len(lines) != 6:
@@ -151,6 +184,10 @@ func readyAnswer(target, out string) (string, error) {
 		return "", fmt.Errorf("%s has no git on its PATH (looked in its PATH and %s), which the tests that make a throwaway repository need: install Git for Windows, or MinGit as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
 	case lines[3] != "tar":
 		return "", fmt.Errorf("%s has no tar.exe, which unpacks the tree; Windows has had it since Windows 10 1803 and Server 2019", target)
+	}
+	if dedicated {
+		return oscheck.Room(target, lines[4], lines[5], `%USERPROFILE%\`+winDir+`\`+oscheck.CacheDir+`; and, on this machine kept for checks, the login's Go build and module caches and its TEMP\go-build folders`,
+			"what is left is outside Go's caches")
 	}
 	return oscheck.Room(target, lines[4], lines[5], `%USERPROFILE%\`+winDir+`\`+oscheck.CacheDir,
 		`the login's own Go cache is %LocalAppData%\go-build`)

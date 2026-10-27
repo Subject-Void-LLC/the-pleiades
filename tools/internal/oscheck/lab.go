@@ -176,7 +176,16 @@ func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "%s: %v\n", c.Tool, err)
 		return 2
 	}
-	return runWithBox(ctx, o, flow, l, box, stdout, stderr)
+	return runWithBox(ctx, o, flow, dedicate(l), box, stdout, stderr)
+}
+
+// dedicate is l as a machine kept only for checks, when it can be one
+// (Dedicating): what Run runs on a box it starts and puts back.
+func dedicate(l Leg) Leg {
+	if d, ok := l.(Dedicating); ok {
+		return d.Dedicated()
+	}
+	return l
 }
 
 // buildPleiades builds p's binary from this tree; a test replaces it.

@@ -46,3 +46,15 @@ func TestCheck(t *testing.T) {
 		t.Errorf("check = %+v", check)
 	}
 }
+
+// TestDedicated: run as a box, the FreeBSD machine clears its login's Go
+// leftovers before each run; otherwise it does not.
+func TestDedicated(t *testing.T) {
+	f := freebsd{}
+	if f.posix.Dedicated {
+		t.Fatal("a FreeBSD machine starts dedicated")
+	}
+	if got := f.Dedicated().(freebsd); !got.posix.Dedicated {
+		t.Error("Dedicated did not make the machine dedicated")
+	}
+}

@@ -51,6 +51,13 @@ func (f freebsd) Ready() error {
 		oscheck.Need{Command: "cc", Why: "the race detector builds with it, and FreeBSD's base system has it unless it was left out"})
 }
 
+// Dedicated is the machine as a lab VM kept for checks, whose login's Go
+// caches its readiness step clears before every run (oscheck.Dedicating).
+func (f freebsd) Dedicated() oscheck.Leg {
+	f.posix.Dedicated = true
+	return f
+}
+
 // Ship unpacks commit sha's tree on the machine (oscheck.POSIX.Ship).
 func (f freebsd) Ship(sha string) error { return f.posix.Ship(sha) }
 

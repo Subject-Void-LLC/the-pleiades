@@ -27,13 +27,45 @@ func TestReadyAnswer(t *testing.T) {
 		"Win32NT\ngo\ngit\ntar\n21":                   {err: "answered the readiness check"},
 		"Win32NT\ngo":                                 {err: "answered the readiness check"},
 	} {
-		note, err := readyAnswer("win-1", out)
+		note, err := readyAnswer("win-1", out, false)
 		if (want.err == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want.err) {
 			t.Errorf("readyAnswer(%q) = %v, want %q", out, err, want.err)
 		}
 		if (want.note == "") != (note == "") || !strings.Contains(note, want.note) {
 			t.Errorf("readyAnswer(%q) said %q, want %q", out, note, want.note)
 		}
+	}
+}
+
+// TestDedicatedReadyScript: a lab VM kept for checks also has its login's Go
+// build cache cleared, go test's leftover folders in its TEMP removed, and
+// its module cache cleared while short, all before the check's own room is
+// made; a machine not kept for checks never does any of it.
+func TestDedicatedReadyScript(t *testing.T) {
+	for _, w := range []string{
+		"Remove-Item Env:GOCACHE -ErrorAction SilentlyContinue",
+		"& go.exe clean -cache 2>&1 | Out-Null",
+		"foreach ($f in 'go-build*', 'Test*') { Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter $f",
+		"if ([int](Get-FreeGB) -lt 4 -and (Get-Command go.exe -ErrorAction SilentlyContinue)) { & go.exe clean -modcache",
+	} {
+		if !strings.Contains(dedicatedReadyScript, w) {
+			t.Errorf("the dedicated ready script does not hold %q:\n%s", w, dedicatedReadyScript)
+		}
+		if strings.Contains(readyScript, w) {
+			t.Errorf("the ordinary ready script holds %q", w)
+		}
+	}
+	if strings.Index(dedicatedReadyScript, "clean -cache") > strings.Index(dedicatedReadyScript, pruneLine) {
+		t.Error("the login's caches are cleared after the check's own room is made, so its own cache can go first")
+	}
+	var leg oscheck.Leg = windows{}
+	d, ok := leg.(oscheck.Dedicating)
+	if !ok || !d.Dedicated().(windows).dedicated {
+		t.Error("windows does not become a dedicated machine when the check runs it as a box")
+	}
+	note, err := readyAnswer("win-1", "Win32NT\ngo\ngit\ntar\n3\n3", true)
+	if err == nil || !strings.Contains(err.Error(), "the login's Go build and module caches") || !strings.Contains(err.Error(), "outside Go's caches") || note == "" {
+		t.Errorf("a dedicated machine still short says %v (note %q)", err, note)
 	}
 }
 

@@ -130,6 +130,14 @@ type Leg interface {
 	Test(ctx context.Context, sha string, parallel int, packages []string, stdout io.Writer) (bool, error)
 }
 
+// Dedicating is a Leg that can free more room on a machine kept only for
+// checks: LabCheck.Run asks for it when the machine is a box it starts and
+// puts back, so a lab VM's disk is cleared before every run (owner,
+// 2026-10-27) and a machine someone else uses never is.
+type Dedicating interface {
+	Dedicated() Leg
+}
+
 // Scanner is a Leg that can run govulncheck on a tree it was sent.
 type Scanner interface {
 	// Vuln runs govulncheck release version over sha's tree, analyzing it
