@@ -144,26 +144,43 @@ func readRequest(params map[string]any) (request, error) {
 // is why the error preference is relaxed around it. It answers key=value
 // lines: skip (creates was there), missing or notdir (a check's unchecked
 // answers), dest_existed, and extracted.
+//
+// A drive's root as dest gets the archive's top folders made first: the
+// bsdtar 3.8.9 in Windows 11 build 26300 cannot make a folder directly under a
+// drive's root ("Can't create '\\?\C:\go\VERSION': No such file or directory")
+// though it fills one that exists, nested folders and all (measured on a
+// Windows 11 ARM guest, 2026-10-27; the Server 2025 tar.exe never showed it).
+// A top name that is "..", "." or holds a drive colon or a wildcard is never
+// made, so a hostile archive cannot reach outside the root this way.
 func (r request) script(check bool) string {
 	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$src = '%s'
-$dest = '%s'
-$creates = '%s'
-$remove = $%t
-$check = $%t
+$src = '%[1]s'
+$dest = '%[2]s'
+$creates = '%[3]s'
+$remove = $%[4]t
+$check = $%[5]t
 if ($creates -ne '' -and (Test-Path -LiteralPath $creates)) { 'skip=creates'; exit 0 }
-if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { if ($check) { 'missing=src'; exit 0 }; exit %d }
+if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { if ($check) { 'missing=src'; exit 0 }; exit %[6]d }
 $existed = Test-Path -LiteralPath $dest
-if ($existed -and -not (Test-Path -LiteralPath $dest -PathType Container)) { if ($check) { 'notdir=dest'; exit 0 }; exit %d }
+if ($existed -and -not (Test-Path -LiteralPath $dest -PathType Container)) { if ($check) { 'notdir=dest'; exit 0 }; exit %[7]d }
 "dest_existed=$existed"
 if ($check) { exit 0 }
 if (-not $existed) { New-Item -ItemType Directory -Force -Path $dest | Out-Null }
+if ($dest -match '^[A-Za-z]:\\$') {
+	$ErrorActionPreference = 'Continue'
+	$names = & '%[8]s' -tf $src
+	$code = $LASTEXITCODE
+	$ErrorActionPreference = 'Stop'
+	if ($code -ne 0) { "tar=$code"; exit %[9]d }
+	$tops = $names | Where-Object { $_ -match '^[^/\\]+[/\\]' } | ForEach-Object { ($_ -split '[/\\]')[0] } | Sort-Object -Unique
+	foreach ($t in $tops) { if ($t -ne '..' -and $t -ne '.' -and $t -notmatch '[:*?"<>|]') { New-Item -ItemType Directory -Force -Path (Join-Path $dest $t) | Out-Null } }
+}
 $ErrorActionPreference = 'Continue'
-& '%s' -xf $src -C $dest
+& '%[8]s' -xf $src -C $dest
 $code = $LASTEXITCODE
 $ErrorActionPreference = 'Stop'
-if ($code -ne 0) { "tar=$code"; exit %d }
+if ($code -ne 0) { "tar=$code"; exit %[9]d }
 if ($remove) { Remove-Item -LiteralPath $src -Force }
 'extracted=true'
 `, r.src, r.dest, r.creates, r.remove, check, exitNoSrc, exitDestIsNot, tarPath, exitTar)
