@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -188,5 +189,36 @@ func TestOpenShell_FailuresAfterTheChoice(t *testing.T) {
 	}
 	if err := shell.Close(); err == nil {
 		t.Error("a second Close reported nothing")
+	}
+}
+
+// TestOpenCLI: a session in IOS's dialect over a real SSH server, the
+// carrier's failure named for the task, and a dialect that cannot bound a
+// read refused with the shell closed again.
+func TestOpenCLI(t *testing.T) {
+	need.POSIXShell(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	srv, err := remoteexectest.Start(remoteexectest.Options{Device: &remoteexectest.Device{Prompt: "R1#"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Close)
+	skip := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}
+	device := newCLIDevice(srv.Host, srv.Port, 0, capability.NameSSHTransport)
+
+	session, err := sdk.OpenCLI(ctx, newSecretContext(srv.Secrets()), device, skip, "test.cli", netcli.IOS)
+	if err != nil {
+		t.Fatalf("OpenCLI: %v", err)
+	}
+	if err := session.Close(); err != nil {
+		t.Errorf("closing the session: %v", err)
+	}
+
+	if _, err := sdk.OpenCLI(ctx, newSecretContext(nil), nil, skip, "test.cli", netcli.IOS); err == nil || !strings.Contains(err.Error(), "no target device") {
+		t.Errorf("no device: %v", err)
+	}
+	if _, err := sdk.OpenCLI(ctx, newSecretContext(srv.Secrets()), device, skip, "test.cli", netcli.Dialect{}); err == nil || !strings.Contains(err.Error(), "test.cli") || !strings.Contains(err.Error(), "no prompt pattern") {
+		t.Errorf("a dialect with no prompt: %v", err)
 	}
 }

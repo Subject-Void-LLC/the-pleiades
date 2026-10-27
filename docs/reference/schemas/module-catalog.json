@@ -9973,7 +9973,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Checks configurations against Batfish's model of the network before any of them is applied, and fails closed.",
-      "description": "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, a convert error Batfish reports (part of a device missing from the model), or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). Recognising a line is not modelling it, so a feature measured to be parsed and then ignored (on Cisco IOS: GLBP, IP SLA, SLA tracking, BFD) is refused the same way until accepted by name: the model cannot predict its failover, and a passing gate must not imply that it did. The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
+      "description": "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, a convert error Batfish reports (part of a device missing from the model), or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). Recognising a line is not modelling it, so a feature measured to be parsed and then ignored (on Cisco IOS: GLBP, IP SLA, SLA tracking, BFD, NHRP) is refused the same way until accepted by name: the model cannot predict its failover, and a passing gate must not imply that it did. The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
       "params": [
         {
           "name": "devices",
@@ -9984,7 +9984,7 @@
         {
           "name": "assertions",
           "type": "list of dict",
-          "description": "What must hold of the configurations as given, each one of: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol}; no_route: {node, prefix}; reach: {from (node or node[interface]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network)}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."
+          "description": "What must hold of the configurations as given, each one of: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}; no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node[\"Ethernet0/1\"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."
         },
         {
           "name": "scenarios",
@@ -9994,7 +9994,7 @@
         {
           "name": "accept_unrecognized",
           "type": "list of dict",
-          "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd), and a reason (why the model may ignore it). Every other unrecognised line fails the task."
+          "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd, nhrp), and a reason (why the model may ignore it). Every other unrecognised line fails the task."
         }
       ],
       "returns": [
@@ -10296,7 +10296,8 @@
         {
           "name": "prompts",
           "type": "list of dict",
-          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text written in the task is never sent to a question asking for a password, passphrase or secret; answer one with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret), which is resolved just before it is typed, may stand only with literal text, and is recorded in exchanges as (secret).",
+          "secretRefs": true
         },
         {
           "name": "ask",
@@ -10795,6 +10796,85 @@
       ]
     }
   },
+  "net.ios.checkpoints": {
+    "supportedTransports": [
+      "ssh",
+      "telnet",
+      "console"
+    ],
+    "requiredCapabilities": [
+      "CiscoIOSCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A checkpoint deleted is gone, and the undo net.ios.config recorded for its change (net.ios.replace naming it) then refuses: prune only what no rollback will need. Listing changes nothing."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones.",
+      "description": "Reads the file system net.ios.config keeps its checkpoints on (the device's default writable disk or flash, such as unix: or flash:) with dir, and reports each change's checkpoints, newest first: its id, the configuration before it and, for a change that completed, after it, with the time and size the device gives. Only files named as net.ios.config names them (pleiades-<12 hex digits>.cfg and -after.cfg) are ever listed or deleted, so a startup configuration or an image is never touched. Each checkpoint holds the whole configuration, its secrets included, and stays on the device until its change's undo runs. With prune, the checkpoints of every change but the newest keep, or of every change older than older_than by the device's own clock (show clock, so a router whose clock was never set is measured against itself), or both (a change goes when either says so), are deleted with delete /force; a check reports what would go. A deleted checkpoint's undo (the net.ios.replace net.ios.config recorded) then refuses, so prune only changes no rollback will need, such as those of a lab about to be deleted.",
+      "params": [
+        {
+          "name": "prune",
+          "type": "bool",
+          "default": "false",
+          "description": "Delete the checkpoints keep and older_than select. Without it the method only lists."
+        },
+        {
+          "name": "keep",
+          "type": "int",
+          "description": "With prune, keep the checkpoints of this many of the newest changes and delete the rest; 0 deletes every one."
+        },
+        {
+          "name": "older_than",
+          "type": "string",
+          "description": "With prune, delete the checkpoints of every change older than this, a Go duration such as 72h, measured by the device's own clock against the times it gives its files."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        },
+        {
+          "name": "insecure_telnet",
+          "type": "bool",
+          "default": "false",
+          "description": "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."
+        }
+      ],
+      "returns": [
+        {
+          "name": "checkpoints",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each change's checkpoints, newest first: id, before, after (empty when the change did not complete), modified (RFC 3339, empty when the device's time did not read) and bytes."
+        },
+        {
+          "name": "deleted",
+          "type": "list of string",
+          "returned": "when prune is true",
+          "description": "The files deleted, or in a check the files that would be."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep the checkpoints of the last five changes",
+          "runbookYaml": "- name: Prune old checkpoints\n  net.ios.checkpoints:\n    prune: true\n    keep: 5\n"
+        }
+      ],
+      "seeAlso": [
+        "net.ios.config",
+        "net.ios.replace"
+      ]
+    }
+  },
   "net.ios.command": {
     "supportedTransports": [
       "ssh",
@@ -10818,7 +10898,7 @@
     "noCheckReason": "an arbitrary command can be anything the device accepts, and what it changes, if anything, is known only once the device has run it",
     "doc": {
       "summary": "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
-      "description": "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task. A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed. A command that only reads (show, or IOS's abbreviation of it, and dir and more written in full) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command cannot be inspected, so it reports changed every time it runs without error.",
+      "description": "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task, unless accept takes it; a command that only reads fails only on IOS's own refusal of the line (% Invalid input, % Incomplete command, % Ambiguous command, % Unrecognized command, %Error), since a \"% \" line in what it shows is the device's data. A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed and its secrets (a pre-shared key, a password, a community) masked; every named secret of the project is masked by value besides. A command that only reads (show, or IOS's abbreviation of it, and dir, more, ping, traceroute and terminal written in full, the last changing only this session) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command, debug among them, cannot be inspected, so it reports changed every time it runs without error.",
       "params": [
         {
           "name": "command",
@@ -10828,9 +10908,15 @@
           "format": "command"
         },
         {
+          "name": "accept",
+          "type": "list of string",
+          "description": "Further IOS \"% \" lines to take as output rather than a refusal, each RE2 matched from the start of the line and so beginning with %, as net.ios.config's accept. A command that only reads needs none: it fails only on IOS's own refusal of the line."
+        },
+        {
           "name": "prompts",
           "type": "list of dict",
-          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text written in the task is never sent to a question asking for a password, passphrase or secret; answer one with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret), which is resolved just before it is typed, may stand only with literal text, and is recorded in exchanges as (secret).",
+          "secretRefs": true
         },
         {
           "name": "ask",
@@ -10939,8 +11025,9 @@
           "name": "lines",
           "type": "list of string",
           "required": true,
-          "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.",
-          "format": "command"
+          "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself. A line may name a stored secret, such as a pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the line is sent, and masked in everything the run reports. A line holding one holds no other template expression, and a value with whitespace, a control character or ? is refused.",
+          "format": "command",
+          "secretRefs": true
         },
         {
           "name": "checkpoint",
@@ -10962,7 +11049,8 @@
         {
           "name": "prompts",
           "type": "list of dict",
-          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text is never sent to a question asking for a password, passphrase or secret."
+          "description": "Questions the command may ask, each {match, answer} or {match, refuse: true}. match is RE2 found on the line the device waits on (case-sensitive unless it starts with (?i)); answer is typed and then Enter, \"\" being Enter alone; refuse closes the session, which abandons the command, and fails the task. The first unanswered entry matching is used and each answers once, so a question the device asks again after its answer fails the task; list it twice to answer it twice. Text written in the task is never sent to a question asking for a password, passphrase or secret; answer one with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret), which is resolved just before it is typed, may stand only with literal text, and is recorded in exchanges as (secret).",
+          "secretRefs": true
         },
         {
           "name": "ask",
@@ -11782,6 +11870,116 @@
       ],
       "seeAlso": [
         "net.ovs.bridge"
+      ]
+    }
+  },
+  "net.pcap.summary": {
+    "executionContext": {
+      "site": "controller",
+      "device": "none"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It reads a capture file and changes nothing, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext.",
+      "description": "Reads a pcap or pcapng file from the project (virt.cml.capture.stop writes one; up to 16 MiB) and counts every frame by protocol: IPsec's ESP, ESP inside UDP 4500 (NAT traversal) and IKE (UDP 500, or 4500 behind the non-ESP marker), and in the clear GRE, ICMP, OSPF, EIGRP, BGP, HSRP, VRRP, PIM, TCP, UDP, ARP and frames carrying no IP (CDP, keepalives). Each IP packet is one of three kinds: encrypted (ESP, ESP in UDP), the key exchange that set it up (IKE), or cleartext (everything else carried over IP, which anyone on the wire can read). The same counts are given for each address pair, most packets first, so \"the sites' traffic crosses encrypted\" is a pair whose cleartext is 0 and whose encrypted count grew while traffic was sent; GRE in the clear between two sites is DMVPN without its IPsec. It reads Ethernet (VLAN tags included), raw IP and Linux cooked captures; a frame of another link type is counted as unread. A frame carrying no IP (CDP, a keepalive, but also anything inside MPLS or PPPoE) and an unread frame are not examined, so they are counted apart as unexamined, never as cleartext: \"nothing crossed in the clear\" is cleartext 0 and unexamined 0 (or every unexamined frame accounted for by its protocol). IKE and ESP in UDP are told by their ports, and ESP is counted encrypted whatever its cipher, ESP-NULL included. A file cut short is read up to the cut, and the task fails naming where. It changes nothing, and a check runs it as a run does. It runs on this machine with no device: write it without hosts.",
+      "params": [
+        {
+          "name": "src",
+          "type": "string",
+          "required": true,
+          "description": "The capture file, a path relative to the project directory, such as captures/core1-wan.pcap."
+        },
+        {
+          "name": "pairs",
+          "type": "int",
+          "default": "20",
+          "description": "How many address pairs to list, most packets first; 0 lists none."
+        }
+      ],
+      "returns": [
+        {
+          "name": "format",
+          "type": "string",
+          "returned": "always",
+          "description": "pcap or pcapng."
+        },
+        {
+          "name": "packets",
+          "type": "int",
+          "returned": "always",
+          "description": "Every frame in the capture."
+        },
+        {
+          "name": "bytes",
+          "type": "int",
+          "returned": "always",
+          "description": "Their lengths on the wire, summed."
+        },
+        {
+          "name": "protocols",
+          "type": "dict",
+          "returned": "always",
+          "description": "Packets and bytes by protocol name (esp, esp-udp, ike, gre, icmp, ospf, bgp, tcp, udp, arp, non-ip and the rest)."
+        },
+        {
+          "name": "encrypted",
+          "type": "int",
+          "returned": "always",
+          "description": "IP packets that were ESP or ESP in UDP."
+        },
+        {
+          "name": "key_exchange",
+          "type": "int",
+          "returned": "always",
+          "description": "IP packets that were IKE."
+        },
+        {
+          "name": "cleartext",
+          "type": "int",
+          "returned": "always",
+          "description": "Every other IP packet: what a reader of the wire saw in the clear."
+        },
+        {
+          "name": "pairs",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each address pair (a, b), most packets first: its protocols, encrypted, key_exchange and cleartext."
+        },
+        {
+          "name": "link_types",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The link types the capture declares."
+        },
+        {
+          "name": "unread",
+          "type": "int",
+          "returned": "always",
+          "description": "Frames of a link type this method does not read."
+        },
+        {
+          "name": "unexamined",
+          "type": "int",
+          "returned": "always",
+          "description": "Frames this method could not judge encrypted or not: unread ones, and every one carrying no IP (non-ip)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Count what crossed a WAN link",
+          "runbookYaml": "- name: Count what crossed CORE1's WAN link\n  net.pcap.summary:\n    src: captures/core1-wan.pcap\n  register: wan\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.capture.start",
+        "virt.cml.capture.stop"
       ]
     }
   },
@@ -14385,6 +14583,210 @@
       ]
     }
   },
+  "virt.cml.capture.start": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that started a capture emits virt.cml.capture.stop of the same link, which ends it and writes nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.capture.stop",
+          "record": [
+            "lab",
+            "link"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a packet capture on a link of a CML lab.",
+      "description": "Starts the controller capturing every packet that crosses the link named by link, or the one between a's a_interface and b's b_interface, until packets have been taken or seconds have passed (at least one is required; CML allows 1 to 1000000 packets and 1 to 86400 seconds), optionally only those a Berkeley packet filter (tcpdump's syntax) admits. The capture runs on the controller while the run goes on, so start it, send the traffic to prove (net.ios.ping), then stop it with virt.cml.capture.stop, which writes the file into the project for net.pcap.summary or another analyzer to read. A link that is already capturing is refused: stop that capture first. Its undo is virt.cml.capture.stop of the same link, which writes nothing. The link must be started (its lab started); the task's target is a cml_controller device. A check reads the link and its capture and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "packets",
+          "type": "int",
+          "description": "Stop after this many packets."
+        },
+        {
+          "name": "seconds",
+          "type": "int",
+          "description": "Stop after this many seconds."
+        },
+        {
+          "name": "filter",
+          "type": "string",
+          "description": "A Berkeley packet filter, at most 128 characters, such as \"esp or udp port 500 or udp port 4500 or icmp\"."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Prove a WAN link carries only encrypted traffic",
+          "runbookYaml": "- name: Capture CORE1's WAN link\n  virt.cml.capture.start:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n    packets: 2000\n    seconds: 60\n- name: Ping across the tunnel from a branch\n  net.ios.ping:\n    target: BR1\n    dest: 10.0.0.1\n    source: 10.1.1.1\n    count: 50\n- name: Stop it and keep the file\n  virt.cml.capture.stop:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n    dest: captures/core1-wan.pcap\n- name: Count what crossed\n  net.pcap.summary:\n    src: captures/core1-wan.pcap\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.capture.stop",
+        "net.pcap.summary",
+        "virt.cml.link.stop"
+      ]
+    }
+  },
+  "virt.cml.capture.stop": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A stopped capture cannot be resumed, and the file it wrote is the record of what crossed the link, which no undo should take away."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops a packet capture on a link of a CML lab and writes its file into the project.",
+      "description": "Stops the capture on the link named by link, or the one between a's a_interface and b's b_interface, and, with dest, fetches its pcap file from the controller and writes it into the project at dest (a path under the project directory, never .pleiades; up to 16 MiB, so bound a long capture with packets or seconds). A capture that already stopped at its bound is not stopped again, and its file is still fetched. The file is the packets as they crossed the wire: any cleartext that crossed is in it, so keep it with the project's other private files. Its result names the file, its size and SHA-256. The task's target is a cml_controller device; it writes only on the command line (pleiades run and adhoc), which holds the project. A check reads the capture and reports what it would do, writing nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "description": "Where in the project to write the capture file, a name ending in .pcap or .pcapng, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.",
+          "format": "project_path"
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        },
+        {
+          "name": "packets",
+          "type": "int",
+          "returned": "when a capture was running",
+          "description": "How many packets the capture had taken when it was stopped."
+        },
+        {
+          "name": "dest",
+          "type": "string",
+          "returned": "when dest is set",
+          "description": "The file written."
+        },
+        {
+          "name": "bytes",
+          "type": "int",
+          "returned": "when dest is set",
+          "description": "Its size."
+        },
+        {
+          "name": "sha256",
+          "type": "string",
+          "returned": "when dest is set",
+          "description": "Its SHA-256, in hex."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep a capture for net.pcap.summary",
+          "runbookYaml": "- name: Stop the capture and keep the file\n  virt.cml.capture.stop:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n    dest: captures/core1-wan.pcap\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.capture.start",
+        "net.pcap.summary"
+      ]
+    }
+  },
   "virt.cml.lab.create": {
     "supportedTransports": [
       "https"
@@ -14930,6 +15332,187 @@
       ]
     }
   },
+  "virt.cml.link.start": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the link's state emits virt.cml.link.stop of the same link, by its lab's id and its own; one that found the link already so emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.link.stop",
+          "record": [
+            "lab",
+            "link"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a stopped link in a CML lab, as if plugged in again.",
+      "description": "Starts the link named by link, or the one between a's a_interface and b's b_interface, so it carries traffic again. A link already started is unchanged. Its undo is virt.cml.link.stop of the same link. The task's target is a cml_controller device; the method runs on this machine and talks to the controller's REST API. A check reads the link's state and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's state before the task: STARTED, STOPPED or DEFINED_ON_CORE."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restore a link a test cut",
+          "runbookYaml": "- name: Restore CORE1's WAN link\n  virt.cml.link.start:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.link.stop",
+        "virt.cml.lab.start"
+      ]
+    }
+  },
+  "virt.cml.link.stop": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "CMLAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the link's state emits virt.cml.link.start of the same link, by its lab's id and its own; one that found the link already so emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.cml.link.start",
+          "record": [
+            "lab",
+            "link"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops a link in a CML lab, as if unplugged, leaving both nodes running.",
+      "description": "Stops the link named by link, or the one between a's a_interface and b's b_interface: it carries nothing until started again, while both nodes keep running with their running configurations. This is how to fail a path or a site for a test without stopping a router, which loses a configuration that was never saved. A link already stopped is unchanged. Its undo is virt.cml.link.start of the same link. The task's target is a cml_controller device; the method runs on this machine and talks to the controller's REST API. A check reads the link's state and changes nothing.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "description": "The link's id."
+        },
+        {
+          "name": "a",
+          "type": "string",
+          "description": "One node, by label or id, with a_interface, b and b_interface, naming the link by its ends."
+        },
+        {
+          "name": "a_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        },
+        {
+          "name": "b",
+          "type": "string",
+          "description": "The other node, by label or id."
+        },
+        {
+          "name": "b_interface",
+          "type": "string",
+          "description": "Its interface, by label."
+        }
+      ],
+      "returns": [
+        {
+          "name": "id",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's id."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The link's state before the task: STARTED, STOPPED or DEFINED_ON_CORE."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Fail a core's WAN link, then restore it",
+          "runbookYaml": "- name: Cut CORE1's WAN link\n  virt.cml.link.stop:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n- name: Restore it\n  virt.cml.link.start:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/1\n    b: WAN1\n    b_interface: Ethernet0/0\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.cml.link.start",
+        "virt.cml.capture.start",
+        "virt.cml.lab.stop"
+      ]
+    }
+  },
   "virt.cml.node.create": {
     "supportedTransports": [
       "https"
@@ -15111,6 +15694,224 @@
       ],
       "seeAlso": [
         "virt.cml.node.create"
+      ]
+    }
+  },
+  "virt.fusion.vm.info": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "VMwareFusionCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Reading is not changing: this runs vmcli's power query and vmrun's getGuestIPAddress and alters nothing, so there is nothing an undo could restore.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reports a VMware Fusion VM's power state and its guest's address.",
+      "description": "Reads a VM on a Mac running VMware Fusion, through vmcli's power query and vmrun's getGuestIPAddress, and changes nothing. A VM whose vmx file is not there is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check is the same read.",
+      "params": [
+        {
+          "name": "vmx",
+          "type": "string",
+          "required": true,
+          "description": "The absolute path of the VM's .vmx file on the Mac, such as /Users/me/pleiades-vms/win11-arm/win11-arm.vmx. Spaces are allowed; a path that is not absolute, does not end in .vmx, or holds a control character is refused."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the VM's vmx file is on the Mac."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "when exists",
+          "description": "Fusion's power state for it: on, off, suspended or paused."
+        },
+        {
+          "name": "guest_ip",
+          "type": "string",
+          "returned": "when the VM is on and VMware Tools in its guest answers",
+          "description": "The guest's IP address, as VMware Tools reports it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a VM",
+          "runbookYaml": "- name: Read the Windows VM\n  virt.fusion.vm.info:\n    vmx: /Users/me/pleiades-vms/win11-arm/win11-arm.vmx\n  register: vm\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.fusion.vm.start",
+        "virt.fusion.vm.stop"
+      ]
+    }
+  },
+  "virt.fusion.vm.start": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "VMwareFusionCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that started a VM that was off emits virt.fusion.vm.stop with mode soft; one that resumed a suspended VM emits it with mode suspend; one that found it on emits nothing. Stopping it does not undo what the guest did while it ran.",
+      "inverses": [
+        {
+          "fqcn": "virt.fusion.vm.stop",
+          "record": [
+            "vmx",
+            "mode"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Starts a VMware Fusion VM with no window, and holds the Mac awake while it runs.",
+      "description": "Makes sure a VM is running, started headless with vmrun. A VM that is already on reports no change. A suspended VM resumes where it was. A paused VM is refused, since starting is not resuming. Unless keep_awake is false, the Mac is held awake for as long as the VM's process runs (caffeinate -w on that process): macOS throttles a VM started from an SSH session as background work, and a Windows guest started that way ran about five times slower than its own clock until it was held awake. vmrun's output is read from a file rather than a pipe, because the VM process it starts keeps that output open for its whole life. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check reads the VM and sends nothing.",
+      "params": [
+        {
+          "name": "vmx",
+          "type": "string",
+          "required": true,
+          "description": "The absolute path of the VM's .vmx file on the Mac, such as /Users/me/pleiades-vms/win11-arm/win11-arm.vmx. Spaces are allowed; a path that is not absolute, does not end in .vmx, or holds a control character is refused."
+        },
+        {
+          "name": "keep_awake",
+          "type": "bool",
+          "default": "true",
+          "description": "Hold the Mac awake while the VM runs. Set it false only for a Mac that is kept awake some other way: a throttled VM runs, slowly, and can stall its own guest's work."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The VM's power state after this task, read back from the Mac."
+        },
+        {
+          "name": "kept_awake",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task started holding the Mac awake for the VM. False when nothing was started."
+        },
+        {
+          "name": "vmx_pid",
+          "type": "int",
+          "returned": "when kept_awake",
+          "description": "The process ID of the VM's vmware-vmx, which the hold on the Mac lasts as long as."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The VM's power state before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start a VM",
+          "runbookYaml": "- name: Start the Windows VM\n  virt.fusion.vm.start:\n    vmx: /Users/me/pleiades-vms/win11-arm/win11-arm.vmx\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.fusion.vm.stop",
+        "virt.fusion.vm.info"
+      ]
+    }
+  },
+  "virt.fusion.vm.stop": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "VMwareFusionCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that stopped or suspended a running VM emits virt.fusion.vm.start naming it; one that found it already stopped emits nothing. Starting it again is not the state it had: a soft or hard stop loses what was in its memory.",
+      "inverses": [
+        {
+          "fqcn": "virt.fusion.vm.start",
+          "record": [
+            "vmx"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Stops or suspends a VMware Fusion VM.",
+      "description": "Makes sure a VM is no longer running. Mode soft asks the guest to shut down, and needs VMware Tools running in the guest: vmrun refuses it without them. Mode hard powers it off at once, as pulling the plug would. Mode suspend writes its memory to disk, and virt.fusion.vm.start resumes it where it was. A VM that is already off reports no change, and so does a suspended one when the mode is suspend. A suspended VM asked for soft or hard is refused, since it is not running, and so is a paused one. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check reads the VM and sends nothing.",
+      "params": [
+        {
+          "name": "vmx",
+          "type": "string",
+          "required": true,
+          "description": "The absolute path of the VM's .vmx file on the Mac, such as /Users/me/pleiades-vms/win11-arm/win11-arm.vmx. Spaces are allowed; a path that is not absolute, does not end in .vmx, or holds a control character is refused."
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "default": "soft",
+          "choices": [
+            "soft",
+            "hard",
+            "suspend"
+          ],
+          "description": "How to stop it: soft (the guest shuts down), hard (powered off at once) or suspend (its memory written to disk)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The VM's power state after this task, read back from the Mac."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The VM's power state before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Suspend a VM",
+          "runbookYaml": "- name: Put the Windows VM away\n  virt.fusion.vm.stop:\n    vmx: /Users/me/pleiades-vms/win11-arm/win11-arm.vmx\n    mode: suspend\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.fusion.vm.start",
+        "virt.fusion.vm.info"
       ]
     }
   },
@@ -16862,11 +17663,9 @@
   },
   "wait.routes": {
     "supportedTransports": [
-      "ssh"
-    ],
-    "requiredCapabilities": [
-      "FRRCapable",
-      "CommandExecCapable"
+      "ssh",
+      "telnet",
+      "console"
     ],
     "executionContext": {
       "site": "target",
@@ -16883,7 +17682,7 @@
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
       "summary": "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
-      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing.",
+      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
       "params": [
         {
           "name": "prefixes",
@@ -16913,6 +17712,12 @@
           "type": "bool",
           "default": "false",
           "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        },
+        {
+          "name": "insecure_telnet",
+          "type": "bool",
+          "default": "false",
+          "description": "Reach a Cisco IOS device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."
         }
       ],
       "returns": [
@@ -16933,6 +17738,10 @@
         {
           "name": "Wait for OSPF to settle",
           "runbookYaml": "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"
+        },
+        {
+          "name": "Wait for a branch to learn the data center over its tunnel",
+          "runbookYaml": "- name: BR1 routes the data center through the hub\n  wait.routes:\n    target: BR1\n    prefixes: [10.0.0.0/16]\n    next_hops: {10.0.0.0/16: [10.255.0.1]}\n    timeout: 180\n"
         }
       ],
       "seeAlso": [

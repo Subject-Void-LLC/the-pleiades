@@ -522,6 +522,7 @@ var (
 		{Name: "inverse_partial", Type: field.TypeBool, Default: false},
 		{Name: "action_changed", Type: field.TypeBool, Default: false},
 		{Name: "authored_rollback", Type: field.TypeBool, Default: false},
+		{Name: "authored_rollback_empty", Type: field.TypeBool, Default: false},
 		{Name: "rollback_of", Type: field.TypeString, Nullable: true},
 		{Name: "undoes_node", Type: field.TypeString, Nullable: true},
 		{Name: "undoes_step", Type: field.TypeInt, Default: 0},
@@ -545,7 +546,7 @@ var (
 			{
 				Name:    "journalentry_rollback_of",
 				Unique:  false,
-				Columns: []*schema.Column{JournalEntriesColumns[38]},
+				Columns: []*schema.Column{JournalEntriesColumns[39]},
 			},
 		},
 	}

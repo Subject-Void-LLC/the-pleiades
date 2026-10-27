@@ -111,14 +111,14 @@ func TestRecordUsesTheSnakeCaseNamesAsTheFormat(t *testing.T) {
 		"inverse_fqcn", "inverse_fqcn_unresolved", "inverse_param_keys",
 		"undeclared_inverse_param_count", "diff_recorded",
 		"inverse_params", "inverse_complete", "inverse_partial",
-		"action_changed", "authored_rollback", "rollback_of", "undoes_node", "undoes_step",
+		"action_changed", "authored_rollback", "authored_rollback_empty", "rollback_of", "undoes_node", "undoes_step",
 	} {
 		if _, ok := line[key]; !ok {
 			t.Errorf("the record has no %q key: %v", key, line)
 		}
 	}
-	if len(line) != 38 {
-		t.Errorf("the record holds %d keys, want 38: no field carries omitempty, so every line is whole", len(line))
+	if len(line) != 39 {
+		t.Errorf("the record holds %d keys, want 39: no field carries omitempty, so every line is whole", len(line))
 	}
 	// An entry with no recorded undo values writes [], never null, as the
 	// three key vectors do.

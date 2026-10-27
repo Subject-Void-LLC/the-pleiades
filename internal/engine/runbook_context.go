@@ -46,6 +46,12 @@ type runbookContext struct {
 	// connection (sdk.DatabaseConnections), from the project's credential
 	// store, for the name the method asks for and no other.
 	databases credential.DatabaseStore
+	// namedSecrets, when set, answers a method's request for one field of a
+	// named secret (sdk.NamedSecrets), from the project's credential store.
+	// It answers any name a method asks for: a built-in method asks only for
+	// the references its task wrote (sdk.ResolveSecretRefs), and an external
+	// Collection's context has none of this.
+	namedSecrets credential.SecretStore
 	// route dials through the device's hops, nil when it has none
 	// (sdk.Router); the Collection executor sets it per task.
 	route sdk.RouteDial
@@ -84,6 +90,7 @@ var (
 	_ sdk.ConnectionPooler    = (*runbookContext)(nil)
 	_ sdk.RegistryCredentials = (*runbookContext)(nil)
 	_ sdk.DatabaseConnections = (*runbookContext)(nil)
+	_ sdk.NamedSecrets        = (*runbookContext)(nil)
 	_ sdk.AIProject           = (*runbookContext)(nil)
 	_ sdk.Reviewer            = (*runbookContext)(nil)
 )
@@ -220,8 +227,8 @@ func NewCredentialRunbookContext(store credential.Store) RunbookContextFunc {
 	}
 }
 
-// withRegistries lets rc answer for container registries and named
-// database connections from store, when the store keeps them.
+// withRegistries lets rc answer for container registries, named database
+// connections and named secrets from store, when the store keeps them.
 func withRegistries(rc sdk.RunbookContext, store credential.Store) sdk.RunbookContext {
 	c, ok := rc.(*runbookContext)
 	if !ok {
@@ -233,7 +240,30 @@ func withRegistries(rc sdk.RunbookContext, store credential.Store) sdk.RunbookCo
 	if ds, ok := store.(credential.DatabaseStore); ok {
 		c.databases = ds
 	}
+	if ss, ok := store.(credential.SecretStore); ok {
+		c.namedSecrets = ss
+	}
 	return c
+}
+
+// NamedSecret implements sdk.NamedSecrets. A reference a task wrote is
+// required, so a store that cannot be read is an error, and a run whose store
+// keeps no named secrets answers that there is none.
+func (c *runbookContext) NamedSecret(name, field string) (string, bool, error) {
+	if c.namedSecrets == nil {
+		// A context built with no credential store (a Runner's) cannot say
+		// whether the project has the secret, so it says why rather than
+		// "no such secret".
+		return "", false, sdk.ErrNoNamedSecrets
+	}
+	value, ok, err := c.namedSecrets.LookupSecret(context.Background(), name, field)
+	if err != nil || !ok {
+		return "", false, err
+	}
+	// The value joins the run's masking set the moment it is handed out, as a
+	// registry password does.
+	c.RegisterSecret(value)
+	return value, true, nil
 }
 
 // DatabaseConnection implements sdk.DatabaseConnections. Unlike a

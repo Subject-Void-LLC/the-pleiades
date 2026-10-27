@@ -101,6 +101,9 @@ func printPlanTasks(tasks []planTask, depth int) {
 // fail, the line saying how it ended. A failed or incomplete run's last
 // line is the error the command ends with, which main prints.
 func printResults(rep *runReport, verbose bool) {
+	// A warning a device gives every task (a pinned certificate, a legacy
+	// cipher) is said once for that device; --json keeps it on every task.
+	warned := map[string]bool{}
 	for _, t := range rep.Tasks {
 		label := taskLabel(t)
 		// Every text below came from a device or a method and was masked
@@ -142,6 +145,11 @@ func printResults(rep *runReport, verbose bool) {
 		// Always, verbose or not: a warning is something the person running
 		// the work has to act on (sdk.StatWarnings).
 		for _, w := range t.Warnings {
+			key := t.Device + "\x00" + w
+			if warned[key] {
+				continue
+			}
+			warned[key] = true
 			fmt.Printf("    WARNING: %s\n", termsafe.EscapeLine(w))
 		}
 		if verbose && t.Provider != nil {

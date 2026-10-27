@@ -34,7 +34,17 @@ type Prompt struct {
 	// the session is closed, which a device takes as abandoning the
 	// command, and Dialog fails naming the question.
 	Refuse bool
+
+	// Secret says Answer came from a secret reference the method resolved
+	// (pkg/secretref): it may answer a question asking for a password,
+	// passphrase or secret, which a written answer never may, and the
+	// Exchange records SecretAnswer in its place.
+	Secret bool
 }
+
+// SecretAnswer is what an Exchange records for an answer that came from a
+// secret, so the value never reaches a result.
+const SecretAnswer = "(secret)"
 
 // Choice is one answer a Chooser may pick for a question no Prompt
 // matched.
@@ -200,6 +210,7 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 	var res DialogResult
 	var transcript strings.Builder
 	answered := make([]bool, len(opts.Prompts))
+	passed := 0
 	for {
 		raw, err := s.shell.ReadUntil(ctx, until, s.maxBytes)
 		if err != nil {
@@ -213,10 +224,18 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 				res.Output, res.Disconnected = stripEcho(transcript.String(), line, end), true
 				return res, nil
 			}
-			return res, fmt.Errorf("netcli: %w%s", err, waitingOn(partial))
+			return res, readFailure(err, transcript.String(), waitingOn(partial))
 		}
 		transcript.WriteString(raw)
 		if endsWith(end, raw) {
+			// The device's own message and its prompt, ahead of the line's
+			// echo, as in command: the answer is still coming.
+			if passed < maxAsyncReads && s.asyncOnly(transcript.String(), line, end) {
+				passed++
+				transcript.Reset()
+				continue
+			}
+			s.noteEcho(transcript.String(), line)
 			res.Output = stripEcho(transcript.String(), line, end)
 			return res, nil
 		}
@@ -233,11 +252,16 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 			if opts.Prompts[i].Refuse {
 				return res, s.stop(question, "the device asked %q, which this task refuses", question)
 			}
-			if err := s.answer(ctx, question, opts.Prompts[i].Answer); err != nil {
+			p := opts.Prompts[i]
+			if err := s.answer(ctx, question, p.Answer, p.Secret); err != nil {
 				return res, err
 			}
 			answered[i] = true
-			res.Exchanges = append(res.Exchanges, Exchange{Question: question, Answer: opts.Prompts[i].Answer, Prompt: i})
+			recorded := p.Answer
+			if p.Secret {
+				recorded = SecretAnswer
+			}
+			res.Exchanges = append(res.Exchanges, Exchange{Question: question, Answer: recorded, Prompt: i})
 			continue
 		}
 		if unanswered != nil && endsWith(unanswered, raw) {
@@ -248,7 +272,9 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 			// at the end; read on rather than guess.
 			continue
 		}
-		ex, done, err := s.choose(ctx, opts.Ask, question, asked)
+		// A question that echoes an answer typed from a secret goes to a
+		// model with that answer replaced: the model is a remote party.
+		ex, done, err := s.choose(ctx, opts.Ask, withoutSecretAnswers(question, opts.Prompts), asked)
 		if err != nil {
 			return res, err
 		}
@@ -256,6 +282,17 @@ func (s *Session) converse(ctx context.Context, line string, end *regexp.Regexp,
 			res.Exchanges = append(res.Exchanges, ex)
 		}
 	}
+}
+
+// withoutSecretAnswers is question with every answer that came from a secret
+// (Prompt.Secret) replaced by SecretAnswer.
+func withoutSecretAnswers(question string, prompts []Prompt) string {
+	for _, p := range prompts {
+		if p.Secret && p.Answer != "" {
+			question = strings.ReplaceAll(question, p.Answer, SecretAnswer)
+		}
+	}
+	return question
 }
 
 // echoing reports whether everything read so far is the device's echo of
@@ -291,7 +328,7 @@ func (s *Session) choose(ctx context.Context, ask *Ask, question string, asked *
 	}
 	for _, c := range ask.Choices {
 		if c.ID == d.ID {
-			if err := s.answer(ctx, question, c.Answer); err != nil {
+			if err := s.answer(ctx, question, c.Answer, false); err != nil {
 				return Exchange{}, false, err
 			}
 			return Exchange{Question: question, Answer: c.Answer, Prompt: -1, Choice: c.ID, Reason: d.Reason, Detail: d.Detail}, true, nil
@@ -301,10 +338,10 @@ func (s *Session) choose(ctx context.Context, ask *Ask, question string, asked *
 }
 
 // answer types text and Enter at question, refusing text for a question
-// that asks for a credential.
-func (s *Session) answer(ctx context.Context, question, text string) error {
-	if text != "" && credentialQuestion.MatchString(question) {
-		return s.stop(question, "the device asked %q for a credential, and an answer written in a task is never a secret, so none is sent", question)
+// that asks for a credential unless the text came from a secret (secret).
+func (s *Session) answer(ctx context.Context, question, text string, secret bool) error {
+	if text != "" && !secret && credentialQuestion.MatchString(question) {
+		return s.stop(question, "the device asked %q for a credential, and an answer written in a task is never a secret, so none is sent: store the answer with `pleiades add-secret <name> --field <field>` (--value-stdin or --value-file) and answer with {{ secret.<name>.<field> }}", question)
 	}
 	if err := s.shell.WriteLine(ctx, text); err != nil {
 		return fmt.Errorf("netcli: answering %q: %w", question, err)

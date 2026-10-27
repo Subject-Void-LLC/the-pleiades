@@ -37,6 +37,16 @@ func judgeStrict(failures []flakegate.Failure, waitErr error, events int) error 
 // end, which is where a test states why it failed.
 const failureLines = 40
 
+// recordFailureLines is how much of a failure's output the run record keeps.
+// It is far more than the console shows because a test's own failure message
+// is not always near its end: a gate that logs every command it runs, and
+// tears its fixture down with more logged commands, put the failing assertion
+// of tests/e2e's upgrade gate about 200 lines before the end, and a record
+// that kept the last 40 kept only the teardown, so the cause was lost and
+// could not be told from contention (the record is read back later, with no
+// way to rerun the failure).
+const recordFailureLines = 400
+
 // contentionLines is how much of a tolerated failure's output testgate
 // prints: enough to see what timed out or raced, short enough that a busy
 // run's log stays readable.

@@ -1,0 +1,5 @@
+2026-10-26T19:24:30.342| ServiceImpl_Opener: PID 79076
+LocationGetRoot: Unable to determine the product location. It is likely that the product has never been run on this machine.
+Cannot determine message file path for locale "en".
+Total running VMs: 1
+/private/tmp/pleiades-fusion-sample.enWDKX/s2.vmx

@@ -214,6 +214,11 @@ func AuthoredRollback(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldAuthoredRollback, v))
 }
 
+// AuthoredRollbackEmpty applies equality check predicate on the "authored_rollback_empty" field. It's identical to AuthoredRollbackEmptyEQ.
+func AuthoredRollbackEmpty(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldAuthoredRollbackEmpty, v))
+}
+
 // RollbackOf applies equality check predicate on the "rollback_of" field. It's identical to RollbackOfEQ.
 func RollbackOf(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldRollbackOf, v))
@@ -1837,6 +1842,16 @@ func AuthoredRollbackEQ(v bool) predicate.JournalEntry {
 // AuthoredRollbackNEQ applies the NEQ predicate on the "authored_rollback" field.
 func AuthoredRollbackNEQ(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldNEQ(FieldAuthoredRollback, v))
+}
+
+// AuthoredRollbackEmptyEQ applies the EQ predicate on the "authored_rollback_empty" field.
+func AuthoredRollbackEmptyEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldAuthoredRollbackEmpty, v))
+}
+
+// AuthoredRollbackEmptyNEQ applies the NEQ predicate on the "authored_rollback_empty" field.
+func AuthoredRollbackEmptyNEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldAuthoredRollbackEmpty, v))
 }
 
 // RollbackOfEQ applies the EQ predicate on the "rollback_of" field.

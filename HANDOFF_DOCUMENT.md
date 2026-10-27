@@ -4,63 +4,78 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-24. Branch `feat/virt-cml`, off `main` at `0caadb17`, tip `d6f47b1f` (38 commits) plus these uncommitted
-records. Phase 127d is built and proven; next is `make pr-check`, the push and the pull request. Not pushed. Tracker:
-127d is 11 of 13 done (open: the Walk tier item, the Release Gate, the commit message).**
+**2026-10-27. Branch `feat/phase-129-blind-lab-fixes`, off `origin/main` at `21ecd314`, 32 commits: Phases 129a to 129d
+as handed off on 2026-10-26, then 16 this session on top of `e3560066` (oldest first `8d868e52`, newest `e522586d`):
+review fixes, the run record fix, the Mac's container half, `pkg/vmrun` and `virt.fusion.vm.*`, the drive-root fix for
+`win.archive.extract`, and the Windows 11 ARM leg. Everything is committed through `e522586d` except these records. Not
+pushed; no pull request yet.**
 
 ### What works
 
-- The ten `virt.cml.*` methods, the `cml_controller` device type, the IOS login seed (type 9 secrets), `import-cml
-  --controller` and `--via console`, and the console transport through a CML controller. Proven on the DevNet sandbox
-  by `TestCLI_BuildsACMLLabAndReachesItsNode` (`040c5fd3`).
-- The blind CVD lab, run 1: turn A met all three requirements in 105 minutes ($19.12), graded from the routers
-  (`~/pleiades-cvd/runs/claude-run1/grade-a.txt`); turn B tore the lab down by `pleiades rollback` in 4.5 minutes
-  (`grade-b.txt`). After-action report: `~/pleiades-cvd/runs/AAR-turn-a.md`.
-- Fixed from the lab's findings: `net.ios.config` answers questions (`prompts`, `ask`, `accept`) and fails at once on
-  an unanswered one (`a2495ddb`); IKE pre-shared keys masked and `crypto key` command words kept (`fa10a343`,
-  `d6f47b1f`, FAILURE_PATTERNS 640); `node.create` takes `interfaces` (`c4e231df`); the `transport: telnet` hint
-  (`f33aff1f`); `pleiades doc <device type>`, `doc --dir`, `adhoc --timeout 40s`, `init --dir` making its directory
-  (`3436e0d6`).
-- Gate work: prscope direct importers, pr-check record stamps and `LEGS=` reruns, `tools/failures watch-pr`.
-- Records: FAILURE_PATTERNS 637 to 642, LESSONS 322 to 326, seven new changelog fragments.
+- Review fixes: `remove-host` reads the state file before it removes anything (`8d868e52`, `TestRemoveHost`); the engine
+  refuses `all_at_plan_time` on a rescue task reading `device` (`33e1e945`, `ErrRescueLockAll`, rescue case in
+  `TestDeviceRoot_EveryPathAndItsLimits`); the scaffold keeps an unknown `Format` and the module reference marks
+  SecretRefs parameters (`e7eb6ec2`).
+- testgate's run record keeps 400 lines of a failure (`2053f832`, `TestRecordFailureLines_KeepTheCauseBehindALoggedTeardown`).
+- Mac container half: `maccheck -containers` (`5d7391d7`) and pr-check's split (`0a555bab`,
+  `TestEveryContainerPackageIsClassified`). 18 packages passed on the Mac's Podman in 17m46s; `internal/ent` lost one
+  race and passed alone.
+- VMware Fusion: `pkg/vmrun` (`f4d292b4`, readers held to captures from a real Fusion 26.0.1), detached start and reset
+  (`eaace13a`, `TestDetachScript_*`), `virt.fusion.vm.info`, `start` (with `keep_awake`) and `stop` plus
+  `VMwareFusionCapable` and its probe (`14747aae`), the guest address asked again with `-wait` (`2846c008`, proven on the
+  Mac after a resume).
+- `win.archive.extract` into a drive root (`6465e007`, `TestScript_MakesADriveRootsTopFoldersFirst`), proven on the
+  Windows 11 ARM guest with Go 1.26.10 arm64 and MinGit.
+- `wincheck -arm64` (`b609aa03`) and the winarm leg chained on the Mac in pr-check (`4ba08943`): `winarmcheck` on 2
+  packages passed in 59 s on 2026-10-27, after the fix to the binary it ran.
+- Records: FAILURE_PATTERNS 668 to 679; LESSONS 338 to 342; CI_LESSONS 13 to 15; the e2e ledger entry annotated with
+  668; five changelog fragments (`win-archive-extract-drive-root.fixed`, `pr-check-mac-containers.added`,
+  `wincheck-arm64.added`, `testgate-record-lines.changed`, `reference-secret-refs.added`).
 
 ### Blocker
 
-- None. `make pr-check` has not run on this tip yet.
+- None. `make pr-check` with the new split recipe has not run end to end yet.
 
 ### Open
 
-- The blind lab's rerun of turn A stopped at 29.5 minutes on the account's weekly usage limit. Afterwards another
-  agent, citing Groundconfig, worked in the CML sandbox from 20:23 to 21:17, so the sandbox's `pleiades-cvd` lab is up
-  and modified. Phase 129's harness item (lock the sandbox for a turn) covers it.
-- The Groundconfig external Collection is built in `~/Groundconfig/pleiades`, not committed. The owner is deciding
-  whether to share it.
-- Proposed, not approved: Phase 128 (IOS candidate merge), 129 (what the blind lab asked for), 130 (firewalls and
-  IDS/IPS).
-- 127d's Walk tier item: a Runner refuses a console server; a `cml_controller` task from a Runner is untested.
-- 638: no test drives a `virt.cml` failure through to the journal. 640: Mask is still a denylist.
-- Carried: `TestCheck_RealRoutersAgainstRealBatfish`'s readiness wait, 629's GNS3 retries, 618's hard link residual,
-  574, 610, 611, 612, 602, 598, 562, 560, 551, 470, 471.
+- `tests/e2e`'s `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed twice at `e3560066` and passed alone twice
+  since; its cause is unknown (FAILURE_PATTERNS 668). The next failure's record should hold it.
+- `go generate ./internal/forge/catalogdata` writes eight duplicate CML link and capture scaffolds on every run
+  (FAILURE_PATTERNS 677). Check `git status` after any generate until it is fixed.
+- Not built: `virt.fusion` install and create methods, and `pkg/winunattend` for arm64 and UEFI. Stale Fusion lock
+  handling stays manual (674). No test holds wincheck's leg tool name (676).
+- The VM `win11-arm` has 4 GB; raise it to 8 GB at its next clean shutdown.
+- The Windows setup rename flake (`internal/setup`, Defender) has not recurred.
+- Carried: F7, F8, F9 from the 129 review; FAILURE_PATTERNS 562, 647, 648, 649, 652 unchanged; the earlier list in the
+  archive's 2026-10-26 entry.
 
 ### Next, in order
 
-1. Commit these records, then `make pr-check` on the clean tip; push; open the pull request; `go run ./tools/failures
-   watch-pr -pr N`.
-2. After it merges: the release tooling pull request (a dry-run binary release; no tag until the owner says).
-3. Then Phase 117b part 3, then Phase 126.
+1. Commit these records.
+2. `make pr-check` through `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`: the first end-to-end run of the
+   split recipe, with the `containers-mac` and `winarm` legs.
+3. Push once and open one pull request for Phases 129a to 129d plus the Mac and Fusion work; tick each Release Gate
+   with its evidence when Actions passes.
+4. Then the open list above, and the order the owner set (release tooling, Phase 117b part 3, Phase 126).
 
 ### Files changed
 
-- This branch: `internal/catalog/virt/cml`, `pkg/cml`, `pkg/cmlconsole`, `pkg/iossecret`, `pkg/devicetls`,
-  `pkg/netcfg`, `pkg/netcli`, `internal/catalog/net/ios`, `internal/engine` (login seed, console dialer),
-  `cmd/pleiades` (doc, adhoc, init, import-cml), `tools/prscope`, `tools/prreport`, `tools/gatereceipt`,
-  `tools/testgate`, `tools/failures`, docs and generated references.
-- This session's records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
-  `LESSONS_LEARNED_ARCHIVE.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, seven files under `changelog/`, and
-  `.SPECIFICATION/IMPLEMENTATION.md` (127d's blind lab item ticked).
+- `8d868e52`: `internal/inventory/file_repository_remove*.go`. `33e1e945`: `internal/engine/` (`device_root.go`,
+  `handlers_run.go`, tests). `e7eb6ec2`: `internal/forge/collectionscaffold/docrender.go`, `tools/gendocs/modules.go`,
+  three reference pages. `2053f832`: `tools/testgate/`.
+- `5d7391d7`, `0a555bab`, `b609aa03`, `4ba08943`: `tools/internal/oscheck/`, `tools/maccheck/`, `tools/wincheck/`,
+  `tools/internal/flakegate/maccontainers_test.go`, `tools/internal/prreport/report.go`, `tools/monitor/`, `Makefile`,
+  `tests/winarm/.env.example`, `.gitignore`.
+- `f4d292b4`, `eaace13a`, `14747aae`, `2846c008`, `e522586d`: `pkg/vmrun/`, `internal/catalog/virt/fusion/vm/`,
+  `pkg/capability/capabilities_vmware.go`, `internal/inventory/devices/generic/`, `internal/inventory/onboard/probe_ssh.go`,
+  catalogdata, generated docs, `CLAUDE.md`, `README.md` (`4a975a97`), `docs/01-start-here.md`.
+- `6465e007`: `internal/catalog/win/archive/extract*.go`.
+- Records (uncommitted): `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
+  `LESSONS_LEARNED_ARCHIVE.md`, `CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, five new files in
+  `changelog/`; git-ignored, the pr-check failure ledger and `.IGNORE/timings.md`.
 
 ### Lab state
 
-Changed: the CML sandbox's `pleiades-cvd` lab is up and modified (see Open). The VirtualBox lab was not reported
-changed; last recorded, `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved, and
-`~/pleiades-lab/bin/pleiades` is built from `main` at `0caadb17`.
+Changed: the Mac is awake, its Podman machine stopped. The Windows 11 ARM VM `win11-arm` runs on the Mac's Fusion at
+10.0.0.155, with Go 1.26.10 arm64 and MinGit installed; its lab project is `~/pleiades-fusion-lab` (hosts `mac`,
+`win11-arm`), and `tests/winarm/.env` is set. Unchanged: `win-check` and `bsd-check` are saved on VENGEANCE.

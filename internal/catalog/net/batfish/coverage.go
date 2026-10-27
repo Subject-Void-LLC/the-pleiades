@@ -30,6 +30,11 @@ var coverage = []unmodelled{
 	{"ip_sla", formatCiscoIOS, regexp.MustCompile(`^ip sla\s`), "an IP SLA probe's result is runtime state; the model has none"},
 	{"sla_tracking", formatCiscoIOS, regexp.MustCompile(`^track\s+\d+\s+ip\s+sla\s`), "the model treats an SLA track as always up, so a route or priority it guards never fails over in a scenario"},
 	{"bfd", formatCiscoIOS, regexp.MustCompile(`(^|\s)bfd(\s|$)`), "BFD changes how fast a failure is detected, and the model is steady state"},
+	// Measured 2026-10-25 (Phase 129c) on a DMVPN hub and spoke: every
+	// ip nhrp line parses without a warning, while the tunnel's own
+	// "mode gre multipoint" is reported unrecognised, and BGP over the
+	// tunnel never establishes in the model.
+	{"nhrp", formatCiscoIOS, regexp.MustCompile(`^\s*ip nhrp\s`), "Batfish parses NHRP and resolves nothing with it: a DMVPN cloud's paths over its mGRE tunnel, hub and spoke-to-spoke alike, and the routing over them are not in the model, so prove the overlay on the live network"},
 }
 
 // unmodelledIn returns, for each unmodelled feature config uses, the first

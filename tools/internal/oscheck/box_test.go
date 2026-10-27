@@ -66,12 +66,16 @@ func (h *fakeHost) install(t *testing.T) {
 			}
 		}
 		switch method {
-		case "virt.vbox.vm.info":
+		case "virt.vbox.vm.info", "virt.fusion.vm.info":
 			return map[string]any{"state": h.state}, nil
 		case "virt.vbox.vm.start":
 			h.state = "running"
 		case "virt.vbox.vm.stop":
 			h.state = "saved"
+		case "virt.fusion.vm.start":
+			h.state = "on"
+		case "virt.fusion.vm.stop":
+			h.state = "suspended"
 		}
 		return map[string]any{}, nil
 	}
@@ -241,5 +245,58 @@ func TestAdhocTaskStats(t *testing.T) {
 	}
 	if _, err := adhocTaskStats("x", []byte("not json")); err == nil {
 		t.Error("no report was read as one")
+	}
+}
+
+// TestRunWithBox_DrivesAFusionVMThroughItsOwnMethods: a box on a Mac running
+// Fusion is read, started and suspended through virt.fusion.*, named by its
+// vmx path, and one already on (state "on", not VirtualBox's "running") is
+// left as it was.
+func TestRunWithBox_DrivesAFusionVMThroughItsOwnMethods(t *testing.T) {
+	inRepo(t)
+	const vmx = "/Users/me/pleiades-vms/win11-arm/win11-arm.vmx"
+	box := Box{Host: Pleiades{Device: "mac"}, Device: Pleiades{Device: "win11-arm"}, VM: vmx, Methods: FusionBox}
+	h := &fakeHost{state: "suspended"}
+	h.install(t)
+	var out, errOut bytes.Buffer
+	if code := runWithBox(context.Background(), options(t, "a/b"), flow, &fakeLeg{passed: true}, box, &out, &errOut); code != 0 {
+		t.Fatalf("code %d\n%s%s", code, out.String(), errOut.String())
+	}
+	want := []string{
+		"mac virt.fusion.vm.info vmx=" + vmx,
+		"mac virt.fusion.vm.start vmx=" + vmx,
+		strings.Replace(bootWaitCall, "box-1", "win11-arm", 1),
+		"mac virt.fusion.vm.stop vmx=" + vmx + " mode=suspend",
+	}
+	if strings.Join(h.calls, "\n") != strings.Join(want, "\n") || h.state != "suspended" {
+		t.Errorf("calls %q, state %s", h.calls, h.state)
+	}
+	if !strings.Contains(out.String(), "(it was suspended)") {
+		t.Errorf("the start did not name the state it found:\n%s", out.String())
+	}
+
+	h = &fakeHost{state: "on"}
+	h.install(t)
+	if code := runWithBox(context.Background(), options(t, "a/b"), flow, &fakeLeg{passed: true}, box, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 || len(h.calls) != 1 {
+		t.Errorf("a running Fusion box: code %d, calls %q", code, h.calls)
+	}
+}
+
+// TestLabBoxOf_Fusion: a Fusion box names its VM by an absolute vmx path,
+// which has no default from the device's name, and anything else is refused.
+func TestLabBoxOf_Fusion(t *testing.T) {
+	for name, tc := range map[string]struct {
+		values         map[string]string
+		host, vm, want string
+	}{
+		"host and vmx":   {map[string]string{"H": "mac", "V": "/Users/me/vm/win.vmx"}, "mac", "/Users/me/vm/win.vmx", ""},
+		"host alone":     {map[string]string{"H": "mac"}, "", "", "is not set"},
+		"a name not vmx": {map[string]string{"H": "mac", "V": "win11-arm"}, "", "", "absolute"},
+		"vmx alone":      {map[string]string{"V": "/a/b.vmx"}, "", "", "VMware Fusion host"},
+	} {
+		host, vm, err := LabBoxOf(Settings{Values: tc.values}, "H", "V", "win11-arm", FusionBox)
+		if (tc.want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), tc.want) || host != tc.host || vm != tc.vm {
+			t.Errorf("%s: %q %q %v, want %q %q %q", name, host, vm, err, tc.host, tc.vm, tc.want)
+		}
 	}
 }

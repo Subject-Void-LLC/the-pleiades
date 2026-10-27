@@ -27,6 +27,9 @@ func registerFormatted(t *testing.T) {
 		{Name: "t117.api", Invoke: run, Manifest: collection.Manifest{Status: collection.StatusImplemented,
 			Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a test fixture that changes nothing"},
 			Doc:           collection.Doc{Params: []collection.Param{{Name: "url", Type: "string", Format: collection.ParamFormatURL}, {Name: "body", Type: "string"}}}}},
+		{Name: "t117.lines", Invoke: run, Manifest: collection.Manifest{Status: collection.StatusImplemented,
+			Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a test fixture that changes nothing"},
+			Doc:           collection.Doc{Params: []collection.Param{{Name: "lines", Type: "list of string", Format: collection.ParamFormatCommand, SecretRefs: true}}}}},
 	} {
 		if err := collection.Register(d); err != nil {
 			t.Fatal(err)
@@ -58,6 +61,9 @@ func TestTemplateRule(t *testing.T) {
 		{"an unknown root", "t117.api:\n      url: /api/x\n      body: \"{{ secrets.token }}\"", "may read only"},
 		{"a register nobody writes", "t117.api:\n      url: /api/x\n      body: \"{{ nodes.nothing }}\"", "no task in this runbook registers"},
 		{"an unknown filter", "t117.api:\n      url: /api/x\n      body: \"{{ vars.x | shell }}\"", "unknown filter"},
+		{"a secret reference where the method resolves it", "t117.lines:\n      lines:\n        - \"key {{ secret.dmvpn.psk }}\"", ""},
+		{"a secret reference with a filter", "t117.lines:\n      lines:\n        - \"key {{ secret.dmvpn.psk | quote }}\"", "no filter"},
+		{"a secret reference the engine would render", "t117.api:\n      url: /api/x\n      body: \"{{ secret.dmvpn.psk }}\"", "its method resolves itself"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dag := yamlDAG(t, head+"  - name: the task\n    "+tc.task+"\n")

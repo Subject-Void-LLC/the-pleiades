@@ -82,17 +82,28 @@ var maskKey = sync.OnceValue(func() []byte {
 // other byte where it was. Equal secrets get equal placeholders within one
 // process, so two routers' keys can still be compared.
 func Mask(config string) string {
+	masked, _ := MaskFound(config)
+	return masked
+}
+
+// MaskFound is Mask, also returning each secret it replaced, once each, so
+// a caller can mask the same values wherever else they appear (the run's
+// masking set, sdk.RegisterSecret): a key found after "pre-shared-key" in one
+// command's output is then masked in a later one that prints it with no word
+// before it.
+func MaskFound(config string) (string, []string) {
 	lines := strings.Split(config, "\n")
 	keyChain := false
+	var found []string
 	for i, line := range lines {
 		ws := words(line)
 		if len(ws) > 0 && ws[0].start == 0 {
 			// A line at the left margin opens a block or stands alone.
 			keyChain = len(ws) >= 2 && ws[0].text == "key" && ws[1].text == "chain"
 		}
-		lines[i] = maskLine(line, keyChain)
+		lines[i] = maskLine(line, keyChain, &found)
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), found
 }
 
 // Placeholder is secret's stand-in.
@@ -135,22 +146,30 @@ func words(line string) []word {
 // secret word that is not an encryption type, a key id, an algorithm or a
 // mode. inKeyChain says the line is inside a key chain block, where a
 // leading "key" names a key.
-func maskLine(line string, inKeyChain bool) string {
+func maskLine(line string, inKeyChain bool, found *[]string) string {
 	ws := words(line)
 	// crypto key import|export ... <passphrase>: the passphrase is the last
 	// word, after no word that names it.
 	if len(ws) >= 4 && ws[0].text == "crypto" && ws[1].text == "key" && (ws[2].text == "import" || ws[2].text == "export") {
 		last := ws[len(ws)-1]
 		if !slices.Contains(keyTransferEnds, last.text) && !strings.Contains(last.text, ":") && !strings.HasPrefix(last.text, MaskPrefix) {
-			return replaceWord(line, last)
+			return replaceWord(line, last, found)
 		}
 		return line
 	}
 	if len(ws) >= 3 && ws[0].text == "snmp-server" && ws[1].text == "host" {
-		return maskSNMPHost(line, ws)
+		return maskSNMPHost(line, ws, found)
 	}
 	for i, w := range ws {
 		if !slices.Contains(secretWords, w.text) || (w.text == "key" && i == 0 && inKeyChain) {
+			continue
+		}
+		// A tunnel interface's "tunnel key 100" is the GRE key field, an
+		// identifier both ends must agree on and that every packet carries in
+		// the clear, not a secret; masking it hid a DMVPN cloud's key from
+		// net.batfish.check (FAILURE_PATTERNS 644). A numeric secret anywhere
+		// else is still masked.
+		if w.text == "key" && i == 1 && ws[0].text == "tunnel" {
 			continue
 		}
 		psk := w.text == "pre-shared-key"
@@ -170,7 +189,7 @@ func maskLine(line string, inKeyChain bool) string {
 		if slices.Contains(secretWords, target) || (w.text == "authentication" && slices.Contains(notSecret, target)) || (psk && slices.Contains(pskPeers, target)) || (w.text == "key" && slices.Contains(keyCommands, target)) {
 			continue
 		}
-		return replaceWord(line, ws[j])
+		return replaceWord(line, ws[j], found)
 	}
 	return line
 }
@@ -178,7 +197,7 @@ func maskLine(line string, inKeyChain bool) string {
 // maskSNMPHost masks an snmp-server host line's community: snmp-server
 // host <addr> [traps|informs] [version 1|2c|3 [auth|noauth|priv]] <community>
 // ...; SNMPv3's word there is a user, not a secret.
-func maskSNMPHost(line string, ws []word) string {
+func maskSNMPHost(line string, ws []word, found *[]string) string {
 	j := 3
 	for j < len(ws) && (ws[j].text == "traps" || ws[j].text == "informs") {
 		j++
@@ -192,11 +211,15 @@ func maskSNMPHost(line string, ws []word) string {
 	if j >= len(ws) || strings.HasPrefix(ws[j].text, MaskPrefix) {
 		return line
 	}
-	return replaceWord(line, ws[j])
+	return replaceWord(line, ws[j], found)
 }
 
-// replaceWord replaces one word of line with its placeholder.
-func replaceWord(line string, w word) string {
+// replaceWord replaces one word of line with its placeholder, adding the
+// word to found when it is not there yet.
+func replaceWord(line string, w word, found *[]string) string {
+	if !slices.Contains(*found, w.text) {
+		*found = append(*found, w.text)
+	}
 	return line[:w.start] + Placeholder(w.text) + line[w.start+len(w.text):]
 }
 

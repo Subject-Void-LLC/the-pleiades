@@ -215,6 +215,31 @@ func TestSSH_ReadsTheRoutingToolsOnboardingFound(t *testing.T) {
 	}
 }
 
+// TestSSH_ReadsTheFusionVersionOnboardingFound: a Mac's VMware Fusion
+// version comes from the probe's facts, and VMwareFusionCapable is granted only
+// by that discovery.
+func TestSSH_ReadsTheFusionVersionOnboardingFound(t *testing.T) {
+	d := inventory.Discovery{Protocol: "ssh", Capabilities: []capability.Name{capability.NameVMwareFusion},
+		Facts: map[string]any{generic.FactFusionVersion: "26.0.1"}}
+	item, err := buildWith(t, generic.TypeSSH, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: d.Property()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.HasCapability(capability.NameVMwareFusion) {
+		t.Fatalf("capabilities = %v, want VMwareFusionCapable granted", item.Capabilities())
+	}
+	if v := item.(capability.VMwareFusionCapable).FusionVersion(); v != "26.0.1" {
+		t.Errorf("FusionVersion = %q", v)
+	}
+	plain, err := buildWith(t, generic.TypeSSH, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.HasCapability(capability.NameVMwareFusion) {
+		t.Error("a device onboarding never found Fusion on holds VMwareFusionCapable")
+	}
+}
+
 // TestAccessors reads each type's address and settings back from its
 // record, with their defaults.
 func TestAccessors(t *testing.T) {

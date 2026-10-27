@@ -70,6 +70,9 @@ func changesNothing(fqcn string) bool {
 type stepError struct {
 	reason string
 	accept string
+	// noRunbook says the runbook the run ran was not found, which naming
+	// it with --runbook may answer (KindNoRunbook).
+	noRunbook bool
 }
 
 // Error returns the reason.
@@ -117,7 +120,7 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 		if notFound != nil {
 			reason += " (" + notFound.Error() + ")"
 		}
-		return nil, &stepError{reason: reason, accept: leave}
+		return nil, &stepError{reason: reason, accept: leave, noRunbook: notFound != nil}
 	}
 	if err := checkRecorded(e); err != nil {
 		return nil, &stepError{reason: err.Error(), accept: leave}
@@ -154,11 +157,11 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 // runbook.
 func authoredSteps(req Request, e engine.JournalEntry, leave string) ([]Step, error) {
 	if req.Authored == nil {
-		return nil, &stepError{reason: "the task's undo is its rollback: list, and the runbook it ran from was not found; name it with --runbook", accept: leave}
+		return nil, &stepError{reason: "the task's undo is its rollback: list, and the runbook it ran from was not found; name it with --runbook", accept: leave, noRunbook: true}
 	}
 	tasks, err := req.Authored(e.NodeID)
 	if err != nil {
-		return nil, &stepError{reason: err.Error(), accept: leave}
+		return nil, &stepError{reason: err.Error(), accept: leave, noRunbook: errors.Is(err, ErrNoRunbook)}
 	}
 	if tasks == nil {
 		return nil, &stepError{reason: "the journal says the task had a rollback: list, and the runbook no longer gives it one", accept: leave}

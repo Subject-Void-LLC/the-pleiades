@@ -429,6 +429,36 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e
 
+# MAC_CONTAINER_PACKAGES are the container packages pr-check runs on the Mac
+# (tools/maccheck -containers) instead of here, against the Mac's Podman, when
+# a Mac is configured: native arm64 containers in a rootful Podman machine, at
+# a speed that matched this machine's (18 packages, about 1090 s of the
+# durations file's time, in 17m46s on an M4, 2026-10-26). They are the packages
+# whose containers are NATS, Postgres, sshd or telnetd and which use no host
+# socket, privileged mode, compose or kind; each was run there and passed.
+# tools/internal/flakegate's TestEveryContainerPackageIsClassified holds every
+# DOCKER_DEPENDENT_PACKAGES entry to this list or to a written reason it stays
+# here, so a new container package must be placed.
+MAC_CONTAINER_PACKAGES := \
+	github.com/Subject-Void-LLC/the-pleiades/internal/backup \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg \
+	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
+	github.com/Subject-Void-LLC/the-pleiades/internal/election \
+	github.com/Subject-Void-LLC/the-pleiades/internal/ent \
+	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate \
+	github.com/Subject-Void-LLC/the-pleiades/internal/event \
+	github.com/Subject-Void-LLC/the-pleiades/internal/keyregistry \
+	github.com/Subject-Void-LLC/the-pleiades/internal/lock \
+	github.com/Subject-Void-LLC/the-pleiades/internal/meshid \
+	github.com/Subject-Void-LLC/the-pleiades/internal/runner \
+	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
+	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
+	github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer
+
 # test-no-docker runs every package NOT in DOCKER_DEPENDENT_PACKAGES, so
 # it proves those packages genuinely execute on the machine running it
 # rather than merely compiling. It is real conformance evidence where it
@@ -670,8 +700,8 @@ ci-containers:
 # the cheapest to find: once the static checks pass, the container-free
 # packages' full pass runs and their floors are checked at once
 # (coverage-fast); a miss, or a package that pass left unmeasured, ends the
-# run there, before any machine check, the repeats or the container pass
-# start. The container packages' floors can be checked only once their pass
+# run there, before the repeats or the container pass start, and stops the
+# machine checks already running. The container packages' floors can be checked only once their pass
 # has run, at the end, with the rest (coverage). Last of the Linux steps,
 # sizes builds pleiades as a release is built for each SIZE_PLATFORMS pair
 # (tools/binsize) and records each size in the gitignored
@@ -681,23 +711,30 @@ ci-containers:
 #
 # The same container-free packages run on each other machine named: a Mac
 # (tests/mac/.env, tools/maccheck), a FreeBSD machine (tests/bsd/.env,
-# tools/bsdcheck) and a Windows one (tests/win/.env, tools/wincheck), each
-# beside the Linux passes rather than after them. The Mac's -phase prepare
-# checks it, builds pleiades and sends the tree once coverage-fast has
-# passed, here; its -phase vuln then runs govulncheck on that tree; then its
-# -phase test runs in the background, on the Mac's CPU and memory, while the
-# Linux repeats and container pass run here. The FreeBSD and Windows machines are lab VMs
-# a check starts when it needs one and puts back afterwards, its state
-# saved, so they run in the background one after the other (LAB_CHECKS),
-# each whole, and at most one holds the host's memory at a time. Each
-# one's output goes to $(COVERAGE_DIR)/pr/<mac|bsd|win>.log and is printed
-# whole once the Linux passes end, so none interleave, and each result
-# counts as any other step's. An interrupt, or the recipe ending early,
-# stops them, and each check then stops its tests on its machine and puts
-# back a box it started. A machine not named is said not to have been
-# checked. The Mac runs PR_CHECK_PARALLELISM packages at once; the FreeBSD
-# and Windows machines go test's default for their own CPUs
-# (BSD_CHECK_PARALLELISM, WIN_CHECK_PARALLELISM).
+# tools/bsdcheck), a Windows one (tests/win/.env, tools/wincheck) and a
+# Windows ARM VM on the Mac's VMware Fusion (tests/winarm/.env, wincheck
+# -arm64). None shares this machine's CPU or memory, so each starts at t0,
+# before the fast pass, beside the Linux passes. The Mac's chain is its
+# -phase prepare (checking it, building pleiades, sending the tree), then
+# -phase vuln running govulncheck on that tree, then its -phase test and its
+# container half on Podman (MAC_CONTAINER_PACKAGES) together, each with a
+# job file of its own in the one tree. The Windows ARM VM's check runs on its
+# own from the start; Fusion suspends the VM again when it ends. The FreeBSD
+# and Windows machines are lab VMs a check starts when it needs one and puts
+# back afterwards, its state saved, so they run one after the other
+# (LAB_CHECKS), each whole, and at most one holds the lab host's memory at a
+# time. Each one's output goes to
+# $(COVERAGE_DIR)/pr/<mac|containers-mac|bsd|win|winarm>.log, which the
+# monitor follows as it grows, and is printed whole once the Linux passes
+# end, so none interleave, and each result counts as any other step's. An
+# interrupt, or the recipe ending early, stops them, and each check then
+# stops its tests on its machine and puts back a box it started. A machine
+# not named is said not to have been checked. The Mac runs
+# PR_CHECK_PARALLELISM packages at once; the other machines go test's
+# default for their own CPUs (BSD_CHECK_PARALLELISM, WIN_CHECK_PARALLELISM,
+# WINARM_CHECK_PARALLELISM). Each local pass prints "pr-check: the <name>
+# pass begins" as it starts, which the monitor reads, since the order of
+# the lines before it no longer says what runs.
 #
 # Each pass, each machine's check and each other step leaves a record in
 # $(COVERAGE_DIR)/pr/records (testgate -report-out, a check's -report-out,
@@ -774,6 +811,7 @@ PR_CHECK_PARALLELISM ?= 0
 SIZE_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,freebsd/amd64
 BSD_CHECK_PARALLELISM ?= 0
 WIN_CHECK_PARALLELISM ?= 0
+WINARM_CHECK_PARALLELISM ?= 0
 # OS_CHECKS are the checks whose machine is always up, each
 # tools/<name>check, and LAB_CHECKS those whose VM a check starts and puts
 # back, which run one at a time.
@@ -790,7 +828,9 @@ PR_CHECK_ALWAYS := \
 # tree mac's prepare phase sends. A name pr-check does not know stops make
 # before anything runs. PR_STAMP is what every pass and step is told about
 # where the gate began, so its record carries it.
-PR_CHECK_PARTS := fast coverage-fast repeat containers durations mac bsd win govulncheck images coverage sizes
+# containers-mac is the container half run on the Mac against its Podman (MAC_CONTAINER_PACKAGES,
+# tools/maccheck -containers) when a Mac is configured; it brings coverage and sends the Mac its tree.
+PR_CHECK_PARTS := fast coverage-fast repeat containers containers-mac durations mac bsd win winarm govulncheck images coverage sizes
 LEGS ?=
 comma := ,
 LEGS_NAMED := $(sort $(subst $(comma), ,$(LEGS)))
@@ -798,6 +838,7 @@ LEGS_UNKNOWN := $(filter-out $(PR_CHECK_PARTS),$(LEGS_NAMED))
 LEGS_RUN := $(filter $(LEGS_NAMED) \
 	$(if $(filter fast,$(LEGS_NAMED)),coverage-fast coverage) \
 	$(if $(filter containers,$(LEGS_NAMED)),durations coverage) \
+	$(if $(filter containers-mac,$(LEGS_NAMED)),coverage) \
 	$(if $(filter mac,$(LEGS_NAMED)),govulncheck),$(PR_CHECK_PARTS))
 ifneq ($(filter pr-check,$(MAKECMDGOALS)),)
 ifneq ($(LEGS_UNKNOWN),)
@@ -813,7 +854,13 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		if printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
-	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
+	mac_pkgs=""; here_pkgs=""; \
+	if [ -n "$$PLEIADES_MAC" ] || grep -q '^PLEIADES_MAC=' tests/mac/.env 2>/dev/null; then mac_on=yes; else mac_on=no; fi; \
+	for pkg in $$mine_docker; do \
+		if [ $$mac_on = yes ] && printf '%s\n' $(MAC_CONTAINER_PACKAGES) | grep -qx "$$pkg"; then mac_pkgs="$$mac_pkgs $$pkg"; else here_pkgs="$$here_pkgs $$pkg"; fi; \
+	done; \
+	mine_docker="$$here_pkgs"; \
+	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE), and $$(echo $$mac_pkgs | wc -w) container package(s) on the Mac's Podman"; \
 	want() { [ -z "$(LEGS_RUN)" ] && return 0; case " $(LEGS_RUN) " in *" $$1 "*) return 0;; esac; return 1; }; \
 	rec=$(COVERAGE_DIR)/pr/records; report=$(COVERAGE_DIR)/pr/prreport; \
 	if [ -z "$(LEGS_RUN)" ]; then \
@@ -824,15 +871,17 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 			rm -f $$rec/$$part.json; \
 			case $$part in \
 				fast|containers) rm -f $(COVERAGE_DIR)/pr/$$part.json;; \
-				mac|bsd|win) rm -f $(COVERAGE_DIR)/pr/$$part.ready $(COVERAGE_DIR)/pr/$$part.log $(COVERAGE_DIR)/pr/$$part.failed;; \
+				containers-mac) rm -f $(COVERAGE_DIR)/pr/containers-mac.json $(COVERAGE_DIR)/pr/containers-mac.log $(COVERAGE_DIR)/pr/mac.ready $(COVERAGE_DIR)/pr/mac.log $(COVERAGE_DIR)/pr/mac.failed;; \
+				mac|bsd|win|winarm) rm -f $(COVERAGE_DIR)/pr/$$part.ready $(COVERAGE_DIR)/pr/$$part.log $(COVERAGE_DIR)/pr/$$part.failed;; \
 			esac; \
 		done; \
 	fi; \
 	mkdir -p $$rec; \
 	go build -o $$report ./tools/prreport || exit 1; \
-	expect="mac,bsd,win,govulncheck,images,coverage,sizes"; \
+	expect="mac,bsd,win,winarm,govulncheck,images,coverage,sizes"; \
 	if [ -n "$$mine_fast" ]; then expect="fast,coverage-fast,repeat,$$expect"; fi; \
 	if [ -n "$$mine_docker" ]; then expect="$$expect,containers,durations"; fi; \
+	if [ -n "$$mac_pkgs" ]; then expect="$$expect,containers-mac"; fi; \
 	$$report begin -dir $$rec -commit "$(GATE_START_COMMIT)" -expect "$$expect" || exit 1; \
 	status=0; legs=""; ran_fast=no; \
 	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s $(PR_STAMP) || status=1; [ $$s -eq 0 ] || status=1; }; \
@@ -848,7 +897,51 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		fi; \
 		govulncheck ./...; \
 	}; \
+	rm -rf $(COVERAGE_DIR)/pr/vuln.claim; \
+	for os in $(OS_CHECKS); do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
+	go build -o $(COVERAGE_DIR)/pr/winarmcheck ./tools/wincheck || exit 1; \
+	labs=""; for os in $(LAB_CHECKS); do want $$os && labs="$$labs $$os"; done; \
+	for os in $$labs; do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
+	vuln_step() { step govulncheck vuln; return $$status; }; \
+	mac_job() { \
+		ms=0; kids=""; \
+		trap 'for k in $$kids; do kill -TERM $$k 2>/dev/null; done; wait; exit 143' TERM; \
+		if want mac || { [ -n "$$mac_pkgs" ] && want containers-mac; }; then \
+			$(COVERAGE_DIR)/pr/maccheck -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/mac.ready -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $${mine_fast:-$$mac_pkgs} & kids=$$!; \
+			wait $$kids || ms=1; \
+		fi; \
+		if want govulncheck && [ -f $(COVERAGE_DIR)/pr/mac.ready ] && mkdir $(COVERAGE_DIR)/pr/vuln.claim 2>/dev/null; then \
+			vuln_step & kids=$$!; wait $$kids || ms=1; \
+		fi; \
+		if [ -f $(COVERAGE_DIR)/pr/mac.ready ]; then \
+			kids=""; \
+			if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast & kids=$$!; fi; \
+			if [ -n "$$mac_pkgs" ] && want containers-mac; then \
+				$(COVERAGE_DIR)/pr/maccheck -containers -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$mac_pkgs > $(COVERAGE_DIR)/pr/containers-mac.log 2>&1 & kids="$$kids $$!"; \
+			fi; \
+			for k in $$kids; do wait $$k || ms=1; done; \
+		fi; \
+		return $$ms; \
+	}; \
+	if want winarm; then \
+		$(COVERAGE_DIR)/pr/winarmcheck -arm64 -optional -report-out $$rec/winarm.json -p $(WINARM_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/winarm.log 2>&1 & legs="$$legs winarm:$$!"; \
+		echo "pr-check: the winarm tests run from the start, beside the ones below, on the Windows ARM VM the Mac's Fusion runs; their output follows them ($(COVERAGE_DIR)/pr/winarm.log)"; \
+	fi; \
+	if want mac || { [ -n "$$mac_pkgs" ] && want containers-mac; }; then \
+		mac_job > $(COVERAGE_DIR)/pr/mac.log 2>&1 & legs="$$legs mac:$$!"; \
+		echo "pr-check: the mac tests run from the start, beside the ones below: the Mac prepares, scans with govulncheck, then runs its tests and its containers on Podman together; their output follows them ($(COVERAGE_DIR)/pr/mac.log, $(COVERAGE_DIR)/pr/containers-mac.log)"; \
+	fi; \
+	if [ -n "$$labs" ]; then \
+		( for os in $$labs; do \
+			case $$os in bsd) p=$(BSD_CHECK_PARALLELISM);; win) p=$(WIN_CHECK_PARALLELISM);; esac; \
+			$(COVERAGE_DIR)/pr/$${os}check -optional -report-out $$rec/$$os.json -p $$p $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & child=$$!; \
+			trap 'kill -TERM $$child 2>/dev/null; wait $$child; exit 143' TERM; \
+			wait $$child || touch $(COVERAGE_DIR)/pr/$$os.failed; \
+		done ) & legs="$$legs lab:$$!"; \
+		echo "pr-check: the$$labs tests run one after another from the start, beside the ones below, each box started and put back; their output follows them"; \
+	fi; \
 	if [ -n "$$mine_fast" ] && want fast; then \
+		echo "pr-check: the fast pass begins"; \
 		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json -report-out $$rec/fast.json $(PR_STAMP) $$mine_fast || status=1; \
 		ran_fast=yes; \
 	fi; \
@@ -858,39 +951,19 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		[ $$cov -eq 0 ] || status=1; \
 		if [ $$cov -ne 0 ] && [ $$ran_fast = yes ]; then \
 			echo "pr-check: the container-free packages miss a coverage floor (or their fast pass left one unmeasured), so nothing else runs: fix that first"; \
+			for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:} 2>/dev/null; done; \
 			trap - INT TERM EXIT; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit 1 || true; \
 			go run ./tools/failures record-prcheck -report $$rec/report.json || true; \
 			exit 1; \
 		fi; \
 	fi; \
-	for os in $(OS_CHECKS); do \
-		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
-		want $$os || continue; \
-		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || status=1; \
-	done; \
-	if want govulncheck; then step govulncheck vuln; fi; \
-	for os in $(OS_CHECKS); do \
-		want $$os || continue; \
-		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ]; then \
-			$(COVERAGE_DIR)/pr/$${os}check -phase test -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
-			echo "pr-check: the $$os tests run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log)"; \
-		fi; \
-	done; \
-	labs=""; for os in $(LAB_CHECKS); do want $$os && labs="$$labs $$os"; done; \
-	for os in $$labs; do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
-	if [ -n "$$labs" ]; then \
-		( for os in $$labs; do \
-			case $$os in bsd) p=$(BSD_CHECK_PARALLELISM);; win) p=$(WIN_CHECK_PARALLELISM);; esac; \
-			$(COVERAGE_DIR)/pr/$${os}check -optional -report-out $$rec/$$os.json -p $$p $$mine_fast > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & child=$$!; \
-			trap 'kill -TERM $$child 2>/dev/null; wait $$child; exit 143' TERM; \
-			wait $$child || touch $(COVERAGE_DIR)/pr/$$os.failed; \
-		done ) & legs="$$legs lab:$$!"; \
-		echo "pr-check: the$$labs tests run one after another beside the ones below, each box started and put back; their output follows them"; \
-	fi; \
+	if want govulncheck && mkdir $(COVERAGE_DIR)/pr/vuln.claim 2>/dev/null; then step govulncheck vuln; fi; \
 	if [ -n "$$mine_fast" ] && want repeat; then \
+		echo "pr-check: the repeat pass begins"; \
 		go run ./tools/testgate -repeat 3 -strict -p $(PR_CHECK_PARALLELISM) -report-out $$rec/repeat.json $(PR_STAMP) $$mine_fast || status=1; \
 	fi; \
 	if [ -n "$$mine_docker" ] && want containers; then \
+		echo "pr-check: the containers pass begins"; \
 		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$mine_docker || status=1; \
 	fi; \
 	if want images; then \
@@ -916,6 +989,9 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 			done; \
 		else \
 			cat $(COVERAGE_DIR)/pr/$${leg%%:*}.log; \
+			if [ "$${leg%%:*}" = mac ] && [ -f $(COVERAGE_DIR)/pr/containers-mac.log ]; then \
+				echo "pr-check: waiting for the containers-mac tests"; cat $(COVERAGE_DIR)/pr/containers-mac.log; \
+			fi; \
 		fi; \
 	done; \
 	trap - INT TERM EXIT; \

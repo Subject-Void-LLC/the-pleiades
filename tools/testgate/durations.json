@@ -72,6 +72,7 @@
  "tests/e2e TestPackagingReleaseGate_ImagesRunUnprivilegedWithNoShell": 2,
  "tests/e2e TestPackagingReleaseGate_KubernetesInstall": 1,
  "tests/e2e TestRunnerHeartbeatReleaseGate_SeveredBrokerIsDetected": 31,
+ "tests/e2e TestScrubbedPackagingEnv_DropsWhatAParentMakePasses": 0,
  "tests/e2e TestSetupReleaseGate_ComposeFromNothingToASignIn": 11,
  "tests/e2e TestSetupReleaseGate_ComposeSetupAtATerminal": 3,
  "tests/e2e TestUI_ActivityStreamRecordsWhatTheWebUIDid": 7,

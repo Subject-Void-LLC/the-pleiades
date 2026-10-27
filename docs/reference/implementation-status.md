@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**198 of 201 methods are implemented.**
+**207 of 210 methods are implemented.**
 
 ## Implemented
 
@@ -65,6 +65,8 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [net.ios.ping](modules/net/ios/ping.md)
 - [net.ios.save](modules/net/ios/save.md)
 - [net.ios.replace](modules/net/ios/replace.md)
+- [net.ios.checkpoints](modules/net/ios/checkpoints.md)
+- [net.pcap.summary](modules/net/pcap/summary.md)
 - [net.ios.parse](modules/net/ios/parse.md)
 - [net.catalyst.device_facts](modules/net/catalyst/device_facts.md)
 - [net.catalyst.site_facts](modules/net/catalyst/site_facts.md)
@@ -180,6 +182,9 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.vbox.vm.delete](modules/virt/vbox/vm/delete.md)
 - [virt.vbox.vm.host_keys](modules/virt/vbox/vm/host_keys.md)
 - [virt.vbox.vm.list](modules/virt/vbox/vm/list.md)
+- [virt.fusion.vm.info](modules/virt/fusion/vm/info.md)
+- [virt.fusion.vm.start](modules/virt/fusion/vm/start.md)
+- [virt.fusion.vm.stop](modules/virt/fusion/vm/stop.md)
 - [virt.cml.lab.list](modules/virt/cml/lab/list.md)
 - [virt.cml.lab.info](modules/virt/cml/lab/info.md)
 - [virt.cml.lab.create](modules/virt/cml/lab/create.md)
@@ -189,6 +194,10 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.cml.node.create](modules/virt/cml/node/create.md)
 - [virt.cml.node.delete](modules/virt/cml/node/delete.md)
 - [virt.cml.link.create](modules/virt/cml/link/create.md)
+- [virt.cml.link.stop](modules/virt/cml/link/stop.md)
+- [virt.cml.link.start](modules/virt/cml/link/start.md)
+- [virt.cml.capture.start](modules/virt/cml/capture/start.md)
+- [virt.cml.capture.stop](modules/virt/cml/capture/stop.md)
 - [virt.cml.link.delete](modules/virt/cml/link/delete.md)
 - [win.file.copy](modules/win/file/copy.md)
 - [win.file.download](modules/win/file/download.md)

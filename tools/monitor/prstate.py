@@ -42,15 +42,16 @@ STATIC_TARGETS = [
 # HIDDEN_UNTIL_SEEN are targets only --trace shows; they stay off the page
 # until something happens to them.
 HIDDEN_UNTIL_SEEN = ("tools", "templ-gen")
-PASSES = ["fast", "repeat", "containers"]
-LEGS = ["mac", "bsd", "win"]
+# containers-mac is the container half pr-check runs on the Mac against its Podman (maccheck -containers).
+PASSES = ["fast", "repeat", "containers", "containers-mac"]
+LEGS = ["mac", "bsd", "win", "winarm"]
 # coverage-fast checks the fast pass's coverage floors before anything else
 # runs; sizes records the binary sizes (tools/binsize) after durations.
 STEPS = ["coverage-fast", "govulncheck", "images", "coverage", "durations", "sizes"]
 # The parts report.json can list as expected.
 REPORT_PARTS = PASSES + LEGS + STEPS
 # The order the dashboard lists stages in.
-DISPLAY_ORDER = (STATIC_TARGETS + ["scope", "fast", "coverage-fast", "repeat", "containers"] + LEGS
+DISPLAY_ORDER = (STATIC_TARGETS + ["scope", "fast", "coverage-fast", "repeat", "containers", "containers-mac"] + LEGS
                  + ["govulncheck", "images", "coverage", "durations", "sizes"])
 
 # A verdict word from a record or prreport's summary, as a stage status.

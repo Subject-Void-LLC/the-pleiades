@@ -111,6 +111,23 @@ def feed(state: ps.RunState, lines: List[str], start: float = 0.0) -> None:
 PKG = "github.com/Subject-Void-LLC/the-pleiades/"
 
 
+class EveryLegShownTest(unittest.TestCase):
+    """The dashboard has a stage for every OS pr-check runs on and for both container halves, so a run on
+    the Mac, FreeBSD, Windows x64 and Windows ARM shows each, as does the container half on the Mac's Podman."""
+
+    def test_every_os_and_both_container_halves_are_stages(self) -> None:
+        for name in ("mac", "bsd", "win", "winarm", "containers", "containers-mac"):
+            self.assertIn(name, ps.DISPLAY_ORDER, name)
+            self.assertIn(name, ps.REPORT_PARTS, name)
+        self.assertEqual(ps.LEGS, ["mac", "bsd", "win", "winarm"])
+
+    def test_winarm_lines_are_read_as_its_leg(self) -> None:
+        m = prlog.OSCHECK.match("winarmcheck: 2 package(s) at abc on win11-arm")
+        self.assertIsNotNone(m)
+        assert m is not None
+        self.assertEqual(m.group(1), "winarm")
+
+
 class RealLogTest(unittest.TestCase):
     """The parser on a real pr-check log made without --trace."""
 
@@ -291,6 +308,47 @@ class TransitionTest(unittest.TestCase):
         feed(state, ["maccheck: the tree of abc is on someone@192.0.2.10; -phase test runs its tests",
                      "pr-check: the bsd win tests run one after another beside the ones below"], 90)
         self.assertEqual((state.main, state.stage("repeat").status), ("repeat", ps.RUNNING))
+
+    def test_legs_from_the_start(self) -> None:
+        """Starts every remote and lab leg at t0 and still shows each local pass running: the run at 830e3399
+        showed the fast pass pending while it ran, because the Mac had started first."""
+        state = ps.RunState(0.0)
+        feed(state, ["pr-check: 2 container-free and 1 container package(s) against origin/main, "
+                     "and 3 container package(s) on the Mac's Podman"], 10)
+        self.assertEqual(state.base, "origin/main")
+        self.assertEqual(state.stage("containers-mac").total, 3)
+        feed(state, ["pr-check: the winarm tests run from the start, beside the ones below; their output follows them",
+                     "pr-check: the mac tests run from the start, beside the ones below: prepare, govulncheck, then its "
+                     "tests and its containers together",
+                     "pr-check: the bsd win tests run one after another from the start, beside the ones below",
+                     "pr-check: the fast pass begins"], 20)
+        for name in ("winarm", "mac", "bsd", "fast"):
+            self.assertEqual(state.stage(name).status, ps.RUNNING, name)
+        self.assertEqual((state.main, state.stage("win").status), ("fast", ps.PENDING))
+        prlog.feed_leg_line(state, "mac", "maccheck: govulncheck v1.1.4 runs on the Mac, scanning", 25)
+        self.assertEqual(state.stage("govulncheck").status, ps.RUNNING)
+        prlog.feed_leg_line(state, "mac", "maccheck: govulncheck v1.1.4 passed on the Mac", 26)
+        self.assertEqual(state.stage("govulncheck").status, ps.PASS)
+        prlog.feed_leg_line(state, "containers-mac", "maccheck: running on the Mac", 27)
+        self.assertEqual(state.stage("containers-mac").status, ps.RUNNING)
+        prlog.feed_leg_line(state, "containers-mac", "maccheck: all tests passed on someone@192.0.2.10 in 9m", 28)
+        self.assertEqual((state.stage("containers-mac").status, state.stage("mac").status), (ps.PASS, ps.RUNNING))
+        feed(state, ["ok  \t" + PKG + "a\t1.0s", "testgate: all tests passed"], 30)
+        self.assertEqual((state.stage("fast").status, state.main), (ps.PASS, "coverage-fast"))
+        feed(state, ["coverage-check: 2 package(s) measured, none below their recorded floor",
+                     "pr-check: the repeat pass begins"], 40)
+        self.assertEqual((state.stage("coverage-fast").status, state.main), (ps.ENDED, "repeat"))
+        feed(state, ["testgate: all tests passed", "pr-check: the containers pass begins"], 50)
+        self.assertEqual((state.stage("repeat").status, state.main), (ps.PASS, "containers"))
+        feed(state, ["pr-check: waiting for the containers-mac tests", "maccheck: all tests passed on someone@192.0.2.10"], 60)
+        self.assertEqual(state.lab_leg, "containers-mac")
+
+    def test_no_mac_container_package_skips_its_half(self) -> None:
+        """Skips the Mac's container half when none of its packages changed."""
+        state = ps.RunState(0.0)
+        feed(state, ["pr-check: 2 container-free and 1 container package(s) against origin/main, "
+                     "and 0 container package(s) on the Mac's Podman"])
+        self.assertEqual(state.stage("containers-mac").status, ps.SKIPPED)
 
     def test_coverage_floor_stop(self) -> None:
         """Fails coverage-fast and marks what never ran not-run, not pending."""

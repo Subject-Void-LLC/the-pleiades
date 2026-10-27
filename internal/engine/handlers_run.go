@@ -52,7 +52,12 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		if rescue {
 			errorRoot = r.handlers.errorContext(nodeID, "", r.dag, mask)
 		}
-		prepared, early := r.prepare(nodeID, task, started, "", errorRoot)
+		// A unit's task that reads device still runs on each device, every
+		// one reading the unit's failure.
+		if r.readsDevice(nodeID, task) {
+			return r.runPerDevice(ctx, nodeID, task, started, errorRoot)
+		}
+		prepared, early := r.prepare(nodeID, task, started, "", errorRoots(errorRoot))
 		if early != nil {
 			return []NodeResult{*early}
 		}
@@ -93,7 +98,7 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		return results
 	}
 
-	if !rescue {
+	if !rescue && !r.readsDevice(nodeID, task) {
 		prepared, early := r.prepare(nodeID, task, started, "", nil)
 		switch {
 		case early != nil && early.Err != nil && len(run) > 0:
@@ -111,28 +116,46 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		return append(results, r.dispatch(ctx, nodeID, prepared, run, started)...)
 	}
 
-	// A rescue task: each device reads its own failure.
+	// A rescue task, each device reading its own failure, or a task reading
+	// the device it runs on. Both run on each device on its own, so neither
+	// can take every device's lock together.
+	if task.LockAcquisition == AcquisitionAllAtPlanTime {
+		reason := ErrDeviceRootLockAll
+		if rescue {
+			reason = ErrRescueLockAll
+		}
+		wrapped := fmt.Errorf("%s: %s", taskLabel(nodeID, task), reason)
+		r.publish(nodeID, task, "", "failed", wrapped.Error())
+		return append(results, failedNode(nodeID, started, FailureStageLockAll, wrapped))
+	}
 	if runsWithNoDevice {
-		return append(results, r.rescueOn(ctx, nodeID, task, nil, started, mask)...)
+		return append(results, r.rescueOn(ctx, nodeID, task, nil, started, mask, rescue)...)
 	}
 	for _, out := range runConcurrently(run, func(d inventory.InventoryItem) []NodeResult {
-		return r.rescueOn(ctx, nodeID, task, d, started, mask)
+		return r.rescueOn(ctx, nodeID, task, d, started, mask, rescue)
 	}) {
 		results = append(results, out...)
 	}
 	return results
 }
 
-// rescueOn runs rescue task nodeID on d (nil for a task with no device),
-// with d's failure as its error root.
-func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d inventory.InventoryItem, started time.Time, mask func(string) string) []NodeResult {
+// rescueOn runs task nodeID on d alone (nil for a task with no device),
+// with d as its device root and, for a rescue task, d's failure as its error
+// root.
+func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d inventory.InventoryItem, started time.Time, mask func(string) string, rescue bool) []NodeResult {
 	key := ""
 	var devices []inventory.InventoryItem
 	if d != nil {
 		key = string(d.ID())
 		devices = []inventory.InventoryItem{d}
 	}
-	prepared, early := r.prepare(nodeID, task, started, key, r.handlers.errorContext(nodeID, key, r.dag, mask))
+	roots := map[string]any{TemplateRootDevice: deviceRoot(d)}
+	if rescue {
+		if e := r.handlers.errorContext(nodeID, key, r.dag, mask); e != nil {
+			roots[TemplateRootError] = e
+		}
+	}
+	prepared, early := r.prepare(nodeID, task, started, key, roots)
 	if early != nil {
 		return []NodeResult{*early}
 	}

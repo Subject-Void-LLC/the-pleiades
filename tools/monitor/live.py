@@ -174,7 +174,7 @@ class LiveRun:
         self.pr_dir = pr_dir
         self.lock = threading.Lock()
         self.state = ps.RunState(now if now is not None else time.time())
-        self.tails = {leg: FileTail(os.path.join(pr_dir, leg + ".log")) for leg in ps.LEGS}
+        self.tails = {leg: FileTail(os.path.join(pr_dir, leg + ".log")) for leg in prlog.LOGGED}
         self.finished = threading.Event()
         self.broker = events.Broker()
         self.published = {}
@@ -293,7 +293,7 @@ class LiveRun:
         if not ours:
             return
         sources = [(os.path.join(self.pr_dir, "records", "report.json"), "report.json")]
-        sources += [(os.path.join(self.pr_dir, leg + ".log"), leg + ".txt") for leg in ps.LEGS]
+        sources += [(os.path.join(self.pr_dir, leg + ".log"), leg + ".txt") for leg in prlog.LOGGED]
         for src, name in sources:
             try:
                 with open(src, "rb") as f:

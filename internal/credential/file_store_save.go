@@ -201,3 +201,18 @@ func atomicWriteCredentialsFile(path string, data []byte) error {
 	renamed = true
 	return nil
 }
+
+// RemoveFileStore removes deviceName's credential from the credentials file
+// under dir, reporting whether it had one. Nothing else in the file changes,
+// and nothing is decrypted, so no master key is needed.
+func RemoveFileStore(dir, deviceName string) (bool, error) {
+	removed := false
+	err := updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
+		if _, ok := doc.Devices[deviceName]; ok {
+			delete(doc.Devices, deviceName)
+			removed = true
+		}
+		return nil
+	})
+	return removed, err
+}

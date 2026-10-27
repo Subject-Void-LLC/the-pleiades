@@ -40,6 +40,14 @@ type POSIX struct {
 	// Files is the directory, relative to Pleiades.Project, the archive is
 	// written in to be sent; each archive is deleted once sent.
 	Files string
+	// Containers, when set, makes Test run the container-dependent packages
+	// against the machine's Podman (ContainerTestScript) in place of the
+	// container-free passes.
+	Containers *Containers
+	// Dedicated says the machine exists to run checks (a VM a check starts and
+	// puts back), so readyScript also clears the login's own Go caches before
+	// each run, which on any other machine are the owner's (dedicatedClean).
+	Dedicated bool
 }
 
 // Kept is how many trees a machine keeps, the newest.
@@ -72,9 +80,11 @@ func (x POSIX) Ready(target, kernel, noun string, needs ...Need) error {
 // no- and its command when it is not on the PATH, then the whole gigabytes
 // free on the file system holding the login's home, where the trees and the
 // check's build cache are, before and after making room, one line each.
-// Making room removes only what is this check's own, under Dir: every tree
-// but the newest Kept-1 (ls skips the dot-named CacheDir), and, while the
-// space free is still under MinFreeGB, CacheDir.
+// Making room removes what is this check's own, under Dir: every tree but
+// the newest Kept-1 (ls skips the dot-named CacheDir), and, while the space
+// free is still under MinFreeGB, CacheDir. On a Dedicated machine it first
+// clears the login's own Go build cache and the go-build folders it left in
+// /tmp, every run, and its module cache while still short (dedicatedClean).
 func (x POSIX) readyScript(needs []Need) string {
 	lines := []string{`export PATH="$PATH:` + x.Path + `"`, "uname -s"}
 	for _, n := range needs {
@@ -83,13 +93,30 @@ func (x POSIX) readyScript(needs []Need) string {
 	lines = append(lines, fmt.Sprintf(`free_gb() { df -Pk "$HOME" | awk 'NR==2 {print int($4/1048576)}'; }
 base="$HOME/%[1]s"
 before=$(free_gb)
+%[5]s
 if [ -d "$base" ]; then
 	ls -1t "$base" | tail -n +%[2]d | while read -r old; do rm -rf "${base:?}/$old"; done
 	if [ "$(free_gb)" -lt %[3]d ]; then rm -rf "${base:?}/%[4]s"; fi
 fi
 echo "$before"
-free_gb`, x.Dir, Kept, MinFreeGB, CacheDir))
+free_gb`, x.Dir, Kept, MinFreeGB, CacheDir, x.dedicatedClean()))
 	return strings.Join(lines, "\n")
+}
+
+// dedicatedClean is what readyScript frees first on a Dedicated machine: the
+// login's default Go build cache (GOCACHE emptied names it), what a stopped
+// go test left in /tmp and $TMPDIR that belongs to this login (its go-build
+// work folders and its tests' Test* temporary folders: 5 GB of them filled
+// bsd-check after a day of interrupted gates, 2026-10-27), and, while still
+// under MinFreeGB, the login's module cache, which the next build downloads
+// again. Nothing on another machine.
+func (x POSIX) dedicatedClean() string {
+	if !x.Dedicated {
+		return ""
+	}
+	return fmt.Sprintf(`if command -v go >/dev/null 2>&1; then GOCACHE= go clean -cache >/dev/null 2>&1; fi
+for d in /tmp "${TMPDIR:-/tmp}"; do find "$d" -mindepth 1 -maxdepth 1 \( -name 'go-build*' -o -name 'Test*' \) -user "$(id -u)" -exec rm -rf {} + 2>/dev/null; done
+if [ "$(free_gb)" -lt %d ] && command -v go >/dev/null 2>&1; then go clean -modcache >/dev/null 2>&1; fi`, MinFreeGB)
 }
 
 // readyAnswer checks readyScript's output, returning what room it made.
@@ -105,6 +132,10 @@ func (x POSIX) readyAnswer(target, kernel, noun, out string, needs []Need) (stri
 		if lines[i+1] != n.Command {
 			return "", fmt.Errorf("%s has no %s on its PATH (looked in its PATH and %s): %s", target, n.Command, x.Path, n.Why)
 		}
+	}
+	if x.Dedicated {
+		return Room(target, lines[len(lines)-2], lines[len(lines)-1], "~/"+x.Dir+"/"+CacheDir+"; and, on this machine kept for checks, the login's Go build and module caches and its /tmp/go-build folders",
+			"what is left is outside Go's caches")
 	}
 	return Room(target, lines[len(lines)-2], lines[len(lines)-1], "~/"+x.Dir+"/"+CacheDir,
 		"for the lab's bsd-check, runbooks/bsd/check-05-disk-cleanup.yaml clears its login's own Go cache")
@@ -160,8 +191,12 @@ func (x POSIX) Test(ctx context.Context, target, sha string, parallel int, packa
 		return false, fmt.Errorf("this worktree has no pleiades for %s yet; run -phase prepare first", target)
 	}
 	fmt.Fprintf(stdout, "%s: running on %s; Pleiades returns the output when the run ends, since it does not stream it yet\n", x.Tool, x.Machine)
+	script := x.TestScript(sha, parallel, packages)
+	if x.Containers != nil {
+		script = x.ContainerTestScript(sha, parallel, packages)
+	}
 	run := func(ctx context.Context) (Outcome, error) {
-		return x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.TestScript(sha, parallel, packages)), fmt.Sprintf("--timeout=%d", TestTimeout))
+		return x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", script), fmt.Sprintf("--timeout=%d", TestTimeout))
 	}
 	stop := func(ctx context.Context) error {
 		_, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.StopScript(sha)))
@@ -269,9 +304,13 @@ func (x POSIX) Records(ctx context.Context, sha string) ([]flakegate.Run, error)
 // RecordsScript prints each of RecordFiles in sha's tree that exists, one
 // after another.
 func (x POSIX) RecordsScript(sha string) string {
+	files := RecordFiles
+	if x.Containers != nil {
+		files = []string{ContainerRecordFile}
+	}
 	return fmt.Sprintf(`cd "$HOME/%s/%s" || exit 0
 for f in %s; do [ -f "$f" ] && cat "$f"; done
-exit 0`, x.Dir, sha, strings.Join(RecordFiles, " "))
+exit 0`, x.Dir, sha, strings.Join(files, " "))
 }
 
 // stopRun defines the shell function both scripts end a run with: SIGTERM to
@@ -286,8 +325,15 @@ const stopRun = `stop_tree() { kids=$(pgrep -P "$1" 2>/dev/null); kill -TERM "$1
 stop_run() { kill -TERM -- "-$1" 2>/dev/null; stop_tree "$1"; }`
 
 // PIDFile is where, in the unpacked tree, TestScript writes its tests'
-// job.
-func (x POSIX) PIDFile() string { return "." + x.Tool + ".pid" }
+// job. A container pass has its own: it runs in the same tree beside the
+// container-free one, and sharing a file would let either's stop end the
+// other's run.
+func (x POSIX) PIDFile() string {
+	if x.Containers != nil {
+		return "." + x.Tool + "-containers.pid"
+	}
+	return "." + x.Tool + ".pid"
+}
 
 // StopScript ends every process of the test run TestScript started in
 // sha's tree (see stopRun), and does nothing when there is no run.

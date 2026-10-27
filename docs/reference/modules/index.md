@@ -23,15 +23,15 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 25 | 23 |
+| `net` | 27 | 25 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
-| `virt` | 29 | 29 |
+| `virt` | 36 | 36 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **201** | **198** |
+| **total** | **210** | **207** |
 
 ## All methods
 
@@ -149,6 +149,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.frr.config](net/frr/config.md) | implemented | Makes an FRRouting router run exactly the configuration given, and saves what it ran before so the change can be undone. |
 | [net.frr.facts](net/frr/facts.md) | implemented | Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data. |
 | [net.frr.interface](net/frr/interface.md) | implemented | Sets an FRRouting interface administratively up or down, recording the state it found. |
+| [net.ios.checkpoints](net/ios/checkpoints.md) | implemented | Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones. |
 | [net.ios.command](net/ios/command.md) | implemented | Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says. |
 | [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly. |
 | [net.ios.facts](net/ios/facts.md) | implemented | Gathers structured facts from a Cisco IOS device over its CLI. |
@@ -160,6 +161,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.netconf.config](net/netconf/config.md) | implemented | Applies a configuration document to a device over NETCONF, with an optional pre-change backup. |
 | [net.ovs.bridge](net/ovs/bridge.md) | implemented | Makes an Open vSwitch bridge exist with the datapath given, or not exist. |
 | [net.ovs.port](net/ovs/port.md) | implemented | Makes a port exist on an Open vSwitch bridge with the VLAN tag given, or not exist. |
+| [net.pcap.summary](net/pcap/summary.md) | implemented | Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
 | [net.trace](net/trace.md) | implemented | Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
@@ -193,6 +195,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [svc.windows.restart](svc/windows/restart.md) | implemented | Restarts a Windows service, starting it if it was not running. |
 | [svc.windows.start](svc/windows/start.md) | implemented | Starts a Windows service now, without changing its start type. |
 | [svc.windows.stop](svc/windows/stop.md) | implemented | Stops a Windows service now, without changing its start type. |
+| [virt.cml.capture.start](virt/cml/capture/start.md) | implemented | Starts a packet capture on a link of a CML lab. |
+| [virt.cml.capture.stop](virt/cml/capture/stop.md) | implemented | Stops a packet capture on a link of a CML lab and writes its file into the project. |
 | [virt.cml.lab.create](virt/cml/lab/create.md) | implemented | Creates an empty CML lab with a title. |
 | [virt.cml.lab.delete](virt/cml/lab/delete.md) | implemented | Stops, wipes and deletes a CML lab. |
 | [virt.cml.lab.info](virt/cml/lab/info.md) | implemented | Reports one CML lab: its nodes, their interfaces and its links. |
@@ -201,8 +205,13 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.cml.lab.stop](virt/cml/lab/stop.md) | implemented | Stops a CML lab's nodes. |
 | [virt.cml.link.create](virt/cml/link/create.md) | implemented | Links two nodes' interfaces in a CML lab. |
 | [virt.cml.link.delete](virt/cml/link/delete.md) | implemented | Removes a link from a CML lab. |
+| [virt.cml.link.start](virt/cml/link/start.md) | implemented | Starts a stopped link in a CML lab, as if plugged in again. |
+| [virt.cml.link.stop](virt/cml/link/stop.md) | implemented | Stops a link in a CML lab, as if unplugged, leaving both nodes running. |
 | [virt.cml.node.create](virt/cml/node/create.md) | implemented | Creates a node in a CML lab, optionally seeded with an inventory device's login and address. |
 | [virt.cml.node.delete](virt/cml/node/delete.md) | implemented | Stops, wipes and deletes one node of a CML lab. |
+| [virt.fusion.vm.info](virt/fusion/vm/info.md) | implemented | Reports a VMware Fusion VM's power state and its guest's address. |
+| [virt.fusion.vm.start](virt/fusion/vm/start.md) | implemented | Starts a VMware Fusion VM with no window, and holds the Mac awake while it runs. |
+| [virt.fusion.vm.stop](virt/fusion/vm/stop.md) | implemented | Stops or suspends a VMware Fusion VM. |
 | [virt.vbox.snapshot.delete](virt/vbox/snapshot/delete.md) | implemented | Deletes a snapshot of a VirtualBox VM. |
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |

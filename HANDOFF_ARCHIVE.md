@@ -1,5 +1,243 @@
 # Handoff Document Archive
 
+## Previous session, 2026-10-26: feat/lab-captures-129b end-of-branch records (Phases 129b to 129d)
+
+*Superseded on 2026-10-27 by the status for feat/phase-129-blind-lab-fixes (which carries these commits forward, with the review fixes, the Mac container half and the VMware Fusion work).*
+
+### Status as it was
+
+**2026-10-26. Branch `feat/lab-captures-129b`, off `origin/main` at `21ecd314` (PR #90's merge), 10 commits: Phase 129a
+(`2b12066f`, `20e1ac92`, `81b14992`, records `42358323`, review fixes `80d0da4d`), 129b (`03ec94ed`), 129c (`2d54d27c`)
+and 129d (`2d9cd379`, `7e941028`, review fixes `ac7af458`). Phases 129a to 129d are built, on one branch for one pull
+request. These records are uncommitted. Not pushed, and `make pr-check` has not run: the owner said "don't worry about
+pr-check yet" and "one push per repo".**
+
+#### What works
+
+- The live CML gate `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows` passed in Phase 129d: named secrets, the P1-P2
+  link stopped and started, a capture of it counted by `net.pcap.summary` (40 ESP packets between the routers, none in
+  the clear), and `wait.routes` on P1 over SSH and on P2 through the console. It ran before the review fixes in
+  `ac7af458`; no rerun since is recorded.
+- Batfish: `TestCheck_DMVPNInAFrontDoorVRF` (live, pinned 2026.08.27.3685): VRF route checks, reach from an interface,
+  NHRP refused until accepted. Rollback later-run kinds and provisional checks: `TestBuild_TellsLaterRunsApart`,
+  `TestProvisionalChecks_AFailedProvisionalCheckIsUnchecked`.
+- CLI: `remove-host`, `remove-credential`, adhoc host forms, `--help` exit 0 (`TestEveryCommandsHelpExitsZero`),
+  duration timeouts, YAML aliases, `doc filters` and `doc conditions`, the `device` root (`TestDeviceRoot_*`),
+  `wait.routes` for IOS (`TestIOSRoutes`), the netcli console fix (`TestCommand_PassesOverTheDevicesOwnMessages`).
+- Tracker: 129a 7 of 8, 129b 3 of 5, 129c 3 of 4, 129d 9 of 10; every open one is a Release Gate (pr-check and
+  Actions) or a commit message, besides 129b's GNS3 item. Phase 129 itself: 0 of 2.
+- Records: FAILURE_PATTERNS 654 to 667; 562, 645, 647, 648, 649 and 652 marked fixed (647, 649 and 652 with stated
+  residuals) and 650's rollback side updated; LESSONS 333 to 337; four new changelog fragments; two PW.1 statements in
+  the security attestation.
+
+#### Blocker
+
+- None. `make pr-check` waits on the owner's word.
+
+#### Open
+
+- Blind CVD run 4 started 2026-10-26 01:17 through `~/pleiades-cvd/run4.sh`, with a binary built at `7e941028`, so
+  without `ac7af458`'s fixes. Driver log at 02:00: turn A stopped by a usage limit after 2328 s, graded 41 PASS, 0
+  FAIL; turn C started.
+- Left open by the review and stated: F7 `wait.routes` lost its plan-time capability check (no any-of capability; said
+  in its Doc); F8 provisional rollback checks are Crawl tier only (docs/10); F9 `authored_rollback_empty` is trusted
+  from the journal row.
+- Residuals in the records: 647 (hosts given to a no-device method are still ignored), 649 (other node kinds still
+  print as numbers), 650 and 652 (a diagnostic run, and changes that cancel out, still need `--despite-run`).
+- Tests not yet written for fixes in `ac7af458`: a `rollback_on_failure` undo step reading `device` (656), validate's
+  refusal of `all_at_plan_time` with `device` (657), `link.stop` on a link that never ran (666), the capture `dest`
+  refusal (667), and a non-IP frame read back as `unexamined` (659).
+- Deferred: an assert method (none exists; FAILURE_PATTERNS 660), splitting run 4's turn A (kept for comparability),
+  GNS3 (`git stash@{0}`, "gns3 link suspend and capture": the live test still fails, the device type and methods are
+  unbuilt; FAILURE_PATTERNS 664).
+- Seen under load and passing alone (the class of 61, no new entry): two CLI release-gate tests in a full
+  `cmd/pleiades` run (a reaper context deadline, an sshd fixture port refused), and a `wait` live test where FRR said
+  "% command failed, could not lock running DS" during run 4.
+- Carried from before: `TestCheck_RealRoutersAgainstRealBatfish`'s readiness wait, 629's GNS3
+  retries, 618's hard link residual, 640 (Mask is still a denylist), 638, 574, 610, 611, 612, 602, 598, 560, 551, 470,
+  471. Proposed, not approved: Phases 128 and 130. Groundconfig stays uncommitted, its sharing undecided.
+
+#### Next, in order
+
+1. Commit these records.
+2. When the owner says so: measure coverage for the changed packages, then `make pr-check` on the committed, clean tree.
+3. Push once, open the pull request for 129a to 129d, and tick each Release Gate with its evidence when Actions passes.
+4. Grade run 4 when it ends and write its after-action report; then the Phase 129 items.
+5. Then the deferred list above, and the release tooling PR, Phase 117b part 3 and Phase 126 in the owner's order.
+
+#### Files changed
+
+- `03ec94ed` (129b): `pkg/cml/` (`capture.go`, `find_link.go`, `cmltest`), `pkg/pcapsum/`,
+  `internal/catalog/virt/cml/{link,capture}/`, `internal/catalog/net/pcap/`, catalogdata, the CML gate, docs.
+- `2d54d27c` (129c): `internal/catalog/net/batfish/`, `internal/rollback/`, `internal/engine/` (journal, provisional
+  checks), `internal/ent/` and migrations sqlite 0038 and postgres 0035, `cmd/pleiades/rollback.go`, docs.
+- `2d9cd379`, `7e941028`, `ac7af458` (129d): `cmd/pleiades/` (adhoc, removehost, main, journal, doc topics, skill,
+  validate, run text), `internal/engine/` (yaml aliases, timeouts, device root, executor, handlers), `internal/validate/`,
+  `internal/render/filter.go`, `internal/catalog/wait/routes.go`, `pkg/netcli/`, `pkg/sdk/shell.go`, `tools/gendocs/`,
+  docs and changelog fragments.
+- Records (uncommitted): `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
+  `LESSONS_LEARNED_ARCHIVE.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, `changelog/runbook-yaml-aliases.fixed.md`,
+  `changelog/validate-unmatched-target.added.md`, `changelog/capture-files-and-unexamined.changed.md`,
+  `changelog/skill-teardown-and-new-forms.changed.md`; git-ignored, `.SPECIFICATION/IMPLEMENTATION.md` and
+  `.SPECIFICATION/SECURITY_ATTESTATION.md`.
+
+#### Lab state
+
+Changed: blind CVD run 4 is running on the CML sandbox (`~/pleiades-cvd`; run 3's results and sandbox archived to
+`runs/claude-run3` and `claude-run3`), with a Batfish container up for it, and `~/pleiades-cvd/bin/pleiades-real` is
+rebuilt at `7e941028`. Unchanged: the VirtualBox lab was not touched this session; last recorded, `bsd-check`,
+`win-check`, `lab-dc1` and `lab-lin1` are saved.
+
+## Previous session, 2026-10-25: feat/secrets-ios-129a end-of-branch records (Phase 129a)
+
+*Superseded on 2026-10-26 by the status for feat/lab-captures-129b (Phases 129b to 129d, on the same branch as 129a).*
+
+### Status as it was
+
+**2026-10-25. Branch `feat/secrets-ios-129a`, off `main` at `21ecd314` (PR #90's merge). Phase 129a (named secrets
+and IOS sessions), the first of four PRs in the approved plan. Two commits: `2b12066f` (the code) and `20e1ac92` (the
+docs). These records are uncommitted. Not pushed; no pull request yet.**
+
+#### What works
+
+- PR #90 (`feat/virt-cml`, Phase 127d) merged 2026-10-25. Blind CVD run 3 is done and graded (turn A 45 PASS, 2
+  FAIL at the 2-hour limit; turn C 47 PASS, 1 FAIL; turn B 13 PASS, 1 FAIL): `~/pleiades-cvd/runs/AAR-run3.md`. The
+  owner approved the plan for Phases 129a to 129d: `/home/noot/.claude/plans/lazy-riding-lightning.md`.
+- Phase 129a's code and docs are committed: named secrets (`pleiades add-secret`, `{{ secret.<name>.<field> }}` in
+  `net.ios.config` lines and prompt answers), `net.ios.checkpoints`, and the IOS output fixes.
+- The live CML gate `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows` (`cmd/pleiades/cml_secret_release_gate_test.go`)
+  passed in 83.8 s, `-v` showing PASS and not SKIP, at the working tree just before `2b12066f`.
+- Measured on the CML sandbox this session: the IOS `%` notices (FAILURE_PATTERNS 646); `dir unix:`'s line format
+  (`145407  -rw-  1999  Oct 26 2026 01:16:14 +00:00  pleiades-e1beac8a0f57.cfg`); `net.ios.checkpoints` listed and
+  pruned live on R2. For 129b, from the 2.7.2 `openapi.json`: link state is `PUT
+  /labs/{lab}/links/{link}/state/start|stop`, enum `DEFINED_ON_CORE|STOPPED|STARTED`; capture is `PUT
+  .../capture/start` (`maxpackets` or `maxtime`, one required, and `bpfilter`), `PUT .../capture/stop`, `GET
+  .../capture/status|key`, and `GET /pcap/{key}` (`application/cap`); a link object carries `link_capture_key`.
+- FAILURE_PATTERNS 644, 646, 650 (ping, traceroute, terminal) and 651 are fixed in `2b12066f`. 653, an IKEv2 key in
+  `net.ios.command`'s show output, was found live and fixed in the same commit, and the fix was verified live.
+- Records this session: FAILURE_PATTERNS 644 to 653, LESSONS 327 to 332.
+
+#### Blocker
+
+- None.
+
+#### Open
+
+- Phase 129a in the tracker: 0 of 8, open gates Release Gate and Provide Commit Message. No item is ticked yet.
+- The redaction audit item is replaced by the owner's direction: Genie is the source, built in as `pkg/iosparse`'s
+  schema test `TestSchemas_SecretLookingFieldsAreDecided` plus `netcfg.MaskFields`. Nothing is downloaded (the owner
+  said so).
+- Still open: FAILURE_PATTERNS 645, 647, 648, 649 and 652 (129c, 129d), and 650's rollback side (with 652, 129c).
+- Phase 129 itself: the blind-lab harness and blind run 4 (0 of 2). 127d: 12 of 13, the Walk tier item open.
+- Proposed, not approved: Phase 128 (IOS candidate merge) and 130 (firewalls and IDS/IPS).
+- The Groundconfig external Collection is built in `~/Groundconfig/pleiades`, not committed; sharing is undecided.
+- Carried: `TestCheck_RealRoutersAgainstRealBatfish`'s readiness wait, 629's GNS3 retries, 618's hard link residual,
+  640 (Mask is still a denylist), 638, 574, 610, 611, 612, 602, 598, 560, 551, 470, 471.
+
+#### Owner decisions this session
+
+- Mask learning applies only to "dynamically learned" named secrets; there is no automatic import from a vault.
+- Genie/pyATS is the masking source, using what is built in.
+
+#### Next, in order
+
+1. Commit these records.
+2. Measure coverage for the changed packages, then `make pr-check` on the committed, clean tree.
+3. Push and open the pull request; tick 129a's items with their evidence.
+4. Then the Groundconfig corpus rebuild, 129b (CML and GNS3 link stop, start and captures), 129c (Batfish,
+   rollback), 129d (CLI, inventory, templates, skill), the harness, and blind run 4.
+5. Deferred by the owner's reorder: the release tooling PR, Phase 117b part 3, Phase 126.
+
+#### Files changed
+
+- `2b12066f`: `internal/credential/` (secret store, generate, file store), `pkg/secretref/`, `pkg/sdk/named_secrets.go`,
+  `pkg/netcfg/` (`mask.go`, `fields.go`), `pkg/netcli/` (`netcli.go`, `dialog.go`, `read_failure.go`),
+  `pkg/clidialog/clidialog.go`, `pkg/iosparse/secret_fields_test.go`, `internal/engine/` (`render_params.go`,
+  `runbook_context.go`, `executor.go`, `executor_secrets.go`), `internal/validate/` (`template_rule.go`,
+  `literal_secret.go`), `internal/catalog/net/`, `internal/forge/catalogdata/`, `internal/clispec/clispec.go`,
+  `cmd/pleiades/` (`secret.go`, the CML gate), with tests.
+- `20e1ac92`: `CLAUDE.md`, four changelog fragments, `docs/16-network-verification.md`, the regenerated reference
+  pages and module catalogs.
+- Records (uncommitted): `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
+  `LESSONS_LEARNED_ARCHIVE.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+
+#### Lab state
+
+Changed: the measurement lab on the CML sandbox was rolled back, and the controller holds `default-lab` only. The
+sandbox reservation is as recorded before (`tests/cml/.env` refreshed 2026-10-25 15:51, valid about two days). The
+`pleiades-cvd` lab was deleted by run 3's turn B. The Batfish container is removed. The `~/pleiades-cvd` harness
+changed for run 3 (`lib.sh`, `setup.sh`, `turn.sh`, `grade.sh`, `prompt-a.txt`, new `prompt-c-fresh.txt`, `run3.sh`,
+`run3-rest.sh`, `run3-rest2.sh`; originals kept as `runs/*.bak-run2`), and `~/pleiades-cvd/bin/pleiades-real` is
+rebuilt at `d17b732f` (the old one is `pleiades-real.prev`). Unchanged: the VirtualBox lab was not touched this session;
+last recorded, `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved.
+
+## Previous session, 2026-10-24: feat/virt-cml end-of-branch records (Phase 127d)
+
+*Superseded on 2026-10-25 by the status for feat/secrets-ios-129a, after PR #90 merged.*
+
+### Status as it was
+
+**2026-10-24. Branch `feat/virt-cml`, off `main` at `0caadb17`, tip `d6f47b1f` (38 commits) plus these uncommitted
+records. Phase 127d is built and proven; next is `make pr-check`, the push and the pull request. Not pushed. Tracker:
+127d is 11 of 13 done (open: the Walk tier item, the Release Gate, the commit message).**
+
+#### What works
+
+- The ten `virt.cml.*` methods, the `cml_controller` device type, the IOS login seed (type 9 secrets), `import-cml
+  --controller` and `--via console`, and the console transport through a CML controller. Proven on the DevNet sandbox
+  by `TestCLI_BuildsACMLLabAndReachesItsNode` (`040c5fd3`).
+- The blind CVD lab, run 1: turn A met all three requirements in 105 minutes ($19.12), graded from the routers
+  (`~/pleiades-cvd/runs/claude-run1/grade-a.txt`); turn B tore the lab down by `pleiades rollback` in 4.5 minutes
+  (`grade-b.txt`). After-action report: `~/pleiades-cvd/runs/AAR-turn-a.md`.
+- Fixed from the lab's findings: `net.ios.config` answers questions (`prompts`, `ask`, `accept`) and fails at once on
+  an unanswered one (`a2495ddb`); IKE pre-shared keys masked and `crypto key` command words kept (`fa10a343`,
+  `d6f47b1f`, FAILURE_PATTERNS 640); `node.create` takes `interfaces` (`c4e231df`); the `transport: telnet` hint
+  (`f33aff1f`); `pleiades doc <device type>`, `doc --dir`, `adhoc --timeout 40s`, `init --dir` making its directory
+  (`3436e0d6`).
+- Gate work: prscope direct importers, pr-check record stamps and `LEGS=` reruns, `tools/failures watch-pr`.
+- Records: FAILURE_PATTERNS 637 to 642, LESSONS 322 to 326, seven new changelog fragments.
+
+#### Blocker
+
+- None. `make pr-check` has not run on this tip yet.
+
+#### Open
+
+- The blind lab's rerun of turn A stopped at 29.5 minutes on the account's weekly usage limit. Afterwards another
+  agent, citing Groundconfig, worked in the CML sandbox from 20:23 to 21:17, so the sandbox's `pleiades-cvd` lab is up
+  and modified. Phase 129's harness item (lock the sandbox for a turn) covers it.
+- The Groundconfig external Collection is built in `~/Groundconfig/pleiades`, not committed. The owner is deciding
+  whether to share it.
+- Proposed, not approved: Phase 128 (IOS candidate merge), 129 (what the blind lab asked for), 130 (firewalls and
+  IDS/IPS).
+- 127d's Walk tier item: a Runner refuses a console server; a `cml_controller` task from a Runner is untested.
+- 638: no test drives a `virt.cml` failure through to the journal. 640: Mask is still a denylist.
+- Carried: `TestCheck_RealRoutersAgainstRealBatfish`'s readiness wait, 629's GNS3 retries, 618's hard link residual,
+  574, 610, 611, 612, 602, 598, 562, 560, 551, 470, 471.
+
+#### Next, in order
+
+1. Commit these records, then `make pr-check` on the clean tip; push; open the pull request; `go run ./tools/failures
+   watch-pr -pr N`.
+2. After it merges: the release tooling pull request (a dry-run binary release; no tag until the owner says).
+3. Then Phase 117b part 3, then Phase 126.
+
+#### Files changed
+
+- This branch: `internal/catalog/virt/cml`, `pkg/cml`, `pkg/cmlconsole`, `pkg/iossecret`, `pkg/devicetls`,
+  `pkg/netcfg`, `pkg/netcli`, `internal/catalog/net/ios`, `internal/engine` (login seed, console dialer),
+  `cmd/pleiades` (doc, adhoc, init, import-cml), `tools/prscope`, `tools/prreport`, `tools/gatereceipt`,
+  `tools/testgate`, `tools/failures`, docs and generated references.
+- This session's records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
+  `LESSONS_LEARNED_ARCHIVE.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, seven files under `changelog/`, and
+  `.SPECIFICATION/IMPLEMENTATION.md` (127d's blind lab item ticked).
+
+#### Lab state
+
+Changed: the CML sandbox's `pleiades-cvd` lab is up and modified (see Open). The VirtualBox lab was not reported
+changed; last recorded, `bsd-check`, `win-check`, `lab-dc1` and `lab-lin1` are saved, and
+`~/pleiades-lab/bin/pleiades` is built from `main` at `0caadb17`.
+
 ## Previous session, 2026-10-24: feat/virt-cml begins (Phase 127d)
 
 *Superseded on 2026-10-24 by the end-of-branch records for feat/virt-cml, whose status is now `HANDOFF_DOCUMENT.md`'s.*

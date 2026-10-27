@@ -64,6 +64,9 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 	if err := yaml.Unmarshal(payload, &doc); err != nil {
 		return fmt.Errorf("failed to unmarshal YAML: %w", err)
 	}
+	if err := ExpandAliases(&doc); err != nil {
+		return err
+	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		if err := yaml.Unmarshal(payload, def); err != nil {
 			return fmt.Errorf("failed to unmarshal YAML: %w", err)
@@ -77,6 +80,9 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 		keys = append(keys, root.Content[i].Value)
 	}
 	if err := checkRunbookKeys(keys); err != nil {
+		if key := anchorOnlyKey(payload); key != "" {
+			return fmt.Errorf("%w; %q is there only to hold an anchor, which a runbook's top level has no place for: write the anchor where its value is first used instead (net.ios.command: &common ...)", err, key)
+		}
 		return err
 	}
 	for _, key := range []string{"pretasks", "tasks", "posttasks"} {
@@ -107,6 +113,9 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 func normalizeWorkflowYAMLTaskList(data []byte, out *[]Task) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	if err := ExpandAliases(&doc); err != nil {
 		return err
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.SequenceNode {

@@ -1,0 +1,5 @@
+Total host networks: 3
+INDEX  NAME         TYPE         DHCP         SUBNET           MASK
+0      vmnet0       bridged      false        empty            empty           
+1      vmnet1       hostOnly     true         192.168.56.0     255.255.255.0   
+8      vmnet8       nat          true         192.168.111.0    255.255.255.0   

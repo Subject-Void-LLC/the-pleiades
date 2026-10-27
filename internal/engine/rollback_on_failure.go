@@ -131,7 +131,7 @@ func (r *run) runUndoStep(ctx context.Context, n NodeResult, step int, task *Tas
 	r.undoTasks[id] = task
 	undo := &UndoStep{Undo: Undo{Node: n.NodeID, Step: step}, Name: task.Name, Method: task.FQCN}
 	if authored {
-		prepared, early := r.prepare(id, task, time.Now().UTC(), n.Device, nil)
+		prepared, early := r.prepare(id, task, time.Now().UTC(), n.Device, map[string]any{TemplateRootDevice: deviceRoot(device)})
 		if early != nil {
 			early.Undo = undo
 			return *early

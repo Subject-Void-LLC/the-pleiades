@@ -157,3 +157,27 @@ func TestLabCheckBox_BuildsThisTreesPleiades(t *testing.T) {
 		t.Errorf("a build that failed: %v", err)
 	}
 }
+
+// dedicatingLeg is a fakeLeg that says when it was made a dedicated machine.
+type dedicatingLeg struct {
+	*fakeLeg
+	dedicated bool
+}
+
+// Dedicated is the leg as a machine kept for checks.
+func (d dedicatingLeg) Dedicated() Leg {
+	d.dedicated = true
+	return d
+}
+
+// TestDedicate: a leg that can be a dedicated machine becomes one, and any
+// other leg is run as it is.
+func TestDedicate(t *testing.T) {
+	if got, ok := dedicate(dedicatingLeg{fakeLeg: &fakeLeg{}}).(dedicatingLeg); !ok || !got.dedicated {
+		t.Errorf("dedicate gave %#v, want the leg made dedicated", got)
+	}
+	plain := &fakeLeg{}
+	if got := dedicate(plain); got != Leg(plain) {
+		t.Errorf("dedicate changed a leg that cannot be dedicated: %#v", got)
+	}
+}

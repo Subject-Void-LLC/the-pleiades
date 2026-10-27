@@ -133,7 +133,7 @@ func runValidate(args []string) error {
 			// variable the run would have, so a template reading one none
 			// of them gives is reported here.
 			checks[i].report = validate.Validate(validate.WorldView{Items: items, DAG: checks[i].dag, Variables: variables, VariablesKnown: true, VariablesFlag: extraVarsFlagName})
-			checks[i].report.Warnings = checks[i].warnings
+			checks[i].report.Warnings = append(checks[i].report.Warnings, checks[i].warnings...)
 		}
 	}
 
@@ -194,6 +194,7 @@ func buildCheck(builder *engine.Builder, path string) runbookCheck {
 			return check
 		}
 		check.dag, check.warnings = dag, append(validate.HeaderWarnings(source), validate.TaskFormWarnings(source)...)
+		check.warnings = append(check.warnings, validate.LiteralSecretWarnings(dag)...)
 	}
 	return check
 }

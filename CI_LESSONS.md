@@ -34,6 +34,17 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
    not its to remove. Clear the cause and run again rather than pushing around it. `make pr-check LEGS=bsd` runs
    one part again and keeps the rest; every record is stamped with its commit and tree, so the receipt still needs
    them all at one commit on a clean tree. LESSONS_LEARNED 271.
+14. **A new leg runs once for real, through the command `pr-check` will use, before `pr-check` counts on it.** A
+    leg's stand-in tests prove its parts; only the real machine shows which binary, OS build and tool version they
+    meet. A leg drives its machine with a build its own run made, named by the check's own identity, never a
+    literal tool name in shared code. FAILURE_PATTERNS 526, 675, 676.
+16. **An edit to a file that holds a waived gosec finding runs `make gosec` before the commit.** A waiver is keyed by
+    file and line, so lines added above the waived call move the finding, and the gate stops on an unwaived finding
+    and a stale waiver. Review the waiver's reason again when you move it. FAILURE_PATTERNS 685.
+17. **A lab VM kept only for checks is cleaned before every run, not refused.** Runs killed when a gate is
+    interrupted leave Go's work and test folders behind, and that is the normal case. The check clears the login's
+    Go build cache and those folders before each run (this refines 4 for such machines); a machine someone else
+    uses is still left alone. FAILURE_PATTERNS 537, 688.
 
 ## Tests that do not fail by luck
 
@@ -48,6 +59,19 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
    and when one such watcher is fixed, sweep every watcher of that shape. A race like this fails once in CI and
    never in hundreds of local runs; reproduce it by delaying the goroutine (one CPU), not by loading the
    machine. FAILURE_PATTERNS 352, 633.
+15. **A test of a protection has a control that shows the hazard without it, and every new case is seen to
+    fail.** A fake that never answers can let a case pass by accident; an edit made by a script asserts its anchor
+    matched before it writes. FAILURE_PATTERNS 436, 671, 679.
+18. **A test asks for the capability it needs, not for a sign of it.** Skip on `docker info` failing and `docker
+    compose version` failing, not on a missing `docker` binary; read Go's race detector platforms, not
+    `CGO_ENABLED`. Installing a tool on a check machine changes which tests run there, and every proxy check is
+    then wrong in a new way. FAILURE_PATTERNS 502, 683, 684.
+19. **A test comparing two timings takes each side's fastest of interleaved rounds.** An average of calls in a row
+    puts one stall on one side. A sweep for this class searches by shape (two measured durations compared), not by
+    the names the last fix touched. FAILURE_PATTERNS 422, 687.
+20. **A test that runs make clears what a parent make exports.** `MAKEFLAGS` and its kin reach the child through
+    `go test` when the gate itself was started by make, and change what the child prints and does. FAILURE_PATTERNS
+    686.
 
 ## Docker Desktop on this machine
 
@@ -68,3 +92,13 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
 12. **A fixture git ignores exists only in the tree that wrote it.** The machine legs test the committed tree, so
     they find it before CI does; `internal/archtest`'s `TestNoTestdataFileIsIgnored` refuses one under any
     `testdata` directory. Name a captured log `.txt`, or add an exception. FAILURE_PATTERNS 401, 634.
+13. **A failure whose record holds no cause is unexplained, not contention.** The run record keeps 400 lines of a
+    failure's output because a test that logs its own teardown buries its assertion far from the end. When the
+    record still holds only teardown, run the test alone with its full output before naming a cause, and record
+    what that run showed. FAILURE_PATTERNS 414, 668.
+21. **When dozens of tests in one package fail with ordinary-looking errors, read the package's first failure.** A
+    shared fixture built once (behind a `sync.Once`) reports its cause only in the first test, and every later test
+    fails on what the fixture left out. FAILURE_PATTERNS 682.
+22. **A build failure with no compiler output is unexplained, not real and not contention.** Record what the
+    machine had free when it happened, then build the package alone on the same tree before naming a cause.
+    FAILURE_PATTERNS 537, 690.

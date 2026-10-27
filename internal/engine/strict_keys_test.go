@@ -61,7 +61,9 @@ func TestStrictKeys_RefusesUnknownKeyAtEveryLevel(t *testing.T) {
 		{
 			name: "merge key at task level carrying an unknown key",
 			yaml: "id: g\ntasks:\n  - <<: {fqcn: noop, bogus: 1}\n    name: a\n",
-			want: []string{`unknown key "bogus"`, "under tasks[0]"},
+			// The merge is expanded before any key is read, so the key it
+			// brings is refused as one written in the task itself.
+			want: []string{`unrecognized key "bogus"`, "task tasks[0]"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

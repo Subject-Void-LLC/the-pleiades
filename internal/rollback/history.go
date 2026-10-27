@@ -64,8 +64,9 @@ func undoEntries(r Run, target string) []engine.JournalEntry {
 	return out
 }
 
-// fullyUndone reports whether every change run made has been undone by a
-// rollback of it: each changed device's undo has a step on record, and
+// fullyUndone reports whether a rollback of run undid every change it made
+// that needed undoing (a change its runbook says needs none aside), and at
+// least one did: each changed device's undo has a step on record, and
 // every step's latest attempt succeeded. A step that failed and was then
 // run again successfully, as a rollback that stopped partway and was run
 // once more does, counts as done; one whose latest attempt failed does
@@ -94,7 +95,13 @@ func fullyUndone(run Run, others []Run) bool {
 			}
 		}
 	}
+	undone := false
 	for _, e := range changed {
+		if e.AuthoredRollbackEmpty {
+			// Nothing to undo, so no step was ever run for it.
+			continue
+		}
+		undone = true
 		p := pair{e.NodeID, e.DeviceID}
 		recorded := false
 		for k, a := range latest {
@@ -110,7 +117,9 @@ func fullyUndone(run Run, others []Run) bool {
 			return false
 		}
 	}
-	return true
+	// A run none of whose changes needed undoing was never rolled back at
+	// all: laterRunProblems names it as nothing to undo instead.
+	return undone
 }
 
 // laterRunProblems refuses undoing target beneath another run that has
@@ -146,29 +155,73 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) []Problem {
 			continue
 		}
 		theirs, _ := changesOf(r)
-		var shared []string
+		var shared, irreversible []string
+		undoable := false
 		for _, e := range theirs {
-			if devices[e.DeviceID] {
-				name := deviceName(req, e.DeviceID)
-				if name == "" {
-					name = e.DeviceID
-				}
-				if !slices.Contains(shared, name) {
-					shared = append(shared, name)
-				}
+			if !devices[e.DeviceID] {
+				continue
+			}
+			name := deviceName(req, e.DeviceID)
+			if name == "" {
+				name = e.DeviceID
+			}
+			if !slices.Contains(shared, name) {
+				shared = append(shared, name)
+			}
+			switch {
+			case e.AuthoredRollbackEmpty:
+			case e.AuthoredRollback || e.InverseFQCN != "":
+				undoable = true
+			case !slices.Contains(irreversible, e.FQCN):
+				irreversible = append(irreversible, e.FQCN)
 			}
 		}
 		if len(shared) == 0 {
 			continue
 		}
 		slices.Sort(shared)
-		problems = append(problems, Problem{
-			Reason: fmt.Sprintf("run %s changed %s after this run began; undoing this run beneath it could undo on top of its changes, so roll it back first",
-				r.ID, strings.Join(shared, ", ")),
-			Accept: "--despite-run " + r.ID,
-		})
+		slices.Sort(irreversible)
+		problems = append(problems, laterRun(r.ID, strings.Join(shared, ", "), undoable, irreversible))
 	}
 	return problems
+}
+
+// The kinds of later run a rollback can be refused over (Problem.Kind),
+// each with its own advice.
+const (
+	// KindUndoFirst is a later run with changes of its own to undo: roll it
+	// back first.
+	KindUndoFirst = "undo_first"
+	// KindCannotUndo is a later run whose changes on the shared devices
+	// include ones with no undo, and none with one: rolling it back first
+	// would refuse too.
+	KindCannotUndo = "cannot_undo"
+	// KindNothingToUndo is a later run whose every change on the shared
+	// devices its runbook says needs no undo (rollback: []).
+	KindNothingToUndo = "nothing_to_undo"
+	// KindNoRunbook is a change whose undo needs the runbook the run ran,
+	// which was not found as it ran: naming it with --runbook may answer
+	// it, where --leave gives the change up.
+	KindNoRunbook = "no_runbook"
+)
+
+// laterRun is the refusal over run id, which changed devices (named) after
+// the run being undone began: which kind it is, and what to do about it.
+func laterRun(id, devices string, undoable bool, irreversible []string) Problem {
+	head := fmt.Sprintf("run %s changed %s after this run began, so undoing this run beneath it could undo on top of its changes", id, devices)
+	p := Problem{Accept: "--despite-run " + id}
+	switch {
+	case undoable:
+		p.Kind = KindUndoFirst
+		p.Reason = head + "; it has changes of its own to undo, so roll it back first (pleiades rollback " + id + "), or step over it"
+	case len(irreversible) > 0:
+		p.Kind = KindCannotUndo
+		p.Reason = head + "; its changes there cannot be undone (" + strings.Join(irreversible, ", ") + " recorded no undo), so read it (pleiades journal show " + id + ") and step over it"
+	default:
+		p.Kind = KindNothingToUndo
+		p.Reason = head + "; its runbook says none of its changes there needs undoing (rollback: []), so stepping over it is safe when that still holds"
+	}
+	return p
 }
 
 // firstStart is when a run's earliest recorded task began.

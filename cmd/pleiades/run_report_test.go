@@ -131,3 +131,22 @@ func TestPrintResultsEndsARescuedRunWithItsOwnLine(t *testing.T) {
 		t.Errorf("a refused rescued run printed its line: %q", out)
 	}
 }
+
+// TestPrintResultsSaysADevicesWarningOnce: a warning every task on a device
+// carries (a pinned certificate) is printed for its first task only, while
+// another device's, or another warning, is printed again.
+func TestPrintResultsSaysADevicesWarningOnce(t *testing.T) {
+	pinned := "trusting the certificate pinned by tls_fingerprint"
+	rep := &runReport{Mode: collection.ModeExecute, Outcome: runOutcome{Status: "complete", Message: "run complete"}, Tasks: []taskReport{
+		{ID: "tasks[0]", Device: "cml-id", Status: statusChanged, Warnings: []string{pinned}},
+		{ID: "tasks[1]", Device: "cml-id", Status: statusChanged, Warnings: []string{pinned, "a legacy cipher suite"}},
+		{ID: "tasks[2]", Device: "other-id", Status: statusChanged, Warnings: []string{pinned}},
+	}}
+	out := captureStdout(t, func() { printResults(rep, false) })
+	if n := strings.Count(out, "WARNING: "+pinned); n != 2 {
+		t.Errorf("the pinned warning printed %d times, want once per device (2):\n%s", n, out)
+	}
+	if !strings.Contains(out, "WARNING: a legacy cipher suite") {
+		t.Errorf("a second warning was dropped:\n%s", out)
+	}
+}

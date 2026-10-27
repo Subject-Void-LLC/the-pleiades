@@ -20,7 +20,7 @@ import (
 )
 
 // journalUsage is the command's usage.
-const journalUsage = "usage: pleiades journal list [--dir DIR] [--json] | pleiades journal show <run-id> [--dir DIR] [--json]"
+const journalUsage = "usage: pleiades journal list [--since 2h | --since 2026-10-25T16:00:00Z] [--changed] [--dir DIR] [--json] | pleiades journal show <run-id> [--dir DIR] [--json]"
 
 // runSummary is one run in `pleiades journal list`.
 type runSummary struct {
@@ -52,19 +52,28 @@ type runShow struct {
 
 // runJournal is `pleiades journal <list|show>`.
 func runJournal(args []string) error {
-	if len(args) == 0 {
+	if len(args) == 0 || asksHelp(args[:1]) {
 		return fmt.Errorf("%s: %w", journalUsage, errMissingPositional)
 	}
-	positionals, rest := splitPositionals(args[1:], map[string]bool{"json": true})
+	positionals, rest := splitPositionals(args[1:], map[string]bool{"json": true, "changed": true})
 	fs := flag.NewFlagSet("journal", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
+	since := fs.String("since", "", "list only runs that began this long ago or later (2h, 30m) or at or after this time (RFC 3339)")
+	changed := fs.Bool("changed", false, "list only runs that changed something")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
+	if args[0] != "list" && (*since != "" || *changed) {
+		return errors.New("--since and --changed filter journal list")
+	}
 	switch args[0] {
 	case "list":
-		return journalList(*dir, *asJSON)
+		from, err := sinceTime(*since, time.Now())
+		if err != nil {
+			return err
+		}
+		return journalList(*dir, *asJSON, listFilter{since: from, changed: *changed})
 	case "show":
 		if len(positionals) != 1 {
 			return fmt.Errorf("%s: %w", journalUsage, errMissingPositional)
@@ -75,8 +84,42 @@ func runJournal(args []string) error {
 	}
 }
 
-// journalList prints every run in the project, newest last.
-func journalList(dir string, asJSON bool) error {
+// listFilter narrows journal list: runs begun at or after since (when it is
+// not zero), and only runs that changed something.
+type listFilter struct {
+	since   time.Time
+	changed bool
+}
+
+// keeps reports whether s passes the filter.
+func (f listFilter) keeps(s runSummary) bool {
+	if f.changed && s.Changed == 0 {
+		return false
+	}
+	return f.since.IsZero() || !s.StartedAt.Before(f.since)
+}
+
+// sinceTime reads --since: a duration back from now, or a time.
+func sinceTime(text string, now time.Time) (time.Time, error) {
+	if text == "" {
+		return time.Time{}, nil
+	}
+	if d, err := time.ParseDuration(text); err == nil {
+		if d < 0 {
+			return time.Time{}, fmt.Errorf("--since %s: a duration back from now is positive", text)
+		}
+		return now.Add(-d), nil
+	}
+	t, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("--since %q is neither a duration (2h, 30m) nor an RFC 3339 time (2026-10-25T16:00:00Z)", text)
+	}
+	return t, nil
+}
+
+// journalList prints every run in the project that filter keeps, newest
+// last.
+func journalList(dir string, asJSON bool, filter listFilter) error {
 	runs, err := journal.ListRuns(dir)
 	if err != nil {
 		return err
@@ -88,6 +131,11 @@ func journalList(dir string, asJSON bool) error {
 		for _, e := range r.Entries {
 			if s.Runbook == "" {
 				s.Runbook = e.DAGID
+				// An ad-hoc run is journaled under one id, so its method is
+				// what tells one from another.
+				if e.DAGID == adhocRunbookID && e.FQCN != "" {
+					s.Runbook = adhocRunbookID + " " + e.FQCN
+				}
 			}
 			if !e.StartedAt.IsZero() && (s.StartedAt.IsZero() || e.StartedAt.Before(s.StartedAt)) {
 				s.StartedAt = e.StartedAt
@@ -117,14 +165,23 @@ func journalList(dir string, asJSON bool) error {
 		}
 		summaries = append(summaries, s)
 	}
+	kept := summaries[:0]
 	for i := range summaries {
 		summaries[i].RolledBackBy = rolledBack[summaries[i].RunID]
+		if filter.keeps(summaries[i]) {
+			kept = append(kept, summaries[i])
+		}
 	}
+	summaries = kept
 	if asJSON {
 		return writeJSON(os.Stdout, summaries)
 	}
 	if len(summaries) == 0 {
-		fmt.Println("no runs recorded in this project")
+		if filter.changed || !filter.since.IsZero() {
+			fmt.Println("no run recorded in this project matches")
+		} else {
+			fmt.Println("no runs recorded in this project")
+		}
 		return nil
 	}
 	for _, s := range summaries {
@@ -195,7 +252,10 @@ func journalShow(dir, runID string, asJSON bool) error {
 		if e.InverseFQCN != "" {
 			fmt.Printf("        undo: %s%s\n", termsafe.EscapeLine(e.InverseFQCN), undoNote(e))
 		}
-		if e.AuthoredRollback {
+		switch {
+		case e.AuthoredRollbackEmpty:
+			fmt.Println("        undo: nothing (the task's rollback: list is empty)")
+		case e.AuthoredRollback:
 			fmt.Println("        undo: the task's own rollback: list")
 		}
 	}

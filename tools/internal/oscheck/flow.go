@@ -57,6 +57,9 @@ type Options struct {
 	// Govulncheck, with PhaseVuln, is the govulncheck release to scan with
 	// (the Makefile's GOVULNCHECK_VERSION).
 	Govulncheck string
+	// CoverageOut, when set, is where a leg that measures coverage (a
+	// container pass) has it written, read back from the machine.
+	CoverageOut string
 }
 
 // Flags registers the shared flags on fs; machine names the machine in
@@ -70,6 +73,7 @@ func Flags(fs *flag.FlagSet, machine string) *Options {
 	fs.StringVar(&o.ReadyFile, "ready-file", "", "with -phase prepare, a file written once the tree is on "+machine+", so a caller knows -phase test has something to run")
 	fs.StringVar(&o.ReportOut, "report-out", "", "write the run's record to this JSON file: where it stopped, and the tests' own records read back from "+machine)
 	fs.StringVar(&o.Govulncheck, "govulncheck", "", "with -phase vuln, the govulncheck release to scan with (v1.6.0)")
+	fs.StringVar(&o.CoverageOut, "coverage-out", "", "write the coverage a container run measured on "+machine+" to this JSON file, where coverage-check reads it")
 	return o
 }
 
@@ -124,6 +128,14 @@ type Leg interface {
 	// writing their output to stdout. When ctx ends first it stops the run
 	// on the machine.
 	Test(ctx context.Context, sha string, parallel int, packages []string, stdout io.Writer) (bool, error)
+}
+
+// Dedicating is a Leg that can free more room on a machine kept only for
+// checks: LabCheck.Run asks for it when the machine is a box it starts and
+// puts back, so a lab VM's disk is cleared before every run (owner,
+// 2026-10-27) and a machine someone else uses never is.
+type Dedicating interface {
+	Dedicated() Leg
 }
 
 // Scanner is a Leg that can run govulncheck on a tree it was sent.
@@ -263,6 +275,7 @@ func (f Flow) run(ctx context.Context, o *Options, stdout, stderr io.Writer, leg
 		return 2, true
 	}
 	f.readRecords(leg, sha, rec, stderr)
+	f.writeCoverage(leg, sha, o, rec, stderr)
 	if !passed {
 		fmt.Fprintf(stderr, "%s: the tests failed on %s (%s) in %s\n", f.Tool, f.Target, f.OS, took)
 		rec.Verdict, rec.Step = flakegate.VerdictFail, StepTest

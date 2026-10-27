@@ -36,10 +36,15 @@ func (r pleiadesRemote) Ready() error {
 	if _, err := r.posix.Pleiades.Adhoc(context.Background(), "net.ssh.ping"); err != nil {
 		return fmt.Errorf("pleiades could not reach %s: %v\n  If its host key is new to this machine, run `ssh %s true` once and accept it", r.mac, err, r.mac)
 	}
-	return r.posix.Ready(r.mac, "Darwin", "Mac",
-		oscheck.Need{Command: "go", Why: "install it with `brew install go`, or from https://go.dev/dl"},
-		oscheck.Need{Command: "git", Why: "the tests that make a throwaway repository need it: install the Command Line Tools with `xcode-select --install`"},
-		oscheck.Need{Command: "caffeinate", Why: "it keeps the Mac awake through the run"})
+	needs := []oscheck.Need{
+		{Command: "go", Why: "install it with `brew install go`, or from https://go.dev/dl"},
+		{Command: "git", Why: "the tests that make a throwaway repository need it: install the Command Line Tools with `xcode-select --install`"},
+		{Command: "caffeinate", Why: "it keeps the Mac awake through the run"},
+	}
+	if r.posix.Containers != nil {
+		needs = append(needs, oscheck.ContainerNeeds...)
+	}
+	return r.posix.Ready(r.mac, "Darwin", "Mac", needs...)
 }
 
 // Ship unpacks commit sha's tree on the Mac (oscheck.POSIX.Ship).
@@ -64,6 +69,26 @@ func (r pleiadesRemote) Vuln(ctx context.Context, sha, version string, stdout io
 // Records reads back the tests' records (oscheck.POSIX.Records).
 func (r pleiadesRemote) Records(ctx context.Context, sha string) ([]flakegate.Run, error) {
 	return r.posix.Records(ctx, sha)
+}
+
+// Coverage reads back the container pass's coverage measurement
+// (oscheck.POSIX.ContainerCoverage), which only a container run writes.
+func (r pleiadesRemote) Coverage(ctx context.Context, sha string) (string, error) {
+	if r.posix.Containers == nil {
+		return "", nil
+	}
+	return r.posix.ContainerCoverage(ctx, sha)
+}
+
+// podmanSocket is where, under the Mac's home, a link to the Podman machine's
+// socket is kept: its name holds "podman.sock", which testcontainers needs.
+const podmanSocket = ".pleiades-podman/podman.sock"
+
+// forContainers is this Mac as a container run uses it: its tests run
+// against the Mac's Podman, and it must have podman and docker as well.
+func (r pleiadesRemote) forContainers() pleiadesRemote {
+	r.posix.Containers = &oscheck.Containers{Socket: podmanSocket}
+	return r
 }
 
 // ensureDevice (re)creates the private project for t unless it already

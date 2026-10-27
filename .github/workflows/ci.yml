@@ -139,9 +139,12 @@ jobs:
       # Linux refuses a connection to a port bound but not listened on,
       # which internal/testsupport/refusing checks before handing one out
       # and skips without; required, so a runner that stops refusing fails.
+      # The few container-free tests that build an image or ask compose skip
+      # without a Docker daemon (a Mac with only the CLI); the runner has one,
+      # so docker is required here too.
       - name: make ci-fast
         env:
-          PLEIADES_TEST_REQUIRE: userns,socat,refusing-port
+          PLEIADES_TEST_REQUIRE: userns,socat,refusing-port,docker
         run: make ci-fast
       - name: Keep the coverage for the floor check
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -68,6 +68,16 @@ const (
 	FactOVSVersion = "ovs_version"
 )
 
+// FactFusionVersion is the VMware Fusion version the SSH probe records on a
+// Mac where vmrun answers as the connecting account.
+const FactFusionVersion = "fusion_version"
+
+// FusionVersion returns the VMware Fusion version onboarding read
+// (capability.VMwareFusionCapable).
+func (s *SSH) FusionVersion() string {
+	return record.DiscoveredFact(s.Properties(), FactFusionVersion)
+}
+
 // FRRVersion returns the FRR version onboarding read from vtysh
 // (capability.FRRCapable).
 func (s *SSH) FRRVersion() string {

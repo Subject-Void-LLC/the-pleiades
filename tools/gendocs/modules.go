@@ -233,6 +233,16 @@ func aliasNote(of string) string {
 	return "**Alias of `" + of + "`:** "
 }
 
+// secretRefsNote marks a parameter that may hold a {{ secret.<name>.<field> }}
+// reference, which is resolved at the device and is not rendered by the
+// engine, so a reader knows where such a reference is accepted.
+func secretRefsNote(refs bool) string {
+	if !refs {
+		return ""
+	}
+	return "**Accepts `{{ secret.<name>.<field> }}`:** "
+}
+
 func writeParameters(b *strings.Builder, doc collection.Doc) {
 	var params []collection.Param
 	for _, name := range doc.Fragments {
@@ -248,7 +258,7 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 
 	rows := make([][]string, len(params))
 	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + aliasNote(p.AliasOf) + p.Description}
+		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + aliasNote(p.AliasOf) + p.Description}
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))

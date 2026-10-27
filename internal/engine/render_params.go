@@ -15,7 +15,10 @@
 //   - result: each register that exactly one device (or one device-less
 //     task) wrote, by name alone, so an author need not type a device id;
 //   - error: inside a rescue: only, the failure its block is handling on the
-//     device the task runs on (handlers.go's errorContext).
+//     device the task runs on (handlers.go's errorContext);
+//   - device: the device the task runs on (its name, id, tags, properties,
+//     capabilities and state, deviceRoot), which makes the task render and
+//     decide its condition once per device (device_root.go).
 //
 // A value with no "{{" is passed through untouched, so a runbook that
 // renders nothing costs nothing and behaves as it always did.
@@ -33,6 +36,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 )
 
 // The roots a rendered parameter may read.
@@ -41,12 +45,13 @@ const (
 	TemplateRootNodes  = "nodes"
 	TemplateRootResult = "result"
 	TemplateRootError  = "error"
+	TemplateRootDevice = "device"
 )
 
 // TemplateRoots are the roots a rendered parameter may read, for plan-time
 // validation.
 func TemplateRoots() []string {
-	return []string{TemplateRootError, TemplateRootNodes, TemplateRootResult, TemplateRootVars}
+	return []string{TemplateRootDevice, TemplateRootError, TemplateRootNodes, TemplateRootResult, TemplateRootVars}
 }
 
 // WithRenderer hands the Executor the template renderer its tasks' params
@@ -82,8 +87,9 @@ func HasTemplate(v any) bool {
 // renderTask returns task with its params rendered, or task itself when no
 // param holds a template. The copy shares everything but Params, so the
 // DAG's own task is never changed and a later node reads the authored text.
-// errorRoot, when not nil, is what a rescue task reads as error.
-func (r *run) renderTask(task *Task, errorRoot map[string]any) (*Task, error) {
+// roots are the roots this one evaluation adds (a rescue task's error, the
+// device a per-device task runs on).
+func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 	if !HasTemplate(task.Params) {
 		return task, nil
 	}
@@ -100,8 +106,8 @@ func (r *run) renderTask(task *Task, errorRoot map[string]any) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	if errorRoot != nil {
-		ctx[TemplateRootError] = errorRoot
+	for k, v := range roots {
+		ctx[k] = v
 	}
 	rendered, err := renderParams(r.x.renderer, task.FQCN, task.Params, ctx)
 	if err != nil {
@@ -123,6 +129,7 @@ func (r *run) renderTask(task *Task, errorRoot map[string]any) (*Task, error) {
 // left as it is.
 func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map[string]any) (map[string]any, error) {
 	types := ParamTypes(fqcn)
+	secretRefs := ParamSecretRefs(fqcn)
 	out := make(map[string]any, len(params))
 	for key, value := range params {
 		if !HasTemplate(value) {
@@ -130,10 +137,13 @@ func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map
 			continue
 		}
 		typ := types[key]
+		text := typ == collection.ParamTypeString || typ == collection.ParamTypeListOfString
 		var rendered any
 		var err error
-		switch typ {
-		case collection.ParamTypeString, collection.ParamTypeListOfString:
+		switch {
+		case secretRefs[key]:
+			rendered, err = renderKeepingRefs(eng, value, ctx, text)
+		case text:
 			rendered, err = renderText(eng, value, ctx)
 		default:
 			rendered, err = renderValue(eng, value, ctx)
@@ -194,6 +204,81 @@ func renderText(eng render.Engine, v any, ctx map[string]any) (any, error) {
 		return out, nil
 	}
 	return v, nil
+}
+
+// renderKeepingRefs renders a parameter that may hold secret references
+// (collection.Param.SecretRefs): a string holding one is passed on exactly as
+// written, for the method to resolve, and any other templated string renders
+// as usual, text or typed as text says. A rendered string that comes out
+// holding a reference is refused, so a run's variables or a device's output
+// can never write one: only the runbook's author does.
+func renderKeepingRefs(eng render.Engine, v any, ctx map[string]any, text bool) (any, error) {
+	switch t := v.(type) {
+	case string:
+		if secretref.Has(t) {
+			return t, nil
+		}
+		var rendered any
+		var err error
+		if text {
+			rendered, err = renderText(eng, t, ctx)
+		} else {
+			rendered, err = renderValue(eng, t, ctx)
+		}
+		if err != nil {
+			return nil, err
+		}
+		// The whole value is held, not only text: a one-expression template
+		// keeps its value's type, so a variable or a register holding a list
+		// of maps could otherwise carry a reference in (the review's F2).
+		if holdsRef(rendered) {
+			return nil, errors.New("renders to a value holding a secret reference, and only the runbook's author may write one")
+		}
+		return rendered, nil
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			rendered, err := renderKeepingRefs(eng, e, ctx, false)
+			if err != nil {
+				return nil, fmt.Errorf("parameter %s: %w", k, err)
+			}
+			out[k] = rendered
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			rendered, err := renderKeepingRefs(eng, e, ctx, text)
+			if err != nil {
+				return nil, fmt.Errorf("item %d: %w", i, err)
+			}
+			out[i] = rendered
+		}
+		return out, nil
+	}
+	return v, nil
+}
+
+// holdsRef reports whether v, at any depth, holds a string that reads the
+// secret root, or a map key that does.
+func holdsRef(v any) bool {
+	switch t := v.(type) {
+	case string:
+		return secretref.Has(t)
+	case []any:
+		for _, e := range t {
+			if holdsRef(e) {
+				return true
+			}
+		}
+	case map[string]any:
+		for k, e := range t {
+			if secretref.Has(k) || holdsRef(e) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // templateContext is what a rendered parameter reads: vars, nodes and
@@ -345,6 +430,40 @@ func ParamFormats(fqcn string) map[string]collection.ParamFormat {
 	return out
 }
 
+// ParamSecretRefs returns the declared parameters of fqcn that may hold
+// secret references (collection.Param.SecretRefs), or an empty map for a name
+// that is not a registered method.
+func ParamSecretRefs(fqcn string) map[string]bool {
+	out := map[string]bool{}
+	desc, ok := collection.Lookup(fqcn)
+	if !ok {
+		return out
+	}
+	for _, p := range desc.Manifest.Doc.Params {
+		if p.SecretRefs {
+			out[p.Name] = true
+		}
+	}
+	return out
+}
+
+// SecretRefProblems judges a template string that reads the secret root
+// (secretref.Has), for a parameter that does or does not take secret
+// references. It reports whether source is such a string, which the caller
+// then neither compiles nor renders, and what is wrong with it: a reference
+// in a parameter that takes none, or one that is not exactly
+// {{ secret.<name>.<field> }} standing apart from any other expression.
+// Validation and the executor share it, as they share TemplateProblems.
+func SecretRefProblems(source string, takes bool) (bool, []string) {
+	if !secretref.Has(source) {
+		return false, nil
+	}
+	if !takes {
+		return true, []string{"a secret reference may appear only in a parameter its method resolves itself (pleiades doc names them), and the engine renders this one"}
+	}
+	return true, secretref.Problems(source)
+}
+
 // ParamTypes returns each declared parameter's type for fqcn, its own and
 // its fragments' (fragment.Types), or an empty map for a name that is not a
 // registered method.
@@ -391,6 +510,7 @@ func TemplateStrings(v any) []string {
 // (resolveBounded).
 func checkTaskTemplates(eng render.Engine, task *Task) error {
 	formats := ParamFormats(task.FQCN)
+	secretRefs := ParamSecretRefs(task.FQCN)
 	keys := make([]string, 0, len(task.Params))
 	for k := range task.Params {
 		keys = append(keys, k)
@@ -398,11 +518,21 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 	sort.Strings(keys)
 	for _, key := range keys {
 		for _, source := range TemplateStrings(task.Params[key]) {
+			if isRef, problems := SecretRefProblems(source, secretRefs[key]); isRef {
+				if len(problems) > 0 {
+					return fmt.Errorf("parameter %s: %s", key, problems[0])
+				}
+				continue
+			}
 			tmpl, err := eng.Compile(source)
 			if err != nil {
 				return fmt.Errorf("parameter %s: %w", key, err)
 			}
-			if problems := TemplateProblems(tmpl, formats[key]); len(problems) > 0 {
+			problems := TemplateProblems(tmpl, formats[key])
+			if key == collection.TargetParam {
+				problems = append(problems, TargetTemplateProblems(tmpl)...)
+			}
+			if len(problems) > 0 {
 				return fmt.Errorf("parameter %s: %s", key, problems[0])
 			}
 		}

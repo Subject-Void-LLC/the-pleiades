@@ -43,6 +43,10 @@ fi
 if command -v ovs-vsctl >/dev/null 2>&1 && ovs-vsctl --timeout=5 show >/dev/null 2>&1; then
   printf 'ovs=%s\n' "$(ovs-vsctl --version 2>/dev/null | head -n 1)"
 fi
+f='/Applications/VMware Fusion.app/Contents'
+if [ -x "$f/Public/vmrun" ] && "$f/Public/vmrun" -T fusion list >/dev/null 2>&1 </dev/null; then
+  printf 'fusion=%s\n' "$(defaults read "$f/Info" CFBundleShortVersionString 2>/dev/null)"
+fi
 exit 0`
 
 // posixAccountTools are the commands identity.user.* and identity.group.*
@@ -127,6 +131,11 @@ func parseSSHProbe(out string) Probed {
 				version, _, _ := strings.Cut(fields[1], "_")
 				facts[generic.FactFRRVersion] = factText(version)
 			}
+		case "fusion":
+			// The application's own version string, e.g. "26.0.1".
+			if v := strings.TrimSpace(value); v != "" {
+				facts[generic.FactFusionVersion] = factText(v)
+			}
 		case "ovs":
 			// "ovs-vsctl (Open vSwitch) 2.17.9": the version is the last word.
 			if fields := strings.Fields(value); len(fields) > 0 && strings.Contains(value, "Open vSwitch") {
@@ -149,7 +158,13 @@ func parseSSHProbe(out string) Probed {
 		// archive.extract then exercises them through the real binary on
 		// every run. Nothing Linux-only is granted: facts.gather reads
 		// Linux's files, and apt, dnf and systemd are Linux's.
-		return Probed{Capabilities: append(caps, capability.NamePOSIXFileSystem), Facts: facts}
+		caps = append(caps, capability.NamePOSIXFileSystem)
+		// VMware Fusion is a Mac's: granted only on Darwin, and only when its
+		// vmrun answered list as the connecting account.
+		if facts["kernel"] == "Darwin" && facts[generic.FactFusionVersion] != nil {
+			caps = append(caps, capability.NameVMwareFusion)
+		}
+		return Probed{Capabilities: caps, Facts: facts}
 	default:
 		return Probed{Capabilities: caps, Facts: facts}
 	}

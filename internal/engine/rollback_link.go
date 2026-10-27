@@ -44,3 +44,19 @@ func WithRollback(of string, undoes map[string]Undo) ExecutorOption {
 		x.rollback = rollbackLink{of: of, undoes: copied}
 	}
 }
+
+// WithProvisionalChecks names, by this run's node id, the nodes whose check
+// is provisional, each with why: a rollback's step on a device an earlier
+// step of the same rollback changes first, so a check against the device as
+// it is now does not show what the step will meet. In check mode such a node
+// is checked as any other; when its check fails, it is reported unchecked
+// with that reason rather than failed, since the failure may be only that
+// the earlier step has not run. Outside check mode it does nothing.
+func WithProvisionalChecks(nodes map[string]string) ExecutorOption {
+	return func(x *Executor) {
+		x.provisional = make(map[string]string, len(nodes))
+		for node, why := range nodes {
+			x.provisional[node] = why
+		}
+	}
+}

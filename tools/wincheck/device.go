@@ -38,11 +38,31 @@ const files = ".wincheck"
 // windows is the real machine.
 type windows struct {
 	oscheck.Lab
+	// dedicated says the machine is a lab VM kept for checks, whose login's
+	// Go caches the readiness step clears before every run (Dedicated).
+	dedicated bool
 }
 
-// newLeg is device in project.
-func newLeg(project, device string) (oscheck.Leg, error) {
-	lab, err := oscheck.NewLab("wincheck", project, device)
+// Dedicated is the machine as a lab VM a check starts and puts back
+// (oscheck.Dedicating): win-check on VirtualBox, win11-arm on Fusion.
+func (w windows) Dedicated() oscheck.Leg {
+	w.dedicated = true
+	return w
+}
+
+// newLeg is device in project, driven by the pleiades tool builds under its
+// own name: wincheck's and winarmcheck's are separate builds, so one check
+// never runs the other's binary (an older one could not read a project whose
+// records name capabilities it predates).
+func newLeg(tool string) func(project, device string) (oscheck.Leg, error) {
+	return func(project, device string) (oscheck.Leg, error) {
+		return newLegFor(tool, project, device)
+	}
+}
+
+// newLegFor is newLeg's machine.
+func newLegFor(tool, project, device string) (oscheck.Leg, error) {
+	lab, err := oscheck.NewLab(tool, project, device)
 	if err != nil {
 		return nil, err
 	}
@@ -74,11 +94,15 @@ func (w windows) Ready() error {
 	if err := w.Pleiades.Build(); err != nil {
 		return err
 	}
-	out, err := w.shell(context.Background(), readyScript, nil, 300)
+	script := readyScript
+	if w.dedicated {
+		script = dedicatedReadyScript
+	}
+	out, err := w.shell(context.Background(), script, nil, 300)
 	if err != nil {
 		return fmt.Errorf("checking %s: %v", w.Target, err)
 	}
-	note, err := readyAnswer(w.Target, out)
+	note, err := readyAnswer(w.Target, out, w.dedicated)
 	if note != "" {
 		fmt.Printf("wincheck: %s\n", note)
 	}
@@ -100,18 +124,36 @@ func (w windows) Ready() error {
 // newest Kept-1, and, while the space free is still under MinFreeGB,
 // oscheck.CacheDir, which the prune passes over by name (a leading dot hides
 // nothing on Windows).
-var readyScript = `$env:Path = '` + winPath + `;' + $env:Path
+var readyScript = readyScriptWith("")
+
+// dedicatedReadyScript is readyScript for a lab VM kept for checks: before
+// anything else it clears the login's own Go build cache (GOCACHE removed
+// names its default, %LocalAppData%\go-build), the go-build work folders and
+// Test* temporary folders a stopped go test left in its TEMP, and, while
+// still under MinFreeGB, its
+// module cache, which the next build downloads again (owner, 2026-10-27).
+var dedicatedReadyScript = readyScriptWith(`Remove-Item Env:GOCACHE -ErrorAction SilentlyContinue
+if (Get-Command go.exe -ErrorAction SilentlyContinue) { & go.exe clean -cache 2>&1 | Out-Null }
+foreach ($f in 'go-build*', 'Test*') { Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter $f -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+if ([int](Get-FreeGB) -lt ` + strconv.Itoa(oscheck.MinFreeGB) + ` -and (Get-Command go.exe -ErrorAction SilentlyContinue)) { & go.exe clean -modcache 2>&1 | Out-Null }
+`)
+
+// readyScriptWith is the readiness script with first run after the space
+// free is first measured, before the check's own room is made.
+func readyScriptWith(first string) string {
+	return `$env:Path = '` + winPath + `;' + $env:Path
 [string][Environment]::OSVersion.Platform
 foreach ($c in 'go', 'git', 'tar') { if (Get-Command "$c.exe" -ErrorAction SilentlyContinue) { $c } else { "no-$c" } }
 function Get-FreeGB { [string][math]::Floor((Get-Item $env:USERPROFILE).PSDrive.Free / 1GB) }
 $base = Join-Path $env:USERPROFILE '` + winDir + `'
 $before = Get-FreeGB
-if (Test-Path -LiteralPath $base) {
+` + first + `if (Test-Path -LiteralPath $base) {
 	` + pruneLine + `
 	if ([int](Get-FreeGB) -lt ` + strconv.Itoa(oscheck.MinFreeGB) + `) { Remove-Item -LiteralPath (Join-Path $base '` + oscheck.CacheDir + `') -Recurse -Force -ErrorAction SilentlyContinue }
 }
 $before
 Get-FreeGB`
+}
 
 // pruneLine removes every tree under $base but the newest Kept-1, passing
 // over oscheck.CacheDir, which is not a tree.
@@ -127,8 +169,9 @@ if ($LASTEXITCODE -ne 0) {
   Set-Date -Date ([DateTime]::Parse($env:PLEIADES_UTC, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal).ToLocalTime()) | Out-Null
 }`
 
-// readyAnswer checks readyScript's output, returning what room it made.
-func readyAnswer(target, out string) (string, error) {
+// readyAnswer checks readyScript's output, returning what room it made;
+// dedicated says the script was dedicatedReadyScript.
+func readyAnswer(target, out string, dedicated bool) (string, error) {
 	lines := strings.Fields(out)
 	switch {
 	case len(lines) != 6:
@@ -141,6 +184,10 @@ func readyAnswer(target, out string) (string, error) {
 		return "", fmt.Errorf("%s has no git on its PATH (looked in its PATH and %s), which the tests that make a throwaway repository need: install Git for Windows, or MinGit as the lab's win-check has it (examples/virtualbox_lab)", target, winPath)
 	case lines[3] != "tar":
 		return "", fmt.Errorf("%s has no tar.exe, which unpacks the tree; Windows has had it since Windows 10 1803 and Server 2019", target)
+	}
+	if dedicated {
+		return oscheck.Room(target, lines[4], lines[5], `%USERPROFILE%\`+winDir+`\`+oscheck.CacheDir+`; and, on this machine kept for checks, the login's Go build and module caches and its TEMP\go-build folders`,
+			"what is left is outside Go's caches")
 	}
 	return oscheck.Room(target, lines[4], lines[5], `%USERPROFILE%\`+winDir+`\`+oscheck.CacheDir,
 		`the login's own Go cache is %LocalAppData%\go-build`)
@@ -227,11 +274,14 @@ const pidFile = ".wincheck.pid"
 
 // testScript is what the machine runs in the unpacked tree: pr-check's two
 // passes over the container-free packages, the full pass and three strict
-// repeats, building into the check's own oscheck.CacheDir, and it exits with the tests' status. The full pass uses the race
-// detector when the machine has gcc, which also turns cgo on so go-sqlite3's
-// tests run; without one Go builds with cgo off, the pass runs without the
-// race detector, and testgate reports go-sqlite3's stub as a skip that needs
-// cgo. The script says which before the passes begin, and a failed task
+// repeats, building into the check's own oscheck.CacheDir, and it exits with the tests' status. A C compiler (gcc.exe on
+// the PATH: WinLibs' GCC on x64, or llvm-mingw's, whose newest C:\llvm-mingw-*
+// folder the script puts on the PATH, on ARM) turns cgo on, so go-sqlite3's
+// tests run; the full pass also uses the race detector then, where Go has one
+// for Windows, which is amd64 alone. Without a compiler Go builds with cgo
+// off and testgate reports go-sqlite3's stub as a skip that needs cgo; a suite
+// whose stubbed fixture is shared (internal/ui/resources) fails there, so the
+// ARM VM has llvm-mingw. The script says which before the passes begin, and a failed task
 // reports the tests' output. Each pass runs under
 // cmd.exe, which joins its standard error to its standard output so they
 // read in order: PowerShell would make each stderr line an error record,
@@ -258,8 +308,12 @@ $parallel = [int]$env:PLEIADES_PARALLEL
 # second with nothing to show for it.
 $packages = Join-Path $tree '` + packagesFile + `'
 Set-Content -LiteralPath $packages -Value $env:PLEIADES_PACKAGES -Encoding ascii
+$llvm = Get-ChildItem -Directory -Path 'C:\llvm-mingw-*' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+if ($llvm) { $env:Path = (Join-Path $llvm.FullName 'bin') + ';' + $env:Path }
 $race = 'false'
-if (Get-Command gcc.exe -ErrorAction SilentlyContinue) { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' } else { 'wincheck: no gcc, so cgo and the race detector are off' }
+if (-not (Get-Command gcc.exe -ErrorAction SilentlyContinue)) { 'wincheck: no gcc, so cgo and the race detector are off' }
+elseif ((& go env GOARCH) -eq 'amd64') { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' }
+else { 'wincheck: gcc found, so cgo is on; Go has no race detector for this architecture' }
 & cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out ` + recordFull + ` -p $parallel -packages-file ` + packagesFile + ` 2>&1"
 $code = $LASTEXITCODE
 if ($code -eq 0) {

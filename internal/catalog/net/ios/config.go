@@ -21,7 +21,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // paramLines and paramBackup match cisco.ios.ios_config's own parameter
@@ -107,7 +106,7 @@ func configDoc() collection.Doc {
 			"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
 			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
 		Params: append(append([]collection.Param{
-			{Name: paramLines, Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself.", Format: collection.ParamFormatCommand},
+			{Name: paramLines, Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself. A line may name a stored secret, such as a pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the line is sent, and masked in everything the run reports. A line holding one holds no other template expression, and a value with whitespace, a control character or ? is refused.", Format: collection.ParamFormatCommand, SecretRefs: true},
 			{Name: paramCheckpoint, Type: "bool", Default: "true", Description: "Keep a checkpoint of the running configuration on the device before the change, which its undo returns to exactly. false records no undo, and reports the lines that would undo the change for the task's rollback: list."},
 			{Name: paramBackup, Type: "bool", Default: "false", Description: "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."},
 			{Name: paramAccept, Type: "list of string", Description: "Further IOS \"% \" lines to take as notices rather than rejections, each RE2 matched from the start of the line and so beginning with %, e.g. \"% Frob is deprecated\". Every other \"% \" line still fails the task."},
@@ -184,8 +183,54 @@ func maskedError(err error) error {
 	if len(text) > maxErrorText {
 		text = text[:maxErrorText] + " ..."
 	}
-	return errors.New(netcfg.Mask(text))
+	// A read that ended before its prompt says what the device last
+	// printed, so a timeout names what it was waiting on (FAILURE_PATTERNS
+	// 651); masked with the rest.
+	// The output is masked as the lines it is, before its tail is joined
+	// into one: masking finds one secret on a line, and a tail of a keyring
+	// holds several (FAILURE_PATTERNS 651's fix, reviewed).
+	text = netcfg.Mask(text)
+	if out, ok := netcli.LastOutput(err); ok {
+		text += "; the device last printed: " + lastLines(netcfg.Mask(out))
+	}
+	return &masked{text: text, cause: err}
 }
+
+// The bounds of what a failure quotes of the device's last output.
+const (
+	maxLastLines = 20
+	maxLastBytes = 1024
+)
+
+// lastLines is the end of out: its last maxLastLines lines, at most
+// maxLastBytes, carriage returns dropped and lines joined with " | " so one
+// error stays one line.
+func lastLines(out string) string {
+	out = strings.TrimRight(strings.ReplaceAll(out, "\r", ""), "\n")
+	lines := strings.Split(out, "\n")
+	if len(lines) > maxLastLines {
+		lines = lines[len(lines)-maxLastLines:]
+	}
+	text := strings.Join(lines, " | ")
+	if len(text) > maxLastBytes {
+		text = "..." + text[len(text)-maxLastBytes:]
+	}
+	return text
+}
+
+// masked is an error whose text is masked and bounded, still matching what
+// it wraps (errors.Is, errors.As): a dialog's held answer stays a held
+// answer. Only its own text is ever printed.
+type masked struct {
+	text  string
+	cause error
+}
+
+// Error is the masked text.
+func (m *masked) Error() string { return m.text }
+
+// Unwrap is the error masked, for matching only.
+func (m *masked) Unwrap() error { return m.cause }
 
 // Config implements the "net.ios.config" collection method.
 func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
@@ -201,6 +246,12 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	// undo_lines are masked, so lines pasted from them unchanged would set
 	// each secret on the device to its placeholder.
 	if err := netcfg.RefuseMasked(paramLines, strings.Join(lines, "\n")); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// Each secret reference is resolved here, at the last moment before the
+	// device, and its value joins the run's masking set as it is resolved, so
+	// every stat, error and event the run reports masks it.
+	if lines, err = resolveLines(rc, lines); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	backup, err := sdk.BoolParamOr(params, paramBackup, false)
@@ -230,6 +281,9 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if running, err = session.Command(ctx, "show running-config"); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: capturing backup: %w", fqcn, err)
 		}
+		// The backup is recorded as the device has it, and its secrets are
+		// learned, so a report masks them wherever they show.
+		_ = learnSecrets(rc, running)
 		if err := rc.SetStat(statBackup, running); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
@@ -251,6 +305,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if running, err = session.Command(ctx, "show running-config"); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: reading the configuration before the change: %w", fqcn, err)
 		}
+		_ = learnSecrets(rc, running)
 	}
 	applyErr := applyLines(ctx, rc, session, lines, opts)
 	return finishLines(ctx, rc, session, running, changesKeys(lines), applyErr, warnings)
@@ -269,26 +324,39 @@ func readConfigOptions(ctx context.Context, rc sdk.RunbookContext, params map[st
 		}
 		opts.Dialog = dialog
 	}
-	accept, _, err := sdk.StringSlice(params, paramAccept)
+	accept, err := readAccept(params)
 	if err != nil {
 		return opts, err
 	}
+	opts.Accept = accept
+	return opts, nil
+}
+
+// readAccept reads accept: each pattern RE2 that must begin with %, matched
+// from the start of the line, since only a line in IOS's error form is ever
+// held to one.
+func readAccept(params map[string]any) ([]*regexp.Regexp, error) {
+	accept, _, err := sdk.StringSlice(params, paramAccept)
+	if err != nil {
+		return nil, err
+	}
+	var out []*regexp.Regexp
 	for i, text := range accept {
 		if !strings.HasPrefix(text, "%") {
-			return opts, fmt.Errorf("%s[%d] %q does not begin with %%: it is matched from the start of an IOS \"%% \" line", paramAccept, i, text)
+			return nil, fmt.Errorf("%s[%d] %q does not begin with %%: it is matched from the start of an IOS \"%% \" line", paramAccept, i, text)
 		}
 		// Compiled alone first, so a pattern cannot close the anchoring
 		// group around it ("%)|(?:.*" would accept every rejection).
 		if _, err := regexp.Compile(text); err != nil {
-			return opts, fmt.Errorf("%s[%d]: %w", paramAccept, i, err)
+			return nil, fmt.Errorf("%s[%d]: %w", paramAccept, i, err)
 		}
 		re, err := regexp.Compile("^(?:" + text + ")")
 		if err != nil {
-			return opts, fmt.Errorf("%s[%d]: %w", paramAccept, i, err)
+			return nil, fmt.Errorf("%s[%d]: %w", paramAccept, i, err)
 		}
-		opts.Accept = append(opts.Accept, re)
+		out = append(out, re)
 	}
-	return opts, nil
+	return out, nil
 }
 
 // applyLines applies lines as opts says, recording each question answered
@@ -432,6 +500,21 @@ func finishLines(ctx context.Context, rc sdk.RunbookContext, session iosSession,
 	return collection.Result{Changed: changed}, nil
 }
 
+// resolveLines returns a copy of lines with each secret reference resolved
+// from the run's named secrets (sdk.ResolveSecretRefs), naming the line of
+// any reference that does not resolve, never its value.
+func resolveLines(rc sdk.RunbookContext, lines []string) ([]string, error) {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		resolved, _, err := sdk.ResolveSecretRefs(rc, l)
+		if err != nil {
+			return nil, fmt.Errorf("%s[%d]: %w", paramLines, i, err)
+		}
+		out[i] = resolved
+	}
+	return out, nil
+}
+
 // maskLines masks the secrets in configuration lines.
 func maskLines(lines []string) []string {
 	out := make([]string, len(lines))
@@ -460,16 +543,9 @@ var openSession = realOpenSession
 // task's opt-in (sdk.OpenShell), in IOS's dialect. The Session's Close ends
 // the connection as well, so a method closes one thing.
 func realOpenSession(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (iosSession, error) {
-	shell, err := sdk.OpenShell(ctx, rc, device, params, fqcn)
+	session, err := sdk.OpenCLI(ctx, rc, device, params, fqcn, netcli.IOS)
 	if err != nil {
 		return nil, err
-	}
-	// The enable secret, when the credential holds one, takes an account
-	// that lands in user mode ("R1>") to privileged mode.
-	session, err := netcli.Open(ctx, shell, netcli.IOS, netcli.Options{EnableSecret: rc.InjectSecrets()[wire.SecretEnablePassword]})
-	if err != nil {
-		_ = shell.Close()
-		return nil, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return session, nil
 }

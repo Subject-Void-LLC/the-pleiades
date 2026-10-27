@@ -10,19 +10,74 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vmrun"
 )
 
-// Box is a lab machine's VM on a VirtualBox host its project manages.
+// Box is a lab machine's VM on a hypervisor host its project manages.
 type Box struct {
-	// Host drives the VirtualBox host (a device with virtualbox: true).
+	// Host drives the hypervisor host (a device with virtualbox: true, or a
+	// Mac granted VMwareFusionCapable).
 	Host Pleiades
 	// Device drives the machine itself, to wait for it once started.
 	Device Pleiades
-	// VM is the machine's name on the host.
+	// VM is the machine's identity on the host: its name on VirtualBox, the
+	// path of its vmx file on Fusion.
 	VM string
 	// Wait is wait.connection's parameters for a box this run started:
 	// SteadyWait when empty.
 	Wait []string
+	// Methods are the methods that read, start and put back the VM:
+	// VirtualBoxBox when unset.
+	Methods BoxMethods
+}
+
+// BoxMethods are the Collection methods a box is driven through, which is all
+// that differs between hypervisors: each reads the VM's state, starts it, and
+// puts it back with its memory saved so the next start resumes it.
+type BoxMethods struct {
+	// Hypervisor names it in what a check prints ("VirtualBox").
+	Hypervisor string
+	// Info, Start and Stop are the methods' names.
+	Info, Start, Stop string
+	// Param is the parameter that names the VM.
+	Param string
+	// Running is the state Info reports for a running VM.
+	Running string
+	// PutBack is Stop's parameter that saves the VM rather than ending it.
+	PutBack string
+	// CheckVM refuses a VM identity this hypervisor cannot have.
+	CheckVM func(string) error
+}
+
+// VirtualBoxBox is a box on a VirtualBox host (virt.vbox.*), named by its VM
+// name, saved when put back.
+var VirtualBoxBox = BoxMethods{
+	Hypervisor: "VirtualBox", Info: "virt.vbox.vm.info", Start: "virt.vbox.vm.start", Stop: "virt.vbox.vm.stop",
+	Param: "name", Running: "running", PutBack: "mode=save",
+	CheckVM: func(vm string) error {
+		if !deviceName.MatchString(vm) {
+			return fmt.Errorf("%q is not a VM name", vm)
+		}
+		return nil
+	},
+}
+
+// FusionBox is a box on a Mac running VMware Fusion (virt.fusion.*), named by
+// its vmx file, suspended when put back. Its start holds the Mac awake for the
+// VM, without which macOS throttles a VM a check starts over SSH.
+var FusionBox = BoxMethods{
+	Hypervisor: "VMware Fusion", Info: "virt.fusion.vm.info", Start: "virt.fusion.vm.start", Stop: "virt.fusion.vm.stop",
+	Param: "vmx", Running: "on", PutBack: "mode=suspend",
+	CheckVM: vmrun.CheckVMX,
+}
+
+// methods is b's methods, VirtualBox's when unset.
+func (b Box) methods() BoxMethods {
+	if b.Methods.Info == "" {
+		return VirtualBoxBox
+	}
+	return b.Methods
 }
 
 // LabBox reads a lab check's VM settings: the VirtualBox host in the
@@ -30,22 +85,30 @@ type Box struct {
 // set. No host is no box (empty host, nil error): the machine is up on its
 // own and the check never starts or stops it.
 func LabBox(s Settings, hostKey, vmKey, device string) (host, vm string, err error) {
+	return LabBoxOf(s, hostKey, vmKey, device, VirtualBoxBox)
+}
+
+// LabBoxOf is LabBox for a box driven through m. A VirtualBox VM's name
+// defaults to the device's; a Fusion VM's vmx path has no default.
+func LabBoxOf(s Settings, hostKey, vmKey, device string, m BoxMethods) (host, vm string, err error) {
 	if hostKey == "" {
 		return "", "", nil
 	}
 	host, vm = s.Values[hostKey], s.Values[vmKey]
 	switch {
 	case host == "" && vm != "":
-		return "", "", fmt.Errorf("%s names the VM on the VirtualBox host %s names; set %s too, or neither", vmKey, hostKey, hostKey)
+		return "", "", fmt.Errorf("%s names the VM on the %s host %s names; set %s too, or neither", vmKey, m.Hypervisor, hostKey, hostKey)
 	case host == "":
 		return "", "", nil
 	case !deviceName.MatchString(host):
 		return "", "", fmt.Errorf("%s=%q is not a device name", hostKey, host)
-	case vm == "":
+	case vm == "" && m.Param == VirtualBoxBox.Param:
 		vm = device
+	case vm == "":
+		return "", "", fmt.Errorf("%s names the %s host, and %s, the VM's %s, is not set", hostKey, m.Hypervisor, vmKey, m.Param)
 	}
-	if !deviceName.MatchString(vm) {
-		return "", "", fmt.Errorf("%s=%q is not a VM name", vmKey, vm)
+	if err := m.CheckVM(vm); err != nil {
+		return "", "", fmt.Errorf("%s: %v", vmKey, err)
 	}
 	return host, vm, nil
 }
@@ -98,16 +161,17 @@ var adhocStats = func(ctx context.Context, p Pleiades, method string, params ...
 // Up starts the box when it is not running, waits until the machine
 // answers logins steadily, and reports whether it started it.
 func (b Box) Up(ctx context.Context, tool string, stdout io.Writer) (bool, error) {
-	stats, err := adhocStats(ctx, b.Host, "virt.vbox.vm.info", "name="+b.VM)
+	m := b.methods()
+	stats, err := adhocStats(ctx, b.Host, m.Info, m.Param+"="+b.VM)
 	if err != nil {
 		return false, fmt.Errorf("reading the VM %s on %s: %v", b.VM, b.Host.Device, err)
 	}
 	state, _ := stats[stateStat].(string)
-	if state == "running" {
+	if state == m.Running {
 		return false, nil
 	}
 	fmt.Fprintf(stdout, "%s: starting the VM %s on %s (it was %s); it is put back, saved, when the run ends\n", tool, b.VM, b.Host.Device, FirstOf(state, "in no state it named"))
-	if _, err := adhocStats(ctx, b.Host, "virt.vbox.vm.start", "name="+b.VM); err != nil {
+	if _, err := adhocStats(ctx, b.Host, m.Start, m.Param+"="+b.VM); err != nil {
 		return false, fmt.Errorf("starting the VM %s on %s: %v", b.VM, b.Host.Device, err)
 	}
 	wait := b.Wait
@@ -126,8 +190,9 @@ func (b Box) Up(ctx context.Context, tool string, stdout io.Writer) (bool, error
 func (b Box) PutBack(tool string, stdout io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), PutBackGrace)
 	defer cancel()
-	if _, err := adhocStats(ctx, b.Host, "virt.vbox.vm.stop", "name="+b.VM, "mode=save"); err != nil {
-		return fmt.Errorf("putting the VM %s back on %s: %v; it is still running, and virt.vbox.vm.stop with mode save puts it away", b.VM, b.Host.Device, err)
+	m := b.methods()
+	if _, err := adhocStats(ctx, b.Host, m.Stop, m.Param+"="+b.VM, m.PutBack); err != nil {
+		return fmt.Errorf("putting the VM %s back on %s: %v; it is still running, and %s with %s puts it away", b.VM, b.Host.Device, err, m.Stop, m.PutBack)
 	}
 	fmt.Fprintf(stdout, "%s: put the VM %s back on %s, its state saved\n", tool, b.VM, b.Host.Device)
 	return nil

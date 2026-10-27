@@ -28,9 +28,10 @@ type Report struct {
 	// will reach it, decided from the record the way the run decides it.
 	// They are the plan, not problems, and never fail validation.
 	Routes []Route
-	// Warnings are advice about the runbook as a file (HeaderWarnings),
-	// which the CLI adds from its source. They are printed beside the
-	// findings and never fail validation.
+	// Warnings are advice: a target that matches nothing yet
+	// (UnmatchedTargetWarnings), and about the runbook as a file
+	// (HeaderWarnings and the rest), which the CLI adds from its source.
+	// They are printed beside the findings and never fail validation.
 	Warnings []Finding
 }
 

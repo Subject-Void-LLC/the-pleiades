@@ -69,6 +69,8 @@ var rules = map[string]record.DiscoveryRules{
 		// What the probe finds answering as the connecting account: FRR's
 		// vtysh and Open vSwitch's ovs-vsctl.
 		capability.NameFRR,
+		// VMware Fusion, found answering as the connecting account on a Mac.
+		capability.NameVMwareFusion,
 		capability.NameOpenVSwitch,
 	}},
 	TypeNetconf: {Grants: []capability.Name{capability.NameNetconf}},

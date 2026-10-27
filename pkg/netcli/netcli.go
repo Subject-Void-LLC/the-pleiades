@@ -82,6 +82,13 @@ type Dialect struct {
 	// unprivileged, where commands run and Config refuses.
 	Unprivileged *regexp.Regexp
 	Enable       string
+
+	// AsyncMessage matches a line the device prints on its own, between
+	// commands rather than in answer to one: IOS's syslog on a console
+	// line ("*Oct 26 04:51:29.496: %SEC_LOGIN-5-LOGIN_SUCCESS: ..."),
+	// which arrives after the login and is followed by a prompt of its
+	// own. Nil means the dialect knows of none.
+	AsyncMessage *regexp.Regexp
 }
 
 var (
@@ -112,6 +119,16 @@ var (
 	iosExecPrompt   = regexp.MustCompile(`(?m)^[\w.\-]+[>#]\s*$`)
 	iosUserPrompt   = regexp.MustCompile(`(?m)^[\w.\-]+>\s*$`)
 	iosConfigPrompt = regexp.MustCompile(`(?m)^[\w.\-]+\([^)]*\)#\s*$`)
+
+	// iosAsyncMessage matches one IOS syslog line as a console prints it:
+	// an optional sequence number, a timestamp (marked * or . when the
+	// clock is not synchronized), then %FACILITY-SEVERITY-MNEMONIC:.
+	// Measured on IOL XE 17.15 through the CML console (2026-10-26, Phase
+	// 129d), where the login's own %SEC_LOGIN-5-LOGIN_SUCCESS and the
+	// prompt after it were read as the next command's whole answer.
+	// The sequence number and timestamp are each optional: with no
+	// service timestamps log, the line is the mnemonic alone.
+	iosAsyncMessage = regexp.MustCompile(`^(?:\d+:\s*)?(?:[*.]?[A-Za-z0-9:. ]*:\s*)?%[A-Z][A-Z0-9_]*-[0-7]-[A-Z0-9_]+:`)
 
 	// iosErrorPattern matches IOS's own line-start "% " error
 	// convention ("% Invalid input detected at '^' marker.", "%
@@ -151,6 +168,18 @@ var (
 		// label must not pass for a key already gone.
 		regexp.MustCompile(`^% Keys to be removed are named '[^']*'\.$`),
 		regexp.MustCompile(`^% All router certs issued using these keys will also be removed\.$`),
+		// Measured through net.ios.config on IOL XE 17.15.1 (2026-10-25,
+		// Phase 129a), each from a line that left the configuration as it
+		// was or did what it said: entering a certificate map an IKEv2 profile
+		// already uses, naming a keyring a profile already has, and what
+		// removing an enrolled trustpoint says before its "[yes/no]:", which
+		// a task answers with prompts (FAILURE_PATTERNS 646). Removing what is
+		// not there ("% Specified proposal NOPE does not exist") still
+		// rejects: a mistyped name must not pass for one already gone.
+		regexp.MustCompile(`^% certificate map already used in ikev2/isakmp profiles$`),
+		regexp.MustCompile(`^% Profile already contains this keyring$`),
+		regexp.MustCompile(`^% Removing an enrolled trustpoint will destroy all certificates`),
+		regexp.MustCompile(`^% Be sure to ask the CA administrator to revoke your certificates\.$`),
 	}
 )
 
@@ -176,6 +205,7 @@ var IOS = Dialect{
 	Notices:         iosNotices,
 	Unprivileged:    iosUserPrompt,
 	Enable:          "enable",
+	AsyncMessage:    iosAsyncMessage,
 }
 
 // FromPrompt builds a best-effort generic Dialect from a device's own
@@ -251,6 +281,12 @@ type Session struct {
 	// unprivileged is set when the device left the session in a mode
 	// its Dialect calls unprivileged, so Config refuses at once.
 	unprivileged bool
+
+	// echoes is set once the device has echoed a line back, which every
+	// IOS device does: only then is a read with no echo taken for the
+	// device's own message (asyncOnly), so one that never echoes is never
+	// waited on.
+	echoes bool
 }
 
 // Open reads the device's first prompt and, when dialect names one,
@@ -444,11 +480,57 @@ func (s *Session) command(ctx context.Context, line string, configMode bool) (st
 	if err := s.shell.WriteLine(ctx, line); err != nil {
 		return "", fmt.Errorf("netcli: %w", err)
 	}
-	raw, err := s.shell.ReadUntil(ctx, s.dialect.Prompt(configMode), s.maxBytes)
-	if err != nil {
-		return "", fmt.Errorf("netcli: %w", err)
+	prompt := s.dialect.Prompt(configMode)
+	raw, err := s.shell.ReadUntil(ctx, prompt, s.maxBytes)
+	// A read that ended on the prompt the device printed after a message
+	// of its own, before the line's echo, is not the line's answer: that
+	// is still coming, to the next prompt.
+	for tries := 0; err == nil && tries < maxAsyncReads && s.asyncOnly(raw, line, prompt); tries++ {
+		raw, err = s.shell.ReadUntil(ctx, prompt, s.maxBytes)
 	}
-	return stripEcho(raw, line, s.dialect.Prompt(configMode)), nil
+	if err != nil {
+		return "", readFailure(err, "", "")
+	}
+	s.noteEcho(raw, line)
+	return stripEcho(raw, line, prompt), nil
+}
+
+// noteEcho records that the device echoed line, when raw begins with it.
+func (s *Session) noteEcho(raw, line string) {
+	if line != "" && strings.HasPrefix(raw, line) {
+		s.echoes = true
+	}
+}
+
+// maxAsyncReads bounds how many reads of the device's own messages one
+// command passes over before taking what it reads as its answer.
+const maxAsyncReads = 3
+
+// asyncOnly reports whether raw, read for line, holds nothing before its
+// prompt but the device's own messages (Dialect.AsyncMessage): no echo of
+// line, and at least one message, on a session whose device echoes. A read
+// that is empty, or holds anything else, is the line's answer as it always
+// was, and a device that has never echoed is never waited on.
+func (s *Session) asyncOnly(raw, line string, prompt *regexp.Regexp) bool {
+	if s.dialect.AsyncMessage == nil || !s.echoes || strings.HasPrefix(raw, line) {
+		return false
+	}
+	body := raw
+	if locs := prompt.FindAllStringIndex(body, -1); len(locs) > 0 {
+		body = body[:locs[len(locs)-1][0]]
+	}
+	messages := 0
+	for l := range strings.SplitSeq(body, "\n") {
+		l = strings.TrimSpace(l)
+		switch {
+		case l == "":
+		case s.dialect.AsyncMessage.MatchString(l):
+			messages++
+		default:
+			return false
+		}
+	}
+	return messages > 0
 }
 
 // stripEcho removes WriteLine's own echoed line and the trailing prompt
@@ -493,12 +575,43 @@ func dialectName(d Dialect) string {
 // Key pair was generated at: ..." for each key pair (measured on IOL XE
 // 17.15), which no reader should take as the command failing.
 func (d Dialect) Rejection(out string) (string, bool) {
+	return d.RejectionWith(out, nil)
+}
+
+// RejectionWith is Rejection taking each line accept matches as a notice
+// too: a task's own list of "% " lines it expects (net.ios.command's
+// accept, as net.ios.config's).
+func (d Dialect) RejectionWith(out string, accept []*regexp.Regexp) (string, bool) {
 	if d.ErrorPattern == nil {
 		return "", false
 	}
 	for l := range strings.SplitSeq(out, "\n") {
 		l = strings.TrimRight(l, "\r \t")
-		if d.ErrorPattern.MatchString(l) && !matchesAny(d.Notices, l) {
+		if d.ErrorPattern.MatchString(l) && !matchesAny(d.Notices, l) && !matchesAny(accept, l) {
+			return l, true
+		}
+	}
+	return "", false
+}
+
+// IOSCommandError matches the lines IOS prints when it did not run an
+// exec-mode command at all: the parser's own refusals of the line ("%
+// Invalid input detected at '^' marker.", "% Incomplete command.", "%
+// Ambiguous command: ...", "% Unrecognized command"), a ping or traceroute IOS
+// could not send ("% Unrecognized host or address, or protocol not running.",
+// "% Bad IP address"), and a file operation's
+// "%Error ..." (more or dir of a file that is not there). A command that only
+// reads is held to these alone: what it prints is the device's data, and a "%
+// " line inside it ("% Self-signed CA certificate:" in show crypto pki
+// certificates pem, measured in the blind CVD lab, 2026-10-25) is output, not
+// a refusal.
+var IOSCommandError = regexp.MustCompile(`^%(?: (?:Invalid input detected|Incomplete command|Ambiguous command|Unrecognized command|Unrecognized host|Bad IP address)|Error\b)`)
+
+// CommandRejection returns the first line of out matching IOSCommandError.
+func CommandRejection(out string) (string, bool) {
+	for l := range strings.SplitSeq(out, "\n") {
+		l = strings.TrimRight(l, "\r \t")
+		if IOSCommandError.MatchString(l) {
 			return l, true
 		}
 	}

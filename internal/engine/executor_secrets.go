@@ -200,6 +200,16 @@ func (r *run) applySecretMask(task *Task) error {
 	return nil
 }
 
+// WithKnownSecrets adds values to every run's masking set from its start, so
+// every output boundary masks them whether or not a task resolves one: the
+// Crawl tier passes the project's named secrets (credential.SecretValues),
+// since a task that only reads a device can print a key no task of this run
+// asked for.
+func WithKnownSecrets(values []string) ExecutorOption {
+	known := append([]string(nil), values...)
+	return func(x *Executor) { x.knownSecrets = known }
+}
+
 // recordActionSecrets adds the values an action was handed
 // (ActionResult.Secrets) to the run's masking set, so every output boundary
 // that masks with RunResult.Secrets masks them too. It is called whether

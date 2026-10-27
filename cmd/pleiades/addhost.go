@@ -115,7 +115,8 @@ func splitPositionals(args []string, boolFlags map[string]bool) (positionals, re
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if strings.HasPrefix(a, "-") {
+		// A lone "-" is a value (no hosts, standard input), never a flag.
+		if strings.HasPrefix(a, "-") && a != "-" {
 			rest = append(rest, a)
 			// "--flag=value" carries its value in the same token; a bare
 			// "--flag value" does not, so the next token belongs to it --

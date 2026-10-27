@@ -154,7 +154,8 @@ the controller's password stays in the vault.
 The `virt.cml` methods build and take apart labs through it, one verb each, every one with a check (a lab or node an earlier task in the same run makes is reported
 unchecked, since it is not there yet):
 `virt.cml.lab.create`, `lab.start`, `lab.stop`, `lab.delete`, `lab.info`, `lab.list`, `node.create`,
-`node.delete`, `link.create` and `link.delete`. Each change records its undo, so `pleiades rollback`
+`node.delete`, `link.create`, `link.delete`, `link.stop`, `link.start`, `capture.start` and `capture.stop`
+(the last four in the next section). Each change records its undo, so `pleiades rollback`
 removes exactly what a run made: a lab's start is undone by stopping exactly the nodes it started, and a
 node or lab delete, which wipes disks, cannot be undone and says so.
 
@@ -226,6 +227,90 @@ task that ran out of time, a dropped network). For that case a node `virt.cml.no
 idle console session out itself after five minutes (`exec-timeout 5 0`). The controller resolves only on
 the CLI so far; a Runner refuses a console device, and `virt.cml.node.create` with `device:`, whose seed a
 Runner cannot resolve either.
+
+### Failing a link and reading what crossed it
+
+A failover test needs a link to fail, and a claim that traffic crosses encrypted needs the packets that
+crossed. Four `virt.cml` methods give both, each naming a link by `link:` (its id) or by its ends (`a`,
+`a_interface`, `b`, `b_interface`):
+
+- `virt.cml.link.stop` takes a link down, as pulling its cable would, and `virt.cml.link.start` brings it
+  back. Each acts only when the link is not already in that state, and each one's undo is the other.
+- `virt.cml.capture.start` has the controller capture the link until `packets` have been taken or `seconds`
+  have passed (at least one is required), optionally through a Berkeley packet `filter`. Its undo stops the
+  capture.
+- `virt.cml.capture.stop` stops it and, with `dest`, writes the pcap file into the project (up to 16 MiB).
+  The file holds whatever crossed in the clear, so keep it with the project's other private files.
+
+`net.pcap.summary` then counts the file on this machine, with no device: every frame by protocol, and each
+IP packet as encrypted (ESP, ESP in UDP 4500), key exchange (IKE) or cleartext (everything else carried
+over IP), in all and per address pair. "The sites' traffic crosses encrypted" is then a pair whose
+`cleartext` is 0 and whose `encrypted` count grew while traffic was sent. The file is an ordinary pcap, so
+any other analyzer reads it too.
+
+```yaml
+# What this does: fails CORE1's WAN link and restores it, then proves a branch's traffic crosses it encrypted.
+# Blast radius: the lab cvd; the link CORE1-WAN1 is down for the length of one ping.
+# Changes: the link's state, a capture on it, captures/core1-wan.pcap in the project.
+# Undo: none needed; the link is restored by the run and the capture stopped.
+id: wan-proof
+tasks:
+  - name: cut CORE1's WAN link
+    virt.cml.link.stop:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+  - name: the branch still reaches the data center
+    net.ios.ping:
+      target: BR1
+      dest: 10.0.0.1
+      count: 20
+  - name: restore it
+    virt.cml.link.start:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+  - name: capture it
+    virt.cml.capture.start:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+      packets: 2000
+      seconds: 120
+  - name: traffic from the branch
+    net.ios.ping:
+      target: BR1
+      dest: 10.0.0.1
+      source: 10.1.1.1
+      count: 50
+  - name: keep the capture
+    virt.cml.capture.stop:
+      target: cml
+      lab: cvd
+      a: CORE1
+      a_interface: Ethernet0/1
+      b: WAN1
+      b_interface: Ethernet0/0
+      dest: captures/core1-wan.pcap
+  - name: count what crossed
+    net.pcap.summary:
+      src: captures/core1-wan.pcap
+```
+
+Its counts are in the run's report (`pleiades run --json`), and `register: wan` puts them where a later
+task's `when:` can read them (`result.wan.cleartext == 0`).
+
+An IOL node's interfaces start shut down, so a link between two of them carries nothing, and captures
+nothing, until each end is configured `no shutdown`. The GNS3 methods for the same work are not built yet.
 
 ### Undoing an IOS change
 
@@ -305,6 +390,48 @@ these keys? [yes/no]:", and with it the key pair is removed. A key pair made aga
 has is replaced with no question, so its notices say so. Since a key pair is not in the configuration,
 such a run reports changed and warns that no undo returns the key pair; the example accepts a key pair that
 is already gone, so it can run again.
+
+### Keys a design shares: named secrets
+
+A secret a configuration needs that is no device's own login, such as an IKE pre-shared key every site of a
+VPN shares or the passphrase a CA asks for when it starts, is a named secret. It is stored once, encrypted
+like a device's credential, and a runbook names it rather than holding it:
+
+```bash
+pleiades add-secret dmvpn --field psk --generate 32      # or --value-stdin, or --value-file from pleiades seal
+pleiades list-secrets                                     # names and fields, never a value
+```
+
+```yaml
+  - name: The hub's keyring
+    net.ios.config:
+      lines:
+        - crypto ikev2 keyring DMVPN
+        - " peer ANY"
+        - "  address 0.0.0.0 0.0.0.0"
+        - "  pre-shared-key {{ secret.dmvpn.psk }}"
+  - name: Start the CA, answering its passphrase
+    net.ios.command:
+      command: crypto pki server CA start
+      prompts:
+        - match: 'Password:'
+          answer: "{{ secret.ca.passphrase }}"
+```
+
+The reference is filled in by the method just before the device reads the line, and only in a parameter
+that takes one (`pleiades doc` says which: `net.ios.config`'s `lines` and every `prompts` answer). Validation
+refuses one anywhere else, with a filter, or beside another template expression, and a run refuses a
+template whose value would write one, so a run's variables can never choose which secret is read. A value
+holding whitespace, a control character or `?` is refused, since a device's command line would read it as
+more than one word or as a request for help.
+
+Every named secret of the project is masked by value in everything a run reports, its errors and its text
+output included, whether or not a task of that run resolved it. A `show running-config` that prints the key
+afterwards comes back masked, and so does the stdout of every `net.ios.command`, by the same rules a
+configuration's differences are masked by. A prompt answered from a secret is recorded as `(secret)`.
+`pleiades validate` warns about a key written out in a configuration line and names the command that stores
+it. Named secrets are resolved by `pleiades run` and `pleiades adhoc`; a Runner, and an external Collection,
+cannot resolve one yet, and a task that holds one fails there naming why.
 
 ## Running Batfish
 
@@ -434,11 +561,25 @@ What it asserts:
 | Assertion | Holds when |
 | --- | --- |
 | `ospf_established: true`, `bgp_established: true` | every session of that protocol the model finds is established, and there is at least one |
-| `route: {node, prefix, next_hops, protocol}` | the node has a route to the prefix, through those next hops, by that protocol |
-| `no_route: {node, prefix}` | the node has no route to the prefix |
-| `reach: {from, dst, delivered, through, avoids, accepted_by}` | a flow from a node, or `node[interface]`, to an address is delivered (or not), every path goes through or around the nodes named, and `accepted_by` names the node that answers, such as an HSRP or VRRP group's elected owner of a virtual address |
-| `routes_match: {node, routes, ignore}` | the model's routes for the node equal the routes `net.frr.facts` read from it live, compared by prefix, protocol and next hop for connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes; `ignore` lists prefixes no configuration holds, such as a management network |
+| `route: {node, prefix, next_hops, protocol, vrf}` | the node has a route to the prefix, through those next hops, by that protocol, in that VRF |
+| `no_route: {node, prefix, vrf}` | the node has no route to the prefix in that VRF |
+| `reach: {from, dst, delivered, through, avoids, accepted_by}` | a flow from `from` to an address is delivered (or not), every path goes through or around the nodes named, and `accepted_by` names the node that answers, such as an HSRP or VRRP group's elected owner of a virtual address |
+| `routes_match: {node, routes, ignore, vrf}` | the model's routes for the node equal the routes `net.frr.facts` read from it live, compared by prefix, protocol and next hop for connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes; `ignore` lists prefixes no configuration holds, such as a management network |
 | `question: {name, variables, where, min_rows, max_rows}` | any Batfish question (filters, peers, first-hop redundancy properties) returns between `min_rows` and `max_rows` rows whose cells equal `where` |
+
+Without `vrf`, `route`, `no_route` and `routes_match` count every VRF the model has: a router whose WAN
+interface is in a front-door VRF with a default route there has a route to `0.0.0.0/0`, so `no_route` for
+it fails unless it names `vrf: default`.
+
+`reach.from` is one of three things:
+
+- a node, meaning every interface of it;
+- `node[interface]`, the node sending from that interface's address, in that interface's VRF;
+- `@enter(node[interface])`, a packet arriving on that interface from the wire.
+
+The interface may be quoted as Batfish writes it, `node["Ethernet0/1"]`. Batfish cannot trace a packet
+entering an interface in a VRF other than the default (measured on the pinned release: the question ends
+abnormally), so such a task fails saying so and names the `node[interface]` form to ask instead.
 
 A scenario is a fork of the snapshot with interfaces or nodes down (`down_interfaces: ["r1[eth2]"]`,
 `down_nodes: [r3]`), checked against its own assertions. That is how a link failure is checked
@@ -475,8 +616,8 @@ for a line or by `feature` for a feature, with a reason.
 | | FRR | Cisco IOS |
 | --- | --- | --- |
 | Modelled | connected and static routes, OSPF (including passive interfaces), BGP | the same, HSRP with interface tracking (failover included), VRRP |
-| Reported unrecognised | `ip ospf authentication-key` (so a key mismatch is not modelled), `no bgp ebgp-requires-policy`, VRRP | |
-| Parsed, then ignored | | GLBP (no forwarder is elected), IP SLA, SLA tracking (an SLA-tracked route never fails over), BFD |
+| Reported unrecognised | `ip ospf authentication-key` (so a key mismatch is not modelled), `no bgp ebgp-requires-policy`, VRRP | DMVPN's `tunnel mode gre multipoint`, `tunnel vrf`, `if-state nhrp`, IKEv2's `match fvrf` and `prf`, and an mGRE tunnel's missing destination (a convert warning) |
+| Parsed, then ignored | | GLBP (no forwarder is elected), IP SLA, SLA tracking (an SLA-tracked route never fails over), BFD, NHRP (nothing is resolved over a DMVPN cloud, and BGP over it never establishes in the model) |
 
 The configuration formats taken are `frr` and `cisco_ios`. Batfish reads Arista EOS and Junos as
 they are too. They will be accepted once their device types exist and each format is proven against

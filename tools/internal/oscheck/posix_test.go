@@ -430,6 +430,62 @@ func TestReadyScript_MakesRoomFromItsOwn(t *testing.T) {
 	}
 }
 
+// TestReadyScript_ADedicatedMachineClearsItsLoginsGoLeftovers: on a lab VM
+// kept for checks the script clears the login's default Go build cache, the
+// go-build and Test* folders go test left in the temporary directory, and,
+// while short, the module cache, and leaves anything else there. A stand-in
+// go records what it was asked, and the temporary directory is the test's
+// own, so neither this machine's Go caches nor its /tmp is touched.
+func TestReadyScript_ADedicatedMachineClearsItsLoginsGoLeftovers(t *testing.T) {
+	needsSh(t)
+	home, base := readyTrees(t)
+	bin, tmp := t.TempDir(), t.TempDir()
+	calls := filepath.Join(bin, "go.calls")
+	stubs := map[string]string{
+		"df": "#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted'\necho '/dev/x 9999999 9999999 1048576 99% /'\n",
+		"go": "#!/bin/sh\necho \"GOCACHE=[$GOCACHE] $*\" >> " + calls + "\n",
+	}
+	for name, body := range stubs {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o700); err != nil { // #nosec G306 -- a test's own stand-in program
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{"go-build123", "TestSomething456", "keep-me"} {
+		if err := os.MkdirAll(filepath.Join(tmp, dir, "x"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	x := posix
+	x.Dedicated = true
+	script := x.readyScript(nil)
+	if !strings.Contains(script, `for d in /tmp "${TMPDIR:-/tmp}"`) {
+		t.Fatalf("the dedicated script does not clear /tmp and $TMPDIR:\n%s", script)
+	}
+	script = strings.ReplaceAll(script, `for d in /tmp "${TMPDIR:-/tmp}"`, `for d in "$TMPDIR"`)
+	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd.Env = append(os.Environ(), "HOME="+home, "TMPDIR="+tmp, "GOCACHE=/somewhere/else", "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if out, err := cmd.Output(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	got, _ := os.ReadFile(calls)
+	for _, want := range []string{"GOCACHE=[] clean -cache", "clean -modcache"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("go was not asked %q (the login's default cache, then the module cache while short):\n%s", want, got)
+		}
+	}
+	left, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 || left[0].Name() != "keep-me" {
+		t.Errorf("the temporary directory holds %v, want only keep-me", left)
+	}
+	assertLeft(t, base, "new2 new3")
+	if posix.dedicatedClean() != "" {
+		t.Error("a machine not kept for checks has its login's caches cleared")
+	}
+}
+
 // readyTrees makes a home with posix's trees' directory holding four trees
 // of different ages and a build cache, plus a file and a default Go cache of
 // the login's own, and returns the home and the trees' directory.

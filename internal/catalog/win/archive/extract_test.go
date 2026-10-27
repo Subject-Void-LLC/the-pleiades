@@ -219,3 +219,25 @@ func TestExtract_ScriptFitsTheCommandLine(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestScript_MakesADriveRootsTopFoldersFirst: a drive's root as dest gets the
+// archive's top folders made before tar.exe runs, which Windows 11 build
+// 26300's bsdtar needs; any other dest does not, and nothing is extracted
+// before the listing succeeded.
+func TestScript_MakesADriveRootsTopFoldersFirst(t *testing.T) {
+	root := request{src: `C:\Windows\Temp\go.zip`, dest: `C:\`}.script(false)
+	for _, want := range []string{`if ($dest -match '^[A-Za-z]:\\$') {`, `-tf $src`, `New-Item -ItemType Directory -Force -Path (Join-Path $dest $t)`, `$t -ne '..'`} {
+		if !strings.Contains(root, want) {
+			t.Errorf("drive-root script lacks %q", want)
+		}
+	}
+	if strings.Index(root, "-tf $src") > strings.Index(root, "-xf $src") {
+		t.Error("the archive is extracted before its top folders are made")
+	}
+	// The branch is chosen in the script by dest's value, so every script
+	// carries it; what matters is that it cannot match a folder dest. The real
+	// proof is on a Windows 11 ARM guest, where Go's archive now unpacks into C:\.
+	if !regexp.MustCompile(`^[A-Za-z]:\\$`).MatchString(`C:\`) || regexp.MustCompile(`^[A-Za-z]:\\$`).MatchString(`C:\tools`) {
+		t.Error("the drive-root pattern is wrong")
+	}
+}

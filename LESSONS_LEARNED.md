@@ -359,6 +359,27 @@ story, per `.AGENTS/AGENTS.md`.
 324. **A repeat of 104: a grader is code that can be wrong; run it against a known pass and a known fail, and make each check read the artifact it judges (2026-10-24).**
 325. **Size a blind lab turn from a run that finished (turn A took 105 minutes), and have the harness say how a turn ended: a limit extended by pausing timeout still reports exit 124 (2026-10-24).**
 326. **A blind agent follows a design guide literally; a prompt that allows any design asks for the simplest one that meets the requirements (2026-10-24).**
+327. **A process stopped by a PID from pgrep -o is not proven stopped: stop by process group, confirm with ps, and lock an unattended driver from its start (2026-10-25).**
+328. **A repeat of 114: a detector for "is X running" is checked against the live process as it is really invoked, flags and wrappers included (2026-10-25).**
+329. **A repeat of 192: gate an unattended next step on the graded state it needs, not on the previous step's exit status (2026-10-25).**
+330. **A reference corpus without source URLs cannot satisfy a citation requirement, however good its content: every entry carries its document's title and URL (2026-10-25).**
+331. **When an agent's rules forbid a secret in a file, the platform must first offer a way to reference a stored secret, masked everywhere (2026-10-25).**
+332. **An agent learns a feature from the tool at the moment it needs it: the warning or refusal at the wrong way names the feature and its exact command, beside what the skill teaches (2026-10-25).**
+333. **Measure a fallback on the case it is for before adopting it; a fallback that asks a different question can return a confident false answer (2026-10-25).**
+334. **Hold every other input still before blaming a server: one change at a time, on the same link with the same traffic (2026-10-25).**
+335. **A method that claims several carriers is proven live through each one; text a device prints unasked can appear on one carrier only (2026-10-26).**
+336. **A repeat of 301 and 322: a method's documentation is checked by tests in internal/archtest and tools/gendocs, and both run in the commit that adds or changes a method (2026-10-26).**
+337. **A repeat of 190 (the one on content rules written as denylists of known-bad shapes): what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip (2026-10-26).**
+338. **A repeat of 95 and 213: prove a hazard with a control that must fail without the fix, and make every scripted edit assert that its anchor matched (2026-10-27).**
+339. **A VM started headless on macOS from an SSH session needs an explicit wake hold for its process; when a VM "is slow", measure its clock against the host's first (2026-10-27).**
+340. **vmcli's MKS sendKeyEvent takes a HID usage shifted left 16 bits and a modifier mask; sendKeySequence garbles long strings, so send short chunks (2026-10-27).**
+341. **What a Collection does not carry goes into the Groundconfig corpus, not only into these records (2026-10-27).**
+342. **A repeat in kind of 257 and 335: run a new check leg end to end on its real machine before relying on it; that run finds what unit tests cannot (2026-10-27).**
+343. **A repeat in kind of 273: detect a capability by asking for it, never by a proxy for it (2026-10-27).**
+344. **A program that runs make, or reads make's output, clears what a parent make exports from the child's environment (2026-10-27).**
+345. **A dashboard's stage state comes from an explicit marker the producer prints, not from inferring order from other lines (2026-10-27).**
+346. **A machine kept only for checks cleans before every run instead of refusing with advice (2026-10-27).**
+347. **A repeat in kind of 342: each new leg or configuration's first full run finds a different first failure, so run it end to end early and expect it to fail (2026-10-27).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

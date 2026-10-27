@@ -195,8 +195,18 @@ func requireComposePortsFree(t *testing.T) {
 // appended empty value still outranks .env, which is right for a gate that
 // supplies every secret and wrong for one that means compose to read the
 // file setup wrote.
+//
+// make's own inherited settings go too (makeInherited), so a gate's make runs
+// as the operator's would rather than as a child of the make running the
+// tests. tools/monitor runs `make --trace pr-check`, and --trace reached the
+// upgrade gate's `make up` through MAKEFLAGS: it echoed the up recipe's
+// "backed up first" line though that branch never ran, and the gate's no
+// second backup check failed on its own echo (2026-10-27).
 func scrubbedPackagingEnv() []string {
 	drop := map[string]bool{"PLEIADES_SETUP_DIR": true}
+	for _, name := range makeInherited {
+		drop[name] = true
+	}
 	for _, name := range setup.ComposeVariables() {
 		drop[name] = true
 	}
@@ -210,6 +220,10 @@ func scrubbedPackagingEnv() []string {
 	}
 	return env
 }
+
+// makeInherited are the variables a make passes to the commands its recipes
+// run, which a make started by one of them reads as its own flags and depth.
+var makeInherited = []string{"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEFILES", "MAKEOVERRIDES", "GNUMAKEFLAGS"}
 
 // runPackagingTool runs one command and returns its combined output plus
 // whatever error it exited with, leaving the decision to the caller.

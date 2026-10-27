@@ -1,0 +1,8 @@
+PowerState: off
+cleanShutdown: true
+isGuestRebooted: false
+isSoftReset: false
+powerTypeForPowerOff: soft
+powerTypeForPowerOn: soft
+powerTypeForReset: soft
+powerTypeForSuspend: soft

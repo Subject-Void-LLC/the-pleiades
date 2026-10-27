@@ -14005,7 +14005,7 @@ Entry 574 is what that left room for. Entry 572 is a gap in `TaskReads`' own fir
 **Lesson.** When a check is added for one way of reading a value, the other ways of reading the same value are the
 sibling sweep (LESSONS 281); templates and conditions both read registers.
 
-## 562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (open)
+## 562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (fixed in 129d)
 
 **Symptom.** 2026-10-22, a fresh agent working only from `pleiades doc --create-skill`'s SKILL.md: every
 `pleiades <command> --help` printed its flags and then `pleiades: flag: help requested`, exiting 1, which an agent that
@@ -14023,6 +14023,15 @@ command that takes a name answers `--help` without one.
 
 **Lesson.** A tool an agent learns from its own help needs that help to succeed, and to be reachable without
 already knowing the command's arguments.
+
+**Seen again (2026-10-25).** Blind CVD run 3 met it on four commands, and the cause is now traced; see 648.
+
+**Fixed (2026-10-26, `2d9cd379`), with 648.** `--help`, `-h`, `-help` and `--h` exit 0 on every command: `main`
+(`cmd/pleiades/main.go`) reads a command's `flag.ErrHelp`, a missing positional or a usage error as an answer when help
+was asked (`asksHelp`), and prints the usage line without "missing positional argument". So `add-host --help` without
+a name prints its usage line, which names its flags, and exits 0. `TestEveryCommandsHelpExitsZero` runs both forms on
+every command in the table and on `journal list` and `journal show`, and checks that a command missing its argument
+without asking still fails. It checks exit codes only, not the text printed.
 
 ## 563. Four methods recorded their undo only after reads that can fail, and a failed task's undo never reaches the journal (a repeat of 452 and 487) (fixed)
 
@@ -15091,7 +15100,7 @@ takes from the device.
 **Lesson.** As 48 found, a loop that rebuilds its accumulated text on every step needs either a builder or a bound on
 its input, and a read limit sized for transport is not a bound sized for a parser.
 
-## 612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (open)
+## 612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (fixed in 129a)
 
 **Symptom.** 2026-10-23, by design of `9ab84fe4`: each `net.ios.config` run that changes the configuration leaves two
 files on the device's default writable file system (the checkpoint before and the configuration after), named
@@ -15105,6 +15114,8 @@ undo runs, and how to delete them by hand with `net.ios.command` once the undo i
 
 **Lesson.** An undo that keeps state on a device owes a way to list and prune that state, or a limit on how much of it
 builds up.
+
+**Fixed (2026-10-25, Phase 129a):** `net.ios.checkpoints` lists the checkpoints `net.ios.config` left (only files `mintedCheckpoint` matches) and, with `prune` and `keep` or `older_than`, deletes the older ones. Age is measured by the device's own clock (`show clock`), so a router whose clock was never set is measured against itself. Proven by `TestCheckpoints_ListsAndPrunesOnlyMintedFiles`, `TestCheckpoints_AgeIsTheDevicesOwn` and `TestCheckpoints_AFailedDeleteSaysWhatWent`, and listed and pruned live on the CML sandbox. Pruning a change's checkpoint makes that change's `net.ios.replace` undo refuse, which the method's reversibility note says.
 
 ## 613. net.ios.replace deleted whatever file checkpoint or expect named after a replace, so checkpoint: nvram:startup-config would have erased the saved configuration (a repeat of 570) (fixed before push)
 
@@ -15775,3 +15786,1038 @@ listing who calls Close, and the refusal path was one caller.
 **Lesson.** On a carrier that outlives the session (a console line), abandoning a command means declining it, never
 closing and never pressing Enter. When a cleanup step starts typing, list every path that reaches it and ask what
 each keystroke answers there.
+
+## 644. pkg/netcfg.Mask masked a GRE tunnel's `tunnel key 100`, a number that is not a secret, because the last word after `key` is always taken as the secret (a repeat of 640) (fixed in 129a)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A, pleiades `0.0.0-dev+d17b732f8197`. The configuration `net.batfish.check`
+sent to Batfish held `tunnel key pleiades-masked-...` where the candidate said `tunnel key 100`, the mGRE tunnel's GRE
+key, an identifier and not a secret. Batfish could not use the line, and the agent had to accept `tunnel key` by name
+with the reason "mGRE tunnel key 100, not a secret (masked by mistake)" (`~/pleiades-cvd/claude/project/runbooks/
+model_check.yaml`, line 156). Mask's output also feeds `net.ios.config`'s differences and `undo_lines` and
+`net.ios.parse` (640), so the same line would be masked there; that part is reasoned from the code, not observed.
+
+**Root cause.** `key` is one of Mask's secret words. `maskLine` (`pkg/netcfg/mask.go`) skips small numbers, encryption
+types and modes after a secret word so that `key 7 <secret>` masks the secret and not the `7`, but the skip loop runs
+only while `j < len(ws)-1`. The last word is never skipped, so in `tunnel key 100` the `100` becomes the target and is
+masked.
+
+**Fix.** Planned in Phase 129a. Whatever the rule, a line whose secret really is a number (a numeric password) must
+still be masked, so the fix names the non-secret command (`tunnel key`) rather than sparing every final number.
+
+**Why 640's fix did not prevent it.** 640 added a list of the words after `key` that name a command (`keyCommands`:
+`generate`, `zeroize` and others), written from the crypto key lines the lab printed then. `tunnel key` puts a number
+after `key`, which neither that list nor the small-number skip handles. 640's lesson asked for a check against "the
+commands that share a secret word without holding a secret"; the check covered the crypto commands only, not
+interface commands.
+
+**Lesson.** For each secret word, list from the vendor's command reference the commands where the word holds no
+secret, and test each one. Where a word sits in a line says nothing about whether it is secret.
+
+**Fixed (2026-10-25, `2b12066f`):** `maskLine` in `pkg/netcfg/mask.go` keeps `key` when it is the second word of a line
+whose first word is `tunnel`, so `tunnel key 100` is no longer masked. The rule names the command, as planned, so a
+numeric secret anywhere else is still masked. `TestMask_ByVendor` in `pkg/netcfg/netcfg_test.go` holds both sides: it
+keeps `interface Tunnel100` with ` tunnel key 100`, and masks `98765` in `tacacs server t2` with ` key 98765`.
+
+## 645. net.batfish.check's reach from a node[interface] start location ended in Batfish's TERMINATEDABNORMALLY, and route and no_route cannot name a VRF (fixed in 129c)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. Model runs `ad98f613` and `4c4feb1f` asserted underlay reach from an
+interface (`from: node[interface]`), and Batfish's traceroute answered TERMINATEDABNORMALLY. Nine ad hoc probes
+narrowed it; `reach.from` refused Batfish's own quoted interface form, and a raw `reachability` question worked. In
+run `ef01d6ac`, a `no_route` assertion for the default route failed on a router whose default route is in the
+front-door VRF `WAN-TRANSPORT-INET`, since the assertion has no way to say which VRF it means. Turn A spent six model
+runs and nine ad hoc probes (16:51 to 16:59) before `6a1a25e1` passed, and it dropped interface start locations
+(`~/pleiades-cvd/runs/analysis-a.md`, section 4).
+
+**Root cause.** `holdReach` (`internal/catalog/net/batfish/model.go`) asks Batfish's `traceroute` question with
+`startLocation` `@enter(node[iface])` and headers holding `dstIps` only, no `srcIps`. The assertion parser
+(`assertions.go`, the `kindReach` case) builds that location from `node[interface]` and refuses every other form.
+Which part of the question Batfish fails on is not measured yet. `holdRoute` asks the `routes` question with `nodes`
+and `network` only, so a route check covers whatever VRFs Batfish returns and cannot name one.
+
+**Fix.** Planned in Phase 129c: reach from an interface either works or fails with a clear message, and `route` and
+`no_route` take a VRF.
+
+**Lesson.** An assertion that wraps a model's question is tested against the real model with every start location
+form it accepts, not only from a node. A route check names its VRF, because which table answers depends on it.
+
+**Fixed (2026-10-25, `2d54d27c`).** Measured on the pinned Batfish (2026.08.27.3685): a traceroute from
+`@enter(node[iface])` in a non-default VRF ends TERMINATEDABNORMALLY, and a node[iface] start location (the node
+originating from that interface) works. So `reach.from: node[interface]` now means the node sending from that
+interface in its VRF; `@enter(node[interface])` must be written to mean a packet arriving on it, and in a VRF it fails
+naming the working form instead of falling back (665). A quoted interface is accepted as Batfish writes it. `route`,
+`no_route` and `routes_match` take `vrf`. NHRP joined the coverage table, since every `ip nhrp` line parses silently;
+the mGRE tunnel's `tunnel mode gre multipoint` was already reported unrecognised. Proven by
+`TestCheck_DMVPNInAFrontDoorVRF` (`internal/catalog/net/batfish/dmvpn_live_test.go`, a DMVPN hub and spoke in a
+front-door VRF) and `TestReadParams_Refusals`.
+
+## 646. IOS informational % lines from PKI and front-door VRF commands failed net.ios.config reruns and rollbacks, and a % line in show output failed net.ios.command (a repeat of run 1's notices, fixed in a2495ddb with no entry of its own; the class of 549) (fixed in 129a)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. Four `net.ios.config` reruns failed on lines IOS had accepted, each
+on one `%` line: "% Policy already has the same matching fvrf statement", "% certificate map already used in
+ikev2/isakmp profiles" and "% Trustpoint ... is already configured". Three rollbacks failed on "% Be sure to ask the
+CA administrator..." and "% Can't find policy". `net.ios.command` failed on `show` output that held "% Self-signed CA
+certificate:". The reruns alone took 10 minutes (18:20 to 18:30).
+
+**Root cause.** `netcli.IOS` reads every line that starts with "% " as a rejection unless it matches one of
+`iosNotices` (`pkg/netcli/netcli.go`), a list of the notices measured in run 1. `Dialect.Rejection` runs over the
+whole output, and `net.ios.command` calls it on a show command's output too (`internal/catalog/net/ios/command.go`),
+so a "% " line a show command prints as data fails the task.
+
+**Fix.** Planned in Phase 129a: each notice is measured on IOL XE 17.15 first, then added.
+
+**Why run 1's fix did not prevent it.** Run 1's fix (`a2495ddb`, and `15271a27` for show output; recorded in LESSONS
+323 as a friction item, with no failure pattern of its own) listed only the notices run 1 printed: duplicate access
+list entries, IKEv2 proposals and profile matches, and the crypto key lines. The list is an allowlist on purpose, since
+an unknown "% " line rejecting is the safe default. Run 1's design used a pre-shared key; run 3's used PKI and a
+front-door VRF, whose commands print notices nobody had measured.
+
+**Lesson.** A list of device notices grows by feature: before a design area (PKI, VRF-aware IKE) is called supported,
+apply its commands twice and undo them on a real device, and add what it prints. A show command's output is data, so
+a rejection check over it must tell a refused command from a "%" line the device prints as content.
+
+**Fixed (2026-10-25, `2b12066f`):** each notice was measured first, on IOL XE 17.15.1 through `net.ios.config` with
+`accept: '%.*'` (2026-10-25). Four are now notices in `pkg/netcli`'s `iosNotices`: "% certificate map already used in
+ikev2/isakmp profiles", "% Profile already contains this keyring", "% Removing an enrolled trustpoint will destroy all
+certificates" and "% Be sure to ask the CA administrator to revoke your certificates.". "% Specified proposal NOPE
+does not exist" stays a rejection, so a mistyped name cannot pass for one already gone. Two notices from run 3 were
+not reproduced and were not added: "% Policy already has the same matching fvrf statement" (`match fvrf any` applied
+twice printed nothing) and a trustpoint's "already configured". "% Can't find policy", from a run 3 rollback, is
+not in the list either, so that rollback would still fail on it. For show output, `net.ios.command` gained `accept` (through the same `readAccept`
+as `net.ios.config`), and a read-only command now fails only on a `netcli.IOSCommandError`: "Invalid input",
+"Incomplete command", "Ambiguous command", "Unrecognized command" or "%Error". So a "%" line a show command prints as
+data no longer fails the task. Tests: `internal/catalog/net/ios/command_output_internal_test.go`.
+
+## 647. pleiades adhoc required a hosts argument for a method that needs no device, took the method name as the hosts, and accepted localhost only because the target is never resolved (fixed in 129d, except that hosts given to such a method are still ignored)
+
+**Symptom.** 2026-10-25, setting up blind CVD run 3: `pleiades adhoc groundconfig.search query=...` failed, reading the
+method name as the hosts. Turn A met the same thing and passed `localhost`, which names no device in its inventory,
+and the call worked. The skill tells an agent to use `adhoc` to call a method once.
+
+**Root cause.** `adhoc`'s usage is `adhoc <hosts> <method> ...`, and `runAdhoc` (`cmd/pleiades/adhoc.go`) requires two
+positionals before it writes the hosts into a runbook (`adhocRunbook`). Since Phase 117a, a task whose method needs no
+device (`collection.ExecutionContext`'s `Device` none) skips `hosts:` and runs once (`engine.TaskTarget`), so any word
+given as hosts is ignored for such a method. `adhoc` still asks for one.
+
+**Fix.** Planned in Phase 129d: `adhoc` takes a method with no device and no hosts.
+
+**Lesson.** When the engine stops needing an input for a kind of call, change every front end that asks for it. An
+input that is silently ignored teaches an agent something false: `localhost` "worked".
+
+**Fixed (2026-10-26, `2d9cd379`), in part.** `adhoc` takes a method that needs no device with no hosts, or with `-`
+(`needsNoDevice`, `noHosts` in `cmd/pleiades/adhoc.go`), and a comma list of devices as one task per device with its
+`target:`. `TestAdhoc_AMethodThatNeedsNoDeviceTakesNoHosts`, `TestAdhocRunbook_HostsForms`. Still open, reasoned from
+the code and not run: hosts given to a method that needs no device (`localhost`) are still written as the runbook's
+`hosts:`, and `engine.TaskTarget` still ignores them without a word.
+
+## 648. --help exits 1 with "missing positional argument" for adhoc, rollback, add-credential and seal, and journal --help exits 2 printing nothing (a repeat of 562) (fixed in 129d)
+
+**Symptom.** 2026-10-25, blind CVD run 3. `pleiades adhoc --help`, `rollback --help`, `add-credential --help` and
+`seal --help` each exit 1 with "missing positional argument". `pleiades journal --help` exits 2 and prints nothing.
+An agent that checks exit codes reads each as a failure.
+
+**Root cause.** 562 said its cause was "not yet traced further". Read from the code now: `main` (`cmd/pleiades/main.go`)
+prints any error a command returns and exits 1, and nothing maps `flag.ErrHelp` to 0. Commands that take a name call
+`splitPositionals` (`cmd/pleiades/addhost.go`) and check the count before their flag set parses, so `--help` without
+the names is refused as a missing argument. `journal`'s dispatcher (`cmd/pleiades/journal_cmd.go`) wraps
+`errUnknownCommand` for `--help`, and `main` returns 2 for that error without printing it.
+
+**Fix.** Planned in Phase 129d: `--help` exits 0 everywhere, without the command's names.
+
+**Why 562's fix did not hold.** 562 has no fix. Its stopgap was a sentence in the skill, and a second blind agent met
+the failure on four commands anyway.
+
+**Lesson.** A defect an agent meets in its first commands is fixed, not documented around: a skill sentence did not
+stop the next agent.
+
+**Fixed (2026-10-26, `2d9cd379`).** See 562's resolution: every command's `--help` and `-h` exit 0, `journal list
+--help` and `journal show -h` included, held by `TestEveryCommandsHelpExitsZero`.
+
+## 649. A YAML alias in a runbook failed with "got a YAML node of kind 16", because normalization never resolves aliases (a sibling of 486) (fixed in 129d; its messages still print other node kinds as numbers)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. A runbook using a YAML anchor and alias failed with "got a YAML node
+of kind 16", which names neither the alias nor what to do.
+
+**Root cause.** The runbook normalizer reads YAML nodes as written and does not follow an alias. Its errors print
+`yaml.Node.Kind` with `%v` (`internal/engine/task_syntax.go`, three messages, and `internal/engine/conditional.go`),
+and 16 is `yaml.AliasNode`. A helper that follows aliases, `yamlKeyTree.resolved` (`internal/engine/schema_keys_yaml.go`),
+already exists and is not used there.
+
+**Fix.** Planned in Phase 129d: aliases are resolved, or refused by name.
+
+**Why 486 did not prevent it.** 486 taught the build-file reader to follow merge keys and aliases. That was a
+different reader, and its lesson (a reader must read what the consumer reads) was not carried to the runbook parser.
+
+**Lesson.** Every reader that walks YAML nodes either follows aliases and merge keys or refuses them by name. An error
+never prints a library's enum number.
+
+**Fixed (2026-10-26, `2d9cd379`, and `ac7af458` for 658).** `engine.ExpandAliases` (`internal/engine/yaml_aliases.go`)
+expands anchors, aliases and merge keys before any key is read, bounded at 100,000 nodes and depth 64, and an
+anchor parked under a top-level key is told where to write it. `TestBuild_ExpandsAliasesAndMergeKeys`. The task-form
+warning reads the expanded runbook too (658). The lesson's second sentence is not done: `task_syntax.go` and
+`conditional.go` still print `yaml.Node.Kind` as a number for the kinds they refuse, though no alias reaches them now.
+
+## 650. net.ios.command reported ping, traceroute, terminal and debug as changes, so diagnostic runs blocked rollback (a repeat of 599) (fixed in 129a; its rollback side is named in 129c and still needs --despite-run)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. Diagnostic `net.ios.command` runs (ping, traceroute, terminal
+settings, debug) each reported changed. The journal then held them as later runs that changed the device, and
+rollbacks needed up to six `--despite-run` flags.
+
+**Root cause.** `iosShow` (`internal/catalog/net/ios/command.go`) counts only `show` and its abbreviations, and `dir`
+and `more` in full, as commands that change nothing. Every other command reports changed.
+
+**Fix.** Planned in Phase 129a for ping, traceroute and terminal, which change no configuration. `debug` changes device
+state though not configuration, so it belongs to Phase 129c's rollback classification rather than the read list.
+
+**Why 599's fix did not prevent it.** 599 named `show`, the read an agent runs to prove a second run changed nothing.
+It did not list the other exec commands an agent runs to diagnose a network.
+
+**Lesson.** Sort a device's exec commands by effect (configuration, session settings, device state, none) from its
+command reference, not by the one command the last incident used.
+
+**Fixed (2026-10-25, `2b12066f`), for ping, traceroute and terminal:** they join `dir` and `more` in
+`readOnlyCommands` (`internal/catalog/net/ios/command.go`), so `net.ios.command` reports them unchanged. `debug` still
+reports changed, since it changes device state and its undo is `undebug`. The rollback side of this entry (how a
+later run that changed only device state is judged) stays open with 652, in Phase 129c.
+
+**Rollback side, 2026-10-25 (`2d54d27c`).** A later run that changed a device is now named by its kind (652). A debug
+run records no undo, so it is `cannot_undo`, and with `rollback: []` written on its task it is `nothing_to_undo`.
+Either way it still needs `--despite-run` to step over, so this side is not closed.
+
+## 651. A net.ios.command or net.ios.config timeout dropped the device's last output, so the question it waited on was never shown (fixed in 129a)
+
+**Symptom.** 2026-10-25, blind CVD run 3, turn A. `net.ios.command` timed out three times on `request pkcs10` and
+showed nothing the device had printed. The agent wrote an EEM diagnostic applet to read the one prompt, about 7
+minutes.
+
+**Root cause.** `Session.command` (`pkg/netcli/netcli.go`) returns an empty string with the error when its read fails,
+dropping whatever it had read. `converse` (`pkg/netcli/dialog.go`) keeps only a last line shaped like a question.
+
+**Fix.** Planned in Phase 129a: a timeout's error carries the device's last output. It must be masked and bounded, as
+627 and 578 require of every output path.
+
+**Lesson.** A timeout's error says what the far side printed last, masked and bounded. "Timed out" alone sends the user
+off to build a probe of their own.
+
+**Fixed (2026-10-25, `2b12066f`):** a failed read keeps what it read. `pkg/netcli/read_failure.go`'s `ReadFailure`
+holds the output and never prints it in its own text; `netcli.LastOutput` returns it. `net.ios`'s `maskedError`
+(`internal/catalog/net/ios/config.go`) appends "the device last printed:" with the last 20 lines, at most 1 KB, masked
+with the rest of the error. `TestCommand_ATimeoutSaysWhatTheDeviceLastPrinted` in
+`internal/catalog/net/ios/command_output_internal_test.go` holds it.
+
+## 652. Rollback refused a later run that left nothing to undo (a node stop, then a start) the same way as one that must be undone first, and check mode judged each undo against the device as it is now (a sibling of 551) (fixed in 129c, except that changes which cancel out are still read as undo first)
+
+**Symptom.** 2026-10-25, blind CVD run 3. Turn A's and turn C's core failure tests stopped a core router's node and
+started it again. Rolling back the earlier build beneath those runs was refused, and the refusal suggested
+`--despite-run` exactly as it would for a later run that must be undone first. Turn B read each of the four runs'
+journals and then stepped over them with `--despite-run`. In turn A, rollback check mode reported three undos failing
+that would have worked after the undos planned before them.
+
+**Root cause.** `laterRunProblems` (`internal/rollback/history.go`) refuses for any later run that recorded a change
+on the same device. It never classifies that run: changes that cancel out (a stop, then a start) are refused like
+changes that must be undone first. Check mode runs each undo's check against the live device, not against the
+device as the earlier undos would leave it.
+
+**Fix.** Planned in Phase 129c.
+
+**Lesson.** A refusal that offers an override must say which kind of case it is. When a harmless later run is
+refused the same way as a conflicting one, users learn to pass the override, and the override then passes the
+dangerous case too.
+
+**Fixed (2026-10-25, `2d54d27c`), in part.** The journal records an empty `rollback:` list
+(`authored_rollback_empty`, sqlite migration 0038 and postgres 0035). A refusal over a later run carries its kind
+(`Problem.Kind`: `undo_first`, `cannot_undo`, `nothing_to_undo`) with advice for each, and `--json` gives it; a
+refusal whose undo needs a runbook edited since opens with the `--runbook` hint (`KindNoRunbook`). A later run counts
+as fully undone only when it had at least one real undo. In a rollback's check, a step on a device an earlier step
+changes is provisional: its failed check is reported unchecked with the reason (`engine.WithProvisionalChecks`,
+`rollback.Provisional`). Tests: `TestBuild_TellsLaterRunsApart`, `TestBuild_ARolledBackRunsNothingToUndoChangesCountAsUndone`,
+`TestBuild_MarksAMissingRunbook`, `TestProvisional_NamesEveryStepAnEarlierStepPrecedes`,
+`TestProvisionalChecks_AFailedProvisionalCheckIsUnchecked`, `TestRollbackCommand_FindsTheRunbookThatRan`. Still open:
+changes that cancel out are not detected. This entry's own case, a stop and then a start, records undos, so it is
+`undo_first` unless its runbook says `rollback: []`. Provisional checks are Crawl tier only (docs/10), and
+`authored_rollback_empty` is trusted from the journal row, which needs write access to the journal to forge.
+
+## 653. net.ios.command returned the device's text unmasked, so a show of the running configuration gave an IKEv2 pre-shared key in the clear (a repeat of 578) (fixed in 129a)
+
+**Symptom.** 2026-10-25, measured live on the CML sandbox with this branch's binary before the fix. `net.ios.command`
+running `show running-config | section keyring` returned an IKEv2 pre-shared key (24 characters) in the clear in its
+`stdout`. From there it reached the run report, the run's text output and any register that held the result.
+
+**Security.** This is a secret exposure. Anyone who can run a read-only show command through `net.ios.command`, or read
+its report, output or a register, could read any key the device shows in the clear. A key that went through such a run
+before this fix should be treated as exposed and rotated.
+
+**Root cause.** Masking in the IOS package is done per method. `net.ios.config`, `net.ios.replace` and `net.ios.parse`
+pass device text through `pkg/netcfg`; `net.ios.command` set `stdout` to the device's text as read
+(`internal/catalog/net/ios/command.go`). The engine masks only the values it was told about, and a key that sits in
+the device's configuration was never resolved by the run, so the engine did not know it.
+
+**Fix.** `2b12066f`: `net.ios.command`'s `stdout` goes through `netcfg.MaskFound`, and every value it finds of 8 or
+more characters (`netcfg.Learnable`, `netcfg.MinLearnedLength` = 8, the engine's own minimum) is registered for the
+run (`learnSecrets`), so it is masked everywhere else the run writes it. Every named secret the project holds is
+masked from the start of each run (`credential.SecretValues`, `engine.WithKnownSecrets`), whether or not the run uses
+it. `net.ios.parse` and `net.ios.config`'s backup and running-configuration reads learn values the same way. Verified
+live on the same sandbox: the same show then printed `pre-shared-key pleiades-masked-...`. The live gate
+`TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows` (`cmd/pleiades/cml_secret_release_gate_test.go`) requires that no
+report, journal file or text output of its runs holds the key, a show of the configuration included.
+
+**Why 578's fix did not prevent it.** 578 was the same shape in the FRR package: `net.frr.facts` masked its output and
+`net.frr.command`, written beside it, did not. Its lesson was to mask once where the device's text comes in and to give
+every new method a test that reads a secret back through it, and it said plainly that its own fix was still per path.
+The lesson was applied to FRR only. `net.ios.command` already existed (added in `e933b71e`, 2026-10-20, two days
+before 578's fix in `26dca552`), and nobody swept the IOS package. 640's `pre-shared-key` rule covers this line form,
+but `net.ios.command` never called the mask, so 640's fix could not reach it either.
+
+**Lesson.** A method that returns device text masks it, and a test reads a secret back through that method. Masking
+only the values a run resolved is not enough: a secret the run never touched can still be in the device's text, so
+the run must know every secret the project holds, and must learn the ones it finds.
+
+## 654. On a Cisco IOS console line, the device's own log message and the prompt after it were read as the next command's answer, leaving the session one response behind (a sibling of 596 and 606) (fixed)
+
+**Symptom.** 2026-10-26, the live CML gate `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`
+(`cmd/pleiades/cml_secret_release_gate_test.go`), extended in Phase 129d to run `wait.routes` on P2 through the CML
+console. After the login, IOS printed its own syslog line (`%SEC_LOGIN-5-LOGIN_SUCCESS: ...`) and a prompt after it.
+The session read that line and prompt as the whole answer to the next command it sent, and every command after that
+got the answer of the one before. The same gate's `wait.routes` on P1 over SSH did not meet it. Methods that reached a
+device through a console before this fix could have shown a log line as a command's output; that is reasoned from the
+code, not observed.
+
+**Root cause.** `Session.command` in `pkg/netcli/netcli.go` reads until the dialect's prompt and takes everything before
+it as the answer. A device writes log messages on a console line between commands, each followed by a fresh prompt, so
+a message that arrives before the command's echo ends the read early. Nothing in the dialect named such messages.
+
+**Fix.** `7e941028`: `Dialect.AsyncMessage`, set for IOS to `iosAsyncMessage` (an optional sequence number and
+timestamp, then `%FACILITY-SEVERITY-MNEMONIC:`), measured on IOL XE 17.15 through the CML console. When a read holds
+nothing before its prompt but such messages and no echo of the line sent (`asyncOnly`), the session reads again, at
+most `maxAsyncReads` (3) times. The fp-reviewer agent's review of `80d0da4d..7e941028` (its F5) found three gaps, fixed
+in `ac7af458`: the re-read ran only in `Command`, not in `Dialog` (`net.ios.command`) or configuration lines
+(`pkg/netcli/dialog.go`); a device that never echoes could be waited on, so the re-read now runs only once the device
+has echoed a line (`echoes`, `noteEcho`); and a message with no timestamp (no `service timestamps log`) was missed.
+Tests: `TestCommand_PassesOverTheDevicesOwnMessages`, `TestDialog_PassesOverTheDevicesOwnMessages`,
+`TestCommand_ADeviceThatNeverEchoesIsReadAtOnce` (`pkg/netcli/async_message_test.go`); the first was checked by
+mutation. The live gate then passed with `wait.routes` on P1 over SSH and P2 through the console.
+
+**Why 596 and 606 did not prevent it.** Both found text the terminal adds around what the session expects: 596 a
+shell's terminal query after the prompt, 606 an echo scrolled sideways. Each fix made the reader tolerate that one
+form. Neither asked what else a device writes on its line unasked, and every earlier live IOS run went over SSH.
+
+**Lesson.** A CLI session reader lists every source of text on its line: the echo, the answer, the prompt, and what the
+device prints on its own between commands. A method that claims a carrier (SSH, Telnet, console) is run live through
+each one; this message appears only on the console (LESSONS 335).
+
+## 655. The device root's properties were a strip list of secret names, so any property named otherwise, an operator's own included, reached a template (a repeat of 458 and 577) (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F4), 2026-10-26, reasoned from the code. The
+first device root (`internal/engine/device_root.go` in `7e941028`) gave a template and a condition every property of
+the device that was a single text, number or boolean, except a reserved one or one whose name `redact.SecretName`
+matched. A secret kept under a name that list does not match, or a value an operator stored for themselves, would reach
+any template that reads `device.properties`. A template's output reaches a task's output and a device's command line.
+
+**Security.** Had it shipped, anyone able to write a runbook could print a device property holding a secret under an
+unlisted name. It was found before any push.
+
+**Root cause.** The root was a denylist by name. Its own doc comment said what it may read "is allowed by what it is,
+never everything not known to be secret"; the code did the opposite, the shape of 228 (a comment claiming more than the
+code does).
+
+**Fix.** `ac7af458`: an allowlist. The properties are only the keys the device's type declares its accessors read
+(`record.DispatchProperties`, which `internal/archtest` holds free of any key naming a secret), and of those, never a
+reserved key, a secret-named key (`redact.SecretName`) or a text shaped like a secret (`redact.SecretShaped`). Only
+single texts, numbers and booleans are there. An operator's own grouping belongs in a tag, which the root carries.
+`TestDeviceRoot_RendersAndDecidesPerDevice` refuses reads of `snmp_password`, a nested map, an operator's own `note`
+and a declared key holding a key-shaped text.
+
+**Why 458 and 577 did not prevent it.** 577's lesson ("a mask that names what to hide fails open") and LESSONS 190 ("a
+content rule written as a denylist ... fails OPEN") are both in the records. They were written about masking and
+content checks. Choosing what a template may read is the same decision, and the first draft did not treat it as one.
+
+**Lesson.** What a template, an output or a log may read is an allowlist of what each value is (declared by its type,
+shaped like no secret), never a list of names to strip (LESSONS 337).
+
+## 656. Unit blocks, rollback_on_failure undo steps and rendered within: targets ran a task reading device by fewer rules than the per-device path, though validate accepted all three (a repeat in kind of 572 and 574) (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F1 and F2), 2026-10-26, reasoned from the
+code. A task reading the device root runs through `runPerDevice` (`internal/engine/device_root.go`), which decides and
+renders it once per device. Three other ways of running a task did not go through it. A task in a block that runs as
+one unit (`internal/engine/handlers_run.go`) and an undo step that `rollback_on_failure` runs
+(`internal/engine/rollback_on_failure.go`) got no device root, so a template reading `device` would fail at the moment
+it ran. A task whose `target:` is rendered from data with `within:` resolved its devices from the unrendered text.
+`pleiades validate` accepted all three.
+
+**Root cause.** The per-device path was written for the forward walk of ordinary tasks. The other callers that prepare
+a task (`run.prepare`) were not listed when it was added.
+
+**Fix.** `ac7af458`: a unit's task that reads `device` runs through `runPerDevice`, every device reading the unit's
+failure as `error`; an undo step is prepared with its device's root; and `renderTarget` renders a `within:` target
+before its devices resolve. `TestDeviceRoot_EveryPathAndItsLimits` (`internal/engine/device_root_test.go`) covers the
+rendered target, the unit block and an authored undo step reading `device` (`77bcc32e` added the undo case), and
+`TestDevicePaths_FailureBranches` (`internal/engine/device_paths_test.go`) covers the failure branches of each of
+those paths, including an undo step that cannot render.
+
+**Why 572 and 574 did not prevent it.** Both found a path that runs a task (an undo step) held to fewer rules than the
+forward run. LESSONS 309 says to list every caller of `run.prepare` before changing how a task runs. The device root
+changed how a task is decided and rendered, and the sweep was not done for it.
+
+**Lesson.** LESSONS 309 applies to any new way of running a task, not only to splitting the engine: list every caller
+of `run.prepare` by reference, and give each a test.
+
+## 657. A task reading device took lock_acquisition: all_at_plan_time and ran per device without it, with no word (a repeat in kind of 540) (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F3), 2026-10-26, reasoned from the code. A
+task reading the device root runs once per device. `lock_acquisition: all_at_plan_time` asks for every device's lock
+to be taken together before the task runs. On the per-device path the setting was silently not applied.
+
+**Root cause.** `runPerDevice` dispatches each device on its own, so there is no single dispatch that could take every
+device's lock together, and nothing checked for the setting. It is the shape of 540, where a copy of a run dropped a
+runbook's `reversible:` flag: a new path that runs a task carries over fewer of its settings.
+
+**Fix.** `ac7af458`: refused in the engine (`ErrDeviceRootLockAll`, failure stage `FailureStageLockAll`) and in
+`validate`'s `TemplateRule` (`internal/validate/template_rule.go`), with the reason. `TestDeviceRoot_EveryPathAndItsLimits`
+holds the engine side, and `TestTemplateRule_RefusesDeviceWithAllAtPlanTime` (`internal/validate/unmatched_target_test.go`)
+holds the validate side, in a parameter and in a condition. A review of the six commits after this one found the engine's
+refusal was still missing on the rescue path (`handlers_run.go` dispatched a rescue task per device with no check, so a
+runbook that never passed through validate ran it without the lock), a repeat of this entry; `ErrRescueLockAll` is the
+engine's backstop there, held by the rescue case in `TestDeviceRoot_EveryPathAndItsLimits`.
+
+**Why 540 did not prevent it.** 540's lesson was about a field-by-field struct copy. Here nothing was copied: the new
+path simply had no way to honor the setting. LESSONS 309 names "every behavior that ties devices together" as a thing
+to keep or refuse; the lock is one, and the sweep was not done (656).
+
+**Lesson.** A path that runs a task on one device at a time keeps, or refuses by name, every setting that ties devices
+together.
+
+**Follow-up (2026-10-26, 77bcc32e):** the first fix (ac7af458) put validate's refusal after TemplateRule's skip of a task with no templated parameter, so a task reading device only in its condition still validated. The test written for it found that; the check now runs before the skip. Lesson in kind: a rule that reads two sources (parameters and condition) must not be gated on one of them.
+
+## 658. Two merge keys in one YAML mapping resolved first-wins in the runbook reader, where PyYAML takes the last, and the task-form warning read the runbook unexpanded (a repeat of 332 and 486, beside 649) (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F6), 2026-10-26, reasoned from the code. The
+alias and merge-key expansion added in `2d9cd379` (`internal/engine/yaml_aliases.go`, `ExpandAliases`) took the first
+of two `<<` keys in one mapping. PyYAML, which Ansible loads with, takes the last (332). So the same runbook text would
+mean different values here and in Ansible. Separately, `validate`'s task-form check (`internal/validate/taskform.go`)
+walked the YAML nodes without expanding them, so a task written through an alias was not held to its form.
+
+**Root cause.** The runbook reader's expansion was written from the YAML merge rules, not from 332's and 486's
+measured behavior. The task-form check read the file a second way, as 649 found of the normalizer.
+
+**Fix.** `ac7af458`: two merge keys in one mapping are refused, naming them, since no answer suits both readers; the
+task-form warning reads the runbook expanded (`engine.ExpandAliases`). `TestBuild_ExpandsAliasesAndMergeKeys`
+(`internal/engine/yaml_aliases_test.go`) holds the refusal, a merge of a scalar, an anchor-only top-level key and a
+billion-laughs runbook (bounded at 100,000 nodes and depth 64).
+
+**Why 332 and 486 did not prevent it.** Each fixed one reader: 332 the playbook converter, 486 the build-file reader.
+Their lesson (a reader reads what the consumer reads) was not carried to the runbook reader when it learned to expand
+aliases, and neither fix left a shared helper or test the new reader could reuse.
+
+**Lesson.** Every reader of YAML in the project follows the same expansion, through one function, and refuses what the
+readers that matter disagree on.
+
+## 659. net.pcap.summary's cleartext 0 read as "nothing in the clear" while frames it never examined (no IP, MPLS, unread link types) were counted nowhere (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F10), 2026-10-26, reasoned from the code.
+`net.pcap.summary` (`internal/catalog/net/pcap/summary.go`, new in `03ec94ed`) counted `encrypted`, `key_exchange` and
+`cleartext`. A frame of an unread link type, or one carrying no IP (CDP, keepalives, but also IP inside MPLS or PPPoE),
+fell in none of them. A capture of cleartext carried inside MPLS would show `cleartext: 0`, and a runbook asserting
+"no cleartext" would pass.
+
+**Root cause.** The stats answered "how much was cleartext" only for what the reader parsed. What it could not judge
+was left out of the answer rather than counted against it: the check failed open.
+
+**Fix.** `ac7af458`: a new stat, `unexamined` (unread frames plus `pcapsum.NonIP` ones), and the method's doc says that
+a frame not examined is never counted as encrypted, so proving "nothing in the clear" needs `unexamined` to be 0 as
+well. `TestSummary_CountsAWANCapture` checks `unexamined` is 0 for an all-IP capture; no test yet feeds the method a
+non-IP frame and reads `unexamined` back. The CML gate's own runbook condition still reads `cleartext` and `encrypted`
+only, not `unexamined`.
+
+**Lesson.** A count used as proof that something is absent counts, beside it, what the reader could not examine.
+
+## 660. net.pcap.summary's documented example called pleiades.builtin.assert, a method that does not exist, written from memory (a repeat of 642, the class of 514 and 515) (fixed before push)
+
+**Symptom.** 2026-10-25, the live CML gate. While the gate was extended in Phase 129b, its runbook used
+`pleiades.builtin.assert` to hold a capture's counts, as `net.pcap.summary`'s own documented example then did. The run
+failed: no such method exists. No assert method exists at all; `docs/03-migrating-from-ansible.md` lists
+`ansible.builtin.assert` as not yet in the catalog. Neither the example nor the gate's use of it was ever committed.
+
+**Root cause.** The example was written from memory of Ansible, not from the registry, and not run through `pleiades
+validate` before it was copied into the gate. `internal/archtest`'s `TestEveryDocumentedExampleValidates` (515) holds
+every method's examples to validation, and it had not been run when the gate was written.
+
+**Fix.** Before `03ec94ed`: the example registers the counts (`register: wan`), and the gate reads them in a later
+task's `when:` (`result.wire.cleartext == 0`, `result.wire.encrypted > 0`) and in the test's own Go. An assert method
+is a gap, deferred by the owner.
+
+**Why 642 did not prevent it.** 642's lesson (and LESSONS 322) said device wording in an example is measured, never
+recalled. This was a method name, the same mistake about the catalog instead of a device.
+
+**Lesson.** An example names only methods the registry has; run the examples test before using an example anywhere
+(LESSONS 336).
+
+## 661. Phase 129b was committed without running tools/gendocs' tests: two new methods had no examples, and the README and start-here counts were stale (a repeat of 459) (fixed before push)
+
+**Symptom.** 2026-10-26, while moving the template filter tables out of `tools/gendocs` in Phase 129d.
+`TestImplementedMethodsHaveCompleteDocs` failed: two of the methods `03ec94ed` added (`virt.cml.link.start` and
+`virt.cml.capture.stop`) had no `Doc.Examples`. `TestStatusCounts_MatchTheRegistry` failed: `README.md` said "185 of
+the 198" and `docs/01-start-here.md`'s namespace list was stale. Both had failed since `03ec94ed`.
+
+**Root cause.** `03ec94ed` was committed with its reference pages regenerated, but without `go test ./tools/gendocs/`,
+where the documentation completeness and count tests live. The owner had
+deferred `make pr-check` to the end of the branch, so nothing else would run them before the push.
+
+**Fix.** `7e941028`: examples for both methods, and the counts corrected (README "191 of the 204"; start-here `virt`
+33, `net` 25). The fp-reviewer agent then found a sibling (its F11): `pleiades doc filters`' list of template roots was
+kept by hand in `cmd/pleiades/doc_topics.go` and lacked `error`; `ac7af458` holds it to `engine.TemplateRoots()` in
+`TestDocTopics`.
+
+**Why 459 did not prevent it.** 459's fix was the test, and the test worked: it failed as soon as it ran. A new method's
+checklist did not name `tools/gendocs`, and the branch put off every whole-repository check to its end.
+
+**Lesson.** Adding or changing a method runs `go test ./tools/gendocs/ ./internal/archtest/` in the same commit
+(LESSONS 336).
+
+## 662. pleiades validate replaced validate.Validate's own warnings with the file's header warnings, and the new unmatched-target warning fired on every rendered target (fixed before push)
+
+**Symptom.** 2026-10-26, Phase 129d. `validate.Validate` began returning warnings of its own
+(`UnmatchedTargetWarnings`, a target matching no device). `pleiades validate` (`cmd/pleiades/validate.go`) set
+`report.Warnings` to the file's header warnings, so the new warnings were dropped and the command still said there
+were no issues. Separately, the fp-reviewer agent (its F13) found that the new warning fired for every task whose
+target is rendered from data (`within:`), which cannot be known before the run.
+
+**Root cause.** Until this branch only the CLI produced warnings, so assigning them was correct; it became an overwrite
+the moment the library produced some. The warning's first draft treated a template's text as a device name.
+
+**Fix.** `2d9cd379`: the CLI appends its warnings to the report's. `ac7af458`: a task with `within:` is left out of
+`UnmatchedTargetWarnings` (`internal/validate/unmatched_target.go`). `TestUnmatchedTargetWarnings`.
+
+**Lesson.** When a library starts producing a value its caller used to produce alone, read every caller that assigns
+it.
+
+## 663. A lone "-" was read as a flag, so the word after it was taken as its value (a repeat of 50) (fixed)
+
+**Symptom.** 2026-10-26, Phase 129d, adding `-` as adhoc's "no hosts" form. `pleiades adhoc - net.pcap.summary
+src=...` lost the method: the shared positional splitter read `-` as a flag and `net.pcap.summary` as its value.
+
+**Root cause.** `splitPositionals` (`cmd/pleiades/addhost.go`), shared by most commands, treats any word starting with
+`-` as a flag, and a flag not known to be boolean takes the next word. A lone `-` is conventionally a value (standard
+input, or nothing), never a flag.
+
+**Fix.** `2d9cd379`: a lone `-` is a positional. `TestAdhoc_AMethodThatNeedsNoDeviceTakesNoHosts` runs `adhoc -
+net.pcap.summary src=...` end to end.
+
+**Why 50 did not prevent it.** 50 fixed the same splitter's guess for boolean flags. It did not list the other words
+that start with `-` and are not flags.
+
+**Lesson.** A hand-written argument splitter is tested against every word shape the standard `flag` package treats
+specially: `-`, `--`, `-x=v`, and a boolean flag before another flag.
+
+## 664. A GNS3 capture that read 0 bytes was blamed on gzip from a confounded experiment; the quiet link was the cause (open: GNS3 captures are set aside)
+
+**Symptom.** 2026-10-25, Phase 129b's GNS3 capture work. A GNS3 capture stream (GNS3 3.0.6 `capture/stream`, and
+2.2.61's pcap read) returned 0 bytes. The first hypothesis was that the server compressed the response when asked with
+`Accept-Encoding: gzip`.
+
+**Root cause.** The experiment was confounded. The first capture ran while the nodes were starting and the link carried
+their start-up traffic; the later ones ran on a link with no traffic, so the header being tested and the traffic
+changed together. Measured with traffic controlled: a capture of a
+quiet link returns 0 bytes, because the capture writer buffers and the compute's `stream_pcap_file` reads only what has
+been flushed while the capture runs; the file after stop holds only the 24-byte pcap header. With pings on the link,
+the stream and the file read both return the whole capture (868, then 708 bytes) on both versions, repeatedly on one
+link. Gzip had nothing to do with it.
+
+**Fix.** None shipped. The design in `git stash@{0}` ("gns3 link suspend and capture") reads the capture's file
+(`project-files/captures/<name>`) through the controller after the capture stops, which is complete by construction,
+and drops streaming. Starting a capture on a stopped node is a 409. The owner set GNS3 aside on 2026-10-25 ("GNS can
+back burner"); the live test still fails after a VPCS prompt-wait change, not yet diagnosed.
+
+**Lesson.** Before blaming a server, hold every other input still: the same link, the same traffic, one change at a
+time (LESSONS 334).
+
+## 665. A reachability-question fallback for a Batfish traceroute that ends abnormally would have answered "not delivered" for a path that is delivered (fixed before push)
+
+**Symptom.** 2026-10-25, Phase 129c, measured on the pinned Batfish (2026.08.27.3685) while fixing 645. A traceroute
+from `@enter(node[iface])` in a non-default VRF ends TERMINATEDABNORMALLY. Batfish's `reachability` question looked like
+a fallback, and it was measured before use: with the same `@enter` start location it returns 0 rows. Read as a result,
+0 rows means no flow was delivered, so the fallback would have reported a working path as broken.
+
+**Root cause.** The fallback asks a different question. Reachability answers "which flows match", and it has no way to
+say "I could not trace from here", so a start location it cannot use looks like no delivered flow.
+
+**Fix.** `2d54d27c`: no fallback. A task naming `@enter(...)` in a VRF fails, naming the form that works (`from:
+node[interface]`, the node sending from that interface in its VRF). `TestCheck_DMVPNInAFrontDoorVRF`
+(`internal/catalog/net/batfish/dmvpn_live_test.go`).
+
+**Lesson.** A fallback is measured on the case it is for before it is adopted, and a fallback that changes the question
+is refused (LESSONS 333).
+
+## 666. virt.cml.link.stop on a link that never ran recorded a start as its undo, so a rollback would start a link the run never found running (a repeat of 156) (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F14), 2026-10-26, reasoned from the code.
+`virt.cml.link.stop` on a link in state `DEFINED_ON_CORE` (defined, never started) stopped it and recorded
+`virt.cml.link.start` as its undo. A rollback would then start a link the run had never seen running.
+
+**Root cause.** The undo was chosen by the method (stop undoes to start), not by the state the run found. 156 is the
+same mistake: `svc.start` on a service already running must undo to nothing.
+
+**Fix.** `ac7af458`: a stop of a link that never ran changes nothing and records no undo
+(`internal/catalog/virt/cml/link/state.go`). `TestState_StopAndStartWithTheirUndos` holds `start`'s refusal of such a
+link; no test yet holds `stop` on one.
+
+**Why 156 did not prevent it.** 156 moved undos from the manifest into the run, so a method can undo to the state it
+found. Each method still has to read that state for every state the device can be in; `DEFINED_ON_CORE` was not one the
+first draft handled.
+
+**Lesson.** A method's undo is written for every state its target can start in, from the API's own list of states.
+
+## 667. virt.cml.capture.stop's dest could name any project file, a runbook included, and replace it with a pcap (fixed before push)
+
+**Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F16), 2026-10-26, reasoned from the code.
+`dest` took any path in the project (never `.pleiades`). A task could write a capture over a runbook, and a later
+`pleiades rollback` reads a runbook as it ran.
+
+**Root cause.** The parameter's format, `collection.ParamFormatProjectPath`, says where a file may go, not what kind of
+file it may replace.
+
+**Fix.** `ac7af458`: `dest` must end in `.pcap` or `.pcapng` (`internal/catalog/virt/cml/capture/capture.go`), and the
+file is written 0600. No test yet holds the refusal.
+
+**Lesson.** A method that writes into the project limits what it writes to its own kind of file, not only to the
+project's directory.
+
+## 668. testgate's run record kept a failure's last 40 lines, so tests/e2e's upgrade gate, which logs every command, left only its teardown and the cause was lost (a repeat of 414) (fixed; the upgrade gate's own failure is open)
+
+**Symptom.** 2026-10-26, `make pr-check` at `e3560066`: `tests/e2e`'s
+`TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed in the containers pass and again in its isolated rerun
+(36 s), so it was counted real. The record's only line for it, which the failure ledger holds, was a teardown command:
+`packaging_support_test.go:156: docker compose --profile setup --profile backup down -v --remove-orphans (4.121s)`.
+Run alone afterwards it passed twice, the second time with its full output (249 s). Why it failed at `e3560066` is
+not known.
+
+**Root cause.** The record kept the same 40 lines the console prints (`failureLines`). The upgrade gate logs every
+command it runs from its own test files, its teardown included, so the failing assertion sat about 200 lines before
+the end. 414's fix keeps the last line from the test's own `_test.go` file when the tail holds none; here the teardown
+lines came from the test's own files too, so that line was a teardown command as well.
+
+**Fix.** `2053f832`: the record keeps `recordFailureLines` (400) while the console keeps 40
+(`tools/testgate/verdict.go`, `tools/testgate/main.go`). `TestRecordFailureLines_KeepTheCauseBehindALoggedTeardown`
+(`tools/testgate/record_lines_test.go`) builds that shape, a cause followed by 230 logged teardown lines, and fails if
+the console's budget already holds the cause or the record's does not. The upgrade gate's own failure stays open: it
+has not recurred, and the next record of it should hold its cause.
+
+**Why 414 did not prevent it.** 414 assumed that a test's own file speaks for the test and a helper speaks for
+teardown. A gate whose own files log their teardown breaks that assumption, and the record, which is read later when
+the failure can no longer be rerun, had no more room than the console.
+
+**Lesson.** The record read after the run keeps far more than the console shows. A cause lost from it cannot be told
+from contention, and the failure cannot be asked again.
+
+**Resolution (2026-10-27).** The upgrade gate's own failure recurred at `53fc9a61` and its cause was found: the
+monitor's `make --trace` reached the gate's own `make up` through `MAKEFLAGS`. It is entry 686, fixed before push in
+`d560109b`.
+
+## 669. remove-host rewrote hosts.yaml before reading the host's state file, so an unreadable state file left the host removed and --credential and --forget-host-keys skipped (a repeat of 105) (fixed before push)
+
+**Symptom.** 2026-10-26, in `pleiades remove-host`, added on this branch and not yet pushed. `RemoveHost` rewrote `hosts.yaml`
+and then read the host's sidecar state file. When that read failed, the error came back bare: the host was already
+gone from the inventory, and `remove-host` stopped before its `--credential` and `--forget-host-keys` steps, so the
+stored credential and the known_hosts lines stayed behind for a host that no longer existed, and nothing said so.
+
+**Root cause.** Reading the state file is a precondition of the removal, and it was written after the first write.
+
+**Fix.** `8d868e52` (`internal/inventory/file_repository_remove.go`): the state file is read before anything is
+written. A read failure refuses, names the state file, and leaves the host in place. `TestRemoveHost`
+(`internal/inventory/file_repository_remove_test.go`) checks both claims.
+
+**Why 105 did not prevent it.** 105's rule is that a guard which can fire mid-operation runs before the operation. It
+was written about a database deletion through the API; `remove-host` is a new file-backed command, and a read of a
+sidecar file did not look like a guard. LESSONS 294 also applies: the bare error dropped the one fact the caller
+needed, that the host was already gone.
+
+**Lesson.** Every read a removal depends on happens before its first write, and a refusal names what it refused on.
+
+## 670. A rescue task reading device with lock_acquisition: all_at_plan_time ran per device without the lock; only validate refused it (a repeat of 657) (fixed before push)
+
+**Symptom.** 2026-10-26, a review of the six commits after `ac7af458`. 657's engine refusal (`ErrDeviceRootLockAll`)
+covered a task's own dispatch, but `internal/engine/handlers_run.go` dispatched a rescue task per device with no such
+check. A runbook that never passed through `pleiades validate` ran its rescue without the lock it asked for.
+
+**Root cause.** The rescue path is a second place that dispatches a task per device, and 657's fix was written for the
+first.
+
+**Fix.** `33e1e945`: `ErrRescueLockAll` (`internal/engine/device_root.go`), checked in `handlers_run.go` before the
+rescue dispatches; the rescue case in `TestDeviceRoot_EveryPathAndItsLimits` holds it. 657's archive entry was amended
+in `ffcd6cf4` to name this repeat; this entry gives it its own number.
+
+**Why 657 did not prevent it.** 657 fixed the path its review named. Its lesson (a path that runs a task on one device
+at a time keeps, or refuses by name, every setting that ties devices together) was not applied as a sweep of every
+such path, which LESSONS 309 asks for.
+
+**Lesson.** When a fix adds a refusal to one dispatch path, list every path that dispatches the same kind of task (the
+forward run, a rescue, an undo step) and give each the refusal or a test showing why it needs none.
+
+## 671. vmrun start forks vmware-vmx, which inherits and holds vmrun's standard output, so a start read through a pipe or an SSH channel never ended (fixed before push)
+
+**Symptom.** 2026-10-26, on the real Mac (VMware Fusion 26.0.1, Apple Silicon), while building `pkg/vmrun`: a
+`vmrun start` piped into `grep` hung for 13 minutes. `pkg/vmrun` reaches the Mac over SSH, and a start read through
+an SSH channel has the same shape: the channel's output never reaches its end while the VM runs.
+
+**Root cause.** `vmrun start` forks the VM process, `vmware-vmx`, which inherits vmrun's standard output and holds it
+open for the VM's whole life. A reader waits for end of file that only the VM's exit would give. It is related in kind
+to 444, where a forwarder waited on a connection its far side kept open.
+
+**Fix.** `eaace13a`: `start` and `reset` run through `detachScript` (`pkg/vmrun/vmrun.go`), which writes vmrun's
+output to a file, then prints it and exits with vmrun's status. `TestDetachScript_ReturnsWhileTheChildStillHoldsItsOutput`
+runs it over a stand-in that leaves a child holding its output, and `TestDetachScript_TheHazardIsReal` is the control:
+the bare command must wait (`pkg/vmrun/detach_test.go`).
+
+**Lesson.** A command that starts a long-lived process is read from a file, not a pipe, unless the process is known
+to close what it inherited; and the test proves the hazard with a control that must hang without the fix.
+
+## 672. macOS throttled a VMware Fusion VM started headless over SSH, so a Windows 11 ARM guest ran about five times slow, its first-logon VMware Tools install hung and keystrokes were lost (fixed before push)
+
+**Symptom.** This session, setting up the Windows 11 ARM guest `win11-arm` on the Mac. With the VM started headless
+from an SSH session, the guest ran about five times slower than normal, the unattended
+install took about 85 minutes, the first-logon VMware Tools install hung, and keystrokes sent to the console were lost.
+
+**Root cause.** macOS treats a VM process started from an SSH session, with no user at the console, as background work
+and throttles it. Nothing in Fusion or vmrun says so.
+
+**Fix.** `caffeinate -dimsu -w <pid of the VM's process>` brought the guest to full speed at once. It is built into
+`virt.fusion.vm.start` (`14747aae`) as `keep_awake` (default true; `keepAwakeScript` in `pkg/vmrun/ops.go` finds the
+VM's process by its vmx path, and `-w` ends the hold when the process exits). Held by `TestKeepAwakeScript_FindsTheVMProcessByItsPath`
+and `TestStart`'s `keep_awake false` case.
+
+**Lesson.** When a VM "is slow", measure its clock against the host's before tuning anything; a headless VM on macOS
+started from SSH needs an explicit wake hold for its process (LESSONS 339).
+
+## 673. vmrun getGuestIPAddress said VMware Tools were not running after a resume, while checkToolsState said running, so a resumed guest reported no address (fixed before push)
+
+**Symptom.** 2026-10-27, on the real Fusion: after `win11-arm` resumed from suspend, a plain `vmrun getGuestIPAddress`
+kept answering "VMware Tools are not running" while `checkToolsState` answered running, and
+`getGuestIPAddress -wait` returned the address. `virt.fusion.vm.info` therefore reported no address for a running
+guest.
+
+**Root cause.** vmrun's two questions about the guest's tools disagree for a time after a resume, and the reader
+trusted the plain answer. This is the third resume-related surprise in the lab, after 516 and 535, though in a
+different layer (vmrun's answer, not the network).
+
+**Fix.** `2846c008`: `GuestIP` (`pkg/vmrun/ops.go`) checks a "not running" answer against `checkToolsState` and asks
+again with `-wait`, bounded. `TestGuestIP_DoesNotTrustAPlainNoToolsAnswer` holds it, from the real Fusion's messages
+(`pkg/vmrun/testdata`). Proven on the Mac: `virt.fusion.vm.info` reported the guest's address after the resume, where it
+had reported none.
+
+**Lesson.** When a tool offers two answers to one question, check the cheap one against the other before reporting
+"none".
+
+## 674. A killed vmcli left the VM's lock behind (<vm>.vmx.lck/M<pid>.lck), and every start then failed "The file is already in use" (open: recovery is by hand)
+
+**Symptom.** On the real Fusion, after a `vmcli` process was killed, every start of the VM failed with "The file is
+already in use".
+
+**Root cause.** Fusion takes a lock on the VM as a file under `<vm>.vmx.lck`, named for the holding process
+(`M<pid>.lck`). A killed process never removes it, and Fusion does not check whether the named process still exists.
+
+**Fix.** Not automated. It was recovered by hand: the named process was confirmed gone, then the lock file removed.
+Deciding that a lock is stale is left to the operator, since removing a live VM's lock risks two processes writing one
+disk. The recovery is recorded in the Groundconfig corpus, not in a method.
+
+**Lesson.** A tool's lock that names its owner can be judged stale only by checking that owner, and doing it
+automatically is a decision to make on purpose, not a convenience to add in passing.
+
+## 675. Windows 11 build 26300's bsdtar 3.8.9 cannot create a folder directly under a drive root, so win.archive.extract into C:\ failed (fixed before push)
+
+**Symptom.** 2026-10-27, on the Windows 11 ARM guest: `win.archive.extract` with `dest: C:\` failed on Go's archive with
+`Can't create '\\?\C:\go\VERSION'`. Windows Server 2025's `tar.exe` never showed it, which is why the method's earlier
+proof missed it.
+
+**Root cause.** The `tar.exe` (bsdtar 3.8.9) in Windows 11 build 26300 cannot make a folder directly under a drive's
+root, though it fills one that already exists.
+
+**Fix.** `6465e007` (`internal/catalog/win/archive/extract.go`): with `dest` a drive root, the script lists the archive
+and makes its top folders first, never one named `..` or `.`, or holding a drive colon or a wildcard.
+`TestScript_MakesADriveRootsTopFoldersFirst` holds the script. Proven on the guest: Go 1.26.10 windows/arm64 and MinGit
+ARM64 unpacked into `C:\` and `C:\mingit` through the method.
+
+**Lesson.** A method that shells out to a tool the OS ships is proven on each OS build it claims; the same tool name
+can be a different build with different limits (LESSONS 342).
+
+## 676. winarmcheck ran wincheck's older private pleiades build, which could not load a project naming VMwareFusionCapable, because newLeg hard-coded the tool name (a repeat of 526) (fixed before push)
+
+**Symptom.** 2026-10-27, the first real run of `wincheck -arm64` (`winarmcheck`): the leg failed with "factory failed to
+build item mac", because the project's `generic_ssh` record for the Mac held `VMwareFusionCapable`, which the binary
+it ran did not know.
+
+**Root cause.** `tools/wincheck`'s `newLeg` called `oscheck.NewLab("wincheck", ...)`, so the leg's steps used the binary
+in wincheck's private directory. The box step built this tree's pleiades under the selected check's own name,
+`winarmcheck`, so the leg ran whatever an earlier wincheck run had left, built from an older tree.
+
+**Fix.** `4ba08943`: `newLeg(tool)` builds the leg under the selected check's own name (`c.Tool`), so wincheck and
+winarmcheck never run each other's build. No test yet holds the leg's tool name; the real run that found it passed
+after the fix (2 packages, 59 s).
+
+**Why 526 did not prevent it.** 526 made the box's build come from this tree every time. The leg found its binary by a
+name written into shared code, and the second tool to share that code ran a binary its own run never built.
+
+**Lesson.** A tool that two checks share takes the check's identity as a parameter everywhere it names a path; a
+literal name in shared code is a cache key that a second user gets wrong.
+
+## 677. go generate ./internal/forge/catalogdata wrote eight scaffold files for the CML link and capture start and stop methods, which already exist in other files, so the methods would register twice (a sibling of 160) (open)
+
+**Symptom.** This session, running `go generate ./internal/forge/catalogdata` while adding the Fusion methods
+(`14747aae`): it also wrote
+`start.go`, `stop.go` and their `_test.go` files under `internal/catalog/virt/cml/link` and
+`internal/catalog/virt/cml/capture`, eight files in all. Those methods already exist, in `link.go` (with `state.go`) and
+`capture.go`, so the scaffolds would register `virt.cml.link.start`, `virt.cml.link.stop`, `virt.cml.capture.start`
+and `virt.cml.capture.stop` a second time. They were deleted by hand before any commit.
+
+**Root cause.** The generator decides that an entry already exists by the files it would write for it (160's
+`firstExistingFile`). Phase 129b put those methods in shared files rather than one file per method, so none of the
+expected files exists and each entry reads as new.
+
+**Fix.** None yet. The generator is not idempotent on this branch: every run writes the same eight files again, and a
+run that is not checked with `git status` afterwards would add them.
+
+**Why 160 did not prevent it.** 160 made the skip per entry rather than per file, which is right, but its evidence of
+an entry is still the file names the scaffold would use. A hand-written method in a file of another name is invisible
+to it.
+
+**Lesson.** A generator's "already exists" asks the registry or the source for the thing itself, not for the file name
+it would have chosen.
+
+## 678. README's check-mode count stayed at 191 of 204 after three Fusion methods were added (a repeat of 459 and 661) (fixed before push)
+
+**Symptom.** 2026-10-27, `TestStatusCounts_MatchTheRegistry` (`tools/gendocs`) failed after `14747aae`: README said
+"191 of the 204" methods support check mode, where the registry had 194 of 207.
+
+**Root cause.** The README holds counts written by hand in more than one sentence. `14747aae` updated README and
+`docs/01-start-here.md` for the three new methods but missed the check-mode sentence.
+
+**Fix.** `4a975a97`: the count reads "194 of the 207". The guard worked as built.
+
+**Why 459 and 661 did not prevent it.** 459's fix is the test, and it caught this. 661's lesson (LESSONS 336) is to run
+`tools/gendocs`' tests in the commit that adds a method; the fix landed as its own commit after two others, so the
+commit that added the methods still carried the stale count.
+
+**Lesson.** Run `go test ./tools/gendocs/ ./internal/archtest/` before the commit that adds a method, not after it.
+
+## 679. A scripted edit to box_test.go silently did not apply, so the Fusion fake never answered info and the first test case passed by accident (fixed before push)
+
+**Symptom.** 2026-10-27, writing `TestRunWithBox_DrivesAFusionVMThroughItsOwnMethods` (`tools/internal/oscheck/box_test.go`).
+A Python replace meant to add the Fusion info case to the fake host's switch matched nothing, because of an indentation
+mismatch, and wrote the file unchanged with no error. The fake therefore never answered `virt.fusion.vm.info`, and the
+first case passed anyway. The second case (a VM already on) failed, which exposed it.
+
+**Root cause.** A string replace that finds no match is a silent no-op, and the edit did not assert that its anchor
+matched. The first case's assertions did not depend on the info answer it was meant to test. It is the class of 436
+and 440, a check that passes without looking.
+
+**Fix.** The switch was edited correctly before `b609aa03`; the test as committed holds both cases.
+
+**Lesson.** Every scripted edit asserts that its anchor matched exactly once before it writes, and every new case is
+checked against a case that must fail (LESSONS 338).
+
+## 680. The pr-check monitor showed the fast pass as pending while it ran, because it started that pass only while the mac leg was still pending (fixed before push)
+
+**Symptom.** 2026-10-27, after `830e3399` started the Mac's chain before the fast pass: the monitor's dashboard showed
+the fast pass as pending while its packages ran. The owner caught it ("dont gaslight me everything else is pending").
+The caller reports that the containers stage had shown the same symptom before; that instance was never recorded, and
+the archive holds no earlier monitor entry, so this is not marked a repeat.
+
+**Root cause.** `current_pass` in `tools/monitor/prlog.py` started the fast pass on its first package line only when
+the fast stage was pending, had packages, and the mac leg was still pending. The last condition inferred the recipe's
+order from another stage: the Mac's leg used to begin after the fast pass. Once the Mac's chain started at t0, the mac
+leg was always running by then, so the fast pass was never started.
+
+**Fix.** `01710eb9`: each local pass prints `pr-check: the <fast|repeat|containers> pass begins`, and the monitor reads
+that line (`PASS_BEGIN`); `current_pass` no longer looks at the mac leg. A leg started at t0 prints a "run from the
+start, beside" line, which `LEG_AT_START` and `LAB_AT_START` read: each starts its leg and leaves the recipe's own
+stage alone. `test_legs_from_the_start` (`tools/monitor/test_monitor.py`) holds it.
+
+**Lesson.** A dashboard learns that a stage began from a marker its producer prints, not from the order of other lines;
+the order changes, and the inference then reports a running stage as pending (LESSONS 345).
+
+## 681. Made concurrent, the Mac's container-free tests and its Podman container half would have shared one job file in the same tree, so stopping either could kill the other (fixed before push)
+
+**Symptom.** 2026-10-27, found by reading the code before the first run that started the Mac's two halves together.
+Both wrote their test job's process to `.maccheck.pid` in the same unpacked tree.
+
+**Root cause.** `POSIX.PIDFile` named one file per tool. The two halves had always run one after the other, so one
+file was enough; running them at once made the second write replace the first, and the stop script reads that file
+to end a run.
+
+**Fix.** `01710eb9`: `POSIX.PIDFile` (`tools/internal/oscheck/posix.go`) gives a container pass its own file,
+`.<tool>-containers.pid`. `TestPIDFile_TheContainerPassHasItsOwn` (`tools/internal/oscheck/containers_test.go`)
+holds it.
+
+**Lesson.** When two runs that were serial become concurrent, list every file and name they write and give each run
+its own.
+
+## 682. The Windows ARM VM had no C compiler, so go-sqlite3 was its stub; internal/ui/resources' shared fixture failed once, and 76 later tests failed with 404s the cgo-off skip could not tell from real failures (fixed before push; the classification gap is open)
+
+**Symptom.** 2026-10-27, the `winarm` leg on the Windows 11 ARM VM: `internal/ui/resources` failed 77 tests. One
+printed go-sqlite3's stub error and was turned into a skip; the other 76 failed with 404 answers that look like real
+defects. The leg also printed 19 `FAIL` lines, which the monitor counted as 19 failed packages, where the leg's record
+held one.
+
+**Root cause.** With no C compiler, Go builds with cgo off and go-sqlite3 links a stub that fails every open.
+`internal/ui/resources` opens SQLite once, behind a `sync.Once`, so only its first test printed the stub's error.
+`flakegate.CgoStubSkips` (added in `a6ab9f35`, 2026-10-19) turns a test into a "needs cgo" skip only when that test's
+own output carries the stub's error, so it skipped the first test and left the rest as failures: each got a fixture
+with no views. The monitor counts a leg's raw `FAIL` lines rather than reading the leg's record.
+
+**Fix.** `c4c56d71`: the VM has llvm-mingw 20261020 (ucrt, aarch64, SHA-256 checked), installed through the lab's
+pleiades runbook, and wincheck's script puts its newest `C:\llvm-mingw-*` folder's `bin` on the PATH, so cgo is on and
+the real driver links. `TestTestScript` (`tools/wincheck/device_test.go`) holds the script. Open, as Phase 129e items:
+a shared fixture still hides the stub from `CgoStubSkips` on a machine with no compiler, and the monitor still counts
+raw `FAIL` lines.
+
+**Lesson.** A failure classifier that reads one test's output misses a cause a shared fixture reported once; when
+dozens of tests in one package fail with ordinary-looking errors, read the package's first failure.
+
+## 683. With a C compiler installed, wincheck turned -race on and testgate's live tests said the race detector was there, and Go has none for windows/arm64 (a repeat of 502) (fixed before push)
+
+**Symptom.** 2026-10-27, the first `winarm` run after llvm-mingw was installed (682): `go test` refused `-race` on
+windows/arm64, and `tools/testgate`'s own live tests failed the same way.
+
+**Root cause.** wincheck's script turned `-race` on whenever `gcc.exe` was found, and `raceOff`
+(`tools/testgate/gate_live_test.go`) said the race detector was available whenever `go env CGO_ENABLED` was 1. Go has
+no race detector for windows/arm64, so both proxies were wrong there.
+
+**Fix.** `c4c56d71`: the script turns `-race` on only when `go env GOARCH` is amd64, and says why otherwise
+(`TestTestScript`). `5de01920`: `racePlatforms` in `tools/testgate/gate_live_test.go` lists the GOOS/GOARCH pairs Go
+1.26 builds the race detector for, and the live tests read it.
+
+**Why 502 did not prevent it.** 502 keyed the race detector's availability on cgo, which was true only while every
+Windows machine with a compiler was amd64. Installing a compiler on an ARM machine made the proxy wrong.
+
+**Lesson.** Ask for the capability itself (the race detector's platform list), not a precondition of it (LESSONS 343).
+
+## 684. Tests decided Docker was available from a docker on the PATH, so Homebrew's docker CLI on the Mac made them run where no daemon answers and no compose plugin exists (fixed before push)
+
+**Symptom.** 2026-10-27, the Mac's container-free pass: tests in `internal/engine`, `internal/forge/playbook` and
+`internal/setup` failed. The owner named it: "a docker misdetect when podman is there".
+
+**Root cause.** `testsupport.BuildAnsibleRunnerImage` and the docker compose comparison test
+(`internal/setup/envfile_compose_test.go`) decided Docker was available from `exec.LookPath("docker")` alone.
+Homebrew's docker CLI was installed on the Mac for Podman. In the container-free pass no daemon answers it
+(`DOCKER_HOST` is set only in the container half), and the CLI has no compose plugin, so the tests ran and failed
+instead of skipping.
+
+**Fix.** `f929ec68`: both call `testsupport.Require("docker")` on `docker info` succeeding, and the compose test also on
+`docker compose version`. CI's fast job now requires docker (`PLEIADES_TEST_REQUIRE` in `.github/workflows/ci.yml`),
+so a runner that loses its daemon still fails rather than skipping.
+
+**Lesson.** A test asks for what it needs (a daemon that answers, a plugin that runs), not for a file that is usually
+installed beside it (LESSONS 343).
+
+## 685. Three lines added above a waived docker build call moved its gosec G204 finding from line 38 to 41, and the gate stopped on an unwaived finding and a stale waiver (fixed before push)
+
+**Symptom.** 2026-10-27, `make pr-check` after `f929ec68`: gosec reported G204 at
+`internal/testsupport/ansible_image.go:41` as unwaived, and the waiver for line 38 as matching nothing.
+
+**Root cause.** `gosec-waivers.json` keys each waiver by file and line. `f929ec68` added the `Require` checks above
+the unchanged `docker build` call, which moved it three lines. The archive holds no earlier entry for this class,
+though the history shows the same drift fixed at least four times without a record (`d80932da`, `8ae74370`,
+`180f6e85`, `c9df9ba9`).
+
+**Fix.** `53fc9a61`: the waiver was re-reviewed, moved to line 41, and its reason updated to name the new checks.
+
+**Lesson.** An edit to a file that holds a waived finding runs `make gosec` before the commit, and the waiver is
+reviewed again, not only moved.
+
+## 686. The monitor's make --trace reached the upgrade gate's own make up through MAKEFLAGS, which echoed a backup line that never ran, and the gate's no-second-backup check failed on the echo (fixed before push)
+
+**Symptom.** `tests/e2e`'s `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed in pr-check's containers pass at
+`e3560066` (2026-10-26) and at `53fc9a61` (2026-10-27), and in testgate's isolated rerun each time, yet passed when run
+alone by hand. This is the failure 668 left open.
+
+**Root cause.** `tools/monitor` runs `make --trace pr-check`. make exports `--trace` in `MAKEFLAGS` to every recipe's
+commands, `go test` passed it on, and the upgrade gate's own `make up` read it as its own flag. With `--trace`, make
+printed the `up` recipe's line holding `echo "... backed up first."`, though the branch that runs it never ran, and the
+gate's check that no second backup was taken matched the printed text. `scrubbedPackagingEnv`
+(`tests/e2e/packaging_support_test.go`) removed setup's and compose's variables but not make's. testgate's isolated
+rerun inherits the same environment, which is why it failed too, and a run by hand outside make did not. It is related
+in kind to 284, where `-n` reached a sub-make through `MAKEFLAGS`, but 284 was inside one Makefile.
+
+**Fix.** `d560109b`: `scrubbedPackagingEnv` also drops `MAKEFLAGS`, `MFLAGS`, `MAKELEVEL`, `MAKEFILES`,
+`MAKEOVERRIDES` and `GNUMAKEFLAGS` (`makeInherited`), so a gate's make runs as an operator's would.
+`TestScrubbedPackagingEnv_DropsWhatAParentMakePasses` (`tests/e2e/packaging_env_test.go`) holds it. Reproduced before
+the fix: the gate fails with `MAKEFLAGS=--trace` set and passes with the fix.
+
+**Lesson.** A program that runs make, or reads make's output, clears what a parent make exports before it starts the
+child (LESSONS 344).
+
+## 687. localauth's timing test averaged five calls in a row per side, and a stall on the busy Windows ARM VM failed the strict repeat (a repeat of 422) (fixed before push)
+
+**Symptom.** 2026-10-27, the `winarm` leg's strict repeat pass: `internal/localauth`'s
+`TestAuthenticate_UnknownAccountIsNotFasterThanAKnownOne` failed with the known account's side at 146 ms against the
+unknown account's 35 ms. The unknown side still ran a full key derivation; a shortcut costs microseconds.
+
+**Root cause.** The test averaged five calls in a row for each side, so one stall during the known side's calls
+counted against that side alone.
+
+**Fix.** `3012d852` (`internal/localauth/ent_store_test.go`): each side's fastest of 15 alternating rounds, 422's
+method. The account's lockout is raised past the rounds, so every known attempt still derives. A planted shortcut
+still fails the test (45 us against 15 ms).
+
+**Why 422 did not prevent it.** 422 fixed `TestSecureCompare_ConstantTime`, and its sweep reported no other test
+comparing two timings. This one did, and the sweep missed it.
+
+**Lesson.** A sweep for a class is a search by shape (two measured durations compared), not by the names a first fix
+touched; record how the sweep searched so a miss can be found.
+
+## 688. bsd-check stopped a gate at its readiness step with 3 GB free, because about 5 GB of go-build and Test* folders left by interrupted runs sat in /tmp and the check cleaned only its own trees (a repeat of 537) (fixed before push)
+
+**Symptom.** 2026-10-27, `make pr-check` at `3012d852`: the `bsd` leg stopped at its readiness step, with 3 GB free
+where its tests unpack and build, under the 4 GB a run needs.
+
+**Root cause.** About 5 GB of `/tmp/go-build*` work folders, and `Test*` temporary folders, were left by `go test` runs
+that were killed when the day's gates were interrupted. The readiness step removed only the check's own trees and
+cache, then refused.
+
+**Fix.** `aa5e5b64`, at the owner's direction ("bsd and windows vms need to free space before each run", "arm windows
+needs it too"): a check run on a box it starts and puts back (`oscheck.Dedicating`) clears, before every run, the
+login's default Go build cache, `go-build*` and `Test*` folders in its temporary directory, and, while still short, its
+module cache. A machine that is not such a box (the Mac) is untouched. `TestReadyScript_ADedicatedMachineClearsItsLoginsGoLeftovers`
+(`tools/internal/oscheck/posix_test.go`), `TestDedicate` (`tools/internal/oscheck/lab_test.go`), `TestDedicated`
+(`tools/bsdcheck/device_test.go`) and `TestDedicatedReadyScript` (`tools/wincheck/device_test.go`) hold it. Proven live:
+bsd-check went from 3 to 8.2 GB free; on win-check and win11-arm a planted `go-build` and `Test*` folder were removed
+and an unrelated folder kept.
+
+**Why 537 did not prevent it.** 537 made the readiness step refuse under 4 GB with the fix named, cleaning only what the
+check itself wrote, and added a lab runbook to clean by hand. Leftovers from killed runs are outside the check's own
+trees, and a runbook run by hand is not run before every check.
+
+**Lesson.** A machine kept only for checks cleans the leftovers its own kind of work leaves before every run, rather
+than refusing with advice (LESSONS 346).
+
+## 689. A for loop over pgrep -f "tools/monitor/monitor.py run" matched the agent's own shell, whose command line held that text, and killed it (a repeat of 153) (open: the guard does not catch pgrep -f)
+
+**Symptom.** 2026-10-27, stopping the gate monitor before starting a new gate:
+`for p in $(pgrep -f "tools/monitor/monitor.py run"); do kill ...` ended its own shell with exit 144, before the next
+command (which started the new gate) ran. A tooling mistake by the agent, not a product defect.
+
+**Root cause.** `pgrep -f` matches whole command lines, and the loop's shell had the pattern in its own.
+
+**Fix.** None in this repository. Match a process by the exact start of its argv
+(`pgrep -f "^.venv/bin/python tools/monitor/monitor.py run"`) or by its pid. The agent's guard hook, which lives outside
+this repository, refuses `pkill -f` and `killall` but not `kill` fed by `pgrep -f`.
+
+**Why 153 did not prevent it.** 153's fix was a lesson only, and LESSONS 292 restated it for `pkill -f`. The guard
+added later blocks that one spelling; the same match written as `kill $(pgrep -f ...)` passes it.
+
+**Lesson.** A guard against a hazard covers each way of writing it, not the spelling of the last incident (LESSONS 114).
+
+## 690. On win-check, the full -race pass reported internal/ui/resources/credentialtypes as [build failed] with no compiler output, and the same build alone passed in 2.4 s (open)
+
+**Symptom.** 2026-10-27, `make pr-check` at `aa5e5b64`, the `win` leg (4 vCPUs and 4 GB since that day): the full
+`-race` pass reported `FAIL .../internal/ui/resources/credentialtypes [build failed]` with no compiler output at all,
+and testgate could not re-run it. The same build alone, on the same tree and cache, passed in 2.4 s with 32 GB of disk
+and 3 GB of memory free. The same shape was seen on 2026-10-20 in `internal/forge/collectionscaffold`, when win-check
+had 2 vCPUs and 2 GB; that one was not recorded.
+
+**Root cause.** Not proven. testgate keeps a build failure's output (`flakegate.FailureOutput` collects build-output
+events since 537), so the toolchain printed nothing. Most likely a compiler or linker process ended without a message
+under the pass's load, as a memory limit would end it; 512 is the related case where FreeBSD's kernel said so.
+
+**Fix.** None yet. The next instance should record the machine's free memory and the Windows event log at the time of
+the failure, before it is rerun.
+
+**Lesson.** A build failure with no words is unexplained, not real and not contention: record what the machine had
+free when it happened, and build the package alone on the same tree before naming a cause.

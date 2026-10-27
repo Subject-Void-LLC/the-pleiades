@@ -199,7 +199,7 @@ func run(o options) (err error) {
 		failures := append(listed, warned...)
 		summarize(label, skips, nil, failures, events)
 		printOutput(events, failures)
-		rec.Failures = flakegate.RunFailures(events, failures, flakegate.OutcomeFailed, failureLines, scrub)
+		rec.Failures = flakegate.RunFailures(events, failures, flakegate.OutcomeFailed, recordFailureLines, scrub)
 		return judgeStrict(failures, waitErr, len(events))
 	}
 
@@ -242,8 +242,8 @@ func run(o options) (err error) {
 		}
 	}
 
-	rec.Failures = flakegate.RunFailures(events, confirmed, flakegate.OutcomeFailed, failureLines, scrub)
-	rec.Failures = append(rec.Failures, flakegate.RunFailures(events, notRun, flakegate.OutcomeNotRerun, failureLines, scrub)...)
+	rec.Failures = flakegate.RunFailures(events, confirmed, flakegate.OutcomeFailed, recordFailureLines, scrub)
+	rec.Failures = append(rec.Failures, flakegate.RunFailures(events, notRun, flakegate.OutcomeNotRerun, recordFailureLines, scrub)...)
 	rec.Failures = append(rec.Failures, flakegate.RunFailures(events, contention, flakegate.OutcomeContention, contentionLines, scrub)...)
 
 	if len(contention) > 0 {

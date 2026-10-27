@@ -208,3 +208,34 @@ func TestMerge_Failures(t *testing.T) {
 		}
 	}
 }
+
+// TestRemove: the lines naming exactly one address (a port included) go,
+// every other host's stay, a file or address with nothing to drop is left as
+// it is, and a missing file is no error.
+func TestRemove(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if n, err := Remove(path, "192.168.56.10"); err != nil || n != 0 {
+		t.Fatalf("a missing file: %d, %v", n, err)
+	}
+	a, b, c := newKey(t), newKey(t), newKey(t)
+	for address, key := range map[string]ssh.PublicKey{"192.168.56.10": a, "192.168.56.11:2222": b, "192.168.56.12": c} {
+		if _, err := Merge(path, address, []ssh.PublicKey{key}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Merge(path, "192.168.56.10", []ssh.PublicKey{newKey(t)}, false); err == nil {
+		t.Fatal("a second key for a trusted host was merged without --replace")
+	}
+	if n, err := Remove(path, "192.168.56.99"); err != nil || n != 0 {
+		t.Fatalf("an address nothing names: %d, %v", n, err)
+	}
+	if n, err := Remove(path, "192.168.56.10"); err != nil || n != 1 {
+		t.Fatalf("Remove: %d, %v", n, err)
+	}
+	if verifies(t, path, "192.168.56.10", a) || !verifies(t, path, "192.168.56.11:2222", b) || !verifies(t, path, "192.168.56.12", c) {
+		t.Error("Remove dropped the wrong lines")
+	}
+	if n, err := Remove(path, "192.168.56.11:2222"); err != nil || n != 1 || verifies(t, path, "192.168.56.11:2222", b) {
+		t.Errorf("a host on a port: %d, %v", n, err)
+	}
+}

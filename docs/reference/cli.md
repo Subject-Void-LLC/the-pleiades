@@ -232,6 +232,85 @@ remove a stored database connection
 
 `pleiades remove-database-connection appdb`
 
+## pleiades add-secret
+
+store one field of a named secret, encrypted, for a runbook to name as {{ secret.<name>.<field> }} in a parameter its method resolves
+
+`pleiades add-secret <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --field | `string` | - | the field of the secret to store, a lowercase identifier |
+| --value-stdin | `bool` | `false` | read the value as one line on standard input |
+| --value-file | `string` | - | a file `pleiades seal` wrote holding the value |
+| --passphrase | `bool` | `false` | prompt for the passphrase of a passphrase-sealed --value-file |
+| --passphrase-stdin | `bool` | `false` | read the passphrase of a passphrase-sealed --value-file as one line on standard input |
+| --generate | `int` | `0` | generate a random value of this many letters and digits (8 to 128) instead of reading one |
+| --replace | `bool` | `false` | replace a value already stored for the field |
+
+`pleiades add-secret dmvpn --field psk --generate 32`
+
+`pleiades add-secret dmvpn --field psk --value-file psk.sealed`
+
+## pleiades list-secrets
+
+list the stored named secrets and their fields, never a value
+
+`pleiades list-secrets [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades list-secrets --json`
+
+## pleiades remove-secret
+
+remove a stored named secret, or one of its fields
+
+`pleiades remove-secret <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --field | `string` | - | remove only this field; the whole secret when empty |
+
+`pleiades remove-secret dmvpn`
+
+`pleiades remove-secret dmvpn --field psk`
+
+## pleiades remove-host
+
+remove a host from the inventory, and with flags its credential and the known_hosts lines trusting its address; the journal keeps its runs
+
+`pleiades remove-host <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --credential | `bool` | `false` | also remove the host's stored credential |
+| --forget-host-keys | `bool` | `false` | also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there |
+| --leave-references | `bool` | `false` | remove the host even when another host names it in a property (a console node's console_server) |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades remove-host br4 --credential --forget-host-keys`
+
+`pleiades remove-host cml --credential --json`
+
+## pleiades remove-credential
+
+remove a device's stored credential, leaving the device in the inventory
+
+`pleiades remove-credential <device> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+
+`pleiades remove-credential br4`
+
 ## pleiades import-kubeconfig
 
 make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file
@@ -401,9 +480,9 @@ build, validate, and run a runbook
 
 ## pleiades adhoc
 
-run one method against a device or a tag, with no runbook written
+run one method against a device, a tag or a comma list of devices, or with - (or no hosts at all) one that needs no device, with no runbook written
 
-`pleiades adhoc <hosts> <method> [key=value | key:=yaml ...] [flags]`
+`pleiades adhoc <hosts | a,b,c | -> <method> [key=value | key:=yaml ...] [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -428,6 +507,10 @@ run one method against a device or a tag, with no runbook written
 `pleiades adhoc web pkg.apt.install name=nginx --mode check`
 
 `pleiades adhoc lab exec.command argv:='[cat, /etc/os-release]'`
+
+`pleiades adhoc br1,br2 net.ios.command command='show crypto ikev2 sa' --json`
+
+`pleiades adhoc net.pcap.summary src=captures/core1-wan.pcap --json`
 
 ## pleiades rollback
 
@@ -474,7 +557,11 @@ every run recorded in this project, oldest first, with what it changed and wheth
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --since | `string` | - | only runs that began this long ago or later (2h, 30m), or at or after this RFC 3339 time |
+| --changed | `bool` | `false` | only runs that changed something: the ones a rollback could undo |
 | --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades journal list --changed --since 4h --json`
 
 ### pleiades journal show
 

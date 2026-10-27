@@ -6236,3 +6236,272 @@ and allowed any WAN. In run 1 the agent followed the IWAN guide's PKI section an
 about 25 of a 30-minute detour, ending when CORE1 could not enroll because IOL XE serves no HTTP, and it switched to
 a pre-shared key. The rerun built a certificate authority again. Neither the requirements nor the request needed
 one. Phase 129's skill item adds "the simplest design that meets the requirements".
+
+## 327. A process stopped by a PID from pgrep -o is not proven stopped: stop by process group, confirm with ps, and lock an unattended driver from its start
+
+**Rule.** To stop a script and everything it started, read its process group from `ps -eo pid,pgid,cmd`, stop the
+group, and confirm with `ps` that nothing in it is left. Give any unattended driver a lock (`flock`) from its first
+line, so a second copy cannot run beside one that was thought stopped.
+
+**Why.** 2026-10-25, blind CVD run 3 (`~/pleiades-cvd/runs/run3-bootstrap.md`, steps 11 and 13). The first driver was
+stopped through the PID `pgrep -o` returned. That was a short-lived parent (290195), not the driver (290201), which
+lived on in its own process group, with turn A running inside it. When turn A ended, the old driver and its
+replacement both graded it at once, and each stopped the other's core links in the middle of a failover test. Both
+drivers were then stopped by process group, both cores' links were started again, turn A was regraded alone, and
+`run3-rest2.sh` now holds a `flock`. This is the class of FAILURE_PATTERNS 504 ("a test of a stop asserts something
+was running before it and nothing after") and of LESSONS 192, where `setsid` reports the fork rather than the work.
+
+## 328. A repeat of 114: a detector for "is X running" is checked against the live process as it is really invoked
+
+**Rule.** Before a guard that asks "is X running" protects anything, run it against a live X started the way people
+really start it, flags and wrappers included, and test it with the near misses.
+
+**Why.** 2026-10-25, blind CVD run 3. `~/pleiades-cvd/lib.sh`'s `pr_check_running` matched `make pr-check`, and the
+pr-check running then was `make --trace pr-check`, so the guard had been blind to every `--trace` run since it was
+written. The run's driver started turn A beside a running pr-check. The overlap was harmless only because
+pr-check's CML gate skips without `PLEIADES_CML_*` in its environment, checked as 0 such variables in that process's
+`/proc/<pid>/environ`. The pattern is now `make( .*)? pr-check`, checked against the running pr-check. LESSONS 114
+says a guard written after an incident matches the incident's literal; it did not hold because this guard lives in a
+harness outside the repository, written fresh, with no test of any kind.
+
+## 329. A repeat of 192: gate an unattended next step on the graded state, not on the previous step's exit status
+
+**Rule.** When an unattended driver decides whether to take the next step, it asks the state that step needs (the
+grader's proof), not the exit status of the step before.
+
+**Why.** 2026-10-25, blind CVD run 3. Turn A hit its two-hour limit (exit 124) with the lab fully working: the grader
+passed steady-state reachability and 4/4/4 encrypted sessions. The driver's rule, "run turn C only if turn A exited
+0", would have skipped turn C and gone on to turn B, tearing down a working lab. The rule became "the grader's
+steady-state proof passed", and turn C then passed 47 of 48 checks. LESSONS 192 says an exit code is a claim about a
+process and the outcome is the thing being claimed; it did not hold because it was written about gates reported to a
+person, and LESSONS 325, a day earlier, had just recorded that exit 124 does not say how a turn ended.
+
+## 330. A reference corpus without source URLs cannot satisfy a citation requirement, however good its content
+
+**Rule.** A corpus an agent is told to cite from carries, on every entry, the document's title and its public URL.
+A design label and a local file path are not a citation.
+
+**Why.** 2026-10-25, blind CVD run 3. The request asked for each design choice to name its CVD by title and URL, and
+web access was replaced by the Groundconfig corpus. Its `cvd_patterns` entries carry a label ("Cisco IWAN / DMVPN
+Phase 3 with IKEv2 Design Guide") and a `source_url` that is a local path (`namespaces/...txt`, `knowledge/...md`).
+Turn A could cite no CVD URL, and its journal says so; turn C cited seven cisco.com command reference pages and said
+plainly that the corpus gives no URL for the CVD itself. Run 1, with web search, cited six CVD PDFs. The corpus
+rebuild in the approved plan gives every design entry a `url`.
+
+## 331. When an agent's rules forbid a secret in a file, the platform must first offer a way to reference a stored secret
+
+**Rule.** If an agent may not write a secret into a file, the platform must let a configuration line or a prompt
+answer refer to a stored secret by name, masked in every output. Without one, the agent either leaks the secret or
+designs around it, at great cost.
+
+**Why.** Both blind CVD runs lost their biggest block of time here. Run 1 (2026-10-24) spent 30 minutes and then
+leaked its pre-shared key. Run 3 (2026-10-25) rejected the corpus's own pre-shared-key design and spent 48 minutes,
+and about 127 of its 202 runs, building a certificate authority instead (`~/pleiades-cvd/runs/analysis-a.md`,
+sections 1 and 6). The CA's passphrase was then the EEM event's timestamp (`configure_wan.yaml`, lines 105 and 106),
+weak and guessable from a syslog line the agent printed. LESSONS 326 explained run 1's detour by the agent following
+the design guide literally; run 3 shows the missing reference was a cause in both runs. Phase 129a's named secrets
+are the fix.
+
+## 332. An agent learns a feature from the tool at the moment it needs it, not only from the skill
+
+**Rule.** When a feature exists to replace something an agent is about to do the wrong way, the tool says so at the
+point where the agent does it: the warning or refusal names the feature and the exact command to use. The skill and
+the docs teach it too, but an agent working blind meets the tool's message where it writes the line, and may never
+have read the part of the skill that applies.
+
+**Why.** 2026-10-25, Phase 129a. The owner's direction: "The agent needs to learn how to use the tools FROM the
+tools." LESSONS 331 found that both blind CVD runs lost their largest block of time because no way to name a stored
+secret existed; with named secrets built, the agent still has to find them. So the tool now points to them in three
+places. `pleiades validate` warns on a key written out in a `net.ios.config` line and names `pleiades add-secret` and
+the `{{ secret.<name>.<field> }}` reference (`internal/validate/literal_secret.go`). The refusal of a typed answer to a
+password question names `add-secret`. An unresolved secret reference names the `add-secret` command with its name and
+field filled in (`pkg/secretref/secretref.go`). The skill the binary generates teaches the same feature. This follows from 331 (which asked for the
+feature) and from 304 (which asked that the skill teach only what an agent's allow list can run); neither said where
+the teaching must happen.
+
+## 333. Measure a fallback on the case it is for before adopting it; a fallback that asks a different question can return a confident false answer
+
+**Rule.** Before a fallback goes in, run it on the exact case that makes the first method fail, and compare its answer
+with the truth. A fallback that answers a different question is refused, not adopted, because its "nothing found" can
+mean "could not look".
+
+**Why.** 2026-10-25, Phase 129c (FAILURE_PATTERNS 645, 665). Batfish's traceroute from `@enter(node[iface])` in a
+non-default VRF ends TERMINATEDABNORMALLY on the pinned release. Its `reachability` question looked like the obvious
+fallback. Measured first, it returned 0 rows from the same start location, which a check reads as "no flow delivered",
+for a path the traceroute from the node did deliver. The task now fails naming the form that works. LESSONS 214 says a
+fix is not reviewed until its fallbacks are; 310 says to measure what a model models. Neither said to measure the
+fallback before writing it.
+
+## 334. Hold every other input still before blaming a server: one change at a time, on the same link with the same traffic
+
+**Rule.** When a remote system seems to misbehave, repeat the experiment with only the suspected input changed: the
+same target, the same traffic, the same state. If two things changed between the run that worked and the one that did
+not, the experiment says nothing about either.
+
+**Why.** 2026-10-25, Phase 129b's GNS3 captures (FAILURE_PATTERNS 664). A capture stream returned 0 bytes, and gzip in
+the request was blamed. The first capture had run while the nodes started and carried their traffic; the later ones
+ran on a quiet link. With pings on the link, the stream and the file both returned the whole capture on both GNS3
+versions, and gzip had no effect. The cause was the capture writer buffering a quiet link. The owner's standing rule is
+to prove a cause before naming it, above all before blaming an upstream project.
+
+## 335. A method that claims several carriers is proven live through each one; text a device prints unasked can appear on one carrier only
+
+**Rule.** A method that reaches a device over SSH, Telnet and a console is run live through each carrier it claims
+before it is called done. A scripted device in a unit test shows only what its author knew to script.
+
+**Why.** 2026-10-26, Phase 129d (FAILURE_PATTERNS 654). `wait.routes` for IOS passed its unit tests and passed live over
+SSH on P1. Through the CML console on P2, IOS printed its own login log line and a prompt after it, and the session
+read them as the next command's answer, one response behind from then on. Earlier console-reached methods could have
+shown a log line as output. Only running the live gate through the console found it, and the unit test that holds it
+now was written from that measurement.
+
+## 336. A repeat of 301 and 322: a method's documentation is checked by tests in internal/archtest and tools/gendocs, and both run in the commit that adds or changes a method
+
+**Rule.** Adding a method, or changing its `Doc`, runs `go test ./internal/archtest/ ./tools/gendocs/` before the
+commit. An example names only methods the registry has, and is never written from memory of Ansible or another tool.
+
+**Why.** 2026-10-25 and 2026-10-26, Phases 129b to 129d (FAILURE_PATTERNS 660, 661). `net.pcap.summary`'s example used
+`pleiades.builtin.assert`, which does not exist; the live CML gate, which copied it, found that. Phase 129b's commit
+also left two methods with no examples and the README and start-here counts stale, and the tests that say so failed
+from that commit until a later refactor of `tools/gendocs` ran them. LESSONS 301 says a documented example is held to
+validation in a test pr-check always runs, and 322 says an example is measured, never recalled. They did not hold
+because the branch put off `make pr-check` to its end, and nothing before then ran those two packages.
+
+## 337. A repeat of 190 (the one on content rules written as denylists of known-bad shapes): what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip
+
+**Rule.** Decide what a reader may see by what each value is: the keys its type declares, and a value not shaped like
+a secret. Never by removing the names known to be secret, which passes every secret stored under another name.
+
+**Why.** 2026-10-26, Phase 129d (FAILURE_PATTERNS 655). The first device root gave templates every scalar property
+except secret-looking names, while its own comment claimed the opposite. The review caught it before any push; the
+root now holds only the keys a device type declares its accessors read (`record.DispatchProperties`), never a
+secret-named key or a secret-shaped text. LESSONS 190 and FAILURE_PATTERNS 577 already said a denylist fails open; they
+did not hold because they were written about content checks and masking, and choosing a template's data was not seen
+as the same decision.
+
+## 338. A repeat of 95 and 213: prove a hazard with a control that must fail without the fix, and make every scripted edit assert that its anchor matched
+
+**Rule.** A test for a protection carries a control: the same case without the protection, which must show the hazard
+(hang, fail, leak). A new case in a test is checked against a case that must fail. An edit made by a script (a Python
+or sed replace) asserts that its anchor matched exactly once before it writes, because a replace that finds nothing
+changes nothing and says nothing.
+
+**Why.** 2026-10-26 and 2026-10-27 (FAILURE_PATTERNS 671, 679). `pkg/vmrun`'s detach fix was written with its control
+first: `TestDetachScript_TheHazardIsReal` runs the bare command over a stand-in child that holds its output and
+requires it to wait, so the fix's test cannot pass because the stand-in failed to hold anything. The same week, a
+Python replace meant to teach the Fusion fake in `tools/internal/oscheck/box_test.go` to answer `virt.fusion.vm.info`
+matched nothing (an indentation mismatch), and the first case passed with the fake never answering; only the second
+case caught it. LESSONS 95 and 213 already say a test is believed only after it can fail. They did not hold for the
+box test because the first case was written to pass, not to be watched failing, and the edit that built its fixture
+had no check of its own.
+
+## 339. A VM started headless on macOS from an SSH session needs an explicit wake hold for its process; when a VM "is slow", measure its clock against the host's first
+
+**Rule.** A method that starts a VM on a Mac holds the Mac awake for the VM's process (`caffeinate -dimsu -w <pid>`)
+unless told the Mac is kept awake another way. When a guest seems slow, compare elapsed time in the guest against the
+host before changing CPUs, memory or disk settings.
+
+**Why.** This session (FAILURE_PATTERNS 672). A Windows 11 ARM guest on VMware Fusion, started headless over SSH, ran
+about five times slow: its unattended install took about 85 minutes, the first-logon VMware Tools install hung, and
+keystrokes were lost. macOS throttles such a process as background work, and nothing in Fusion says so. The wake hold
+fixed it at once, and `virt.fusion.vm.start` now takes it by default (`keep_awake`).
+
+## 340. vmcli's MKS sendKeyEvent takes a HID usage shifted left 16 bits and a modifier mask; sendKeySequence garbles long strings, so send short chunks
+
+**Rule.** To press a key in a Fusion VM's console with `vmcli <vmx> MKS sendKeyEvent`, pass the USB HID usage code
+shifted left by 16 bits, and the modifiers as a bit mask: 1 Ctrl, 2 Shift, 4 Alt, 8 Windows. Typing text with
+`sendKeySequence` loses or garbles characters in a long string; send it in chunks of about 8 characters.
+
+**Why.** This session, driving the Windows 11 ARM guest's setup screens through the console on the real Fusion 26.0.1.
+These are measured behaviors, not documented ones. `pkg/vmrun`'s `SendKeys` still sends its whole sequence (up to 256
+characters) in one `sendKeySequence` call; no method uses it yet, and the install method that would is not built.
+
+## 341. What a Collection does not carry goes into the Groundconfig corpus, not only into these records
+
+**Rule.** Institutional knowledge about a platform that no method encodes (a recovery done by hand, a vendor tool's
+undocumented behavior) is written into `~/Groundconfig`, where an agent looks it up, under the platform's own
+namespace, and the corpus is rebuilt. Groundconfig is never committed from here (its sharing is undecided).
+
+**Why.** This session, by the owner's rule. Five VMware Fusion entries went in, the stale lock recovery of FAILURE_PATTERNS 674
+among them; the namespace `vmware_fusion` was registered, and the corpus was rebuilt with `-local-only`. A record in this repository tells the next developer; the corpus tells the
+agent operating the lab, which never reads these files.
+
+## 342. A repeat in kind of 257 and 335: run a new check leg end to end on its real machine before relying on it; that run finds what unit tests cannot
+
+**Rule.** A new OS check, leg or machine is run once for real, through the same command pr-check will use, before it
+is counted on. Unit tests with stand-ins prove the parts; only the real run shows which binary, which OS build and
+which tool version the parts meet.
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 675, 676). The first real `winarmcheck` run found that its leg ran wincheck's
+older build, which could not read the lab project (676); every unit test passed, since none names the build directory.
+Setting up the guest through `win.archive.extract` found that Windows 11 build 26300's `tar.exe` cannot create a
+folder under a drive root, which Server 2025's never showed (675). LESSONS 257 (run a recovery feature end to end on
+real infrastructure) and 335 (prove a method through each carrier it claims) say the same for features; this applies
+it to the gate's own machinery.
+
+## 343. A repeat in kind of 273: detect a capability by asking for it, never by a proxy for it
+
+**Rule.** A test, script or check that needs a capability asks for the capability itself: `docker info` answering and
+`docker compose version` running, not a `docker` on the PATH; Go's list of race detector platforms, not
+`CGO_ENABLED=1` or a `gcc.exe` on the PATH. When a tool is installed on a check machine (a C compiler, a docker CLI),
+look for every check that used it as a proxy, because the set of tests that run there has just changed.
+
+**Why.** 2026-10-27, two of the day's six gate stops. Installing llvm-mingw on the Windows ARM VM made cgo true, and
+both wincheck's script and testgate's live tests read cgo as "the race detector is here"; Go has none for
+windows/arm64 (FAILURE_PATTERNS 683, a repeat of 502). Installing Homebrew's docker CLI on the Mac for Podman made two
+tests that checked only `exec.LookPath("docker")` run in a pass with no daemon and no compose plugin (684).
+
+**Repeat.** LESSONS 273 says a guard reads the property a list stands for, not a proxy for it, and 114 says a guard
+written after an incident is narrower than its rule. 273 was written about guards over hand-kept lists, and nobody
+swept capability checks in test helpers and check scripts for the same shape. Each proxy was right on every machine it
+had met, and became wrong when a machine gained a tool.
+
+## 344. A program that runs make, or reads make's output, clears what a parent make exports from the child's environment
+
+**Rule.** Before starting a make, or a program that may start one, remove `MAKEFLAGS`, `MFLAGS`, `MAKELEVEL`,
+`MAKEFILES`, `MAKEOVERRIDES` and `GNUMAKEFLAGS` from the child's environment, so the child runs as an operator's make
+would. A test that checks what make printed is the one this matters to most.
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 686). The gate monitor runs `make --trace pr-check`. make exported `--trace`
+through `MAKEFLAGS`, `go test` passed it on, and the upgrade gate's own `make up` printed a recipe line holding a backup
+message for a branch that never ran. The gate's "no second backup" check failed on that text, twice in two days, and
+the cause stayed hidden because a run by hand, outside make, passed. Entry 284 had shown `-n` crossing into a sub-make
+the same way inside one Makefile; here the flags crossed `go test` too.
+
+## 345. A dashboard's stage state comes from an explicit marker the producer prints, not from inferring order from other lines
+
+**Rule.** When a tool shows a stage as pending, running or done, the producer prints a line for each change (`the fast
+pass begins`), and the tool reads that line. It never infers that a stage began from the state of a different stage.
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 680). The monitor started the fast pass only while the mac leg was pending, an
+inference from the recipe's old order. When the machine checks moved to start at t0, the inference silently reported
+the running fast pass as pending. The owner caught it: "dont gaslight me everything else is pending". The caller
+reports that the containers stage had shown the same symptom before. An explicit marker survives a change of order; an
+inference lies when the order changes, and nothing in it notices.
+
+## 346. A machine kept only for checks cleans before every run instead of refusing with advice
+
+**Rule.** A check run on a machine kept only for checks, which the check starts and puts back, clears the leftovers
+its own kind of work leaves before every run: the login's Go build cache, `go-build*` and `Test*` folders in its
+temporary directory, and, while still short of room, its module cache. It cleans only what is Go's and the login's,
+and never on a machine someone else uses (the Mac is left untouched).
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 688, a repeat of 537). bsd-check refused a gate with 3 GB free: about 5 GB of
+`go-build` work folders were left by `go test` runs killed when the day's gates were interrupted. Interrupted runs are
+the normal case on a lab box, not the exception, so a refusal that names a cleanup to run by hand stops the next gate
+every time. The owner directed the fix ("bsd and windows vms need to free space before each run", "arm windows needs
+it too"). LESSONS 292's limit still holds: on a machine that is not kept for checks, a check removes only what it made.
+
+## 347. A repeat in kind of 342: each new leg or configuration's first full run finds a different first failure, so run it end to end early and expect it to fail
+
+**Rule.** After any change to how the gate runs (a leg moved, a tool installed on a check machine, the gate started
+through a new wrapper), run the whole gate early, before the change it is meant to verify is ready, and plan for that
+first run to fail on something new.
+
+**Why.** 2026-10-27: six gate runs in one day each stopped on a different first failure: a missing C compiler (682),
+the race platform (683), docker detection (684), a waiver's line (685), `MAKEFLAGS` (686) and a timing test (687).
+Each was invisible to unit tests and to the run before it, because the run before it stopped earlier.
+
+**Repeat.** LESSONS 342 says to run a new check leg end to end on its real machine before relying on it, and that was
+done for `winarm`. It did not hold for configuration changes, which are new legs in all but name: installing a compiler
+or a docker CLI changed which tests ran, and starting legs at t0 changed what the monitor saw.

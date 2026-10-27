@@ -4,11 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-
-	"cel.dev/cel-go/cel"
-	"cel.dev/cel-go/common"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
@@ -48,16 +44,14 @@ func generateFilters(outDir string) error {
 		return fmt.Errorf("creating %s: %w", filtersDir, err)
 	}
 
-	baseline, err := cel.NewEnv(engine.CELVariableOptions()...)
+	libs, err := engine.ConditionLibraries()
 	if err != nil {
-		return fmt.Errorf("gendocs: building baseline CEL env: %w", err)
+		return fmt.Errorf("gendocs: %w", err)
 	}
-
-	libOpts := engine.CELLibraryOptions()
 	stages := filterStageLabels()
-	if len(stages) != len(libOpts) {
+	if len(stages) != len(libs) {
 		return fmt.Errorf("gendocs: filterStageLabels() has %d entries but engine.CELLibraryOptions() returns %d; "+
-			"update tools/gendocs/filters.go's stage table to match", len(stages), len(libOpts))
+			"update tools/gendocs/filters.go's stage table to match", len(stages), len(libs))
 	}
 
 	var b strings.Builder
@@ -76,27 +70,19 @@ func generateFilters(outDir string) error {
 		"one exists, keeps its exact declared type, so a value the wrong literal type there fails to " +
 		"compile rather than being silently coerced.\n\n")
 
-	cur := baseline
-	for i, opt := range libOpts {
-		next, err := cur.Extend(opt)
-		if err != nil {
-			return fmt.Errorf("gendocs: extending CEL env with stage %q: %w", stages[i].title, err)
+	for i, lib := range libs {
+		if len(lib.Functions) == 0 {
+			continue
 		}
-
-		funcs := newFunctions(cur, next)
-		macros := newMacros(cur, next)
-		if len(funcs) > 0 || len(macros) > 0 {
-			fmt.Fprintf(&b, "## %s\n\n", stages[i].title)
-			b.WriteString(stages[i].intro + "\n\n")
-			for _, fd := range funcs {
+		fmt.Fprintf(&b, "## %s\n\n", stages[i].title)
+		b.WriteString(stages[i].intro + "\n\n")
+		for _, fd := range lib.Functions {
+			if fd.Macro {
+				renderMacroDoc(&b, fd)
+			} else {
 				renderFunctionDoc(&b, fd)
 			}
-			for _, md := range macros {
-				renderMacroDoc(&b, md)
-			}
 		}
-
-		cur = next
 	}
 
 	return os.WriteFile(filepath.Join(filtersDir, "index.md"), []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
@@ -143,134 +129,14 @@ func filterStageLabels() []filterStage {
 	}
 }
 
-// functionDoc pairs one function's live documentation with only the
-// overloads a given stage newly introduced, so a function the standard
-// library already declared (such as "string") renders solely the
-// overload(s) that stage's own library actually added to it.
-type functionDoc struct {
-	name        string
-	description string
-	overloads   []overloadDoc
-}
-
-type overloadDoc struct {
-	signature string
-	examples  []string
-}
-
-// newFunctions returns every function overload present in next but not in
-// prev, grouped by function name and ordered for stable, diff-friendly
-// output (regeneration must be byte-for-byte idempotent; see
-// TestRun_Idempotent).
-func newFunctions(prev, next *cel.Env) []functionDoc {
-	prevFns := prev.Functions()
-	nextFns := next.Functions()
-
-	names := make([]string, 0, len(nextFns))
-	for name := range nextFns {
-		names = append(names, name)
+func renderFunctionDoc(b *strings.Builder, fd engine.ConditionFunction) {
+	fmt.Fprintf(b, "### `%s`\n\n", fd.Name)
+	if fd.Description != "" {
+		fmt.Fprintf(b, "%s\n\n", fd.Description)
 	}
-	sort.Strings(names)
-
-	var out []functionDoc
-	for _, name := range names {
-		nextFn := nextFns[name]
-		prevIDs := map[string]bool{}
-		if prevFn := prevFns[name]; prevFn != nil {
-			for _, o := range prevFn.OverloadDecls() {
-				prevIDs[o.ID()] = true
-			}
-		}
-
-		overloadDecls := nextFn.OverloadDecls()
-		fullDoc := nextFn.Documentation()
-
-		var overloads []overloadDoc
-		for i, od := range overloadDecls {
-			if prevIDs[od.ID()] {
-				continue
-			}
-			if i >= len(fullDoc.Children) {
-				continue
-			}
-			child := fullDoc.Children[i]
-			var examples []string
-			for _, ex := range child.Children {
-				examples = append(examples, ex.Description)
-			}
-			overloads = append(overloads, overloadDoc{signature: child.Signature, examples: examples})
-		}
-		if len(overloads) == 0 {
-			continue
-		}
-		// ParseDescription (not the raw Description()) trims trailing
-		// whitespace per line and drops blank lines, the same
-		// normalization FunctionDecl.Documentation() itself applies
-		// internally; using it here rather than the raw joined string
-		// keeps this renderer correct for any doc string, not only the
-		// ones this package happens to write with clean line endings.
-		out = append(out, functionDoc{name: name, description: common.ParseDescription(nextFn.Description()), overloads: overloads})
-	}
-	return out
-}
-
-// macroDoc mirrors functionDoc for a macro (an AST-rewriting construct
-// like optMap, distinct from an ordinary function call).
-type macroDoc struct {
-	name        string
-	description string
-	examples    []string
-}
-
-// newMacros returns every macro present in next but not in prev, keyed by
-// MacroKey (which encodes name, arity and receiver style, so two macros
-// sharing a bare name but differing in arity are not conflated), sorted
-// for stable output.
-func newMacros(prev, next *cel.Env) []macroDoc {
-	prevKeys := map[string]bool{}
-	for _, m := range prev.Macros() {
-		prevKeys[m.MacroKey()] = true
-	}
-
-	var fresh []cel.Macro
-	for _, m := range next.Macros() {
-		if !prevKeys[m.MacroKey()] {
-			fresh = append(fresh, m)
-		}
-	}
-	sort.Slice(fresh, func(i, j int) bool { return fresh[i].MacroKey() < fresh[j].MacroKey() })
-
-	out := make([]macroDoc, 0, len(fresh))
-	for _, m := range fresh {
-		// cel.Macro's own interface does not declare Documentation(); only
-		// the concrete type every real macro (including every macro
-		// cel.OptionalTypes registers) is built from implements it, via
-		// the separate common.Documentor interface. A macro that does not
-		// implement it is skipped rather than causing a panic: better to
-		// document a macro with no name than to fail generation entirely
-		// over a cel-go internal type this package does not control.
-		documented, ok := m.(common.Documentor)
-		if !ok {
-			continue
-		}
-		doc := documented.Documentation()
-		var examples []string
-		for _, ex := range doc.Children {
-			examples = append(examples, ex.Description)
-		}
-		out = append(out, macroDoc{name: doc.Name, description: doc.Description, examples: examples})
-	}
-	return out
-}
-
-func renderFunctionDoc(b *strings.Builder, fd functionDoc) {
-	fmt.Fprintf(b, "### `%s`\n\n", fd.name)
-	if fd.description != "" {
-		fmt.Fprintf(b, "%s\n\n", fd.description)
-	}
-	for _, od := range fd.overloads {
-		fmt.Fprintf(b, "- `%s`\n", od.signature)
-		for _, ex := range od.examples {
+	for _, od := range fd.Overloads {
+		fmt.Fprintf(b, "- `%s`\n", od.Signature)
+		for _, ex := range od.Examples {
 			for _, line := range strings.Split(ex, "\n") {
 				fmt.Fprintf(b, "  - `%s`\n", line)
 			}
@@ -279,12 +145,12 @@ func renderFunctionDoc(b *strings.Builder, fd functionDoc) {
 	b.WriteString("\n")
 }
 
-func renderMacroDoc(b *strings.Builder, md macroDoc) {
-	fmt.Fprintf(b, "### `%s` (macro)\n\n", md.name)
-	if md.description != "" {
-		fmt.Fprintf(b, "%s\n\n", md.description)
+func renderMacroDoc(b *strings.Builder, md engine.ConditionFunction) {
+	fmt.Fprintf(b, "### `%s` (macro)\n\n", md.Name)
+	if md.Description != "" {
+		fmt.Fprintf(b, "%s\n\n", md.Description)
 	}
-	for _, ex := range md.examples {
+	for _, ex := range md.Overloads[0].Examples {
 		for _, line := range strings.Split(ex, "\n") {
 			fmt.Fprintf(b, "- `%s`\n", line)
 		}

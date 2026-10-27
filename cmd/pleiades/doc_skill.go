@@ -188,7 +188,8 @@ const skillGuide = "## Starting in a project\n\n" +
 	"     `pleiades add-credential web01 --username <name> --password-file <file>`. One sealed to this project's key\n" +
 	"     (`pleiades seal-key` prints the public key the person seals to with `pleiades seal --to`) opens with it;\n" +
 	"     one sealed to a passphrase also needs `--passphrase`, which the person types, or `--passphrase-stdin`.\n" +
-	"   - or as a plaintext file: `pleiades add-credential web01 --username <name> --password-stdin < <file>`.\n" +
+	"   - or as a plaintext file: `pleiades add-credential web01 --username <name> --password-stdin < <file>`, or\n" +
+	"     piped from the program that holds it (a password manager); never type or echo the password yourself.\n" +
 	"   Never write a password into a file of your own or a command line. It lands in `.pleiades/credentials.yaml`\n" +
 	"   beside `.pleiades/master.key`, the key that decrypts it: never commit, copy or share `.pleiades/`.\n" +
 	"4. An SSH device's host key must be trusted before the first connection, and an unknown key is refused.\n" +
@@ -203,7 +204,9 @@ const skillGuide = "## Starting in a project\n\n" +
 	"1. Read a method before calling it: `pleiades doc <method>` prints its parameters, what it returns and examples;\n" +
 	"   `pleiades doc --json <method>` is the same contract as JSON. Never guess a parameter name.\n" +
 	"2. Call one method once with `pleiades adhoc <hosts> <method> key=value ... --json`. `key:=yaml` passes a typed\n" +
-	"   value (`argv:='[uname, -r]'`). `<hosts>` is a device name or a tag. Do not write a throwaway runbook for this.\n" +
+	"   value (`argv:='[uname, -r]'`). `<hosts>` is a device name, a tag, or a comma list of devices (`br1,br2`, one\n" +
+	"   task each); a method that needs no device (its `pleiades doc` says so, as `net.pcap.summary`'s does) takes `-`\n" +
+	"   or no hosts at all. Do not write a throwaway runbook for this.\n" +
 	"3. Check before you change: add `--mode check` to `adhoc` or `run`. It reports what each task would change and\n" +
 	"   changes nothing. A method with no check support is named as unchecked, and an incomplete check exits 3.\n" +
 	"   A check reads each task against the device as it is now, so a task needing what an earlier one makes (a\n" +
@@ -213,17 +216,29 @@ const skillGuide = "## Starting in a project\n\n" +
 	"   What each task returned is under `tasks[].stats`, with or without a `register:`.\n" +
 	"5. Target the narrowest set the request allows: a device's own name, not its tag, when the work is about\n" +
 	"   one device.\n" +
-	"6. A run that changed something can usually be undone: `pleiades journal list`, then\n" +
-	"   `pleiades rollback <run-id> --mode check`, then the same without `--mode check`. A check of a rollback\n" +
-	"   sees the device as it is now, before any of the undo runs, so a warning that a later step would keep\n" +
-	"   something may not hold once the steps before it have run.\n" +
+	"6. A run that changed something can usually be undone: `pleiades journal list --changed --json` lists the runs\n" +
+	"   that changed something (`--since 4h` narrows it), then `pleiades rollback <run-id> --mode check`, then the same\n" +
+	"   without `--mode check`. A check of a rollback sees each device as it is now, so a step on a device an earlier\n" +
+	"   step of the same rollback changes first is named provisional, and its failed check is unchecked, not failed.\n" +
+	"   A rollback refused over a later run says what that run is: one with changes of its own to undo (roll it back\n" +
+	"   first), one whose changes recorded no undo, or one whose runbook says none needs undoing (read it with\n" +
+	"   `pleiades journal show <run-id>`, then step over it with `--despite-run <run-id>`). A rollback finds a task's\n" +
+	"   `rollback:` list by its position in the runbook as it ran: do not insert, remove or reorder tasks in a runbook\n" +
+	"   whose runs may be rolled back, or name the copy that ran with `--runbook <file>`.\n" +
 	"7. To look at a device without changing it, use a method that only reads (`facts.gather`, `file.stat`) or\n" +
 	"   any method with `--mode check`, which is never journaled. A command method (`exec.command`) reports\n" +
 	"   changed on every run and is journaled, so a later rollback has to be told to step over it.\n" +
 	"8. Never put a secret in a parameter, a runbook or a command line. A device's credential is stored once\n" +
 	"   (`pleiades add-credential <device> --username <name> --password-file <file>`) and reaches its methods on its own.\n" +
-	"9. `pleiades <command> --help` lists every flag a command takes, and exits 1 after printing it, which is not a\n" +
-	"   failure. A command that takes a name needs one first: `pleiades add-host x --help` (it adds nothing).\n\n" +
+	"   A secret a configuration needs that is no device's login (a pre-shared key several routers share, a CA's\n" +
+	"   passphrase) is a named secret: `pleiades add-secret <name> --field <field> --generate 32` (or `--value-stdin`,\n" +
+	"   or `--value-file` from `pleiades seal`), written in a runbook only as `{{ secret.<name>.<field> }}` in a\n" +
+	"   parameter that takes one (`pleiades doc` says so: `net.ios.config`'s `lines`, a `prompts:` answer). It is\n" +
+	"   filled in just before the device reads it and masked in everything a run reports; `pleiades list-secrets`\n" +
+	"   names what is stored, never a value, and `pleiades remove-secret` removes it.\n" +
+	"9. `pleiades <command> --help` lists the flags a command takes, and exits 0.\n" +
+	"10. Build the simplest design that meets what the person asked for. Every extra part (a second cloud, a CA where\n" +
+	"   a pre-shared key is allowed) is more to configure, prove and take apart; add one only for a stated requirement.\n\n" +
 	"## When something fails\n\n" +
 	"- `outcome.status` in the `--json` report is `complete` only when everything succeeded. Otherwise read\n" +
 	"  `outcome.message`, the `validation` list (what stopped the run before it started) and each task's `error`.\n" +
@@ -257,14 +272,25 @@ const skillGuide = "## Starting in a project\n\n" +
 	"- A task names its method as its key, with the parameters under it. Never `fqcn:` with `params:`.\n" +
 	"- The file opens with a comment saying what it does, its blast radius, what it changes, and how to undo it.\n" +
 	"- `register: <name>` keeps a task's result; a later `when:` reads it as `result.<name>`.\n" +
-	"- A condition (`when:`, `when_or:`, `when_cel:`) is an expression such as `result.kernel.rc == 0`; a parameter\n" +
-	"  holding `{{ }}` is a template, rendered from `vars`, `nodes` and `result` when the task runs.\n" +
+	"- A condition (`when:`, `when_or:`, `when_cel:`) is a CEL expression such as `result.kernel.rc == 0`; a parameter\n" +
+	"  holding `{{ }}` is a template, rendered from `vars`, `nodes`, `result` and `device` when the task runs.\n" +
+	"  `pleiades doc filters` lists every template filter (there is no `replace` or `split`) and\n" +
+	"  `pleiades doc conditions` every function a condition may call. `device` is the device the task runs on\n" +
+	"  (`{{ device.name }}`, `'hq' in device.tags`); a task reading it is decided on each device. Its properties are\n" +
+	"  only the ones its device type reads (such as `host`): group devices of your own with tags.\n" +
+	"- `target: <device>` inside a task's parameters, beside the others, runs that task on one device other than the\n" +
+	"  runbook's `hosts:`; a runbook may leave out `hosts:` and give each task its own target.\n" +
+	"- `timeout:` on a task is seconds (`300`) or a duration (`150s`, `5m`). YAML anchors and aliases work in a task\n" +
+	"  (`&common`, `*common`, `<<: *common`); an anchor goes where its value is first written, never on a top-level\n" +
+	"  key of its own.\n" +
 	"- `-e name=value` types its value as `add-host --set` does: `true` and `false` are booleans and a whole number\n" +
 	"  is an integer, so a condition reads `vars.clear == true`, never `vars.clear == \"true\"`.\n" +
 	"- `block:` runs its tasks in order, `rescue:` runs where one of them failed, and `always:` runs either way;\n" +
 	"  `rollback_on_failure: true` on a block undoes what it completed before its rescue. A key a runbook may not\n" +
 	"  hold, such as `retries` or `until`, is refused naming it: a wait is a method (`pleiades doc --list wait`).\n" +
 	"- A list of one item is still written as a list.\n" +
+	"- `pleiades validate` warns of a `hosts:` or target that names no device yet; the run fails there unless the\n" +
+	"  device is added first.\n" +
 	"- A command method (`exec.command`, `exec.shell`) cannot tell what its command did, so it reports `changed` on\n" +
 	"  every run, even one that only reads, and a check of it is unchecked. To read a device, prefer a method that\n" +
 	"  only reads, such as `facts.gather` with a `filter` list naming the facts (`ansible_kernel`,\n" +
@@ -274,7 +300,18 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  `group` and `mode`: name them for anything another account must read.\n\n" +
 	"```yaml\n" +
 	skillRunbook +
-	"```\n\n"
+	"```\n\n" +
+	"## Taking a project apart\n\n" +
+	"When the person asks to put everything back, undo in this order, and say what you could not:\n\n" +
+	"1. Roll back what changed, newest run first: `pleiades journal list --changed --json`, then each run with\n" +
+	"   `pleiades rollback <run-id> --mode check` and then for real. A lab's build rollback deletes the lab and\n" +
+	"   everything in it, so a configuration run inside that lab needs no undo of its own.\n" +
+	"2. Remove what a run left on a device that no rollback covers: `net.ios.checkpoints` with `prune: true` deletes\n" +
+	"   the checkpoints `net.ios.config` kept.\n" +
+	"3. Take the inventory apart: `pleiades remove-host <device> --credential --forget-host-keys` for each device you\n" +
+	"   added (the journal keeps their runs), `pleiades remove-credential <device>` for a credential alone, and\n" +
+	"   `pleiades remove-secret <name>` for each named secret.\n" +
+	"4. Check that what is left matches what was there before you started, and write the result in your journal.\n\n"
 
 // skillNetwork is how an agent changes a network: the model first, a
 // rehearsal on the same OS image, then the change in a block that undoes
@@ -334,6 +371,10 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  or refuse, and never types an answer of its own. A model served on this machine by Ollama is added with\n" +
 	"  `pleiades add-host local-ai --type ai_provider --set ai_kind=ollama --set api_base=http://127.0.0.1:11434\n" +
 	"  --set residency=local`, then `pleiades onboard local-ai`; `pleiades doc ai.chat` has its parameters.\n" +
+	"- A key a design shares between routers (an IKE pre-shared key) is a named secret, never a line you write out:\n" +
+	"  `pre-shared-key {{ secret.<name>.<field> }}` in `net.ios.config`'s `lines`, and a question asking for a\n" +
+	"  passphrase is answered by `answer: \"{{ secret.<name>.<field> }}\"` in `prompts:`. A `show` of the configuration\n" +
+	"  afterwards comes back with the key masked.\n" +
 	"- IOS reports a line it took as already done with a notice (`% Duplicate permit statement ignored`), which\n" +
 	"  `net.ios.config` accepts; any other `% ` line fails the task. `accept:` lists the notices a task also accepts,\n" +
 	"  each a pattern you write after reading the device's own words; never accept a rejection to make a task pass.\n" +
@@ -344,6 +385,15 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  task a `rollback:` list: `undo_lines` in the result has the lines, masked; put each masked secret back. Read a\n" +
 	"  device's state before and after with `net.ios.parse` (structured) or a `show` through `net.ios.command`, both\n" +
 	"  unchanged reads, and rehearse the change and its undo on a lab device running the same image.\n" +
+	"- On a CML lab, `virt.cml.link.stop` and `virt.cml.link.start` fail and restore a link (a failover test without\n" +
+	"  stopping a router, which loses its running configuration), and `virt.cml.capture.start` and\n" +
+	"  `virt.cml.capture.stop` (with `dest:`) capture a link's packets into the project, where `net.pcap.summary`\n" +
+	"  counts them as encrypted, key exchange or cleartext per address pair: the proof that traffic crossed encrypted.\n" +
+	"  An IOL node's interfaces start shut down, so an unconfigured link carries and captures nothing.\n" +
+	"- `wait.routes` waits for a Cisco IOS router's routes too (`show ip route`, the global table), as for FRR.\n" +
+	"- In `net.batfish.check`, `route` and `no_route` take `vrf:` (without it every VRF counts, a front door's default\n" +
+	"  route included), and `reach.from: <node>[<interface>]` is the node sending from that interface. Batfish does not\n" +
+	"  model DMVPN (NHRP, mGRE): accept those by name with that reason and prove the overlay on the live network.\n" +
 	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
 	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
 	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +

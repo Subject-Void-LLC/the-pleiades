@@ -113,7 +113,9 @@ func runPleiadesJSONWithHome(t *testing.T, dir, home string, args ...string) (js
 	cmd := exec.Command(binPath, append(args, "--json")...)
 	cmd.Dir = dir
 	if home != "" {
-		cmd.Env = append(os.Environ(), "HOME="+home)
+		// USERPROFILE beside HOME: Windows reads the home from it
+		// (FAILURE_PATTERNS 520).
+		cmd.Env = append(os.Environ(), "HOME="+home, "USERPROFILE="+home)
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
