@@ -316,3 +316,100 @@ func TestGuestIP_DoesNotTrustAPlainNoToolsAnswer(t *testing.T) {
 		})
 	}
 }
+
+// TestHost_TheRestOfItsOperations drives each remaining operation against
+// answers in the shapes the real captures hold, and each refusal before a
+// command would run.
+func TestHost_TheRestOfItsOperations(t *testing.T) {
+	ctx := context.Background()
+	r := &recorder{answer: func(argv []string) Output {
+		switch {
+		case argv[0] == "/bin/test":
+			return Output{ExitCode: 1}
+		case argv[len(argv)-1] == "query" && argv[len(argv)-2] == "ConfigParams":
+			return Output{Stdout: capture(t, "configparams.txt")}
+		case argv[len(argv)-1] == "query" && argv[len(argv)-2] == "Power":
+			return Output{Stdout: capture(t, "power_off.txt")}
+		case len(argv) > 3 && argv[3] == "listSnapshots":
+			return Output{Stdout: capture(t, "snapshots_one.txt")}
+		case len(argv) > 3 && argv[3] == "checkToolsState":
+			return Output{Stdout: "running\n"}
+		case len(argv) > 3 && argv[3] == "getGuestIPAddress":
+			return Output{Stdout: "10.0.0.155\n"}
+		case argv[0] == FusionVMCLI && argv[1] == "VM":
+			return Output{Stdout: capture(t, "create.txt")}
+		case argv[0] == "/bin/sh":
+			return Output{Stdout: "4242\n"}
+		}
+		return Output{}
+	}}
+	h := fusion(r)
+	if ok, err := h.VMXExists(ctx, vmx); ok || err != nil {
+		t.Errorf("VMXExists = %v, %v", ok, err)
+	}
+	if cfg, err := h.Config(ctx, vmx); err != nil || cfg["firmware"] != "efi" {
+		t.Errorf("Config = %v, %v", cfg, err)
+	}
+	if s, err := h.PowerState(ctx, vmx); err != nil || s != "off" {
+		t.Errorf("PowerState = %q, %v", s, err)
+	}
+	if s, err := h.Snapshots(ctx, vmx); err != nil || len(s) != 1 || s[0] != "base" {
+		t.Errorf("Snapshots = %v, %v", s, err)
+	}
+	if s, err := h.ToolsState(ctx, vmx); err != nil || s != "running" {
+		t.Errorf("ToolsState = %q, %v", s, err)
+	}
+	if ip, err := h.GuestIP(ctx, vmx); err != nil || ip != "10.0.0.155" {
+		t.Errorf("GuestIP = %q, %v", ip, err)
+	}
+	if got, err := h.CreateVM(ctx, "win11-arm", "/Users/me/vms", "arm-windows11-64"); err != nil || got != "/tmp/pleiades-fusion-sample.QkHAJ5/sample.vmx" {
+		t.Errorf("CreateVM = %q, %v", got, err)
+	}
+	if pid, err := h.KeepAwake(ctx, vmx); err != nil || pid != 4242 {
+		t.Errorf("KeepAwake = %d, %v", pid, err)
+	}
+	if err := h.Suspend(ctx, vmx, true); err != nil {
+		t.Errorf("Suspend: %v", err)
+	}
+	for name, err := range map[string]error{
+		"a bad vm name":             func() error { _, e := h.CreateVM(ctx, "a b", "/v", "arm-ubuntu-64"); return e }(),
+		"a relative vm directory":   func() error { _, e := h.CreateVM(ctx, "a", "v", "arm-ubuntu-64"); return e }(),
+		"a guest type with a space": func() error { _, e := h.CreateVM(ctx, "a", "/v", "arm ubuntu"); return e }(),
+		"a value with a newline":    h.SetConfig(ctx, vmx, "firmware", "efi\nx"),
+		"keeping a Workstation host awake": func() error {
+			_, e := (Host{Runner: r, Product: Workstation, VMRun: "/usr/bin/vmrun"}).KeepAwake(ctx, vmx)
+			return e
+		}(),
+		"a vmx that is not one": func() error { _, e := h.VMXExists(ctx, "/a/b"); return e }(),
+	} {
+		if err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if _, err := (Host{Product: Fusion, VMRun: FusionVMRun}).Running(ctx); err == nil {
+		t.Error("a host with no runner ran a command")
+	}
+	var nilConn SSHRunner
+	if _, err := nilConn.Run(ctx, []string{"x"}); err == nil {
+		t.Error("an SSH runner with no connection ran a command")
+	}
+}
+
+// TestHost_UnreadableAnswersAreErrors: a tool that answers in a shape the
+// readers do not know is an error, never an empty answer.
+func TestHost_UnreadableAnswersAreErrors(t *testing.T) {
+	ctx := context.Background()
+	h := fusion(&recorder{answer: func([]string) Output { return Output{Stdout: "something else\n"} }})
+	if _, err := h.PowerState(ctx, vmx); err == nil {
+		t.Error("a power query with no PowerState was accepted")
+	}
+	if _, err := h.CreateVM(ctx, "a", "/v", "arm-ubuntu-64"); err == nil {
+		t.Error("a create that named no vmx was accepted")
+	}
+	if _, err := h.KeepAwake(ctx, vmx); err == nil {
+		t.Error("keeping awake with no process ID was accepted")
+	}
+	if _, err := h.Networks(ctx); err == nil {
+		t.Error("a network list in no known shape was accepted")
+	}
+}
