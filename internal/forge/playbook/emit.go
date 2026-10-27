@@ -121,6 +121,7 @@ func (t *translator) buildDef(rb *runbookOut, id string, incomplete bool) (engin
 	if len(rb.plays) == 1 {
 		p := rb.plays[0]
 		def.Name, def.Tags = p.name, engine.TagList(p.tags)
+		def.Vars = t.pruned(p.vars)
 		lists["pretasks"], lists["tasks"], lists["posttasks"] = p.pre, p.main, p.post
 	} else {
 		var blocks []*outTask
@@ -133,7 +134,7 @@ func (t *translator) buildDef(rb *runbookOut, id string, incomplete bool) (engin
 			if name == "" {
 				name = fmt.Sprintf("play %d", p.index+1)
 			}
-			blocks = append(blocks, &outTask{name: name, tags: p.tags, block: children, at: p.at})
+			blocks = append(blocks, &outTask{name: name, tags: p.tags, block: children, at: p.at, vars: p.vars})
 		}
 		lists["tasks"] = blocks
 	}
@@ -144,6 +145,9 @@ func (t *translator) buildDef(rb *runbookOut, id string, incomplete bool) (engin
 			key = "pretasks"
 		}
 		lists[key] = append([]*outTask{guard}, lists[key]...)
+	}
+	for _, list := range lists {
+		t.pruneVars(list)
 	}
 	def.PreTasks, def.Tasks, def.PostTasks = toEngine(lists["pretasks"]), toEngine(lists["tasks"]), toEngine(lists["posttasks"])
 	if def.Tasks == nil {
@@ -163,6 +167,12 @@ func toEngine(tasks []*outTask) []engine.Task {
 			Name: o.name, FQCN: o.fqcn, Params: o.params, Register: o.register,
 			CheckMode: engine.CheckModeFlag(o.checkMode), Tags: engine.TagList(o.tags), Timeout: engine.TimeoutSeconds(o.timeout),
 			Block: toEngine(o.block), Rescue: toEngine(o.rescue), Always: toEngine(o.always),
+			Vars: o.vars, Loop: o.loop, LoopControl: o.loopControl, IgnoreErrors: o.ignoreErrors,
+			Until: engine.StringList(o.until), Retries: o.retries, Delay: o.delay,
+			ChangedWhen: engine.StringList(o.changedWhen), FailedWhen: engine.StringList(o.failedWhen),
+		}
+		if o.withItems {
+			out[i].Loop, out[i].WithItems = nil, o.loop
 		}
 		out[i].When = engine.StringList(o.when)
 	}

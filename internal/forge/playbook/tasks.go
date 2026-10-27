@@ -22,9 +22,19 @@ type outTask struct {
 	tags      []string
 	checkMode bool
 	timeout   int
-	block     []*outTask
-	rescue    []*outTask
-	always    []*outTask
+	// The native keywords: ignore_errors, the conditions over the task's own
+	// result, retries and delay, the task's vars, and its native loop.
+	ignoreErrors       bool
+	until, changedWhen []string
+	failedWhen         []string
+	retries, delay     *int
+	vars               map[string]any
+	loop               any
+	withItems          bool
+	loopControl        *engine.LoopControl
+	block              []*outTask
+	rescue             []*outTask
+	always             []*outTask
 	// result is the report's record of a leaf or placeholder.
 	result *TaskResult
 	// cites are the finding IDs the emitted task's comment names.
@@ -42,6 +52,9 @@ type taskCtx struct {
 	blockers []string
 	// checkMode is an enclosing check_mode: true.
 	checkMode bool
+	// ignoreErrors is an enclosing ignore_errors: true, which every task
+	// inside inherits unless it writes its own.
+	ignoreErrors bool
 	// collections is the module search path a play or block set.
 	collections []string
 	// runbook is the output file the task lands in, for its TaskResult.

@@ -629,6 +629,8 @@ Every finding in a migration report carries one of these codes. The set is close
 | `args.unmapped` | blocked | An argument the native method has no equivalent for. | Drop it if it changes nothing, or write the task by hand. |
 | `args.unparsable` | blocked | Free-form arguments this converter cannot read unambiguously. | Write the arguments as a map. |
 | `args.value` | blocked | A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take. | Quote the value in the playbook so its meaning is plain. |
+| `assert.quiet` | info | assert's quiet option was ignored: the native assert always reports its result. | - |
+| `assert.unmapped` | blocked | An assert, fail or set_fact that carries a keyword the native action cannot take (a loop, until, changed_when, failed_when, a register or a timeout), or an argument it does not have. | - |
 | `block.always` | review | always: converted. It runs on each device the block ran on, whatever happened, or once on its own target. | - |
 | `block.rescue` | review | rescue: converted. It runs on each device whose block failed, or once for a block one of whose tasks runs elsewhere (delegate_to becomes a target of its own, and such a block fails as one unit); Ansible's ansible_failed_task and ansible_failed_result are not translated, and the native rescue reads the failure as error. | - |
 | `debug.dropped` | info | A debug task only prints, so it was dropped. | - |
@@ -640,14 +642,14 @@ Every finding in a migration report carries one of these codes. The set is close
 | `keyword.async` | blocked | async/poll has no native equivalent. | - |
 | `keyword.become` | review | become dropped: the task runs as the connecting user and fails if it needs root. | A method that needs root says so in its manifest; use a credential with the privilege. |
 | `keyword.become_user` | blocked | become_user names a user other than root. | - |
-| `keyword.changed_when` | info | changed_when dropped: only how the task reports change differs. | - |
+| `keyword.changed_when` | blocked | changed_when could not be carried: it is templated, has no register to read, on a block, or its condition does not translate. | Write the condition as CEL over result.<register>. |
 | `keyword.check_mode` | blocked | check_mode: true on a method that cannot be checked. | - |
 | `keyword.check_mode_false` | review | check_mode: false dropped: the task now respects a check instead of running for real inside one. | - |
 | `keyword.connection` | review | connection dropped: the transport comes from the device's capabilities. | - |
 | `keyword.delegate_to` | blocked | delegate_to would run the task on another host, or on the controller with a native method that runs on the device. | Delegating to localhost converts when the native method runs in the host process. |
 | `keyword.environment` | blocked | environment would change what the command sees. | - |
-| `keyword.failed_when` | blocked | failed_when would make the task fail where the native one passes. | Check the result in a later task's when, or wait for failed_when. |
-| `keyword.ignore_errors` | review | ignore_errors dropped: a failure ends the run instead of continuing. | - |
+| `keyword.failed_when` | blocked | failed_when could not be carried: it has no register to read, is on a block, or its condition does not translate. | Write the condition as CEL over result.<register>. |
+| `keyword.ignore_errors` | review | ignore_errors converted to the native key: the run goes on past a failure of the task, which is still recorded as a failure. Ansible's ignore_errors does not cover an unreachable host (ignore_unreachable does); the native key covers whatever fails the task. | - |
 | `keyword.ignore_unreachable` | review | ignore_unreachable dropped: an unreachable device fails the run. | - |
 | `keyword.local_action` | blocked | local_action or connection: local runs the task on the controller, and the native method runs on the device. | - |
 | `keyword.local_satisfied` | info | delegate_to: localhost, local_action or connection: local dropped: the native method already runs in the host process. | - |
@@ -655,15 +657,16 @@ Every finding in a migration report carries one of these codes. The set is close
 | `keyword.no_log` | blocked | no_log hides output; dropping it could show a secret. | Use register_mask or secret_mask on the fields that hold the secret. |
 | `keyword.notify` | review | notify dropped: the handler will not run. | Run the handler's task explicitly after the change, guarded by when. |
 | `keyword.reporting` | info | A reporting-only keyword (diff, debugger) was dropped. | - |
-| `keyword.retries` | blocked | retries/until/delay: the native task runs once and passes without checking until. | - |
+| `keyword.retries` | blocked | until, retries or delay could not be carried: no register to read, a templated or out-of-range count (retries 0 to 100, delay 0 to 3600), a condition that does not translate, or the keyword is on a block. | Write the condition as CEL over result.<register>. |
 | `keyword.run_once` | blocked | run_once: the native task would run on every device. | - |
 | `keyword.tags` | blocked | tags that are templated, or that name all, tagged or untagged, which a runbook task cannot carry. | Write the tag names. |
 | `keyword.throttle` | blocked | throttle has no native equivalent. | - |
 | `keyword.timeout` | blocked | A timeout the native task cannot carry: templated or not a whole number of seconds up to a day, or on a play, a block or an import_tasks task, since a native timeout bounds one task. | Write a literal number of seconds on each task. A literal timeout on a task converts to the runbook's own timeout key. |
 | `keyword.unknown` | blocked | A key this converter does not know. | - |
 | `loop.control` | blocked | A loop_control option this converter does not reproduce. | - |
-| `loop.register` | blocked | A looped task registers its result, whose shape differs from one task's. | - |
-| `loop.runtime` | blocked | A loop over a list known only at run time. | Write one task per item. |
+| `loop.native` | review | A loop became the native loop: the task runs once per item at run time, on each device, and a failing item does not stop the others. Its register holds results, changed, failed and skipped, as Ansible's does. | - |
+| `loop.register` | blocked | A task that becomes several native tasks cannot hold one registered name or one loop. | - |
+| `loop.runtime` | blocked | A loop over a list the native loop cannot read: a lookup, a dictionary, or an expression reading something other than vars, a registered result or the device. | Write one task per item. |
 | `loop.too_long` | blocked | A loop longer than this converter unrolls. | - |
 | `loop.unrolled` | info | A loop over a list known here became one task per item. | - |
 | `meta.dropped` | info | A meta task with nothing to run (flush_handlers, noop) was dropped. | - |
@@ -683,19 +686,24 @@ Every finding in a migration report carries one of these codes. The set is close
 | `play.serial` | blocked | serial: the runbook would change every device at once. | - |
 | `play.split` | review | This play's hosts differ from the play before it, so it starts a new runbook; run them in order. | - |
 | `play.vars_prompt` | blocked | vars_prompt asks at run time. | A survey on the job template. |
-| `set_fact.resolved` | info | A set_fact with only literal values was folded into the variables it defines. | - |
-| `set_fact.runtime` | blocked | A set_fact that is conditional, looped or templated sets its value only at run time. | - |
+| `set_fact.cacheable` | review | set_fact converted to the set_fact action; its cacheable option was dropped, since a runbook's facts last for the run only. | - |
+| `set_fact.resolved` | info | A set_fact with only literal values, each variable defined once, was folded into the variables it defines. | - |
+| `set_fact.runtime` | blocked | A set_fact that is looped, or an include_vars, sets its value only at run time and has no native form. | - |
 | `state.computed` | blocked | The task's state comes from a variable with no single value, so which native method it maps to is decided only at run time. | Choose the method that matches the state you mean. |
 | `template.fact` | blocked | A template reads a fact or a magic variable (inventory_hostname, ansible_*), known only on a host at run time. | Put per-device values in inventory properties. |
+| `template.quoted` | review | A {{ }} expression in command text was given the quote filter (cli_token for a network CLI), which the native command-text rule requires: the value reaches the command as one safe word, where Ansible pasted it as written. | - |
+| `template.register` | review | A template reads a registered result as result.<name>, which exists only when exactly one device (or one device-less task) wrote it; with several devices, read nodes.<name>[<deviceID>]. | - |
 | `template.resolved` | info | A template read a variable with exactly one literal value in the playbook, and was replaced by that value. | - |
 | `template.secret` | blocked | The variable's name or value looks secret, so it is not copied into the runbook. | Bind a credential to the template instead of writing the value. |
 | `template.unresolved` | blocked | A template reads a variable with no single literal value here: set at run time, defined more than once, a fact, or undefined. | Write the value, or wait for templated params. |
 | `template.unsupported` | blocked | A template uses Jinja this converter cannot evaluate (a filter, a test or a statement). | Write the resulting value. |
 | `vars.files` | review | A vars_files entry could not be read inside the playbook's directory, so its variables are unknown here. | - |
-| `vars.inventory` | review | group_vars or host_vars exist beside the playbook. They are not read, and they differ per host. | Put per-device values in inventory properties. |
+| `vars.inventory` | review | group_vars or host_vars exist beside the playbook. This conversion does not read them; the static inventory does, as each device's own variables (read as vars.<name>), and a device's variable beats the runbook's vars where Ansible lets a play's vars beat it. | Keep group_vars and host_vars beside the inventory, and check any name the playbook also sets in vars. |
+| `vars.precedence` | review | The same variable is set at more than one scope. Ansible lets a play's vars beat inventory vars and a set_fact beat a task's vars; the runbook's rule is that the narrower scope always wins (runbook, global fact, device inventory vars, device fact, block, task, extra vars), so the winner can differ. | Give the variable one name per meaning. |
+| `vars.unreadable` | blocked | A vars entry cannot be carried: its name is not a variable name the runbook reads, or it holds a secret or a vault value. | Bind a credential to the template for a secret. |
 | `vault.value` | blocked | A vault-encrypted value. It is never read or copied. | Bind a credential to the template instead. |
 | `when.fact` | blocked | A condition reads a fact or a magic variable (inventory_hostname, ansible_*). | - |
 | `when.register` | review | A condition reads a registered result. A native condition is evaluated once for the task, across every device it targets, not once per host. | - |
-| `when.unsupported` | blocked | A condition uses Jinja this converter cannot translate to CEL. | Write the condition as when_cel. |
+| `when.unsupported` | blocked | A condition (when, until, changed_when, failed_when or an assert's that) uses Jinja this converter cannot translate to CEL. | Write the condition as when_cel. |
 | `yaml.duplicate_key` | blocked | A map repeats a key; Ansible keeps the last and warns. | - |
 | `yaml.limit` | blocked | The playbook exceeds a size, depth or alias limit. | - |

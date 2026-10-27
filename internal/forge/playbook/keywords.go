@@ -13,7 +13,7 @@ type kwHandling int
 const (
 	// kwSpecial is handled by tasks.go itself (name, when, register, tags,
 	// loops, blocks, action forms, check_mode, become_user, failed_when,
-	// connection, args).
+	// changed_when, ignore_errors, until, retries, delay, connection, args).
 	kwSpecial kwHandling = iota
 	// kwScope is read by the variable index and needs nothing more (vars,
 	// collections, listen).
@@ -50,6 +50,12 @@ var taskKeywords = map[string]kwRule{
 	"failed_when":  {kwSpecial, ""},
 	"connection":   {kwSpecial, ""},
 
+	"ignore_errors": {kwSpecial, ""},
+	"changed_when":  {kwSpecial, ""},
+	"until":         {kwSpecial, ""},
+	"retries":       {kwSpecial, ""},
+	"delay":         {kwSpecial, ""},
+
 	"vars":        {kwScope, ""},
 	"collections": {kwScope, ""},
 	"listen":      {kwScope, ""},
@@ -59,18 +65,13 @@ var taskKeywords = map[string]kwRule{
 	"become_method":      {kwDrop, "keyword.become"},
 	"become_flags":       {kwDrop, "keyword.become"},
 	"become_exe":         {kwDrop, "keyword.become"},
-	"ignore_errors":      {kwDrop, "keyword.ignore_errors"},
 	"ignore_unreachable": {kwDrop, "keyword.ignore_unreachable"},
-	"changed_when":       {kwDrop, "keyword.changed_when"},
 	"diff":               {kwDrop, "keyword.reporting"},
 	"debugger":           {kwDrop, "keyword.reporting"},
 	"any_errors_fatal":   {kwDrop, "keyword.reporting"},
 	"remote_user":        {kwDrop, "play.identity"},
 	"port":               {kwDrop, "play.identity"},
 
-	"retries":         {kwBlock, "keyword.retries"},
-	"until":           {kwBlock, "keyword.retries"},
-	"delay":           {kwBlock, "keyword.retries"},
 	"async":           {kwBlock, "keyword.async"},
 	"poll":            {kwBlock, "keyword.async"},
 	"delegate_to":     {kwSpecial, ""},

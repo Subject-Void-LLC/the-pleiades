@@ -56,8 +56,15 @@ func (t *translator) unrollItems(in argIn, bindings map[string]any) ([]any, *blo
 		}
 		return items, nil
 	}
+	if mentions(in.node, t.loopNames) {
+		return nil, nil
+	}
 	v, rerr := t.goValue(in.node, bindings, in.at)
 	if rerr != nil {
+		if rerr.code == "template.unresolved" && hasTemplateNode(in.node) {
+			// One value, which setParam reads as a native template or refuses.
+			return nil, nil
+		}
 		return nil, &blockReason{rerr.code, in.at, fmt.Sprintf("%s: %s", in.name, rerr.why)}
 	}
 	switch x := v.(type) {
@@ -134,7 +141,23 @@ func (t *translator) setParam(c *plannedCall, param string, item any, in argIn, 
 	case resolved:
 		v, err = coerceGo(r.v, typ, param)
 	case hasTemplateNode(node):
-		raw, rerr := t.goValue(node, bindings, in.at)
+		native := mentions(node, t.loopNames)
+		var raw any
+		var rerr *resolveError
+		if !native {
+			raw, rerr = t.goValue(node, bindings, in.at)
+			native = rerr != nil && rerr.code == "template.unresolved"
+		}
+		if native {
+			nv, nerr := t.nativeParam(node, c.call.FQCN, param, typ, bindings, in.at)
+			switch {
+			case nerr == nil:
+				c.params[param] = nv
+				return nil
+			case rerr == nil || nerr.code != "template.unresolved":
+				rerr = nerr
+			}
+		}
 		if rerr != nil {
 			return &blockReason{rerr.code, in.at, fmt.Sprintf("%s: %s", in.name, rerr.why)}
 		}

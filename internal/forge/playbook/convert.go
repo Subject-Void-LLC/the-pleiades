@@ -29,6 +29,7 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 	for _, n := range p.notes {
 		cites = append(cites, t.raise(n.code, n.at, spec.name, n.why))
 	}
+	cites = append(cites, t.takeNoted()...)
 	if p.blocked != nil {
 		id := t.raise(p.blocked.code, p.blocked.at, spec.name, p.blocked.why)
 		out := t.placeholder(name, spec.module, spec.at, ctx, append(cites, id)...)
@@ -42,6 +43,10 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(cites, id)...)}
 	}
 	var out []*outTask
+	if len(p.calls) > 1 && (spec.nk.loop != nil || spec.nk.needsResult()) {
+		id := t.raise("loop.register", spec.at, spec.name, "the task becomes several native tasks, and a loop or a condition over its result can belong to only one")
+		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(cites, id)...)}
+	}
 	for _, call := range p.calls {
 		callName := name
 		if call.label != "" {
@@ -57,11 +62,20 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 				continue
 			}
 		}
-		t.emitted++
 		task := &outTask{
 			name: callName, fqcn: call.call.FQCN, params: call.params, register: spec.register,
-			when: whens, tags: spec.tags, checkMode: spec.checkMode, timeout: spec.timeout, cites: cites, at: spec.at,
+			when: whens, tags: spec.tags, checkMode: spec.checkMode, timeout: spec.timeout, at: spec.at,
 		}
+		if id := t.applyKeys(e, spec, ctx, task); id != "" {
+			out = append(out, t.placeholder(callName, spec.module, spec.at, ctx, append(cites, id)...))
+			continue
+		}
+		if nl := spec.nk.loop; nl != nil {
+			task.loop, task.withItems, task.loopControl = nl.source, nl.withItems, nl.control
+		}
+		cites = append(cites, t.takeNoted()...)
+		task.cites = cites
+		t.emitted++
 		task.result = &TaskResult{
 			At: spec.at, Name: callName, Module: spec.module, Runbook: ctx.runbook, FQCN: call.call.FQCN,
 			ParamKeys: sortedKeys(call.params), Params: call.params,
@@ -69,7 +83,7 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 		}
 		out = append(out, task)
 	}
-	if spec.register != "" && len(out) == 1 && out[0].result.Outcome != OutcomeBlocked {
+	if spec.register != "" && len(out) == 1 && out[0].result.Outcome != OutcomeBlocked && spec.nk.loop == nil {
 		t.registers[spec.register] = produced{fqcn: out[0].fqcn, returns: e.Returns}
 	}
 	return out
@@ -104,11 +118,23 @@ func (t *translator) whens(inherited []string, own []*yaml.Node, bindings map[st
 // condition translates one Jinja condition into CEL: "" when it is always
 // true, "false" when it is always false.
 func (t *translator) condition(src string, bindings map[string]any, at Position) (string, bool, *celError) {
+	return t.conditionAs(src, bindings, at, "", t.registers)
+}
+
+// conditionOwn translates one condition over the task's own result, registered
+// as own: it reads result.<own>.<field>, once, not per device.
+func (t *translator) conditionOwn(src string, at Position, own string, registers map[string]produced) (string, bool, *celError) {
+	return t.conditionAs(src, nil, at, own, registers)
+}
+
+// conditionAs is condition with the register read as the task's own result
+// when own is set.
+func (t *translator) conditionAs(src string, bindings map[string]any, at Position, own string, registers map[string]produced) (string, bool, *celError) {
 	e, err := parseWhen(src)
 	if err != nil {
 		return "", false, unsupported("%v", err)
 	}
-	c := &celCtx{r: t.res, bindings: bindings, use: at, registers: t.registers, perDevice: map[string]bool{}}
+	c := &celCtx{r: t.res, bindings: bindings, use: at, registers: registers, perDevice: map[string]bool{}, own: own, loopNames: t.loopNames, loopVar: t.loopVarName}
 	term, cerr := c.toCEL(e)
 	if cerr != nil {
 		return "", false, cerr

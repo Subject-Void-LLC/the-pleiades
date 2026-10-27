@@ -16,10 +16,17 @@ func (t *translator) translateBlock(node *yaml.Node, entries []entry, name strin
 	inner.blockers = slices.Clone(ctx.blockers)
 	var tags, cites []string
 	var rescue, always entry
+	var vars map[string]any
 	for _, e := range entries {
 		keyAt := nodePos(e.keyAt, t.file)
 		rule, known := taskKeywords[e.key]
 		switch {
+		case e.key == "vars":
+			var blocked string
+			if vars, blocked = t.nativeVarsMap(e.value, scopeBlock, name); blocked != "" {
+				inner.blockers = append(inner.blockers, blocked)
+			}
+		case t.scopeKey(e.key, e.value, keyAt, name, "a block", &inner, &cites):
 		case e.key == "block" || e.key == "name" || rule.handling == kwScope:
 		case e.key == "rescue":
 			rescue = e
@@ -63,7 +70,7 @@ func (t *translator) translateBlock(node *yaml.Node, entries []entry, name strin
 			inner.blockers = append(inner.blockers, t.raise("module.ambiguous", keyAt, name, "a block also names "+e.key))
 		}
 	}
-	out := &outTask{name: name, tags: tags, cites: cites, at: at}
+	out := &outTask{name: name, tags: tags, cites: cites, at: at, vars: vars}
 	out.block = t.translateTasks(lookup(node, "block"), inner)
 	if rescue.key != "" {
 		out.cites = append(out.cites, t.raise("block.rescue", nodePos(rescue.keyAt, t.file), name, "rescue converted: it runs per device, and reads the failure as error rather than ansible_failed_task"))

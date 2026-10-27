@@ -86,8 +86,10 @@ func (c *celCtx) defined(e *expr) (term, *celError) {
 	switch {
 	case isMagic(v.name):
 		return term{}, &celError{"when.fact", fmt.Sprintf("%s is a fact or a magic variable", v.name)}
-	case v.path == nil && hasBinding(c.bindings, v.name):
+	case v.path == nil && (hasBinding(c.bindings, v.name) || slices.Contains(c.loopNames, v.name)):
 		return result(true)
+	case v.name == c.own:
+		return term{}, unsupported("is defined on the task's own registered result")
 	case c.registers[v.name].fqcn != "":
 		if v.path != nil {
 			return term{}, unsupported("is defined on a field of a registered result")
@@ -177,7 +179,7 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 	if l.constant {
 		open, fixed, openLeft = r, l, false
 	}
-	if open.register == "" {
+	if open.register == "" && !open.loopRead {
 		// A whole condition compared with a constant can hide a negation
 		// (x == false), which the defined rule must see.
 		return term{}, unsupported("a condition compared with a constant; write the condition itself")
@@ -189,7 +191,7 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 	var cel string
 	switch e.op {
 	case "==", "!=", "<", "<=", ">", ">=":
-		if !compatible(open.typ, fixed.value) {
+		if !(open.loopRead && open.typ == "dyn") && !compatible(open.typ, fixed.value) {
 			return term{}, unsupported("%s.%s is a %s, compared with %s", open.register, open.field, open.typ, kindOf(fixed.value))
 		}
 		if openLeft {
@@ -203,7 +205,7 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 			cel = open.cel + ".contains(" + lit + ")"
 		case !openLeft && open.typ == "list":
 			cel = lit + " in " + open.cel
-		case openLeft && isList(fixed.value) && open.typ != "dyn":
+		case openLeft && isList(fixed.value) && (open.typ != "dyn" || open.loopRead):
 			cel = open.cel + " in " + lit
 		default:
 			return term{}, unsupported("in between a %s and %s", open.typ, kindOf(fixed.value))

@@ -32,6 +32,7 @@ const (
 	exprDefined                 // left is (not) defined; negate says which
 	exprFilter                  // left | name
 	exprList                    // a list literal: items
+	exprRegex                   // left is (not) search/match(value): name is the test
 )
 
 // expr is one node of a parsed condition.
@@ -181,10 +182,32 @@ func (p *whenParser) test(depth int) (*expr, error) {
 		case "undefined":
 			p.pos++
 			return &expr{kind: exprDefined, negate: !negate, left: e}, nil
+		case "search", "match", "regex":
+			return p.regexTest(e, negate)
 		}
 		return nil, fmt.Errorf("test %s is not one this converter translates", describeToken(p.peek()))
 	}
 	return e, nil
+}
+
+// regexTest parses the (pattern) of an is search, is match or is regex test
+// whose subject is left. The pattern must be written out: a pattern read from
+// a variable could be anything.
+func (p *whenParser) regexTest(left *expr, negate bool) (*expr, error) {
+	name := p.peek()
+	p.pos++
+	if !p.take("(") {
+		return nil, fmt.Errorf("%s needs a pattern in parentheses", name)
+	}
+	lit := p.peek()
+	if lit == "" || (lit[0] != '"' && lit[0] != '\'') {
+		return nil, fmt.Errorf("the pattern of %s must be written out as text", name)
+	}
+	p.pos++
+	if !p.take(")") {
+		return nil, fmt.Errorf("%s takes only a pattern", name)
+	}
+	return &expr{kind: exprRegex, name: name, negate: negate, left: left, value: lit[1 : len(lit)-1]}, nil
 }
 
 // primary parses a literal, a variable read, a list or a parenthesized

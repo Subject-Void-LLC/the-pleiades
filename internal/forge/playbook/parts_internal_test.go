@@ -126,8 +126,8 @@ func TestVars_ExactlyOneValue(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("one: a\ntwo: b\napi_token: t\n"), &vars); err != nil {
 		t.Fatal(err)
 	}
-	ix.addLiterals(vars.Content[0], "pb.yml")
-	ix.addLiterals(vars.Content[0], "pb.yml")
+	ix.addLiterals(vars.Content[0], "pb.yml", scopePlay)
+	ix.addLiterals(vars.Content[0], "pb.yml", scopePlay)
 	ix.defs["one"] = ix.defs["one"][:1]
 	ix.addRuntime("later", Position{})
 	for _, tc := range []struct {

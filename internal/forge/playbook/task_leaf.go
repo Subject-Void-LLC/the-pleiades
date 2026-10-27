@@ -31,6 +31,8 @@ type leafSpec struct {
 	// task's own; zero is none.
 	timeout int
 	hasLoop bool
+	// nk are the keywords the runbook carries natively.
+	nk nativeKeys
 	// local is set when the task is written to run on the Ansible
 	// controller (delegate_to: localhost, local_action, connection: local);
 	// localRun decides it once the native methods are known.
@@ -83,6 +85,12 @@ func (t *translator) translateLeaf(node *yaml.Node, entries []entry, name string
 	if len(loopBlocks) > 0 {
 		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(loopBlocks, spec.cites...)...)}
 	}
+	if loop.native != nil {
+		spec.nk.loop = loop.native
+		t.loopNames, t.loopVarName, t.loopIndexName = loop.names(), loop.loopVar, loop.indexVar
+		defer func() { t.loopNames, t.loopVarName, t.loopIndexName = nil, "", "" }()
+		return t.convertOnce(entry, spec, args, nil, "", ctx)
+	}
 	if !loop.present {
 		return t.convertOnce(entry, spec, args, nil, "", ctx)
 	}
@@ -121,6 +129,10 @@ func (t *translator) readLeaf(node *yaml.Node, entries []entry, name string, ctx
 			t.readTimeout(&spec, e, at)
 			continue
 		}
+		if e.key == "vars" {
+			t.readNativeKey(&spec, e, at)
+			continue
+		}
 		rule := taskKeywords[e.key]
 		switch {
 		case rule.handling == kwDrop && !literalFalse(e.value):
@@ -141,6 +153,9 @@ func (t *translator) readLeaf(node *yaml.Node, entries []entry, name string, ctx
 
 // readSpecial reads one kwSpecial keyword into spec.
 func (t *translator) readSpecial(spec *leafSpec, e entry, at Position) {
+	if t.readNativeKey(spec, e, at) {
+		return
+	}
 	v := deref(e.value)
 	switch e.key {
 	case "when":
@@ -170,12 +185,6 @@ func (t *translator) readSpecial(spec *leafSpec, e entry, at Position) {
 			spec.cites = append(spec.cites, t.raise("keyword.check_mode_false", at, spec.name, "check_mode: false dropped"))
 		default:
 			spec.blocks = append(spec.blocks, t.raise("keyword.check_mode", at, spec.name, "check_mode is not a literal true or false"))
-		}
-	case "failed_when":
-		if literalFalse(v) {
-			spec.cites = append(spec.cites, t.raise("keyword.ignore_errors", at, spec.name, "failed_when: false dropped"))
-		} else {
-			spec.blocks = append(spec.blocks, t.raise("keyword.failed_when", at, spec.name, "failed_when has no native equivalent"))
 		}
 	case "delegate_to":
 		// Delegating to the controller is what a controller-side method

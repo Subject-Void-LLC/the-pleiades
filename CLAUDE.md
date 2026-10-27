@@ -72,12 +72,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
   and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
   (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
-- **Module catalog: 210 registered FQCNs; 207 implemented, 3 declared-not-implemented.** These counts
+- **Module catalog: 210 registered FQCNs; 208 implemented, 2 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
   this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 36, `ai` 11,
-  `svc` 16, `net` 25, `file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
+  `svc` 16, `net` 25, `file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
   `http` 3, `pleiades` 3, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -101,11 +101,11 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   implementing the shared `pkg/datastore` port), so a rejected element comes back as a structured
   error carrying the device's own error-tag and the XPath it objected to, rather than as a line of
   vendor text. Its parameter names are `ansible.netcommon.netconf_config`'s.
-  **The short and decision-relevant list is what is NOT implemented, all three of them:**
-  `file.template` - deliberate and not a gap to close casually, since the render engine lives in
-  `internal/render` and a Collection may not import `internal/`; and
+  **The short and decision-relevant list is what is NOT implemented, both of them:**
   `net.junos.config` and `net.eos.config`, which need a `JunosCapable`/`AristaEOSCapable` device
-  type that does not exist yet (Phase 74d).
+  type that does not exist yet (Phase 74d). (`file.template` is implemented: the engine renders the
+  template through `internal/render` and hands the method the rendered bytes, since a Collection may
+  not import `internal/`; the method then writes them exactly as `file.copy` does.)
   Each returns an explicit "declared but not implemented" error rather than a silent
   no-op, though that error is a backstop rather than the mechanism: the dispatcher refuses any
   method whose `Status` is not `StatusImplemented` before its body is ever called
@@ -165,7 +165,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 194 of the 207 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 195 of the 208 implemented methods (Phase 46).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an

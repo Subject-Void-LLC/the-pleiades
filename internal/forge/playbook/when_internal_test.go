@@ -25,7 +25,7 @@ func whenTranslator(t *testing.T) *translator {
 	if err := yaml.Unmarshal([]byte("enabled: yes\ncount: 3\nname: web\nlist: [a, b]\ndb_password: hunter2hunter2\ntwice: 1\n"), &vars); err != nil {
 		t.Fatal(err)
 	}
-	tr.ix.addLiterals(vars.Content[0], "pb.yml")
+	tr.ix.addLiterals(vars.Content[0], "pb.yml", scopePlay)
 	tr.ix.addRuntime("twice", Position{})
 	tr.ix.addRegister("probe", "command", Position{})
 	tr.registers["probe"] = produced{fqcn: "exec.command", returns: commandReturns}
