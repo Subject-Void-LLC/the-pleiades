@@ -120,12 +120,23 @@ func readsRoot(tmpl render.Template, root string) bool {
 }
 
 // TargetTemplateProblems is what a rendered target may not read: the device
-// root, since the target is what chooses the device.
-func TargetTemplateProblems(tmpl render.Template) []string {
+// root, since the target is what chooses the device, and a loop's item or
+// position, since a target is resolved once for the task, before any item
+// exists. task is the task the target belongs to, nil for none.
+func TargetTemplateProblems(tmpl render.Template, task *Task) []string {
+	var problems []string
 	if readsRoot(tmpl, TemplateRootDevice) {
-		return []string{"a target cannot read device: the target is what chooses the device"}
+		problems = append(problems, "a target cannot read device: the target is what chooses the device")
 	}
-	return nil
+	if task != nil {
+		for _, root := range task.loopRoots() {
+			if readsRoot(tmpl, root) {
+				problems = append(problems, fmt.Sprintf("a target cannot read %s: it is resolved once for the whole loop, before any item exists; loop over the devices of hosts: instead, or write one task per target", root))
+				break
+			}
+		}
+	}
+	return problems
 }
 
 // runPerDevice runs task nodeID once on each device its target resolves to,

@@ -121,3 +121,16 @@ func TestTemplateRule_ALoopExpressionThatDoesNotCompile(t *testing.T) {
 		t.Errorf("findings %+v", got)
 	}
 }
+
+func TestTemplateRule_ALoopsItemCannotChooseTheTarget(t *testing.T) {
+	got := templateFindings(t, `id: tgt
+tasks:
+  - noop:
+      target: "{{ item }}"
+    within: web
+    loop: [a, b]
+`)
+	if len(got) != 1 || !strings.Contains(got[0].Message, "a target cannot read item") {
+		t.Errorf("findings %+v", got)
+	}
+}

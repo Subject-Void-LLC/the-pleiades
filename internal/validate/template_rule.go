@@ -84,7 +84,7 @@ func TemplateRule(world WorldView) []Finding {
 				problems := checkTemplate(eng, source, formats[key], registered, task)
 				if key == collection.TargetParam {
 					if tmpl, err := eng.Compile(source); err == nil {
-						problems = append(problems, engine.TargetTemplateProblems(tmpl)...)
+						problems = append(problems, engine.TargetTemplateProblems(tmpl, task)...)
 					}
 				}
 				// A secret reference is the method's to resolve, never the

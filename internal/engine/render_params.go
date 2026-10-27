@@ -430,7 +430,11 @@ func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, t
 		// running the work supplied: nodes, result and error hold what a
 		// device returned, which must not choose the file replaced.
 		if format == collection.ParamFormatProjectPath && root != TemplateRootVars && !(task != nil && task.authoredLoopRoot(root)) {
-			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, so an expression may read only vars (or the item of a loop written in the runbook or read from vars), never %s, which holds what a device returned", root))
+			why := "so an expression may read only vars, never %s, which holds what a device returned"
+			if task != nil && len(task.loopRoots()) > 0 {
+				why = "so an expression may read only vars, or the item of a loop written in the runbook or read from vars, never %s, which holds what a device returned"
+			}
+			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, "+why, root))
 		}
 	}
 	if format == collection.ParamFormatURL && !URLPrefixFixed(tmpl.Source()) {
@@ -573,7 +577,7 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 			}
 			problems := TaskTemplateProblems(tmpl, formats[key], task)
 			if key == collection.TargetParam {
-				problems = append(problems, TargetTemplateProblems(tmpl)...)
+				problems = append(problems, TargetTemplateProblems(tmpl, task)...)
 			}
 			if len(problems) > 0 {
 				return fmt.Errorf("parameter %s: %s", key, problems[0])
