@@ -39,8 +39,7 @@ var ContainerNeeds = []Need{
 
 // ContainerTestScript is what the machine runs for a container pass in sha's
 // tree: it starts the Podman machine when it is not running (and stops it
-// again at the end, so its memory is free for what runs next on the Mac, the
-// Windows ARM VM), links its socket
+// again at the end, so its memory is free again), links its socket
 // under a name testcontainers accepts, points DOCKER_HOST at it, removes every
 // container before and after (Ryuk, testcontainers' own cleanup, is off: it
 // never sees its readiness line through Podman's API and exits), and runs one

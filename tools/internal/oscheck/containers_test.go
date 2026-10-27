@@ -22,7 +22,7 @@ func TestContainerTestScript_Contents(t *testing.T) {
 		`podman machine start`,
 		`export DOCKER_HOST="unix://$HOME/.pleiades-podman/podman.sock" TESTCONTAINERS_RYUK_DISABLED=true`,
 		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 1 -coverage-out .pleiades-coverage-containers.json -report-out .pleiades-record-containers.json github.com/x/a github.com/x/b' &",
-		`trap 'stop_run "$job"; rm -f .maccheck.pid; done_; exit 143' TERM HUP INT`,
+		`trap 'stop_run "$job"; rm -f .maccheck-containers.pid; done_; exit 143' TERM HUP INT`,
 	} {
 		if !strings.Contains(s, w) {
 			t.Errorf("script does not hold %q:\n%s", w, s)
@@ -38,6 +38,16 @@ func TestContainerTestScript_Contents(t *testing.T) {
 	}
 	if got := containerPosix.ContainerTestScript("abc", 3, []string{"a/b"}); !strings.Contains(got, "-full -p 3 ") {
 		t.Errorf("an explicit parallelism is not used:\n%s", got)
+	}
+}
+
+// The two passes run in one tree at once, so each stops only its own run.
+func TestPIDFile_TheContainerPassHasItsOwn(t *testing.T) {
+	if a, b := posix.PIDFile(), containerPosix.PIDFile(); a == b {
+		t.Fatalf("both passes write their job to %s", a)
+	}
+	if s := containerPosix.StopScript("abc"); !strings.Contains(s, containerPosix.PIDFile()) {
+		t.Errorf("the container pass's stop does not read its own job:\n%s", s)
 	}
 }
 

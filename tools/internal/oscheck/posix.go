@@ -298,8 +298,15 @@ const stopRun = `stop_tree() { kids=$(pgrep -P "$1" 2>/dev/null); kill -TERM "$1
 stop_run() { kill -TERM -- "-$1" 2>/dev/null; stop_tree "$1"; }`
 
 // PIDFile is where, in the unpacked tree, TestScript writes its tests'
-// job.
-func (x POSIX) PIDFile() string { return "." + x.Tool + ".pid" }
+// job. A container pass has its own: it runs in the same tree beside the
+// container-free one, and sharing a file would let either's stop end the
+// other's run.
+func (x POSIX) PIDFile() string {
+	if x.Containers != nil {
+		return "." + x.Tool + "-containers.pid"
+	}
+	return "." + x.Tool + ".pid"
+}
 
 // StopScript ends every process of the test run TestScript started in
 // sha's tree (see stopRun), and does nothing when there is no run.
