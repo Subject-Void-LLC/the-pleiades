@@ -287,7 +287,25 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  is an integer, so a condition reads `vars.clear == true`, never `vars.clear == \"true\"`.\n" +
 	"- `block:` runs its tasks in order, `rescue:` runs where one of them failed, and `always:` runs either way;\n" +
 	"  `rollback_on_failure: true` on a block undoes what it completed before its rescue. A key a runbook may not\n" +
-	"  hold, such as `retries` or `until`, is refused naming it: a wait is a method (`pleiades doc --list wait`).\n" +
+	"  hold is refused naming it. To wait for something, `until:` below works on any read-only method, and a\n" +
+	"  wait is also a method (`pleiades doc --list wait`).\n" +
+	"- Variables: `vars:` at the runbook, a block or a task, read as `{{ vars.name }}` in a parameter and `vars.name` in a\n" +
+	"  condition. The narrower scope wins: task, then block, then the device's own (`group_vars/`, `host_vars/`\n" +
+	"  beside `inventory.yaml`, a tag is a group), then the runbook; `-e name=value` overrides all of them. This is not\n" +
+	"  Ansible's order. A variable nobody gives is an error unless read with `| default(...)`. Never put a secret in one.\n" +
+	"- `set_fact:` sets variables while the run goes: for the device the task ran on, or for every device with\n" +
+	"  `global: true`; `no_override: true` keeps a value a name already has. A fact lasts for the run, never longer.\n" +
+	"- Repeated work is a loop, never the same task written out several times: `loop:` (or `with_items:`) takes a\n" +
+	"  list, or `\"{{ vars.names }}\"`, runs the task once per item in order (at most 1000), and reads the item as\n" +
+	"  `{{ item }}`, `{{ item.field }}`, `{{ loop.index }}`. An item put in command text is quoted with `| quote`.\n" +
+	"  `loop_control:` renames the item (`loop_var`), names the position (`index_var`) and labels each result\n" +
+	"  (`label`). A failed item does not stop the others, and each item is its own journal entry.\n" +
+	"- `until:` (conditions over the task's own `register`), `retries:` (default 3, at most 100) and `delay:`\n" +
+	"  (seconds) run a task again until it holds. Use it only over a method that only reads; `validate` warns\n" +
+	"  otherwise. A check runs the task once.\n" +
+	"- `failed_when:` and `changed_when:` (conditions over the task's own `register`) decide what counts as a\n" +
+	"  failure or a change; `ignore_errors: true` goes on past a failure; `assert: {that: [...], fail_msg: ...}` and\n" +
+	"  `fail: {msg: ...}` are tasks that fail the run on purpose. `rescue:` answers any of them.\n" +
 	"- A list of one item is still written as a list.\n" +
 	"- `pleiades validate` warns of a `hosts:` or target that names no device yet; the run fails there unless the\n" +
 	"  device is added first.\n" +

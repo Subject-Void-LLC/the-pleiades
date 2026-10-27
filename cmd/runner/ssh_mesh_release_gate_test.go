@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
@@ -265,7 +266,9 @@ func newReleaseGateHarnessFor(t *testing.T, source knownHostsSource, runbookFile
 		t.Fatalf("failed to init runbook source: %v", err)
 	}
 
-	adapter, err := native.NewAdapter(bus, runbooks, nil)
+	// The renderer cmd/runner's main hands its adapter, so a runbook with a
+	// {{ }} renders here as it does on a real Runner.
+	adapter, err := native.NewAdapter(bus, runbooks, nil, native.WithRenderer(render.New()))
 	if err != nil {
 		t.Fatalf("failed to init native adapter: %v", err)
 	}

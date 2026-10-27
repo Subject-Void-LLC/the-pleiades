@@ -81,6 +81,20 @@ func FuzzCompileAndRender(f *testing.F) {
 		"{{ nodes.x.y[0].z }}",
 		"{{ a | urlencode | cli_token }}",
 		"show interface {{ ci | cli_token }}",
+
+		// Loop-item shaped input (Phases 88 and 89): an item, a field of it,
+		// the loop counters, nested braces, and a variable that reads itself.
+		"{{ item }}",
+		"{{ item.name }}-{{ loop.index }}/{{ loop.length }}",
+		"{{ item.a.b.c.d }}",
+		"{{ item[0] }}",
+		"{{ item.name | default('none') | quote }}",
+		"{{ vars.selfish }}",
+		"{{ {{ item }} }}",
+		"{{ item.{{ item }} }}",
+		strings.Repeat("{{ item.", 200) + "x" + strings.Repeat(" }}", 200),
+		strings.Repeat("{{ item }},", 5000),
+		"{{ item | to_json }}{{ loop.first }}{{ loop.last }}{{ loop.index0 }}",
 	}
 	for _, s := range seeds {
 		f.Add(s)
@@ -237,4 +251,51 @@ func valueIsWhole(source string) bool {
 		source = strings.TrimRight(source, " \t\r\n")
 	}
 	return strings.Count(source, "{{") == 1 && strings.HasPrefix(source, "{{") && strings.HasSuffix(source, "}}")
+}
+
+// TestRender_LoopItemShapes renders the shapes a loop hands a template: an
+// item that is not a map, a field it lacks, nested lists, a huge list and a
+// variable that names itself. Each must end in a value or an error, never a
+// panic or a runaway, and a self-reading variable stays text.
+func TestRender_LoopItemShapes(t *testing.T) {
+	eng := render.New()
+	huge := make([]any, 100000)
+	for i := range huge {
+		huge[i] = map[string]any{"name": "n", "id": i}
+	}
+	var deep any = "leaf"
+	for range 500 {
+		deep = []any{deep}
+	}
+	items := []any{nil, 3, "text", true, []any{}, map[string]any{}, map[string]any{"name": "a"}, deep, huge}
+	sources := []string{
+		"{{ item }}", "{{ item.name }}", "{{ item.name.more }}", "{{ item[0] }}",
+		"{{ item | to_json }}", "{{ loop.index }}-{{ loop.length }}", "{{ vars.selfish }}",
+	}
+	for _, source := range sources {
+		tmpl, err := eng.Compile(source)
+		if err != nil {
+			t.Fatalf("Compile(%q): %v", source, err)
+		}
+		for _, item := range items {
+			vars := map[string]any{
+				"item":    item,
+				"loop":    map[string]any{"index": 1, "length": len(items)},
+				"vars":    map[string]any{"selfish": "{{ vars.selfish }}"},
+				"nothing": nil,
+			}
+			out, err := tmpl.Render(vars)
+			if err == nil && len(out) > maxOutputBytesUnderTest {
+				t.Errorf("Render(%q) gave %d bytes, past the %d limit", source, len(out), maxOutputBytesUnderTest)
+			}
+		}
+	}
+	tmpl, err := eng.Compile("{{ vars.selfish }}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := tmpl.Render(map[string]any{"vars": map[string]any{"selfish": "{{ vars.selfish }}"}})
+	if err != nil || out != "{{ vars.selfish }}" {
+		t.Errorf("a self-reading variable rendered %q, %v, want its own text back", out, err)
+	}
 }

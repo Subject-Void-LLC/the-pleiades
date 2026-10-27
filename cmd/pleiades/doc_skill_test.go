@@ -301,3 +301,23 @@ func TestSkillNetwork_OnlyWithTheGateAndOnlyRealMethods(t *testing.T) {
 		t.Fatalf("only %d methods found in the network section; the parse no longer matches it", named)
 	}
 }
+
+// TestSkillGuide_TeachesVarsLoopsRetriesAndFailureKeywords holds the skill to
+// naming the keys a runbook author needs to repeat work, keep state and
+// decide a failure, and to teaching the method-as-key form and the rule that
+// repeated blocks are loops. It also refuses the old claim that a runbook
+// may not hold retries or until.
+func TestSkillGuide_TeachesVarsLoopsRetriesAndFailureKeywords(t *testing.T) {
+	for _, want := range []string{
+		"`vars:`", "`set_fact:`", "`global: true`", "`no_override: true`", "`loop:`", "`with_items:`", "`loop_control:`",
+		"`until:`", "`retries:`", "`delay:`", "`failed_when:`", "`changed_when:`", "`ignore_errors: true`", "`assert:",
+		"`fail:", "Repeated work is a loop", "Never `fqcn:` with `params:`", "This is not\n  Ansible's order",
+	} {
+		if !strings.Contains(skillGuide, want) {
+			t.Errorf("the skill does not teach %q", want)
+		}
+	}
+	if strings.Contains(skillGuide, "such as `retries` or `until`") {
+		t.Error("the skill still says retries and until are refused keys")
+	}
+}

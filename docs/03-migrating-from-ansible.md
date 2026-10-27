@@ -51,18 +51,32 @@ answers; on the command line, `validate` and `run` both refuse a `vars.<name>` t
 task), earlier registered results (`nodes`), and a result one device wrote
 (`result.<register>`). A target may be chosen from data too, when a `within:` names the
 only devices it may resolve to. There is no statement syntax (`{% %}`), no arithmetic
-and no authored `vars:`, and command text and URLs are held to rules that keep data from
+and command text and URLs are held to rules that keep data from
 adding a command or choosing a host. Every value is held to the type its method declares,
 where Ansible would convert it: `pleiades validate` refuses `stdin: 4` where text is
 expected and `timeout: "600"` where a number is (quote a mode, `"0644"`, since an unquoted
 `0644` is a number), and a template rendering into a text parameter gives text. See the
 [task keys reference](reference/task-keys.md).
 
-**Does not exist yet, and a runbook cannot express it:** `loop:`/`with_items:`,
-`handlers:`/`notify:`, `become:`, `serial:`, `roles:`, `ignore_errors:`,
-`changed_when:`/`failed_when:`, `group_vars:`/`host_vars:`, `set_fact:`, and
-play-level or inventory-level `vars:` of any kind. See the keyword map below for the
-complete, itemized list.
+**Also there, since Phases 87 to 89:** `vars:` at the runbook, block and task level,
+`set_fact` (per device, `global`, `no_override`), `loop`/`with_items`/`loop_control`,
+`until`/`retries`/`delay`, `changed_when`/`failed_when`/`ignore_errors`, `assert`, `fail`, and
+`group_vars`/`host_vars`. [Writing runbooks](04-writing-runbooks.md) is the guide.
+
+### Variable precedence differs from Ansible
+
+Ansible ranks variable sources in a long fixed table: a play's `vars:` beat inventory
+variables, and a `set_fact` beats a task's `vars:`. Here the narrower scope always wins,
+the rule most languages use. From widest to narrowest: the runbook's `vars:`, a global
+`set_fact`, the device's `group_vars`/`host_vars`, a `set_fact` for the device, a block's
+`vars:`, the task's `vars:`. Extra variables (`-e`) are an override from outside and win
+over all of them, as in Ansible. A playbook that sets one name in two places can read a
+different value after conversion, so `validate` warns when a name is set in more than one
+scope and says which setting is read.
+
+**Does not exist yet, and a runbook cannot express it:** `handlers:`/`notify:`, `become:`,
+`serial:`, `roles:`, and every `with_*` loop other than `with_items`. See the keyword map
+below for the complete, itemized list.
 
 None of these are secret gaps. They are the honest distance between "what Ansible
 does today" and "what The Pleiades does today," and closing them is most of the open
@@ -190,18 +204,18 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | none | `parallel:` | New. Native fan-out/join; mutually exclusive with `fqcn:`/`block:`. | - |
 | `name:` | `name:` | Same, free-form label. | Kept. |
 | module name as a task key (e.g. `ansible.builtin.copy:`) | the method name as a task key (e.g. `file.copy:`) | The same shape. See [How a task is written](../examples/upgrade_ios/README.md#how-a-pleiades-task-is-written); the older `fqcn:` + `params:` form is still read, and `validate` warns on it. | Mapped by the [module tables](reference/ansible-modules.md); a module they do not list is blocked. |
-| `vars:` (play or task level) | *(not supported)* | No template rendering exists; see [What transfers](#what-transfers-and-what-does-not). | A variable with exactly one literal value is written into the runbook, and listed in the report; anything else blocks the tasks that read it. |
-| `{{ jinja }}` anywhere in a module's args | *(not supported)* | `params:` is always a literal value. | Resolved when every variable it reads has one literal value, with a small set of filters; otherwise blocked. |
-| `loop:` / `with_items:` | *(not supported)* | A task runs once per its target device, never once per list item. | Unrolled into one task per item when the list is fixed in the playbook; a list known only at run time is blocked. |
+| `vars:` (play or task level) | `vars:` (runbook, block or task) | Read as `{{ vars.name }}`. The narrower scope wins, which is not Ansible's order: see [Variable precedence](#variable-precedence-differs-from-ansible). | A variable with exactly one literal value is written into the runbook, and listed in the report; anything else blocks the tasks that read it. |
+| `{{ jinja }}` anywhere in a module's args | `{{ }}` in a parameter | A strict subset of Jinja2 renders when the task runs; see the templating note above. | Resolved when every variable it reads has one literal value, with a small set of filters; otherwise blocked. |
+| `loop:` / `with_items:` | `loop:` / `with_items:` | Runs the task once per item, in order, at most 1000; `loop_control` names the item, the position and a label. Every other `with_*` form is not supported. See [Writing runbooks](04-writing-runbooks.md#loops). | Unrolled into one task per item when the list is fixed in the playbook; a list known only at run time is blocked. |
 | `handlers:` / `notify:` | *(not supported)* | No handler mechanism exists. | Dropped, with review findings: a handler is not converted, so run its task explicitly where it was notified. |
 | `tags:` | `tags:` | Same meaning, on a runbook (a play's tags), a block or a task, and `pleiades run --tags`/`--skip-tags` select by them with Ansible's own rule, `always`, `never`, `all`, `tagged` and `untagged` included. A task tagged `never` does not run unless a run names one of its tags. A tag no task carries is refused rather than silently matching nothing. The Controller does not take a tag filter yet, so a dispatched job runs everything but `never` tasks. | Kept, except `all`, `tagged`, `untagged` or a template, which block. |
 | `timeout:` (on a task) | `timeout:` | Same meaning: whole seconds the task may run on each device before it is stopped and fails, up to a day. A timeout on a block or a play is not accepted: set it on each task. On the Controller, a launch's own `timeout` field bounds every task too, and the smaller wins. | Kept when it is a literal number; a template, or a timeout on a play, a block or an `import_tasks` task, is blocked. |
 | `become:` / `become_user:` | *(not supported)* | No privilege-escalation directive; a Collection method's own `ExecutionContext.RequiresElevation` states this instead, as data, not as a runbook key. | `become` is dropped with a review finding; a `become_user` other than root is blocked. |
 | `serial:` | *(not supported)* | No batched-rollout control. | Blocked: the runbook would change every device at once. |
 | `roles:` | *(not supported)* | No role mechanism yet; it is on the open roadmap. | Blocked. |
-| `ignore_errors:` | *(not supported)* | A failed task fails its run; no per-task override. | Dropped with a review finding: a failure ends the run. |
-| `changed_when:` / `failed_when:` | *(not supported)* | A Collection method's own `Result.Changed` is the only changed signal; no runbook-level override. Read the change forward with `when_cel` instead, the way [the worked example](../examples/upgrade_ios/README.md) does for its checksum gate. | `changed_when` is dropped; `failed_when: false` is treated as `ignore_errors`; any other `failed_when` is blocked. |
-| `group_vars/` / `host_vars/` directories | *(not supported)* | No inventory-level variable layering of any kind. | Not read, with a review finding: put per-device values in inventory properties. |
+| `ignore_errors:` | `ignore_errors:` | Same meaning on a method call. The failure is still recorded, marked ignored. | Dropped with a review finding: a failure ends the run. |
+| `changed_when:` / `failed_when:` | `changed_when:` / `failed_when:` | Conditions over the task's own `register`, written as `when:` is. `changed_when` changes what the report says, never what the journal records of the method. | `changed_when` is dropped; `failed_when: false` is treated as `ignore_errors`; any other `failed_when` is blocked. |
+| `group_vars/` / `host_vars/` directories | `group_vars/` / `host_vars/` beside `inventory.yaml` | A group is a tag; `group_vars/all` applies to every host. A device's own variables sit between the runbook's and a task's. | Not read, with a review finding: put per-device values in inventory properties. |
 
 ## Borrowed vocabulary: exact semantics
 
@@ -222,7 +236,7 @@ underneath. Where it matters:
   condition is never walked by the executor. The equivalent "skip everything" effect
   today means repeating the same `when_cel:` on every task inside the block.
 - **Credentials.** Ansible reads `{{ vault_* }}` variables from an `ansible-vault`
-  file referenced from `vars:`. The Pleiades has no vars or vault mechanism: `pleiades
+  file referenced from `vars:`. The Pleiades keeps no secret in `vars:` (a name or value shaped like one is refused) and has no vault: `pleiades
   add-credential <device> --username <user>` prompts for a secret once and writes it
   to a local AES-256-GCM encrypted store. Neither a runbook nor `inventory.yaml` ever
   contains a password.
@@ -333,8 +347,10 @@ bare name rather than a Collection FQCN at all. `wait.path`/`wait.search` have n
 been renamed under `pleiades.builtin.` yet, an intentional inconsistency rather than
 an oversight.
 
-**Not yet in the catalog at all:** `ansible.builtin.assert`, `ansible.builtin.fail`,
-`ansible.builtin.pause`, `ansible.builtin.git`, `ansible.builtin.get_url`,
+**Now keywords, not catalog methods:** `assert` and `fail` (and `set_fact`) are engine
+keywords a task names as its key, as in Ansible.
+
+**Not yet in the catalog at all:** `ansible.builtin.pause`, `ansible.builtin.git`, `ansible.builtin.get_url`,
 `ansible.builtin.stat`, `ansible.builtin.cron`, and anything from a Galaxy collection not listed
 above (`ansible.posix.sysctl` among them). The
 converter drops `ansible.builtin.debug`, which only prints, with an info finding. A missing row here is either a gap to fill

@@ -128,6 +128,9 @@ mkdir my-project && cd my-project
   the Collection method and sync plugin contracts, their conformance suite, and a
   step-by-step worked example that takes one real module from naming it to running
   it against a real device.
+- [`docs/04-writing-runbooks.md`](docs/04-writing-runbooks.md): variables and their scope,
+  `set_fact`, loops, retries, and the keywords that decide a failure, with examples that
+  `validate` checks.
 - [`docs/12-web-ui.md`](docs/12-web-ui.md): the web UI the controller serves itself:
   signing in, what each view does and does not do, the environment banner, mobile,
   accessibility (including the manual verification script), and adding a view.

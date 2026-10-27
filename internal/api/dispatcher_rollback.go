@@ -252,7 +252,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 		Others:  groupByJob(later),
 		Devices: func(id string) (string, bool) { name, ok := names[id]; return name, ok },
 		Authored: func(node string) ([]engine.Task, error) {
-			task, ok := dag.Nodes[node]
+			task, ok := dag.NodeFor(node)
 			if !ok {
 				return nil, fmt.Errorf("runbook %s has no node %s", job.RunbookID, node)
 			}
