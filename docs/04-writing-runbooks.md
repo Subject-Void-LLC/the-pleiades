@@ -398,6 +398,40 @@ tasks:
     loop: [dev, test, prod]
 ```
 
+## Reusing a task list like a function
+
+A file of tasks that you `import_tasks` is a function, and the `vars:` on the
+importing task are its arguments. The imported tasks read them as
+`{{ vars.name }}`. Write the file once and call it as often as you like with
+different values, so the same task is never copied.
+
+```yaml fragment
+# greet.yaml: a bare list of tasks
+- name: say it
+  exec.command:
+    argv: ["echo", "{{ vars.greeting | default('hello') }} {{ vars.who }}"]
+```
+
+```yaml fragment
+# the runbook calls it twice
+tasks:
+  - import_tasks:
+      file: greet.yaml
+    vars:
+      who: world
+  - import_tasks:
+      file: greet.yaml
+    vars:
+      who: there
+      greeting: hi
+```
+
+Write a default with the `default` filter, as above. A `vars:` that the
+imported task sets for itself is the narrower scope, so it would win over the
+caller's value and the caller could not change it. The imported file runs
+with its caller's scope: it sees the runbook's `vars:`, the device's own
+variables and any fact set so far.
+
 ## What is not supported
 
 `with_*` loops other than `with_items`, `handlers` and `notify`, and `serial`
