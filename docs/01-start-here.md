@@ -255,7 +255,7 @@ source for a target's known host key yet.
 **The module catalog has 210 registered methods across 23 namespaces; 208 are
 implemented and 2 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
-that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
+that is NOT implemented, both of them: `net.junos.config` and
 `net.eos.config`. Calling one of those produces an explicit
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the

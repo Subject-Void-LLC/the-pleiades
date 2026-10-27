@@ -28,8 +28,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// walkLoopRunbook makes a directory named by a runbook variable and copies
-// one file into it per item of a loop.
+// walkLoopRunbook makes a directory named by a runbook variable, copies one
+// file into it per item of a loop, and then loops over that loop's registered
+// results, a list that does not exist until the first loop has run.
 const walkLoopRunbook = `id: loop-walk
 vars:
   base: /tmp/walk-loop
@@ -43,6 +44,11 @@ tasks:
       content: "{{ item }}\n"
     loop: [a, b, c]
     register: copies
+  - name: a backup beside each, from the first loop's own results
+    file.copy:
+      dest: "{{ vars.base }}/{{ item.item }}.bak"
+      content: "{{ item.item }}\n"
+    loop: "{{ result.copies.results }}"
 `
 
 func TestLoopReleaseGate_ItemsAreJournaledAndUndoneOneByOne(t *testing.T) {
@@ -134,9 +140,9 @@ func TestLoopReleaseGate_ItemsAreJournaledAndUndoneOneByOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	fanOut(job.JobID)
-	// The directory and one entry per item: four, not two.
-	journaled(job.JobID, 4)
-	if got := h.onDevice(t, "cat /tmp/walk-loop/a /tmp/walk-loop/b /tmp/walk-loop/c"); got != "a\nb\nc" {
+	// The directory and one entry per item of each loop: seven, not three.
+	journaled(job.JobID, 7)
+	if got := h.onDevice(t, "cat /tmp/walk-loop/a /tmp/walk-loop/b /tmp/walk-loop/c /tmp/walk-loop/a.bak /tmp/walk-loop/b.bak /tmp/walk-loop/c.bak"); got != "a\nb\nc\na\nb\nc" {
 		t.Fatalf("after the job the files hold %q", got)
 	}
 	entries, err := journalStore.AllForJob(ctx, job.JobID)
@@ -147,7 +153,7 @@ func TestLoopReleaseGate_ItemsAreJournaledAndUndoneOneByOne(t *testing.T) {
 	for _, e := range entries {
 		ids = append(ids, e.NodeID)
 	}
-	if want := "tasks[0] tasks[1].item[0] tasks[1].item[1] tasks[1].item[2]"; strings.Join(ids, " ") != want {
+	if want := "tasks[0] tasks[1].item[0] tasks[1].item[1] tasks[1].item[2] tasks[2].item[0] tasks[2].item[1] tasks[2].item[2]"; strings.Join(ids, " ") != want {
 		t.Fatalf("journal node ids %v, want %q", ids, want)
 	}
 
@@ -160,7 +166,7 @@ func TestLoopReleaseGate_ItemsAreJournaledAndUndoneOneByOne(t *testing.T) {
 		t.Fatalf("rollback: %v", err)
 	}
 	fanOut(rollbackID)
-	journaled(rollbackID, 4)
+	journaled(rollbackID, 7)
 	if got := h.onDevice(t, "test -e /tmp/walk-loop && echo still-there || echo gone"); got != "gone" {
 		t.Errorf("after the rollback the directory is %q", got)
 	}
@@ -187,8 +193,9 @@ func TestLoopReleaseGate_ItemsAreJournaledAndUndoneOneByOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"tasks[1].item[2] file.remove changed", "tasks[1].item[1] file.remove changed",
-		"tasks[1].item[0] file.remove changed", "tasks[0] file.remove changed",
+		"tasks[2].item[2] file.remove changed", "tasks[2].item[1] file.remove changed", "tasks[2].item[0] file.remove changed",
+		"tasks[1].item[2] file.remove changed", "tasks[1].item[1] file.remove changed", "tasks[1].item[0] file.remove changed",
+		"tasks[0] file.remove changed",
 	}
 	if strings.Join(stored, "|") != strings.Join(want, "|") {
 		t.Errorf("stored rollback rows %q, want %q", stored, want)
