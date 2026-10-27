@@ -4,78 +4,85 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-27. Branch `feat/phase-129-blind-lab-fixes`, off `origin/main` at `21ecd314`, 32 commits: Phases 129a to 129d
-as handed off on 2026-10-26, then 16 this session on top of `e3560066` (oldest first `8d868e52`, newest `e522586d`):
-review fixes, the run record fix, the Mac's container half, `pkg/vmrun` and `virt.fusion.vm.*`, the drive-root fix for
-`win.archive.extract`, and the Windows 11 ARM leg. Everything is committed through `e522586d` except these records. Not
-pushed; no pull request yet.**
+**2026-10-27. Branch `feat/authoring-parity-v0-3-0`, off `main` at `122b8c92` (PR #91's merge), 16 commits (oldest
+`e0b243fd`, newest `578390c2`), plus these records. Not pushed, no pull request, and `make pr-check` has not run. No tag
+was cut and nothing was published.**
+
+The branch is the path to the first binary release, v0.3.0 "Paranoid Porpoise", redefined as "Crawl and Walk plus
+authoring parity": release tooling, runbook variables, loops, retries and failure keywords, `file.template`, and the
+converter, docs, skill text and Walk-tier proof for them.
 
 ### What works
 
-- Review fixes: `remove-host` reads the state file before it removes anything (`8d868e52`, `TestRemoveHost`); the engine
-  refuses `all_at_plan_time` on a rescue task reading `device` (`33e1e945`, `ErrRescueLockAll`, rescue case in
-  `TestDeviceRoot_EveryPathAndItsLimits`); the scaffold keeps an unknown `Format` and the module reference marks
-  SecretRefs parameters (`e7eb6ec2`).
-- testgate's run record keeps 400 lines of a failure (`2053f832`, `TestRecordFailureLines_KeepTheCauseBehindALoggedTeardown`).
-- Mac container half: `maccheck -containers` (`5d7391d7`) and pr-check's split (`0a555bab`,
-  `TestEveryContainerPackageIsClassified`). 18 packages passed on the Mac's Podman in 17m46s; `internal/ent` lost one
-  race and passed alone.
-- VMware Fusion: `pkg/vmrun` (`f4d292b4`, readers held to captures from a real Fusion 26.0.1), detached start and reset
-  (`eaace13a`, `TestDetachScript_*`), `virt.fusion.vm.info`, `start` (with `keep_awake`) and `stop` plus
-  `VMwareFusionCapable` and its probe (`14747aae`), the guest address asked again with `-wait` (`2846c008`, proven on the
-  Mac after a resume).
-- `win.archive.extract` into a drive root (`6465e007`, `TestScript_MakesADriveRootsTopFoldersFirst`), proven on the
-  Windows 11 ARM guest with Go 1.26.10 arm64 and MinGit.
-- `wincheck -arm64` (`b609aa03`) and the winarm leg chained on the Mac in pr-check (`4ba08943`): `winarmcheck` on 2
-  packages passed in 59 s on 2026-10-27, after the fix to the binary it ran.
-- Records: FAILURE_PATTERNS 668 to 679; LESSONS 338 to 342; CI_LESSONS 13 to 15; the e2e ledger entry annotated with
-  668; five changelog fragments (`win-archive-extract-drive-root.fixed`, `pr-check-mac-containers.added`,
-  `wincheck-arm64.added`, `testgate-record-lines.changed`, `reference-secret-refs.added`).
+- Release tooling: `make release VERSION=x.y.z` and `make release-dry-run` (`tools/release`, `e0b243fd`). The dry run
+  built 18 binaries in 5m18s and `sha256sum -c` passed on all six archives. `.github/workflows/release.yml` builds on a
+  tag, refuses a tag not on `main`, reads `VERSION` through the shell, and publishes only archives and `SHA256SUMS`.
+  Only `actionlint` has run on the workflow. Codenames: `internal/buildinfo.Codenames`, shown on a second line of the
+  three version commands and in the release title (`5a429d3d`).
+- Variables (`vars.go`): `vars:` at runbook, block and task level; `set_fact` with `global` and `no_override`; the
+  narrower scope wins (runbook, global fact, device inventory vars, device fact, block, task, then extra vars). That
+  order is not Ansible's. `group_vars/` and `host_vars/` beside the inventory fold into each device's `vars` property
+  (links refused, 64 files at most, nested secret keys refused); `vars` rides the Walk payload through one shared filter,
+  `redact.CleanVars`. `import_tasks` with `vars:` is a function call (`TestImportTasks_VarsAreTheCallsArguments`).
+- Loops and retries (`loop.go`, `retry.go`, `assert.go`): `loop:`/`with_items:` with `loop_control`, `until`/`retries`/
+  `delay`, `changed_when`, `failed_when`, `ignore_errors`, `assert`, `fail`. Each item and each try is its own result and
+  journal entry (`<node>.item[k]`, `<node>.attempt[k]`; `DAG.NodeFor` maps back). An ignored or retried failure keeps
+  its error and is recorded as a failure (`Ignored`, `Retried`). Only the method's own failure is retried; a stopped
+  wait fails the task; runs are bounded (1000 items, 5000 runs, 16 MiB of results).
+- `file.template`: the engine renders `src` from the project and hands the method bytes; `file.copy`'s write, check and
+  undo. Proven over SSH on Linux only.
+- Validate rules for vars, loops and until; the converter maps the new keywords (`internal/forge/playbook`); docs page
+  `docs/04-writing-runbooks.md` with checked examples; skill text; fuzz (`FuzzLoopsAndVars`).
+- Proof: `cmd/runner/loop_release_gate_test.go` (real NATS, Runner, sshd and database: a looped job with vars and a
+  dynamic list, journaled per item, rolled back newest first). Engine 95.3%, validate 100%, converter 92.8% by plain
+  `-cover`.
+- Review (fp-reviewer, 10 findings) fixed before this handoff: `d1318b37`, `578390c2`, `7d54619e`. FAILURE_PATTERNS
+  691 to 698, LESSONS 348 to 351, twelve changelog fragments.
+- Blind CVD lab, run 5 (turn A, prompt unchanged, built at `b1999791`): Opus 44 PASS 0 FAIL, 27.8 min, 217 turns, $9.69;
+  Haiku 7 FAIL of 41 (no router answered; likely `GigabitEthernet0/0` for the IOL's `Ethernet0/0`, unproven). Against
+  run 4: tasks 121 to 39, repeated tasks 69 to 0, probes before the first run 50 to 47, turns 113 to 217, cost $6.93 to
+  $9.69. The AARs are `~/pleiades-cvd/runs/AAR-run5-opus.md` and `AAR-run5-haiku.md`; the comparison is a private
+  artifact. Findings from the Opus run fixed after it: `48716acc` (CLI rollback of a loop item, `result.<register>` in
+  `until`, an authored loop's item in a project path, skill text) and `578390c2`. Those fixes have not run on a lab.
 
 ### Blocker
 
-- None. `make pr-check` with the new split recipe has not run end to end yet.
+- None. The gate has not run.
 
 ### Open
 
-- `tests/e2e`'s `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed twice at `e3560066` and passed alone twice
-  since; its cause is unknown (FAILURE_PATTERNS 668). The next failure's record should hold it.
-- `go generate ./internal/forge/catalogdata` writes eight duplicate CML link and capture scaffolds on every run
-  (FAILURE_PATTERNS 677). Check `git status` after any generate until it is fixed.
-- Not built: `virt.fusion` install and create methods, and `pkg/winunattend` for arm64 and UEFI. Stale Fusion lock
-  handling stays manual (674). No test holds wincheck's leg tool name (676).
-- The VM `win11-arm` has 4 GB; raise it to 8 GB at its next clean shutdown.
-- The Windows setup rename flake (`internal/setup`, Defender) has not recurred.
-- Carried: F7, F8, F9 from the 129 review; FAILURE_PATTERNS 562, 647, 648, 649, 652 unchanged; the earlier list in the
-  archive's 2026-10-26 entry.
+- Gate: `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`, waited on with one background `curl` on
+  `/wait?for=fail,end`. Not yet exercised: full `cmd/pleiades`, `cmd/runner`, the Mac, BSD, Windows and Windows ARM legs
+  (the Windows tools runbook now uses a loop), the Docker migrate-playbook gate (its expected `loop.unrolled` and
+  `keyword.ignore_errors` codes should still hold), and the real coverage floors. `tools/release` has no floor.
+- `file.template` is unproven on macOS and FreeBSD, has no Crawl-tier real-sshd test, and `validate` does not compile
+  the template body.
+- Unproven Release Gate clauses in Phases 87 to 89 (see the dated notes in the roadmap): extra vars beating `vars:`, a
+  register read in params and `set_fact` read by `when_cel` on a real sshd, the Walk-tier `until`, `changed_when`
+  against a real device. Schema/Injection Hardening for 88 and 89 is not written. No warning when a register changes
+  from plain to looped.
+- Phases 41 and 81 are not started and still sit in v0.3.0, which keeps it open. Moved out on 2026-10-27: Phases 43,
+  44, 49, 119e to 119h, 119l, 119m to v0.5.0, and 125a to 125p to v0.7.0.
+- Method gaps from the labs (OPEN, see the AARs): `net.batfish.check` takes no network name; `until` over a read-only
+  `show` warns every time and `wait.routes` waits only for presence; `net.ios.config` misses the IKEv2 fvrf duplicate
+  notice; `net.ios.config` cannot be checked; stdin splitting for two credentials, the System Bridge value and
+  `route.protocol` values are undocumented. The grader cannot import a lab whose connectors have spaces in their names.
+- Groundconfig: three knowledge entries were added in `~/Groundconfig/knowledge/` (IOL interface names, the IKEv2 fvrf
+  notice, Batfish protocol names), uncommitted by rule. Its own test fails on two older entries (Podman, Fusion).
+- Not built on purpose: handlers, `serial:`, `async`/`poll`, rescue across Walk segments, other `with_*` forms.
+- `internal/buildinfo.CurrentRelease` still reads `0.2.0`; moving it is the owner's change when v0.3.0 closes.
+- Carried from before: FAILURE_PATTERNS 668, 677 and the earlier lists in the archive.
 
 ### Next, in order
 
-1. Commit these records.
-2. `make pr-check` through `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`: the first end-to-end run of the
-   split recipe, with the `containers-mac` and `winarm` legs.
-3. Push once and open one pull request for Phases 129a to 129d plus the Mac and Fusion work; tick each Release Gate
-   with its evidence when Actions passes.
-4. Then the open list above, and the order the owner set (release tooling, Phase 117b part 3, Phase 126).
-
-### Files changed
-
-- `8d868e52`: `internal/inventory/file_repository_remove*.go`. `33e1e945`: `internal/engine/` (`device_root.go`,
-  `handlers_run.go`, tests). `e7eb6ec2`: `internal/forge/collectionscaffold/docrender.go`, `tools/gendocs/modules.go`,
-  three reference pages. `2053f832`: `tools/testgate/`.
-- `5d7391d7`, `0a555bab`, `b609aa03`, `4ba08943`: `tools/internal/oscheck/`, `tools/maccheck/`, `tools/wincheck/`,
-  `tools/internal/flakegate/maccontainers_test.go`, `tools/internal/prreport/report.go`, `tools/monitor/`, `Makefile`,
-  `tests/winarm/.env.example`, `.gitignore`.
-- `f4d292b4`, `eaace13a`, `14747aae`, `2846c008`, `e522586d`: `pkg/vmrun/`, `internal/catalog/virt/fusion/vm/`,
-  `pkg/capability/capabilities_vmware.go`, `internal/inventory/devices/generic/`, `internal/inventory/onboard/probe_ssh.go`,
-  catalogdata, generated docs, `CLAUDE.md`, `README.md` (`4a975a97`), `docs/01-start-here.md`.
-- `6465e007`: `internal/catalog/win/archive/extract*.go`.
-- Records (uncommitted): `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
-  `LESSONS_LEARNED_ARCHIVE.md`, `CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, five new files in
-  `changelog/`; git-ignored, the pr-check failure ledger and `.IGNORE/timings.md`.
+1. Commit these records (`HANDOFF_*`, `README.md` if touched). `.SPECIFICATION/IMPLEMENTATION.md` is git-ignored.
+2. Run the gate through the monitor. On a failure stop, prove the failing packages alone, fix, rerun.
+3. Push once and open one pull request. In its body: the failure-pattern classes checked, the run 4 and run 5 table with
+   its caveats, and a Tools used section that says Groundconfig is not a released tool. No AI attribution anywhere.
+4. After it merges: the owner decides the tag. Then Phase 117b part 3, Phase 126, and the open method gaps.
 
 ### Lab state
 
-Changed: the Mac is awake, its Podman machine stopped. The Windows 11 ARM VM `win11-arm` runs on the Mac's Fusion at
-10.0.0.155, with Go 1.26.10 arm64 and MinGit installed; its lab project is `~/pleiades-fusion-lab` (hosts `mac`,
-`win11-arm`), and `tests/winarm/.env` is set. Unchanged: `win-check` and `bsd-check` are saved on VENGEANCE.
+The CML sandbox is reserved (VPN interface `plcml0` up); `default-lab` (10 nodes) is the only lab, and both run-5 labs
+were torn down by their turn B. The harness takes `INSTANCE=opus|haiku` (`run5-instance.sh`) and shares one Batfish.
+`win-check` and `bsd-check` are saved on VENGEANCE; the Mac and its Fusion Windows ARM VM are as in the archive.
