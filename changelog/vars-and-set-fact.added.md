@@ -1,0 +1,1 @@
+Added `vars:` at the runbook, block and task level, `set_fact` (per device, `global`, `no_override`), and `group_vars/` and `host_vars/` beside the static inventory. The narrower scope wins, and a launch's extra variables win over all of them.

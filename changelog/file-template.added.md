@@ -1,0 +1,1 @@
+`file.template` is now implemented: the engine renders a template file from the project with the run's variables and the method writes the rendered text exactly as `file.copy` does, with the same check mode and undo.

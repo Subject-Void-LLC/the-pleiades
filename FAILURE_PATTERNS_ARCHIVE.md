@@ -16821,3 +16821,85 @@ the failure, before it is rerun.
 
 **Lesson.** A build failure with no words is unexplained, not real and not contention: record what the machine had
 free when it happened, and build the package alone on the same tree before naming a cause.
+
+## 691. Select copied the DAG field by field and dropped Vars and UsesSetFact, so a runbook run with a tag filter lost its runbook variables (fixed before push)
+
+**Symptom.** 2026-10-27, the first `vars:` tests: a task read `{{ vars.name }}` as undefined although the runbook set it. In the first run the cause was elsewhere, but `engine.Select` builds a new `DAG` by naming fields, and it had no line for the two fields `vars:` added.
+
+**Root cause.** A struct copied by naming its fields drops every field added later, and nothing fails: the copy compiles and the field reads as its zero value.
+
+**Fix.** `Select` copies `Vars` and `UsesSetFact` (select.go). Found by reading, before a tag-filtered run lost them.
+
+**Lesson.** A new field on a type that something rebuilds by naming fields is added to the rebuild in the same change (grep the type's literal).
+
+## 692. The Controller's rollback planning looked a journal entry's node id up in the DAG as it was, so the first rollback of a looped task was refused with 'runbook has no node tasks[1].item[2]' (fixed before push)
+
+**Symptom.** 2026-10-27, the Walk-tier loop release gate: the forward job ran and journaled one entry per item, and `Dispatcher.Rollback` refused with `runbook loop-walk has no node tasks[1].item[2]`.
+
+**Root cause.** Entries for a task that ran more than once carry the node id with `.item[k]` or `.attempt[k]` appended. `cmd/pleiades/rollback.go` and `internal/rollback/verify.go` had been taught to strip it; `internal/api/dispatcher_rollback.go` also did `dag.Nodes[node]` and had not.
+
+**Fix.** One method, `DAG.NodeFor`, strips the suffix, and all three lookups call it. The gate (cmd/runner/loop_release_gate_test.go) now proves a rollback undoes the items newest first on a real Controller, Runner and sshd.
+
+**Lesson.** When an id gains a suffix, find every lookup by the old id (go_symbol_references on the map), not the ones in the package you are in; a Controller-side copy of a CLI-side rule is the one that is missed.
+
+## 693. The Walk release-gate harness built its adapter without the template renderer cmd/runner passes, so the gate's first loop runbook failed to render only in the test (fixed before push)
+
+**Symptom.** 2026-10-27, `TestLoopReleaseGate`: the job completed with 'this run has no template renderer, so a parameter holding {{ cannot be rendered' and the files were never made.
+
+**Root cause.** `newReleaseGateHarnessFor` called `native.NewAdapter(bus, runbooks, nil)`; `cmd/runner/main.go` passes `native.WithRenderer(render.New())`. Every gate before this one used a runbook with no template, so the missing option showed nothing.
+
+**Fix.** The harness passes the same option, with a comment naming main.go.
+
+**Lesson.** A harness that wires a production object by hand copies every option the composition root passes, or it tests a different Runner (RULE 0).
+
+## 694. An until task retried every kind of failure, so a refused login or a changed host key would be tried again up to a hundred times (fixed before push)
+
+**Symptom.** Found by the failure-pattern review, 2026-10-27, before any run: retry.go cleared the error of every non-final try whatever its stage.
+
+**Root cause.** The retry loop asked 'did it fail' and not 'did the method fail'. Credential, host-key, lock and render failures are the same each time; trying a login again and again is how a device locks an account (class j).
+
+**Fix.** Only a failure at the action stage is tried again; any other ends the task at once (retry.go hasNonActionFailure). A retried failure now stays an error marked `Retried`, so the journal records it as a failure.
+
+**Lesson.** A retry names what it retries; the default is nothing.
+
+## 695. A run canceled while an until task waited to try again returned success, because the failed try had been cleared and the walk checked its context only at the top of a level (fixed before push)
+
+**Symptom.** Found by review, 2026-10-27: a Walk job cancel or Runner shutdown during the delay on the last level gave `HasErrors() == false` and no error.
+
+**Root cause.** The retry cleared the earlier error, the cancel path returned only the cleared results, and `Run` ends without a context check after the last level.
+
+**Fix.** A stopped wait marks the pending try as the task's failure, and `Run` returns the context's error if it is set when it ends. Tests: TestUntil_AStoppedRunIsNotASuccess.
+
+**Lesson.** Every wait in an engine has a cancel path that is a failure, and a walk checks its context after the last step too.
+
+## 696. The device vars filter dropped only top-level secret-named keys and secret-shaped strings, so a nested password in group_vars reached the dispatch payload (a repeat of 'allowlist, never a strip list') (fixed before push)
+
+**Symptom.** Found by review, 2026-10-27: `group_vars/all.yml` holding `db: {password: plain}` passed the loader and rode the NATS payload to a Runner and into rendered parameters.
+
+**Root cause.** Three tiers (the loader, `record.Dispatched`, `engine.deviceVars`) each filtered a little differently and none looked inside a map or list.
+
+**Fix.** One function, `redact.CleanVars`, drops secret-named keys and secret-shaped strings at any depth, and the engine and the dispatch both call it; the loader refuses a nested secret key outright, naming it. Tests in internal/redact and internal/inventory.
+
+**Why earlier rules did not hold.** The rule says a template root is an allowlist; vars are free-form, so the next best is one shared recursive filter, which three tiers copying each other was not.
+
+**Lesson.** A filter that three tiers must agree on is one function they all call.
+
+## 697. The vars loader followed symbolic links and read every file of a directory, so a link in a synced project pulled any readable YAML into every device's vars (fixed before push)
+
+**Symptom.** Found by review, 2026-10-27: `group_vars/all.yml -> /anywhere` was read, with no cap on the number of files in a directory form.
+
+**Root cause.** `os.Stat` and `WalkDir` entries were used without asking whether they were links.
+
+**Fix.** `Lstat` and the walk refuse a symbolic link naming it, and a directory holds at most 64 files (group_vars.go). Test: TestFoldedVars_RefusesALinkAndANestedSecretKey.
+
+**Lesson.** A file read whose path an operator or a repository supplies refuses links; the cap on bytes is per read and the cap on files is per source.
+
+## 698. My own scripted edits silently did nothing three times because the text they replaced did not match the file's indentation, and the next step assumed they had applied (fixed before push)
+
+**Symptom.** 2026-10-27: the ignore_errors check in Run, the nested secret-key check and the vars wiring in render_params.go each failed to take effect after a `str.replace` that matched nothing; the first showed as a test that failed for a reason two steps away, and the third as another agent's edit overwriting mine in a shared file.
+
+**Root cause.** `str.replace` returns the string unchanged when its pattern is not found, so a mismatch is a silent no-op, the same shape as a schema edit without regeneration. Two agents editing one file is the same risk from the other side.
+
+**Fix.** Assert the pattern is present before replacing (`assert old in s`), and re-read after another agent has worked in the same file. Process only; no code.
+
+**Lesson.** An edit that can match nothing must fail when it does (a repeat in kind of the generated-code no-op in CLAUDE.md).

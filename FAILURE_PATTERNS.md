@@ -694,6 +694,15 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 689. A for loop over pgrep -f "tools/monitor/monitor.py run" matched the agent's own shell, whose command line held that text, and killed it (a repeat of 153) (open: the guard does not catch pgrep -f)
 690. On win-check, the full -race pass reported internal/ui/resources/credentialtypes as [build failed] with no compiler output, and the same build alone passed in 2.4 s (open)
 
+691. Select copied the DAG field by field and dropped Vars and UsesSetFact, so a runbook run with a tag filter lost its runbook variables (fixed before push)
+692. The Controller's rollback planning looked a journal entry's node id up in the DAG as it was, so the first rollback of a looped task was refused with 'runbook has no node tasks[1].item[2]' (fixed before push)
+693. The Walk release-gate harness built its adapter without the template renderer cmd/runner passes, so the gate's first loop runbook failed to render only in the test (fixed before push)
+694. An until task retried every kind of failure, so a refused login or a changed host key would be tried again up to a hundred times (fixed before push)
+695. A run canceled while an until task waited to try again returned success, because the failed try had been cleared and the walk checked its context only at the top of a level (fixed before push)
+696. The device vars filter dropped only top-level secret-named keys and secret-shaped strings, so a nested password in group_vars reached the dispatch payload (a repeat of 'allowlist, never a strip list') (fixed before push)
+697. The vars loader followed symbolic links and read every file of a directory, so a link in a synced project pulled any readable YAML into every device's vars (fixed before push)
+698. My own scripted edits silently did nothing three times because the text they replaced did not match the file's indentation, and the next step assumed they had applied (fixed before push)
+
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
 Append a new entry to the archive first, in full, then add its one-line, same-numbered title here. Never renumber an existing entry. Before writing one, search the archive for its class, by symptom and by cause: when it has happened before, the title says "(a repeat of N)" and the entry says why N's fix did not hold (LESSONS 274).

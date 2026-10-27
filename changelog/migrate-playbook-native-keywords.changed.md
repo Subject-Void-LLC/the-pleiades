@@ -1,0 +1,1 @@
+`pleiades forge migrate-playbook` now converts `loop`, `with_items`, `vars`, `set_fact`, `until`, `retries`, `delay`, `changed_when`, `failed_when`, `ignore_errors`, `assert` and `fail` to their native keywords instead of blocking them, and warns where a variable's winner differs from Ansible's.

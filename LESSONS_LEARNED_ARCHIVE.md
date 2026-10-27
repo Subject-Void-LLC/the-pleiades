@@ -6505,3 +6505,27 @@ Each was invisible to unit tests and to the run before it, because the run befor
 **Repeat.** LESSONS 342 says to run a new check leg end to end on its real machine before relying on it, and that was
 done for `winarm`. It did not hold for configuration changes, which are new legs in all but name: installing a compiler
 or a docker CLI changed which tests ran, and starting legs at t0 changed what the monitor saw.
+
+## 348. A new field on a type that something copies by naming its fields is added to the copy in the same change; and an id that gains a suffix gets every lookup by the old id changed, in every tier (2026-10-27).
+
+**Why.** 2026-10-27, authoring parity. `engine.Select` rebuilt the DAG field by field and dropped the two fields `vars:` added (FAILURE_PATTERNS 691). Per-item journal ids gained `.item[k]` and `.attempt[k]`; the CLI's rollback and the planner's verify were taught to strip them and the Controller's own copy of the lookup was not, until a gate against a real Controller refused the first rollback (692).
+
+**Rule in practice.** For a new field, search for the type's composite literals. For a changed id, list the references of the map or function the old id went into, across `cmd/`, `internal/api` and `internal/rollback`, not the package being edited. A release gate through the real Controller is what found the second.
+
+## 349. A retry, an ignore and a cancel each name what they cover: only the method's own failure is retried, an ignored or retried failure stays a failure in the record, and a stopped wait is the task's failure (2026-10-27).
+
+**Why.** The review of the loop and retry code found three ways to lose a failure: retrying a refused login (694), clearing an error so a cancel returned success (695), and recording a retried or ignored failure as a success in the journal. The honest shape is a flag on a result that still carries its error (`Retried`, `Ignored`), which the run's count skips and the journal records as it happened.
+
+**Rule in practice.** A new control-flow keyword that absorbs a failure adds a flag, never clears the error; its tests include a cancel mid-wait and a non-method failure.
+
+## 350. A filter that several tiers must agree on is one function they all call, and it looks inside nested values; the loader refuses what the runtime would drop (2026-10-27).
+
+**Why.** The loader, the dispatch payload and the engine each stripped a little of a device's vars at the top level, and a nested `password` passed all three (696). `redact.CleanVars` is now the one filter at runtime, and the loader refuses a nested secret key by name so an operator is told rather than silently missing a variable.
+
+**Related.** A vars file path comes from a repository, so links are refused and the number of files is bounded (697).
+
+## 351. A test harness that wires a production object by hand copies every option the composition root passes, and a scripted edit asserts its target is present (2026-10-27).
+
+**Why.** The Walk gate's adapter lacked the renderer `cmd/runner` passes, so the first templated runbook failed only in the test (693). Separately, three `str.replace` edits matched nothing and the next step assumed they had applied (698).
+
+**Rule in practice.** In a harness, compare its constructor call with the composition root's line by line. In a script, `assert old in text` before replacing, and re-read a shared file after another agent worked in it.

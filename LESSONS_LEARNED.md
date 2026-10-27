@@ -380,6 +380,10 @@ story, per `.AGENTS/AGENTS.md`.
 345. **A dashboard's stage state comes from an explicit marker the producer prints, not from inferring order from other lines (2026-10-27).**
 346. **A machine kept only for checks cleans before every run instead of refusing with advice (2026-10-27).**
 347. **A repeat in kind of 342: each new leg or configuration's first full run finds a different first failure, so run it end to end early and expect it to fail (2026-10-27).**
+348. **A new field on a type that something copies by naming its fields is added to the copy in the same change; and an id that gains a suffix gets every lookup by the old id changed, in every tier (2026-10-27).**
+349. **A retry, an ignore and a cancel each name what they cover: only the method's own failure is retried, an ignored or retried failure stays a failure in the record, and a stopped wait is the task's failure (2026-10-27).**
+350. **A filter that several tiers must agree on is one function they all call, and it looks inside nested values; the loader refuses what the runtime would drop (2026-10-27).**
+351. **A test harness that wires a production object by hand copies every option the composition root passes, and a scripted edit asserts its target is present (2026-10-27).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
