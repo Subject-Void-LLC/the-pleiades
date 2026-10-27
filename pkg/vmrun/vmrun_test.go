@@ -184,12 +184,12 @@ func TestHost_CommandLines(t *testing.T) {
 		do   func() error
 		want []string
 	}{
-		"start":                    {func() error { return h.Start(ctx, vmx, false) }, []string{FusionVMRun, "-T", "fusion", "start", vmx, "nogui"}},
-		"start gui":                {func() error { return h.Start(ctx, vmx, true) }, []string{FusionVMRun, "-T", "fusion", "start", vmx, "gui"}},
+		"start":                    {func() error { return h.Start(ctx, vmx, false) }, []string{"/bin/sh", "-c", detachScript, "sh", FusionVMRun, "-T", "fusion", "start", vmx, "nogui"}},
+		"start gui":                {func() error { return h.Start(ctx, vmx, true) }, []string{"/bin/sh", "-c", detachScript, "sh", FusionVMRun, "-T", "fusion", "start", vmx, "gui"}},
 		"stop soft":                {func() error { return h.Stop(ctx, vmx, false) }, []string{FusionVMRun, "-T", "fusion", "stop", vmx, "soft"}},
 		"stop hard":                {func() error { return h.Stop(ctx, vmx, true) }, []string{FusionVMRun, "-T", "fusion", "stop", vmx, "hard"}},
 		"suspend":                  {func() error { return h.Suspend(ctx, vmx, false) }, []string{FusionVMRun, "-T", "fusion", "suspend", vmx, "soft"}},
-		"reset":                    {func() error { return h.Reset(ctx, vmx, true) }, []string{FusionVMRun, "-T", "fusion", "reset", vmx, "hard"}},
+		"reset":                    {func() error { return h.Reset(ctx, vmx, true) }, []string{"/bin/sh", "-c", detachScript, "sh", FusionVMRun, "-T", "fusion", "reset", vmx, "hard"}},
 		"delete":                   {func() error { return h.DeleteVM(ctx, vmx) }, []string{FusionVMRun, "-T", "fusion", "deleteVM", vmx}},
 		"snapshot":                 {func() error { return h.TakeSnapshot(ctx, vmx, "before upgrade") }, []string{FusionVMRun, "-T", "fusion", "snapshot", vmx, "before upgrade"}},
 		"revert":                   {func() error { return h.RevertToSnapshot(ctx, vmx, "base") }, []string{FusionVMRun, "-T", "fusion", "revertToSnapshot", vmx, "base"}},

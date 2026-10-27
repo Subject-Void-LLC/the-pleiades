@@ -174,6 +174,35 @@ func (h Host) vmrun(ctx context.Context, op string, args ...string) (Output, err
 	return h.run(ctx, op, h.VMRun, append([]string{"-T", string(h.Product)}, args...)...)
 }
 
+// detachScript runs the command it is given with its output going to a
+// temporary file, then prints that file and exits with the command's status.
+//
+// It exists for the commands that start a VM process (start, reset): vmrun
+// forks vmware-vmx, which inherits vmrun's standard output and keeps it open
+// for as long as the VM runs. Read through a pipe, or through an SSH session's
+// channel, that output never reaches end-of-file, so the caller waits for the
+// VM to stop: on 2026-10-26 a start piped into grep on a real Fusion hung for
+// thirteen minutes while the VM sat at its boot prompt. A file has no reader
+// to keep waiting, and its content is still the tool's own words when it fails.
+const detachScript = `out=$(mktemp) || exit 125
+"$@" >"$out" 2>&1 </dev/null
+status=$?
+cat "$out"
+rm -f "$out"
+exit $status`
+
+// detached runs a vmrun command through detachScript (see there).
+func (h Host) detached(ctx context.Context, op string, args ...string) (Output, error) {
+	if !h.Product.Valid() {
+		return Output{}, fmt.Errorf("vmrun: %q is not a VMware product this package drives (fusion or ws)", h.Product)
+	}
+	if err := CheckTool(h.VMRun); err != nil {
+		return Output{}, fmt.Errorf("vmrun path: %w", err)
+	}
+	argv := append([]string{"-c", detachScript, "sh", h.VMRun, "-T", string(h.Product)}, args...)
+	return h.run(ctx, op, "/bin/sh", argv...)
+}
+
 // vmcli runs a vmcli command, with the VM's vmx first when vmx is not "".
 func (h Host) vmcli(ctx context.Context, op, vmx string, args ...string) (Output, error) {
 	if err := CheckTool(h.VMCLI); err != nil {

@@ -14,3 +14,9 @@ Behaviours the captures showed, which the methods rely on (Fusion 26.0.1, 2026-1
 - `vmrun start` prints "LocationGetRoot: Unable to determine the product location" to stdout when Fusion has
   never been opened, and still exits 0;
 - `listSnapshots ... showTree` indents a child snapshot with a tab; without it the list is flat.
+- `vmrun start` (and `reset`) fork `vmware-vmx`, which inherits vmrun's standard output and holds it for the VM's
+  life: read through a pipe, the output never ends. A start piped into grep hung for thirteen minutes. Start and
+  reset therefore run through `detachScript`, which sends the output to a file first.
+- A UEFI Windows install disc asks "press any key to boot from CD" for about five seconds after power-on;
+  unanswered, the VM falls through to the firmware's Boot Manager. `vmcli MKS sendKeySequence a` every half second
+  for 25 seconds after a hard reset answered it.

@@ -41,7 +41,7 @@ func (h Host) Start(ctx context.Context, vmx string, gui bool) error {
 	if gui {
 		mode = "gui"
 	}
-	_, err := h.vmrun(ctx, "start", "start", vmx, mode)
+	_, err := h.detached(ctx, "start", "start", vmx, mode)
 	return err
 }
 
@@ -68,6 +68,11 @@ func (h Host) power(ctx context.Context, verb, vmx string, hard bool) error {
 	how := "soft"
 	if hard {
 		how = "hard"
+	}
+	if verb == "reset" {
+		// A reset starts the VM process again, as start does.
+		_, err := h.detached(ctx, verb, verb, vmx, how)
+		return err
 	}
 	_, err := h.vmrun(ctx, verb, verb, vmx, how)
 	return err
