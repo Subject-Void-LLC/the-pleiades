@@ -890,6 +890,30 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		fi; \
 		govulncheck ./...; \
 	}; \
+	rm -rf $(COVERAGE_DIR)/pr/vuln.claim; \
+	for os in $(OS_CHECKS); do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
+	go build -o $(COVERAGE_DIR)/pr/winarmcheck ./tools/wincheck || exit 1; \
+	mac_job() { \
+		ms=0; \
+		if want mac || { [ -n "$$mac_pkgs" ] && want containers-mac; }; then \
+			$(COVERAGE_DIR)/pr/maccheck -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/mac.ready -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $${mine_fast:-$$mac_pkgs} || ms=1; \
+		fi; \
+		if want govulncheck && [ -f $(COVERAGE_DIR)/pr/mac.ready ] && mkdir $(COVERAGE_DIR)/pr/vuln.claim 2>/dev/null; then step govulncheck vuln; [ $$status -eq 0 ] || ms=1; fi; \
+		if [ -f $(COVERAGE_DIR)/pr/mac.ready ]; then \
+			if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || ms=1; fi; \
+			if [ -n "$$mac_pkgs" ] && want containers-mac; then \
+				$(COVERAGE_DIR)/pr/maccheck -containers -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$mac_pkgs || ms=1; \
+			fi; \
+		fi; \
+		if want winarm; then \
+			$(COVERAGE_DIR)/pr/winarmcheck -arm64 -optional -report-out $$rec/winarm.json -p $(WINARM_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/winarm.log 2>&1 || ms=1; \
+		fi; \
+		return $$ms; \
+	}; \
+	if want mac || want winarm || { [ -n "$$mac_pkgs" ] && want containers-mac; }; then \
+		mac_job > $(COVERAGE_DIR)/pr/mac.log 2>&1 & legs="$$legs mac:$$!"; \
+		echo "pr-check: the mac tests run beside the ones below from the start: the Mac prepares, scans with govulncheck, tests, runs its containers on Podman, then the Windows ARM VM on its Fusion runs its tests; their output follows them ($(COVERAGE_DIR)/pr/mac.log, $(COVERAGE_DIR)/pr/winarm.log)"; \
+	fi; \
 	if [ -n "$$mine_fast" ] && want fast; then \
 		go run ./tools/testgate -full -p $(PR_CHECK_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/fast.json -report-out $$rec/fast.json $(PR_STAMP) $$mine_fast || status=1; \
 		ran_fast=yes; \
@@ -900,38 +924,13 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		[ $$cov -eq 0 ] || status=1; \
 		if [ $$cov -ne 0 ] && [ $$ran_fast = yes ]; then \
 			echo "pr-check: the container-free packages miss a coverage floor (or their fast pass left one unmeasured), so nothing else runs: fix that first"; \
+			for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:} 2>/dev/null; done; \
 			trap - INT TERM EXIT; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -exit 1 || true; \
 			go run ./tools/failures record-prcheck -report $$rec/report.json || true; \
 			exit 1; \
 		fi; \
 	fi; \
-	for os in $(OS_CHECKS); do \
-		go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; \
-		want $$os || { [ $$os = mac ] && [ -n "$$mac_pkgs" ] && want containers-mac; } || continue; \
-		$(COVERAGE_DIR)/pr/$${os}check -optional -phase prepare -ready-file $(COVERAGE_DIR)/pr/$$os.ready -report-out $$rec/$$os.json -p $(PR_CHECK_PARALLELISM) $${mine_fast:-$$mac_pkgs} || status=1; \
-	done; \
-	if want govulncheck; then step govulncheck vuln; fi; \
-	mac_job() { \
-		s=0; \
-		if [ -f $(COVERAGE_DIR)/pr/mac.ready ]; then \
-			if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || s=1; fi; \
-			if [ -n "$$mac_pkgs" ] && want containers-mac; then \
-				$(COVERAGE_DIR)/pr/maccheck -containers -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$mac_pkgs || s=1; \
-			fi; \
-		fi; \
-		if want winarm; then \
-			$(COVERAGE_DIR)/pr/winarmcheck -arm64 -optional -report-out $$rec/winarm.json -p $(WINARM_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/winarm.log 2>&1 || s=1; \
-		fi; \
-		return $$s; \
-	}; \
-	go build -o $(COVERAGE_DIR)/pr/winarmcheck ./tools/wincheck || exit 1; \
-	for os in $(OS_CHECKS); do \
-		want $$os || want winarm || { [ $$os = mac ] && [ -n "$$mac_pkgs" ] && want containers-mac; } || continue; \
-		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ] || want winarm; then \
-			mac_job > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
-			echo "pr-check: the $$os tests, then the containers on its Podman, then the Windows ARM VM on its Fusion, run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log, $(COVERAGE_DIR)/pr/winarm.log)"; \
-		fi; \
-	done; \
+	if want govulncheck && mkdir $(COVERAGE_DIR)/pr/vuln.claim 2>/dev/null; then step govulncheck vuln; fi; \
 	labs=""; for os in $(LAB_CHECKS); do want $$os && labs="$$labs $$os"; done; \
 	for os in $$labs; do go build -o $(COVERAGE_DIR)/pr/$${os}check ./tools/$${os}check || exit 1; done; \
 	if [ -n "$$labs" ]; then \
