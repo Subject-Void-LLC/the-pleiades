@@ -226,6 +226,13 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 	if err := refuseReservedProperties(h); err != nil {
 		return record.Record{}, err
 	}
+	// Fold group_vars and host_vars into the vars property. h is a copy, and
+	// the folded map is a new one, so hosts.yaml's own row is untouched.
+	foldedProps, err := r.withFoldedVars(h)
+	if err != nil {
+		return record.Record{}, err
+	}
+	h.Properties = foldedProps
 	deviceType, err := ResolveHostType(h, r.ruleSet)
 	if err != nil {
 		return record.Record{}, err
