@@ -4,84 +4,78 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-26. Branch `feat/lab-captures-129b`, off `origin/main` at `21ecd314` (PR #90's merge), 10 commits: Phase 129a
-(`2b12066f`, `20e1ac92`, `81b14992`, records `42358323`, review fixes `80d0da4d`), 129b (`03ec94ed`), 129c (`2d54d27c`)
-and 129d (`2d9cd379`, `7e941028`, review fixes `ac7af458`). Phases 129a to 129d are built, on one branch for one pull
-request. These records are uncommitted. Not pushed, and `make pr-check` has not run: the owner said "don't worry about
-pr-check yet" and "one push per repo".**
+**2026-10-27. Branch `feat/phase-129-blind-lab-fixes`, off `origin/main` at `21ecd314`, 32 commits: Phases 129a to 129d
+as handed off on 2026-10-26, then 16 this session on top of `e3560066` (oldest first `8d868e52`, newest `e522586d`):
+review fixes, the run record fix, the Mac's container half, `pkg/vmrun` and `virt.fusion.vm.*`, the drive-root fix for
+`win.archive.extract`, and the Windows 11 ARM leg. Everything is committed through `e522586d` except these records. Not
+pushed; no pull request yet.**
 
 ### What works
 
-- The live CML gate `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows` passed in Phase 129d: named secrets, the P1-P2
-  link stopped and started, a capture of it counted by `net.pcap.summary` (40 ESP packets between the routers, none in
-  the clear), and `wait.routes` on P1 over SSH and on P2 through the console. It ran before the review fixes in
-  `ac7af458`; no rerun since is recorded.
-- Batfish: `TestCheck_DMVPNInAFrontDoorVRF` (live, pinned 2026.08.27.3685): VRF route checks, reach from an interface,
-  NHRP refused until accepted. Rollback later-run kinds and provisional checks: `TestBuild_TellsLaterRunsApart`,
-  `TestProvisionalChecks_AFailedProvisionalCheckIsUnchecked`.
-- CLI: `remove-host`, `remove-credential`, adhoc host forms, `--help` exit 0 (`TestEveryCommandsHelpExitsZero`),
-  duration timeouts, YAML aliases, `doc filters` and `doc conditions`, the `device` root (`TestDeviceRoot_*`),
-  `wait.routes` for IOS (`TestIOSRoutes`), the netcli console fix (`TestCommand_PassesOverTheDevicesOwnMessages`).
-- Tracker: 129a 7 of 8, 129b 3 of 5, 129c 3 of 4, 129d 9 of 10; every open one is a Release Gate (pr-check and
-  Actions) or a commit message, besides 129b's GNS3 item. Phase 129 itself: 0 of 2.
-- Records: FAILURE_PATTERNS 654 to 667; 562, 645, 647, 648, 649 and 652 marked fixed (647, 649 and 652 with stated
-  residuals) and 650's rollback side updated; LESSONS 333 to 337; four new changelog fragments; two PW.1 statements in
-  the security attestation.
+- Review fixes: `remove-host` reads the state file before it removes anything (`8d868e52`, `TestRemoveHost`); the engine
+  refuses `all_at_plan_time` on a rescue task reading `device` (`33e1e945`, `ErrRescueLockAll`, rescue case in
+  `TestDeviceRoot_EveryPathAndItsLimits`); the scaffold keeps an unknown `Format` and the module reference marks
+  SecretRefs parameters (`e7eb6ec2`).
+- testgate's run record keeps 400 lines of a failure (`2053f832`, `TestRecordFailureLines_KeepTheCauseBehindALoggedTeardown`).
+- Mac container half: `maccheck -containers` (`5d7391d7`) and pr-check's split (`0a555bab`,
+  `TestEveryContainerPackageIsClassified`). 18 packages passed on the Mac's Podman in 17m46s; `internal/ent` lost one
+  race and passed alone.
+- VMware Fusion: `pkg/vmrun` (`f4d292b4`, readers held to captures from a real Fusion 26.0.1), detached start and reset
+  (`eaace13a`, `TestDetachScript_*`), `virt.fusion.vm.info`, `start` (with `keep_awake`) and `stop` plus
+  `VMwareFusionCapable` and its probe (`14747aae`), the guest address asked again with `-wait` (`2846c008`, proven on the
+  Mac after a resume).
+- `win.archive.extract` into a drive root (`6465e007`, `TestScript_MakesADriveRootsTopFoldersFirst`), proven on the
+  Windows 11 ARM guest with Go 1.26.10 arm64 and MinGit.
+- `wincheck -arm64` (`b609aa03`) and the winarm leg chained on the Mac in pr-check (`4ba08943`): `winarmcheck` on 2
+  packages passed in 59 s on 2026-10-27, after the fix to the binary it ran.
+- Records: FAILURE_PATTERNS 668 to 679; LESSONS 338 to 342; CI_LESSONS 13 to 15; the e2e ledger entry annotated with
+  668; five changelog fragments (`win-archive-extract-drive-root.fixed`, `pr-check-mac-containers.added`,
+  `wincheck-arm64.added`, `testgate-record-lines.changed`, `reference-secret-refs.added`).
 
 ### Blocker
 
-- None. `make pr-check` waits on the owner's word.
+- None. `make pr-check` with the new split recipe has not run end to end yet.
 
 ### Open
 
-- Blind CVD run 4 started 2026-10-26 01:17 through `~/pleiades-cvd/run4.sh`, with a binary built at `7e941028`, so
-  without `ac7af458`'s fixes. Driver log at 02:00: turn A stopped by a usage limit after 2328 s, graded 41 PASS, 0
-  FAIL; turn C started.
-- Left open by the review and stated: F7 `wait.routes` lost its plan-time capability check (no any-of capability; said
-  in its Doc); F8 provisional rollback checks are Crawl tier only (docs/10); F9 `authored_rollback_empty` is trusted
-  from the journal row.
-- Residuals in the records: 647 (hosts given to a no-device method are still ignored), 649 (other node kinds still
-  print as numbers), 650 and 652 (a diagnostic run, and changes that cancel out, still need `--despite-run`).
-- Tests not yet written for fixes in `ac7af458`: a `rollback_on_failure` undo step reading `device` (656), validate's
-  refusal of `all_at_plan_time` with `device` (657), `link.stop` on a link that never ran (666), the capture `dest`
-  refusal (667), and a non-IP frame read back as `unexamined` (659).
-- Deferred: an assert method (none exists; FAILURE_PATTERNS 660), splitting run 4's turn A (kept for comparability),
-  GNS3 (`git stash@{0}`, "gns3 link suspend and capture": the live test still fails, the device type and methods are
-  unbuilt; FAILURE_PATTERNS 664).
-- Seen under load and passing alone (the class of 61, no new entry): two CLI release-gate tests in a full
-  `cmd/pleiades` run (a reaper context deadline, an sshd fixture port refused), and a `wait` live test where FRR said
-  "% command failed, could not lock running DS" during run 4.
-- Carried from before: `TestCheck_RealRoutersAgainstRealBatfish`'s readiness wait, 629's GNS3
-  retries, 618's hard link residual, 640 (Mask is still a denylist), 638, 574, 610, 611, 612, 602, 598, 560, 551, 470,
-  471. Proposed, not approved: Phases 128 and 130. Groundconfig stays uncommitted, its sharing undecided.
+- `tests/e2e`'s `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed twice at `e3560066` and passed alone twice
+  since; its cause is unknown (FAILURE_PATTERNS 668). The next failure's record should hold it.
+- `go generate ./internal/forge/catalogdata` writes eight duplicate CML link and capture scaffolds on every run
+  (FAILURE_PATTERNS 677). Check `git status` after any generate until it is fixed.
+- Not built: `virt.fusion` install and create methods, and `pkg/winunattend` for arm64 and UEFI. Stale Fusion lock
+  handling stays manual (674). No test holds wincheck's leg tool name (676).
+- The VM `win11-arm` has 4 GB; raise it to 8 GB at its next clean shutdown.
+- The Windows setup rename flake (`internal/setup`, Defender) has not recurred.
+- Carried: F7, F8, F9 from the 129 review; FAILURE_PATTERNS 562, 647, 648, 649, 652 unchanged; the earlier list in the
+  archive's 2026-10-26 entry.
 
 ### Next, in order
 
 1. Commit these records.
-2. When the owner says so: measure coverage for the changed packages, then `make pr-check` on the committed, clean tree.
-3. Push once, open the pull request for 129a to 129d, and tick each Release Gate with its evidence when Actions passes.
-4. Grade run 4 when it ends and write its after-action report; then the Phase 129 items.
-5. Then the deferred list above, and the release tooling PR, Phase 117b part 3 and Phase 126 in the owner's order.
+2. `make pr-check` through `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`: the first end-to-end run of the
+   split recipe, with the `containers-mac` and `winarm` legs.
+3. Push once and open one pull request for Phases 129a to 129d plus the Mac and Fusion work; tick each Release Gate
+   with its evidence when Actions passes.
+4. Then the open list above, and the order the owner set (release tooling, Phase 117b part 3, Phase 126).
 
 ### Files changed
 
-- `03ec94ed` (129b): `pkg/cml/` (`capture.go`, `find_link.go`, `cmltest`), `pkg/pcapsum/`,
-  `internal/catalog/virt/cml/{link,capture}/`, `internal/catalog/net/pcap/`, catalogdata, the CML gate, docs.
-- `2d54d27c` (129c): `internal/catalog/net/batfish/`, `internal/rollback/`, `internal/engine/` (journal, provisional
-  checks), `internal/ent/` and migrations sqlite 0038 and postgres 0035, `cmd/pleiades/rollback.go`, docs.
-- `2d9cd379`, `7e941028`, `ac7af458` (129d): `cmd/pleiades/` (adhoc, removehost, main, journal, doc topics, skill,
-  validate, run text), `internal/engine/` (yaml aliases, timeouts, device root, executor, handlers), `internal/validate/`,
-  `internal/render/filter.go`, `internal/catalog/wait/routes.go`, `pkg/netcli/`, `pkg/sdk/shell.go`, `tools/gendocs/`,
-  docs and changelog fragments.
+- `8d868e52`: `internal/inventory/file_repository_remove*.go`. `33e1e945`: `internal/engine/` (`device_root.go`,
+  `handlers_run.go`, tests). `e7eb6ec2`: `internal/forge/collectionscaffold/docrender.go`, `tools/gendocs/modules.go`,
+  three reference pages. `2053f832`: `tools/testgate/`.
+- `5d7391d7`, `0a555bab`, `b609aa03`, `4ba08943`: `tools/internal/oscheck/`, `tools/maccheck/`, `tools/wincheck/`,
+  `tools/internal/flakegate/maccontainers_test.go`, `tools/internal/prreport/report.go`, `tools/monitor/`, `Makefile`,
+  `tests/winarm/.env.example`, `.gitignore`.
+- `f4d292b4`, `eaace13a`, `14747aae`, `2846c008`, `e522586d`: `pkg/vmrun/`, `internal/catalog/virt/fusion/vm/`,
+  `pkg/capability/capabilities_vmware.go`, `internal/inventory/devices/generic/`, `internal/inventory/onboard/probe_ssh.go`,
+  catalogdata, generated docs, `CLAUDE.md`, `README.md` (`4a975a97`), `docs/01-start-here.md`.
+- `6465e007`: `internal/catalog/win/archive/extract*.go`.
 - Records (uncommitted): `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
-  `LESSONS_LEARNED_ARCHIVE.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, `changelog/runbook-yaml-aliases.fixed.md`,
-  `changelog/validate-unmatched-target.added.md`, `changelog/capture-files-and-unexamined.changed.md`,
-  `changelog/skill-teardown-and-new-forms.changed.md`; git-ignored, `.SPECIFICATION/IMPLEMENTATION.md` and
-  `.SPECIFICATION/SECURITY_ATTESTATION.md`.
+  `LESSONS_LEARNED_ARCHIVE.md`, `CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, five new files in
+  `changelog/`; git-ignored, the pr-check failure ledger and `.IGNORE/timings.md`.
 
 ### Lab state
 
-Changed: blind CVD run 4 is running on the CML sandbox (`~/pleiades-cvd`; run 3's results and sandbox archived to
-`runs/claude-run3` and `claude-run3`), with a Batfish container up for it, and `~/pleiades-cvd/bin/pleiades-real` is
-rebuilt at `7e941028`. Unchanged: the VirtualBox lab was not touched this session; last recorded, `bsd-check`,
-`win-check`, `lab-dc1` and `lab-lin1` are saved.
+Changed: the Mac is awake, its Podman machine stopped. The Windows 11 ARM VM `win11-arm` runs on the Mac's Fusion at
+10.0.0.155, with Go 1.26.10 arm64 and MinGit installed; its lab project is `~/pleiades-fusion-lab` (hosts `mac`,
+`win11-arm`), and `tests/winarm/.env` is set. Unchanged: `win-check` and `bsd-check` are saved on VENGEANCE.

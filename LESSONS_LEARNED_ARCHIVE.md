@@ -6378,3 +6378,63 @@ root now holds only the keys a device type declares its accessors read (`record.
 secret-named key or a secret-shaped text. LESSONS 190 and FAILURE_PATTERNS 577 already said a denylist fails open; they
 did not hold because they were written about content checks and masking, and choosing a template's data was not seen
 as the same decision.
+
+## 338. A repeat of 95 and 213: prove a hazard with a control that must fail without the fix, and make every scripted edit assert that its anchor matched
+
+**Rule.** A test for a protection carries a control: the same case without the protection, which must show the hazard
+(hang, fail, leak). A new case in a test is checked against a case that must fail. An edit made by a script (a Python
+or sed replace) asserts that its anchor matched exactly once before it writes, because a replace that finds nothing
+changes nothing and says nothing.
+
+**Why.** 2026-10-26 and 2026-10-27 (FAILURE_PATTERNS 671, 679). `pkg/vmrun`'s detach fix was written with its control
+first: `TestDetachScript_TheHazardIsReal` runs the bare command over a stand-in child that holds its output and
+requires it to wait, so the fix's test cannot pass because the stand-in failed to hold anything. The same week, a
+Python replace meant to teach the Fusion fake in `tools/internal/oscheck/box_test.go` to answer `virt.fusion.vm.info`
+matched nothing (an indentation mismatch), and the first case passed with the fake never answering; only the second
+case caught it. LESSONS 95 and 213 already say a test is believed only after it can fail. They did not hold for the
+box test because the first case was written to pass, not to be watched failing, and the edit that built its fixture
+had no check of its own.
+
+## 339. A VM started headless on macOS from an SSH session needs an explicit wake hold for its process; when a VM "is slow", measure its clock against the host's first
+
+**Rule.** A method that starts a VM on a Mac holds the Mac awake for the VM's process (`caffeinate -dimsu -w <pid>`)
+unless told the Mac is kept awake another way. When a guest seems slow, compare elapsed time in the guest against the
+host before changing CPUs, memory or disk settings.
+
+**Why.** This session (FAILURE_PATTERNS 672). A Windows 11 ARM guest on VMware Fusion, started headless over SSH, ran
+about five times slow: its unattended install took about 85 minutes, the first-logon VMware Tools install hung, and
+keystrokes were lost. macOS throttles such a process as background work, and nothing in Fusion says so. The wake hold
+fixed it at once, and `virt.fusion.vm.start` now takes it by default (`keep_awake`).
+
+## 340. vmcli's MKS sendKeyEvent takes a HID usage shifted left 16 bits and a modifier mask; sendKeySequence garbles long strings, so send short chunks
+
+**Rule.** To press a key in a Fusion VM's console with `vmcli <vmx> MKS sendKeyEvent`, pass the USB HID usage code
+shifted left by 16 bits, and the modifiers as a bit mask: 1 Ctrl, 2 Shift, 4 Alt, 8 Windows. Typing text with
+`sendKeySequence` loses or garbles characters in a long string; send it in chunks of about 8 characters.
+
+**Why.** This session, driving the Windows 11 ARM guest's setup screens through the console on the real Fusion 26.0.1.
+These are measured behaviors, not documented ones. `pkg/vmrun`'s `SendKeys` still sends its whole sequence (up to 256
+characters) in one `sendKeySequence` call; no method uses it yet, and the install method that would is not built.
+
+## 341. What a Collection does not carry goes into the Groundconfig corpus, not only into these records
+
+**Rule.** Institutional knowledge about a platform that no method encodes (a recovery done by hand, a vendor tool's
+undocumented behavior) is written into `~/Groundconfig`, where an agent looks it up, under the platform's own
+namespace, and the corpus is rebuilt. Groundconfig is never committed from here (its sharing is undecided).
+
+**Why.** This session, by the owner's rule. Five VMware Fusion entries went in, the stale lock recovery of FAILURE_PATTERNS 674
+among them; the namespace `vmware_fusion` was registered, and the corpus was rebuilt with `-local-only`. A record in this repository tells the next developer; the corpus tells the
+agent operating the lab, which never reads these files.
+
+## 342. A repeat in kind of 257 and 335: run a new check leg end to end on its real machine before relying on it; that run finds what unit tests cannot
+
+**Rule.** A new OS check, leg or machine is run once for real, through the same command pr-check will use, before it
+is counted on. Unit tests with stand-ins prove the parts; only the real run shows which binary, which OS build and
+which tool version the parts meet.
+
+**Why.** 2026-10-27 (FAILURE_PATTERNS 675, 676). The first real `winarmcheck` run found that its leg ran wincheck's
+older build, which could not read the lab project (676); every unit test passed, since none names the build directory.
+Setting up the guest through `win.archive.extract` found that Windows 11 build 26300's `tar.exe` cannot create a
+folder under a drive root, which Server 2025's never showed (675). LESSONS 257 (run a recovery feature end to end on
+real infrastructure) and 335 (prove a method through each carrier it claims) say the same for features; this applies
+it to the gate's own machinery.

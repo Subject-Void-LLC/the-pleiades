@@ -16379,3 +16379,231 @@ file is written 0600. No test yet holds the refusal.
 
 **Lesson.** A method that writes into the project limits what it writes to its own kind of file, not only to the
 project's directory.
+
+## 668. testgate's run record kept a failure's last 40 lines, so tests/e2e's upgrade gate, which logs every command, left only its teardown and the cause was lost (a repeat of 414) (fixed; the upgrade gate's own failure is open)
+
+**Symptom.** 2026-10-26, `make pr-check` at `e3560066`: `tests/e2e`'s
+`TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed in the containers pass and again in its isolated rerun
+(36 s), so it was counted real. The record's only line for it, which the failure ledger holds, was a teardown command:
+`packaging_support_test.go:156: docker compose --profile setup --profile backup down -v --remove-orphans (4.121s)`.
+Run alone afterwards it passed twice, the second time with its full output (249 s). Why it failed at `e3560066` is
+not known.
+
+**Root cause.** The record kept the same 40 lines the console prints (`failureLines`). The upgrade gate logs every
+command it runs from its own test files, its teardown included, so the failing assertion sat about 200 lines before
+the end. 414's fix keeps the last line from the test's own `_test.go` file when the tail holds none; here the teardown
+lines came from the test's own files too, so that line was a teardown command as well.
+
+**Fix.** `2053f832`: the record keeps `recordFailureLines` (400) while the console keeps 40
+(`tools/testgate/verdict.go`, `tools/testgate/main.go`). `TestRecordFailureLines_KeepTheCauseBehindALoggedTeardown`
+(`tools/testgate/record_lines_test.go`) builds that shape, a cause followed by 230 logged teardown lines, and fails if
+the console's budget already holds the cause or the record's does not. The upgrade gate's own failure stays open: it
+has not recurred, and the next record of it should hold its cause.
+
+**Why 414 did not prevent it.** 414 assumed that a test's own file speaks for the test and a helper speaks for
+teardown. A gate whose own files log their teardown breaks that assumption, and the record, which is read later when
+the failure can no longer be rerun, had no more room than the console.
+
+**Lesson.** The record read after the run keeps far more than the console shows. A cause lost from it cannot be told
+from contention, and the failure cannot be asked again.
+
+## 669. remove-host rewrote hosts.yaml before reading the host's state file, so an unreadable state file left the host removed and --credential and --forget-host-keys skipped (a repeat of 105) (fixed before push)
+
+**Symptom.** 2026-10-26, in `pleiades remove-host`, added on this branch and not yet pushed. `RemoveHost` rewrote `hosts.yaml`
+and then read the host's sidecar state file. When that read failed, the error came back bare: the host was already
+gone from the inventory, and `remove-host` stopped before its `--credential` and `--forget-host-keys` steps, so the
+stored credential and the known_hosts lines stayed behind for a host that no longer existed, and nothing said so.
+
+**Root cause.** Reading the state file is a precondition of the removal, and it was written after the first write.
+
+**Fix.** `8d868e52` (`internal/inventory/file_repository_remove.go`): the state file is read before anything is
+written. A read failure refuses, names the state file, and leaves the host in place. `TestRemoveHost`
+(`internal/inventory/file_repository_remove_test.go`) checks both claims.
+
+**Why 105 did not prevent it.** 105's rule is that a guard which can fire mid-operation runs before the operation. It
+was written about a database deletion through the API; `remove-host` is a new file-backed command, and a read of a
+sidecar file did not look like a guard. LESSONS 294 also applies: the bare error dropped the one fact the caller
+needed, that the host was already gone.
+
+**Lesson.** Every read a removal depends on happens before its first write, and a refusal names what it refused on.
+
+## 670. A rescue task reading device with lock_acquisition: all_at_plan_time ran per device without the lock; only validate refused it (a repeat of 657) (fixed before push)
+
+**Symptom.** 2026-10-26, a review of the six commits after `ac7af458`. 657's engine refusal (`ErrDeviceRootLockAll`)
+covered a task's own dispatch, but `internal/engine/handlers_run.go` dispatched a rescue task per device with no such
+check. A runbook that never passed through `pleiades validate` ran its rescue without the lock it asked for.
+
+**Root cause.** The rescue path is a second place that dispatches a task per device, and 657's fix was written for the
+first.
+
+**Fix.** `33e1e945`: `ErrRescueLockAll` (`internal/engine/device_root.go`), checked in `handlers_run.go` before the
+rescue dispatches; the rescue case in `TestDeviceRoot_EveryPathAndItsLimits` holds it. 657's archive entry was amended
+in `ffcd6cf4` to name this repeat; this entry gives it its own number.
+
+**Why 657 did not prevent it.** 657 fixed the path its review named. Its lesson (a path that runs a task on one device
+at a time keeps, or refuses by name, every setting that ties devices together) was not applied as a sweep of every
+such path, which LESSONS 309 asks for.
+
+**Lesson.** When a fix adds a refusal to one dispatch path, list every path that dispatches the same kind of task (the
+forward run, a rescue, an undo step) and give each the refusal or a test showing why it needs none.
+
+## 671. vmrun start forks vmware-vmx, which inherits and holds vmrun's standard output, so a start read through a pipe or an SSH channel never ended (fixed before push)
+
+**Symptom.** 2026-10-26, on the real Mac (VMware Fusion 26.0.1, Apple Silicon), while building `pkg/vmrun`: a
+`vmrun start` piped into `grep` hung for 13 minutes. `pkg/vmrun` reaches the Mac over SSH, and a start read through
+an SSH channel has the same shape: the channel's output never reaches its end while the VM runs.
+
+**Root cause.** `vmrun start` forks the VM process, `vmware-vmx`, which inherits vmrun's standard output and holds it
+open for the VM's whole life. A reader waits for end of file that only the VM's exit would give. It is related in kind
+to 444, where a forwarder waited on a connection its far side kept open.
+
+**Fix.** `eaace13a`: `start` and `reset` run through `detachScript` (`pkg/vmrun/vmrun.go`), which writes vmrun's
+output to a file, then prints it and exits with vmrun's status. `TestDetachScript_ReturnsWhileTheChildStillHoldsItsOutput`
+runs it over a stand-in that leaves a child holding its output, and `TestDetachScript_TheHazardIsReal` is the control:
+the bare command must wait (`pkg/vmrun/detach_test.go`).
+
+**Lesson.** A command that starts a long-lived process is read from a file, not a pipe, unless the process is known
+to close what it inherited; and the test proves the hazard with a control that must hang without the fix.
+
+## 672. macOS throttled a VMware Fusion VM started headless over SSH, so a Windows 11 ARM guest ran about five times slow, its first-logon VMware Tools install hung and keystrokes were lost (fixed before push)
+
+**Symptom.** This session, setting up the Windows 11 ARM guest `win11-arm` on the Mac. With the VM started headless
+from an SSH session, the guest ran about five times slower than normal, the unattended
+install took about 85 minutes, the first-logon VMware Tools install hung, and keystrokes sent to the console were lost.
+
+**Root cause.** macOS treats a VM process started from an SSH session, with no user at the console, as background work
+and throttles it. Nothing in Fusion or vmrun says so.
+
+**Fix.** `caffeinate -dimsu -w <pid of the VM's process>` brought the guest to full speed at once. It is built into
+`virt.fusion.vm.start` (`14747aae`) as `keep_awake` (default true; `keepAwakeScript` in `pkg/vmrun/ops.go` finds the
+VM's process by its vmx path, and `-w` ends the hold when the process exits). Held by `TestKeepAwakeScript_FindsTheVMProcessByItsPath`
+and `TestStart`'s `keep_awake false` case.
+
+**Lesson.** When a VM "is slow", measure its clock against the host's before tuning anything; a headless VM on macOS
+started from SSH needs an explicit wake hold for its process (LESSONS 339).
+
+## 673. vmrun getGuestIPAddress said VMware Tools were not running after a resume, while checkToolsState said running, so a resumed guest reported no address (fixed before push)
+
+**Symptom.** 2026-10-27, on the real Fusion: after `win11-arm` resumed from suspend, a plain `vmrun getGuestIPAddress`
+kept answering "VMware Tools are not running" while `checkToolsState` answered running, and
+`getGuestIPAddress -wait` returned the address. `virt.fusion.vm.info` therefore reported no address for a running
+guest.
+
+**Root cause.** vmrun's two questions about the guest's tools disagree for a time after a resume, and the reader
+trusted the plain answer. This is the third resume-related surprise in the lab, after 516 and 535, though in a
+different layer (vmrun's answer, not the network).
+
+**Fix.** `2846c008`: `GuestIP` (`pkg/vmrun/ops.go`) checks a "not running" answer against `checkToolsState` and asks
+again with `-wait`, bounded. `TestGuestIP_DoesNotTrustAPlainNoToolsAnswer` holds it, from the real Fusion's messages
+(`pkg/vmrun/testdata`). Proven on the Mac: `virt.fusion.vm.info` reported the guest's address after the resume, where it
+had reported none.
+
+**Lesson.** When a tool offers two answers to one question, check the cheap one against the other before reporting
+"none".
+
+## 674. A killed vmcli left the VM's lock behind (<vm>.vmx.lck/M<pid>.lck), and every start then failed "The file is already in use" (open: recovery is by hand)
+
+**Symptom.** On the real Fusion, after a `vmcli` process was killed, every start of the VM failed with "The file is
+already in use".
+
+**Root cause.** Fusion takes a lock on the VM as a file under `<vm>.vmx.lck`, named for the holding process
+(`M<pid>.lck`). A killed process never removes it, and Fusion does not check whether the named process still exists.
+
+**Fix.** Not automated. It was recovered by hand: the named process was confirmed gone, then the lock file removed.
+Deciding that a lock is stale is left to the operator, since removing a live VM's lock risks two processes writing one
+disk. The recovery is recorded in the Groundconfig corpus, not in a method.
+
+**Lesson.** A tool's lock that names its owner can be judged stale only by checking that owner, and doing it
+automatically is a decision to make on purpose, not a convenience to add in passing.
+
+## 675. Windows 11 build 26300's bsdtar 3.8.9 cannot create a folder directly under a drive root, so win.archive.extract into C:\ failed (fixed before push)
+
+**Symptom.** 2026-10-27, on the Windows 11 ARM guest: `win.archive.extract` with `dest: C:\` failed on Go's archive with
+`Can't create '\\?\C:\go\VERSION'`. Windows Server 2025's `tar.exe` never showed it, which is why the method's earlier
+proof missed it.
+
+**Root cause.** The `tar.exe` (bsdtar 3.8.9) in Windows 11 build 26300 cannot make a folder directly under a drive's
+root, though it fills one that already exists.
+
+**Fix.** `6465e007` (`internal/catalog/win/archive/extract.go`): with `dest` a drive root, the script lists the archive
+and makes its top folders first, never one named `..` or `.`, or holding a drive colon or a wildcard.
+`TestScript_MakesADriveRootsTopFoldersFirst` holds the script. Proven on the guest: Go 1.26.10 windows/arm64 and MinGit
+ARM64 unpacked into `C:\` and `C:\mingit` through the method.
+
+**Lesson.** A method that shells out to a tool the OS ships is proven on each OS build it claims; the same tool name
+can be a different build with different limits (LESSONS 342).
+
+## 676. winarmcheck ran wincheck's older private pleiades build, which could not load a project naming VMwareFusionCapable, because newLeg hard-coded the tool name (a repeat of 526) (fixed before push)
+
+**Symptom.** 2026-10-27, the first real run of `wincheck -arm64` (`winarmcheck`): the leg failed with "factory failed to
+build item mac", because the project's `generic_ssh` record for the Mac held `VMwareFusionCapable`, which the binary
+it ran did not know.
+
+**Root cause.** `tools/wincheck`'s `newLeg` called `oscheck.NewLab("wincheck", ...)`, so the leg's steps used the binary
+in wincheck's private directory. The box step built this tree's pleiades under the selected check's own name,
+`winarmcheck`, so the leg ran whatever an earlier wincheck run had left, built from an older tree.
+
+**Fix.** `4ba08943`: `newLeg(tool)` builds the leg under the selected check's own name (`c.Tool`), so wincheck and
+winarmcheck never run each other's build. No test yet holds the leg's tool name; the real run that found it passed
+after the fix (2 packages, 59 s).
+
+**Why 526 did not prevent it.** 526 made the box's build come from this tree every time. The leg found its binary by a
+name written into shared code, and the second tool to share that code ran a binary its own run never built.
+
+**Lesson.** A tool that two checks share takes the check's identity as a parameter everywhere it names a path; a
+literal name in shared code is a cache key that a second user gets wrong.
+
+## 677. go generate ./internal/forge/catalogdata wrote eight scaffold files for the CML link and capture start and stop methods, which already exist in other files, so the methods would register twice (a sibling of 160) (open)
+
+**Symptom.** This session, running `go generate ./internal/forge/catalogdata` while adding the Fusion methods
+(`14747aae`): it also wrote
+`start.go`, `stop.go` and their `_test.go` files under `internal/catalog/virt/cml/link` and
+`internal/catalog/virt/cml/capture`, eight files in all. Those methods already exist, in `link.go` (with `state.go`) and
+`capture.go`, so the scaffolds would register `virt.cml.link.start`, `virt.cml.link.stop`, `virt.cml.capture.start`
+and `virt.cml.capture.stop` a second time. They were deleted by hand before any commit.
+
+**Root cause.** The generator decides that an entry already exists by the files it would write for it (160's
+`firstExistingFile`). Phase 129b put those methods in shared files rather than one file per method, so none of the
+expected files exists and each entry reads as new.
+
+**Fix.** None yet. The generator is not idempotent on this branch: every run writes the same eight files again, and a
+run that is not checked with `git status` afterwards would add them.
+
+**Why 160 did not prevent it.** 160 made the skip per entry rather than per file, which is right, but its evidence of
+an entry is still the file names the scaffold would use. A hand-written method in a file of another name is invisible
+to it.
+
+**Lesson.** A generator's "already exists" asks the registry or the source for the thing itself, not for the file name
+it would have chosen.
+
+## 678. README's check-mode count stayed at 191 of 204 after three Fusion methods were added (a repeat of 459 and 661) (fixed before push)
+
+**Symptom.** 2026-10-27, `TestStatusCounts_MatchTheRegistry` (`tools/gendocs`) failed after `14747aae`: README said
+"191 of the 204" methods support check mode, where the registry had 194 of 207.
+
+**Root cause.** The README holds counts written by hand in more than one sentence. `14747aae` updated README and
+`docs/01-start-here.md` for the three new methods but missed the check-mode sentence.
+
+**Fix.** `4a975a97`: the count reads "194 of the 207". The guard worked as built.
+
+**Why 459 and 661 did not prevent it.** 459's fix is the test, and it caught this. 661's lesson (LESSONS 336) is to run
+`tools/gendocs`' tests in the commit that adds a method; the fix landed as its own commit after two others, so the
+commit that added the methods still carried the stale count.
+
+**Lesson.** Run `go test ./tools/gendocs/ ./internal/archtest/` before the commit that adds a method, not after it.
+
+## 679. A scripted edit to box_test.go silently did not apply, so the Fusion fake never answered info and the first test case passed by accident (fixed before push)
+
+**Symptom.** 2026-10-27, writing `TestRunWithBox_DrivesAFusionVMThroughItsOwnMethods` (`tools/internal/oscheck/box_test.go`).
+A Python replace meant to add the Fusion info case to the fake host's switch matched nothing, because of an indentation
+mismatch, and wrote the file unchanged with no error. The fake therefore never answered `virt.fusion.vm.info`, and the
+first case passed anyway. The second case (a VM already on) failed, which exposed it.
+
+**Root cause.** A string replace that finds no match is a silent no-op, and the edit did not assert that its anchor
+matched. The first case's assertions did not depend on the info answer it was meant to test. It is the class of 436
+and 440, a check that passes without looking.
+
+**Fix.** The switch was edited correctly before `b609aa03`; the test as committed holds both cases.
+
+**Lesson.** Every scripted edit asserts that its anchor matched exactly once before it writes, and every new case is
+checked against a case that must fail (LESSONS 338).

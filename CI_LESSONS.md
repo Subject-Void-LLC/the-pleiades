@@ -34,6 +34,10 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
    not its to remove. Clear the cause and run again rather than pushing around it. `make pr-check LEGS=bsd` runs
    one part again and keeps the rest; every record is stamped with its commit and tree, so the receipt still needs
    them all at one commit on a clean tree. LESSONS_LEARNED 271.
+14. **A new leg runs once for real, through the command `pr-check` will use, before `pr-check` counts on it.** A
+    leg's stand-in tests prove its parts; only the real machine shows which binary, OS build and tool version they
+    meet. A leg drives its machine with a build its own run made, named by the check's own identity, never a
+    literal tool name in shared code. FAILURE_PATTERNS 526, 675, 676.
 
 ## Tests that do not fail by luck
 
@@ -48,6 +52,9 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
    and when one such watcher is fixed, sweep every watcher of that shape. A race like this fails once in CI and
    never in hundreds of local runs; reproduce it by delaying the goroutine (one CPU), not by loading the
    machine. FAILURE_PATTERNS 352, 633.
+15. **A test of a protection has a control that shows the hazard without it, and every new case is seen to
+    fail.** A fake that never answers can let a case pass by accident; an edit made by a script asserts its anchor
+    matched before it writes. FAILURE_PATTERNS 436, 671, 679.
 
 ## Docker Desktop on this machine
 
@@ -68,3 +75,7 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
 12. **A fixture git ignores exists only in the tree that wrote it.** The machine legs test the committed tree, so
     they find it before CI does; `internal/archtest`'s `TestNoTestdataFileIsIgnored` refuses one under any
     `testdata` directory. Name a captured log `.txt`, or add an exception. FAILURE_PATTERNS 401, 634.
+13. **A failure whose record holds no cause is unexplained, not contention.** The run record keeps 400 lines of a
+    failure's output because a test that logs its own teardown buries its assertion far from the end. When the
+    record still holds only teardown, run the test alone with its full output before naming a cause, and record
+    what that run showed. FAILURE_PATTERNS 414, 668.

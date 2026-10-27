@@ -670,6 +670,18 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 665. A reachability-question fallback for a Batfish traceroute that ends abnormally would have answered "not delivered" for a path that is delivered (fixed before push)
 666. virt.cml.link.stop on a link that never ran recorded a start as its undo, so a rollback would start a link the run never found running (a repeat of 156) (fixed before push)
 667. virt.cml.capture.stop's dest could name any project file, a runbook included, and replace it with a pcap (fixed before push)
+668. testgate's run record kept a failure's last 40 lines, so tests/e2e's upgrade gate, which logs every command, left only its teardown and the cause was lost (a repeat of 414) (fixed; the upgrade gate's own failure is open)
+669. remove-host rewrote hosts.yaml before reading the host's state file, so an unreadable state file left the host removed and --credential and --forget-host-keys skipped (a repeat of 105) (fixed before push)
+670. A rescue task reading device with lock_acquisition: all_at_plan_time ran per device without the lock; only validate refused it (a repeat of 657) (fixed before push)
+671. vmrun start forks vmware-vmx, which inherits and holds vmrun's standard output, so a start read through a pipe or an SSH channel never ended (fixed before push)
+672. macOS throttled a VMware Fusion VM started headless over SSH, so a Windows 11 ARM guest ran about five times slow, its first-logon VMware Tools install hung and keystrokes were lost (fixed before push)
+673. vmrun getGuestIPAddress said VMware Tools were not running after a resume, while checkToolsState said running, so a resumed guest reported no address (fixed before push)
+674. A killed vmcli left the VM's lock behind (<vm>.vmx.lck/M<pid>.lck), and every start then failed "The file is already in use" (open: recovery is by hand)
+675. Windows 11 build 26300's bsdtar 3.8.9 cannot create a folder directly under a drive root, so win.archive.extract into C:\ failed (fixed before push)
+676. winarmcheck ran wincheck's older private pleiades build, which could not load a project naming VMwareFusionCapable, because newLeg hard-coded the tool name (a repeat of 526) (fixed before push)
+677. go generate ./internal/forge/catalogdata wrote eight scaffold files for the CML link and capture start and stop methods, which already exist in other files, so the methods would register twice (a sibling of 160) (open)
+678. README's check-mode count stayed at 191 of 204 after three Fusion methods were added (a repeat of 459 and 661) (fixed before push)
+679. A scripted edit to box_test.go silently did not apply, so the Fusion fake never answered info and the first test case passed by accident (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -370,6 +370,11 @@ story, per `.AGENTS/AGENTS.md`.
 335. **A method that claims several carriers is proven live through each one; text a device prints unasked can appear on one carrier only (2026-10-26).**
 336. **A repeat of 301 and 322: a method's documentation is checked by tests in internal/archtest and tools/gendocs, and both run in the commit that adds or changes a method (2026-10-26).**
 337. **A repeat of 190 (the one on content rules written as denylists of known-bad shapes): what a template, an output or a log may read is an allowlist of what each value is, never a list of names to strip (2026-10-26).**
+338. **A repeat of 95 and 213: prove a hazard with a control that must fail without the fix, and make every scripted edit assert that its anchor matched (2026-10-27).**
+339. **A VM started headless on macOS from an SSH session needs an explicit wake hold for its process; when a VM "is slow", measure its clock against the host's first (2026-10-27).**
+340. **vmcli's MKS sendKeyEvent takes a HID usage shifted left 16 bits and a modifier mask; sendKeySequence garbles long strings, so send short chunks (2026-10-27).**
+341. **What a Collection does not carry goes into the Groundconfig corpus, not only into these records (2026-10-27).**
+342. **A repeat in kind of 257 and 335: run a new check leg end to end on its real machine before relying on it; that run finds what unit tests cannot (2026-10-27).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
