@@ -212,7 +212,7 @@ func copyDoc() collection.Doc {
 // the device, never the request echoed back. A method that recorded what
 // it asked for would report a converged file it had failed to change.
 func Copy(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return copyFile(ctx, rc, device, params, collection.ModeExecute)
+	return copyFile(ctx, rc, device, params, collection.ModeExecute, "file.copy")
 }
 
 // CheckCopy is file.copy's check: the same reads (the stat and the
@@ -224,12 +224,13 @@ func Copy(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 // PredictApply) with the content's checksum, which is known before
 // anything is sent.
 func CheckCopy(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return copyFile(ctx, rc, device, params, collection.ModeCheck)
+	return copyFile(ctx, rc, device, params, collection.ModeCheck, "file.copy")
 }
 
-// copyFile is Copy's and CheckCopy's one body; mode says which.
-func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
-	const fqcn = "file.copy"
+// copyFile is Copy's and CheckCopy's one body, and file.template's too (it
+// writes the same bytes the same way); mode says which run, fqcn which method
+// to name in an error.
+func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode, fqcn string) (collection.Result, error) {
 
 	req, err := copyParseRequest(params)
 	if err != nil {
@@ -290,7 +291,7 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 				return collection.Result{}, copyPutError(fqcn, req, err)
 			}
 		}
-		return copyCheck(rc, req, before, found, wanted, wrote)
+		return copyCheck(rc, req, before, found, wanted, wrote, fqcn)
 	}
 
 	// Whether the TASK changed attributes is decided against what was
@@ -357,8 +358,7 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 // attribute that differs), the diff with its predicted After half, and
 // every stat a real run records whose value is known before anything is
 // sent. No undo instruction: nothing was done.
-func copyCheck(rc sdk.RunbookContext, req copyRequest, before remotefile.Info, found, wanted string, wrote bool) (collection.Result, error) {
-	const fqcn = "file.copy"
+func copyCheck(rc sdk.RunbookContext, req copyRequest, before remotefile.Info, found, wanted string, wrote bool, fqcn string) (collection.Result, error) {
 	changed := wrote || copyAttributesDiffer(req.attrs, before)
 
 	predicted := copyState(before, found)

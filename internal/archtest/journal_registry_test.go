@@ -203,6 +203,25 @@ func journalDeclaredNames(doc collection.Doc) (params, returns []string) {
 	return params, returns
 }
 
+// journalWithoutTemplateFiles returns names without the parameters doc
+// declares collection.ParamFormatTemplateFile, which the engine replaces with
+// rendered content before dispatch.
+func journalWithoutTemplateFiles(doc collection.Doc, names []string) []string {
+	consumed := map[string]bool{}
+	for _, p := range doc.Params {
+		if p.Format == collection.ParamFormatTemplateFile {
+			consumed[p.Name] = true
+		}
+	}
+	var out []string
+	for _, n := range names {
+		if !consumed[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // journalSortedSet collects whatever emit hands it into a sorted set.
 func journalSortedSet(emit func(add func(string))) []string {
 	seen := map[string]bool{}
@@ -412,7 +431,12 @@ func TestEveryProjectedKeyNameIsRegistryDeclared(t *testing.T) {
 			methodsWithParams++
 		}
 
-		params := journalProbeParams(declaredParams)
+		// A template-file parameter (file.template's src) is consumed by the
+		// engine, which renders it into content before the method or the
+		// journal sees the task, so the probe does not send it and the task's
+		// journaled param keys do not hold it.
+		taskParams := journalWithoutTemplateFiles(desc.Manifest.Doc, declaredParams)
+		params := journalProbeParams(taskParams)
 		stats := journalProbeStats(t, desc.Name, declaredReturns, declaredParams)
 		entry := journalRunProbe(t, desc.Name, params, stats)
 
@@ -437,7 +461,7 @@ func TestEveryProjectedKeyNameIsRegistryDeclared(t *testing.T) {
 		// the stats, and nothing else.
 		journalAssertKeys(t, desc.Name, "StatKeys", entry.StatKeys,
 			journalWithSDKStatKeys(declaredReturns))
-		journalAssertKeys(t, desc.Name, "ParamKeys", entry.ParamKeys, declaredParams)
+		journalAssertKeys(t, desc.Name, "ParamKeys", entry.ParamKeys, taskParams)
 		journalAssertKeys(t, desc.Name, "InverseParamKeys", entry.InverseParamKeys, declaredParams)
 
 		journalAssertCount(t, desc.Name, "UndeclaredStatCount", entry.UndeclaredStatCount)

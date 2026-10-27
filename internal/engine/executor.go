@@ -415,6 +415,10 @@ type Executor struct {
 	// render_params.go); nil refuses such a task.
 	renderer render.Engine
 
+	// templateFiles reads the project file a template-file parameter names
+	// (WithTemplateFiles, template_source.go); nil on a Runner.
+	templateFiles TemplateFileReader
+
 	// rollback, when its of is set, marks every entry this Executor
 	// journals as part of a rollback (WithRollback).
 	rollback rollbackLink
@@ -617,6 +621,9 @@ type run struct {
 	// a level's goroutines, so itemsMu guards it.
 	itemsMu sync.Mutex
 	items   map[string]inventory.InventoryItem
+
+	// facts holds what set_fact tasks have set, by device (vars.go).
+	facts *factStore
 }
 
 // modeFor is the mode task runs in (TaskMode): a check whenever the run
@@ -650,6 +657,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		undoTasks: map[string]*Task{},
 		undone:    map[resultKey]bool{},
 		items:     map[string]inventory.InventoryItem{},
+		facts:     newFactStore(),
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
@@ -879,13 +887,18 @@ func (r *run) prepare(nodeID string, task *Task, started time.Time, device strin
 		// to an empty map so a condition can reference vars.foo on an
 		// Executor no caller supplied one for. "error" is the failure a
 		// rescue task answers, and is there only for one.
-		extraVars := r.x.extraVars
-		if extraVars == nil {
-			extraVars = map[string]interface{}{}
+		vars, err := r.mergedVars(task, roots)
+		if err != nil {
+			failed := failedNode(nodeID, started, FailureStageConditionEval,
+				fmt.Errorf("failed to resolve the variables for %s: %w", taskLabel(nodeID, task), err))
+			failed.Device = device
+			return nil, &failed
 		}
-		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars, "result": singleWriters(tree)}
+		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": vars, "result": singleWriters(tree)}
 		for k, v := range roots {
-			condVars[k] = v
+			if k != hostVarsRoot {
+				condVars[k] = v
+			}
 		}
 		var res ConditionResult
 		if r.modeFor(task) == collection.ModeCheck {
@@ -1237,6 +1250,20 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		result.fail(FailureStageRegisterMask, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
 		return finish(result)
+	}
+
+	// A set_fact's facts belong to the device it ran for, from here on.
+	if isSetFact(cmd.Task.FQCN) {
+		opts := optionsOf(cmd.Task)
+		if opts.global {
+			if err := r.facts.setGlobal(cmd.NodeID, result.Device, actionResult.Stats, opts.noOverride); err != nil {
+				result.fail(FailureStageRecord, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
+				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
+				return finish(result)
+			}
+		} else {
+			r.facts.set(result.Device, actionResult.Stats, opts.noOverride)
+		}
 	}
 
 	if cmd.Task.Register != "" {

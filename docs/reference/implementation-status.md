@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**207 of 210 methods are implemented.**
+**208 of 210 methods are implemented.**
 
 ## Implemented
 
@@ -46,6 +46,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [identity.group.remove](modules/identity/group/remove.md)
 - [file.copy](modules/file/copy.md)
 - [file.stat](modules/file/stat.md)
+- [file.template](modules/file/template.md)
 - [file.directory](modules/file/directory.md)
 - [file.symlink](modules/file/symlink.md)
 - [file.remove](modules/file/remove.md)
@@ -222,7 +223,6 @@ The full declared-versus-implemented matrix for every registered Collection meth
 
 Registered and reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
 
-- `file.template`
 - `net.junos.config`
 - `net.eos.config`
 

@@ -607,7 +607,7 @@ Also written as `win_unzip`.
 | `community.windows.win_firewall_rule`, `win_firewall_rule` | win_firewall_rule finds a rule by its display name, and win.firewall.rule by its Name, which for a rule Ansible made is a GUID; converted, the task would make a second rule beside it. Write win.firewall.rule with the rule's Name (Get-NetFirewallRule shows it) (`module.manual`) |
 | `ansible.windows.win_feature`, `win_feature` | win_feature takes Server Manager names (Web-Server) and win.feature.install DISM's (IIS-WebServerRole), which differ; write the task with the DISM name (`module.manual`) |
 | `community.windows.win_scheduled_task`, `win_scheduled_task` | win_scheduled_task takes lists of actions and triggers; win.schtask registers one of each, so a person chooses them (`module.manual`) |
-| `ansible.builtin.template`, `template` | the platform's renderer has no {% %} statements and file.template is not implemented, so a template stays a manual step (`module.manual`) |
+| `ansible.builtin.template`, `template` | the platform's renderer has no {% %} statements, and file.template renders {{ }} expressions only, so a template that uses them stays a manual step (`module.manual`) |
 | `ansible.builtin.assert`, `assert` | no native method stops a run on a condition; express it as when on the tasks that must not run (`module.manual`) |
 | `ansible.builtin.fail`, `fail` | no native method fails a run on purpose (`module.manual`) |
 | `ansible.builtin.pause`, `pause` | no native method waits for a person or a timer (`module.manual`) |

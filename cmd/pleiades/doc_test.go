@@ -74,8 +74,8 @@ func TestRunDoc_Entry(t *testing.T) {
 
 func TestRunDoc_EntryDeclared(t *testing.T) {
 	out := captureStdout(t, func() {
-		if err := runDoc([]string{"file.template"}); err != nil {
-			t.Fatalf("runDoc(file.template) error: %v", err)
+		if err := runDoc([]string{"net.junos.config"}); err != nil {
+			t.Fatalf("runDoc(net.junos.config) error: %v", err)
 		}
 	})
 	if !strings.Contains(out, "declared, not implemented") {
@@ -115,11 +115,11 @@ func TestRunDoc_Snippet(t *testing.T) {
 
 func TestRunDoc_SnippetDeclaredFallsBackToSkeleton(t *testing.T) {
 	out := captureStdout(t, func() {
-		if err := runDoc([]string{"--snippet", "file.template"}); err != nil {
-			t.Fatalf("runDoc(--snippet file.template) error: %v", err)
+		if err := runDoc([]string{"--snippet", "net.junos.config"}); err != nil {
+			t.Fatalf("runDoc(--snippet net.junos.config) error: %v", err)
 		}
 	})
-	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "file.template:") {
+	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "net.junos.config:") {
 		t.Errorf("declared snippet should fall back to a bare skeleton, got:\n%s", out)
 	}
 }

@@ -73,7 +73,10 @@ func (r *run) readsDevice(nodeID string, task *Task) bool {
 			return true
 		}
 	}
-	return r.x.renderer != nil && ParamsReadRoot(r.x.renderer, task.Params, TemplateRootDevice)
+	if r.x.renderer != nil && ParamsReadRoot(r.x.renderer, task.Params, TemplateRootDevice) {
+		return true
+	}
+	return r.varsNeedDevice(nodeID, task)
 }
 
 // ParamsReadRoot reports whether any template in params reads root, for the
@@ -154,7 +157,7 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 		if d != nil {
 			key, one = string(d.ID()), []inventory.InventoryItem{d}
 		}
-		roots := map[string]any{TemplateRootDevice: deviceRoot(d)}
+		roots := map[string]any{TemplateRootDevice: deviceRoot(d), hostVarsRoot: deviceVars(d)}
 		if errorRoot != nil {
 			roots[TemplateRootError] = errorRoot
 		}

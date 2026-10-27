@@ -33,7 +33,7 @@ func TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal(t *testing.T) {
 	h := newReleaseGateHarnessFor(t, knownHostsInHomeDir, map[string]string{
 		"refused.yaml": "id: refused\ntasks:\n" +
 			"  - name: create the marker\n    fqcn: file.touch\n    params:\n      path: " + validateGateMarker + "\n" +
-			"  - name: call a method that is only declared\n    fqcn: file.template\n",
+			"  - name: call a method that is only declared\n    fqcn: net.junos.config\n",
 		"touch.yaml": "id: touch\ntasks:\n" +
 			"  - name: create the marker\n    fqcn: file.touch\n    params:\n      path: " + validateGateMarker + "\n",
 		"absent.yaml": "id: absent\ntasks:\n" +
@@ -54,7 +54,7 @@ func TestValidateDispatchReleaseGate_NoTaskRunsBeforeARefusal(t *testing.T) {
 
 	refused := h.dispatch(t, payload("refused"))
 	if refused.Status != "failed" || !strings.Contains(refused.EventData.Message, "fails validation, so no task ran") ||
-		!strings.Contains(refused.EventData.Message, `"file.template", which is declared but not yet implemented`) {
+		!strings.Contains(refused.EventData.Message, `"net.junos.config", which is declared but not yet implemented`) {
 		t.Errorf("refused runbook ended %q: %q, want failed naming the declared-only method", refused.Status, refused.EventData.Message)
 	}
 

@@ -155,6 +155,8 @@ var builtinCheckable = map[string]bool{
 	"noop":                          true,
 	"set_metadata":                  true,
 	"pleiades.builtin.set_metadata": true,
+	"set_fact":                      true,
+	"pleiades.builtin.set_fact":     true,
 }
 
 // Checkable reports whether a task calling fqcn with params can run in
@@ -218,6 +220,7 @@ var RunbookKeys = map[string]bool{
 	"tasks":      true,
 	"posttasks":  true,
 	"reversible": true,
+	"vars":       true,
 }
 
 // checkRunbookKeys refuses any top-level key not in RunbookKeys, naming

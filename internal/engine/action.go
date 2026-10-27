@@ -204,6 +204,14 @@ func (builtinActionExecutor) Execute(_ context.Context, task *Task, _ inventory.
 			return ActionResult{}, fmt.Errorf("fqcn %q requires a non-empty params.data map", task.FQCN)
 		}
 		return ActionResult{Stats: data, IsMetadata: true}, nil
+	case SetFactName, SetFactFQCN:
+		// The facts are the params, already rendered; runOne records them for
+		// the device (vars.go), so a later task reads them as vars.
+		facts, _, err := splitFacts(task.Params)
+		if err != nil {
+			return ActionResult{}, fmt.Errorf("fqcn %q: %w", task.FQCN, err)
+		}
+		return ActionResult{Stats: facts}, nil
 	default:
 		return ActionResult{}, fmt.Errorf("fqcn %q has no in-process implementation yet (Phase W6 adds a real transport)", task.FQCN)
 	}

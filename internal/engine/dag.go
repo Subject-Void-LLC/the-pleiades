@@ -184,6 +184,12 @@ type WorkflowDef struct {
 	// anything runs. False, the default, asks nothing.
 	Reversible bool `json:"reversible,omitempty" yaml:"reversible,omitempty"`
 
+	// Vars are the runbook's own variables, Ansible's play vars: a task reads
+	// them as {{ vars.name }}. A block's or a task's vars: of the same name
+	// wins over these, and a launch's extra variables win over all of them
+	// (vars.go has the whole order).
+	Vars map[string]interface{} `json:"vars,omitempty" yaml:"vars,omitempty"`
+
 	// PreTasks runs before Tasks, in order. It is the runbook's setup
 	// phase, mirroring an Ansible play's pre_tasks:.
 	PreTasks []Task `json:"pretasks,omitempty" yaml:"pretasks,omitempty"`
@@ -229,6 +235,11 @@ type Task struct {
 	// "target" key names a device or an inventory tag string used to
 	// resolve which inventory devices this task applies to.
 	Params map[string]interface{} `json:"params,omitempty" yaml:"params,omitempty"`
+
+	// Vars are this task's own variables (on a block, those of every task in
+	// it), Ansible's task vars:. They win over the runbook's vars: and lose to
+	// a set_fact and to a launch's extra variables (vars.go).
+	Vars map[string]interface{} `json:"vars,omitempty" yaml:"vars,omitempty"`
 
 	// Register names a variable this task's result is stored under, for
 	// later tasks to reference, mirroring Ansible's register:.
@@ -386,6 +397,13 @@ type DAG struct {
 	// default/override semantics and TaskTarget (action.go) for where it
 	// is applied.
 	Hosts string
+
+	// Vars is def.Vars, the runbook's own variables (WorkflowDef.Vars).
+	Vars map[string]interface{}
+
+	// UsesSetFact says some task is a set_fact, whose facts belong to a
+	// device, so a task reading vars is decided on each device (vars.go).
+	UsesSetFact bool
 
 	// Version is a content-hash digest of the fully-resolved WorkflowDef
 	// this DAG was compiled from (computed in buildFromDef, after
@@ -629,6 +647,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	// tags of the import_tasks task that pulled them in.
 	propagateCheckMode(&def)
 	propagateTags(&def)
+	propagateVars(&def)
 
 	switch def.Type {
 	case "", "native":
@@ -659,22 +678,24 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	version := "sha256:" + hex.EncodeToString(versionSum[:])
 
 	dag := &DAG{
-		ID:         def.ID,
-		Name:       def.Name,
-		Version:    version,
-		Metadata:   def.Metadata,
-		Hosts:      def.Hosts,
-		CheckMode:  bool(def.CheckMode),
-		Reversible: def.Reversible,
-		PreTasks:   def.PreTasks,
-		Tasks:      def.Tasks,
-		PostTasks:  def.PostTasks,
-		Nodes:      make(map[string]*Task),
-		Adjacency:  make(map[string][]EdgeConfig),
-		Conditions: make(map[string]*ConditionProgram),
-		Scopes:     make(map[string][]BlockScope),
-		Guards:     make(map[string]BlockGuard),
-		Units:      make(map[string]bool),
+		ID:          def.ID,
+		Name:        def.Name,
+		Version:     version,
+		Metadata:    def.Metadata,
+		Hosts:       def.Hosts,
+		Vars:        def.Vars,
+		UsesSetFact: usesSetFact(def),
+		CheckMode:   bool(def.CheckMode),
+		Reversible:  def.Reversible,
+		PreTasks:    def.PreTasks,
+		Tasks:       def.Tasks,
+		PostTasks:   def.PostTasks,
+		Nodes:       make(map[string]*Task),
+		Adjacency:   make(map[string][]EdgeConfig),
+		Conditions:  make(map[string]*ConditionProgram),
+		Scopes:      make(map[string][]BlockScope),
+		Guards:      make(map[string]BlockGuard),
+		Units:       make(map[string]bool),
 	}
 
 	// Every task is registered here, validated and compiled, whatever its

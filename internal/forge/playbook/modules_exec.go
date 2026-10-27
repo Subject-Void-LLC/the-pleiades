@@ -72,7 +72,7 @@ var execModules = []Entry{
 // reason given.
 var manualModules = []Entry{
 	{Module: "ansible.builtin.template", Aliases: []string{"template"}, Rating: RatingManual, Code: "module.manual",
-		Reason: "the platform's renderer has no {% %} statements and file.template is not implemented, so a template stays a manual step"},
+		Reason: "the platform's renderer has no {% %} statements, and file.template renders {{ }} expressions only, so a template that uses them stays a manual step"},
 	{Module: "ansible.builtin.assert", Aliases: []string{"assert"}, Rating: RatingManual, Code: "module.manual",
 		Reason: "no native method stops a run on a condition; express it as when on the tasks that must not run"},
 	{Module: "ansible.builtin.fail", Aliases: []string{"fail"}, Rating: RatingManual, Code: "module.manual",

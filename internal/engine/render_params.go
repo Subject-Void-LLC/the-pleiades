@@ -90,8 +90,43 @@ func HasTemplate(v any) bool {
 // roots are the roots this one evaluation adds (a rescue task's error, the
 // device a per-device task runs on).
 func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
-	if !HasTemplate(task.Params) {
+	hasFile := templateFileParam(task.FQCN) != ""
+	if !hasFile && !HasTemplate(task.Params) {
 		return task, nil
+	}
+	if r.x.renderer == nil && !hasFile {
+		return nil, errors.New("this run has no template renderer, so a parameter holding {{ cannot be rendered")
+	}
+	ctx, err := r.templateContext()
+	if err != nil {
+		return nil, err
+	}
+	vars, err := r.mergedVars(task, roots)
+	if err != nil {
+		return nil, err
+	}
+	ctx[TemplateRootVars] = vars
+	for k, v := range roots {
+		if k != hostVarsRoot {
+			ctx[k] = v
+		}
+	}
+	// A template file (file.template's src) is rendered to text here and set
+	// as the content parameter only after the other parameters render, so the
+	// rendered text is never rendered a second time.
+	fileText, fromFile := "", false
+	if hasFile {
+		if task, fileText, fromFile, err = r.renderTemplateFile(task, ctx); err != nil {
+			return nil, err
+		}
+	}
+	if !HasTemplate(task.Params) {
+		if !fromFile {
+			return task, nil
+		}
+		out := *task
+		out.Params = withContent(task.Params, fileText)
+		return &out, nil
 	}
 	if r.x.renderer == nil {
 		return nil, errors.New("this run has no template renderer, so a parameter holding {{ cannot be rendered")
@@ -102,19 +137,15 @@ func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 	if err := checkTaskTemplates(r.x.renderer, task); err != nil {
 		return nil, err
 	}
-	ctx, err := r.templateContext()
-	if err != nil {
-		return nil, err
-	}
-	for k, v := range roots {
-		ctx[k] = v
-	}
 	rendered, err := renderParams(r.x.renderer, task.FQCN, task.Params, ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := *task
 	out.Params = rendered
+	if fromFile {
+		out.Params = withContent(rendered, fileText)
+	}
 	return &out, nil
 }
 

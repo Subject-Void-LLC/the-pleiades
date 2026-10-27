@@ -103,6 +103,8 @@ var engineActionStatKeys = map[string][]string{
 	"noop":                          nil,
 	"set_metadata":                  nil,
 	"pleiades.builtin.set_metadata": nil,
+	"set_fact":                      nil,
+	"pleiades.builtin.set_fact":     nil,
 	"ssh_exec":                      transportExecStatKeys,
 	"serial_exec":                   transportExecStatKeys,
 	"serialtcp_exec":                transportExecStatKeys,

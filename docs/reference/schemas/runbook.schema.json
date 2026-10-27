@@ -154,6 +154,10 @@
             }
           ]
         },
+        "vars": {
+          "description": "Variables for this task (or every task in a block), read as {{ vars.name }}. The narrower scope wins.",
+          "type": "object"
+        },
         "when": {
           "description": "Ansible-compatible conditional, ANDed if a list.",
           "oneOf": [
@@ -312,6 +316,10 @@
         ""
       ],
       "type": "string"
+    },
+    "vars": {
+      "description": "The runbook's own variables, the widest scope; a block's or task's vars of the same name win.",
+      "type": "object"
     }
   },
   "required": [

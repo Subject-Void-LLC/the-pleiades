@@ -17,7 +17,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `edge` | 3 | 3 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
-| `file` | 14 | 13 |
+| `file` | 14 | 14 |
 | `fs` | 2 | 2 |
 | `fw` | 3 | 3 |
 | `gate` | 2 | 2 |
@@ -31,7 +31,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 36 | 36 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **210** | **207** |
+| **total** | **210** | **208** |
 
 ## All methods
 
@@ -118,7 +118,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [file.remove](file/remove.md) | implemented | Removes a file or directory from the target. |
 | [file.stat](file/stat.md) | implemented | Reports what is at a path on the target, and changes nothing. |
 | [file.symlink](file/symlink.md) | implemented | Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory. |
-| [file.template](file/template.md) | declared | Renders a template and writes the result to the target. |
+| [file.template](file/template.md) | implemented | Renders a template with the run's variables and results and writes the result to a file on the target, only when the bytes there differ. |
 | [file.touch](file/touch.md) | implemented | Creates an empty file on the target, or updates its modification time. |
 | [file.yaml](file/yaml.md) | implemented | Sets, or removes, the value at a key path in a YAML file on the device, keeping its comments and the rest of the file. |
 | [fs.mount](fs/mount.md) | implemented | Mounts a filesystem on the target, and optionally persists it to fstab. |

@@ -522,6 +522,9 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// Task params that hold a template render through this one engine
 		// (internal/engine's render_params.go).
 		engine.WithRenderer(render.New()),
+		// file.template's src is a template in the project, read here and
+		// rendered by that engine; a Runner holds no project and passes none.
+		engine.WithTemplateFiles(engine.ProjectTemplateFiles(opts.dir, projectWriteGuards(opts.dir)...)),
 		// Marks each entry of a rollback with what it undoes; a no-op for an
 		// ordinary run, whose rollbackOf is empty.
 		engine.WithRollback(opts.rollbackOf, opts.undoes),

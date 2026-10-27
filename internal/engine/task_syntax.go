@@ -45,6 +45,7 @@ var ReservedTaskKeys = map[string]bool{
 	"tags":                true,
 	"timeout":             true,
 	"rollback":            true,
+	"vars":                true,
 }
 
 // --- YAML path -------------------------------------------------------

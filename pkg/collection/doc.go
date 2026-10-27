@@ -75,6 +75,14 @@ const (
 	// result or error, which hold what a device returned: a device's output
 	// must not choose which project file is replaced.
 	ParamFormatProjectPath ParamFormat = "project_path"
+	// ParamFormatTemplateFile is a path to a file in the project directory
+	// holding a template. The engine reads it, renders it with the run's
+	// variables and registered results, and hands the method the rendered
+	// text as the parameter named content, with this one removed, so the
+	// method never sees a template and never imports a renderer. The path
+	// must be written out, not computed; it is read on the command line
+	// only, since a Walk-tier Runner holds no project.
+	ParamFormatTemplateFile ParamFormat = "template_file"
 )
 
 // ReturnField documents one key a Collection method emits, either as a
