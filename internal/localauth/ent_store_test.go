@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -199,26 +200,34 @@ func TestAuthenticate_UnknownAccountIsNotFasterThanAKnownOne(t *testing.T) {
 	// not that the two are indistinguishable to a statistical attacker; the
 	// second belongs in the phase's own release gate, against the real
 	// handler, with many more samples.
-	store, client := newStore(t, localauth.DefaultLockoutPolicy)
+	//
+	// Each side is its fastest of rounds, the two alternating, as
+	// FAILURE_PATTERNS 422 measures SecureCompare: a stop only adds time, so
+	// the minimum is nearest the code's own cost, and alternating puts a slow
+	// stretch on both sides. Averages of five calls in a row failed on a
+	// busy Windows ARM VM (unknown 35 ms, known 146 ms), a stall on the known
+	// side rather than a shortcut, which would be well under a millisecond.
+	// The lockout is raised past rounds so every known attempt derives; at the
+	// default the account would lock partway and measure a different path.
+	const rounds = 15
+	store, client := newStore(t, localauth.LockoutPolicy{MaxAttempts: 10 * rounds, Duration: localauth.DefaultLockoutPolicy.Duration})
 	ctx := context.Background()
 	seedUser(t, client, "known@example.test")
 	if err := store.SetPassword(ctx, "known@example.test", testPassword, false); err != nil {
 		t.Fatalf("SetPassword() error = %v", err)
 	}
 
-	measure := func(email string) time.Duration {
-		const samples = 5
-		var total time.Duration
-		for range samples {
-			start := time.Now()
-			_, _ = store.Authenticate(ctx, email, "a-wrong-password-here")
-			total += time.Since(start)
-		}
-		return total / samples
+	once := func(email string) time.Duration {
+		start := time.Now()
+		_, _ = store.Authenticate(ctx, email, "a-wrong-password-here")
+		return time.Since(start)
 	}
-
-	known := measure("known@example.test")
-	unknown := measure("nobody@example.test")
+	known, unknown := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
+	for range rounds {
+		known = min(known, once("known@example.test"))
+		unknown = min(unknown, once("nobody@example.test"))
+	}
+	t.Logf("fastest of %d: known %v, unknown %v", rounds, known, unknown)
 
 	if unknown < known/4 {
 		t.Errorf("an unknown account took %v and a known one took %v; the unknown path is short circuiting "+
