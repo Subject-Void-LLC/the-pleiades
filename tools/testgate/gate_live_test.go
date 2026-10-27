@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,13 +55,25 @@ func throwawayModule(t *testing.T, broken bool) {
 	t.Cleanup(func() { _ = os.Chdir(restore) })
 }
 
+// racePlatforms are the GOOS/GOARCH pairs Go's race detector is built for
+// (Go 1.26). windows/arm64 is not one: the Windows ARM VM has a C compiler,
+// so cgo is on there, and go test -race still refuses ("-race is not
+// supported on windows/arm64").
+var racePlatforms = map[string]bool{
+	"linux/amd64": true, "linux/arm64": true, "linux/ppc64le": true, "linux/s390x": true, "linux/loong64": true,
+	"freebsd/amd64": true, "netbsd/amd64": true, "darwin/amd64": true, "darwin/arm64": true, "windows/amd64": true,
+}
+
 // raceOff is whether this machine's go cannot build with -race. The race
 // detector needs cgo, which go turns off where it finds no C compiler (a
-// Windows machine with no toolchain, as tools/wincheck's is), so these tests
-// run their pass without it there, as wincheck does, rather than fail on
-// something they do not test.
+// Windows machine with no toolchain), and exists only for racePlatforms, so
+// these tests run their pass without it there, as wincheck does, rather than
+// fail on something they do not test.
 func raceOff(t *testing.T) bool {
 	t.Helper()
+	if !racePlatforms[runtime.GOOS+"/"+runtime.GOARCH] {
+		return true
+	}
 	out, err := exec.Command("go", "env", "CGO_ENABLED").Output()
 	if err != nil {
 		t.Fatalf("go env CGO_ENABLED: %v", err)
