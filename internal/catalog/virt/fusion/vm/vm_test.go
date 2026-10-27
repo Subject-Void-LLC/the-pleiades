@@ -33,6 +33,7 @@ func TestInfo(t *testing.T) {
 		"off":               {model{exists: true, state: stateOff}, map[string]any{statExists: true, statState: stateOff}},
 		"on, tools running": {model{exists: true, state: stateOn, tools: true, ip: "10.0.0.155"}, map[string]any{statExists: true, statState: stateOn, statGuestIP: "10.0.0.155"}},
 		"on, no tools":      {model{exists: true, state: stateOn}, map[string]any{statExists: true, statState: stateOn}},
+		"on, just resumed":  {model{exists: true, state: stateOn, tools: true, resumed: true, ip: "10.0.0.155"}, map[string]any{statExists: true, statState: stateOn, statGuestIP: "10.0.0.155"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := tc.m

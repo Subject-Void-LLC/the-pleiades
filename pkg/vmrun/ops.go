@@ -4,9 +4,11 @@ package vmrun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Running returns the vmx path of every VM the product is running.
@@ -144,16 +146,53 @@ func checkSnapshot(vmx, name string) error {
 
 // GuestIP returns the guest's IP address as VMware Tools reports it. A VM
 // that is not running is ErrNotRunning; one running without the tools has no
-// address to give, which vmrun reports as an error of its own.
+// address to give, which is ErrNoTools.
+//
+// A plain getGuestIPAddress is not trusted when it says the tools are not
+// running: on a real Fusion 26.0.1, a Windows guest resumed from suspend kept
+// answering that for minutes while checkToolsState said running and
+// getGuestIPAddress -wait returned its address at once. So that answer is
+// checked against checkToolsState, and when the tools are running the address
+// is asked for again with -wait, bounded by waitIP.
 func (h Host) GuestIP(ctx context.Context, vmx string) (string, error) {
 	if err := CheckVMX(vmx); err != nil {
 		return "", err
 	}
 	out, err := h.vmrun(ctx, "getGuestIPAddress", "getGuestIPAddress", vmx)
+	if err == nil {
+		return strings.TrimSpace(out.Stdout), nil
+	}
+	if !errors.Is(err, ErrNoTools) {
+		return "", err
+	}
+	state, serr := h.ToolsState(ctx, vmx)
+	if serr != nil || state != "running" {
+		return "", err
+	}
+	wctx, cancel := context.WithTimeout(ctx, waitIP)
+	defer cancel()
+	out, werr := h.vmrun(wctx, "getGuestIPAddress", "getGuestIPAddress", vmx, "-wait")
+	if werr != nil {
+		return "", fmt.Errorf("VMware Tools are running but gave no address within %s: %w", waitIP, werr)
+	}
+	return strings.TrimSpace(out.Stdout), nil
+}
+
+// waitIP bounds getGuestIPAddress -wait, which otherwise waits as long as
+// the guest takes to report one.
+var waitIP = 60 * time.Second
+
+// ToolsState returns what vmrun says of VMware Tools in the guest: running,
+// installed (but not running) or unknown, as vmrun names them.
+func (h Host) ToolsState(ctx context.Context, vmx string) (string, error) {
+	if err := CheckVMX(vmx); err != nil {
+		return "", err
+	}
+	out, err := h.vmrun(ctx, "checkToolsState", "checkToolsState", vmx)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(out.Stdout), nil
+	return firstLine(out.Stdout, ""), nil
 }
 
 // Network is one of the host's virtual networks.

@@ -20,3 +20,8 @@ Behaviours the captures showed, which the methods rely on (Fusion 26.0.1, 2026-1
 - A UEFI Windows install disc asks "press any key to boot from CD" for about five seconds after power-on;
   unanswered, the VM falls through to the firmware's Boot Manager. `vmcli MKS sendKeySequence a` every half second
   for 25 seconds after a hard reset answered it.
+- After a resume from suspend, `getGuestIPAddress` kept saying "The VMware Tools are not running" for minutes while
+  `checkToolsState` printed `running` and `getGuestIPAddress -wait` printed the address at once (2026-10-27).
+- A `vmcli` process killed while it held the VM left `<name>.vmx.lck/M<pid>.lck` behind; every later start failed with
+  "The file is already in use" although no VMware process was running. Removing that lock, once its process was
+  confirmed gone, let the VM start.

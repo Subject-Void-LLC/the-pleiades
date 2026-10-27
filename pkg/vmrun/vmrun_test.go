@@ -285,3 +285,34 @@ func TestHost_ReadsRealOutputThroughTheCommands(t *testing.T) {
 		t.Errorf("Networks = %v, %v", got, err)
 	}
 }
+
+// TestGuestIP_DoesNotTrustAPlainNoToolsAnswer is what a real Fusion did with a
+// Windows guest resumed from suspend: getGuestIPAddress said the tools were not
+// running, checkToolsState said running, and -wait gave the address.
+func TestGuestIP_DoesNotTrustAPlainNoToolsAnswer(t *testing.T) {
+	noTools := Output{Stdout: "Error: The VMware Tools are not running in the virtual machine: " + vmx + "\n", ExitCode: 255}
+	for name, tc := range map[string]struct {
+		toolsState string
+		wantIP     string
+		wantErr    error
+	}{
+		"tools running: asked again with -wait": {"running", "10.0.0.155", nil},
+		"tools only installed: no address":      {"installed", "", ErrNoTools},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := &recorder{answer: func(argv []string) Output {
+				switch {
+				case argv[3] == "checkToolsState":
+					return Output{Stdout: tc.toolsState + "\n"}
+				case argv[len(argv)-1] == "-wait":
+					return Output{Stdout: "10.0.0.155\n"}
+				}
+				return noTools
+			}}
+			ip, err := fusion(r).GuestIP(context.Background(), vmx)
+			if ip != tc.wantIP || (tc.wantErr == nil) != (err == nil) || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
+				t.Fatalf("GuestIP = %q, %v; want %q, %v (ran %q)", ip, err, tc.wantIP, tc.wantErr, r.argv)
+			}
+		})
+	}
+}

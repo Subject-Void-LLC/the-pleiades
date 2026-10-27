@@ -42,9 +42,13 @@ type model struct {
 	exists bool
 	state  string
 	tools  bool
-	ip     string
-	pid    int
-	calls  []string
+	// resumed is a guest just resumed from suspend: a plain getGuestIPAddress
+	// says the tools are not running although they are, as a real Fusion
+	// 26.0.1 answered, and only -wait gives the address.
+	resumed bool
+	ip      string
+	pid     int
+	calls   []string
 }
 
 // Run answers each command a method sends, as Fusion would.
@@ -82,11 +86,16 @@ func (m *model) Run(_ context.Context, argv []string) (vmrun.Output, error) {
 			m.state = stateSuspended
 		}
 		return vmrun.Output{}, nil
+	case argv[0] == vmrun.FusionVMRun && argv[3] == "checkToolsState":
+		if m.tools {
+			return vmrun.Output{Stdout: "running\n"}, nil
+		}
+		return vmrun.Output{Stdout: "installed\n"}, nil
 	case argv[0] == vmrun.FusionVMRun && argv[3] == "getGuestIPAddress":
 		switch {
 		case m.state != stateOn:
 			return fail("The virtual machine is not powered on: " + vmx)
-		case !m.tools:
+		case !m.tools, m.resumed && last != "-wait":
 			return fail("The VMware Tools are not running in the virtual machine: " + vmx)
 		}
 		return vmrun.Output{Stdout: m.ip + "\n"}, nil
@@ -98,7 +107,7 @@ func (m *model) Run(_ context.Context, argv []string) (vmrun.Output, error) {
 func (m *model) changes() []string {
 	var out []string
 	for _, c := range m.calls {
-		if strings.HasPrefix(c, "/bin/test ") || strings.HasSuffix(c, " Power query") || strings.Contains(c, " getGuestIPAddress ") {
+		if strings.HasPrefix(c, "/bin/test ") || strings.HasSuffix(c, " Power query") || strings.Contains(c, " getGuestIPAddress ") || strings.Contains(c, " checkToolsState ") {
 			continue
 		}
 		out = append(out, c)
