@@ -1,0 +1,57 @@
+name: release
+
+# A tag named vMAJOR.MINOR.PATCH builds the release archives with `make
+# release`, the same target a developer runs, and publishes them with their
+# SHA256SUMS. A manual dispatch is the dry run: it builds everything and
+# publishes nothing. Signing, an SBOM and provenance are Phase 106c's.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, such as 0.3.0-dryrun (nothing is published)"
+        required: true
+        default: "0.0.0-dryrun"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-go
+      - name: Build every archive
+        env:
+          TAG_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.version }}
+        run: make release VERSION="${TAG_VERSION#v}"
+      - name: Verify the checksums
+        run: cd dist && sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-archives
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    # Only a pushed tag publishes; the manual dry run stops after build.
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-archives
+          path: dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: gh release create "$TAG" dist/* --repo "$REPO" --title "$TAG" --generate-notes

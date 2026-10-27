@@ -1,4 +1,4 @@
-.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images workflow-lint doctor test-clean-room
+.PHONY: up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images workflow-lint doctor test-clean-room release release-dry-run
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -1059,6 +1059,26 @@ ci-images:
 # workflow-lint checks .github/workflows with the pinned actionlint.
 workflow-lint: tools
 	actionlint
+
+# release builds the archives a release ships (pleiades, controller and
+# runner for linux, darwin and windows on amd64 and arm64) into dist/, each
+# platform's as one archive, with SHA256SUMS beside them and the version
+# stamped through internal/buildinfo. It builds and writes files and
+# publishes nothing; the tag workflow (.github/workflows/release.yml) calls
+# this same target, so there is no CI-only step. make release VERSION=0.3.0.
+# Signing, an SBOM and provenance are Phase 106c's.
+RELEASE_DIR ?= dist
+release:
+	@test -n "$(VERSION)" || { echo "make release: set VERSION, such as make release VERSION=0.3.0" >&2; exit 2; }
+	go run ./tools/release -version "$(VERSION)" -out "$(RELEASE_DIR)"
+
+# release-dry-run is release for a throwaway version into a throwaway
+# directory under .IGNORE, then checks the list with sha256sum: the whole
+# build with nothing left where a tag could pick it up.
+release-dry-run:
+	rm -rf .IGNORE/release-dry-run
+	$(MAKE) release VERSION=0.0.0-dryrun RELEASE_DIR=.IGNORE/release-dry-run
+	cd .IGNORE/release-dry-run && sha256sum -c SHA256SUMS
 
 # doctor says what this machine can and cannot verify, and how to fix each
 # gap: the Go toolchain, Docker, the pinned tools, the hooks, and which
