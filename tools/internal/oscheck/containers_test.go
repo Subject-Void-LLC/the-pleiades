@@ -22,7 +22,7 @@ func TestContainerTestScript_Contents(t *testing.T) {
 		`podman machine start`,
 		`export DOCKER_HOST="unix://$HOME/.pleiades-podman/podman.sock" TESTCONTAINERS_RYUK_DISABLED=true`,
 		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 1 -coverage-out .pleiades-coverage-containers.json -report-out .pleiades-record-containers.json github.com/x/a github.com/x/b' &",
-		`trap 'stop_run "$job"; rm -f .maccheck.pid; clean; exit 143' TERM HUP INT`,
+		`trap 'stop_run "$job"; rm -f .maccheck.pid; done_; exit 143' TERM HUP INT`,
 	} {
 		if !strings.Contains(s, w) {
 			t.Errorf("script does not hold %q:\n%s", w, s)
@@ -138,8 +138,8 @@ func TestContainerTestScript_RunsTheTestsAgainstPodmanAndCleansUp(t *testing.T) 
 		t.Errorf("the tests did not run against the linked socket with Ryuk off:\n%s", goCalls)
 	}
 	podmanCalls := h.read(t, "podman.calls")
-	if strings.Contains(podmanCalls, "machine start") {
-		t.Errorf("a machine that is running was started again:\n%s", podmanCalls)
+	if strings.Contains(podmanCalls, "machine start") || strings.Contains(podmanCalls, "machine stop") {
+		t.Errorf("a machine that was already running was started or stopped:\n%s", podmanCalls)
 	}
 	if n := strings.Count(podmanCalls, "podman rm -f -a"); n != 2 {
 		t.Errorf("containers were removed %d time(s), want before and after:\n%s", n, podmanCalls)
@@ -157,8 +157,9 @@ func TestContainerTestScript_StartsAMachineThatIsNotRunning(t *testing.T) {
 	if out, code := h.run(t); code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	if !strings.Contains(h.read(t, "podman.calls"), "podman machine start") {
-		t.Errorf("a stopped machine was not started:\n%s", h.read(t, "podman.calls"))
+	calls := h.read(t, "podman.calls")
+	if !strings.Contains(calls, "podman machine start") || !strings.Contains(calls, "podman machine stop") {
+		t.Errorf("a stopped machine was not started and stopped again:\n%s", calls)
 	}
 }
 

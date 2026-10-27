@@ -111,6 +111,23 @@ def feed(state: ps.RunState, lines: List[str], start: float = 0.0) -> None:
 PKG = "github.com/Subject-Void-LLC/the-pleiades/"
 
 
+class EveryLegShownTest(unittest.TestCase):
+    """The dashboard has a stage for every OS pr-check runs on and for both container halves, so a run on
+    the Mac, FreeBSD, Windows x64 and Windows ARM shows each, as does the container half on the Mac's Podman."""
+
+    def test_every_os_and_both_container_halves_are_stages(self) -> None:
+        for name in ("mac", "bsd", "win", "winarm", "containers", "containers-mac"):
+            self.assertIn(name, ps.DISPLAY_ORDER, name)
+            self.assertIn(name, ps.REPORT_PARTS, name)
+        self.assertEqual(ps.LEGS, ["mac", "bsd", "win", "winarm"])
+
+    def test_winarm_lines_are_read_as_its_leg(self) -> None:
+        m = prlog.OSCHECK.match("winarmcheck: 2 package(s) at abc on win11-arm")
+        self.assertIsNotNone(m)
+        assert m is not None
+        self.assertEqual(m.group(1), "winarm")
+
+
 class RealLogTest(unittest.TestCase):
     """The parser on a real pr-check log made without --trace."""
 

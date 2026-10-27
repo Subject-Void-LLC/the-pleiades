@@ -38,7 +38,9 @@ var ContainerNeeds = []Need{
 }
 
 // ContainerTestScript is what the machine runs for a container pass in sha's
-// tree: it starts the Podman machine when it is not running, links its socket
+// tree: it starts the Podman machine when it is not running (and stops it
+// again at the end, so its memory is free for what runs next on the Mac, the
+// Windows ARM VM), links its socket
 // under a name testcontainers accepts, points DOCKER_HOST at it, removes every
 // container before and after (Ryuk, testcontainers' own cleanup, is off: it
 // never sees its readiness line through Podman's API and exits), and runs one
@@ -54,12 +56,14 @@ func (x POSIX) ContainerTestScript(sha string, parallel int, packages []string) 
 export PATH="$PATH:%[1]s"
 export GOCACHE="$HOME/%[2]s/%[10]s"
 cd "$HOME/%[2]s/%[3]s" || exit 2
-if ! podman machine list | grep -q 'Currently running'; then podman machine start || exit 2; fi
+started=0
+if ! podman machine list | grep -q 'Currently running'; then podman machine start || exit 2; started=1; fi
 real=$(podman machine inspect | grep -A3 PodmanSocket | grep '"Path"' | sed 's/.*"Path": *"\(.*\)".*/\1/')
 [ -n "$real" ] || { echo "no Podman machine socket: is a machine created (podman machine init --rootful)?"; exit 2; }
 mkdir -p "$(dirname "$HOME/%[4]s")" && ln -sf "$real" "$HOME/%[4]s" || exit 2
 export DOCKER_HOST="unix://$HOME/%[4]s" TESTCONTAINERS_RYUK_DISABLED=true
 clean() { podman rm -f -a >/dev/null 2>&1; podman network prune -f >/dev/null 2>&1; podman volume prune -f >/dev/null 2>&1; }
+done_() { clean; [ "$started" = 1 ] && podman machine stop >/dev/null 2>&1; true; }
 %[7]s
 clean
 rm -f %[8]s %[9]s
@@ -68,11 +72,11 @@ set -m
 job=$!
 set +m
 echo "$job" > %[12]s
-trap 'stop_run "$job"; rm -f %[12]s; clean; exit 143' TERM HUP INT
+trap 'stop_run "$job"; rm -f %[12]s; done_; exit 143' TERM HUP INT
 wait "$job"
 status=$?
 rm -f %[12]s
-clean
+done_
 exit $status`, x.Path, x.Dir, sha, sock, pkgs, x.Wrap, stopRun, ContainerRecordFile, ContainerCoverageFile, CacheDir, parallelOrOne(parallel), x.PIDFile())
 }
 

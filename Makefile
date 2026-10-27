@@ -804,6 +804,7 @@ PR_CHECK_PARALLELISM ?= 0
 SIZE_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,freebsd/amd64
 BSD_CHECK_PARALLELISM ?= 0
 WIN_CHECK_PARALLELISM ?= 0
+WINARM_CHECK_PARALLELISM ?= 0
 # OS_CHECKS are the checks whose machine is always up, each
 # tools/<name>check, and LAB_CHECKS those whose VM a check starts and puts
 # back, which run one at a time.
@@ -822,7 +823,7 @@ PR_CHECK_ALWAYS := \
 # where the gate began, so its record carries it.
 # containers-mac is the container half run on the Mac against its Podman (MAC_CONTAINER_PACKAGES,
 # tools/maccheck -containers) when a Mac is configured; it brings coverage and sends the Mac its tree.
-PR_CHECK_PARTS := fast coverage-fast repeat containers containers-mac durations mac bsd win govulncheck images coverage sizes
+PR_CHECK_PARTS := fast coverage-fast repeat containers containers-mac durations mac bsd win winarm govulncheck images coverage sizes
 LEGS ?=
 comma := ,
 LEGS_NAMED := $(sort $(subst $(comma), ,$(LEGS)))
@@ -864,13 +865,13 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 			case $$part in \
 				fast|containers) rm -f $(COVERAGE_DIR)/pr/$$part.json;; \
 				containers-mac) rm -f $(COVERAGE_DIR)/pr/containers-mac.json $(COVERAGE_DIR)/pr/mac.ready $(COVERAGE_DIR)/pr/mac.log $(COVERAGE_DIR)/pr/mac.failed;; \
-				mac|bsd|win) rm -f $(COVERAGE_DIR)/pr/$$part.ready $(COVERAGE_DIR)/pr/$$part.log $(COVERAGE_DIR)/pr/$$part.failed;; \
+				mac|bsd|win|winarm) rm -f $(COVERAGE_DIR)/pr/$$part.ready $(COVERAGE_DIR)/pr/$$part.log $(COVERAGE_DIR)/pr/$$part.failed;; \
 			esac; \
 		done; \
 	fi; \
 	mkdir -p $$rec; \
 	go build -o $$report ./tools/prreport || exit 1; \
-	expect="mac,bsd,win,govulncheck,images,coverage,sizes"; \
+	expect="mac,bsd,win,winarm,govulncheck,images,coverage,sizes"; \
 	if [ -n "$$mine_fast" ]; then expect="fast,coverage-fast,repeat,$$expect"; fi; \
 	if [ -n "$$mine_docker" ]; then expect="$$expect,containers,durations"; fi; \
 	if [ -n "$$mac_pkgs" ]; then expect="$$expect,containers-mac"; fi; \
@@ -912,17 +913,23 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	if want govulncheck; then step govulncheck vuln; fi; \
 	mac_job() { \
 		s=0; \
-		if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || s=1; fi; \
-		if [ -n "$$mac_pkgs" ] && want containers-mac; then \
-			$(COVERAGE_DIR)/pr/maccheck -containers -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$mac_pkgs || s=1; \
+		if [ -f $(COVERAGE_DIR)/pr/mac.ready ]; then \
+			if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast || s=1; fi; \
+			if [ -n "$$mac_pkgs" ] && want containers-mac; then \
+				$(COVERAGE_DIR)/pr/maccheck -containers -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$mac_pkgs || s=1; \
+			fi; \
+		fi; \
+		if want winarm; then \
+			$(COVERAGE_DIR)/pr/winarmcheck -arm64 -optional -report-out $$rec/winarm.json -p $(WINARM_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/winarm.log 2>&1 || s=1; \
 		fi; \
 		return $$s; \
 	}; \
+	go build -o $(COVERAGE_DIR)/pr/winarmcheck ./tools/wincheck || exit 1; \
 	for os in $(OS_CHECKS); do \
-		want $$os || { [ $$os = mac ] && [ -n "$$mac_pkgs" ] && want containers-mac; } || continue; \
-		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ]; then \
+		want $$os || want winarm || { [ $$os = mac ] && [ -n "$$mac_pkgs" ] && want containers-mac; } || continue; \
+		if [ -f $(COVERAGE_DIR)/pr/$$os.ready ] || want winarm; then \
 			mac_job > $(COVERAGE_DIR)/pr/$$os.log 2>&1 & legs="$$legs $$os:$$!"; \
-			echo "pr-check: the $$os tests, then the containers on its Podman, run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log)"; \
+			echo "pr-check: the $$os tests, then the containers on its Podman, then the Windows ARM VM on its Fusion, run beside the ones below; their output follows them ($(COVERAGE_DIR)/pr/$$os.log, $(COVERAGE_DIR)/pr/winarm.log)"; \
 		fi; \
 	done; \
 	labs=""; for os in $(LAB_CHECKS); do want $$os && labs="$$labs $$os"; done; \
@@ -964,7 +971,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 				if [ -f $(COVERAGE_DIR)/pr/$$os.failed ]; then status=1; fi; \
 			done; \
 		else \
-			cat $(COVERAGE_DIR)/pr/$${leg%%:*}.log; \
+			cat $(COVERAGE_DIR)/pr/$${leg%%:*}.log; [ "$${leg%%:*}" != mac ] || [ ! -f $(COVERAGE_DIR)/pr/winarm.log ] || cat $(COVERAGE_DIR)/pr/winarm.log; \
 		fi; \
 	done; \
 	trap - INT TERM EXIT; \

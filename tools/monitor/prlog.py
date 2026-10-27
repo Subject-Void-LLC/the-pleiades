@@ -42,8 +42,8 @@ COMMANDS: Dict[str, str] = {
 }
 SCOPE_COUNT = re.compile(r"^pr-check: (\d+) container-free and (\d+) container package\(s\) against (\S+)")
 PRSCOPE = re.compile(r"^prscope: ")
-OSCHECK = re.compile(r"^(mac|bsd|win)check: (.*)$")
-TREE_SENT = re.compile(r"^(mac|bsd|win)check: the tree of \S+ is on ")
+OSCHECK = re.compile(r"^(mac|bsd|win|winarm)check: (.*)$")
+TREE_SENT = re.compile(r"^(mac|bsd|win|winarm)check: the tree of \S+ is on ")
 VULN_REMOTE_START = re.compile(r"^\w+check: govulncheck \S+ runs on ")
 VULN_REMOTE_PASS = re.compile(r"^\w+check: govulncheck \S+ passed on ")
 VULN_REMOTE_FAIL = re.compile(r"^\w+check: govulncheck \S+ failed on ")

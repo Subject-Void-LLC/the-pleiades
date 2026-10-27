@@ -76,7 +76,7 @@ func (l Lab) Reachable() error {
 		}
 	}
 	if _, err := l.Pleiades.Adhoc(context.Background(), "wait.connection", fmt.Sprintf("timeout=%d", waitSeconds), "connect_timeout=5", "sleep=5"); err != nil {
-		return fmt.Errorf("%s (in %s) did not answer a login within %d seconds: %v\n  Is it running? A lab VM starts with virt.vbox.vm.start, run from its project", l.Target, l.Pleiades.Project, waitSeconds, err)
+		return fmt.Errorf("%s (in %s) did not answer a login within %d seconds: %v\n  Is it running? A lab VM starts with its hypervisor's start method (virt.vbox.vm.start, virt.fusion.vm.start), run from its project", l.Target, l.Pleiades.Project, waitSeconds, err)
 	}
 	return nil
 }

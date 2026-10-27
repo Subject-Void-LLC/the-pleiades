@@ -89,7 +89,7 @@ func pick(args []string) (oscheck.LabCheck, []string) {
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	c, args := pick(os.Args[1:])
-	code := c.Run(ctx, args, os.Stdout, os.Stderr, newLeg)
+	code := c.Run(ctx, args, os.Stdout, os.Stderr, newLeg(c.Tool))
 	stop()
 	os.Exit(code)
 }

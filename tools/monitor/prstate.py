@@ -44,7 +44,7 @@ STATIC_TARGETS = [
 HIDDEN_UNTIL_SEEN = ("tools", "templ-gen")
 # containers-mac is the container half pr-check runs on the Mac against its Podman (maccheck -containers).
 PASSES = ["fast", "repeat", "containers", "containers-mac"]
-LEGS = ["mac", "bsd", "win"]
+LEGS = ["mac", "bsd", "win", "winarm"]
 # coverage-fast checks the fast pass's coverage floors before anything else
 # runs; sizes records the binary sizes (tools/binsize) after durations.
 STEPS = ["coverage-fast", "govulncheck", "images", "coverage", "durations", "sizes"]

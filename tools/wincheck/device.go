@@ -40,9 +40,19 @@ type windows struct {
 	oscheck.Lab
 }
 
-// newLeg is device in project.
-func newLeg(project, device string) (oscheck.Leg, error) {
-	lab, err := oscheck.NewLab("wincheck", project, device)
+// newLeg is device in project, driven by the pleiades tool builds under its
+// own name: wincheck's and winarmcheck's are separate builds, so one check
+// never runs the other's binary (an older one could not read a project whose
+// records name capabilities it predates).
+func newLeg(tool string) func(project, device string) (oscheck.Leg, error) {
+	return func(project, device string) (oscheck.Leg, error) {
+		return newLegFor(tool, project, device)
+	}
+}
+
+// newLegFor is newLeg's machine.
+func newLegFor(tool, project, device string) (oscheck.Leg, error) {
+	lab, err := oscheck.NewLab(tool, project, device)
 	if err != nil {
 		return nil, err
 	}
