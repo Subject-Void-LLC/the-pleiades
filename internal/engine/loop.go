@@ -17,6 +17,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -41,6 +42,9 @@ const (
 	// MaxTotalRuns bounds the runs of one task on one device: its items times
 	// the tries each may take.
 	MaxTotalRuns = 5000
+	// MaxLoopResultBytes bounds what a loop's registered results may hold, as
+	// JSON, so a thousand large outputs cannot fill the run's memory.
+	MaxLoopResultBytes = 16 << 20
 	// DefaultRetries and DefaultDelaySeconds apply to an until task that sets
 	// neither.
 	DefaultRetries      = 3
@@ -223,6 +227,7 @@ func (r *run) loop(ctx context.Context, nodeID string, task *Task, started time.
 	var results []NodeResult
 	var rows []any
 	anyChanged, anyFailed, allSkipped := false, false, len(items) > 0
+	resultBytes := 0
 	for k, item := range items {
 		if ctx.Err() != nil {
 			break
@@ -261,6 +266,17 @@ func (r *run) loop(ctx context.Context, nodeID string, task *Task, started time.
 		}
 		row["changed"], row["failed"], row["skipped"] = out.changed, out.failed, out.skipped
 		rows = append(rows, row)
+		if encoded, err := json.Marshal(row); err == nil {
+			if resultBytes += len(encoded); resultBytes > MaxLoopResultBytes {
+				wrapped := fmt.Errorf("the results of %s hold more than %d bytes after item %d; a loop keeps every item's result, so loop over fewer items or return less from the method", taskLabel(nodeID, task), MaxLoopResultBytes, k)
+				r.publish(nodeID, task, "", "failed", wrapped.Error())
+				failed := failedNode(nodeID, started, FailureStageRecord, wrapped)
+				failed.Device, failed.Iteration = key, fmt.Sprintf(".item[%d]", k)
+				results = append(results, failed)
+				anyFailed = true
+				break
+			}
+		}
 		anyChanged = anyChanged || out.changed
 		anyFailed = anyFailed || out.failed
 		allSkipped = allSkipped && out.skipped

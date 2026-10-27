@@ -142,3 +142,16 @@ func TestIteration_MoreRefusedShapes(t *testing.T) {
 		})
 	}
 }
+
+// TestLoop_TheRegisteredResultsAreBounded: a loop whose items each return a
+// large result stops with a named failure instead of holding them all.
+func TestLoop_TheRegisteredResultsAreBounded(t *testing.T) {
+	big := strings.Repeat("x", 1<<20)
+	result := runBroken(t, "id: big\nhosts: web\ntasks:\n  - rbtest.step: {note: x}\n    register: r\n    loop: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]\n", true, engine.NewInProcessWorkflowContext(),
+		func(int, *engine.Task) (engine.ActionResult, error) {
+			return engine.ActionResult{Stats: map[string]any{"out": big}}, nil
+		})
+	if !failedWith(result, "hold more than") {
+		t.Fatalf("a loop kept 20 MiB of results: %d results", len(result.Nodes))
+	}
+}
