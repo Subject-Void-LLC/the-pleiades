@@ -237,11 +237,14 @@ const pidFile = ".wincheck.pid"
 
 // testScript is what the machine runs in the unpacked tree: pr-check's two
 // passes over the container-free packages, the full pass and three strict
-// repeats, building into the check's own oscheck.CacheDir, and it exits with the tests' status. The full pass uses the race
-// detector when the machine has gcc, which also turns cgo on so go-sqlite3's
-// tests run; without one Go builds with cgo off, the pass runs without the
-// race detector, and testgate reports go-sqlite3's stub as a skip that needs
-// cgo. The script says which before the passes begin, and a failed task
+// repeats, building into the check's own oscheck.CacheDir, and it exits with the tests' status. A C compiler (gcc.exe on
+// the PATH: WinLibs' GCC on x64, or llvm-mingw's, whose newest C:\llvm-mingw-*
+// folder the script puts on the PATH, on ARM) turns cgo on, so go-sqlite3's
+// tests run; the full pass also uses the race detector then, where Go has one
+// for Windows, which is amd64 alone. Without a compiler Go builds with cgo
+// off and testgate reports go-sqlite3's stub as a skip that needs cgo; a suite
+// whose stubbed fixture is shared (internal/ui/resources) fails there, so the
+// ARM VM has llvm-mingw. The script says which before the passes begin, and a failed task
 // reports the tests' output. Each pass runs under
 // cmd.exe, which joins its standard error to its standard output so they
 // read in order: PowerShell would make each stderr line an error record,
@@ -268,8 +271,12 @@ $parallel = [int]$env:PLEIADES_PARALLEL
 # second with nothing to show for it.
 $packages = Join-Path $tree '` + packagesFile + `'
 Set-Content -LiteralPath $packages -Value $env:PLEIADES_PACKAGES -Encoding ascii
+$llvm = Get-ChildItem -Directory -Path 'C:\llvm-mingw-*' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+if ($llvm) { $env:Path = (Join-Path $llvm.FullName 'bin') + ';' + $env:Path }
 $race = 'false'
-if (Get-Command gcc.exe -ErrorAction SilentlyContinue) { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' } else { 'wincheck: no gcc, so cgo and the race detector are off' }
+if (-not (Get-Command gcc.exe -ErrorAction SilentlyContinue)) { 'wincheck: no gcc, so cgo and the race detector are off' }
+elseif ((& go env GOARCH) -eq 'amd64') { $race = 'true'; 'wincheck: gcc found, so cgo and the race detector are on' }
+else { 'wincheck: gcc found, so cgo is on; Go has no race detector for this architecture' }
 & cmd.exe /d /c "go run ./tools/testgate -full -race=$race -report-out ` + recordFull + ` -p $parallel -packages-file ` + packagesFile + ` 2>&1"
 $code = $LASTEXITCODE
 if ($code -eq 0) {
