@@ -5,6 +5,7 @@ package inventory_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -165,5 +166,40 @@ func TestFoldedVars_SaveDoesNotBakeThemIn(t *testing.T) {
 	}
 	if again["from_group"] != "g" || again["from_host"] != "h" || again["own"] != "row" {
 		t.Errorf("vars after save: %v", again)
+	}
+}
+
+// TestFoldedVars_RefusesALinkAndANestedSecretKey: a vars file that is a
+// symbolic link is never followed, and a secret-named key inside a value is
+// refused as a top-level one is.
+func TestFoldedVars_RefusesALinkAndANestedSecretKey(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		inv.DefaultInventoryFilename: hostsFile(""),
+		"group_vars/a_site.yml":      "db:\n  host: x\n  password: plain\n",
+	})
+	if _, err := loadVars(t, dir); err == nil || !strings.Contains(err.Error(), "named like a secret") {
+		t.Errorf("a nested secret key: %v", err)
+	}
+
+	link := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.yml")
+	writeTree(t, filepath.Dir(outside), map[string]string{"outside.yml": "x: 1\n"})
+	writeTree(t, link, map[string]string{inv.DefaultInventoryFilename: hostsFile(""), "group_vars/placeholder.txt": ""})
+	if err := os.Symlink(outside, filepath.Join(link, "group_vars", "all.yml")); err != nil {
+		t.Skip("symbolic links are not available here")
+	}
+	if _, err := loadVars(t, link); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Errorf("a link was followed: %v", err)
+	}
+
+	many := t.TempDir()
+	files := map[string]string{inv.DefaultInventoryFilename: hostsFile("")}
+	for i := 0; i < 70; i++ {
+		files[fmt.Sprintf("group_vars/a_site/f%02d.yml", i)] = fmt.Sprintf("v%d: 1\n", i)
+	}
+	writeTree(t, many, files)
+	if _, err := loadVars(t, many); err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Errorf("too many files: %v", err)
 	}
 }

@@ -26,9 +26,6 @@ const (
 // isAssert reports whether fqcn is the assert action.
 func isAssert(fqcn string) bool { return fqcn == AssertName || fqcn == AssertFQCN }
 
-// isFail reports whether fqcn is the fail action.
-func isFail(fqcn string) bool { return fqcn == FailName || fqcn == FailFQCN }
-
 // assertThat returns the conditions an assert task's that: names, or nil for
 // any other task.
 func assertThat(task *Task) StringList {

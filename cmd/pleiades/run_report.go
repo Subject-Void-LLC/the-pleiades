@@ -174,6 +174,16 @@ type taskReport struct {
 	// connection failed or timed out before anything was sent, so nothing
 	// ran and running it again is safe. A refused login is not unreached.
 	Unreached bool `json:"unreached,omitempty"`
+	// Label is the loop_control label of the item this result is, when the
+	// task is a loop and its author wrote one. The item's own value is never
+	// reported, since it may be a secret.
+	Label string `json:"label,omitempty"`
+	// Ignored marks a failure of a task that sets ignore_errors: it is a
+	// failure here and in the journal, and the run went on past it.
+	Ignored bool `json:"ignored,omitempty"`
+	// Retried marks a failure the task tried again; only its last try fails
+	// the task.
+	Retried bool `json:"retried,omitempty"`
 	// Reason is why a task was skipped, could not be checked, or was
 	// never run.
 	Reason string `json:"reason,omitempty"`
@@ -277,7 +287,10 @@ func taskReports(dag *engine.DAG, result *engine.RunResult, items []pkginventory
 	checking := result.Mode == collection.ModeCheck
 	out := make([]taskReport, 0, len(result.Nodes))
 	for _, node := range result.Nodes {
-		t := taskReport{ID: node.NodeID, Device: node.Device, Host: hosts[node.Device], Provider: node.Provider}
+		// A task that ran more than once on a device is one report entry per
+		// run, under the id its journal entry has (item and try appended).
+		t := taskReport{ID: node.NodeID + node.Iteration, Device: node.Device, Host: hosts[node.Device], Provider: node.Provider,
+			Label: redact.Text(result.Secrets, node.Label), Ignored: node.Ignored, Retried: node.Retried}
 		if task := dag.Nodes[node.NodeID]; task != nil {
 			t.Name, t.Method = task.Name, task.FQCN
 		}

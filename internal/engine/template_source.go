@@ -111,7 +111,7 @@ func (r *run) renderTemplateFile(task *Task, ctx map[string]any) (*Task, string,
 		}
 		return nil, "", false, fmt.Errorf("parameter %s: %w", name, err)
 	}
-	text, err := renderTemplateText(r.x.renderer, string(data), ctx)
+	text, err := renderTemplateText(r.x.renderer, string(data), ctx, task)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("parameter %s: template %s: %w", name, path, err)
 	}
@@ -129,12 +129,12 @@ func (r *run) renderTemplateFile(task *Task, ctx map[string]any) (*Task, string,
 // renderTemplateText compiles and renders one template body, holding it to the
 // roots a parameter may read. An undefined variable is the renderer's own
 // error, so a misspelled name never writes an empty value into a file.
-func renderTemplateText(eng render.Engine, body string, ctx map[string]any) (string, error) {
+func renderTemplateText(eng render.Engine, body string, ctx map[string]any, task *Task) (string, error) {
 	tmpl, err := eng.Compile(body)
 	if err != nil {
 		return "", err
 	}
-	if problems := TemplateProblems(tmpl, ""); len(problems) > 0 {
+	if problems := TaskTemplateProblems(tmpl, "", task); len(problems) > 0 {
 		return "", errors.New(strings.Join(problems, "; "))
 	}
 	return tmpl.Render(ctx)

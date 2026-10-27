@@ -72,23 +72,14 @@ func Dispatched(item inventory.InventoryItem) (string, map[string]any) {
 
 // dispatchedVars returns the vars property of raw without any variable whose
 // name or text is shaped like a secret, the line the engine draws when it
-// reads them (engine.deviceVars), or nil when there is none to send. A
+// reads them (engine.deviceVars), or nil when there is none to send (redact.CleanVars, at any depth). A
 // property that is not a mapping is not sent.
 func dispatchedVars(raw map[string]any) map[string]any {
 	vars, ok := raw[inventory.VarsProperty].(map[string]any)
 	if !ok || len(vars) == 0 {
 		return nil
 	}
-	out := make(map[string]any, len(vars))
-	for k, v := range vars {
-		if redact.SecretName(k) {
-			continue
-		}
-		if s, isText := v.(string); isText && redact.SecretShaped(s) {
-			continue
-		}
-		out[k] = v
-	}
+	out := redact.CleanVars(vars)
 	if len(out) == 0 {
 		return nil
 	}

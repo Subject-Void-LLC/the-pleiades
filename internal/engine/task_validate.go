@@ -160,6 +160,11 @@ func validateIteration(task *Task, id string) error {
 			return err
 		}
 	}
+	if isSetFact(task.FQCN) && task.Iterates() {
+		if global, _ := task.Params[SetFactGlobal].(bool); global {
+			return fmt.Errorf("task %s sets a global fact in a loop or a retry: each run would replace the last for every device, and devices that disagree would race; set the fact once after the loop, or drop global", label)
+		}
+	}
 	if len(task.ChangedWhen) > 0 || len(task.FailedWhen) > 0 {
 		if !leaf {
 			return fmt.Errorf("task %s sets changed_when or failed_when on a block or parallel group: they classify one method call's result, so set them on the task inside instead", label)

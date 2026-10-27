@@ -272,17 +272,7 @@ func deviceVars(d inventory.InventoryItem) map[string]any {
 	if !ok {
 		return nil
 	}
-	out := make(map[string]any, len(raw))
-	for k, v := range raw {
-		if redact.SecretName(k) {
-			continue
-		}
-		if s, isText := v.(string); isText && redact.SecretShaped(s) {
-			continue
-		}
-		out[k] = v
-	}
-	return out
+	return redact.CleanVars(raw)
 }
 
 // varsNeedDevice reports whether task reads vars and the variables it would

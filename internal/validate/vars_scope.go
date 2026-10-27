@@ -249,13 +249,17 @@ func readsOf(eng render.Engine, pt paramTask) []varRead {
 	return reads
 }
 
+// newCELEnv builds the environment a condition is parsed in; a variable so a
+// test can make it fail.
+var newCELEnv = func() (*cel.Env, error) { return cel.NewEnv() }
+
 // conditionVarReads returns the names c reads as vars.<name> (or
 // vars["name"]) and the names it only tests for, with has(vars.<name>) or
 // "<name>" in vars, sorted. It parses and never evaluates, as
 // engine.ConditionUsesRoot does; a condition that does not parse reads
 // nothing here.
 func conditionVarReads(c engine.Conditional) (read, tested []string) {
-	env, err := cel.NewEnv()
+	env, err := newCELEnv()
 	if err != nil {
 		return nil, nil
 	}

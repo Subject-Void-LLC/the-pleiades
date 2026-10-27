@@ -85,11 +85,42 @@ func checkDeviceVars(source string, vars map[string]any) error {
 		if redact.SecretName(k) {
 			return fmt.Errorf("%s: variable %q is named like a secret; keep secrets in the credential store, not in inventory variables", source, k)
 		}
+		if nested := secretKeyIn(vars[k]); nested != "" {
+			return fmt.Errorf("%s: variable %q holds a key %q named like a secret; keep secrets in the credential store, not in inventory variables", source, k, nested)
+		}
 		if hasSecretText(vars[k]) {
 			return fmt.Errorf("%s: the value of variable %q is shaped like a secret; keep secrets in the credential store, not in inventory variables", source, k)
 		}
 	}
 	return nil
+}
+
+// secretKeyIn returns the first key named like a secret anywhere inside v, in
+// nested maps and lists, or "".
+func secretKeyIn(v any) string {
+	switch x := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if redact.SecretName(k) {
+				return k
+			}
+			if inner := secretKeyIn(x[k]); inner != "" {
+				return inner
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if inner := secretKeyIn(e); inner != "" {
+				return inner
+			}
+		}
+	}
+	return ""
 }
 
 // hasSecretText reports whether v, or any string nested in it, is shaped like
@@ -217,7 +248,12 @@ func readVarsSource(base, name string) (map[string]any, error) {
 	var found []string
 	for _, cand := range []string{name + ".yml", name + ".yaml", name} {
 		p := filepath.Join(base, cand)
-		if _, err := os.Stat(p); err == nil {
+		if info, err := os.Lstat(p); err == nil {
+			// A link could point anywhere the process can read, and what it
+			// reads rides every dispatch of the device: refused, not followed.
+			if info.Mode()&fs.ModeSymlink != 0 {
+				return nil, fmt.Errorf("%s is a symbolic link; variables are read only from files inside the project, so copy the file there", p)
+			}
 			found = append(found, p)
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("cannot read %s: %w", p, err)
@@ -242,12 +278,19 @@ func readVarsSource(base, name string) (map[string]any, error) {
 		return readVarsFile(found[0])
 	}
 	out := map[string]any{}
+	files := 0
 	walkErr := filepath.WalkDir(found[0], func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symbolic link; variables are read only from files inside the project, so copy the file there", p)
+		}
 		if d.IsDir() || !hasVarsExt(p) {
 			return nil
+		}
+		if files++; files > maxVarsFiles {
+			return fmt.Errorf("%s holds more than %d variable files; merge them", found[0], maxVarsFiles)
 		}
 		layer, err := readVarsFile(p)
 		if err != nil {
@@ -263,6 +306,10 @@ func readVarsSource(base, name string) (map[string]any, error) {
 	}
 	return out, nil
 }
+
+// maxVarsFiles bounds the files one group's or host's variables directory may
+// hold, so the total read for a device stays bounded as well as each file.
+const maxVarsFiles = 64
 
 // hasVarsExt reports whether path is a .yml or .yaml file.
 func hasVarsExt(path string) bool {

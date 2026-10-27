@@ -24,11 +24,20 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup-go
+      # A release is cut from main only: a tag on a branch's commit is refused
+      # before anything is built, as the pre-push hook refuses it.
+      - name: The tagged commit is on main
+        if: github.ref_type == 'tag'
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Build every archive
+        # The version reaches make as an environment variable, never inside
+        # the command line, so nothing in a tag name or an input is expanded.
         env:
-          TAG_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.version }}
-        run: make release VERSION="${TAG_VERSION#v}"
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.version }}
+        run: make release
       - name: Verify the checksums
         run: cd dist && sha256sum -c SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -276,10 +276,10 @@ type NodeResult struct {
 	// it as one.
 	Ignored bool
 
-	// RetriedErr is why a run of an until task that was tried again failed.
-	// Err stays empty for it, since a retried failure does not fail the task;
-	// only the last try can.
-	RetriedErr string
+	// Retried says this failure was tried again, so it did not fail the task;
+	// only the last try can. Err still holds the failure and the journal
+	// records it as one.
+	Retried bool
 }
 
 // fail records err as n's failure and tags it with the stage that
@@ -378,7 +378,7 @@ type RunResult struct {
 // rescue: answered aside.
 func (r RunResult) HasErrors() bool {
 	for _, n := range r.Nodes {
-		if n.Err != nil && n.RescuedBy == "" && !n.Ignored {
+		if n.Err != nil && n.RescuedBy == "" && !n.Ignored && !n.Retried {
 			return true
 		}
 	}
@@ -761,7 +761,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		for _, out := range outs {
 			result.Nodes = append(result.Nodes, out...)
 			for _, nr := range out {
-				if nr.Err != nil && !nr.Ignored && (nr.Checked || !r.handlers.failed(nr)) {
+				if nr.Err != nil && !nr.Ignored && !nr.Retried && (nr.Checked || !r.handlers.failed(nr)) {
 					failed = true
 				}
 			}
@@ -791,6 +791,10 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 	if it.Err() != nil {
 		err = it.Err()
 		return
+	}
+	// A run stopped part way, on its last level too, is not a complete one.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = ctxErr
 	}
 	return
 }

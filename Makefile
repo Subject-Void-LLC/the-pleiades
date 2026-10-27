@@ -1066,18 +1066,20 @@ workflow-lint: tools
 # stamped through internal/buildinfo. It builds and writes files and
 # publishes nothing; the tag workflow (.github/workflows/release.yml) calls
 # this same target, so there is no CI-only step. make release VERSION=0.3.0.
+# VERSION is read by the shell ("$$VERSION"), never expanded by make, so a
+# value with $(...) in it is only ever text.
 # Signing, an SBOM and provenance are Phase 106c's.
 RELEASE_DIR ?= dist
 release:
-	@test -n "$(VERSION)" || { echo "make release: set VERSION, such as make release VERSION=0.3.0" >&2; exit 2; }
-	go run ./tools/release -version "$(VERSION)" -out "$(RELEASE_DIR)"
+	@test -n "$$VERSION" || { echo "make release: set VERSION, such as make release VERSION=0.3.0" >&2; exit 2; }
+	go run ./tools/release -version "$$VERSION" -out "$(RELEASE_DIR)"
 
 # release-dry-run is release for a throwaway version into a throwaway
 # directory under .IGNORE, then checks the list with sha256sum: the whole
 # build with nothing left where a tag could pick it up.
 release-dry-run:
 	rm -rf .IGNORE/release-dry-run
-	$(MAKE) release VERSION=0.0.0-dryrun RELEASE_DIR=.IGNORE/release-dry-run
+	VERSION=0.0.0-dryrun $(MAKE) release RELEASE_DIR=.IGNORE/release-dry-run
 	cd .IGNORE/release-dry-run && sha256sum -c SHA256SUMS
 
 # doctor says what this machine can and cannot verify, and how to fix each

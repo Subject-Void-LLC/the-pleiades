@@ -49,12 +49,12 @@ func oneDevice() mapResolver {
 }
 
 // runStepper runs runbook with fn as the method behind rbtest.step.
-func runStepper(t *testing.T, mode collection.Mode, runbook string, fn func(n int, task *engine.Task) (engine.ActionResult, error)) (*stepper, engine.RunResult, engine.WorkflowContext) {
+func runStepper(t *testing.T, mode collection.Mode, runbook string, fn func(n int, task *engine.Task) (engine.ActionResult, error), extra ...any) (*stepper, engine.RunResult, engine.WorkflowContext) {
 	t.Helper()
 	s := &stepper{fn: fn, builtin: engine.NewBuiltinActionExecutor()}
 	wf := engine.NewInProcessWorkflowContext()
 	x := engine.NewExecutor(oneDevice(), s, lock.NewInProcessManager(), event.NewInProcessBus(), wf, 0,
-		engine.WithRenderer(render.New()), engine.WithMode(mode))
+		engine.WithRenderer(render.New()), engine.WithMode(mode), engine.WithVariables(extraVarsOf(extra)))
 	result, err := x.Run(context.Background(), yamlRunbook(t, runbook))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -212,7 +212,7 @@ tasks:
 	if result.HasErrors() {
 		t.Fatalf("a retried failure failed the task: %+v", result.Nodes)
 	}
-	if result.Nodes[0].RetriedErr == "" || !strings.Contains(result.Nodes[0].RetriedErr, "not yet") {
+	if !result.Nodes[0].Retried || result.Nodes[0].Err == nil || !strings.Contains(result.Nodes[0].Err.Error(), "not yet") {
 		t.Errorf("first try %+v", result.Nodes[0])
 	}
 
@@ -273,4 +273,13 @@ func TestLoop_RefusedShapes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// extraVarsOf names the optional value a runStepper caller passes as the
+// run's variable "big".
+func extraVarsOf(extra []any) map[string]any {
+	if len(extra) == 0 {
+		return nil
+	}
+	return map[string]any{"big": extra[0]}
 }

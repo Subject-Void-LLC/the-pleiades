@@ -76,24 +76,51 @@ func (r *run) tries(ctx context.Context, nodeID string, task *Task, started time
 			out.failed = true
 			return out
 		}
+		// Only the method's own failure is tried again. A refused credential,
+		// a changed host key, a lock or a render that failed would fail the
+		// same way each time, and trying a login again and again is how a
+		// device locks an account.
+		if hasNonActionFailure(results) {
+			out.results = append(out.results, results...)
+			out.failed = true
+			return out
+		}
 		// Tried again: a failure of this try does not fail the task, only the
-		// last try can, so it is kept as a note and not as the result.
+		// last try can. It stays a failure in the journal and the report, marked
+		// Retried so the run does not count it.
 		for i := range results {
 			if results[i].Err != nil {
-				results[i].RetriedErr = results[i].Err.Error()
-				results[i].Err = nil
-				results[i].failureStage = ""
+				results[i].Retried = true
 			}
 		}
 		out.results = append(out.results, results...)
 		select {
 		case <-ctx.Done():
+			// Stopped while waiting to try again: the try that was to be
+			// repeated is the task's failure, so a canceled run is never a
+			// successful one.
+			last := &out.results[len(out.results)-1]
+			last.Retried = false
+			if last.Err == nil {
+				last.fail(FailureStageAction, fmt.Errorf("task %s was stopped while waiting to try again: %w", taskLabel(nodeID, task), ctx.Err()))
+			}
 			out.failed = true
 			return out
 		case <-time.After(task.delay()):
 		}
 	}
 	return out
+}
+
+// hasNonActionFailure reports whether any result failed at a stage other
+// than the method's own run.
+func hasNonActionFailure(results []NodeResult) bool {
+	for _, res := range results {
+		if res.Err != nil && res.failureStage != FailureStageAction {
+			return true
+		}
+	}
+	return false
 }
 
 // summarize reads one run's results: the stats of the first that has some,

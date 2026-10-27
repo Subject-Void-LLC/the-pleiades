@@ -38,6 +38,9 @@ const (
 	MaxRetries = 100
 	// MaxDelaySeconds bounds delay, the seconds between tries.
 	MaxDelaySeconds = 3600
+	// MaxTotalRuns bounds the runs of one task on one device: its items times
+	// the tries each may take.
+	MaxTotalRuns = 5000
 	// DefaultRetries and DefaultDelaySeconds apply to an until task that sets
 	// neither.
 	DefaultRetries      = 3
@@ -102,6 +105,10 @@ func (t *Task) loopSource() interface{} {
 	return t.WithItems
 }
 
+// Iterates reports whether the task runs more than once on a device: it
+// loops, or retries with until.
+func (t *Task) Iterates() bool { return t.iterates() }
+
 // iterates reports whether the task runs more than once on a device.
 func (t *Task) iterates() bool { return t.loopSource() != nil || len(t.Until) > 0 }
 
@@ -139,6 +146,14 @@ func (t *Task) triesAllowed() int {
 		retries = *t.Retries
 	}
 	return 1 + retries
+}
+
+// triesAllowedFor is triesAllowed in mode: a check never retries.
+func (t *Task) triesAllowedFor(mode collection.Mode) int {
+	if len(t.Until) == 0 || mode == collection.ModeCheck {
+		return 1
+	}
+	return t.triesAllowed()
 }
 
 // delay is the wait between an until task's tries.
@@ -193,6 +208,13 @@ func (r *run) loop(ctx context.Context, nodeID string, task *Task, started time.
 	items, err := r.loopItems(task, roots)
 	if err != nil {
 		wrapped := fmt.Errorf("failed to resolve the loop of %s: %w", taskLabel(nodeID, task), err)
+		r.publish(nodeID, task, "", "failed", wrapped.Error())
+		failed := failedNode(nodeID, started, FailureStageRender, wrapped)
+		failed.Device = key
+		return []NodeResult{failed}
+	}
+	if total := len(items) * task.triesAllowedFor(r.modeFor(task)); total > MaxTotalRuns {
+		wrapped := fmt.Errorf("%s would run %d times on one device (%d items with up to %d tries each), and a task runs at most %d", taskLabel(nodeID, task), total, len(items), task.triesAllowedFor(r.modeFor(task)), MaxTotalRuns)
 		r.publish(nodeID, task, "", "failed", wrapped.Error())
 		failed := failedNode(nodeID, started, FailureStageRender, wrapped)
 		failed.Device = key
