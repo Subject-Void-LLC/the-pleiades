@@ -31,7 +31,8 @@ Starts each of the lab's nodes (or those nodes names) that is not running, then 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `started` | `list` | always | The labels of the nodes this task started. |
+| `started` | `list` | always | The labels of the nodes this task moved from stopped to started, exactly the nodes its undo stops. A start the controller refused partway lists only the nodes it started before the refusal. A check lists the nodes a run would start. |
+| `already_running` | `list` | always | The labels of the chosen nodes already queued, started or booted, which the task left alone and its undo never stops. |
 | `lab_id` | `string` | always | The lab's id. |
 
 ## Undoing this

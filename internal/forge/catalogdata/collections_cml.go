@@ -53,16 +53,18 @@ var cmlCollections = []collectionscaffold.Config{
 		Device:        collection.DeviceRequired,
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
-			Summary:     "Reports one CML lab: its nodes, their interfaces and its links.",
-			Description: "Reads one lab and changes nothing. A lab that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do." + cmlTargetNote + " A check is the same read.",
+			Summary:     "Reports one CML lab: its nodes, their interfaces and links, and how many nodes the controller runs.",
+			Description: "Reads one lab and changes nothing: each node's label, definition and state, each of its interfaces with the link it is on (the link's state, and the node and interface at its other end), every link, and how many nodes run on the controller, so a plan can see how full a shared controller is before it stops or starts a node. A lab that does not exist is not a failure: exists is false and only the controller's count is reported, so a later task can decide what to do. The count is of what this login can see (every lab GET /labs?show_all=true lists it), which may be fewer nodes than the controller runs, and it is not the controller's limit, which CML does not show an ordinary user." + cmlTargetNote + " A check is the same read, a missing lab included.",
 			Params:      []collection.Param{cmlLabParam},
 			Returns: []collection.ReturnField{
 				{Name: "exists", Type: "bool", Returned: "always", Description: "Whether the controller holds the lab."},
 				{Name: "id", Type: "string", Returned: "when exists", Description: "The lab's id."},
 				{Name: "title", Type: "string", Returned: "when exists", Description: "The lab's title."},
 				{Name: "state", Type: "string", Returned: "when exists", Description: "DEFINED_ON_CORE, STARTED or STOPPED."},
-				{Name: "nodes", Type: "list", Returned: "when exists", Description: "Each node as id, label, definition, state and interfaces (each as label and connected)."},
-				{Name: "links", Type: "list", Returned: "when exists", Description: "Each link as id, a, a_interface, b and b_interface, by node label and interface label."},
+				{Name: "nodes", Type: "list", Returned: "when exists", Description: "Each node as id, label, definition, state (DEFINED_ON_CORE, STOPPED, QUEUED, STARTED or BOOTED) and interfaces. Each interface is label and connected and, when it is on a link, link (the link's id), link_state, peer and peer_interface (the node and interface at the link's other end, by label)."},
+				{Name: "links", Type: "list", Returned: "when exists", Description: "Each link as id, a, a_interface, b, b_interface (by node label and interface label) and state: STARTED carries traffic, STOPPED is cut as if unplugged, DEFINED_ON_CORE has never run."},
+				{Name: "controller_nodes_running", Type: "int", Returned: "always", Description: "How many nodes are queued, started or booted across every lab this login can see, this one's included. It may be fewer than the controller runs, and it is not the controller's limit."},
+				{Name: "controller_labs", Type: "int", Returned: "always", Description: "How many labs controller_nodes_running counts."},
 			},
 			Examples: []collection.Example{
 				{Name: "Read a lab", RunbookYAML: "- name: Read the CVD lab\n  virt.cml.lab.info:\n    lab: cvd\n  register: lab\n"},
@@ -105,7 +107,8 @@ var cmlCollections = []collectionscaffold.Config{
 			Description: "Starts each of the lab's nodes (or those nodes names) that is not running, then waits until every one of them reports BOOTED, up to timeout. A node already running is left alone, and a lab whose nodes all run is unchanged. Its undo is virt.cml.lab.stop of exactly the nodes this task started, so a rollback never stops a node someone else started." + cmlTargetNote + " A check reads which nodes it would start and changes nothing.",
 			Params:      []collection.Param{cmlLabParam, cmlNodesParam, cmlTimeoutParam},
 			Returns: []collection.ReturnField{
-				{Name: "started", Type: "list", Returned: "always", Description: "The labels of the nodes this task started."},
+				{Name: "started", Type: "list", Returned: "always", Description: "The labels of the nodes this task moved from stopped to started, exactly the nodes its undo stops. A start the controller refused partway lists only the nodes it started before the refusal. A check lists the nodes a run would start."},
+				{Name: "already_running", Type: "list", Returned: "always", Description: "The labels of the chosen nodes already queued, started or booted, which the task left alone and its undo never stops."},
 				{Name: "lab_id", Type: "string", Returned: "always", Description: "The lab's id."},
 			},
 			Examples: []collection.Example{

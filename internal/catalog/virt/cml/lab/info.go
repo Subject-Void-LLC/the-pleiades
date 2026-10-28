@@ -1,11 +1,13 @@
-// Package lab: virt.cml.lab.info, one lab with its nodes, their interfaces
-// and its links. Its registration's Doc is generated from
-// internal/forge/catalogdata.
+// Package lab: virt.cml.lab.info, one lab with its nodes, their interfaces,
+// the link each interface is on, and its links, beside how many nodes run
+// across every lab the login can see. Its registration's Doc is generated
+// from internal/forge/catalogdata.
 package lab
 
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -45,8 +47,8 @@ func init() {
 
 			SupportsCheck: true,
 			Doc: collection.Doc{
-				Summary:     "Reports one CML lab: its nodes, their interfaces and its links.",
-				Description: "Reads one lab and changes nothing. A lab that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read.",
+				Summary:     "Reports one CML lab: its nodes, their interfaces and links, and how many nodes the controller runs.",
+				Description: "Reads one lab and changes nothing: each node's label, definition and state, each of its interfaces with the link it is on (the link's state, and the node and interface at its other end), every link, and how many nodes run on the controller, so a plan can see how full a shared controller is before it stops or starts a node. A lab that does not exist is not a failure: exists is false and only the controller's count is reported, so a later task can decide what to do. The count is of what this login can see (every lab GET /labs?show_all=true lists it), which may be fewer nodes than the controller runs, and it is not the controller's limit, which CML does not show an ordinary user. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read, a missing lab included.",
 				Params: []collection.Param{
 					{Name: "lab", Type: "string", Required: true, Description: "The lab, by id or by title. A title two labs share is refused, naming both ids; an undo always names the id."},
 				},
@@ -55,8 +57,10 @@ func init() {
 					{Name: "id", Type: "string", Returned: "when exists", Description: "The lab's id."},
 					{Name: "title", Type: "string", Returned: "when exists", Description: "The lab's title."},
 					{Name: "state", Type: "string", Returned: "when exists", Description: "DEFINED_ON_CORE, STARTED or STOPPED."},
-					{Name: "nodes", Type: "list", Returned: "when exists", Description: "Each node as id, label, definition, state and interfaces (each as label and connected)."},
-					{Name: "links", Type: "list", Returned: "when exists", Description: "Each link as id, a, a_interface, b and b_interface, by node label and interface label."},
+					{Name: "nodes", Type: "list", Returned: "when exists", Description: "Each node as id, label, definition, state (DEFINED_ON_CORE, STOPPED, QUEUED, STARTED or BOOTED) and interfaces. Each interface is label and connected and, when it is on a link, link (the link's id), link_state, peer and peer_interface (the node and interface at the link's other end, by label)."},
+					{Name: "links", Type: "list", Returned: "when exists", Description: "Each link as id, a, a_interface, b, b_interface (by node label and interface label) and state: STARTED carries traffic, STOPPED is cut as if unplugged, DEFINED_ON_CORE has never run."},
+					{Name: "controller_nodes_running", Type: "int", Returned: "always", Description: "How many nodes are queued, started or booted across every lab this login can see, this one's included. It may be fewer than the controller runs, and it is not the controller's limit."},
+					{Name: "controller_labs", Type: "int", Returned: "always", Description: "How many labs controller_nodes_running counts."},
 				},
 				Examples: []collection.Example{
 					{Name: "Read a lab", RunbookYAML: "- name: Read the CVD lab\n  virt.cml.lab.info:\n    lab: cvd\n  register: lab\n"},
@@ -72,19 +76,30 @@ func init() {
 // Info implements "virt.cml.lab.info". A lab that does not exist is
 // reported as exists false.
 func Info(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runInfo(ctx, rc, device, params, collection.ModeExecute)
+	return runInfo(ctx, rc, device, params)
 }
 
-// CheckInfo is "virt.cml.lab.info"'s check: the same read, except that a
-// lab that does not exist is unchecked, since an earlier task in the run
-// may be what makes it, and a later condition on exists would otherwise be
-// predicted from a state the run never sees.
+// CheckInfo is "virt.cml.lab.info"'s check: the same read, a missing lab
+// included, which is exists false as in a run. It reports what the
+// controller holds now; a lab an earlier task in the same check would make
+// still reads as missing, as every read in a check does, since a check makes
+// nothing.
 func CheckInfo(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-	return runInfo(ctx, rc, device, params, collection.ModeCheck)
+	return runInfo(ctx, rc, device, params)
 }
 
-// runInfo reads the lab, its state and its nodes.
-func runInfo(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
+// Stat keys lab.info reports beside the lab's own.
+const (
+	statControllerLabs    = "controller_labs"
+	statControllerRunning = "controller_nodes_running"
+)
+
+// end is one end of a link: a node's label and its interface's label.
+type end struct{ node, iface string }
+
+// runInfo reads the controller's running-node count, then the lab, its
+// state, its nodes with their interfaces, and its links.
+func runInfo(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
 	const fqcn = "virt.cml.lab.info"
 	ref, err := sdk.RequiredStringParam(params, paramLab)
 	if err != nil {
@@ -94,51 +109,89 @@ func runInfo(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	// The count is read first and reported whether or not the lab exists,
+	// so a plan that is about to make a lab sees how full the controller is.
+	capacity, err := client.RunningNodes(ctx)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	stats := map[string]any{statControllerLabs: capacity.Labs, statControllerRunning: capacity.Running}
 	lab, err := client.FindLab(ctx, ref)
 	if missing(err) {
-		if err := cml.Gone(mode, err); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		stats["exists"] = false
+		return collection.Result{}, setStats(rc, stats, "exists", statControllerLabs, statControllerRunning)
+	}
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	nodes, links, err := readTopology(ctx, client, lab.ID)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	maps.Copy(stats, labStats(lab))
+	stats["exists"], stats["nodes"], stats["links"] = true, nodes, links
+	return collection.Result{}, setStats(rc, stats, "exists", "id", "title", "state", "nodes", "links", statControllerLabs, statControllerRunning)
+}
+
+// setStats records stats' keys, in order.
+func setStats(rc sdk.RunbookContext, stats map[string]any, keys ...string) error {
+	for _, k := range keys {
+		if err := rc.SetStat(k, stats[k]); err != nil {
+			return err
 		}
-		return collection.Result{}, rc.SetStat("exists", false)
 	}
+	return nil
+}
+
+// readTopology reads lab's nodes, each with its interfaces and the link each
+// interface is on (its id and state, and the node and interface at its other
+// end), and the lab's links, as lab.info reports them.
+func readTopology(ctx context.Context, client *cml.Client, lab string) (nodeStats, linkStats []any, err error) {
+	nodes, err := client.Nodes(ctx, lab)
 	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	nodes, err := client.Nodes(ctx, lab.ID)
-	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		return nil, nil, err
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Label < nodes[j].Label })
-	type end struct{ node, iface string }
+	// Every interface is read first, so a link's far end can be named by
+	// its node's label whichever node comes first.
 	ends := map[string]end{}
-	nodeStats := make([]any, 0, len(nodes))
-	for _, n := range nodes {
-		ifaces, err := client.NodeInterfaces(ctx, lab.ID, n.ID)
-		if err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	ifacesOf := make([][]cml.Interface, len(nodes))
+	for k, n := range nodes {
+		if ifacesOf[k], err = client.NodeInterfaces(ctx, lab, n.ID); err != nil {
+			return nil, nil, err
 		}
-		ifaceStats := make([]any, 0, len(ifaces))
-		for _, i := range ifaces {
+		for _, i := range ifacesOf[k] {
 			ends[i.ID] = end{n.Label, i.Label}
-			ifaceStats = append(ifaceStats, map[string]any{"label": i.Label, "connected": i.IsConnected})
+		}
+	}
+	links, err := client.Links(ctx, lab)
+	if err != nil {
+		return nil, nil, err
+	}
+	// onLink maps each interface id to the link it is on.
+	onLink := map[string]cml.Link{}
+	linkStats = make([]any, 0, len(links))
+	for _, l := range links {
+		onLink[l.InterfaceA], onLink[l.InterfaceB] = l, l
+		a, b := ends[l.InterfaceA], ends[l.InterfaceB]
+		linkStats = append(linkStats, map[string]any{"id": l.ID, "a": a.node, "a_interface": a.iface, "b": b.node, "b_interface": b.iface, "state": l.State})
+	}
+	nodeStats = make([]any, 0, len(nodes))
+	for k, n := range nodes {
+		ifaceStats := make([]any, 0, len(ifacesOf[k]))
+		for _, i := range ifacesOf[k] {
+			s := map[string]any{"label": i.Label, "connected": i.IsConnected}
+			if l, ok := onLink[i.ID]; ok {
+				// The peer is the end of the link that is not this interface.
+				peer := ends[l.InterfaceB]
+				if l.InterfaceB == i.ID {
+					peer = ends[l.InterfaceA]
+				}
+				s["link"], s["link_state"], s["peer"], s["peer_interface"] = l.ID, l.State, peer.node, peer.iface
+			}
+			ifaceStats = append(ifaceStats, s)
 		}
 		nodeStats = append(nodeStats, map[string]any{"id": n.ID, "label": n.Label, "definition": n.NodeDefinition, "state": n.State, "interfaces": ifaceStats})
 	}
-	links, err := client.Links(ctx, lab.ID)
-	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	linkStats := make([]any, 0, len(links))
-	for _, l := range links {
-		a, b := ends[l.InterfaceA], ends[l.InterfaceB]
-		linkStats = append(linkStats, map[string]any{"id": l.ID, "a": a.node, "a_interface": a.iface, "b": b.node, "b_interface": b.iface})
-	}
-	stats := labStats(lab)
-	stats["exists"], stats["nodes"], stats["links"] = true, nodeStats, linkStats
-	for _, k := range []string{"exists", "id", "title", "state", "nodes", "links"} {
-		if err := rc.SetStat(k, stats[k]); err != nil {
-			return collection.Result{}, err
-		}
-	}
-	return collection.Result{}, nil
+	return nodeStats, linkStats, nil
 }

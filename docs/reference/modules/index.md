@@ -199,7 +199,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.cml.capture.stop](virt/cml/capture/stop.md) | implemented | Stops a packet capture on a link of a CML lab and writes its file into the project. |
 | [virt.cml.lab.create](virt/cml/lab/create.md) | implemented | Creates an empty CML lab with a title. |
 | [virt.cml.lab.delete](virt/cml/lab/delete.md) | implemented | Stops, wipes and deletes a CML lab. |
-| [virt.cml.lab.info](virt/cml/lab/info.md) | implemented | Reports one CML lab: its nodes, their interfaces and its links. |
+| [virt.cml.lab.info](virt/cml/lab/info.md) | implemented | Reports one CML lab: its nodes, their interfaces and links, and how many nodes the controller runs. |
 | [virt.cml.lab.list](virt/cml/lab/list.md) | implemented | Lists the labs on a CML controller. |
 | [virt.cml.lab.start](virt/cml/lab/start.md) | implemented | Starts a CML lab's nodes and waits until they boot. |
 | [virt.cml.lab.stop](virt/cml/lab/stop.md) | implemented | Stops a CML lab's nodes. |

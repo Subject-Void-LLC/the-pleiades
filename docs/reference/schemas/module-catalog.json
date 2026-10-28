@@ -15053,8 +15053,8 @@
     },
     "supportsCheck": true,
     "doc": {
-      "summary": "Reports one CML lab: its nodes, their interfaces and its links.",
-      "description": "Reads one lab and changes nothing. A lab that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read.",
+      "summary": "Reports one CML lab: its nodes, their interfaces and links, and how many nodes the controller runs.",
+      "description": "Reads one lab and changes nothing: each node's label, definition and state, each of its interfaces with the link it is on (the link's state, and the node and interface at its other end), every link, and how many nodes run on the controller, so a plan can see how full a shared controller is before it stops or starts a node. A lab that does not exist is not a failure: exists is false and only the controller's count is reported, so a later task can decide what to do. The count is of what this login can see (every lab GET /labs?show_all=true lists it), which may be fewer nodes than the controller runs, and it is not the controller's limit, which CML does not show an ordinary user. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read, a missing lab included.",
       "params": [
         {
           "name": "lab",
@@ -15092,13 +15092,25 @@
           "name": "nodes",
           "type": "list",
           "returned": "when exists",
-          "description": "Each node as id, label, definition, state and interfaces (each as label and connected)."
+          "description": "Each node as id, label, definition, state (DEFINED_ON_CORE, STOPPED, QUEUED, STARTED or BOOTED) and interfaces. Each interface is label and connected and, when it is on a link, link (the link's id), link_state, peer and peer_interface (the node and interface at the link's other end, by label)."
         },
         {
           "name": "links",
           "type": "list",
           "returned": "when exists",
-          "description": "Each link as id, a, a_interface, b and b_interface, by node label and interface label."
+          "description": "Each link as id, a, a_interface, b, b_interface (by node label and interface label) and state: STARTED carries traffic, STOPPED is cut as if unplugged, DEFINED_ON_CORE has never run."
+        },
+        {
+          "name": "controller_nodes_running",
+          "type": "int",
+          "returned": "always",
+          "description": "How many nodes are queued, started or booted across every lab this login can see, this one's included. It may be fewer than the controller runs, and it is not the controller's limit."
+        },
+        {
+          "name": "controller_labs",
+          "type": "int",
+          "returned": "always",
+          "description": "How many labs controller_nodes_running counts."
         }
       ],
       "examples": [
@@ -15209,7 +15221,13 @@
           "name": "started",
           "type": "list",
           "returned": "always",
-          "description": "The labels of the nodes this task started."
+          "description": "The labels of the nodes this task moved from stopped to started, exactly the nodes its undo stops. A start the controller refused partway lists only the nodes it started before the refusal. A check lists the nodes a run would start."
+        },
+        {
+          "name": "already_running",
+          "type": "list",
+          "returned": "always",
+          "description": "The labels of the chosen nodes already queued, started or booted, which the task left alone and its undo never stops."
         },
         {
           "name": "lab_id",

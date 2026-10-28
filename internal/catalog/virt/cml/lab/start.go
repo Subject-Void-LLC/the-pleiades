@@ -56,7 +56,8 @@ func init() {
 					{Name: "timeout", Type: "int", Default: "900", Description: "Seconds to wait for every node started to report BOOTED."},
 				},
 				Returns: []collection.ReturnField{
-					{Name: "started", Type: "list", Returned: "always", Description: "The labels of the nodes this task started."},
+					{Name: "started", Type: "list", Returned: "always", Description: "The labels of the nodes this task moved from stopped to started, exactly the nodes its undo stops. A start the controller refused partway lists only the nodes it started before the refusal. A check lists the nodes a run would start."},
+					{Name: "already_running", Type: "list", Returned: "always", Description: "The labels of the chosen nodes already queued, started or booted, which the task left alone and its undo never stops."},
 					{Name: "lab_id", Type: "string", Returned: "always", Description: "The lab's id."},
 				},
 				Examples: []collection.Example{
@@ -72,6 +73,14 @@ func init() {
 
 // pollInterval is how often a start or a delete reads the nodes' states.
 var pollInterval = 5 * time.Second
+
+// The stats lab.start reports beside lab_id.
+const (
+	// statStarted is the nodes this task moved from stopped to started.
+	statStarted = "started"
+	// statAlreadyRunning is the chosen nodes it found running and left alone.
+	statAlreadyRunning = "already_running"
+)
 
 // Start implements "virt.cml.lab.start".
 func Start(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
@@ -121,13 +130,16 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, cml.Unchecked(mode, err))
 	}
-	var todo []cml.Node
+	// todo are the chosen nodes not running, which this task starts;
+	// running are the ones already running, which it leaves alone.
+	var todo, running []cml.Node
 	for _, n := range chosen {
-		if !cml.Running(n.State) {
+		if cml.Running(n.State) {
+			running = append(running, n)
+		} else {
 			todo = append(todo, n)
 		}
 	}
-	labels, _ := labelsAndIDs(todo)
 	undoScope, err := undoNodes(nodes, todo, "start")
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -135,11 +147,14 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if err := rc.SetStat("lab_id", lab.ID); err != nil {
 		return collection.Result{}, err
 	}
-	if err := rc.SetStat("started", labels); err != nil {
+	runningLabels, _ := labelsAndIDs(running)
+	if err := rc.SetStat(statAlreadyRunning, runningLabels); err != nil {
 		return collection.Result{}, err
 	}
 	if len(todo) == 0 || mode == collection.ModeCheck {
-		return collection.Result{Changed: len(todo) > 0}, nil
+		// A check's started is the nodes a run would start.
+		labels, _ := labelsAndIDs(todo)
+		return collection.Result{Changed: len(todo) > 0}, rc.SetStat(statStarted, labels)
 	}
 	var started []cml.Node
 	var startErr error
@@ -149,8 +164,11 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		}
 		started = append(started, n)
 	}
+	// started names only the nodes the controller accepted a start of, the
+	// same set the undo below stops: a start refused partway leaves the rest
+	// stopped, and listing them would claim a change that never happened.
+	labels, ids := labelsAndIDs(started)
 	if len(started) > 0 {
-		_, ids := labelsAndIDs(started)
 		undo := map[string]any{paramLab: lab.ID}
 		if len(undoScope) > 0 {
 			undo[paramNodes] = ids
@@ -161,13 +179,17 @@ func runStart(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 			Description:   fmt.Sprintf("Stop the %d node(s) of %q this task started, and no other.", len(ids), lab.Title),
 			KeepOnFailure: true,
 		}); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			return collection.Result{Changed: true}, fmt.Errorf("%s: %w", fqcn, err)
 		}
+	}
+	// The undo is recorded before the report, so a report that cannot be
+	// written still leaves the started nodes' stop on the journal.
+	if err := rc.SetStat(statStarted, labels); err != nil {
+		return collection.Result{Changed: len(started) > 0}, err
 	}
 	if startErr != nil {
 		return collection.Result{Changed: len(started) > 0}, fmt.Errorf("%s: %w", fqcn, startErr)
 	}
-	_, ids := labelsAndIDs(started)
 	wait, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 	if err := client.WaitBooted(wait, lab.ID, ids, pollInterval); err != nil {

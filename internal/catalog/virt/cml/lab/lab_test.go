@@ -307,19 +307,16 @@ func TestLab_AnUndoNamesNoMoreNodesThanTheJournalKeeps(t *testing.T) {
 	}
 }
 
-// TestLab_DeleteAndInfoUncheckedBeforeItExists: a check of removing or
-// reading a lab an earlier task would make is unchecked; a real run finds
-// it gone (delete unchanged, info exists false).
-func TestLab_DeleteAndInfoUncheckedBeforeItExists(t *testing.T) {
+// TestLab_DeleteUncheckedBeforeItExists: a check of removing a lab an
+// earlier task would make is unchecked; a real run finds it gone and is
+// unchanged. (lab.info answers a missing lab in both modes: info_test.go.)
+func TestLab_DeleteUncheckedBeforeItExists(t *testing.T) {
 	r, _ := newRunner(t)
-	for _, fqcn := range []string{"virt.cml.lab.delete", "virt.cml.lab.info"} {
-		var unchecked *collection.CannotCheckError
-		if _, _, err := r.run(fqcn, true, map[string]any{"lab": "later"}); !errors.As(err, &unchecked) {
-			t.Errorf("%s, checked: %v", fqcn, err)
-		}
-		res, rc, err := r.run(fqcn, false, map[string]any{"lab": "later"})
-		if err != nil || res.Changed || (fqcn == "virt.cml.lab.info" && rc.Stats["exists"] != false) {
-			t.Errorf("%s, run: %+v %v %v", fqcn, res, err, rc.Stats)
-		}
+	var unchecked *collection.CannotCheckError
+	if _, _, err := r.run("virt.cml.lab.delete", true, map[string]any{"lab": "later"}); !errors.As(err, &unchecked) {
+		t.Errorf("checked: %v", err)
+	}
+	if res, _, err := r.run("virt.cml.lab.delete", false, map[string]any{"lab": "later"}); err != nil || res.Changed {
+		t.Errorf("run: %+v %v", res, err)
 	}
 }

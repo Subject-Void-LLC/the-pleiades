@@ -95,6 +95,11 @@ type Controller struct {
 	// (under /api/v0) ends in /stop, and a key "/nodes" every call whose
 	// path ends there, whatever its method.
 	Fail map[string]bool
+	// Refuse makes calls answer the status each key maps to, with CML's
+	// error shape, keyed as Fail is: "PUT /nodes/<id>/state/start": 400 is
+	// a controller refusing one node's start, as a shared controller with
+	// no room left does.
+	Refuse map[string]int
 	// PCAP is what /pcap/{key} answers for any capture's key; nil answers a
 	// minimal empty pcap file.
 	PCAP []byte
@@ -158,6 +163,9 @@ func (c *Controller) serve(w http.ResponseWriter, r *http.Request) {
 	case c.failing(r.Method, path):
 		fail(w, http.StatusInternalServerError, "injected failure")
 		return
+	case c.refusal(r.Method, path) != 0:
+		fail(w, c.refusal(r.Method, path), "refused by the test: %s %s", r.Method, path)
+		return
 	case path == "/simplified_node_definitions":
 		var defs []map[string]string
 		for _, d := range Definitions {
@@ -196,15 +204,32 @@ func (c *Controller) serve(w http.ResponseWriter, r *http.Request) {
 // failing reports whether a call of method on path matches a key of Fail.
 func (c *Controller) failing(method, path string) bool {
 	for key := range c.Fail {
-		want, suffix, hasMethod := strings.Cut(key, " ")
-		if !hasMethod {
-			want, suffix = "", key
-		}
-		if (want == "" || want == method) && strings.HasSuffix(path, suffix) {
+		if matches(key, method, path) {
 			return true
 		}
 	}
 	return false
+}
+
+// refusal is the status a key of Refuse matching a call of method on path
+// maps to, or 0 when none matches.
+func (c *Controller) refusal(method, path string) int {
+	for key, status := range c.Refuse {
+		if matches(key, method, path) {
+			return status
+		}
+	}
+	return 0
+}
+
+// matches reports whether key ("METHOD suffix", or a bare suffix for any
+// method) names a call of method on path.
+func matches(key, method, path string) bool {
+	want, suffix, hasMethod := strings.Cut(key, " ")
+	if !hasMethod {
+		want, suffix = "", key
+	}
+	return (want == "" || want == method) && strings.HasSuffix(path, suffix)
 }
 
 // labJSON is lab as GET /labs/{id} answers it.
