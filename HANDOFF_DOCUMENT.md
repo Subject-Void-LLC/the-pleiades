@@ -4,13 +4,12 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-28. Branch `feat/authoring-parity-v0-3-0`, off `main` at `122b8c92`, 36 commits (oldest `e0b243fd`, newest
-`a0489de8`), plus these records. Not pushed, no pull request, `make pr-check` has not run, no tag cut. When these
-records were written the tree also held uncommitted code edits (25 paths in `internal/catalog`, `internal/engine`,
-`internal/render`, `pkg/netcfg`, `pkg/containerengine`, `pkg/collection`) that these records do not describe.**
+**2026-10-28. Branch `feat/authoring-parity-v0-3-0`, off `main` at `122b8c92`, through `6537201e` and the records
+after it. Not pushed, no pull request, `make pr-check` has not run, no tag cut. The gate waits for the Mac (offline,
+the owner away), unless the owner says to run without the Mac leg.**
 
 The branch is v0.3.0 "Paranoid Porpoise": Crawl and Walk plus authoring parity. The previous status (archived) covers
-the first 16 commits; this one covers `e8f37785..a0489de8`.
+the first 16 commits; this one covers `e8f37785` onward.
 
 ### What works
 
@@ -41,22 +40,24 @@ the first 16 commits; this one covers `e8f37785..a0489de8`.
   (the controller's node cap refused its start); turn B regraded 14-0, except Haiku 13-1. Harness fixes: FAILURE_PATTERNS
   716.
 - Records: FAILURE_PATTERNS 704 to 716, LESSONS 352 to 354. Roadmap: Phase 131 at 16 of 21, Phase 88 at 10 of 14.
+- The branch review's findings are fixed in `718a6eae` and `614be11a` and recorded as FAILURE_PATTERNS 717 to 725.
 
 ### Blocker
 
-- None. The gate has not run, and the uncommitted edits above must be committed or set aside first.
+- The Mac is offline and the owner is away, so `make pr-check`'s Mac leg cannot run; the gate waits for it.
 
 ### Open
 
 - Gate not exercised: full `cmd/pleiades` and `cmd/runner`, the Mac, BSD, Windows and Windows ARM legs, real floors.
 - Security (FAILURE_PATTERNS 704): an IOS secret under eight characters, or a NETCONF datastore secret, in the backup of
   a run before `2dbfa586` was readable in its report; rotate any such secret on a device that is not lab-only.
-- Phase 131: the Audit table was not found; NETCONF's `RPCError` text is not bounded through `pkg/farside` (client audit
-  and R1); R4 and R5 are proven for the methods named, not shown for every method.
-- Phases 87 to 89: `set_fact` was built as `vars.<name>`, not `nodes.<name>` (item open for the owner); no Walk-tier
-  `until` test; no journal stage for a `failed_when` override; `with_items` deprecation not decided in writing;
-  changed_when/failed_when under a loop not tested; Adversarial, Schema/Injection and Release Gate items open. The
-  Documentation Gates of 87, 88 and 89 cite four changelog fragments retired in `a0489de8`.
+- Phase 131: the audit table is `.SPECIFICATION/PHASE131_AGENT_CONTEXT_AUDIT.md`; R1 and R5 are ticked and NETCONF's
+  `RPCError` is bounded (`614be11a`). R4 for eight single-object lookups and the client audit's written record were in
+  progress when this was written.
+- Phases 87 to 89: `set_fact` was built as `vars.<name>`, not `nodes.<name>` (item open for the owner). Closed in
+  `614be11a`/`6537201e`: a Walk-tier `until` gate, a journal stage for `failed_when`/`changed_when`, `with_items` kept as
+  an alias in 0.3.x, both under a loop, and the Documentation Gates now cite the release notes. Adversarial,
+  Schema/Injection and Release Gate items open.
 - Run 7 ranked items still open: one source for device configuration, rollback stepping over subsumed runs, the docs
   list (item 7) and the messages (item 8). The capacity slots have not run in a lab turn.
 - Carried: Groundconfig's two failing entries and uncommitted knowledge; FAILURE_PATTERNS 668 and 677; not built on
@@ -64,9 +65,8 @@ the first 16 commits; this one covers `e8f37785..a0489de8`.
 
 ### Next, in order
 
-1. Commit these records (`FAILURE_PATTERNS*`, `LESSONS_LEARNED*`, `HANDOFF_*`) apart from the code edits.
-   `.SPECIFICATION/IMPLEMENTATION.md` is git-ignored.
-2. Settle the uncommitted code edits, then run the gate: `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`,
+1. Measure coverage floors for the changed packages before the gate.
+2. When the Mac is back (or the owner says to run without it), run the gate: `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`,
    waited on with one background `curl` on `/wait?for=fail,end`. On a failure, stop, prove the failing packages alone,
    fix, rerun.
 3. Push once and open one pull request: the failure-pattern classes checked, run 7's table with its caveats, no AI

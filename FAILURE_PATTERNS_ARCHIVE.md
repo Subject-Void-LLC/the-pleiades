@@ -16991,6 +16991,8 @@ floor. No test read a short secret back through the backup stat, and the "Not sa
 **Lesson.** A stat that carries device text is masked structurally where it is recorded; learning values is a second
 layer, never the only one. A doc that tells the author to mask a stat describes a defect.
 
+**Follow-up, 2026-10-28.** This fix's `MaskXML` masked a leaf only by its own or its parent's name, so a key deeper inside a secret-named element passed; the branch review found it, and 718 (`718a6eae`) records it.
+
 ## 705. IOS masking hid one word of a clear-text secret that runs to the end of its line, and missed wpa-psk, set-key, SNMPv3 auth and priv keys, OSPFv3 IPsec keys and manual IPsec session keys (a repeat of 640) (fixed before push)
 
 **Symptom.** 2026-10-28, in the same change as 704 (`2dbfa586`). `username admin password 0 two words` came back with
@@ -17066,6 +17068,8 @@ of it.
 **Lesson.** A change to a method's undo spec is followed by validating a `rollback_on_failure` block over that method in
 a test that runs everywhere, and a runbook the skill teaches is validated by a test (LESSONS 301 and 353).
 
+**Follow-up, 2026-10-28.** This fix let any method with an `UndoCall` decide which calls' undo is partial; 721 (`614be11a`) makes that the method's own declared field, `Descriptor.UndoCallDecidesPartial`.
+
 ## 708. pkg/remotefile told a reader that this login may not write a directory that did not exist, which sent the reader after permissions (a sibling of 126) (fixed before push)
 
 **Symptom.** 2026-10-28, proving `file.template` on macOS through pleiades: in a check run, after a `file.directory`
@@ -17081,6 +17085,8 @@ directory ... does not exist, so nothing was written". Test: `TestPut_AMissingDi
 
 **Lesson.** An error that names a cause rules out the others first: a failed write asks whether the directory exists
 before it blames permissions.
+
+**Follow-up, 2026-10-28.** This fix changed the message and kept the check's answer a failure, where a check after a predicted `file.directory` should answer that it cannot check; 722 (`614be11a`) records it.
 
 ## 709. pkg/vmrun's parseKeyValues split a quoted vmx key at its own colon, so every disk key such as `'nvme0:0.fileName'` was misread (fixed before push)
 
@@ -17225,3 +17231,225 @@ node-limit refusal (`db9465d0`).
 
 **Lesson.** A grade taken on a shared resource measures only what that instance owns, and a queue that orders changes
 still needs a reservation when the resource has a cap. Related: LESSONS 197.
+
+## 717. The fixed-host URL rule ended a template's literal text at `{{` and `{%` but not at a comment `{#`, so launch or device data could choose a request's host (a repeat of LESSONS 244; a sibling of 714) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28, on `feat/authoring-parity-v0-3-0`. A parameter with `Format: url` must fix
+its scheme and host before any expression (`collection.ParamFormatURL`). `URLPrefixFixed` in
+`internal/engine/render_params.go` cut the source at the first `{{` and the first `{%` and judged the text before them.
+After `d554c7d7` (Phase 87) made comments render, `https://api.example.com{# x #}{{ vars.h }}/p` passed: the `#` inside
+the comment read as the end of the host, the comment renders as nothing, and `vars.h` (launch or device data) then
+extended the host, for example to `api.example.com.attacker.net`. The rule runs in `validate`'s `TemplateRule` and again
+at render, and both read the same source, so neither refused it.
+
+**Security.** Reasoned from the code, not measured. Whoever could set the data a URL parameter read could choose where
+the request went. `d554c7d7` is on this branch only, so no release carried it.
+
+**Root cause.** `d554c7d7` added `{#` to `engine.IsTemplate`, the one test of whether a string renders, but the URL rule
+kept its own list of delimiters and judged the source's spelling. A rule about what text a rendering begins with read
+the source instead of the parsed template, so a comment, a `raw` block or a trim marker changed what the text was
+without the rule seeing it (the class of 327: a check made before parsing has to be as precise as the parser).
+
+**Fix.** `614be11a`. `TaskTemplateProblems` judges the compiled template's `LeadingText()` (new on
+`render.Template`, `internal/render/jinja.go`): the literal text up to the first expression or statement, with comments
+gone, raw blocks as text and whitespace control applied, through `URLTextFixed`. `URLPrefixFixed`, for a caller with
+only the source, cuts at all three tags. `collection.IsTemplate` (`pkg/collection/template.go`) is now the one rule for
+what renders, and `engine.IsTemplate` calls it. Tests: `TestTemplateProblems_StatementsAreHeldToTheSameRules`
+(`internal/engine/render_statements_test.go`; its cases "a comment's own # does not end the host", "a comment's own URL
+fixes nothing", "a trimmed comment joins the host to data", "a set before the host"), the new seeds of
+`FuzzURLPrefixFixed`, `TestIsTemplate`.
+
+**Why LESSONS 244 and 714 did not prevent it.** 244 says to check the sibling of a guarded path and to put the guard in
+one helper both call. The delimiter list lived in two places, and `d554c7d7` changed one. 714, in the same commit, asked
+the same question of the writers into a rendering field (the playbook converter) and not of the rules that read one.
+
+**Lesson.** When the set of strings that render grows, every rule that reads a template's text is checked too, and a
+rule about rendered text judges the parsed template, never the source's spelling.
+
+## 718. pkg/netcfg.MaskXML masked a leaf only by its own or its parent's name, so RFC 8177 keystring and hexadecimal-string, OpenConfig key-clear-text and a deep SNMP community name reached net.netconf.config's backup (a repeat of 577, 640 and 655) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `MaskXML` (`pkg/netcfg/xml.go`, new in `2dbfa586` as 704's fix) masked a
+leaf when its own name was secret-shaped or its parent's was. An RFC 8177 `ietf-key-chain` key sits two levels under a
+secret-named element (`key/key-string/keystring`, or `hexadecimal-string`), OpenConfig MACsec keeps its key in
+`mka-key/config/key-clear-text`, and an SNMP community keyed by name can sit a level deeper
+(`snmp/community/config/name`). Each passed into `net.netconf.config`'s `backup` stat in the clear. The test fixture hid
+it: its key chain held the secret in a leaf named `key` under `key-string`, which the leaf's own name caught.
+
+**Security.** Reasoned from the code, with fixtures written by hand from RFC 8177 and the OpenConfig models, not captured
+from a device. A run of a branch build between `2dbfa586` and `718a6eae` with `backup: true` on a NETCONF device holding
+such a key showed it in the report. Before `2dbfa586` that backup was not masked at all (704), so the rotation advice of
+704 covers older runs.
+
+**Root cause.** Masking was decided by a list of names with one level of inheritance. 704's fix introduced it: a new
+masker was written as name rules, and its only fixture was shaped so the name rule matched.
+
+**Fix.** `718a6eae`. Secrecy passes down through every descendant of a secret-named element (`inSecret`), stopping only
+at metadata (`metadataNames`: algorithms, lifetimes, encryption types); an identifier (`name`, `address`, `mask`, `vrf`)
+stays readable when the secret-named element is further up than its parent, except inside an SNMP subtree, where a name
+is the community. `secretExactNames` adds `key-string`, `keystring`, `hexadecimal-string` and `key-clear-text`. Tests:
+`TestMaskXML_MasksKeyChainKeysAtAnyDepth`, `TestMaskXML_SNMPCommunityNameStaysMaskedDeep`, and `FuzzMaskXML`, which now
+requires every `alwaysSecretLeaves` element to come out a placeholder wherever it sits. `iosXENative`'s fixture says it
+is hand-written.
+
+**Why 577, 640, 655 and LESSONS 337 did not prevent them.** Each said a name list misses the next form, and 337 made the
+rule: what may be read is an allowlist of what each value is. `MaskXML` was new code and was written as a name list
+anyway, and no fixture came from a model's own example or a device. Where secrecy starts is still decided by names
+after this fix, so a model whose secret element has a name on no list is still missed; the fix closes the forms found.
+
+**Lesson.** A new masker is tested against each model's own published shapes, not a fixture written to its rules, and a
+secret inside a secret-named element is masked at any depth.
+
+## 719. container.list, container.info and container.image.info reported each container's full command and entrypoint argv, which often carries a secret (a repeat in kind of 455) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `container.list` reported every container on the engine, including ones no
+runbook made, with its command line; `container.info` reported `command` and `entrypoint`, and `container.image.info`
+an image's `entrypoint` and `command`. A program's arguments often hold a secret (`redis-server --requirepass X`, a
+`--password=` flag, a token), and each reached stats, reports and registers.
+
+**Security.** Reasoned from the code. `container.info`'s `command` is also on `main`, so a secret passed as a container
+argument and read by `container.info` in any run was readable in its report; rotate such a secret where it matters.
+The list and the entrypoint and image fields came in `b617af7f` on this branch.
+
+**Root cause.** Phase 131's R5 (`b617af7f`) made the describe results whole and, for the environment beside them,
+reported names only, because a value may be a secret. The command line in the same result is the same kind of value and
+was reported whole.
+
+**Fix.** `718a6eae`. `containerengine.ArgvSummary` and `CommandLineSummary` (`pkg/containerengine/argv.go`) report the
+program and an argument count, never an argument; all three methods use them and their docs say so. Tests:
+`TestArgvSummary_KeepsTheProgramAndCountsTheRest`, `TestDescribeAndList_WithholdCommandArguments`.
+
+**Why 455 did not prevent it.** 455 found that every way a secret reaches a method is a way into the mask. A container's
+own argv is not a secret the run knows, so no mask can cover it; the only answer is not to report it, and the
+withholding rule was applied to one field of the result and not the field beside it (LESSONS 244).
+
+**Lesson.** A describe result is read field by field for what each value can hold; a field that can carry a secret the
+run does not know is withheld, not masked.
+
+## 720. net.ios.config's check looked for a line in the current block and then outward, so a line IOS adds in a submode was predicted unchanged when an enclosing block held it (a sibling of 564 and 579) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. The check added in `2dbfa586` predicts each line against the running
+configuration. `predictLines` searched the block the lines had entered and then each enclosing block, so
+`router bgp 1`, `address-family ipv4 vrf RED`, `neighbor 10.0.0.2 remote-as 2` was predicted unchanged when `router bgp
+1` already held that neighbor at its top level. IOS takes the line in the address family, so the real run changes the
+device and the check said it would not.
+
+**Root cause.** IOS takes a line in the current submode first and passes to a parent only a line the submode refuses,
+which a check cannot know. Searching outward chose the answer "unchanged" where the truth was unknown.
+
+**Fix.** `614be11a`, `internal/catalog/net/ios/config_check.go`. A line is looked for in the current block only
+(`predictor.scope`); a line IOS always opens at the top level (`blockOpeners`) is looked for there, and an address family
+or class (`nestedOpeners`) in the current block and then outward. `exit-` commands leave a block. A `do` line is
+answered unchecked (`configCheckCall`). Tests: `TestPredictLines_ANeighborInAVRFIsNotTheRoutersNeighbor`, the new cases
+of `TestCheckConfig_PredictsFromTheRunningConfigAndSendsNothing` ("a line found only in the enclosing block is a
+change") and `TestCheckConfig_ACallItCannotPredictIsUncheckedBeforeContact` ("a do line").
+
+**Related, not a repeat.** 564 and 579 err the same way (a check reported a better outcome than the run gives) with
+other causes: 564 predicted through state an earlier task could change, 579 asked a narrower question than the change.
+Here the check guessed where the device's own rule decides.
+
+**Lesson.** Where a check cannot know which way the device decides, it predicts a change, never "unchanged".
+
+## 721. validate's rollback_on_failure rule passed a templated crypto key line, and let any method with an UndoCall decide which calls' undo is partial (a repeat in kind of 614) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `net.ios.config`'s `configUndoCall` tested each line of `lines` as written,
+so `"{{ vars.keyline }}"` or `"{% if vars.k %}crypto key generate rsa{% endif %}"` passed `rollback_on_failure` as an
+ordinary line, though it may render into a crypto key line whose undo is partial. Separately, `whyNotUndoable`
+(`internal/validate/rollback_rule.go`) let any method that carried an `UndoCall` decide partiality per call, so an
+`UndoCall` added for another reason (calls that record no undo) would have lifted the refusal for a method whose
+partial calls it never names.
+
+**Root cause.** A per-call answer read parameters before the run as if their text were final, and 707's fix
+(`db9465d0`, this branch) read "the method has an `UndoCall`" as "the method's `UndoCall` names its partial calls".
+
+**Fix.** `614be11a`. `configUndoCall` answers "not known before the run" for a line `collection.IsTemplate` reports, and
+for a secret reference standing where a key line's words could be (`refMayMakeKeyLine`). A new field,
+`Descriptor.UndoCallDecidesPartial`, is the method's own statement; `Register` refuses it with no `UndoCall` or no
+`MayBePartial` inverse (`checkUndoCallDecidesPartial`), and `net.ios.config` sets it. Tests:
+`TestRollbackOnFailureRule_APartialUndoIsAskedOfTheCall` (cases "an UndoCall that does not decide partiality",
+"net.ios.config's line rendered from data", "net.ios.config's line from a statement", "net.ios.config's reference first
+on a line"), `TestRegister_UndoCallDecidesPartialMustDecideSomething`.
+
+**Why 614 did not prevent it.** 614 added the per-call answer and tested it against literal parameters. Nothing asked
+what the answer is for a parameter that renders, and 707's fix widened who may give the answer without a declaration.
+
+**Lesson.** A per-call answer given before the run treats a value that renders as unknown, and a method's permission to
+decide a refusal is its own declared field, never inferred from another field being set.
+
+## 722. A check after a predicted file.directory failed file.copy and file.template with "directory does not exist" where the run succeeds (a repeat of 564 and 708) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. In a check, `file.directory` only predicts, so the directory is still missing
+when the next task's check runs. `file.copy` and `file.template` then failed the check with
+`put ...: its directory ... does not exist`, though the real run, after `file.directory` made it, succeeds.
+
+**Root cause.** LESSONS 255 and 307: a check reads the device as it is now and answers "could not check" for state an
+earlier task may change. The write's check refused instead.
+
+**Fix.** `614be11a`. `pkg/remotefile` returns a typed `*MissingDirError`, and `file.copy`'s check (which `file.template`
+shares) answers it with `collection.CannotCheck` naming the directory; a real run still fails on it. Test:
+`TestCheck_AMissingDirectoryCannotBeCheckedAndARunStillFails` (both methods).
+
+**Why 564 and 708 did not prevent it.** 564 fixed one method's check and left the rule to LESSONS 307, which nothing
+tests across every check. 708, on this branch, met this very case (a check after a predicted `file.directory`) and fixed
+the message, from "may not write" to "does not exist", but not the answer, which stayed a failure.
+
+**Lesson.** When a check meets state an earlier task may make, fixing the message is not the fix; the answer is "could
+not check".
+
+## 723. wait.routes with state: absent read an empty or unparsed routing table as every route gone, and its own test used an empty table for "withdrawn" (a repeat of 13 and 451) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `state: absent` (`internal/catalog/wait/routes_absent.go`, new in
+`b617af7f`) passed as soon as the prefixes named were missing from the table read. A read that came back empty (a cut
+or refused read, or output the parser skips) passed the wait without the table ever being seen.
+`TestRoutes_StateAbsentWaitsForTheRouteToGo` passed because its fake router answered `{}` once the route was
+"withdrawn", so the test stood on the defect.
+
+**Root cause.** "I could not read it" collapsed into "it is not there" (LESSONS 138), and the test's fixture was the
+empty case itself.
+
+**Fix.** `614be11a`. A table with no selected route at all (a router that routes anything has its connected routes)
+proves nothing gone; `gone` reports `tableUnread` as what remains and the wait goes on, failing at its timeout with that
+reason. The test's "withdrawn" table now holds a connected route, and an empty table is its own case. Tests:
+`TestRoutes_GoneNeedsATableItCanRead`, `TestRoutes_StateAbsentWaitsForTheRouteToGo`.
+
+**Why 13 and 451 did not prevent it.** 13 said a tool that can return nothing needs a positive control; 451 fixed one
+predicate that read a failed look as absence. Both are lessons about a reader, and nothing applies them to a new wait's
+absent state. LESSONS 319 (an empty parse is a state to compare) is about comparison; a wait for absence needs the
+opposite care.
+
+**Lesson.** A wait for something to be gone needs evidence that the read saw the thing it looks in; an empty read is
+not absence.
+
+## 724. pkg/farside.Output kept the first 300 bytes of a failed container.exec command's stderr, where the old code had kept the last 2048 bytes, so the reason was cut off (a repeat of 651 and 701) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. Phase 131's R1 (`b617af7f`) moved `container.exec`'s failure text to
+`farside.Output`, which keeps the start. The code it replaced kept the last 2048 bytes of stderr, because a failing
+program writes its reason last, after progress and warnings. The same holds for curl in `win.file.download` and tar
+in `win.archive.extract`, which took `farside.Output` in the same commit (712).
+
+**Root cause.** One bounding helper replaced a bound chosen for its end, and nothing tested the failing command's last
+line.
+
+**Fix.** `718a6eae`. `farside.OutputTail` keeps the end, marking a cut with `...` at the front, and `container.exec`,
+`win.file.download` and `win.archive.extract` use it. Test: `TestOutputTail_KeepsTheEnd`.
+
+**Why 651 and 701 did not prevent it.** 651 (a timeout dropped the last output) and 701 (the first line of an indented
+error) each lost a reason by keeping the wrong part, and each fixed one reader. Neither leaves a check that a
+replacement keeps the part its predecessor kept.
+
+**Lesson.** When a bound is replaced, the new one keeps the same end; a command's reason for failing is usually last.
+
+## 725. net.batfish.check registered its network's cleanup after a SetStat that could fail, so a failure there left the network on a shared Batfish (a repeat of 193) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `Check` (`internal/catalog/net/batfish/check.go`, since `68c54499`, on
+`main`) created a network, recorded its name with `rc.SetStat`, and only then deferred `DeleteNetwork`. A `SetStat`
+error returned with the network still on the Batfish service, for good. Latent: no failure was seen.
+
+**Root cause.** The cleanup was registered after a fallible step that followed the acquisition, the shape of 193.
+
+**Fix.** `614be11a`. The deferred delete is registered right after `CreateNetwork` succeeds, before the stat. Test:
+`TestCheck_DeletesItsNetworkWhenRecordingItFails`.
+
+**Why 193 did not prevent it.** 193 was fixed in two constructors and stated no rule a reviewer or a test applies to new
+code, so the order was written again in a new method.
+
+**Lesson.** A cleanup is registered on the line after the acquisition succeeds, before anything else can return.

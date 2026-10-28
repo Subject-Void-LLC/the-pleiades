@@ -720,6 +720,15 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 714. The playbook converter put a value it had already resolved, holding Jinja delimiters, into a runbook parameter that renders again (fixed before push)
 715. TestStopService_IsBounded took five seconds against a 300 ms bound because the test harness waited at close for the fake rm's sleep, not because the stop was unbounded (fixed before push)
 716. The blind lab's grader failed every parallel teardown on another instance's lab, and the CML controller's node cap decided one instance's grade each run (fixed in the harness, `~/pleiades-cvd`)
+717. The fixed-host URL rule ended a template's literal text at `{{` and `{%` but not at a comment `{#`, so launch or device data could choose a request's host (a repeat of LESSONS 244; a sibling of 714) (fixed before push)
+718. pkg/netcfg.MaskXML masked a leaf only by its own or its parent's name, so RFC 8177 keystring and hexadecimal-string, OpenConfig key-clear-text and a deep SNMP community name reached net.netconf.config's backup (a repeat of 577, 640 and 655) (fixed before push)
+719. container.list, container.info and container.image.info reported each container's full command and entrypoint argv, which often carries a secret (a repeat in kind of 455) (fixed before push)
+720. net.ios.config's check looked for a line in the current block and then outward, so a line IOS adds in a submode was predicted unchanged when an enclosing block held it (a sibling of 564 and 579) (fixed before push)
+721. validate's rollback_on_failure rule passed a templated crypto key line, and let any method with an UndoCall decide which calls' undo is partial (a repeat in kind of 614) (fixed before push)
+722. A check after a predicted file.directory failed file.copy and file.template with "directory does not exist" where the run succeeds (a repeat of 564 and 708) (fixed before push)
+723. wait.routes with state: absent read an empty or unparsed routing table as every route gone, and its own test used an empty table for "withdrawn" (a repeat of 13 and 451) (fixed before push)
+724. pkg/farside.Output kept the first 300 bytes of a failed container.exec command's stderr, where the old code had kept the last 2048 bytes, so the reason was cut off (a repeat of 651 and 701) (fixed before push)
+725. net.batfish.check registered its network's cleanup after a SetStat that could fail, so a failure there left the network on a shared Batfish (a repeat of 193) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
