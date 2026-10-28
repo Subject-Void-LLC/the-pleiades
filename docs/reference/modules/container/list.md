@@ -6,7 +6,7 @@ status: beta
 
 Lists the engine's containers.
 
-Lists every container on the engine, stopped ones included, or only the running ones with all false, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, the engine's status line, creation time, command, ports, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
+Lists every container on the engine, stopped ones included, or only the running ones with all false, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, the engine's status line, creation time, command (its program and how many arguments follow it, never an argument: the list includes containers no runbook made, and a command line often carries a secret such as a --password flag), ports, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
 
 ## Attributes
 
@@ -32,7 +32,7 @@ Lists every container on the engine, stopped ones included, or only the running 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `containers` | `list of dict` | always | The containers, each with name, id, state, status (the engine's own line, such as Up 3 minutes), created (Unix seconds), command, ports (127.0.0.1:8080->80/tcp, or 80/tcp when not published), image_id, image and labels. |
+| `containers` | `list of dict` | always | The containers, each with name, id, state, status (the engine's own line, such as Up 3 minutes), created (Unix seconds), command (a dict of program and arg_count, the words after the program in the engine's one-line command; the arguments are withheld, since one can be a secret), ports (127.0.0.1:8080->80/tcp, or 80/tcp when not published), image_id, image and labels. |
 
 ## Undoing this
 

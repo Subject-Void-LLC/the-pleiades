@@ -6,7 +6,7 @@ status: beta
 
 Reports one container as the engine sees it.
 
-Reports the container named name: whether it exists, and if so everything the engine's inspect answer says that a runbook decides on: its ID, state, image, command and entrypoint, user, working directory, hostname, labels, network mode and each attached network with its address, published ports, restart policy and count, privilege, read-only root, added capabilities, memory limit, mounts, last exit code, start and finish times, whether it was killed for memory, process ID, health and the engine's last start error, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as exists false, not as a failure, so a runbook can branch on it. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
+Reports the container named name: whether it exists, and if so everything the engine's inspect answer says that a runbook decides on: its ID, state, image, command and entrypoint (each as its program and how many arguments follow it, never an argument, since a command line often carries a secret such as a --password flag), user, working directory, hostname, labels, network mode and each attached network with its address, published ports, restart policy and count, privilege, read-only root, added capabilities, memory limit, mounts, last exit code, start and finish times, whether it was killed for memory, process ID, health and the engine's last start error, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as exists false, not as a failure, so a runbook can branch on it. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
 
 ## Attributes
 
@@ -41,8 +41,8 @@ Reports the container named name: whether it exists, and if so everything the en
 | `platform` | `string` | when it exists | The platform the engine reports for it, such as linux. |
 | `restart_count` | `int` | when it exists | How many times the engine has restarted it. |
 | `labels` | `dict` | when it exists | Its labels. |
-| `command` | `list of string` | when it exists | Its command. |
-| `entrypoint` | `list of string` | when it exists | Its entrypoint. |
+| `command` | `dict` | when it exists | Its command as program (the first word) and arg_count (how many arguments follow). The arguments are withheld: a command line often carries a secret, such as a --password flag. |
+| `entrypoint` | `dict` | when it exists | Its entrypoint as program and arg_count, the arguments withheld as the command's are. |
 | `user` | `string` | when it exists | The user it runs as, or empty for the image's. |
 | `working_dir` | `string` | when it exists | Its working directory, or empty for the image's. |
 | `hostname` | `string` | when it exists | Its hostname. |

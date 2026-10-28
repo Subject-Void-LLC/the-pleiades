@@ -227,11 +227,63 @@ How a loop behaves:
   `pleiades rollback` undoes items one by one, newest first.
 - A check runs every item as a check.
 - `register` holds `results` (one entry per item with the item and the method's
-  result) plus `changed`, `failed` and `skipped` for the whole.
+  result) plus `changed`, `failed` and `skipped` for the whole. The shape is
+  below.
+- `failed_when` and `changed_when` are decided for each item, against that
+  item's own result: `result.<register>` in them is the item's result, not the
+  list. An item `failed_when` fails is recorded with that item's journal entry
+  as `failure_stage: failed_when`, apart from one the method failed (`action`).
 - A loop runs at most 1000 items. More is refused when the runbook is built,
   or when a list read from data renders too long.
 - A loop belongs on a method call, not a `block` or `parallel` group, and not
   with `rollback:`.
+
+### What a looped task registers
+
+A looped task registers a different shape from a task without a loop. A task
+without a loop registers the method's result itself, so a later task reads
+`result.seen.exists`. A looped task registers one object holding a list, so a
+later task reads `result.seen.results[1].exists` for the second item, and
+`result.seen.failed` for the whole. Changing a task from one call to a loop
+changes what its `register` holds, and every later reader of it must change
+too.
+
+For the `loop-control` example above, `register: seen` holds this on each
+device (the other fields `file.stat` returns, such as `kind` and `size`, are
+left out here):
+
+```json
+{
+  "results": [
+    {"item": "/etc/hostname", "exists": true, "changed": false, "failed": false, "skipped": false},
+    {"item": "/etc/hosts", "exists": true, "changed": false, "failed": false, "skipped": false}
+  ],
+  "changed": false,
+  "failed": false,
+  "skipped": false
+}
+```
+
+- `results` has one entry per item, in the list's order. Each entry holds
+  `item` (the item itself), every field the method returned for it, and
+  `changed`, `failed` and `skipped` for that item. An item that failed also
+  holds `msg`, the reason. An item retried with `until` holds its last try.
+- `changed` is true when any item changed, `failed` when any item failed, and
+  `skipped` when every item was skipped (a `when:` decided each one).
+- A loop over an empty list registers `results: []`.
+
+### `with_items`
+
+`with_items` is accepted as another name for `loop`, with the same behavior
+through the same code. Ansible itself now prefers `loop`, so new runbooks
+should write `loop`. `with_items` is not deprecated in 0.3.x, and `validate`
+does not warn about it. Naming both on one task is refused.
+
+One difference from Ansible: its `with_items` flattens one level of nested
+lists, and a runbook's does not, since it is `loop`. `pleiades forge
+migrate-playbook` turns a playbook's `with_items` written as a list into
+`loop` with the nesting already flattened. One written as an expression stays
+`with_items`, and a nested list it renders to is not flattened.
 
 **Repeated blocks must be loops.** Writing the same task five times with one
 value changed is the shape a loop exists for. A loop is shorter, validates
@@ -288,7 +340,7 @@ tasks:
 
 | Key | What it does |
 | --- | --- |
-| `failed_when` | Fails the task when its conditions hold, even if the method succeeded. |
+| `failed_when` | Fails the task when its conditions hold, even if the method succeeded. The journal records such a failure as `failure_stage: failed_when`, apart from a failure of the method itself (`action`). `ignore_errors` and `until` treat it as any failure. |
 | `changed_when` | Decides whether a finished run counts as having changed something. It changes what the report says, never what the journal recorded, so a rollback still undoes a change the method made. |
 | `ignore_errors` | Lets the run go on past this task's failure. The failure is still recorded as one, marked ignored. No `rescue` runs for it. |
 | `assert` | Fails when any condition in `that:` is false. `fail_msg` and `success_msg` are optional. |

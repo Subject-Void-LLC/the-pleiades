@@ -568,7 +568,7 @@ The Walk tier stores the same fields as columns in `journal_entries`.
 | Field | Meaning |
 |---|---|
 | `outcome` | One of `ran`, `changed`, `skipped`, `failed`, `not_reached`. The first four read as they sound. `not_reached` is the record of a parallel group's own fan-out marker, which carries no method, no device and no timings because it executes nothing itself; despite the name it is never a task an earlier failure stopped the run short of, since those leave no record at all. |
-| `failure_stage` | Where a failure happened, read off control flow rather than parsed from an error: `workflow_read`, `condition_eval`, `secret_mask`, `resolve_target`, `lock_all`, `lock_device`, `action`, `register_mask`, `record`. Empty unless `outcome` is `failed`. |
+| `failure_stage` | Where a failure happened, read off control flow rather than parsed from an error: `workflow_read`, `condition_eval`, `secret_mask`, `render`, `resolve_target`, `lock_all`, `lock_device`, `action`, `failed_when`, `changed_when`, `register_mask`, `record`. `action` is the method itself failing; `failed_when` is the task's own `failed_when` holding (or failing to evaluate) over a run the method finished, and `changed_when` is its `changed_when` failing to evaluate. Empty unless `outcome` is `failed`. |
 | `skip_kind` | Which gate skipped the task: `when`, `when_or`, `when_cel` or `lifecycle`. Empty unless `outcome` is `skipped`. |
 | `skip_ordinal`, `skip_total` | Which condition of how many decided a `when` skip. The ordinal is zero for `when_or`, where every condition had to be false and none is the actionable one. |
 
