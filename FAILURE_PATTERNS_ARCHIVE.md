@@ -16955,3 +16955,273 @@ free when it happened, and build the package alone on the same tree before namin
 **Fix.** Added to `iosNotices`, with the count measured in run 5's stream (30). Test: config_dialog_test.go.
 
 **Lesson.** A friction item seen twice in lab reviews is fixed before the third run, not listed again.
+
+## 704. net.ios.config's backup stat was the running configuration masked only by value, so a secret shorter than eight characters reached every report, and net.netconf.config's backup was raw XML documented as not sanitized (a repeat of 653) (fixed before push)
+
+**Symptom.** 2026-10-28, on `feat/authoring-parity-v0-3-0` (`2dbfa586`). With `backup: true`, `net.ios.config` recorded
+the device's running configuration as read. A run masks by value only the values it knows, of eight characters or more
+(`netcfg.MinLearnedLength`, the engine's own minimum), so a line such as `enable password cisco` kept `cisco` in the
+`backup` stat and in every report, output and register built from it. `net.netconf.config`'s `backup` was the
+datastore's raw XML. Both Returns entries said "Not sanitized" and told the author to add `register_mask: backup`.
+
+**Security.** A secret exposure, reasoned from the code and not measured on a device. Anyone who could read the report,
+the output or a register of a run with `backup: true` could read each IOS secret shorter than eight characters, and any
+secret in a NETCONF device's datastore that the run did not already know. A secret that went through such a run before
+this fix should be treated as exposed and rotated.
+
+**Root cause.** 653's fix had `net.ios.config` learn the secrets it found in the backup (`learnSecrets`), so the run
+masks them by value wherever else they show, and recorded the backup itself as the device had it. Masking by value has
+an eight-character floor, so that a short common value does not blank out ordinary text; a short secret was never
+learned and passed through. The NETCONF backup had no masking at all, and its doc handed the job to the author.
+
+**Fix.** `2dbfa586`. The IOS backup goes through `netcfg.MaskChecked` (`pkg/netcfg/checked.go`), which masks
+structurally and fails closed: a configuration the masker cannot vouch for fails the task before any line is applied.
+The NETCONF backup goes through the new `netcfg.MaskXML` (`pkg/netcfg/xml.go`, `xml_walk.go`), a bounded, strict walk
+that masks secret-named leaves, crypt-shaped values and SNMP communities in place, and refuses a DOCTYPE, a secret in an
+attribute or malformed XML before `edit-config`. Both Returns entries now say the backup is masked. Tests:
+`TestConfig_BackupMasksShortAndClearTextSecrets`, `TestConfig_ABackupMaskingCannotVouchForFailsBeforeAnyLine`
+(`internal/catalog/net/ios`), `TestConfig_BackupIsMasked`, `TestConfig_AnUnvouchedBackupStopsBeforeApplying`
+(`internal/catalog/net/netconf`), `TestMaskXML_FailsClosed`, `TestMaskChecked_RefusesALineWithASecondSecret`.
+
+**Why 653 did not prevent it.** 653's lesson was that a method returning device text masks it, with a test that reads a
+secret back through that method, and that masking only the values a run resolved is not enough. Its fix gave
+`net.ios.command` the first half and the backup only learning, which is masking by value with the same eight-character
+floor. No test read a short secret back through the backup stat, and the "Not sanitized" text beside it was not reread.
+
+**Lesson.** A stat that carries device text is masked structurally where it is recorded; learning values is a second
+layer, never the only one. A doc that tells the author to mask a stat describes a defect.
+
+## 705. IOS masking hid one word of a clear-text secret that runs to the end of its line, and missed wpa-psk, set-key, SNMPv3 auth and priv keys, OSPFv3 IPsec keys and manual IPsec session keys (a repeat of 640) (fixed before push)
+
+**Symptom.** 2026-10-28, in the same change as 704 (`2dbfa586`). `username admin password 0 two words` came back with
+`two` masked and `words` in the clear: on IOS a type 0 or untyped secret runs to the end of its line, and Mask replaced
+one word. These forms kept their key whole: `wpa-psk`, `set-key`, SNMPv3 `auth` and `priv` passwords, OSPFv3 IPsec SPI
+keys (`ipv6 ospf authentication ipsec spi 500 md5 0 k`), and an ipsec-manual crypto map's `set session-key` keys.
+
+**Root cause.** `pkg/netcfg.Mask` is a denylist that masks the word after each secret word it knows (577). A secret of
+several words, and a secret word not in its table, pass through.
+
+**Fix.** `2dbfa586`, `pkg/netcfg/rest.go`: a clear-text or untyped secret is masked to the end of its line, and the five
+forms above are known, each keeping its words that are not keys (an SPI, `inbound`, `esp`, the hash name).
+`MaskChecked` refuses a line that still holds a second secret after masking, so a form the table misses fails a backup
+rather than leaking through it. Tests: `TestMask_ClearTextRunsToTheEndOfTheLine`,
+`TestMask_OneWordSecretsKeepWhatFollows`, `TestMask_SessionKeysKeepTheirSPIAndKeywords`,
+`TestMaskChecked_RefusesALineWithASecondSecret`.
+
+**Why 640 did not prevent it.** 640 added `pre-shared-key` and repeated what 577 said: Mask is a denylist, and a form
+not in its table passes. Each fix added the forms in front of it. Nothing failed closed until `MaskChecked`, and `Mask`
+itself still fails open for the callers that do not go through it.
+
+**Lesson.** A masker that fails open is checked by one that fails closed: after masking, refuse what still looks like a
+secret.
+
+## 706. A stat, a rendered param or an extra var crossed JSON on the Walk tier and came back as float64, so `result.r.count + 1 == 4` failed on a Runner while the CLI passed, and an integer above 2^53 lost digits (a repeat of 71) (fixed before push)
+
+**Symptom.** 2026-10-28 (`1cb9929c`). A method's stats from the Runner's per-task child, the params rendered for it,
+and a dispatch's `extra_vars` all crossed JSON as open maps, so every number came back as a `float64`; on the Crawl tier
+the same values stay Go `int`s. A condition such as `result.r.count + 1 == 4` held on the CLI and failed on a Runner
+with CEL's "no such overload", and an integer above 2^53 lost its low digits on the way into a device command.
+
+**Root cause.** `encoding/json` decodes every number into `float64` when the target is `interface{}`. The wire types
+decoded these fields that way, and no test compared a value's type across the two tiers.
+
+**Fix.** `1cb9929c`, `pkg/wire/numbers.go`: those fields decode with `UseNumber`; a whole number becomes an `int`, any
+other number a `float64`, and a number past `float64`'s range is an error. On the child pipe a whole float is written as
+`4.0`, so it stays a float. Every other field decodes as before. Tests: `TestChildResponse_FactsKeepTheirNumberTypes`,
+`TestChildRequest_ParamsKeepTheirNumberTypes`, `TestChildResponse_RefusesANumberNoFloatHolds`,
+`TestDispatchPayload_ExtraVarsKeepTheirNumberTypes` (`pkg/wire`), `TestTypedStats_MeanTheSameOnBothTiers`
+(`internal/adapters/native`), `TestExtraVars_AnIntegerStaysAnIntegerOnTheRunner` (`cmd/runner`).
+
+**Why 71 did not prevent it.** 71 found the same loss in the API's response middleware and fixed it there by never
+decoding a typed value into a map. Its lesson, that decoding what you will re-encode is a lossy round trip, was applied
+to that one layer. `pkg/wire` cannot use a typed struct, since stats and params are open maps, and nothing carried 71 to
+it. The Crawl tier never serializes these values, so every Crawl test passed.
+
+**Lesson.** A value that crosses a process boundary inside an open map is decoded with `UseNumber`, and a test holds one
+runbook's conditions to the same answer on both tiers.
+
+## 707. validate refused rollback_on_failure over every net.ios.config task from 2026-10-24, while the skill and docs/16 taught it, and nothing validated the skill's example (a repeat of 604 and 702) (fixed before push)
+
+**Symptom.** Blind lab run 7, 2026-10-28 (Opus, `out-a.txt:268`; `~/pleiades-cvd/runs/AAR-run7-comparison.md`, ranked
+item 4). The agent wrote a block with `rollback_on_failure: true` over `net.ios.config` and no `rollback:` list, as
+SKILL.md teaches, and `pleiades validate` refused it. `docs/16-network-verification.md` teaches the same block.
+
+**Root cause.** `15271a27` (2026-10-24) set `MayBePartial: true` on `net.ios.config`'s undo spec, since a crypto key
+line cannot be put back. The `rollback_on_failure` rule (`whyNotUndoable` in `internal/validate/rollback_rule.go`)
+refused any method whose undo may be partial before asking the method's `UndoCall`, which already names the few calls
+whose undo is partial. So every call was refused.
+
+**Fix.** `db9465d0`: a method with an `UndoCall` decides per call; a crypto key line and `checkpoint: false` are still
+refused. Tests: `TestRollbackOnFailureRule_APartialUndoIsAskedOfTheCall`, and
+`TestCLI_DocCreateSkillsRollbackExampleValidates`, which writes SKILL.md through the binary, takes its
+`rollback_on_failure` runbook out of the file and validates it, warnings counted as failures.
+
+**Why 604 and 702 did not prevent it.** 604 is the same refusal, caused by an earlier change to the same spec, and its
+lesson says to check what an `InverseSpec` change does to validate for every call of the method. `15271a27` changed one
+field of that spec without the check. The CML gate that runs such a block (`cmlLinesUndoInRun` in
+`TestCLI_ImportCMLReachesIOSOverTelnet`) needs a CML controller (`testsupport.Require`), so pr-check and CI skip it. 702
+found that nothing tests the skill's examples against `validate`, one lab run earlier, and fixed only the line in front
+of it.
+
+**Lesson.** A change to a method's undo spec is followed by validating a `rollback_on_failure` block over that method in
+a test that runs everywhere, and a runbook the skill teaches is validated by a test (LESSONS 301 and 353).
+
+## 708. pkg/remotefile told a reader that this login may not write a directory that did not exist, which sent the reader after permissions (a sibling of 126) (fixed before push)
+
+**Symptom.** 2026-10-28, proving `file.template` on macOS through pleiades: in a check run, after a `file.directory`
+task that was only predicted, the template's write reported "this login (...) may not write" its directory. The
+directory was missing, not closed to the login. A real run into a missing directory failed on `mktemp`'s own text, which
+did not say so either.
+
+**Root cause.** `PredictPut` read "may not write" from a test that is also false for a directory that does not exist,
+and `Put` passed on the error of its first write.
+
+**Fix.** `fb323b4a`, `pkg/remotefile/put.go`: both ask whether the directory exists (`missingDir`) and then say "its
+directory ... does not exist, so nothing was written". Test: `TestPut_AMissingDirectoryIsNamedAsMissing`.
+
+**Lesson.** An error that names a cause rules out the others first: a failed write asks whether the directory exists
+before it blames permissions.
+
+## 709. pkg/vmrun's parseKeyValues split a quoted vmx key at its own colon, so every disk key such as `'nvme0:0.fileName'` was misread (fixed before push)
+
+**Symptom.** 2026-10-28, in Phase 131's R5 work on the VMware Fusion VM info (`b617af7f`). vmcli lists
+`'nvme0:0.fileName': disk.vmdk`, and the reader cut the line at its first colon, so the key and value of every disk and
+device-slot entry were wrong.
+
+**Root cause.** `strings.Cut(line, ":")` took the first colon, a vmx key holds colons of its own, and the quotes vmcli
+puts around such a key were removed only after the cut.
+
+**Fix.** `cutKey` (`pkg/vmrun/parse.go`) reads a quoted key to its closing quote first. Test:
+`TestParseKeyValues_AQuotedKeyHoldingAColon`.
+
+**Lesson.** A `key: value` reader honors the quoting its writer used before it splits, and its tests include a key that
+holds the separator.
+
+## 710. Six methods recorded stats their Doc.Returns did not declare, one under another name than the documented one (a sibling of 228) (fixed before push)
+
+**Symptom.** 2026-10-28, Phase 131's R3 (`b617af7f`). `ai.bench.run`, `edge.access`, `edge.dns`,
+`net.catalyst.reachability`, `container.info` and `container.copy_out` recorded stats their reference pages did not
+list: `net.catalyst.reachability` documented `devices` and recorded `reachability`, `container.info` recorded twelve
+undeclared keys, and `container.copy_out` recorded `src`. An agent reading `pleiades doc` could not know the names it
+could register and read.
+
+**Root cause.** Doc.Returns is written by hand beside the code that records stats, and nothing compared the two.
+
+**Fix.** Each Returns lists what the code records. `internal/archtest`'s `TestEveryRecordedKeyIsDeclared` scans every
+catalog package for `SetStat` and `EmitFact` keys and fails on one that no method of the package declares (per file
+where it can); `TestEveryReturnSaysWhenItIsReturned` requires each entry's `Returned`; `TestStatKeyScan_Control` proves
+the scan sees what it looks for.
+
+**Lesson.** A reference written by hand beside code is held to the code by a scan, or it drifts.
+
+## 711. Read-only lookups answered a missing object with an error, so an agent could not branch on absence (a sibling of 451 and 581) (fixed before push)
+
+**Symptom.** 2026-10-28, Phase 131's R4 (`b617af7f`). `db.pg.grants` on an absent role or database, `db.pg.rowcounts`
+on an absent database, `container.logs`, `container.image.resolve`, `container.copy_out` and three VirtualBox VM reads
+failed when the thing they read did not exist, so a runbook asking "is it there?" had to read a failure.
+`virt.cml.lab.info` had promised `exists: false` while its check answered "cannot be checked" (lab runs 4 and 6, fixed
+in `083d266f`).
+
+**Root cause.** Each method passed its tool's "not found" through as the task's error. 451 and 581 are the opposite
+mistake, a failed read taken as absence; both come from not telling the tool's "no such thing" apart from its other
+failures.
+
+**Fix.** Each answers `exists: false` (or an empty list) in a run and in a check. `internal/archtest`'s
+`TestALookupAnswersAbsenceAsData` holds every implemented read-only method that declares or promises `exists` to the
+whole convention: the return, a Description that says so, check support, and a test named for the absent case that runs
+it in both modes; `TestAbsenceRule_Control` proves the rule fires. `internal/catalog/db/pg/absent_test.go` runs the
+database cases against real Postgres.
+
+**Lesson.** A lookup tells "not there", which is data, from "could not ask", which is an error. Both directions have
+failed here.
+
+## 712. win.file.copy and win.file.download quoted unbounded host output in errors and carried an unchecked digest into the diff (a repeat of 627) (fixed before push)
+
+**Symptom.** 2026-10-28, Phase 131's R1 (`b617af7f`). Both methods put the host script's whole stdout or stderr into an
+error, and took whatever the script printed under `before`, `got` and `after` as a SHA-256, so any text the host
+printed there reached an error, a stat or the diff.
+
+**Root cause.** 431's class (LESSONS 266): text a remote system wrote reached an error unbounded, and a value the far
+side reported was trusted to have the shape the script meant to print.
+
+**Fix.** Output reaches an error through `pkg/farside.Output`, bounded and quoted; `reportedDigest` refuses a reported
+digest that is not 64 hex characters, quoting what was reported, bounded. Tests:
+`TestCopy_StdoutReachesAnErrorBounded`, `TestDownload_StdoutReachesAnErrorBounded`,
+`TestCopy_AFailedScriptSaysWhatPowerShellSaid`, `TestDownload_AFailedFetchSaysWhatCurlSaid`.
+
+**Why 627 did not prevent it.** 627 said each new error that quotes a device's output needs its own bound, and that
+nothing finds one that lacks it. Phase 131's archtest (`TestNoClientCutsTheFarSideToAFirstLine`) finds a first-line
+cut, not an unbounded quote, so that is still true.
+
+**Lesson.** Remote text enters an error through `pkg/farside`, and a value the far side reports is checked against the
+shape it should have before it is used.
+
+## 713. validate counted `| default` anywhere in a filter chain as a guard, and one guarded read excused every read of the same name in the task (fixed before push)
+
+**Symptom.** 2026-10-28, adding template statements (Phase 87, `d554c7d7`). `{{ vars.x | upper | default('d') }}` passed
+`VarsRule` and `HandlersRule` and failed at render, since the renderer fails on `upper` over an undefined value before
+`default` can supply one. A guarded read of a name also excused an unguarded read of it elsewhere in the same task.
+
+**Root cause.** The rules decided a guard by finding `default` anywhere in a read's filters, and recorded guarded names
+per task rather than per read. A guard belongs to one read, in the order the renderer evaluates it.
+
+**Fix.** `internal/render`'s `Expressions()` reports every read, inside statements too, with a `Guarded` flag, and the
+rules judge each read: a `default` after another filter is a plain read, an `is defined` guards only the reads in its
+branch, and a binding made from a guarded read is guarded. Tests: `TestHandlersRule_GuardedReads`,
+`TestVarsRule_GuardedReads` (its cases "a default after another filter" and "is defined in an if, the read outside it"),
+`TestGuardedReads_KeepTheRootRules` (`internal/validate/guarded_reads_test.go`).
+
+**Lesson.** A guard is decided per read, in the order the renderer meets it.
+
+## 714. The playbook converter put a value it had already resolved, holding Jinja delimiters, into a runbook parameter that renders again (fixed before push)
+
+**Symptom.** 2026-10-28, adding statements to task params (`d554c7d7`). Ansible renders a module argument once, so a
+resolved value such as `printf '{%s}' x` reaches the module as written. From this change a runbook renders any
+parameter holding `{{`, `{%` or `{#`, so the converted runbook would read `{%s}` as a statement and fail, or render text
+Ansible never ran.
+
+**Root cause.** The converter wrote resolved text into params with no mark that it is literal, and the same change grew
+the set of strings that render.
+
+**Fix.** `keepLiteral` (`internal/forge/playbook/apply_params.go`) wraps such a string in `{% raw %}...{% endraw %}`;
+text that holds an `endraw` of its own leaves the task for a person (`template.unsupported`). Test:
+`TestTranslate_StatementsRenderAsAnsibleWould` (its case "raw stays as written").
+
+**Lesson.** When the set of strings that render grows, every writer into that field is checked for text it meant
+literally.
+
+## 715. TestStopService_IsBounded took five seconds against a 300 ms bound because the test harness waited at close for the fake rm's sleep, not because the stop was unbounded (fixed before push)
+
+**Symptom.** 2026-10-28: `pkg/containerengine`'s `TestStopService_IsBounded` ran for the whole five seconds of its
+hanging fake `rm`, which reads as an unbounded stop, or as contention.
+
+**Root cause.** Measured: `stopService` returned within its 300 ms bound. The scripted SSH server's close waited for
+the hanging `rm`, which outlived the bound as a process on a real host would, so the test's time was the harness's
+wait.
+
+**Fix.** `b617af7f`, `pkg/containerengine/carriers_stop_test.go`: the fake `rm` writes its pid and `exec`s `sleep`, and
+the test kills it before the harness closes.
+
+**Lesson.** A slow test is timed part by part before it is called contention or a defect: the code under test, the
+harness's teardown, and anything the test left running.
+
+## 716. The blind lab's grader failed every parallel teardown on another instance's lab, and the CML controller's node cap decided one instance's grade each run (fixed in the harness, `~/pleiades-cvd`)
+
+**Symptom.** Runs 5 to 7. Turn B's check that the controller's labs match the baseline failed whenever another
+instance's `pleiades-cvd-*` lab came or went (run 7: Opus saw `pleiades-cvd-haiku STOPPED 8`, Sonnet saw that and
+`pleiades-cvd-opus STARTED 8`); regraded, every such failure was another instance's lab. In turn A, three 8-node labs
+and `default-lab`'s 10 nodes make 34 against a refusal at 30 running, so one instance per run was refused a start: in
+run 6 it cost Sonnet six checks and Opus about 10.5 minutes, in run 7 it cost Haiku eleven checks (26-12).
+
+**Root cause.** The grader compared every lab on a shared controller. `cmlqueue.sh` serialized CML changes across
+instances but reserved no capacity, so whoever started last met the cap. Neither is in The Pleiades.
+
+**Fix.** In `~/pleiades-cvd`: `grade.sh` leaves other instances' `pleiades-cvd-*` labs out of both lists and keeps this
+instance's own lab (the old one is `grade.sh.before-instance-filter`); `run5-instance.sh` holds a capacity slot, one
+`flock` per slot, the count derived from `CML_NODE_CAP`, the nodes in other labs and `LAB_NODES`, from setup through
+teardown, so a further instance waits instead of racing (the old one is `run5-instance.sh.before-slots`). Neither has
+run in a lab turn yet. On the product side, `virt.cml.lab.start` reports `controller_nodes_running` and names a
+node-limit refusal (`db9465d0`).
+
+**Lesson.** A grade taken on a shared resource measures only what that instance owns, and a queue that orders changes
+still needs a reservation when the resource has a cap. Related: LESSONS 197.

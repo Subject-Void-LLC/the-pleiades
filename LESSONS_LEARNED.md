@@ -384,6 +384,9 @@ story, per `.AGENTS/AGENTS.md`.
 349. **A retry, an ignore and a cancel each name what they cover: only the method's own failure is retried, an ignored or retried failure stays a failure in the record, and a stopped wait is the task's failure (2026-10-27).**
 350. **A filter that several tiers must agree on is one function they all call, and it looks inside nested values; the loader refuses what the runtime would drop (2026-10-27).**
 351. **A test harness that wires a production object by hand copies every option the composition root passes, and a scripted edit asserts its target is present (2026-10-27).**
+352. **Read a release row's recorded reasoning before proposing to move work into it (2026-10-28).**
+353. **The skill and the docs are claims: each runbook they teach is validated by a test that runs everywhere (a repeat of 301) (2026-10-28).**
+354. **An audit that finds nothing in part of its scope says why: nothing there, or nothing wrong (a repeat of 211) (2026-10-28).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

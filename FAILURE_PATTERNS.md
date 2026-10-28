@@ -707,6 +707,19 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 701. Every CML error read `400: "{"` because the client kept the first line of the controller's indented JSON error (fixed before push)
 702. The skill's example of a rendered target was `target: "{{ item }}"`, which validate refuses since the same branch (fixed before push)
 703. net.ios.config failed a second, unchanged run on '% Policy already has the same matching fvrf statement' in three lab runs before the notice was added (fixed before push)
+704. net.ios.config's backup stat was the running configuration masked only by value, so a secret shorter than eight characters reached every report, and net.netconf.config's backup was raw XML documented as not sanitized (a repeat of 653) (fixed before push)
+705. IOS masking hid one word of a clear-text secret that runs to the end of its line, and missed wpa-psk, set-key, SNMPv3 auth and priv keys, OSPFv3 IPsec keys and manual IPsec session keys (a repeat of 640) (fixed before push)
+706. A stat, a rendered param or an extra var crossed JSON on the Walk tier and came back as float64, so `result.r.count + 1 == 4` failed on a Runner while the CLI passed, and an integer above 2^53 lost digits (a repeat of 71) (fixed before push)
+707. validate refused rollback_on_failure over every net.ios.config task from 2026-10-24, while the skill and docs/16 taught it, and nothing validated the skill's example (a repeat of 604 and 702) (fixed before push)
+708. pkg/remotefile told a reader that this login may not write a directory that did not exist, which sent the reader after permissions (a sibling of 126) (fixed before push)
+709. pkg/vmrun's parseKeyValues split a quoted vmx key at its own colon, so every disk key such as `'nvme0:0.fileName'` was misread (fixed before push)
+710. Six methods recorded stats their Doc.Returns did not declare, one under another name than the documented one (a sibling of 228) (fixed before push)
+711. Read-only lookups answered a missing object with an error, so an agent could not branch on absence (a sibling of 451 and 581) (fixed before push)
+712. win.file.copy and win.file.download quoted unbounded host output in errors and carried an unchecked digest into the diff (a repeat of 627) (fixed before push)
+713. validate counted `| default` anywhere in a filter chain as a guard, and one guarded read excused every read of the same name in the task (fixed before push)
+714. The playbook converter put a value it had already resolved, holding Jinja delimiters, into a runbook parameter that renders again (fixed before push)
+715. TestStopService_IsBounded took five seconds against a 300 ms bound because the test harness waited at close for the fake rm's sleep, not because the stop was unbounded (fixed before push)
+716. The blind lab's grader failed every parallel teardown on another instance's lab, and the CML controller's node cap decided one instance's grade each run (fixed in the harness, `~/pleiades-cvd`)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

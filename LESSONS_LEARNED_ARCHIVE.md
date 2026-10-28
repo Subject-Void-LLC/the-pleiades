@@ -6529,3 +6529,37 @@ or a docker CLI changed which tests ran, and starting legs at t0 changed what th
 **Why.** The Walk gate's adapter lacked the renderer `cmd/runner` passes, so the first templated runbook failed only in the test (693). Separately, three `str.replace` edits matched nothing and the next step assumed they had applied (698).
 
 **Rule in practice.** In a harness, compare its constructor call with the composition root's line by line. In a script, `assert old in text` before replacing, and re-read a shared file after another agent worked in it.
+
+## 352. Read a release row's recorded reasoning before proposing to move work into it (2026-10-28).
+
+**Why.** 2026-10-28, while v0.3.0's unbuilt phases were being moved out before the first tag. A recommendation to the
+owner put work into v0.4.0 without first reading the release ledger, where v0.4.0 is kept small on purpose: "the
+security chain and the two phases it stands on, still nothing else", for a reason the owner recorded there. The owner
+had to ask again. The reasoning was one paragraph away from the row the recommendation named.
+
+**Rule in practice.** Before proposing to move a phase, read the target row and every dated paragraph under "The release
+ledger" in `.SPECIFICATION/IMPLEMENTATION.md` that names that release, and say in the proposal how the move fits the
+reason written there, or why that reason no longer holds.
+
+## 353. The skill and the docs are claims: each runbook they teach is validated by a test that runs everywhere (a repeat of 301) (2026-10-28).
+
+**Why.** Lab run 7 found SKILL.md and docs/16 teaching a `rollback_on_failure` block that `validate` had refused for
+four days (FAILURE_PATTERNS 707). LESSONS 301 says any runbook the project ships as text passes validation in a test
+pr-check always runs. Its tests reached method examples and guide pages such as docs/04
+(`TestCLI_WritingRunbooksPageExamplesValidate`), not the skill, and FAILURE_PATTERNS 702 found that gap one lab run
+earlier and fixed only the line in front of it.
+
+**Rule in practice.** A runbook added to the skill gets a test like `TestCLI_DocCreateSkillsRollbackExampleValidates`,
+which writes the skill through the binary and validates the block as an agent would copy it, warnings counted as
+failures. As of 2026-10-28 that test and `TestCLI_DocCreateSkillTeachesARunbookThatValidatesAndRuns` hold the skill's
+runbooks; no test was found that validates the runbooks in docs/16.
+
+## 354. An audit that finds nothing in part of its scope says why: nothing there, or nothing wrong (a repeat of 211) (2026-10-28).
+
+**Why.** In Phase 131's audit of the built-in methods against its five rules, the scope named Phase 119f's methods,
+which moved to v0.5.0 on 2026-10-27 and do not exist. "No findings" for that part reads as "checked and clean". LESSONS
+211 already says a verifier must tell "never checked" from "disproved"; it was written about agents that died partway,
+and nothing carried it to a scope that was empty from the start.
+
+**Rule in practice.** An audit's result names each part of its scope with what it examined (a count of methods, files
+or lines), and says plainly when a part held nothing to examine, and why.
