@@ -23,7 +23,7 @@ Connects the container named container to the network named network, with the de
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `network` | `string` | yes | - | The network's name. |
 | `container` | `string` | yes | - | The container's name. |
 | `aliases` | `list` | no | - | Names the container answers to on this network, beside its own. |

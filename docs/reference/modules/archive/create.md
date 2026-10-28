@@ -25,7 +25,7 @@ Creates path as a tar archive of src, entirely from files already on the target 
 | --- | --- | --- | --- | --- |
 | `path` | `string` | yes | - | The archive file to create. |
 | `src` | `list` | yes | - | The paths on the target to include, at least one. |
-| `format` | `string` | no | `tar.gz` | The archive format. tgz is accepted as a synonym for tar.gz. |
+| `format` | `string` | no | `tar.gz` | The archive format. tgz is accepted as a synonym for tar.gz. **Choices:** `tar`, `tar.gz`. |
 | `remove` | `bool` | no | `false` | Delete src once the archive has been written. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 

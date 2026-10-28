@@ -24,7 +24,7 @@ Polls a path on the device until it exists, or until it is gone when state is ab
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `path` | `string` | yes | - | The path on the device to watch. |
-| `state` | `string` | no | `present` | Whether to wait for the path to exist (present) or to stop existing (absent). started and stopped are accepted as wait_for's own spellings of the same two, so a converted playbook needs no edit. drained is refused, since it asks about a socket's send queue and means nothing for a file. |
+| `state` | `string` | no | `present` | Whether to wait for the path to exist (present) or to stop existing (absent). started and stopped are accepted as wait_for's own spellings of the same two, so a converted playbook needs no edit. drained is refused, since it asks about a socket's send queue and means nothing for a file. **Choices:** `present`, `absent`, `started`, `stopped`. |
 | `timeout` | `int` | no | `300` | How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0. |
 | `delay` | `int` | no | `0` | How many seconds to wait before looking the first time. Must be shorter than the timeout, which it is spent out of. |
 | `sleep` | `int` | no | `1` | How many seconds to wait between looks. Must be more than 0: a sleep of zero would probe the device as fast as it can answer. |

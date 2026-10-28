@@ -24,8 +24,8 @@ Reads the bridge through ovs-vsctl and changes only what differs. Its undo puts 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The bridge. |
-| `state` | `string` | no | `present` | present or absent. |
-| `datapath_type` | `string` | no | - | system (the kernel datapath) or netdev (userspace). Left unset, an existing bridge keeps its own and a new one gets Open vSwitch's default. |
+| `state` | `string` | no | `present` | present or absent. **Choices:** `present`, `absent`. |
+| `datapath_type` | `string` | no | - | system (the kernel datapath) or netdev (userspace). Left unset, an existing bridge keeps its own and a new one gets Open vSwitch's default. **Choices:** `system`, `netdev`. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

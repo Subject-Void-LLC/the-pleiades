@@ -25,7 +25,7 @@ Reads a file on the device on an interval until search_regex matches it, or unti
 | --- | --- | --- | --- | --- |
 | `path` | `string` | yes | - | The file on the device to read. |
 | `search_regex` | `string` | yes | - | The pattern to look for, matched in multiline mode against the whole file. Use wait.path when only the file's existence matters. |
-| `state` | `string` | no | `present` | Whether to wait for the pattern to match (present) or to stop matching (absent). started and stopped are accepted as wait_for's own spellings of the same two. drained is refused, since it asks about a socket's send queue and means nothing for a file. |
+| `state` | `string` | no | `present` | Whether to wait for the pattern to match (present) or to stop matching (absent). started and stopped are accepted as wait_for's own spellings of the same two. drained is refused, since it asks about a socket's send queue and means nothing for a file. **Choices:** `present`, `absent`, `started`, `stopped`. |
 | `timeout` | `int` | no | `300` | How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0. |
 | `delay` | `int` | no | `0` | How many seconds to wait before reading the first time. Useful when the file still holds the previous run's matching line. Must be shorter than the timeout, which it is spent out of. |
 | `sleep` | `int` | no | `1` | How many seconds to wait between reads. Must be more than 0: a sleep of zero would read the file as fast as the device can send it. |

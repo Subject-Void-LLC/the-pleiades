@@ -24,12 +24,12 @@ A rule is named by its Name, its identity (OpenSSH-Server-In-TCP, not its displa
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The rule's Name, its identity: letters, digits, space and ._{}()@,+-, at most 255. |
-| `state` | `string` | no | `present` | present makes or changes it; absent removes it; query only reports it. |
+| `state` | `string` | no | `present` | present makes or changes it; absent removes it; query only reports it. **Choices:** `present`, `absent`, `query`. |
 | `display_name` | `string` | no | - | The name the firewall shows. A new rule takes its Name when this is left out. |
 | `description` | `string` | no | - | Its description. |
 | `enabled` | `bool` | no | - | Whether it is on. A new rule is. |
-| `direction` | `string` | no | - | Which traffic it matches. A new rule's is inbound. |
-| `action` | `string` | no | - | What it does with that traffic. A new rule allows it. |
+| `direction` | `string` | no | - | Which traffic it matches. A new rule's is inbound. **Choices:** `inbound`, `outbound` (case ignored). |
+| `action` | `string` | no | - | What it does with that traffic. A new rule allows it. **Choices:** `allow`, `block` (case ignored). |
 | `profiles` | `scalar or list` | no | - | The network profiles it applies in: domain, private, public, or any (all three). A new rule's is any. |
 | `protocol` | `string` | no | - | tcp, udp, icmpv4, icmpv6, any, or an IP protocol number 0-255. A new rule's is any. |
 | `local_port` | `scalar or list` | no | - | The ports on this machine it matches: ports, ranges (8000-8100), any, or a keyword Windows knows (RPC, RPCEPMap, IPHTTPS, Teredo). Needs tcp or udp. |

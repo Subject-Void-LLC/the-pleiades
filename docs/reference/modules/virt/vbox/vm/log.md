@@ -6,7 +6,7 @@ status: beta
 
 Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern.
 
-Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the log as a run does.
+Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the log as a run does, a missing VM included.
 
 ## Attributes
 
@@ -31,8 +31,9 @@ Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `lines` | `list` | always | The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run. |
-| `path` | `string` | always | The log file's path on the host. |
+| `exists` | `bool` | always | Whether a VM with this name is registered on the host. |
+| `lines` | `list` | when exists | The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run. |
+| `path` | `string` | when exists | The log file's path on the host. |
 
 ## Undoing this
 

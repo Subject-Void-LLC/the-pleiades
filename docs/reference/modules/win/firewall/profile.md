@@ -23,10 +23,10 @@ Names one profile, domain, private or public, and compares the settings the task
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `name` | `string` | yes | - | The profile. One per task, so its undo is exact. |
+| `name` | `string` | yes | - | The profile. One per task, so its undo is exact. **Choices:** `domain`, `private`, `public` (case ignored). |
 | `enabled` | `bool` | no | - | Whether the firewall is on for this profile. |
-| `default_inbound_action` | `string` | no | - | What it does with inbound traffic no rule matches. Windows' default is block. |
-| `default_outbound_action` | `string` | no | - | What it does with outbound traffic no rule matches. Windows' default is allow. |
+| `default_inbound_action` | `string` | no | - | What it does with inbound traffic no rule matches. Windows' default is block. **Choices:** `allow`, `block` (case ignored). |
+| `default_outbound_action` | `string` | no | - | What it does with outbound traffic no rule matches. Windows' default is allow. **Choices:** `allow`, `block` (case ignored). |
 | `log_allowed` | `bool` | no | - | Whether allowed connections are logged. |
 | `log_blocked` | `bool` | no | - | Whether dropped packets are logged. |
 | `log_file` | `string` | no | - | The log file's path on the machine, as Windows takes it (%systemroot% may appear). |

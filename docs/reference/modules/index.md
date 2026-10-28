@@ -233,7 +233,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
-| [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given and its routing table has stopped changing. |
+| [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing. |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.archive.extract](win/archive/extract.md) | implemented | Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM. |
 | [win.capability.install](win/capability/install.md) | implemented | Installs a Windows capability (a feature on demand) with DISM, run as SYSTEM so Windows Update will serve it. |

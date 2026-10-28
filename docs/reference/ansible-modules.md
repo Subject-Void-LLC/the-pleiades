@@ -179,6 +179,35 @@ Also written as `copy`.
 
 The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.
 
+### `ansible.builtin.template`
+
+Also written as `template`.
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `file.template` (review: the template file is rendered by the platform's renderer, which has Jinja's statements, operators and tests but reads a run variable as vars.<name> and a registered result as result.<name>, and Ansible's src is looked up in a role's templates/ while file.template's is relative to the project directory: rewrite the file's names and the path) | asserted |
+
+| Argument | Becomes |
+|---|---|
+| `src` | `src` |
+| `dest` | `dest` |
+| `trim_blocks` | `trim_blocks` |
+| `lstrip_blocks` | `lstrip_blocks` |
+| `validate` | blocked (`args.unmapped`): file.template does not validate the new content before replacing the file |
+| `backup` | dropped (`module.semantics`): no backup of the old file is kept |
+| `force` | blocked (`args.unmapped`): file.template always makes the file match the template, which is force: true; a file written only when missing is a different task |
+| `newline_sequence` | blocked (`args.unmapped`): the rendered file keeps the template's own newlines |
+| `variable_start_string` | blocked (`args.unmapped`): the template's delimiters are Jinja's own and cannot be changed |
+| `variable_end_string` | blocked (`args.unmapped`): the template's delimiters are Jinja's own and cannot be changed |
+| `block_start_string` | blocked (`args.unmapped`): the template's delimiters are Jinja's own and cannot be changed |
+| `block_end_string` | blocked (`args.unmapped`): the template's delimiters are Jinja's own and cannot be changed |
+| `comment_start_string` | blocked (`args.unmapped`): the template's delimiters are Jinja's own and cannot be changed |
+| `comment_end_string` | blocked (`args.unmapped`): the template's delimiters are Jinja's own and cannot be changed |
+| `output_encoding` | blocked (`args.unmapped`): the rendered file is written as UTF-8 |
+| `mode` | `mode` |
+| `owner` | `owner` |
+| `group` | `group` |
+
 ### `ansible.builtin.lineinfile`
 
 Also written as `lineinfile`.
@@ -454,7 +483,7 @@ Also written as `ios_config`.
 
 | When | Native call | Class |
 |---|---|---|
-| otherwise | `net.ios.config` (review: ios_config sends only the lines missing from the running configuration; net.ios.config sends every line and always reports a change) | imperative |
+| otherwise | `net.ios.config` (review: ios_config sends only the lines missing from the running configuration; net.ios.config sends every line and reports a change only when the device's configuration differs afterwards) | asserted |
 
 | Argument | Becomes |
 |---|---|
@@ -607,7 +636,6 @@ Also written as `win_unzip`.
 | `community.windows.win_firewall_rule`, `win_firewall_rule` | win_firewall_rule finds a rule by its display name, and win.firewall.rule by its Name, which for a rule Ansible made is a GUID; converted, the task would make a second rule beside it. Write win.firewall.rule with the rule's Name (Get-NetFirewallRule shows it) (`module.manual`) |
 | `ansible.windows.win_feature`, `win_feature` | win_feature takes Server Manager names (Web-Server) and win.feature.install DISM's (IIS-WebServerRole), which differ; write the task with the DISM name (`module.manual`) |
 | `community.windows.win_scheduled_task`, `win_scheduled_task` | win_scheduled_task takes lists of actions and triggers; win.schtask registers one of each, so a person chooses them (`module.manual`) |
-| `ansible.builtin.template`, `template` | the platform's renderer has no {% %} statements, and file.template renders {{ }} expressions only, so a template that uses them stays a manual step (`module.manual`) |
 | `ansible.builtin.assert`, `assert` | no native method stops a run on a condition; express it as when on the tasks that must not run (`module.manual`) |
 | `ansible.builtin.fail`, `fail` | no native method fails a run on purpose (`module.manual`) |
 | `ansible.builtin.pause`, `pause` | no native method waits for a person or a timer (`module.manual`) |

@@ -30,7 +30,7 @@ Makes a node from a node definition, with the definition's interfaces, stopped. 
 | `management_interface` | `string` | no | `Ethernet0/0` | The interface that carries the management address. |
 | `management_prefix` | `int` | no | `24` | The management address's prefix length. |
 | `management_gateway` | `string` | no | - | The management network's gateway, the Mgmt-intf VRF's default route. Required with device. |
-| `configuration` | `string` | no | - | Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device. |
+| `configuration` | `string` | no | - | Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device. For an external_connector node it is the connector to join, by its label: System Bridge (the controller's bridge to its own network) or NAT on a controller as installed, or a bridge its administrator added. |
 | `interfaces` | `int` | no | - | The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). Up to 128, and no more than the definition allows, which the controller enforces when the node is made, so a check, which makes nothing, cannot see that limit. |
 | `x` | `int` | no | `0` | The node's place on the lab's canvas, left to right. |
 | `y` | `int` | no | `0` | The node's place on the lab's canvas, top to bottom. |

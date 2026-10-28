@@ -23,9 +23,9 @@ Makes the network named name exist on the device's engine with the declared driv
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The network's name. |
-| `driver` | `string` | no | `bridge` | The network driver: bridge (a private network on the host), or macvlan or ipvlan (containers on the parent interface's own network). |
+| `driver` | `string` | no | `bridge` | The network driver: bridge (a private network on the host), or macvlan or ipvlan (containers on the parent interface's own network). **Choices:** `bridge`, `macvlan`, `ipvlan`. |
 | `internal` | `bool` | no | `false` | Give the network no route outside the host: its containers reach each other and nothing else. |
 | `enable_ipv6` | `bool` | no | `false` | Give the network IPv6 addresses as well as IPv4 ones. Required for an IPv6 subnet. |
 | `subnet` | `string` | no | - | The network's subnet, an address with its prefix length (10.20.0.0/24). Left out, the engine chooses one from its pool. |

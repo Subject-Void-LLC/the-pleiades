@@ -28,4 +28,7 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Module catalog](schemas/module-catalog.json) (data, not a schema: every FQCN's full Manifest)
 - [Ansible module conversions](ansible-modules.md) (what `pleiades forge migrate-playbook` does with each module, and every finding code)
 - [Migration report JSON Schema](schemas/migration-report.json)
+- [Run report JSON Schema](schemas/run-report.json) (`pleiades run --json`, `adhoc --json` and `rollback --json`)
+- [Template filters JSON Schema](schemas/doc-filters.json) (`pleiades doc filters --json`)
+- [Conditions JSON Schema](schemas/doc-conditions.json) (`pleiades doc conditions --json`)
 - [OpenAPI document](schemas/openapi.json) (also served live at `/api/v1/openapi.json`)

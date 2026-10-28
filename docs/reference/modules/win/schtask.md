@@ -24,14 +24,14 @@ Reads the task first (Get-ScheduledTask, its XML definition and its last and nex
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The task's path: \Folder\Name, or Name in the root folder. |
-| `state` | `string` | no | `present` | present registers or updates it; absent removes it; query only reports it. |
+| `state` | `string` | no | `present` | present registers or updates it; absent removes it; query only reports it. **Choices:** `present`, `absent`, `query`. |
 | `execute` | `string` | no | - | The program the task runs. Required with state present, unless xml is given. |
 | `arguments` | `string` | no | - | Its arguments, as one string. |
 | `working_directory` | `string` | no | - | The directory it starts in. |
-| `trigger` | `string` | no | - | When it runs: at_startup, at_logon, daily (at, HH:MM, the device's local time) or once (at, an RFC 3339 time). Required with state present. |
+| `trigger` | `string` | no | - | When it runs: at_startup, at_logon, daily (at, HH:MM, the device's local time) or once (at, an RFC 3339 time). Required with state present. **Choices:** `at_startup`, `at_logon`, `daily`, `once`. |
 | `at` | `string` | no | - | The time of a daily or once trigger. |
 | `run_as` | `string` | no | `SYSTEM` | The account it runs as: SYSTEM, LOCAL SERVICE, NETWORK SERVICE, or an account (DOMAIN\name or name) run with S4U logon and no stored password. |
-| `run_level` | `string` | no | `limited` | Whether it runs with the account's highest privileges. |
+| `run_level` | `string` | no | `limited` | Whether it runs with the account's highest privileges. **Choices:** `limited`, `highest`. |
 | `enabled` | `bool` | no | `true` | Whether the task is enabled. |
 | `description` | `string` | no | - | The task's description. |
 | `xml` | `string` | no | - | A whole task definition, as Export-ScheduledTask writes it, registered as given with state present; what this method's own undo uses. |

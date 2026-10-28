@@ -6,7 +6,7 @@ status: beta
 
 Gathers baseline system facts from the target (OS, kernel, distribution).
 
-Reads a small, fixed set of system facts over SSH and emits each one as a fact, so it is kept as drift data rather than as a value that expires at the end of the run. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell "this device does not say" from "this device says nothing". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.
+Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell "this device does not say" from "this device says nothing". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.
 
 ## Attributes
 
@@ -38,6 +38,13 @@ Reads a small, fixed set of system facts over SSH and emits each one as a fact, 
 | `ansible_memtotal_mb` | `int` | when /proc/meminfo reports it | Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it. |
 | `ansible_processor_count` | `int` | when /proc/cpuinfo reports it | The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo. An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1. |
 | `ansible_uptime_seconds` | `int` | when /proc/uptime reports it | How long the device has been up, in whole seconds, from the first field of /proc/uptime. |
+| `ansible_nodename` | `string` | when the device reports one | The full node name uname -n reports, before ansible_hostname cuts it at the first dot. |
+| `ansible_system` | `string` | when the device reports one | The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin. |
+| `ansible_distribution_major_version` | `string` | when /etc/os-release names a version | VERSION_ID up to its first dot, such as 24 for 24.04. |
+| `ansible_distribution_release` | `string` | when /etc/os-release names a codename | VERSION_CODENAME from /etc/os-release, such as noble. |
+| `ansible_swaptotal_mb` | `int` | when /proc/meminfo reports it | Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap. |
+| `ansible_processor_vcpus` | `int` | when /proc/cpuinfo lists processors | The number of logical processors, counted as the processor entries in /proc/cpuinfo. |
+| `ansible_processor_cores` | `int` | when /proc/cpuinfo reports cpu cores | The cores per processor package, from the first cpu cores field in /proc/cpuinfo. |
 
 ## Undoing this
 

@@ -23,11 +23,11 @@ Runs OSV-Scanner over an image archive (docker save), a directory (recursively, 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
-| `dir` | `string` | no | - | A directory on the device to scan, recursively, whatever its .gitignore files list (see respect_gitignore). One of dir, image_archive and lockfiles. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
+| `dir` | `string` | no | - | A directory on the device to scan, recursively, whatever its .gitignore files list (see respect_gitignore). Give dir, image_archive or lockfiles, never two. |
 | `image_archive` | `string` | no | - | An image archive on the device, as docker save or podman save writes one. |
 | `lockfiles` | `list of string` | no | - | Lockfiles on the device to scan, each recognized by its name (package-lock.json, Cargo.lock, go.mod, requirements.txt and the rest OSV-Scanner reads). |
-| `fail_on` | `string` | no | `high` | The least severity that fails the task: critical, high, medium, low, or any (every finding, scored or not). |
+| `fail_on` | `string` | no | `high` | The least severity that fails the task: critical, high, medium, low, or any (every finding, scored or not). **Choices:** `critical`, `high`, `medium`, `low`, `any`. |
 | `fixable_only` | `bool` | no | `false` | Fail only on vulnerabilities a fixed version exists for; the rest are still reported. |
 | `respect_gitignore` | `bool` | no | `false` | Let the .gitignore files in dir narrow the scan, as git sees the tree. By default they do not: the runbook decides what is scanned, never the tree, so a directory a .gitignore lists (a vendored tree, a build output) is scanned all the same. OSV-Scanner itself never reads lockfiles inside node_modules either way, since the root lockfile already lists what npm installed there. Only with dir. |
 | `allow_empty` | `bool` | no | `false` | Pass, with a warning, when OSV-Scanner finds no package to check. Without it that fails the task, since a scan that saw nothing (a wrong path, or files the scanner could not read) is no evidence of no vulnerability. |

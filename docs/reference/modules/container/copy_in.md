@@ -23,7 +23,7 @@ Makes the file at dest inside the container named name hold content, or the byte
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The container's name. |
 | `dest` | `string` | yes | - | The file's absolute path inside the container; its directory must exist. |
 | `content` | `string` | no | - | The bytes the file should hold. Set content or src, not both. |

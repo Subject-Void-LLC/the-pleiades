@@ -6,7 +6,7 @@ status: beta
 
 Returns a container's last lines of output.
 
-Returns the last tail lines the container named name wrote to standard output and standard error, optionally only since a timestamp or a duration (10m). More than 1 MiB together is refused rather than cut; ask for fewer lines. A container run with a terminal has one stream, returned as stdout. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
+Returns the last tail lines the container named name wrote to standard output and standard error, optionally only since a timestamp or a duration (10m). More than 1 MiB together is refused rather than cut; ask for fewer lines. A container run with a terminal has one stream, returned as stdout. A container that does not exist is not a failure: exists is false and no output is reported, so a later task can decide what to do. It changes nothing, so a check is the same read, an absent container included. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
 
 ## Attributes
 
@@ -23,7 +23,7 @@ Returns the last tail lines the container named name wrote to standard output an
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The container's name. |
 | `tail` | `int` | no | `100` | How many of the last lines to return, from 1 to 10000. |
 | `since` | `string` | no | - | Only lines since this RFC 3339 timestamp, Unix time, or duration (10m). |
@@ -34,9 +34,10 @@ Returns the last tail lines the container named name wrote to standard output an
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | always | The container's name. |
+| `exists` | `bool` | always | Whether a container by that name exists. |
 | `id` | `string` | when the container exists | The container's ID. |
-| `stdout` | `string` | always | What it wrote to standard output. |
-| `stderr` | `string` | always | What it wrote to standard error. |
+| `stdout` | `string` | when the container exists | What it wrote to standard output. |
+| `stderr` | `string` | when the container exists | What it wrote to standard error. |
 
 ## Undoing this
 

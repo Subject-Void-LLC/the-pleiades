@@ -27,12 +27,14 @@ types exist and are ready to record one the first time it happens.
 
 Releases are numbered `MAJOR.MINOR.PATCH`. Every binary reports its own
 (`pleiades version`, `runner version`, `controller version`): a release build's
-version, or `0.0.0-dev+<commit>` for anything else, since no release process stamps
-one at build time yet.
+version, stamped by `make release`, or `0.0.0-dev+<commit>` for any other build.
 
 **Before 1.0.0, a minor release may break compatibility**, and each one is a step
 along a planned ladder rather than a point on a support calendar. A patch release
-never breaks anything. What that means in practice:
+never breaks anything, and it may add: a new method, parameter, runbook keyword or
+template feature (more of Jinja, for example) that nothing already written depends on
+behaving otherwise. A runbook that ran on 0.3.0 runs the same on every 0.3.x. What
+that means in practice:
 
 - Anything documented as `status: beta` or narrower may change shape in the next
   minor release. Check the badge at the top of a page before depending on what it

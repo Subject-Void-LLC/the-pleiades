@@ -26,8 +26,8 @@ Repeats http.check's request and its tests until they pass: the status is one of
 | `url` | `string` | yes | - | The http or https URL to request. |
 | `status_code` | `int or list of int` | no | `200` | The status, or statuses, that pass. |
 | `body_contains` | `string` | no | - | Text the body must contain. |
-| `body_matches` | `string` | no | - | A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches. |
-| `method` | `string` | no | `GET` | GET, or HEAD for the status alone. |
+| `body_matches` | `string` | no | - | A regular expression (RE2, at most 1024 bytes) the body must match. Give body_contains or body_matches, not both. |
+| `method` | `string` | no | `GET` | GET, or HEAD for the status alone. **Choices:** `GET`, `HEAD` (case ignored). |
 | `max_redirects` | `int` | no | `5` | How many redirects to follow, 0 to 10. |
 | `validate_certs` | `bool` | no | `true` | Verify the server's certificate. False is set per task, never by a setting, and is visible in the runbook that sets it. |
 | `timeout` | `int` | no | `300` | How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0, and at most 86400. |

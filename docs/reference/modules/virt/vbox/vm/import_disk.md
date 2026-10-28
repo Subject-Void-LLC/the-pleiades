@@ -26,7 +26,7 @@ Makes sure a VM of this name exists, creating it from a disk image already on th
 | `name` | `string` | yes | - | The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted. |
 | `path` | `string` | yes | - | The disk image's absolute path on the host. It may not hold a quote, a wildcard or a control character. |
 | `os_type` | `string` | yes | - | The VM's guest OS type, as VBoxManage list ostypes names it: Windows2025_64 for Windows Server 2025, Windows2022_64 for 2022, Ubuntu_64 for Ubuntu. VirtualBox tunes the VM to it, and virt.vbox.vm.clone seeds a clone of a Windows type with a Windows answer file. |
-| `firmware` | `string` | no | `auto` | What the VM boots with. auto reads the disk's first sectors: EFI for a GUID partition table, BIOS for a master boot record. |
+| `firmware` | `string` | no | `auto` | What the VM boots with. auto reads the disk's first sectors: EFI for a GUID partition table, BIOS for a master boot record. **Choices:** `auto`, `bios`, `efi`. |
 | `timeout` | `int` | no | `3600` | How many seconds the copy may take. A disk of many gigabytes takes minutes. |
 
 ## Returns

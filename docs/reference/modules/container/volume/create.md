@@ -23,9 +23,9 @@ Makes the volume named name exist on the device's engine, with the local driver 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The volume's name. |
-| `driver` | `string` | no | `local` | The volume driver: local, the engine's own, which keeps the volume's data on the host. |
+| `driver` | `string` | no | `local` | The volume driver: local, the engine's own, which keeps the volume's data on the host. **Choices:** `local`. |
 | `labels` | `dict` | no | - | Labels on the volume. Labels it has beyond these are allowed. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 

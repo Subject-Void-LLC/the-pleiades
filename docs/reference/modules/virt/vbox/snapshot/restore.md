@@ -25,7 +25,7 @@ Restores a VM to a snapshot. Everything the VM did since that snapshot is discar
 | --- | --- | --- | --- | --- |
 | `vm` | `string` | yes | - | The VM whose snapshot this is, named as for virt.vbox.vm.start. |
 | `name` | `string` | yes | - | The snapshot's name, under the same rule as a VM's. VirtualBox lets two snapshots share a name; virt.vbox.snapshot.take never makes a second, and the methods that find a snapshot by name refuse one that matches more than one unless uuid says which. |
-| `uuid` | `string` | no | - | The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be one of them. |
+| `uuid` | `string` | no | - | The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be the UUID of a snapshot of that name. |
 
 ## Returns
 

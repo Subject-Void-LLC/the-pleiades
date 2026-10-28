@@ -1,0 +1,176 @@
+{
+  "$defs": {
+    "DocRoot": {
+      "description": "DocRoot is one name a template or condition reads, and what it holds.",
+      "properties": {
+        "holds": {
+          "description": "Holds says what the name holds, in a sentence.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the name as a template or condition writes it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "holds"
+      ],
+      "type": "object"
+    },
+    "ExcludedFilter": {
+      "description": "ExcludedFilter is a Jinja2 filter this renderer refuses on purpose, and why: the list this file's opening comment gives.",
+      "properties": {
+        "name": {
+          "description": "Name is the Jinja2 name left out.",
+          "type": "string"
+        },
+        "why": {
+          "description": "Why says why it is left out.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "why"
+      ],
+      "type": "object"
+    },
+    "FilterDoc": {
+      "description": "FilterDoc is one filter as `pleiades doc filters` shows it.",
+      "properties": {
+        "description": {
+          "description": "Description says what it returns.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the filter's name, as a template writes it after |.",
+          "type": "string"
+        },
+        "usage": {
+          "description": "Usage is how a template calls it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "usage",
+        "description"
+      ],
+      "type": "object"
+    },
+    "SyntaxDoc": {
+      "description": "SyntaxDoc is one statement, operator or test.",
+      "properties": {
+        "description": {
+          "description": "Description says what it does.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the statement, operator or test.",
+          "type": "string"
+        },
+        "usage": {
+          "description": "Usage is how a template writes it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "usage",
+        "description"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "FiltersTopic is `pleiades doc filters --json`: what a task parameter's {{ }} template may read and call, the whole closed set. Printed by pleiades doc filters --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets. So a reader ignores a field it does not know, treats a status or kind it does not know as not a pass, and refuses a major version it does not know.",
+  "properties": {
+    "excluded": {
+      "description": "Excluded are the Jinja2 filters left out on purpose, each with why.",
+      "items": {
+        "$ref": "#/$defs/ExcludedFilter"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "filters": {
+      "description": "Filters are every filter a template may use, by name.",
+      "items": {
+        "$ref": "#/$defs/FilterDoc"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "not_supported": {
+      "description": "NotSupported are the Jinja2 forms this renderer does not have, each with why.",
+      "items": {
+        "$ref": "#/$defs/ExcludedFilter"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "operators": {
+      "description": "Operators are every operator, loosest first.",
+      "items": {
+        "$ref": "#/$defs/SyntaxDoc"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "roots": {
+      "description": "Roots are the names a template may read.",
+      "items": {
+        "$ref": "#/$defs/DocRoot"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "description": "SchemaVersion is this document's major version, FiltersVersion.",
+      "type": "integer"
+    },
+    "statements": {
+      "description": "Statements are every statement a template may use.",
+      "items": {
+        "$ref": "#/$defs/SyntaxDoc"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "tests": {
+      "description": "Tests are every test, written x is name or x is not name.",
+      "items": {
+        "$ref": "#/$defs/SyntaxDoc"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "roots",
+    "filters",
+    "excluded",
+    "statements",
+    "operators",
+    "tests",
+    "not_supported"
+  ],
+  "title": "Pleiades doc filters",
+  "type": "object"
+}

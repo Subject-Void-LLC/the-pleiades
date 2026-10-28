@@ -24,7 +24,7 @@ Makes sure a VM has the CPUs and memory asked for: a size, or memory_mb and cpus
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted. |
-| `size` | `string` | no | - | The size to give the VM, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Give size, or memory_mb, cpus or both, not size with either. |
+| `size` | `string` | no | - | The size to give the VM, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Give size, or memory_mb, cpus or both, not size with either. **Choices:** `xsmall`, `small`, `medium`, `large`, `xlarge`. |
 | `memory_mb` | `int` | no | - | The memory to give it, in megabytes. |
 | `cpus` | `int` | no | - | The virtual CPU count to give it. |
 

@@ -26,7 +26,7 @@ Reads and validates the same manifest gate.run reads, under the same rules, and 
 | `manifest` | `string` | yes | - | The gate manifest's path on the device. |
 | `kinds` | `list of string` | no | - | Mark as selected only checks of these kinds, as gate.run would select them. |
 | `checks` | `list of string` | no | - | Mark as selected only these checks, by name. |
-| `heavy` | `string` | no | `include` | include, exclude or only, as for gate.run. |
+| `heavy` | `string` | no | `include` | include, exclude or only, as for gate.run. **Choices:** `include`, `exclude`, `only`. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

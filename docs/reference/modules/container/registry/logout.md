@@ -23,7 +23,7 @@ Removes registry's login from the engine's login file, keeping its other logins 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `registry` | `string` | yes | - | The registry host, as container.registry.login named it. |
 | `username` | `string` | no | - | The account the login must be for; when it is another's, the task is refused and nothing is removed. The undo of a login sets it, so a rollback never removes a login someone has written since. |
 | `auth_file` | `string` | no | - | The login file, an absolute path on the engine's machine. Absent means the engine's own default. |

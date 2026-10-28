@@ -444,6 +444,7 @@ only reached its end through a fallback.
 ```console
 $ pleiades adhoc ubuntu-lab exec.command argv:='[cat, /etc/hostname]' --json
 {
+  "schema_version": 1,
   "runbook": "adhoc exec.command on ubuntu-lab",
   "mode": "execute",
   ...
@@ -492,6 +493,15 @@ question the run could not answer. Nothing stops either run; a check, which chan
 and a stat whose name says it holds a secret (`password`, `token`, `private_key` and
 the like) reads `$encrypted$` in both. Characters a terminal would act on are written
 as `\u` escapes, so the document is safe to print.
+
+The document is a versioned contract with a published
+[JSON Schema](reference/schemas/run-report.json). `schema_version` is its major version: it goes
+up only when a field is removed or renamed or changes meaning. A newer `pleiades` of the same
+version may add fields and new statuses, so a program reading the report ignores a field it does
+not know, treats a status it does not know as not a pass, and refuses a version it does not know.
+`pleiades doc filters --json` and `pleiades doc conditions --json` follow the same rule, with
+their own [filters](reference/schemas/doc-filters.json) and
+[conditions](reference/schemas/doc-conditions.json) schemas.
 
 `adhoc` is a Crawl-tier command only. The Controller has no ad-hoc path: everything it
 runs goes through a saved template.
