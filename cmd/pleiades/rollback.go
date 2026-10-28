@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/rollback"
@@ -60,37 +61,12 @@ func usageLine(command string, fs *flag.FlagSet) string {
 	return b.String()
 }
 
-// rollbackReport is a rollback's own part of the run report.
-type rollbackReport struct {
-	// Of is the run undone.
-	Of string `json:"of"`
-	// Levels are the undo's tasks in the order they run.
-	Levels [][]rollback.Step `json:"levels,omitempty"`
-	// Left are changes left in place, by --leave.
-	Left []rollback.Gap `json:"left,omitempty"`
-	// Unknown are effects nobody can say were changes: failed actions and
-	// an unsealed journal.
-	Unknown []rollback.Gap `json:"unknown,omitempty"`
-	// UnacceptedUnknown counts Unknown not named with --allow-unknown.
-	UnacceptedUnknown int `json:"unaccepted_unknown"`
-	// AlreadyUndone are changes an earlier rollback of the run undid.
-	AlreadyUndone []rollback.Gap `json:"already_undone,omitempty"`
-	// NothingToUndo are changes whose task's rollback: list is empty: its
-	// runbook says undoing them means doing nothing.
-	NothingToUndo []rollback.Gap `json:"nothing_to_undo,omitempty"`
-	// Problems are why the rollback was refused, when it was.
-	Problems []rollback.Problem `json:"problems,omitempty"`
-	// Provisional are, in a check, the steps on a device an earlier step of
-	// the rollback changes first: their checks meet the device as it is now.
-	Provisional []provisionalStep `json:"provisional,omitempty"`
-}
+// rollbackReport is a rollback's own part of the run report
+// (clireport.RollbackReport).
+type rollbackReport = clireport.RollbackReport
 
 // provisionalStep is one step whose check is provisional, and why.
-type provisionalStep struct {
-	Name   string `json:"name"`
-	Device string `json:"device"`
-	Reason string `json:"reason"`
-}
+type provisionalStep = clireport.ProvisionalStep
 
 // provisionalSteps lists levels' provisional steps, in the order they run.
 func provisionalSteps(levels [][]rollback.Step, nodes map[string]string) []provisionalStep {

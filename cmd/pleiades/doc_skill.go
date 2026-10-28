@@ -273,11 +273,20 @@ const skillGuide = "## Starting in a project\n\n" +
 	"- The file opens with a comment saying what it does, its blast radius, what it changes, and how to undo it.\n" +
 	"- `register: <name>` keeps a task's result; a later `when:` reads it as `result.<name>`.\n" +
 	"- A condition (`when:`, `when_or:`, `when_cel:`) is a CEL expression such as `result.kernel.rc == 0`; a parameter\n" +
-	"  holding `{{ }}` is a template, rendered from `vars`, `nodes`, `result` and `device` when the task runs.\n" +
+	"  holding `{{`, `{%` or `{#` is a template, rendered from `vars`, `nodes`, `result` and `device` when the task runs.\n" +
 	"  `pleiades doc filters` lists every template filter (there is no `replace` or `split`) and\n" +
 	"  `pleiades doc conditions` every function a condition may call. `device` is the device the task runs on\n" +
 	"  (`{{ device.name }}`, `'hq' in device.tags`); a task reading it is decided on each device. Its properties are\n" +
 	"  only the ones its device type reads (such as `host`): group devices of your own with tags.\n" +
+	"- A template may write `{% if %}`, `{% elif %}` and `{% else %}`, `{% for x in list %}` (with `loop.index`,\n" +
+	"  `loop.first`, `loop.last` and the rest of `loop.*`), `{% set n = x %}`, `{# comments #}`, literals, the\n" +
+	"  comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and`, `or`, `not`, `~` to join text, and the tests\n" +
+	"  `is defined` and `is none`. Arithmetic, an inline `a if c else b`, a computed subscript `a[b]` (a literal key or\n" +
+	"  index is fine), `macro` and `include` are refused. In command text a comparison, `in`, `not` or test inside\n" +
+	"  `{{ }}` writes only `true` or `false` and needs no `| quote`; anything joined with `~` (or handed back by `and`\n" +
+	"  or `or`) still does: `{{ (vars.name ~ '.conf') | quote }}`. Wrap text meant for the device, such as\n" +
+	"  `printf '{%s}'`, in `{% raw %}...{% endraw %}`. `file.template` reads its template with `trim_blocks` on and\n" +
+	"  `lstrip_blocks` off, as Ansible's template module does; set either on the task.\n" +
 	"- `target: <device>` inside a task's parameters, beside the others, runs that task on one device other than the\n" +
 	"  runbook's `hosts:`; a runbook may leave out `hosts:` and give each task its own target.\n" +
 	"- `timeout:` on a task is seconds (`300`) or a duration (`150s`, `5m`). YAML anchors and aliases work in a task\n" +
@@ -423,6 +432,11 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  them with `net.ios.facts` before configuring one.\n" +
 	"- `when:` goes on the tasks inside a block, never on the block itself, which is refused.\n" +
 	"- `wait.routes` waits for a Cisco IOS router's routes too (`show ip route`, the global table), as for FRR.\n" +
+	"  With `state: absent` it waits for the prefixes' routes to go (a withdrawn network, a failed link); with\n" +
+	"  `next_hops` too, until each named prefix's route uses none of those next hops: a failover off them.\n" +
+	"- `net.batfish.check`'s `network:` begins the name of the Batfish network the task makes (default `pleiades`,\n" +
+	"  then a random suffix; the task deletes only its own), and the whole name comes back as the `network` stat. On a\n" +
+	"  Batfish several labs share, give each lab its own (`network: pleiades-<lab>`).\n" +
 	"- In `net.batfish.check`, `route` and `no_route` take `vrf:` (without it every VRF counts, a front door's default\n" +
 	"  route included), and `reach.from: <node>[<interface>]` is the node sending from that interface. Batfish does not\n" +
 	"  model DMVPN (NHRP, mGRE): accept those by name with that reason and prove the overlay on the live network.\n" +

@@ -4,14 +4,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"path/filepath"
-	"slices"
-	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/jsonschema"
 )
 
 // schemaFixture is a playbook whose report exercises every field: a
@@ -28,6 +26,8 @@ const schemaFixture = `- hosts: web
       notify: restart
     - name: render
       ansible.builtin.template: {src: a.j2, dest: /etc/a}
+    - name: wait for a person
+      ansible.builtin.pause: {prompt: continue}
 `
 
 // TestReportSchema_MatchesModel validates a real report against the
@@ -62,175 +62,16 @@ func TestReportSchema_MatchesModel(t *testing.T) {
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatal(err)
 	}
-	v := &schemaValidator{defs: schema["$defs"].(map[string]any), seen: map[string]bool{}, seenNull: map[string]bool{}, nullable: map[string]bool{}}
-	for _, problem := range v.check("report", report, schema) {
+	v := jsonschema.NewValidator(schema)
+	for _, problem := range v.Check("report", report, schema) {
 		t.Error(problem)
 	}
-	for _, declared := range v.declared {
-		if !v.seen[declared] {
+	for _, declared := range v.Declared {
+		if !v.Seen[declared] {
 			t.Errorf("the fixture never gives %s a value, so the schema's claim about it is untested", declared)
 		}
-		if v.nullable[declared] && !v.seenNull[declared] {
+		if v.Nullable[declared] && !v.SeenNull[declared] {
 			t.Errorf("the fixture never leaves %s null, so the schema's null alternative is untested", declared)
 		}
 	}
-}
-
-// schemaValidator checks a decoded JSON value against a generated schema.
-type schemaValidator struct {
-	defs map[string]any
-	// declared and seen are every "Type.property" the schema declares and
-	// the ones the value filled; nullable and seenNull are the ones whose
-	// schema admits null (a slice's aside, which one report cannot both
-	// fill and leave empty) and the ones the value left null.
-	declared []string
-	seen     map[string]bool
-	nullable map[string]bool
-	seenNull map[string]bool
-}
-
-// check returns every way v breaks schema, at path.
-func (s *schemaValidator) check(path string, v any, schema map[string]any) []string {
-	if ref, ok := schema["$ref"].(string); ok {
-		name := strings.TrimPrefix(ref, "#/$defs/")
-		def, _ := s.defs[name].(map[string]any)
-		return s.object(path, name, v, def)
-	}
-	if options, ok := schema["oneOf"].([]any); ok {
-		for _, o := range options {
-			if len(s.check(path, v, o.(map[string]any))) == 0 {
-				return nil
-			}
-		}
-		return []string{fmt.Sprintf("%s matches none of its schema's alternatives", path)}
-	}
-	if enum, ok := schema["enum"].([]any); ok {
-		if !slices.Contains(enum, v) {
-			return []string{fmt.Sprintf("%s = %v is not one of %v", path, v, enum)}
-		}
-		return nil
-	}
-	if !typeMatches(v, schema["type"]) {
-		return []string{fmt.Sprintf("%s = %v is not %v", path, v, schema["type"])}
-	}
-	// A producer is held to the values it publishes as known, though a
-	// reader is not: what this producer writes, it has to have declared.
-	if known := asList(schema["examples"]); known != nil {
-		if str, ok := v.(string); ok && !slices.Contains(known, any(str)) {
-			return []string{fmt.Sprintf("%s = %q is not one of the values the schema publishes, %v", path, str, known)}
-		}
-	}
-	if schema["properties"] != nil {
-		return s.object(path, "Report", v, schema)
-	}
-	var problems []string
-	if values, ok := schema["additionalProperties"].(map[string]any); ok {
-		obj, _ := v.(map[string]any)
-		for _, key := range sortedKeys(obj) {
-			problems = append(problems, s.check(path+"."+key, obj[key], values)...)
-		}
-	}
-	if items, ok := v.([]any); ok {
-		for i, item := range items {
-			problems = append(problems, s.check(fmt.Sprintf("%s[%d]", path, i), item, schema["items"].(map[string]any))...)
-		}
-	}
-	return problems
-}
-
-// object checks an object against its definition, typeName naming it.
-func (s *schemaValidator) object(path, typeName string, v any, def map[string]any) []string {
-	obj, ok := v.(map[string]any)
-	if !ok {
-		return []string{fmt.Sprintf("%s is not an object", path)}
-	}
-	props := def["properties"].(map[string]any)
-	var problems []string
-	for _, name := range sortedKeys(props) {
-		key := typeName + "." + name
-		if !slices.Contains(s.declared, key) {
-			s.declared = append(s.declared, key)
-		}
-		value, present := obj[name]
-		if present && value != nil {
-			s.seen[key] = true
-		}
-		if admitsNull(props[name].(map[string]any)) {
-			s.nullable[key] = true
-			if present && value == nil {
-				s.seenNull[key] = true
-			}
-		}
-		if !present {
-			if required, _ := def["required"].([]any); slices.Contains(required, any(name)) {
-				problems = append(problems, fmt.Sprintf("%s lacks required %s", path, name))
-			}
-			continue
-		}
-		problems = append(problems, s.check(path+"."+name, value, props[name].(map[string]any))...)
-	}
-	for name := range obj {
-		if _, ok := props[name]; !ok {
-			problems = append(problems, fmt.Sprintf("%s has %s, which the schema does not declare", path, name))
-		}
-	}
-	return problems
-}
-
-// admitsNull reports whether a property's schema offers null as its own
-// alternative: a pointer's oneOf, or an enum listing null.
-func admitsNull(schema map[string]any) bool {
-	for _, o := range asList(schema["oneOf"]) {
-		if o.(map[string]any)["type"] == "null" {
-			return true
-		}
-	}
-	return slices.Contains(asList(schema["enum"]), nil)
-}
-
-// asList returns v as a list, or nil.
-func asList(v any) []any {
-	list, _ := v.([]any)
-	return list
-}
-
-// typeMatches reports whether v is of JSON type want: one name, or a list.
-func typeMatches(v any, want any) bool {
-	names, _ := want.([]any)
-	if name, ok := want.(string); ok {
-		names = []any{name}
-	}
-	for _, name := range names {
-		switch name {
-		case "string":
-			if _, ok := v.(string); ok {
-				return true
-			}
-		case "integer":
-			if f, ok := v.(float64); ok && f == float64(int64(f)) {
-				return true
-			}
-		case "number":
-			if _, ok := v.(float64); ok {
-				return true
-			}
-		case "boolean":
-			if _, ok := v.(bool); ok {
-				return true
-			}
-		case "array":
-			if _, ok := v.([]any); ok {
-				return true
-			}
-		case "object":
-			if _, ok := v.(map[string]any); ok {
-				return true
-			}
-		case "null":
-			if v == nil {
-				return true
-			}
-		}
-	}
-	return false
 }

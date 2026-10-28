@@ -18,6 +18,7 @@ import (
 // jsonReport is the documented shape of a --json document, decoded
 // strictly: a field the command stops writing, or renames, fails here.
 type jsonReport struct {
+	SchemaVersion    int    `json:"schema_version"`
 	Runbook          string `json:"runbook"`
 	Mode             string `json:"mode"`
 	Nodes            int    `json:"nodes"`
@@ -47,6 +48,9 @@ type jsonReport struct {
 		Unreached        bool           `json:"unreached"`
 		RescuedBy        string         `json:"rescued_by"`
 		Undoes           string         `json:"undoes"`
+		Label            string         `json:"label"`
+		Ignored          bool           `json:"ignored"`
+		Retried          bool           `json:"retried"`
 		Reason           string         `json:"reason"`
 		AllowedUnchecked bool           `json:"allowed_unchecked"`
 		Warnings         []string       `json:"warnings"`

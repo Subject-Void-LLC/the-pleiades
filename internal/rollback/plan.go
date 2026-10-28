@@ -135,10 +135,13 @@ type Step struct {
 
 // Gap is a change the plan does not undo, and why.
 type Gap struct {
-	Node       string `json:"node"`
+	// Node is the node, in the run being undone, whose change this is.
+	Node string `json:"node"`
+	// DeviceID and DeviceName name the device the node changed, when one.
 	DeviceID   string `json:"device_id,omitempty"`
 	DeviceName string `json:"device,omitempty"`
-	Reason     string `json:"reason"`
+	// Reason says why the plan does not undo it.
+	Reason string `json:"reason"`
 }
 
 // Plan is a rollback the planner will stand behind.
@@ -183,10 +186,14 @@ func (p Plan) Steps() []Step {
 
 // Problem is one reason the plan was refused.
 type Problem struct {
-	Node       string `json:"node,omitempty"`
+	// Node is the node, in the run being undone, the problem is about, when
+	// one.
+	Node string `json:"node,omitempty"`
+	// DeviceID and DeviceName name the device it concerns, when one.
 	DeviceID   string `json:"device_id,omitempty"`
 	DeviceName string `json:"device,omitempty"`
-	Reason     string `json:"reason"`
+	// Reason says why the plan was refused.
+	Reason string `json:"reason"`
 	// Kind says which sort of refusal this is when there are several to
 	// tell apart: one of the Kind constants for a later run, empty for
 	// every other refusal.

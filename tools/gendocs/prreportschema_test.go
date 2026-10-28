@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/jsonschema"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
@@ -102,12 +103,12 @@ func TestPRReportSchema_MatchesModel(t *testing.T) {
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatal(err)
 	}
-	v := &schemaValidator{defs: schema["$defs"].(map[string]any), seen: map[string]bool{}, seenNull: map[string]bool{}, nullable: map[string]bool{}}
-	for _, problem := range v.check("report", report, schema) {
+	v := jsonschema.NewValidator(schema)
+	for _, problem := range v.Check("report", report, schema) {
 		t.Error(problem)
 	}
-	for _, declared := range v.declared {
-		if !v.seen[declared] {
+	for _, declared := range v.Declared {
+		if !v.Seen[declared] {
 			t.Errorf("the fixture never gives %s a value, so the schema's claim about it is untested", declared)
 		}
 	}

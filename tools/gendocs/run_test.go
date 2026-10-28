@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 )
 
 // TestRun_Idempotent runs the full generator twice into a scratch working
@@ -26,7 +28,11 @@ func TestRun_Idempotent(t *testing.T) {
 	// The report schemas' descriptions are their models' doc comments, read
 	// from source at the repository-relative paths the generator is run
 	// from; the scratch root gets those inputs.
-	for _, file := range append([]string{reportModelFile}, prReportModelFiles...) {
+	models := append([]string{reportModelFile}, prReportModelFiles...)
+	for _, s := range clireport.Schemas {
+		models = append(models, s.ModelFiles...)
+	}
+	for _, file := range models {
 		model, err := os.ReadFile(filepath.Join(origWD, "..", "..", file))
 		if err != nil {
 			t.Fatal(err)
@@ -89,6 +95,9 @@ func TestRun_Idempotent(t *testing.T) {
 	assertExists(filepath.Join(outputDir, "schemas", "inventory.schema.json"))
 	assertExists(filepath.Join(outputDir, "schemas", "module-catalog.json"))
 	assertExists(filepath.Join(outputDir, "schemas", "migration-report.json"))
+	for _, s := range clireport.Schemas {
+		assertExists(filepath.Join(outputDir, "schemas", s.File))
+	}
 	assertExists(filepath.Join(outputDir, "ansible-modules.md"))
 	assertExists(filepath.Join(wellKnownDir, "runbook.schema.json"))
 	assertExists(filepath.Join(wellKnownDir, "inventory.schema.json"))

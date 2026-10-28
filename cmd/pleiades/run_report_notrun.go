@@ -30,7 +30,7 @@ const (
 // in rep's plan that has no result in rep.Tasks, in the plan's order. A
 // group (block or parallel) is not a task of its own, so only its tasks
 // are listed; a task --tags left out was never planned, and is not listed.
-func (rep *runReport) addNotRun(reason string) {
+func addNotRun(rep *runReport, reason string) {
 	ran := make(map[string]bool, len(rep.Tasks))
 	for _, t := range rep.Tasks {
 		// A task that ran more than once has one entry per run, its id with

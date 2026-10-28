@@ -9,7 +9,7 @@ func TestAddNotRun_ATaskThatRanAsTriesIsNotListed(t *testing.T) {
 		Plan:  []planSection{{Tasks: []planTask{{ID: "tasks[0]", Selected: true}, {ID: "tasks[1]", Selected: true}}}},
 		Tasks: []taskReport{{ID: "tasks[0].attempt[0]", Status: statusFailed, Retried: true}, {ID: "tasks[0].attempt[1]", Status: statusOK}},
 	}
-	rep.addNotRun(stoppedReason(rep.Tasks))
+	addNotRun(rep, stoppedReason(rep.Tasks))
 	if len(rep.Tasks) != 3 || rep.Tasks[2].ID != "tasks[1]" {
 		t.Fatalf("tasks %+v; want only tasks[1] listed as not run", rep.Tasks)
 	}

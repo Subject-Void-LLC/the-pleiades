@@ -367,6 +367,11 @@ func printParams(doc collection.Doc) {
 			req = ", required"
 		}
 		fmt.Printf("  %-20s %s%s\n    %s\n", p.Name, p.Type, req, p.Description)
+		// A closed set is printed on its own line, so an author reads the
+		// values the method takes rather than guessing one (Phase 131, R2).
+		if len(p.Choices) > 0 {
+			fmt.Printf("    choices: %s\n", p.ChoiceList())
+		}
 	}
 }
 

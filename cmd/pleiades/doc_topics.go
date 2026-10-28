@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 )
@@ -24,40 +25,37 @@ const (
 // templateRoots are the names a task parameter's template may read, each of
 // engine.TemplateRoots (TestDocTopics holds the two equal).
 var templateRoots = []docRoot{
-	{"device", "the device the task runs on: device.name, device.id, device.tags, device.capabilities, device.state and device.properties.<key> (only the keys its type reads, such as host, and never a secret); a task reading it renders once per device, and a target may not read it"},
-	{"vars", "the run's variables (pleiades run -e key=value, a launch's extra variables); never a secret"},
-	{"result", "result.<register>: the result an earlier task registered, when one device (or no device) wrote it"},
-	{"nodes", "nodes.<register>[\"<device id>\"]: an earlier task's registered result on each device, by the device's inventory id"},
-	{"error", "in a rescue task only: the failure it answers (error.message, error.task, error.name, error.method, error.device, error.unreached)"},
-	{"secret", "secret.<name>.<field>: a named secret (pleiades add-secret), only in a parameter whose method resolves one; never rendered into the runbook or its output"},
+	{Name: "device", Holds: "the device the task runs on: device.name, device.id, device.tags, device.capabilities, device.state and device.properties.<key> (only the keys its type reads, such as host, and never a secret); a task reading it renders once per device, and a target may not read it"},
+	{Name: "vars", Holds: "the run's variables (pleiades run -e key=value, a launch's extra variables); never a secret"},
+	{Name: "result", Holds: "result.<register>: the result an earlier task registered, when one device (or no device) wrote it"},
+	{Name: "nodes", Holds: "nodes.<register>[\"<device id>\"]: an earlier task's registered result on each device, by the device's inventory id"},
+	{Name: "error", Holds: "in a rescue task only: the failure it answers (error.message, error.task, error.name, error.method, error.device, error.unreached)"},
+	{Name: "secret", Holds: "secret.<name>.<field>: a named secret (pleiades add-secret), only in a parameter whose method resolves one; never rendered into the runbook or its output"},
 }
 
 // conditionRoots are the names a condition may read.
 var conditionRoots = []docRoot{
-	{"device", "the device the task decides on, as in templates: 'hq' in device.tags runs the task only on the devices tagged hq"},
-	{"result", "result.<register>: an earlier task's registered result, as in templates"},
-	{"nodes", "nodes.<register>[\"<device id>\"]: each device's registered result"},
-	{"vars", "the run's variables"},
-	{"stat", "the same registered results as nodes, kept for older runbooks"},
-	{"error", "in a rescue task only: the failure it answers (error.message, error.task, error.name, error.method, error.device, error.unreached)"},
+	{Name: "device", Holds: "the device the task decides on, as in templates: 'hq' in device.tags runs the task only on the devices tagged hq"},
+	{Name: "result", Holds: "result.<register>: an earlier task's registered result, as in templates"},
+	{Name: "nodes", Holds: "nodes.<register>[\"<device id>\"]: each device's registered result"},
+	{Name: "vars", Holds: "the run's variables"},
+	{Name: "stat", Holds: "the same registered results as nodes, kept for older runbooks"},
+	{Name: "error", Holds: "in a rescue task only: the failure it answers (error.message, error.task, error.name, error.method, error.device, error.unreached)"},
 }
 
 // docRoot is one name a template or condition reads, and what it holds.
-type docRoot struct {
-	Name  string `json:"name"`
-	Holds string `json:"holds"`
-}
+type docRoot = clireport.DocRoot
 
-// filtersTopic is `pleiades doc filters --json`'s model.
-type filtersTopic struct {
-	Roots    []docRoot               `json:"roots"`
-	Filters  []render.FilterDoc      `json:"filters"`
-	Excluded []render.ExcludedFilter `json:"excluded"`
-}
+// filtersTopic is `pleiades doc filters --json`'s model, in
+// internal/clireport so tools/gendocs publishes its schema.
+type filtersTopic = clireport.FiltersTopic
 
 // printTemplateFilters is `pleiades doc filters`.
 func printTemplateFilters(asJSON bool) error {
-	topic := filtersTopic{Roots: templateRoots, Filters: render.Filters(), Excluded: render.ExcludedFilters()}
+	topic := filtersTopic{
+		SchemaVersion: clireport.FiltersVersion, Roots: templateRoots, Filters: render.Filters(), Excluded: render.ExcludedFilters(),
+		Statements: render.Statements(), Operators: render.Operators(), Tests: render.Tests(), NotSupported: render.NotSupported(),
+	}
 	if asJSON {
 		return writeJSON(os.Stdout, topic)
 	}
@@ -73,22 +71,35 @@ func printTemplateFilters(asJSON bool) error {
 	for _, e := range topic.Excluded {
 		fmt.Printf("  %-14s %s\n", e.Name, e.Why)
 	}
-	fmt.Println("\nThere are no {% %} statements, no loops and no arithmetic. A condition (when:) is CEL, not a template: pleiades doc conditions.")
+	printSyntax("Statements", topic.Statements)
+	printSyntax("Operators, loosest first", topic.Operators)
+	printSyntax("Tests, written x is name or x is not name", topic.Tests)
+	fmt.Println("\nNot supported:")
+	for _, e := range topic.NotSupported {
+		fmt.Printf("  %-14s %s\n", e.Name, e.Why)
+	}
+	fmt.Println("\nA task's condition (when:) is CEL, not a template: pleiades doc conditions.")
 	return nil
 }
 
-// conditionsTopic is `pleiades doc conditions --json`'s model.
-type conditionsTopic struct {
-	Forms     []docRoot                 `json:"forms"`
-	Roots     []docRoot                 `json:"roots"`
-	Libraries []engine.ConditionLibrary `json:"libraries"`
+// printSyntax prints one list of statements, operators or tests under its
+// heading.
+func printSyntax(heading string, docs []render.SyntaxDoc) {
+	fmt.Printf("\n%s:\n", heading)
+	for _, d := range docs {
+		fmt.Printf("  %-36s %s\n", d.Usage, d.Description)
+	}
 }
+
+// conditionsTopic is `pleiades doc conditions --json`'s model, in
+// internal/clireport beside filtersTopic.
+type conditionsTopic = clireport.ConditionsTopic
 
 // conditionForms are the three ways a task is gated.
 var conditionForms = []docRoot{
-	{"when", "a list of CEL expressions, all of which must be true (Ansible's when)"},
-	{"when_or", "a list of CEL expressions, any one of which must be true"},
-	{"when_cel", "one CEL expression"},
+	{Name: "when", Holds: "a list of CEL expressions, all of which must be true (Ansible's when)"},
+	{Name: "when_or", Holds: "a list of CEL expressions, any one of which must be true"},
+	{Name: "when_cel", Holds: "one CEL expression"},
 }
 
 // printConditions is `pleiades doc conditions`.
@@ -97,7 +108,7 @@ func printConditions(asJSON bool) error {
 	if err != nil {
 		return err
 	}
-	topic := conditionsTopic{Forms: conditionForms, Roots: conditionRoots, Libraries: libs}
+	topic := conditionsTopic{SchemaVersion: clireport.ConditionsVersion, Forms: conditionForms, Roots: conditionRoots, Libraries: libs}
 	if asJSON {
 		return writeJSON(os.Stdout, topic)
 	}
