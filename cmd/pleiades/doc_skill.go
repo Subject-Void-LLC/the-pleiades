@@ -416,6 +416,12 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  `virt.cml.capture.stop` (with `dest:`) capture a link's packets into the project, where `net.pcap.summary`\n" +
 	"  counts them as encrypted, key exchange or cleartext per address pair: the proof that traffic crossed encrypted.\n" +
 	"  An IOL node's interfaces start shut down, so an unconfigured link carries and captures nothing.\n" +
+	"- Test a failure by stopping links, never nodes: a stopped node loses its running configuration, and a shared\n" +
+	"  controller can refuse to start it again (HTTP 400 while other labs use its capacity). Put the links' restart in the\n" +
+	"  block's `always:`, so a failed proof still hands back a whole lab. `virt.cml.lab.info` shows every node's state and\n" +
+	"  link before you change one. An IOL node's ports are `Ethernet0/0` to `Ethernet0/3`, never `GigabitEthernet`; read\n" +
+	"  them with `net.ios.facts` before configuring one.\n" +
+	"- `when:` goes on the tasks inside a block, never on the block itself, which is refused.\n" +
 	"- `wait.routes` waits for a Cisco IOS router's routes too (`show ip route`, the global table), as for FRR.\n" +
 	"- In `net.batfish.check`, `route` and `no_route` take `vrf:` (without it every VRF counts, a front door's default\n" +
 	"  route included), and `reach.from: <node>[<interface>]` is the node sending from that interface. Batfish does not\n" +
