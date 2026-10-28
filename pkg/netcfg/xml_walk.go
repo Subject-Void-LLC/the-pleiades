@@ -114,7 +114,11 @@ func (w *xmlWalk) open(t xml.StartElement, parent *xmlFrame) error {
 			}
 		}
 	}
-	w.stack = append(w.stack, &xmlFrame{local: local, secret: secretName(local, inSNMP), inSNMP: inSNMP})
+	f := &xmlFrame{local: local, secret: secretName(local, inSNMP), inSNMP: inSNMP}
+	// Secrecy passes from a secret-named element to every descendant, and a
+	// metadata-named element (a lifetime, an algorithm) stops it there.
+	f.inSecret = parent != nil && (parent.secret || parent.inSecret) && !metadataNames[local]
+	w.stack = append(w.stack, f)
 	return nil
 }
 

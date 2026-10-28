@@ -48,7 +48,8 @@ func Info(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 
 // describe is what a container's info reports: everything the engine's
 // inspect answer says of it that a runbook decides on (Phase 131's R5),
-// and never an environment value, which may be a credential.
+// and never an environment value or a command line's argument, either of
+// which may be a credential.
 func describe(c moby.InspectResponse) map[string]any {
 	out := map[string]any{
 		statName: strings.TrimPrefix(c.Name, "/"), statID: c.ID, statState: stateOf(c), statImageID: c.Image,
@@ -63,8 +64,9 @@ func describe(c moby.InspectResponse) map[string]any {
 		slices.Sort(env)
 		out[statEnv] = env
 		out["labels"] = c.Config.Labels
-		out["command"] = c.Config.Cmd
-		out["entrypoint"] = c.Config.Entrypoint
+		// Program and argument count only: an argument may be a secret.
+		out["command"] = containerengine.ArgvSummary(c.Config.Cmd)
+		out["entrypoint"] = containerengine.ArgvSummary(c.Config.Entrypoint)
 		out["user"] = c.Config.User
 		out["working_dir"] = c.Config.WorkingDir
 		out["hostname"] = c.Config.Hostname

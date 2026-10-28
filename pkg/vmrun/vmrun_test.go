@@ -159,6 +159,34 @@ func TestFailure_ATaggedLineOrAllOfIt(t *testing.T) {
 	}
 }
 
+// TestFailure_WithholdsVMXValues: a failed ConfigParams query that printed
+// the vmx's entries before failing (the real capture's shape) keeps each
+// key and withholds each value, so a VNC password or a guestinfo value never
+// reaches an error or info's warnings; a line that is not an entry is kept.
+func TestFailure_WithholdsVMXValues(t *testing.T) {
+	printed := capture(t, "configparams.txt") +
+		"'remotedisplay.vnc.password': vnc-sentinel-1\n" +
+		"guestinfo.token = \"guest-sentinel-2\"\n" +
+		"sata0:1.fileName = \"disk-sentinel-3.vmdk\"\n" +
+		"Operation failed while reading the configuration\n"
+	e := failure("config", Output{Stdout: printed, ExitCode: 1})
+	for _, leaked := range []string{"sentinel", "efi", "arm-ubuntu-64"} {
+		if strings.Contains(e.Error(), leaked) || strings.Contains(e.Message, leaked) {
+			t.Errorf("the failure quotes a vmx value %q: %s", leaked, e.Error())
+		}
+	}
+	if !strings.Contains(e.Message, "'remotedisplay.vnc.password': (value withheld)") {
+		t.Errorf("the key was not kept beside its withheld value: %s", e.Message)
+	}
+	if !strings.Contains(withholdValues(printed), "Operation failed while reading the configuration") {
+		t.Error("a line that is not a vmx entry was withheld")
+	}
+	// A tagged vmrun line is still read whole.
+	if e := failure("start", Output{Stdout: "firmware: efi\nError: The virtual machine cannot be found\n", ExitCode: 255}); !errors.Is(e, ErrNotFound) || e.Message != "The virtual machine cannot be found" {
+		t.Errorf("tagged = %#v", e)
+	}
+}
+
 func TestChecks(t *testing.T) {
 	for _, bad := range []string{"", "relative.vmx", "/a/b", "/a/b.vmx\n", "/a/b\x00.vmx", "/a/b" + string(rune(0x202e)) + ".vmx", "/" + strings.Repeat("a", 1100) + ".vmx"} {
 		if CheckVMX(bad) == nil {

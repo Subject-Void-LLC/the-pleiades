@@ -134,6 +134,29 @@ func TestOutput_SaysWhenACommandWroteNothing(t *testing.T) {
 	}
 }
 
+// TestOutputTail_KeepsTheEnd: a long stderr whose reason comes last keeps
+// that reason, cut at the front and marked, within the same bound; a short
+// one and an empty one read as Output's do.
+func TestOutputTail_KeepsTheEnd(t *testing.T) {
+	long := strings.Repeat("progress line\n", 100) + "Error: the volume is full\n"
+	got := OutputTail(long)
+	if !strings.HasPrefix(got, `"...`) || !strings.HasSuffix(got, `Error: the volume is full"`) || len(got) > MaxBytes+5 {
+		t.Errorf("OutputTail = %s (%d bytes), want the end kept within the bound", got, len(got))
+	}
+	if head := Output(long); strings.Contains(head, "volume is full") {
+		t.Errorf("Output kept the end too, so this test proves nothing: %s", head)
+	}
+	for in, want := range map[string]string{"": NoOutput, " \n": NoOutput, "short\nreason\n": `"short reason"`} {
+		if got := OutputTail(in); got != want {
+			t.Errorf("OutputTail(%q) = %s, want %s", in, got, want)
+		}
+	}
+	// A cut never lands inside one character's escape.
+	if got := OutputTail(strings.Repeat("\x01", 200) + "é"); !strings.HasSuffix(got, `é"`) || strings.Contains(got, `"...x01`) || strings.Contains(got, `...01`) {
+		t.Errorf("OutputTail cut inside an escape: %s", got)
+	}
+}
+
 // FuzzText holds Text to its contract on any input: it never panics, the
 // result is always one quoted line, it never exceeds the bound by more than
 // the cut mark and quotes, and a cut is always marked.

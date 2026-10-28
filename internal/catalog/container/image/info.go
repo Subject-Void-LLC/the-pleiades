@@ -87,12 +87,13 @@ func info(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 			"size": img.Size, "os": img.Os, "architecture": img.Architecture, "variant": img.Variant, "labels": map[string]string(nil),
 		}
 		// What a container made from it runs, as the image declares it
-		// (Phase 131's R5). The environment is reported by name only: a
-		// value baked into an image can be a secret.
+		// (Phase 131's R5). The environment is reported by name only, and
+		// the entrypoint and command by program and argument count only: a
+		// value or an argument baked into an image can be a secret.
 		if c := img.Config; c != nil {
 			entry["labels"] = c.Labels
-			entry["entrypoint"] = nonNil(c.Entrypoint)
-			entry["command"] = nonNil(c.Cmd)
+			entry["entrypoint"] = containerengine.ArgvSummary(c.Entrypoint)
+			entry["command"] = containerengine.ArgvSummary(c.Cmd)
 			entry["user"] = c.User
 			entry["working_dir"] = c.WorkingDir
 			entry["exposed_ports"] = sortedKeys(c.ExposedPorts)

@@ -14,13 +14,16 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 )
 
-// iosXENative is an IOS XE native-model configuration in the shape a real
-// get-config returns it, holding each kind of secret the model has.
+// iosXENative is an IOS XE native-model configuration holding each kind of
+// secret the model has. It is NOT a captured device reply: it was written by
+// hand from the Cisco-IOS-XE-native model's element names, so a real
+// get-config may differ in shape (the lab can capture one later and replace
+// it).
 const iosXENative = `<native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native">
   <hostname>edge-01</hostname>
   <enable><secret><type>9</type><secret>$9$abcdefghijklmn$opqrstuvwxyz0123456789ABCDEF</secret></secret></enable>
   <username><name>admin</name><privilege>15</privilege><password><encryption>0</encryption><password>cisco</password></password></username>
-  <key><chain><name>OSPF-KC</name><key><id>1</id><key-string><key>chainsecret1</key></key-string></key></chain></key>
+  <key><chain><name>OSPF-KC</name><key><id>1</id><key-string><key>chainsecret1</key></key-string></key><key><id>2</id><key-string><encryption>7</encryption><text>chainsecret2</text></key-string><cryptographic-algorithm>hmac-sha-256</cryptographic-algorithm></key></chain></key>
   <crypto><isakmp><key><key-address><key>isakmp-psk-77</key><addr4-container><address>192.0.2.1</address></addr4-container></key-address></key></isakmp></crypto>
   <router><bgp><id>65000</id><neighbor><id>192.0.2.2</id><remote-as>65001</remote-as><password><enctype>0</enctype><text>bgp-md5-pw</text></password></neighbor></bgp></router>
   <tacacs><server><name>T1</name><key><key>tacacs-shared</key></key></server></tacacs>
@@ -30,7 +33,7 @@ const iosXENative = `<native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native
 
 // iosXESecrets are iosXENative's secrets, each of which must be gone.
 var iosXESecrets = []string{
-	"$9$abcdefghijklmn$opqrstuvwxyz0123456789ABCDEF", ">cisco<", "chainsecret1", "isakmp-psk-77",
+	"$9$abcdefghijklmn$opqrstuvwxyz0123456789ABCDEF", ">cisco<", "chainsecret1", "chainsecret2", "isakmp-psk-77",
 	"bgp-md5-pw", "tacacs-shared", "public-ro-9", "ospf-md5-key",
 }
 
@@ -40,6 +43,7 @@ var iosXEKept = []string{
 	"<hostname>edge-01</hostname>", "<type>9</type>", "<name>admin</name>", "<encryption>0</encryption>",
 	"<name>OSPF-KC</name>", "<id>1</id>", "<address>192.0.2.1</address>", "<enctype>0</enctype>",
 	"<remote-as>65001</remote-as>", "<name>T1</name>", "<description>uplink to core</description>",
+	"<encryption>7</encryption>", "<cryptographic-algorithm>hmac-sha-256</cryptographic-algorithm>",
 }
 
 func TestMaskXML_MasksIOSXENativeSecretsAndKeepsTheRest(t *testing.T) {
@@ -183,7 +187,7 @@ func TestMaskXML_IsIdempotent(t *testing.T) {
 // same elements in the same order, masks to itself, and holds no password
 // leaf whose text is not a placeholder. A refusal returns no text.
 func FuzzMaskXML(f *testing.F) {
-	for _, s := range []string{iosXENative, `<a><password>x</password></a>`, `<a><!--c--><b>&amp;</b></a>`, `<a><cli>password 0 x</cli></a>`, `<a password="x"/>`, `<a><![CDATA[secret y]]></a>`, `text<a/>`} {
+	for _, s := range []string{iosXENative, rfc8177KeyChain, openConfigKeys, `<a><password>x</password></a>`, `<a><!--c--><b>&amp;</b></a>`, `<a><cli>password 0 x</cli></a>`, `<a password="x"/>`, `<a><![CDATA[secret y]]></a>`, `text<a/>`, `<key><key-string><keystring>k</keystring></key-string></key>`, `<key><lifetime><start-date-time>t</start-date-time></lifetime><x><hexadecimal-string>ab</hexadecimal-string></x></key>`, `<snmp><community><config><name>c</name></config></community></snmp>`} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, doc string) {
@@ -210,7 +214,7 @@ func FuzzMaskXML(f *testing.F) {
 			}
 			switch e := tok.(type) {
 			case xml.StartElement:
-				inPassword = strings.EqualFold(e.Name.Local, "password")
+				inPassword = slices.Contains(alwaysSecretLeaves, strings.ToLower(e.Name.Local))
 			case xml.EndElement:
 				inPassword = false
 			case xml.CharData:
@@ -221,6 +225,10 @@ func FuzzMaskXML(f *testing.F) {
 		}
 	})
 }
+
+// alwaysSecretLeaves are the element names whose own text FuzzMaskXML
+// requires to be a placeholder in every masked copy, wherever they sit.
+var alwaysSecretLeaves = []string{"password", "keystring", "hexadecimal-string", "key-clear-text"}
 
 // tagsOrNil is tags for a fuzz target, which has no document it may fail
 // on: nil when doc does not read.

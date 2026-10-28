@@ -69,14 +69,15 @@ func Exec(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return collection.Result{}, err
 	}
 	if res.ExitCode != 0 {
-		return fail(fmt.Errorf("the command exited %d: %s", res.ExitCode, farside.Output(firstNonEmpty(res.Stderr, res.Stdout))))
+		return fail(fmt.Errorf("the command exited %d: %s", res.ExitCode, farside.OutputTail(firstNonEmpty(res.Stderr, res.Stdout))))
 	}
 	return collection.Result{Changed: true}, nil
 }
 
 // firstNonEmpty is the first of values that is not only white space, or
 // the empty string. It picks which stream speaks for a failed command; the
-// caller bounds and quotes it with farside.Output before an error holds it.
+// caller bounds and quotes its end with farside.OutputTail before an error
+// holds it, since a failing command writes its reason last.
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {

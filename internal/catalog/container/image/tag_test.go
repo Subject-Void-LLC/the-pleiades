@@ -139,9 +139,20 @@ func TestInfo_ReportsNamedAndMissing(t *testing.T) {
 	}
 	// A named image is described whole: what a container from it runs, as
 	// lists even where the image declares nothing, and its platform.
-	for _, k := range []string{"entrypoint", "command", "exposed_ports", "volumes", "env_names"} {
+	for _, k := range []string{"exposed_ports", "volumes", "env_names"} {
 		if _, ok := images[0][k].([]string); !ok {
 			t.Errorf("%s = %#v, want a list", k, images[0][k])
+		}
+	}
+	// The entrypoint and command are a program and an argument count, never
+	// the arguments: one baked into an image can be a secret.
+	for _, k := range []string{"entrypoint", "command"} {
+		m, ok := images[0][k].(map[string]any)
+		if _, isInt := m["arg_count"].(int); !ok || !isInt {
+			t.Errorf("%s = %#v, want program and arg_count", k, images[0][k])
+		}
+		if _, isString := m["program"].(string); !isString {
+			t.Errorf("%s = %#v, want a program", k, images[0][k])
 		}
 	}
 	if images[0]["architecture"] == "" || images[0]["os"] == "" {

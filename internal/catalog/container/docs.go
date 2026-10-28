@@ -124,7 +124,7 @@ func readDoc(fqcn string) collection.Doc {
 	case "container.info":
 		return collection.Doc{
 			Summary:     "Reports one container as the engine sees it.",
-			Description: "Reports the container named name: whether it exists, and if so everything the engine's inspect answer says that a runbook decides on: its ID, state, image, command and entrypoint, user, working directory, hostname, labels, network mode and each attached network with its address, published ports, restart policy and count, privilege, read-only root, added capabilities, memory limit, mounts, last exit code, start and finish times, whether it was killed for memory, process ID, health and the engine's last start error, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as exists false, not as a failure, so a runbook can branch on it. It changes nothing, so a check is the same read." + containerengine.ReachNote,
+			Description: "Reports the container named name: whether it exists, and if so everything the engine's inspect answer says that a runbook decides on: its ID, state, image, command and entrypoint (each as its program and how many arguments follow it, never an argument, since a command line often carries a secret such as a --password flag), user, working directory, hostname, labels, network mode and each attached network with its address, published ports, restart policy and count, privilege, read-only root, added capabilities, memory limit, mounts, last exit code, start and finish times, whether it was killed for memory, process ID, health and the engine's last start error, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as exists false, not as a failure, so a runbook can branch on it. It changes nothing, so a check is the same read." + containerengine.ReachNote,
 			Params:      []collection.Param{nameParam, containerengine.HostKeyParam},
 			Fragments:   []string{"container_engine"},
 			Returns: []collection.ReturnField{
@@ -138,8 +138,8 @@ func readDoc(fqcn string) collection.Doc {
 				{Name: "platform", Type: "string", Returned: "when it exists", Description: "The platform the engine reports for it, such as linux."},
 				{Name: "restart_count", Type: "int", Returned: "when it exists", Description: "How many times the engine has restarted it."},
 				{Name: "labels", Type: "dict", Returned: "when it exists", Description: "Its labels."},
-				{Name: "command", Type: "list of string", Returned: "when it exists", Description: "Its command."},
-				{Name: "entrypoint", Type: "list of string", Returned: "when it exists", Description: "Its entrypoint."},
+				{Name: "command", Type: "dict", Returned: "when it exists", Description: "Its command as program (the first word) and arg_count (how many arguments follow). The arguments are withheld: a command line often carries a secret, such as a --password flag."},
+				{Name: "entrypoint", Type: "dict", Returned: "when it exists", Description: "Its entrypoint as program and arg_count, the arguments withheld as the command's are."},
 				{Name: "user", Type: "string", Returned: "when it exists", Description: "The user it runs as, or empty for the image's."},
 				{Name: "working_dir", Type: "string", Returned: "when it exists", Description: "Its working directory, or empty for the image's."},
 				{Name: "hostname", Type: "string", Returned: "when it exists", Description: "Its hostname."},
@@ -167,14 +167,14 @@ func readDoc(fqcn string) collection.Doc {
 	case "container.list":
 		return collection.Doc{
 			Summary:     "Lists the engine's containers.",
-			Description: "Lists every container on the engine, stopped ones included, or only the running ones with all false, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, the engine's status line, creation time, command, ports, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read." + containerengine.ReachNote,
+			Description: "Lists every container on the engine, stopped ones included, or only the running ones with all false, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, the engine's status line, creation time, command (its program and how many arguments follow it, never an argument: the list includes containers no runbook made, and a command line often carries a secret such as a --password flag), ports, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read." + containerengine.ReachNote,
 			Params: []collection.Param{
 				{Name: paramAll, Type: "bool", Default: "true", Description: "List stopped containers too, the default; false lists only the running ones."},
 				{Name: paramMatch, Type: "string", Description: "Only containers whose name matches this glob (web-*)."},
 				containerengine.HostKeyParam,
 			},
 			Fragments: []string{"container_engine"},
-			Returns:   []collection.ReturnField{{Name: statContainers, Type: "list of dict", Returned: "always", Description: "The containers, each with name, id, state, status (the engine's own line, such as Up 3 minutes), created (Unix seconds), command, ports (127.0.0.1:8080->80/tcp, or 80/tcp when not published), image_id, image and labels."}},
+			Returns:   []collection.ReturnField{{Name: statContainers, Type: "list of dict", Returned: "always", Description: "The containers, each with name, id, state, status (the engine's own line, such as Up 3 minutes), created (Unix seconds), command (a dict of program and arg_count, the words after the program in the engine's one-line command; the arguments are withheld, since one can be a secret), ports (127.0.0.1:8080->80/tcp, or 80/tcp when not published), image_id, image and labels."}},
 			Examples:  []collection.Example{{Name: "Every web container, stopped ones too", RunbookYAML: "- name: Web containers\n  container.list:\n    match: web-*\n  register: webs\n"}},
 			SeeAlso:   []string{"container.info"},
 		}

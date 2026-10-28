@@ -228,7 +228,9 @@ func extract(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	case exitDestIsNot:
 		return fail(fmt.Errorf("%s is on %s and is not a folder", r.dest, device.Name()))
 	case exitTar:
-		return fail(fmt.Errorf("tar.exe could not extract %s (exit %s): %s", r.src, out["tar"], farside.Output(res.Stderr)))
+		// tar writes its last real error just before its summary line, so the
+		// end is kept.
+		return fail(fmt.Errorf("tar.exe could not extract %s (exit %s): %s", r.src, out["tar"], farside.OutputTail(res.Stderr)))
 	default:
 		return fail(fmt.Errorf("the host's script exited %d: %s", res.ExitCode, farside.Output(res.Stderr+"\n"+res.Stdout)))
 	}

@@ -46,15 +46,37 @@ var secretKeyNames = map[string]bool{
 	"key-id": true, "keyid": true, "key-type": true, "public-key": true, "host-key": true,
 }
 
-// metadataNames are the leaves a secret's container also holds that
+// secretExactNames are the names that hold a key but match no token and do
+// not end in "key": RFC 8177 ietf-key-chain's key-string container and its
+// keystring and hexadecimal-string leaves (the IOS XE native model's
+// key-string too), and OpenConfig MACsec's key-clear-text.
+var secretExactNames = map[string]bool{
+	"key-string": true, "keystring": true, "hexadecimal-string": true, "key-clear-text": true,
+}
+
+// metadataNames are the elements a secret's container also holds that
 // describe the secret rather than hold it: its encryption type, a key's id,
-// its algorithm. They stay readable, so a backup still says how a key is
-// stored.
+// its algorithm, its lifetime. They stay readable, so a backup still says
+// how a key is stored, and secrecy does not pass into one (a lifetime
+// container's dates are not a key).
 var metadataNames = map[string]bool{
 	"encryption": true, "encryption-type": true, "enctype": true, "encrypt": true, "type": true,
 	"id": true, "key-id": true, "keyid": true, "algorithm": true, "crypto-algorithm": true,
-	"hash-algorithm": true, "hash-algo": true, "level": true, "mode": true, "format": true,
-	"start-time": true, "end-time": true, "lifetime": true,
+	"cryptographic-algorithm": true, "hash-algorithm": true, "hash-algo": true, "level": true,
+	"mode": true, "format": true, "auth-type": true, "enc-type": true,
+	"start-time": true, "end-time": true, "lifetime": true, "send-lifetime": true,
+	"accept-lifetime": true, "send-accept-lifetime": true, "valid-date-time": true,
+	"expiration-date-time": true,
+}
+
+// identifierNames are the leaves that name or address something rather
+// than hold a secret, kept readable when a secret-named element is a
+// grandparent or further up (IOS XE native's key chain name under <key>, an
+// IKE peer's address under <key>). Directly under a secret-named element,
+// or anywhere in an SNMP subtree, they are masked as before: an SNMP
+// community list is keyed by <name>, and that name is the community string.
+var identifierNames = map[string]bool{
+	"name": true, "address": true, "mask": true, "vrf": true,
 }
 
 // cryptShaped matches a value in crypt's $id$ form: a Linux or Junos hash
@@ -71,11 +93,15 @@ func nameWords(name string) []string {
 }
 
 // secretName reports whether an element or attribute called name holds a
-// secret: one of secretTokens is a word of it, its last word is "key" and it
-// is not one of secretKeyNames, or, inside an SNMP subtree, it names a
+// secret: it is one of secretExactNames, one of secretTokens is a word of
+// it, its last word is "key" and it is not one of secretKeyNames, or, inside
+// an SNMP subtree, it names a
 // community (an SNMP community string is a password).
 func secretName(name string, inSNMP bool) bool {
 	lower := strings.ToLower(name)
+	if secretExactNames[lower] {
+		return true
+	}
 	ws := nameWords(lower)
 	if len(ws) == 0 {
 		return false
@@ -94,6 +120,11 @@ type xmlFrame struct {
 	local string
 	// secret is set when the element's own name is a secret's name.
 	secret bool
+	// inSecret is set when a secret-named element encloses this one with no
+	// metadata-named element between them: secrecy passes down through every
+	// descendant (RFC 8177's key/key-string/keystring), stopping only at
+	// metadata such as a lifetime or an algorithm.
+	inSecret bool
 	// inSNMP is set inside any element whose name mentions snmp.
 	inSNMP bool
 	// hasChild is set once a child element opens, making the element a
@@ -118,9 +149,11 @@ type xmlEdit struct {
 //
 // A leaf's text is a secret when its name is one (secretName: password,
 // secret, key, auth-key, pre-shared-key, encrypted-password, an SNMP
-// community), when its container's is and the leaf is not one of
-// metadataNames (IOS XE's <password><encryption>0</encryption><text>x</text>
-// keeps its encryption type and masks x), or when it is crypt-shaped. Every
+// community, RFC 8177's key-string), when an enclosing element's is and the
+// leaf is not one of metadataNames (IOS XE's
+// <password><encryption>0</encryption><text>x</text> keeps its encryption
+// type and masks x; RFC 8177's key/key-string/keystring masks the keystring
+// two levels down), or when it is crypt-shaped. Every
 // other leaf is read by the configuration text masker too (MaskChecked), so
 // a leaf carrying CLI text (a vendor's text-format configuration) is masked
 // line by line, and each value of known, the run's own credential, is masked
@@ -228,8 +261,7 @@ func (w *xmlWalk) leafText(f, parent *xmlFrame) error {
 	}
 	// A secret-named element's own text is masked even beside children;
 	// the other two rules read leaves only.
-	secretLeaf := f.secret || (!f.hasChild && (cryptShaped.MatchString(value) ||
-		(parent != nil && parent.secret && !metadataNames[f.local])))
+	secretLeaf := f.secret || (!f.hasChild && (cryptShaped.MatchString(value) || underSecret(f, parent)))
 	if secretLeaf {
 		w.record(value)
 		w.replaceText(f, Placeholder(value))
@@ -255,6 +287,21 @@ func (w *xmlWalk) leafText(f, parent *xmlFrame) error {
 		w.replaceText(f, lines)
 	}
 	return nil
+}
+
+// underSecret reports whether leaf f, whose parent is parent, is masked for
+// lying inside a secret-named element: any leaf that is not metadata, except
+// an identifier (identifierNames) whose secret-named ancestor is further up
+// than its parent, outside an SNMP subtree.
+func underSecret(f, parent *xmlFrame) bool {
+	if !f.inSecret {
+		return false
+	}
+	// inSecret implies a parent: a top-level element encloses nothing above.
+	if parent.secret || f.inSNMP {
+		return true
+	}
+	return !identifierNames[f.local]
 }
 
 // apply writes the edits into doc.

@@ -60,16 +60,24 @@ func List(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 				continue
 			}
 		}
-		out = append(out, map[string]any{
-			statName: name, statID: c.ID, statState: string(c.State), statImageID: c.ImageID,
-			statImage: c.Labels[containerengine.LabelManagedBy], "labels": maps.Clone(c.Labels),
-			"status": c.Status, "created": c.Created, "command": c.Command, "ports": summaryPorts(c.Ports),
-		})
+		out = append(out, listed(name, c))
 	}
 	slices.SortFunc(out, func(a, b any) int {
 		return strings.Compare(a.(map[string]any)[statName].(string), b.(map[string]any)[statName].(string))
 	})
 	return collection.Result{}, rc.SetStat(statContainers, out)
+}
+
+// listed is one container's entry in container.list's answer, named name.
+// Its command is the program and argument count only: the list holds
+// containers no runbook made, and a command line's arguments may hold a
+// secret (--requirepass X, --password=X).
+func listed(name string, c moby.Summary) map[string]any {
+	return map[string]any{
+		statName: name, statID: c.ID, statState: string(c.State), statImageID: c.ImageID,
+		statImage: c.Labels[containerengine.LabelManagedBy], "labels": maps.Clone(c.Labels),
+		"status": c.Status, "created": c.Created, "command": containerengine.CommandLineSummary(c.Command), "ports": summaryPorts(c.Ports),
+	}
 }
 
 // summaryPorts is each port a listed container exposes, as docker ps writes

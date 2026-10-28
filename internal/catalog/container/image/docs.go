@@ -107,14 +107,14 @@ func removeDoc() collection.Doc {
 func infoDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Reports images on the engine.",
-		Description: "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image also its OS, architecture and variant and what a container made from it runs: entrypoint, command, user, working directory, exposed ports, volumes and environment variable names. A named image that is absent is listed under missing rather than failing the task. An image's environment values are never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read." + containerengine.ReachNote,
+		Description: "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image also its OS, architecture and variant and what a container made from it runs: entrypoint and command (each as its program and how many arguments follow it, never an argument, since one baked into an image can be a secret), user, working directory, exposed ports, volumes and environment variable names. A named image that is absent is listed under missing rather than failing the task. An image's environment values are never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read." + containerengine.ReachNote,
 		Params: []collection.Param{
 			{Name: paramImages, Type: "list", Description: "The images to report, by reference or ID. Absent means every image."},
 			containerengine.HostKeyParam,
 		},
 		Fragments: []string{"container_engine"},
 		Returns: []collection.ReturnField{
-			{Name: statImages, Type: "list of dict", Returned: "always", Description: "One entry per image: id, tags, digests, created, size and labels; for every image listed (none named) also containers, how many containers use it; for an image named also os, architecture, variant, entrypoint, command, user, working_dir, exposed_ports, volumes and env_names (names only, never a value)."},
+			{Name: statImages, Type: "list of dict", Returned: "always", Description: "One entry per image: id, tags, digests, created, size and labels; for every image listed (none named) also containers, how many containers use it; for an image named also os, architecture, variant, entrypoint and command (each a dict of program and arg_count, never an argument), user, working_dir, exposed_ports, volumes and env_names (names only, never a value)."},
 			{Name: statMissing, Type: "list of string", Returned: "always", Description: "The images named that the engine does not have."},
 		},
 		Examples: []collection.Example{{Name: "Is the release here", RunbookYAML: "- name: Read the release image\n  container.image.info:\n    images: [registry.example.com/app:1.4.2]\n  register: release\n"}},

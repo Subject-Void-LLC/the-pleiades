@@ -231,7 +231,8 @@ func runDownload(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	case exitNoFolder:
 		return collection.Result{}, fmt.Errorf("%s: the folder %s does not exist on %s", fqcn, d.path[:strings.LastIndex(d.path, `\`)+1], device.Name())
 	case exitFetch:
-		return collection.Result{}, fmt.Errorf("%s: curl could not fetch %s (exit %s): %s", fqcn, d.url, shown(out["curl"], exitPattern), farside.Output(res.Stderr))
+		// curl writes its reason last, after any progress, so the end is kept.
+		return collection.Result{}, fmt.Errorf("%s: curl could not fetch %s (exit %s): %s", fqcn, d.url, shown(out["curl"], exitPattern), farside.OutputTail(res.Stderr))
 	case exitMismatch:
 		return collection.Result{}, fmt.Errorf("%s: %s has SHA-256 %s, not %s; nothing was written to %s", fqcn, d.url, shown(out["got"], digestPattern), d.sha256, d.path)
 	default:

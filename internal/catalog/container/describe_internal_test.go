@@ -110,6 +110,33 @@ func TestSummaryPorts(t *testing.T) {
 	}
 }
 
+// TestDescribeAndList_WithholdCommandArguments: a command line's arguments
+// often carry a secret (redis-server --requirepass X), so info and list
+// report the program and how many arguments follow it, never an argument.
+func TestDescribeAndList_WithholdCommandArguments(t *testing.T) {
+	c := inspected(t)
+	c.Config.Cmd = []string{"redis-server", "--requirepass", "cmd-sentinel"}
+	c.Config.Entrypoint = []string{"/entry.sh", "--password=entry-sentinel"}
+	got := describe(c)
+	if cmd, _ := got["command"].(map[string]any); cmd["program"] != "redis-server" || cmd["arg_count"] != 2 {
+		t.Errorf("command = %#v, want program redis-server and arg_count 2", got["command"])
+	}
+	if ep, _ := got["entrypoint"].(map[string]any); ep["program"] != "/entry.sh" || ep["arg_count"] != 1 {
+		t.Errorf("entrypoint = %#v, want program /entry.sh and arg_count 1", got["entrypoint"])
+	}
+	row := listed("cache", moby.Summary{ID: "c1", Command: "redis-server --requirepass list-sentinel"})
+	if cmd, _ := row["command"].(map[string]any); cmd["program"] != "redis-server" || cmd["arg_count"] != 2 {
+		t.Errorf("list command = %#v, want program redis-server and arg_count 2", row["command"])
+	}
+	for name, m := range map[string]map[string]any{"info": got, "list": row} {
+		for k, v := range m {
+			if strings.Contains(strings.Join(anyStrings(v), " "), "sentinel") {
+				t.Errorf("%s's %s holds a command line's argument: %#v", name, k, v)
+			}
+		}
+	}
+}
+
 // anyStrings is every string inside v, for the leak check.
 func anyStrings(v any) []string {
 	switch x := v.(type) {
@@ -121,6 +148,12 @@ func anyStrings(v any) []string {
 		var out []string
 		for k, s := range x {
 			out = append(out, k, s)
+		}
+		return out
+	case map[string]any:
+		var out []string
+		for k, e := range x {
+			out = append(append(out, k), anyStrings(e)...)
 		}
 		return out
 	}

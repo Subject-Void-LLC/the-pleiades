@@ -22,6 +22,7 @@
 package farside
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -63,6 +64,17 @@ func Masked(body string, mask func(string) string) string {
 // the command wrote nothing but white space, and Text otherwise.
 func Output(out string) string {
 	return MaskedOutput(out, nil)
+}
+
+// OutputTail is Output keeping the end of out rather than its start, for a
+// command whose reason for failing comes last: a program's stderr after its
+// progress or warnings (container.exec's command, curl), or tar's last error
+// before its summary line. A cut is marked with "..." at the front.
+func OutputTail(out string) string {
+	if strings.TrimSpace(out) == "" {
+		return NoOutput
+	}
+	return quoteTail(collapse(extract(out)))
 }
 
 // MaskedOutput is Output with mask applied as Masked applies it.
@@ -132,4 +144,28 @@ func quote(s string) string {
 	}
 	b.WriteString(`..."`)
 	return b.String()
+}
+
+// quoteTail is quote keeping the last MaxBytes quoted bytes of s rather
+// than the first, never inside one character's escape, marking a cut with
+// "..." after the opening quote.
+func quoteTail(s string) string {
+	if q := strconv.Quote(s); len(q) <= MaxBytes+2 {
+		return q
+	}
+	var pieces []string
+	used := 0
+	for i := len(s); i > 0; {
+		_, size := utf8.DecodeLastRuneInString(s[:i])
+		piece := strconv.Quote(s[i-size : i])
+		piece = piece[1 : len(piece)-1]
+		if used+len(piece) > MaxBytes {
+			break
+		}
+		pieces = append(pieces, piece)
+		used += len(piece)
+		i -= size
+	}
+	slices.Reverse(pieces)
+	return `"...` + strings.Join(pieces, "") + `"`
 }
