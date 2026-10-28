@@ -44,7 +44,7 @@ const developmentBase = "0.0.0-dev"
 // build does not meet is refused by the loader (see the engine version
 // constraint in internal/loader), so a value set ahead of the work makes
 // every method carrying it unloadable on the very first real release.
-const CurrentRelease = "0.2.0"
+const CurrentRelease = "0.3.0"
 
 // Version is this build's version: the stamped one, or a development
 // version. See the package documentation.
