@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
@@ -167,7 +168,14 @@ func TestDismOutput(t *testing.T) {
 		{
 			name:   "both streams",
 			result: winrmexec.Result{Stdout: "some output", Stderr: "some warning"},
-			want:   []string{"stdout: some output", "stderr: some warning"},
+			want:   []string{`stdout: "some output"`, `stderr: "some warning"`},
+		},
+		{
+			// DISM's reason comes last, after its banner and progress, so a
+			// long answer keeps its end, bounded, with no raw control byte.
+			name:   "a long answer keeps its reason",
+			result: winrmexec.Result{Stdout: strings.Repeat("banner\a ", 400) + "Error: 50 DISM does not support servicing"},
+			want:   []string{`stdout: "...`, `Error: 50 DISM does not support servicing"`},
 		},
 		{
 			name:   "neither stream has anything",
@@ -182,6 +190,9 @@ func TestDismOutput(t *testing.T) {
 				if !strings.Contains(got, want) {
 					t.Errorf("dismOutput() = %q, want it to contain %q", got, want)
 				}
+			}
+			if strings.ContainsRune(got, '\a') || len(got) > 2*farside.MaxBytes+40 {
+				t.Errorf("dismOutput() = %d bytes or holds a raw control byte", len(got))
 			}
 		})
 	}

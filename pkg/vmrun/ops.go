@@ -366,7 +366,7 @@ func (h Host) KeepAwake(ctx context.Context, vmx string) (int, error) {
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(out.Stdout))
 	if err != nil || pid <= 0 {
-		return 0, fmt.Errorf("keeping the host awake named %q as the VM's process", strings.TrimSpace(out.Stdout))
+		return 0, fmt.Errorf("keeping the host awake named %s as the VM's process", farside.Output(out.Stdout))
 	}
 	return pid, nil
 }

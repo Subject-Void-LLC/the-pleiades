@@ -18,6 +18,8 @@ import (
 
 	"github.com/masterzen/winrm"
 	"github.com/masterzen/winrm/soap"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // TestTransportRefusesUnusableMaterial covers the two ways the endpoint can
@@ -206,19 +208,23 @@ func TestEndpointURLMatchesTheLibrarys(t *testing.T) {
 }
 
 // TestSnippetIsBounded proves a hostile response cannot put a megabyte into
-// a job record, and that a multi-line body becomes one line.
+// a job record, that a multi-line body becomes one line, and that a control
+// byte in it is shown escaped rather than sent.
 func TestSnippetIsBounded(t *testing.T) {
 	t.Parallel()
 
-	got := snippet([]byte(strings.Repeat("a", maxErrorBodyBytes*3)))
-	if len(got) > maxErrorBodyBytes+3 {
-		t.Errorf("snippet is %d bytes, want it bounded at %d", len(got), maxErrorBodyBytes)
+	got := snippet([]byte(strings.Repeat("a", farside.MaxBytes*3)))
+	if len(got) > farside.MaxBytes+5 {
+		t.Errorf("snippet is %d bytes, want it bounded at %d", len(got), farside.MaxBytes)
 	}
-	if !strings.HasSuffix(got, "...") {
+	if !strings.HasSuffix(got, `..."`) {
 		t.Error("a truncated snippet does not say it was truncated")
 	}
-	if got := snippet([]byte("one\n  two\n\tthree")); got != "one two three" {
+	if got := snippet([]byte("one\n  two\n\tthree")); got != `"one two three"` {
 		t.Errorf("snippet(...) = %q, want it collapsed to one line", got)
+	}
+	if got := snippet([]byte("bell\a and escape \x1b[2J")); strings.ContainsAny(got, "\a\x1b") {
+		t.Errorf("snippet(...) = %q holds a raw control byte", got)
 	}
 }
 

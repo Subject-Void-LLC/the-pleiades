@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -267,13 +268,11 @@ func call(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth, opt
 	return d, nil
 }
 
-// bounded cuts PowerShell's error text to 1 KiB.
+// bounded is PowerShell's error text fit for an error: on one line,
+// quoted and bounded through pkg/farside, as win.file's methods quote it,
+// so a long answer or a control byte cannot reach the error raw.
 func bounded(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) > 1024 {
-		return s[:1024] + "..."
-	}
-	return s
+	return farside.Output(s)
 }
 
 // Schtask implements win.schtask.

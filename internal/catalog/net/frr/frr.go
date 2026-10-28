@@ -190,7 +190,8 @@ func (s *session) reload(ctx context.Context, path string) error {
 }
 
 // reloadError is what frr-reload said that explains a failure: its last
-// lines that are not INFO logging, masked, at most six.
+// lines that are not INFO logging, masked, at most six, then quoted and
+// bounded through pkg/farside keeping their end, where the reason is.
 func reloadError(out string) string {
 	var lines []string
 	for _, line := range strings.Split(out, "\n") {
@@ -206,7 +207,7 @@ func reloadError(out string) string {
 	if len(lines) == 0 {
 		return "it printed nothing but logging"
 	}
-	return strings.Join(lines, " | ")
+	return farside.OutputTail(strings.Join(lines, " | "))
 }
 
 // parseReloadTest reads frr-reload.py --test's two sections, "Lines To

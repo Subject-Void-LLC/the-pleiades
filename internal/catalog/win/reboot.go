@@ -203,7 +203,9 @@ func bootTime(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth,
 	}
 	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(res.Stdout))
 	if err != nil {
-		return time.Time{}, fmt.Errorf("the boot time %q is not a time: %w", bounded(res.Stdout), err)
+		// The parse error is not wrapped: it quotes the host's answer again,
+		// whole, which bounded has already quoted once within its bound.
+		return time.Time{}, fmt.Errorf("the boot time %s is not an RFC 3339 time", bounded(res.Stdout))
 	}
 	return t.UTC(), nil
 }

@@ -5,6 +5,7 @@ package netcli_test
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"golang.org/x/crypto/ssh"
@@ -167,6 +169,10 @@ func (d *configIOS) serve(channel ssh.Channel) {
 			d.setKey(answer != "yes")
 		case line == "frob":
 			write("% Frob is deprecated and was ignored\r\n")
+		case line == "hostile":
+			// A rejection far longer than an error should carry, holding a
+			// terminal escape: the error must keep its words, bounded.
+			write("% Invalid input detected \x1b[2J" + strings.Repeat("x", 3000) + "\r\n")
 		case line == "write":
 			write("Building configuration...\r\n[OK]")
 			time.Sleep(50 * time.Millisecond)
@@ -299,6 +305,12 @@ func TestConfigWith_NoticesAreNotRejections(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "device rejected") {
 			t.Errorf("%q: %v, want a rejection", line, err)
 		}
+	}
+	// The device's answer reaches the error in its own words, quoted and
+	// bounded through pkg/farside: no raw escape, no 3 KB error.
+	err = newConfigSession(t, &configIOS{}).Config(context.Background(), []string{"hostile"})
+	if err == nil || !strings.Contains(err.Error(), `% Invalid input detected \x1b[2J`) || strings.ContainsRune(err.Error(), 0x1b) || len(err.Error()) > farside.MaxBytes+100 {
+		t.Errorf("a long, hostile rejection = %d bytes: %.160q", len(fmt.Sprint(err)), err)
 	}
 }
 

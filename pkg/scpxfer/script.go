@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/filexfer"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
@@ -168,7 +169,8 @@ func exitError(p filexfer.Path, code int, stderr string) error {
 		what = fmt.Sprintf("the device script exited %d", code)
 	}
 	if stderr != "" {
-		return fmt.Errorf("scpxfer: %q: %s (device stderr: %q)", p.String(), what, stderr)
+		// The device's own words, bounded and quoted through pkg/farside.
+		return fmt.Errorf("scpxfer: %q: %s (device stderr: %s)", p.String(), what, farside.Output(stderr))
 	}
 	return fmt.Errorf("scpxfer: %q: %s", p.String(), what)
 }

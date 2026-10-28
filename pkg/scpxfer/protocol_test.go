@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/filexfer"
 )
 
@@ -258,5 +259,11 @@ func TestExitError_Table(t *testing.T) {
 	}
 	if err := exitError(p, 1, ""); strings.Contains(err.Error(), "stderr") {
 		t.Errorf("exit without stderr = %v, want no empty stderr clause", err)
+	}
+	// A device's stderr is its own text: a control byte is shown escaped,
+	// and a long one is held to farside's bound.
+	long := "scp: \x1b[2Jdenied " + strings.Repeat("x", 5000)
+	if err := exitError(p, exitScpFailed, long); strings.ContainsRune(err.Error(), 0x1b) || !strings.Contains(err.Error(), `\x1b[2Jdenied`) || len(err.Error()) > farside.MaxBytes+200 {
+		t.Errorf("exit with a long, hostile stderr = %d bytes: %.200q", len(err.Error()), err)
 	}
 }

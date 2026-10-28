@@ -175,6 +175,50 @@ func TestDNS(t *testing.T) {
 	}
 }
 
+// TestEdge_AGateFailsOnWhatIsNotThere holds Phase 131's R4 judgment of the
+// edge methods: each is a gate asserting something of a named tunnel,
+// application or zone, so one that is not there fails the task naming it,
+// in a run and in a check alike (a check is the task itself), rather than
+// passing as exists false. Records are the exception, and are data: a name
+// with no record of the type reads as an empty records list, which
+// expect.absent asserts without an error.
+func TestEdge_AGateFailsOnWhatIsNotThere(t *testing.T) {
+	_, dev := fixture(t)
+	for _, check := range []bool{false, true} {
+		for _, tc := range []struct {
+			fqcn   string
+			params map[string]any
+			want   string
+		}{
+			{"edge.tunnel", map[string]any{"tunnel": "gone", "expect_status": "any", "min_connectors": 0}, "no tunnel is named gone"},
+			{"edge.access", map[string]any{"app": "nobody.example.com"}, "no Access application is named nobody.example.com"},
+			{"edge.dns", map[string]any{"zone": "other.example", "name": "www.other.example", "type": "A", "expect": map[string]any{"absent": true}}, "no zone is named other.example"},
+		} {
+			desc, _ := collection.Lookup(tc.fqcn)
+			run := desc.Invoke
+			if check {
+				run = desc.Check
+			}
+			_, err := run(context.Background(), newCtx(), dev, tc.params)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), tc.fqcn+": ") {
+				t.Errorf("%s (check %v) of what is not there = %v, want it to fail saying %q", tc.fqcn, check, err, tc.want)
+			}
+		}
+		desc, _ := collection.Lookup("edge.dns")
+		run := desc.Invoke
+		if check {
+			run = desc.Check
+		}
+		rc := newCtx()
+		if _, err := run(context.Background(), rc, dev, map[string]any{"zone": zone, "name": "mail.example.com", "type": "MX", "expect": map[string]any{"absent": true}}); err != nil {
+			t.Errorf("edge.dns (check %v) asserting no MX record = %v", check, err)
+		}
+		if records, ok := rc.Stats()["records"].([]any); !ok || len(records) != 0 {
+			t.Errorf("edge.dns (check %v) records of a name with none = %#v, want an empty list", check, rc.Stats()["records"])
+		}
+	}
+}
+
 // TestEdge_TheTokenIsNowhere: every method's stats and errors are free of
 // the token, on success and on refusal, and a check is the task itself.
 func TestEdge_TheTokenIsNowhere(t *testing.T) {

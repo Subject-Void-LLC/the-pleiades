@@ -3,7 +3,6 @@ package ios
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -123,7 +122,7 @@ func save(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	// is the worst available outcome for a method whose entire purpose is
 	// making a change permanent.
 	if netcli.IOS.ErrorPattern.MatchString(out) {
-		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, saveCommand, strings.TrimSpace(firstErrorLine(out)))
+		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, saveCommand, deviceRefusal(out))
 	}
 
 	if err := rc.SetStat(statSaveStdout, out); err != nil {

@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -74,7 +75,7 @@ func queryGroup(ctx context.Context, conn *remoteexec.Conn, name string) (groupA
 	}
 	fields := strings.Split(strings.TrimRight(result.Stdout, "\n"), ":")
 	if len(fields) < 3 {
-		return groupAccount{}, fmt.Errorf("getent group %s: unexpected output %q", name, result.Stdout)
+		return groupAccount{}, fmt.Errorf("getent group %s: unexpected output %s", name, farside.Output(result.Stdout))
 	}
 	gid, err := strconv.Atoi(fields[2])
 	if err != nil {

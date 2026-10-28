@@ -242,11 +242,11 @@ func extract(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	skipped := out["skip"] == "creates"
 	if !skipped && out["dest_existed"] == "" {
-		return fail(fmt.Errorf("the host did not report what it found: %q", res.Stdout))
+		return fail(fmt.Errorf("the host did not report what it found: %s", farside.Output(res.Stdout)))
 	}
 	changed := !skipped
 	if mode == collection.ModeExecute && changed && out["extracted"] != "true" {
-		return fail(fmt.Errorf("the host did not report the extraction: %q", res.Stdout))
+		return fail(fmt.Errorf("the host did not report the extraction: %s", farside.Output(res.Stdout)))
 	}
 	existed := skipped || out["dest_existed"] == "True"
 	for k, v := range map[string]any{statDest: r.dest, statExtracted: changed} {

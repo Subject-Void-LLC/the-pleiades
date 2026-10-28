@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
@@ -54,8 +55,16 @@ func TestHost_EdgeAnswers(t *testing.T) {
 	if got := firstErrorLine(Output{}); got != "no output" {
 		t.Errorf("firstErrorLine of nothing = %q", got)
 	}
-	if got := firstErrorLine(Output{Stdout: "\r\n  only stdout\r\n"}); got != "only stdout" {
+	if got := firstErrorLine(Output{Stdout: "\r\n  only stdout\r\n"}); got != `"only stdout"` {
 		t.Errorf("firstErrorLine of stdout = %q", got)
+	}
+	// With no error sentence the whole answer is kept, not its first line
+	// (a banner), quoted so a control byte is shown, and bounded.
+	if got := firstErrorLine(Output{Stderr: "VirtualBox banner\n\x1b[2Jthe real reason " + strings.Repeat("x", 4000)}); !strings.Contains(got, `the real reason`) || strings.ContainsRune(got, 0x1b) || len(got) > farside.MaxBytes+5 {
+		t.Errorf("firstErrorLine of a long stderr = %d bytes: %.120q", len(got), got)
+	}
+	if got := firstErrorLine(Output{Stderr: "VBoxManage: error: Could not find a registered machine named 'vm1'\r\nVBoxManage: error: Details: code VBOX_E_OBJECT_NOT_FOUND\r\n"}); got != `"Could not find a registered machine named 'vm1'"` {
+		t.Errorf("firstErrorLine of an error report = %q", got)
 	}
 }
 

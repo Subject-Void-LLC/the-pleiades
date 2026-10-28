@@ -9,7 +9,9 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -168,7 +170,7 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	// so this method checks it rather than reporting a parse failure for
 	// what is really a refused command.
 	if netcli.IOS.ErrorPattern.MatchString(out) {
-		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, line, strings.TrimSpace(firstErrorLine(out)))
+		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, line, deviceRefusal(out))
 	}
 
 	m := rePingResult.FindStringSubmatch(out)
@@ -263,4 +265,12 @@ func firstErrorLine(out string) string {
 		}
 	}
 	return out
+}
+
+// deviceRefusal is the device's own error line (or its whole reply when it
+// marked none) fit for an error: masked as configuration is, since a
+// rejected line can echo a secret, then bounded and quoted through
+// pkg/farside so a long reply or a control byte cannot reach the error raw.
+func deviceRefusal(out string) string {
+	return farside.MaskedOutput(firstErrorLine(out), netcfg.Mask)
 }

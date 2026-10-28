@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -206,8 +207,12 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	}
 
 	if result.ExitCode != 0 {
-		return collection.Result{}, fmt.Errorf("%s: script exited %d\nstdout: %s\nstderr: %s",
-			fqcn, result.ExitCode, result.Stdout, result.Stderr)
+		// The script's whole output is in the stdout and stderr stats; the
+		// error quotes the end of each, where a script's reason comes,
+		// bounded and quoted through pkg/farside so neither stream can put
+		// its size or a control byte into the error.
+		return collection.Result{}, fmt.Errorf("%s: script exited %d; stderr: %s; stdout: %s",
+			fqcn, result.ExitCode, farside.OutputTail(result.Stderr), farside.OutputTail(result.Stdout))
 	}
 
 	return collection.Result{Changed: true}, nil

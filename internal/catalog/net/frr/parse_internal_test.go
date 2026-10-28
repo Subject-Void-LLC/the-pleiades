@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // TestParseReloadTest reads both sections of frr-reload.py --test, keeping
@@ -61,6 +63,12 @@ func TestReloadError(t *testing.T) {
 	}
 	if reloadError("x INFO: y\n") != "it printed nothing but logging" {
 		t.Error("logging only")
+	}
+	// A long traceback line is held to farside's bound, keeping its end, and a
+	// control byte in it is shown escaped.
+	long := reloadError("Traceback\n" + strings.Repeat("y", 3000) + "\x1b[2J ValueError: the real reason\n")
+	if !strings.Contains(long, "ValueError: the real reason") || strings.ContainsRune(long, 0x1b) || len(long) > farside.MaxBytes+5 {
+		t.Errorf("reloadError of a long traceback = %d bytes: %.120q", len(long), long)
 	}
 }
 

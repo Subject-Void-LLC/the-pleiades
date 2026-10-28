@@ -60,6 +60,8 @@ type Error struct {
 	Path string
 }
 
+// Error names what was read, the status and Cloudflare's own messages,
+// each after its code, saying for a 401 or a 403 what the token lacks.
 func (e *Error) Error() string {
 	var parts []string
 	for i, m := range e.Messages {
@@ -182,7 +184,9 @@ func decode(path string, status int, body []byte) (envelope, error) {
 			break
 		}
 		e.Codes = append(e.Codes, m.Code)
-		e.Messages = append(e.Messages, bounded(m.Message))
+		// Each message is Cloudflare's own text: quoted and bounded through
+		// pkg/farside, so a control byte in it is shown rather than sent.
+		e.Messages = append(e.Messages, farside.Text(m.Message))
 	}
 	if len(e.Messages) == 0 && strings.TrimSpace(string(body)) != "" {
 		// An answer that is not the envelope (Cloudflare's edge refusing
