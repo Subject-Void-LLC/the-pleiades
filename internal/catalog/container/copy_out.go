@@ -62,12 +62,15 @@ func CopyOut(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return fail(err)
 	}
+	// No such file, or no such container (the engine answers both "not
+	// found"), is an answer, exists false, so a plan can branch on it in a
+	// run and in a check alike; container.info tells the two apart.
 	if !exists {
-		return fail(fmt.Errorf("there is no %s in container %s", src, name))
+		return collection.Result{}, recordStats(rc, map[string]any{statName: name, paramSrc: src, statExists: false})
 	}
 	if !utf8.Valid(data) {
 		return fail(fmt.Errorf("%s in container %s is not text; this method returns text only", src, name))
 	}
 	sum := sha256.Sum256(data)
-	return collection.Result{}, recordStats(rc, map[string]any{statName: name, paramSrc: src, statText: string(data), statSize: len(data), statChecksum: hex.EncodeToString(sum[:])})
+	return collection.Result{}, recordStats(rc, map[string]any{statName: name, paramSrc: src, statExists: true, statText: string(data), statSize: len(data), statChecksum: hex.EncodeToString(sum[:])})
 }

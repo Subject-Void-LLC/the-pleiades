@@ -3,6 +3,7 @@ package vm
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,14 +38,23 @@ func TestInfo(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := tc.m
+			m.config, m.snapshots = capturedConfig, []string{"base"}
 			closed := onModel(t, &m)
 			rc := newRecorder()
 			res, err := call(t, "virt.fusion.vm.info", false, rc, map[string]any{paramVMX: vmx})
 			if err != nil || res.Changed {
 				t.Fatalf("res %+v err %v", res, err)
 			}
-			if len(rc.stats) != len(tc.want) {
-				t.Errorf("stats %v, want %v", rc.stats, tc.want)
+			// The power state and address are held here; the rest of the VM
+			// is TestInfo_DescribesTheWholeVM's.
+			base := map[string]any{}
+			for k, v := range rc.stats {
+				if !slices.Contains(detailKeys, k) {
+					base[k] = v
+				}
+			}
+			if len(base) != len(tc.want) {
+				t.Errorf("stats %v, want %v", base, tc.want)
 			}
 			for k, v := range tc.want {
 				if rc.stats[k] != v {
@@ -55,6 +65,24 @@ func TestInfo(t *testing.T) {
 				t.Errorf("a read changed %v, closed %v", m.changes(), *closed)
 			}
 		})
+	}
+}
+
+// TestInfo_AnAbsentVMIsExistsFalseInBothModes (Phase 131, R4): a vmx file
+// that is not on the Mac is exists false and nothing else, in a run and in
+// a check alike.
+func TestInfo_AnAbsentVMIsExistsFalseInBothModes(t *testing.T) {
+	for _, check := range []bool{false, true} {
+		m := model{}
+		onModel(t, &m)
+		rc := newRecorder()
+		res, err := call(t, "virt.fusion.vm.info", check, rc, map[string]any{paramVMX: vmx})
+		if err != nil || res.Changed {
+			t.Fatalf("check %v: %+v, %v", check, res, err)
+		}
+		if len(rc.stats) != 1 || rc.stats[statExists] != false {
+			t.Errorf("check %v: stats = %v, want only exists false", check, rc.stats)
+		}
 	}
 }
 

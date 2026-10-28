@@ -23,7 +23,7 @@ var gateCollections = []collectionscaffold.Config{
 				{Name: "manifest", Type: "string", Required: true, Description: "The gate manifest's path on the device."},
 				{Name: "kinds", Type: "list of string", Description: "Mark as selected only checks of these kinds, as gate.run would select them."},
 				{Name: "checks", Type: "list of string", Description: "Mark as selected only these checks, by name."},
-				{Name: "heavy", Type: "string", Default: "include", Description: "include, exclude or only, as for gate.run."},
+				{Name: "heavy", Type: "string", Default: "include", Choices: []string{"include", "exclude", "only"}, Description: "include, exclude or only, as for gate.run."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -52,7 +52,7 @@ var gateCollections = []collectionscaffold.Config{
 				{Name: "manifest", Type: "string", Required: true, Description: "The gate manifest's path on the device. A check's dir is relative to the manifest's own directory."},
 				{Name: "kinds", Type: "list of string", Description: "Run only checks of these kinds. Every kind when absent. A kind the manifest does not have is refused."},
 				{Name: "checks", Type: "list of string", Description: "Run only these checks, by name, among those the kinds select. A name the manifest does not have is refused."},
-				{Name: "heavy", Type: "string", Default: "include", Description: "include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass."},
+				{Name: "heavy", Type: "string", Default: "include", Choices: []string{"include", "exclude", "only"}, Description: "include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass."},
 				{Name: "parallelism", Type: "int", Description: "How many checks run at once, overriding the manifest's defaults.parallelism; 1 when neither sets it, at most 16. Heavy checks still run one at a time and serial checks alone."},
 				{Name: "fail_on_skip", Type: "bool", Default: "false", Description: "Fail the task when any check is skipped, for a gate whose every check must run."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},

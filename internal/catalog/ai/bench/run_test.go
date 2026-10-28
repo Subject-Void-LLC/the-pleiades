@@ -38,6 +38,21 @@ func TestRun_ScoresEachPrompt(t *testing.T) {
 	if rc.Stats["passed"] != 4 || rc.Stats["count"] != 5 || rc.Stats["score"] != 0.8 || rc.Stats["cost"] != 5*(10*1.0+4*2.0)/1e6 {
 		t.Errorf("stats %v", rc.Stats)
 	}
+	// Every stat a run records is a declared return (Phase 131's R3), the
+	// provider and model among them.
+	if rc.Stats["provider"] != dev.Name() || rc.Stats["model"] != "m:latest" {
+		t.Errorf("provider %v, model %v", rc.Stats["provider"], rc.Stats["model"])
+	}
+	d, _ := collection.Lookup("ai.bench.run")
+	declared := map[string]bool{}
+	for _, r := range d.Manifest.Doc.Returns {
+		declared[r.Name] = true
+	}
+	for k := range rc.Stats {
+		if !declared[k] {
+			t.Errorf("ai.bench.run records %s, which its Returns does not declare", k)
+		}
+	}
 	var saved map[string]any
 	if err := json.Unmarshal(rc.Written["ai/bench/run1.json"], &saved); err != nil {
 		t.Fatal(err)

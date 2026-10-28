@@ -33,7 +33,7 @@ var osTypeParam = collection.Param{Name: "os_type", Type: "string", Required: tr
 
 // snapshotUUIDParam picks one of several snapshots sharing a name.
 var snapshotUUIDParam = collection.Param{Name: "uuid", Type: "string",
-	Description: "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be one of them."}
+	Description: "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be the UUID of a snapshot of that name."}
 
 var virtCollections = []collectionscaffold.Config{
 	{
@@ -43,7 +43,7 @@ var virtCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary: "Reports a VirtualBox VM's state, hardware and snapshots.",
-			Description: "Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do." +
+			Description: "Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing: its state, shape, snapshots, guest type, firmware, network adapters and storage, from one call. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do." +
 				vboxHostParamNote + " A check is the same read.",
 			Params: []collection.Param{vmNameParam},
 			Returns: []collection.ReturnField{
@@ -56,6 +56,14 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "autostart_enabled", Type: "bool", Returned: "when exists", Description: "Whether it is marked to start with the host account's autostart service. virt.vbox.vm.start sets this on a Windows host and virt.vbox.vm.stop clears it."},
 				{Name: "snapshots", Type: "list", Returned: "when exists", Description: "Each snapshot as name, uuid and description, a parent before its children."},
 				{Name: "current_snapshot_uuid", Type: "string", Returned: "when exists", Description: "The snapshot the VM's state descends from, or empty when it has none."},
+				{Name: "os_type", Type: "string", Returned: "when exists", Description: "The guest OS type as showvminfo describes it, such as Ubuntu (64-bit)."},
+				{Name: "firmware", Type: "string", Returned: "when exists", Description: "What it boots with: BIOS or EFI."},
+				{Name: "config_file", Type: "string", Returned: "when exists and VirtualBox names it", Description: "The path of its settings file on the host."},
+				{Name: "nics", Type: "list", Returned: "when exists", Description: "Each network adapter that is on, by number from 1: number, kind (nat, hostonly, bridged, ...), mac, and host_only_adapter for a hostonly one."},
+				{Name: "storage", Type: "list", Returned: "when exists", Description: "Each storage slot as controller, controller_type, port, device and medium (a file's path, emptydrive, or none)."},
+				{Name: "console_log", Type: "string", Returned: "when exists and its first serial port writes to a file", Description: "The host file its first serial port writes to."},
+				{Name: "state_changed_at", Type: "string", Returned: "when exists and VirtualBox reports it", Description: "When it last changed state, as VirtualBox writes the time."},
+				{Name: "guest_additions_version", Type: "string", Returned: "when exists and a running guest's additions report one", Description: "The VirtualBox Guest Additions version the guest reports."},
 			},
 			Examples: []collection.Example{
 				{Name: "Read a VM", RunbookYAML: "- name: Read the lab VM\n  virt.vbox.vm.info:\n    name: ubuntu-lab\n  register: vm\n"},
@@ -338,15 +346,16 @@ var virtCollections = []collectionscaffold.Config{
 		Doc: collection.Doc{
 			Summary: "Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern.",
 			Description: "Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed." +
-				vboxHostParamNote + " A check reads the log as a run does.",
+				vboxHostParamNote + " A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the log as a run does, a missing VM included.",
 			Params: []collection.Param{
 				vmNameParam,
 				{Name: "lines", Type: "int", Default: "40", Description: "How many lines to report, from the end: 1 to 2000."},
 				{Name: "pattern", Type: "string", Description: "Report only lines matching this Go RE2 regular expression, such as EFI|GIM|fatal."},
 			},
 			Returns: []collection.ReturnField{
-				{Name: "lines", Type: "list", Returned: "always", Description: "The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run."},
-				{Name: "path", Type: "string", Returned: "always", Description: "The log file's path on the host."},
+				{Name: "exists", Type: "bool", Returned: "always", Description: "Whether a VM with this name is registered on the host."},
+				{Name: "lines", Type: "list", Returned: "when exists", Description: "The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run."},
+				{Name: "path", Type: "string", Returned: "when exists", Description: "The log file's path on the host."},
 			},
 			Examples: []collection.Example{
 				{Name: "See where a VM's firmware stopped", RunbookYAML: "- name: Read the lab VM's firmware lines\n  virt.vbox.vm.log:\n    name: win-lab\n    pattern: \"EFI|debug point\"\n    lines: 20\n"},
@@ -384,10 +393,11 @@ var virtCollections = []collectionscaffold.Config{
 		Doc: collection.Doc{
 			Summary: "Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone.",
 			Description: "Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed." +
-				vboxHostParamNote + " A check reads the same as a run.",
+				vboxHostParamNote + " A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the same as a run, a missing VM included.",
 			Params: []collection.Param{vmNameParam},
 			Returns: []collection.ReturnField{
-				{Name: "addresses", Type: "list", Returned: "always", Description: "Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires."},
+				{Name: "exists", Type: "bool", Returned: "always", Description: "Whether a VM with this name is registered on the host."},
+				{Name: "addresses", Type: "list", Returned: "when exists", Description: "Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires."},
 				{Name: "address", Type: "string", Returned: "when there is one", Description: "The address to reach the VM at: the fixed one, or else a held DHCP lease's. A first boot that applied its fixed address leaves the lease it took before then marked held for a while, so a VM whose fixed address was never applied is known by that lease being the only one it answers at."},
 			},
 			Examples: []collection.Example{
@@ -409,7 +419,7 @@ var virtCollections = []collectionscaffold.Config{
 			Params: []collection.Param{
 				vmNameParam,
 				{Name: "from", Type: "string", Required: true, Description: "The VM to clone, named as name is."},
-				{Name: "snapshot", Type: "string", Required: true, Description: "The snapshot of from to clone. Exactly one of from's snapshots may have this name."},
+				{Name: "snapshot", Type: "string", Required: true, Description: "The snapshot of from to clone. from must have exactly one snapshot of this name."},
 				{Name: "login", Type: "string", Required: true, Description: "The inventory device whose stored login the VM is seeded with, usually the device that stands for this VM. For a Linux VM, one reached over SSH: its user name, its key's public half and a hash of its password. For a Windows VM, one reached over WinRM whose credential names Administrator: its password."},
 				{Name: "address", Type: "string", Required: true, Description: "The host-only adapter's address with its prefix, as 192.168.56.10/24. Keep it out of the host-only DHCP server's range."},
 				{Name: "hostname", Type: "string", Description: "The VM's host name, or a Windows VM's computer name, which is at most 15 letters, digits and hyphens. Defaults to name, which must then be a valid one."},
@@ -464,13 +474,14 @@ var virtCollections = []collectionscaffold.Config{
 		Doc: collection.Doc{
 			Summary: "Reads a VM's SSH host keys from what cloud-init printed on its serial console.",
 			Description: "Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed." +
-				vboxHostParamNote + " A check reads the console once, without waiting.",
+				vboxHostParamNote + " A VM that does not exist is not a failure: exists is false and nothing is waited for, so a later task can decide what to do. A check reads the console once, without waiting, and answers a missing VM the same way.",
 			Params: []collection.Param{
 				vmNameParam,
 				{Name: "timeout", Type: "int", Default: "300", Description: "How many seconds to wait for the keys."},
 			},
 			Returns: []collection.ReturnField{
-				{Name: "ssh_host_keys", Type: "list", Returned: "always", Description: "Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet."},
+				{Name: "exists", Type: "bool", Returned: "always", Description: "Whether a VM with this name is registered on the host."},
+				{Name: "ssh_host_keys", Type: "list", Returned: "when exists", Description: "Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet."},
 			},
 			Examples: []collection.Example{
 				{Name: "Wait for a new VM's host keys", RunbookYAML: "- name: Wait for the lab VM's first boot\n  virt.vbox.vm.host_keys:\n    name: ubuntu-lab\n  register: keys\n"},
@@ -487,7 +498,7 @@ var virtCollections = []collectionscaffold.Config{
 			Description: "Reports every VM registered on the host for the account Pleiades reaches it as: its name, UUID, state, memory, CPUs and autostart mark, and, for a VM virt.vbox.vm.clone made, the host-only address it was given and the inventory device whose login it was seeded with. VirtualBox keeps a separate list of VMs for each Windows account, so these are not the VMs a person sees in their own VirtualBox Manager, and theirs are not listed here. Nothing is changed." +
 				vboxHostParamNote + " A check is the same read.",
 			Returns: []collection.ReturnField{
-				{Name: "vms", Type: "list", Returned: "always", Description: "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them."},
+				{Name: "vms", Type: "list", Returned: "always", Description: "Each VM as name and uuid, and, for a VM whose name Pleiades can send, state, memory_mb, cpus, autostart_enabled, os_type and firmware, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them. virt.vbox.vm.info names its adapters, storage and snapshots."},
 			},
 			Examples: []collection.Example{
 				{Name: "List the lab's VMs", RunbookYAML: "- name: What runs on the lab host\n  virt.vbox.vm.list: {}\n"},

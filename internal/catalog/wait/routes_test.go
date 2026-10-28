@@ -127,3 +127,36 @@ func TestRoutes_RecordFailuresAreReported(t *testing.T) {
 		}
 	}
 }
+
+// TestRoutes_StateAbsentWaitsForTheRouteToGo: with state absent (its case
+// ignored) the wait ends once the route is withdrawn, reporting the prefix
+// with no next hops; a route that stays fails at the timeout naming it; a
+// route moved off the next hop named counts as gone. The method before
+// state existed refused the parameter, then waited for the route present.
+func TestRoutes_StateAbsentWaitsForTheRouteToGo(t *testing.T) {
+	server := startWaitServer(t)
+	counter := filepath.Join(t.TempDir(), "reads")
+	fakeVtysh(t, `n=$(cat '`+counter+`' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '`+counter+`'
+if [ $n -le 2 ]; then echo '`+steadyTable+`'; else echo '{}'; fi`)
+	rc := newWaitContext(server)
+	if _, err := wait.Routes(context.Background(), rc, newWaitTarget(server), routesParams(map[string]any{"state": "ABSENT"})); err != nil {
+		t.Fatalf("Routes = %v, want the wait to end once the route is withdrawn", err)
+	}
+	if got, ok := rc.stats["routes"].(map[string][]string); !ok || len(got["10.1.0.0/24"]) != 0 || got["10.1.0.0/24"] == nil {
+		t.Errorf("routes = %#v, want 10.1.0.0/24 with an empty list", rc.stats["routes"])
+	}
+
+	fakeVtysh(t, `echo '`+steadyTable+`'`)
+	_, err := wait.Routes(context.Background(), newWaitContext(server), newWaitTarget(server), routesParams(map[string]any{"state": "absent", "timeout": 2}))
+	if err == nil || !strings.Contains(err.Error(), "still has a selected route to 10.1.0.0/24 (through 10.0.0.1)") {
+		t.Errorf("Routes = %v, want a timeout naming the route still there", err)
+	}
+	if _, err := wait.Routes(context.Background(), newWaitContext(server), newWaitTarget(server), routesParams(map[string]any{
+		"state": "absent", "next_hops": map[string]any{"10.1.0.0/24": []any{"10.0.0.9"}},
+	})); err != nil {
+		t.Errorf("Routes = %v, want a route through another next hop to count as gone", err)
+	}
+	if _, err := wait.Routes(context.Background(), newWaitContext(server), newWaitTarget(server), routesParams(map[string]any{"state": "gone"})); err == nil || !strings.Contains(err.Error(), "neither present nor absent") {
+		t.Errorf("state gone = %v, want a refusal naming both", err)
+	}
+}

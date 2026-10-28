@@ -141,7 +141,6 @@ func TestLog(t *testing.T) {
 		"too many lines":     {"name": "win-lab", "lines": 5000},
 		"lines not a number": {"name": "win-lab", "lines": "all"},
 		"a bad pattern":      {"name": "win-lab", "pattern": "("},
-		"a VM not there":     {"name": "gone"},
 	} {
 		if _, err := call(t, "virt.vbox.vm.log", false, newRecorder(), p); err == nil {
 			t.Errorf("%s: accepted", why)
@@ -246,10 +245,6 @@ func TestAddresses(t *testing.T) {
 		if _, err := call(t, "virt.vbox.vm.addresses", false, newRecorder(), map[string]any{"name": "win-lab"}); err == nil {
 			t.Errorf("%s failing: reported", key)
 		}
-	}
-	onModel(t, vboxmanagetest.New(windowsVM()))
-	if _, err := call(t, "virt.vbox.vm.addresses", false, newRecorder(), map[string]any{"name": "gone"}); err == nil {
-		t.Error("addresses of a VM not there")
 	}
 	for _, stat := range []string{statAddresses, statAddress} {
 		onModel(t, vboxmanagetest.New(windowsVM()))

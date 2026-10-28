@@ -198,23 +198,23 @@ func TestRestart_UnreachableTargetIsAWrappedError(t *testing.T) {
 	}
 }
 
-func TestFirstLine(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{name: "single line", input: "boom", want: "boom"},
-		{name: "multi line takes the first", input: "boom\nmore detail\nand more", want: "boom"},
-		{name: "empty is reported plainly", input: "", want: "no output"},
-		{name: "whitespace only is reported plainly", input: "   \n  ", want: "no output"},
-		{name: "leading and trailing whitespace trimmed", input: "  boom  \n", want: "boom"},
+// TestExited_CarriesPowerShellsWholeReason feeds exited a PowerShell error
+// record as pkg/winrmexec decodes one from CLIXML (clixml_test.go's shape),
+// with its reason wrapped onto a second line as PowerShell wraps a record
+// at the host's width. The whole reason reaches the error, on one line,
+// and an empty stderr still says something.
+func TestExited_CarriesPowerShellsWholeReason(t *testing.T) {
+	record := "Set-Service : Service 'Print Spooler (Spooler)' cannot be configured due to the following error: Access\r\n" +
+		"is denied\r\nAt line:2 char:1\r\n+ Set-Service -Name 'Spooler' -StartupType Disabled\r\n" +
+		"+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n"
+	err := exited("Set-Service Spooler -StartupType Disabled", 1, record)
+	if !strings.Contains(err.Error(), `exited 1: "Set-Service : Service 'Print Spooler (Spooler)' cannot be configured due to the following error: Access is denied At line:2`) {
+		t.Errorf("error = %v, want PowerShell's whole reason on one line", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := firstLine(tt.input); got != tt.want {
-				t.Errorf("firstLine(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
+	if strings.ContainsAny(err.Error(), "\r\n") {
+		t.Errorf("error = %q, want one line", err)
+	}
+	if err := exited("Stop-Service spooler", 1, "  \r\n"); !strings.HasSuffix(err.Error(), "exited 1: no output") {
+		t.Errorf("error = %v, want it to say there was no output", err)
 	}
 }

@@ -137,6 +137,16 @@ func TestInfo_ReportsNamedAndMissing(t *testing.T) {
 	if _, ok := images[0]["env"]; ok {
 		t.Error("info reported the image's environment")
 	}
+	// A named image is described whole: what a container from it runs, as
+	// lists even where the image declares nothing, and its platform.
+	for _, k := range []string{"entrypoint", "command", "exposed_ports", "volumes", "env_names"} {
+		if _, ok := images[0][k].([]string); !ok {
+			t.Errorf("%s = %#v, want a list", k, images[0][k])
+		}
+	}
+	if images[0]["architecture"] == "" || images[0]["os"] == "" {
+		t.Errorf("platform = %v/%v", images[0]["os"], images[0]["architecture"])
+	}
 	if missing, _ := rc.stats["missing"].([]string); len(missing) != 1 || missing[0] != repo+":absent" {
 		t.Errorf("missing = %v", rc.stats["missing"])
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -113,7 +114,7 @@ func writeBeside(ctx context.Context, conn *remoteexec.Conn, filePath string, co
 	}
 	tmp := res.Stdout
 	if res.ExitCode != 0 || !strings.HasPrefix(tmp, dir+"/.pleiades.") || strings.ContainsAny(tmp, "\n\r") {
-		return "", nil, fmt.Errorf("writing beside it: exited %d: %s", res.ExitCode, firstLine(res.Stderr))
+		return "", nil, fmt.Errorf("writing beside it: exited %d: %s", res.ExitCode, farside.Output(res.Stderr))
 	}
 	cleanup := func() {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), replaceCleanupTimeout)

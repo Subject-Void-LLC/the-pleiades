@@ -24,6 +24,7 @@ var shellFreeServers = map[string]string{
 	"cmd/pleiades/secret_ref_test.go:secretRouter":                                                                             "a scripted IOS CLI whose CA start asks for a passphrase; no exec session is opened",
 	"internal/catalog/net/ios/config_session_internal_test.go:configuringDevice":                                               "a scripted IOS CLI in configuration mode that asks a question; no exec session is opened",
 	"internal/catalog/net/ios/ios_session_internal_test.go:iosDevice":                                                          "a scripted IOS CLI answers the shell request; no exec session is opened",
+	"internal/catalog/net/ios/config_backup_internal_test.go:backupDevice":                                                     "a scripted IOS CLI in configuration mode showing its running configuration; no exec session is opened",
 	"internal/catalog/wait/connection_test.go:TestConnection_ANetworkDeviceNotLettingATerminalInIsNotReady":                    "a scripted network CLI with no session budget; nothing is ever run",
 	"internal/catalog/wait/connection_test.go:startCLIDevice":                                                                  "a scripted network CLI; a try opens a terminal and no exec session",
 	"internal/catalog/net/ios/ios_session_internal_test.go:TestOpenSession_FailsWhenNoPromptEverArrives":                       "a scripted CLI that never prompts; no exec session is opened",

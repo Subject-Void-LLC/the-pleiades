@@ -50,6 +50,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -190,7 +191,7 @@ func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error)
 		return Info{Kind: KindAbsent}, nil
 	}
 	if result.ExitCode != 0 {
-		return Info{}, fmt.Errorf("stat %s: exited %d: %s", path, result.ExitCode, firstLine(result.Stderr))
+		return Info{}, fmt.Errorf("stat %s: exited %d: %s", path, result.ExitCode, farside.Output(result.Stderr))
 	}
 
 	info, err := parseStat(strings.TrimSpace(result.Stdout))
@@ -257,7 +258,7 @@ func DirectoryEmpty(ctx context.Context, conn *remoteexec.Conn, dirPath string) 
 	case statusNotEmpty:
 		return false, nil
 	default:
-		return false, fmt.Errorf("list %s: exited %d: %s", dirPath, result.ExitCode, firstLine(result.Stderr))
+		return false, fmt.Errorf("list %s: exited %d: %s", dirPath, result.ExitCode, farside.Output(result.Stderr))
 	}
 }
 
@@ -338,16 +339,3 @@ func normalizeMode(mode string) string {
 // NormalizeMode exposes normalizeMode to the methods, which need it to
 // compare a runbook's requested mode against what Stat reported.
 func NormalizeMode(mode string) string { return normalizeMode(mode) }
-
-// firstLine returns the first line of s, trimmed, for an error message
-// that should not carry a page of output.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	if s == "" {
-		return "no output"
-	}
-	return s
-}

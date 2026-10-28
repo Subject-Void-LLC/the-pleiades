@@ -115,6 +115,35 @@ func TestHTTPProbe_Refusals(t *testing.T) {
 	}
 }
 
+// TestHTTPProbe_SaysWhatTheAPISaid: a refusal carries the API's own reason
+// (an RFC 9457 problem's detail, a proxy page's words), quoted, with the
+// credential masked even when the answer echoes it.
+func TestHTTPProbe_SaysWhatTheAPISaid(t *testing.T) {
+	const token = "tok-0123456789abcdef"
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/denied":
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Forbidden","status":403,"detail":"token ` + token + ` lacks scope read:api"}`))
+		case "/proxy":
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte("<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"))
+		}
+	}))
+	defer srv.Close()
+	for path, want := range map[string]string{
+		"/denied": `refused the credential (403): "token ******** lacks scope read:api"`,
+		"/proxy":  `server error (502): "502 Bad Gateway 502 Bad Gateway nginx"`,
+	} {
+		dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL + path})
+		_, err := httpProber{}.Probe(context.Background(), dev, map[string]string{"token": token})
+		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), token) {
+			t.Errorf("%s: err = %v, want it to hold %s and never the token", path, err, want)
+		}
+	}
+}
+
 // TestGRPCProbe_OlderReflectionOnly: a server that predates reflection v1
 // is still read, through v1alpha.
 func TestGRPCProbe_OlderReflectionOnly(t *testing.T) {

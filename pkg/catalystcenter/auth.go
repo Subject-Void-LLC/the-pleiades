@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // tokenLifetime is how long a fetched token is treated as usable.
@@ -99,13 +101,16 @@ func (c *Client) fetchToken(ctx context.Context) (string, error) {
 		// with the same credentials would just lock the account out.
 		return "", fmt.Errorf("catalystcenter: authentication rejected for user %q", c.username)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("catalystcenter: auth endpoint returned %s", resp.Status)
-	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return "", fmt.Errorf("catalystcenter: reading auth response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// The request carries the password only in its Authorization
+		// header, never in a body the answer could echo, so the
+		// controller's reason is safe to quote.
+		return "", fmt.Errorf("catalystcenter: auth endpoint returned %s: %s", resp.Status, farside.Text(string(body)))
 	}
 
 	var decoded tokenResponse

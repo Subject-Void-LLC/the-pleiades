@@ -35,6 +35,17 @@ func TestReadAndExec(t *testing.T) {
 			t.Errorf("info's %s holds the environment value", k)
 		}
 	}
+	// The whole container by default: what a real engine answers for a
+	// running container with no network and nothing published.
+	if pid, _ := rc.stats["pid"].(int); pid <= 0 || rc.stats["network"] != "none" || rc.stats["read_only"] != false {
+		t.Errorf("info of a running container: pid %v, network %v, read_only %v", rc.stats["pid"], rc.stats["network"], rc.stats["read_only"])
+	}
+	if ports, ok := rc.stats["ports"].([]string); !ok || len(ports) != 0 {
+		t.Errorf("ports = %#v, want an empty list", rc.stats["ports"])
+	}
+	if _, ok := rc.stats["networks"].([]any); !ok {
+		t.Errorf("networks = %#v, want a list", rc.stats["networks"])
+	}
 	rc = fresh()
 	if _, err := call(t, h, rc, "container.info", false, map[string]any{"name": name + "-absent"}); err != nil || rc.stats["exists"] != false {
 		t.Errorf("info of an absent container = %v, %v", rc.stats, err)
@@ -46,6 +57,8 @@ func TestReadAndExec(t *testing.T) {
 	}
 	if list, _ := rc.stats["containers"].([]any); len(list) != 1 || list[0].(map[string]any)["name"] != name {
 		t.Errorf("list = %v", rc.stats["containers"])
+	} else if entry := list[0].(map[string]any); !strings.HasPrefix(entry["status"].(string), "Up") || entry["created"].(int64) <= 0 {
+		t.Errorf("list entry = %v, want the engine's status line and creation time", entry)
 	}
 
 	rc = fresh()
@@ -53,7 +66,12 @@ func TestReadAndExec(t *testing.T) {
 		t.Errorf("exec = %v, %v", rc.stats, err)
 	}
 	rc = fresh()
-	if _, err := call(t, h, rc, "container.exec", false, map[string]any{"name": name, "cmd": "echo failing >&2; exit 3"}); err == nil || !strings.Contains(err.Error(), "exited 3: failing") || rc.stats["exit_code"] != 3 {
+	// The command's stderr, two real lines from ls and the shell, reaches
+	// the error as pkg/farside quotes it: one line, in quotes. ls's own
+	// wording is the image's (BusyBox in the pinned nginx image, GNU in
+	// others), so only its ends are held.
+	if _, err := call(t, h, rc, "container.exec", false, map[string]any{"name": name, "cmd": "ls /no-such-dir; echo failing >&2; exit 3"}); err == nil ||
+		!strings.Contains(err.Error(), `exited 3: "ls: `) || !strings.HasSuffix(err.Error(), `No such file or directory failing"`) || rc.stats["exit_code"] != 3 {
 		t.Errorf("a failing exec = %v, %v", rc.stats, err)
 	}
 
@@ -137,8 +155,11 @@ func TestRun_ToItsExit(t *testing.T) {
 		t.Fatalf("a one-shot = %+v, %v, %v; state %q", res, err, rc.stats, h.state(t, name))
 	}
 	rc = fresh()
-	_, err = call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "echo nope >&2; exit 4"}}))
-	if err == nil || !strings.Contains(err.Error(), "exited 4 and was removed: nope") || rc.stats["exit_code"] != 4 || h.state(t, name) != "" {
+	_, err = call(t, h, rc, "container.run", false, shot(map[string]any{"command": []any{"/bin/sh", "-c", "cat /etc/no-such.conf; echo nope >&2; exit 4"}}))
+	// The stderr of cat and the shell, quoted on one line by pkg/farside;
+	// cat's wording is the image's, so only its ends are held.
+	if err == nil || !strings.Contains(err.Error(), `exited 4 and was removed: "cat: `) || !strings.HasSuffix(err.Error(), `No such file or directory nope"`) ||
+		rc.stats["exit_code"] != 4 || h.state(t, name) != "" {
 		t.Errorf("a failing one-shot = %v, %v; state %q", err, rc.stats, h.state(t, name))
 	}
 	// remove: false keeps only a run that succeeded: a failed one leaves

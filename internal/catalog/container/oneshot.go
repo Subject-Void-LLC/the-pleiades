@@ -6,13 +6,13 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/moby/moby/client"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -143,7 +143,7 @@ func runToExit(ctx context.Context, rc sdk.RunbookContext, s *containerengine.Se
 		return collection.Result{Changed: true}, fmt.Errorf("container %s ran past %s and was killed and removed", spec.Name, shot.timeout)
 	}
 	if !accepted {
-		return collection.Result{Changed: true}, fmt.Errorf("container %s exited %d and was removed: %s", spec.Name, exited.ExitCode, strings.TrimSpace(firstNonEmpty(exited.Stderr, exited.Stdout)))
+		return collection.Result{Changed: true}, fmt.Errorf("container %s exited %d and was removed: %s", spec.Name, exited.ExitCode, farside.Output(firstNonEmpty(exited.Stderr, exited.Stdout)))
 	}
 	failed = false
 	return collection.Result{Changed: true}, nil

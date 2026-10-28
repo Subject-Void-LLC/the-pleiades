@@ -69,10 +69,11 @@ func init() {
 				Description: "Answers a different question than device_facts: device_facts describes what the fleet is, gathered once; reachability describes what the fleet is doing right now, the check a gate task waits on before acting. Reports reachability_status (can the controller talk to the device at all) and collection_status (is it successfully collecting from it) separately, since a device can be reachable and still not managed.",
 				Fragments:   []string{"catalyst_connection", "catalyst_pagination"},
 				Returns: []collection.ReturnField{
-					{Name: "devices", Type: "list of map", Returned: "always", Description: "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."},
+					{Name: "reachability", Type: "list of map", Returned: "always", Description: "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."},
 					{Name: "unreachable", Type: "list of string", Returned: "always", Description: "Hostnames (or management IPs, if hostname is unset) of every unreachable device."},
 					{Name: "reachable_count", Type: "int", Returned: "always", Description: "Count of devices with reachability_status Reachable."},
 					{Name: "managed_count", Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
+					{Name: "total_device_count", Type: "int", Returned: "always", Description: "How many devices the controller listed, reachable or not."},
 				},
 				Examples: []collection.Example{
 					{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},

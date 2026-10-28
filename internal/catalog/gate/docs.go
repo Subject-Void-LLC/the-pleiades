@@ -17,7 +17,7 @@ func runDoc() collection.Doc {
 			{Name: paramManifest, Type: "string", Required: true, Description: "The gate manifest's path on the device. A check's dir is relative to the manifest's own directory."},
 			{Name: paramKinds, Type: "list of string", Description: "Run only checks of these kinds. Every kind when absent. A kind the manifest does not have is refused."},
 			{Name: paramChecks, Type: "list of string", Description: "Run only these checks, by name, among those the kinds select. A name the manifest does not have is refused."},
-			{Name: paramHeavy, Type: "string", Default: "include", Description: "include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass."},
+			{Name: paramHeavy, Type: "string", Default: "include", Choices: []string{"include", "exclude", "only"}, Description: "include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass."},
 			{Name: paramParallelism, Type: "int", Description: "How many checks run at once, overriding the manifest's defaults.parallelism; 1 when neither sets it, at most 16. Heavy checks still run one at a time and serial checks alone."},
 			{Name: paramFailOnSkip, Type: "bool", Default: "false", Description: "Fail the task when any check is skipped, for a gate whose every check must run."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -54,7 +54,7 @@ func listDoc() collection.Doc {
 			{Name: paramManifest, Type: "string", Required: true, Description: "The gate manifest's path on the device."},
 			{Name: paramKinds, Type: "list of string", Description: "Mark as selected only checks of these kinds, as gate.run would select them."},
 			{Name: paramChecks, Type: "list of string", Description: "Mark as selected only these checks, by name."},
-			{Name: paramHeavy, Type: "string", Default: "include", Description: "include, exclude or only, as for gate.run."},
+			{Name: paramHeavy, Type: "string", Default: "include", Choices: []string{"include", "exclude", "only"}, Description: "include, exclude or only, as for gate.run."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{

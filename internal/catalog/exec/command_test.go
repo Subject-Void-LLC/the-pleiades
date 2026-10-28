@@ -872,6 +872,12 @@ func TestCommand_UnenterableChdirIsAnErrorNotAnAbsence(t *testing.T) {
 			if !strings.Contains(err.Error(), "cannot enter directory") {
 				t.Errorf("error = %v, want it to name the directory it could not enter", err)
 			}
+			// The shell's own refusal follows, as pkg/farside quotes it:
+			// one line, in quotes, naming the directory again.
+			if !strings.Contains(err.Error(), "cannot enter directory "+strconv.Quote(missing)+`: "`) ||
+				!strings.Contains(err.Error(), "no-such-directory") || strings.ContainsAny(err.Error(), "\r\n") {
+				t.Errorf("error = %q, want the shell's stderr after it on one quoted line", err.Error())
+			}
 		})
 	}
 }

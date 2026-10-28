@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // maxResponse bounds a response body read: a lab's nodes with their
@@ -227,7 +228,7 @@ type StatusError struct {
 
 // Error names the call and the controller's own words, bounded and quoted.
 func (e *StatusError) Error() string {
-	return fmt.Sprintf("cml: %s /api/v0%s: %d: %s", e.Method, e.Path, e.Status, firstLine(e.Body))
+	return fmt.Sprintf("cml: %s /api/v0%s: %d: %s", e.Method, e.Path, e.Status, farside.Text(e.Body))
 }
 
 // get reads one JSON answer once logged in.
@@ -278,28 +279,4 @@ func (c *Client) call(ctx context.Context, method, path string, body []byte, int
 		return fmt.Errorf("cml: %s /api/v0%s: the answer is not what this client reads: %w", method, path, err)
 	}
 	return nil
-}
-
-// firstLine is a controller's words fit for an error: what its JSON error
-// says (description, detail, message or error, the first present), or else
-// its text with every run of white space made one space, at most 300 bytes,
-// quoted so a control character is shown rather than acted on. CML answers
-// an error with indented JSON, so its first line alone is "{", which is all
-// a refused node start used to say.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	var obj map[string]any
-	if strings.HasPrefix(s, "{") && json.Unmarshal([]byte(s), &obj) == nil {
-		for _, k := range []string{"description", "detail", "message", "error"} {
-			if v, ok := obj[k].(string); ok && strings.TrimSpace(v) != "" {
-				s = v
-				break
-			}
-		}
-	}
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 300 {
-		s = s[:300] + "..."
-	}
-	return fmt.Sprintf("%q", s)
 }

@@ -39,6 +39,8 @@ import (
 	ntlmhttp "github.com/bodgit/ntlmssp/http"
 	"github.com/masterzen/winrm"
 	"github.com/masterzen/winrm/soap"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // soapContentType is a WS-Man message's content type.
@@ -127,13 +129,13 @@ func (t *sealedNTLMTransport) post(ctx context.Context, body string) (reply stri
 	if err != nil {
 		return "", false, fmt.Errorf("winrm: NTLM handshake with %s: %w; nothing of the message was sent", t.url, err)
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxReply))
+	shakeReply, _ := io.ReadAll(io.LimitReader(resp.Body, maxReply))
 	_ = resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
 		return "", false, fmt.Errorf("winrm: %w; nothing of the message was sent", errLoginRefused)
 	case resp.StatusCode != http.StatusOK || !session.Complete() || session.SecuritySession() == nil:
-		return "", false, fmt.Errorf("winrm: the NTLM handshake with %s ended with HTTP %d and no sealed session; nothing of the message was sent", t.url, resp.StatusCode)
+		return "", false, fmt.Errorf("winrm: the NTLM handshake with %s ended with HTTP %d and no sealed session%s; nothing of the message was sent", t.url, resp.StatusCode, hostSaid(shakeReply))
 	}
 
 	// The message, sealed with the session the handshake made, in the
@@ -177,9 +179,19 @@ func (t *sealedNTLMTransport) post(ctx context.Context, body string) (reply stri
 	// A WS-Man fault comes back as a SOAP body with status 500, which the
 	// library parses; anything that is not SOAP is not an answer.
 	if !strings.Contains(replyType, "application/soap+xml") {
-		return "", false, fmt.Errorf("winrm: %s answered HTTP %d with %q, not a WS-Man reply", t.url, resp.StatusCode, replyType)
+		return "", false, fmt.Errorf("winrm: %s answered HTTP %d with %q, not a WS-Man reply%s", t.url, resp.StatusCode, replyType, hostSaid(data))
 	}
 	return string(data), false, nil
+}
+
+// hostSaid is what the host's answer said, for an error about an answer
+// that is not a WS-Man reply (http.sys's own error page, a proxy's), quoted
+// and bounded through pkg/farside, or nothing when the answer was empty.
+func hostSaid(body []byte) string {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return ""
+	}
+	return " (the host said " + farside.Text(string(body)) + ")"
 }
 
 // The WS-MV framing of a sealed message ([MS-WSMV] 2.2.9.1.1), as Windows

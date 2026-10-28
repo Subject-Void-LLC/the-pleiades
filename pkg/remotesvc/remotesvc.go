@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -161,7 +162,7 @@ func Status(ctx context.Context, conn *remoteexec.Conn, unit string) (State, err
 		// all: not installed, not running, or the account cannot talk to
 		// it. Naming that is more useful than reporting the unit absent.
 		return State{}, fmt.Errorf("reading the state of %s: systemctl exited %d: %s",
-			unit, result.ExitCode, firstLine(result.Stderr))
+			unit, result.ExitCode, farside.Output(result.Stderr))
 	}
 
 	return parseShow(unit, result.Stdout), nil
@@ -246,7 +247,7 @@ func DaemonReload(ctx context.Context, conn *remoteexec.Conn) error {
 		return fmt.Errorf("systemctl %s: %w", opDaemonReload, err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("systemctl %s exited %d: %s", opDaemonReload, result.ExitCode, firstLine(result.Stderr))
+		return fmt.Errorf("systemctl %s exited %d: %s", opDaemonReload, result.ExitCode, farside.Output(result.Stderr))
 	}
 	return nil
 }
@@ -262,20 +263,7 @@ func run(ctx context.Context, conn *remoteexec.Conn, op, unit string) error {
 		return fmt.Errorf("systemctl %s %s: %w", op, unit, err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("systemctl %s %s exited %d: %s", op, unit, result.ExitCode, firstLine(result.Stderr))
+		return fmt.Errorf("systemctl %s %s exited %d: %s", op, unit, result.ExitCode, farside.Output(result.Stderr))
 	}
 	return nil
-}
-
-// firstLine returns the first line of s, trimmed, so an error message
-// carries the reason rather than a page of output.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	if s == "" {
-		return "no output"
-	}
-	return s
 }

@@ -107,14 +107,14 @@ func removeDoc() collection.Doc {
 func infoDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Reports images on the engine.",
-		Description: "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image its OS and architecture. A named image that is absent is listed under missing rather than failing the task. An image's environment is never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read." + containerengine.ReachNote,
+		Description: "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image also its OS, architecture and variant and what a container made from it runs: entrypoint, command, user, working directory, exposed ports, volumes and environment variable names. A named image that is absent is listed under missing rather than failing the task. An image's environment values are never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read." + containerengine.ReachNote,
 		Params: []collection.Param{
 			{Name: paramImages, Type: "list", Description: "The images to report, by reference or ID. Absent means every image."},
 			containerengine.HostKeyParam,
 		},
 		Fragments: []string{"container_engine"},
 		Returns: []collection.ReturnField{
-			{Name: statImages, Type: "list of dict", Returned: "always", Description: "One entry per image: id, tags, digests, created, size, labels, and os and architecture for an image named."},
+			{Name: statImages, Type: "list of dict", Returned: "always", Description: "One entry per image: id, tags, digests, created, size and labels; for every image listed (none named) also containers, how many containers use it; for an image named also os, architecture, variant, entrypoint, command, user, working_dir, exposed_ports, volumes and env_names (names only, never a value)."},
 			{Name: statMissing, Type: "list of string", Returned: "always", Description: "The images named that the engine does not have."},
 		},
 		Examples: []collection.Example{{Name: "Is the release here", RunbookYAML: "- name: Read the release image\n  container.image.info:\n    images: [registry.example.com/app:1.4.2]\n  register: release\n"}},
@@ -125,17 +125,18 @@ func infoDoc() collection.Doc {
 func resolveDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Resolves a tag to the digest it names in its registry.",
-		Description: "Asks the registry a reference names, through the engine (so through the device's own network, proxy and mirrors), which digest its tag names now: a multi-platform image's index, as `docker buildx imagetools inspect` reports it, so it means the same on any machine. The registry credential bound for that registry is used when there is one. It changes nothing; a check is the same read." + containerengine.ReachNote,
+		Description: "Asks the registry a reference names, through the engine (so through the device's own network, proxy and mirrors), which digest its tag names now: a multi-platform image's index, as `docker buildx imagetools inspect` reports it, so it means the same on any machine. The registry credential bound for that registry is used when there is one. A tag the registry answers not found for is not a failure: exists is false and image is the reference asked for, so a later task can decide what to do. Any other refusal fails the task, a registry that answers unauthorized for a repository it does not show included, since that does not say the tag is absent. It changes nothing; a check is the same read, an absent tag included." + containerengine.ReachNote,
 		Params: []collection.Param{
 			{Name: paramImage, Type: "string", Required: true, Description: "The image by tag; a missing tag is latest."},
 			containerengine.HostKeyParam,
 		},
 		Fragments: []string{"container_engine"},
 		Returns: []collection.ReturnField{
-			{Name: statImage, Type: "string", Returned: "always", Description: "The image by digest."},
-			{Name: statDigest, Type: "string", Returned: "always", Description: "The digest the tag names."},
-			{Name: statMediaType, Type: "string", Returned: "always", Description: "Whether the digest is an index or a single image's manifest, as its media type."},
-			{Name: statPlatform, Type: "list of string", Returned: "always", Description: "The platforms the image is built for, os/arch[/variant]."},
+			{Name: statExists, Type: "bool", Returned: "always", Description: "Whether the registry holds the tag."},
+			{Name: statImage, Type: "string", Returned: "always", Description: "The image by digest, or the reference asked for when the tag does not exist."},
+			{Name: statDigest, Type: "string", Returned: "when exists", Description: "The digest the tag names."},
+			{Name: statMediaType, Type: "string", Returned: "when exists", Description: "Whether the digest is an index or a single image's manifest, as its media type."},
+			{Name: statPlatform, Type: "list of string", Returned: "when exists", Description: "The platforms the image is built for, os/arch[/variant]."},
 		},
 		Examples: []collection.Example{{Name: "Pin a base image", RunbookYAML: "- name: Resolve the base\n  container.image.resolve:\n    image: alpine:3.20\n  register: base\n"}},
 		SeeAlso:  []string{"container.image.pull", "build.digests.refresh"},

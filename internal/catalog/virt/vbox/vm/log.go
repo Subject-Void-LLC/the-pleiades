@@ -46,15 +46,16 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern.",
-				Description: "Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the log as a run does.",
+				Description: "Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the log as a run does, a missing VM included.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "lines", Type: "int", Default: "40", Description: "How many lines to report, from the end: 1 to 2000."},
 					{Name: "pattern", Type: "string", Description: "Report only lines matching this Go RE2 regular expression, such as EFI|GIM|fatal."},
 				},
 				Returns: []collection.ReturnField{
-					{Name: "lines", Type: "list", Returned: "always", Description: "The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run."},
-					{Name: "path", Type: "string", Returned: "always", Description: "The log file's path on the host."},
+					{Name: "exists", Type: "bool", Returned: "always", Description: "Whether a VM with this name is registered on the host."},
+					{Name: "lines", Type: "list", Returned: "when exists", Description: "The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run."},
+					{Name: "path", Type: "string", Returned: "when exists", Description: "The log file's path on the host."},
 				},
 				Examples: []collection.Example{
 					{Name: "See where a VM's firmware stopped", RunbookYAML: "- name: Read the lab VM's firmware lines\n  virt.vbox.vm.log:\n    name: win-lab\n    pattern: \"EFI|debug point\"\n    lines: 20\n"},
@@ -104,9 +105,17 @@ func Log(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return collection.Result{}, err
 	}
-	m, err := mustRead(ctx, h, name, device, fqcn)
+	m, exists, err := read(ctx, h, name)
 	if err != nil {
-		return collection.Result{}, err
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// A VM the host does not have is an answer, exists false, in a run and
+	// in a check alike.
+	if !exists {
+		return collection.Result{}, setExistsFalse(rc, fqcn)
+	}
+	if err := rc.SetStat(statExists, true); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	dir, err := vmDir(m)
 	if err != nil {

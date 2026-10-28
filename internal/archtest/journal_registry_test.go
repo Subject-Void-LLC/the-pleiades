@@ -205,12 +205,16 @@ func journalDeclaredNames(doc collection.Doc) (params, returns []string) {
 
 // journalWithoutTemplateFiles returns names without the parameters doc
 // declares collection.ParamFormatTemplateFile, which the engine replaces with
-// rendered content before dispatch.
+// rendered content before dispatch, and, beside one, the block whitespace
+// options the engine reads and removes with it (engine.TemplateOptionParams).
 func journalWithoutTemplateFiles(doc collection.Doc, names []string) []string {
 	consumed := map[string]bool{}
 	for _, p := range doc.Params {
 		if p.Format == collection.ParamFormatTemplateFile {
 			consumed[p.Name] = true
+			for _, opt := range engine.TemplateOptionParams() {
+				consumed[opt] = true
+			}
 		}
 	}
 	var out []string

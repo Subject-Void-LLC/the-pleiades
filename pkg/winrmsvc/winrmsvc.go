@@ -49,6 +49,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
@@ -137,7 +138,7 @@ func Status(ctx context.Context, session Session, name string) (State, error) {
 		return State{}, fmt.Errorf("reading the state of %s: %w", name, err)
 	}
 	if result.ExitCode != 0 {
-		return State{}, fmt.Errorf("reading the state of %s: powershell exited %d: %s", name, result.ExitCode, firstLine(result.Stderr))
+		return State{}, exited("reading the state of "+name+": powershell", result.ExitCode, result.Stderr)
 	}
 	return parseStatusJSON(name, result.Stdout)
 }
@@ -206,7 +207,7 @@ func runVerb(ctx context.Context, session Session, verb, name string) error {
 		return fmt.Errorf("%s %s: %w", verb, name, err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("%s %s exited %d: %s", verb, name, result.ExitCode, firstLine(result.Stderr))
+		return exited(verb+" "+name, result.ExitCode, result.Stderr)
 	}
 	return nil
 }
@@ -220,23 +221,15 @@ func setStartupType(ctx context.Context, session Session, name, startupType stri
 		return fmt.Errorf("Set-Service %s -StartupType %s: %w", name, startupType, err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("Set-Service %s -StartupType %s exited %d: %s", name, startupType, result.ExitCode, firstLine(result.Stderr))
+		return exited("Set-Service "+name+" -StartupType "+startupType, result.ExitCode, result.Stderr)
 	}
 	return nil
 }
 
-// firstLine returns the first line of s, trimmed, so an error message
-// carries the reason rather than a page of output. A near-copy of
-// remotesvc's own helper; see exec/winrm/shell.go's secondsParam comment
-// for why this repository accepts that duplication until a third
-// package needs it.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	if s == "" {
-		return "no output"
-	}
-	return s
+// exited is the error for a PowerShell script that exited non-zero: what
+// ran, its exit code, and PowerShell's whole error record on one line,
+// bounded and quoted (pkg/farside). A record's reason wraps onto its next
+// line at the host's width, so its first line alone can stop mid-sentence.
+func exited(what string, code int, stderr string) error {
+	return fmt.Errorf("%s exited %d: %s", what, code, farside.Output(stderr))
 }

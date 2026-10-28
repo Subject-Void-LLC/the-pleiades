@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 )
 
@@ -182,6 +183,12 @@ func decode(path string, status int, body []byte) (envelope, error) {
 		}
 		e.Codes = append(e.Codes, m.Code)
 		e.Messages = append(e.Messages, bounded(m.Message))
+	}
+	if len(e.Messages) == 0 && strings.TrimSpace(string(body)) != "" {
+		// An answer that is not the envelope (Cloudflare's edge refusing
+		// with "error code: 1020", a proxy's page) still says why, in its
+		// own words, bounded and quoted.
+		e.Messages = append(e.Messages, farside.Text(string(body)))
 	}
 	return envelope{}, e
 }

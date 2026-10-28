@@ -48,9 +48,9 @@ func denyDoc() collection.Doc {
 			"be true without the other. Both configurations are read before anything is sent, so a half " +
 			"already denying the rule is left alone and reports no change from that half.",
 		Params: []collection.Param{
-			{Name: paramPort, Type: "int", Description: "The port to deny. Exactly one of port or service is required."},
-			{Name: paramProtocol, Type: "string", Default: "tcp", Description: "The protocol for port (tcp or udp). Ignored when service is given."},
-			{Name: paramService, Type: "string", Description: "The firewalld service name to deny, e.g. http. Exactly one of port or service is required."},
+			{Name: paramPort, Type: "int", Description: "The port to deny. Give port or service: exactly one is required."},
+			{Name: paramProtocol, Type: "string", Default: "tcp", Choices: []string{"tcp", "udp", "sctp", "dccp"}, Description: "The protocol for port: tcp, udp, sctp or dccp, as firewalld takes them. Ignored when service is given."},
+			{Name: paramService, Type: "string", Description: "The firewalld service name to deny, e.g. http. Give port or service: exactly one is required."},
 			{Name: paramZone, Type: "string", Default: "public", Description: "The firewalld zone to remove the rule from."},
 			{Name: paramPermanent, Type: "bool", Default: "true", Description: "Also remove the rule from the permanent configuration."},
 			{Name: paramImmediate, Type: "bool", Default: "true", Description: "Also remove the rule from the runtime configuration, so it takes effect now."},

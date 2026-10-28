@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
@@ -52,7 +53,7 @@ func (s *session) run(ctx context.Context, argv ...string) (string, error) {
 		return "", fmt.Errorf("%s: %s: %w", s.fqcn, argv[0], err)
 	}
 	if res.ExitCode != 0 {
-		return "", fmt.Errorf("%s: %s exited %d: %s", s.fqcn, argv[0], res.ExitCode, firstLine(res.Stderr+res.Stdout))
+		return "", fmt.Errorf("%s: %s exited %d: %s", s.fqcn, argv[0], res.ExitCode, refusal(res.Stderr+"\n"+res.Stdout))
 	}
 	return res.Stdout, nil
 }
@@ -71,7 +72,7 @@ func (s *session) vtysh(ctx context.Context, commands ...string) (string, error)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "% ") {
-			return "", fmt.Errorf("%s: vtysh refused %q: %s", s.fqcn, netcfg.Mask(strings.Join(commands, "; ")), firstLine(line))
+			return "", fmt.Errorf("%s: vtysh refused %q: %s", s.fqcn, netcfg.Mask(strings.Join(commands, "; ")), refusal(line))
 		}
 	}
 	return out, nil
@@ -122,7 +123,7 @@ func (s *session) writeTemp(ctx context.Context, content string) (string, func()
 	}
 	path := strings.TrimSpace(res.Stdout)
 	if res.ExitCode != 0 || !strings.HasPrefix(path, "/tmp/pleiades-frr.") {
-		return "", nil, fmt.Errorf("%s: writing the candidate: exited %d: %s", s.fqcn, res.ExitCode, firstLine(res.Stderr))
+		return "", nil, fmt.Errorf("%s: writing the candidate: exited %d: %s", s.fqcn, res.ExitCode, farside.MaskedOutput(res.Stderr, netcfg.Mask))
 	}
 	cleanup := func() {
 		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
@@ -141,7 +142,7 @@ func (s *session) check(ctx context.Context, path string) error {
 		return fmt.Errorf("%s: checking the candidate: %w", s.fqcn, err)
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%s: vtysh refuses the candidate, so nothing was sent: %s", s.fqcn, firstLine(res.Stdout+res.Stderr))
+		return fmt.Errorf("%s: vtysh refuses the candidate, so nothing was sent: %s", s.fqcn, refusal(res.Stdout+"\n"+res.Stderr))
 	}
 	return nil
 }
@@ -238,21 +239,22 @@ func parseReloadTest(out string) (deleted, added []string) {
 // session that hangs then must not hold the task forever.
 const cleanupTimeout = 30 * time.Second
 
-// maxErrorText bounds the device's words in an error.
-const maxErrorText = 300
-
-// firstLine returns s's first non-empty line, trimmed, masked and bounded:
-// vtysh names the line it refuses, and a configuration line can hold a
-// secret (the branch review's F3).
-func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		if t := strings.TrimSpace(line); t != "" {
-			t = netcfg.Mask(t)
-			if len(t) > maxErrorText {
-				t = t[:maxErrorText] + "..."
-			}
-			return t
+// refusal is what vtysh or the shell said, fit for an error: the lines
+// vtysh marks with "% " (an unknown command or a refused value, each naming
+// what it refuses) when it printed any, since vtysh -m -f prints the whole
+// candidate before them, or else everything it printed. It is masked line
+// by line before anything is joined or cut, since a configuration line can
+// hold a secret (the branch review's F3), then bounded and quoted
+// (pkg/farside).
+func refusal(out string) string {
+	var marked []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "% ") {
+			marked = append(marked, line)
 		}
 	}
-	return ""
+	if len(marked) > 0 {
+		out = strings.Join(marked, "\n")
+	}
+	return farside.MaskedOutput(out, netcfg.Mask)
 }

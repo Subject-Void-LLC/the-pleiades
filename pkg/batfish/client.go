@@ -20,11 +20,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // The headers every request carries.
@@ -105,7 +108,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		return nil, fmt.Errorf("batfish: %s %s: the answer is over %d bytes", method, path, maxResponse)
 	}
 	if res.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("batfish: %s %s: %s: %s", method, path, res.Status, firstLine(string(out)))
+		return nil, fmt.Errorf("batfish: %s %s: %s: %s", method, path, res.Status, farside.Text(string(out)))
 	}
 	return out, nil
 }
@@ -339,13 +342,48 @@ func (c *Client) template(ctx context.Context, question string) (string, error) 
 	return t, nil
 }
 
+// DefaultNetworkPrefix begins every network name NewNetworkName returns.
+const DefaultNetworkPrefix = "pleiades"
+
+// MaxNetworkPrefix is the longest prefix NewNetworkNameFor takes, which
+// keeps a whole name (the prefix, a hyphen and 16 hex digits) under 82
+// characters.
+const MaxNetworkPrefix = 64
+
+// networkPrefix is what a network name's prefix may be: a letter or digit,
+// then letters, digits, dots, hyphens and underscores, so the name is one
+// URL path segment as it is and reads the same in Batfish's own listing.
+var networkPrefix = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// ValidNetworkPrefix reports why prefix cannot begin a network name, or nil.
+func ValidNetworkPrefix(prefix string) error {
+	if len(prefix) == 0 || len(prefix) > MaxNetworkPrefix {
+		return fmt.Errorf("batfish: a network name prefix is 1 to %d characters, not %d", MaxNetworkPrefix, len(prefix))
+	}
+	if !networkPrefix.MatchString(prefix) {
+		return fmt.Errorf("batfish: network name prefix %q holds a character other than a letter, digit, dot, hyphen or underscore, or does not begin with a letter or digit", prefix)
+	}
+	return nil
+}
+
 // NewNetworkName returns a network name no other run uses.
 func NewNetworkName() (string, error) {
+	return NewNetworkNameFor(DefaultNetworkPrefix)
+}
+
+// NewNetworkNameFor returns a network name no other run uses that begins
+// with prefix and a hyphen, so the networks one lab makes on a Batfish
+// service shared with others read as that lab's. The random part keeps two
+// runs given the same prefix apart: each deletes only its own network.
+func NewNetworkNameFor(prefix string) (string, error) {
+	if err := ValidNetworkPrefix(prefix); err != nil {
+		return "", err
+	}
 	id, err := newID()
 	if err != nil {
 		return "", err
 	}
-	return "pleiades-" + id, nil
+	return prefix + "-" + id, nil
 }
 
 // newID returns 16 random hex characters.
@@ -355,17 +393,4 @@ func newID() (string, error) {
 		return "", errors.New("batfish: reading randomness: " + err.Error())
 	}
 	return hex.EncodeToString(b), nil
-}
-
-// firstLine returns s's first non-empty line, trimmed and bounded.
-func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		if t := strings.TrimSpace(line); t != "" {
-			if len(t) > 300 {
-				t = t[:300]
-			}
-			return t
-		}
-	}
-	return ""
 }

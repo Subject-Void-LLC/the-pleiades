@@ -9,7 +9,7 @@ import (
 func runDoc() collection.Doc {
 	params := aitask.DocParams(aitask.ParamModel)
 	params = append(params,
-		collection.Param{Name: paramPrompts, Type: "list of dict", Required: true, Description: "The prompt set, up to 200: each {id, text or messages, expect}, where expect is one of exact (the answer, trimmed, equals it), contains, regex (RE2) and json_field ({path, equals}: the answer read as JSON holds equals at path, a dotted list of keys)."},
+		collection.Param{Name: paramPrompts, Type: "list of dict", Required: true, Description: "The prompt set, up to 200: each {id, text or messages, expect}, where expect is exact (the answer, trimmed, equals it), contains, regex (RE2) or json_field ({path, equals}: the answer read as JSON holds equals at path, a dotted list of keys)."},
 		collection.Param{Name: paramSaveAs, Type: "string", Description: "A file name under the project's ai/bench (run1.json) the results are saved to, with each answer cut to 4 KiB; never written over. Crawl tier only."},
 	)
 	params = append(params, aitask.DocParams(aitask.ParamResidency)...)
@@ -24,6 +24,8 @@ func runDoc() collection.Doc {
 			{Name: "passed", Type: "int", Returned: "success", Description: "How many prompts passed."},
 			{Name: "count", Type: "int", Returned: "always", Description: "How many prompts the set holds."},
 			{Name: "score", Type: "float", Returned: "success", Description: "passed divided by count."},
+			{Name: "provider", Type: "string", Returned: "success", Description: "The provider device the set was asked of."},
+			{Name: "model", Type: "string", Returned: "success", Description: "The model that answered, as the task named it."},
 			{Name: "cost", Type: "float", Returned: "when every call is priced", Description: "What the set cost, in currency."},
 			{Name: "currency", Type: "string", Returned: "when every call is priced", Description: "The price table's currency."},
 			{Name: "saved", Type: "string", Returned: "with save_as", Description: "The results file, relative to the project."},

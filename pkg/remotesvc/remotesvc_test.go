@@ -443,3 +443,25 @@ func TestDaemonReload_NonZeroExitIsAnError(t *testing.T) {
 		t.Errorf("error = %v, want it to carry systemctl's own explanation", err)
 	}
 }
+
+// TestOperations_CarrySystemctlsWholeReason is the multi-line refusal
+// systemctl prints when polkit asks for authentication over a session with
+// no agent: a banner line, then the reason. A first-line cut said only the
+// banner; the error now holds the reason too, on one line and quoted.
+func TestOperations_CarrySystemctlsWholeReason(t *testing.T) {
+	fakeSystemctl(t)
+	t.Setenv("FAKE_EXIT", "1")
+	t.Setenv("FAKE_ERROR", "==== AUTHENTICATING FOR org.freedesktop.systemd1.manage-units ====\n"+
+		"Authentication is required to start 'nginx.service'.\n"+
+		"Authenticating as: admin\nFailed to start nginx.service: Access denied")
+	conn := connect(t)
+
+	err := Start(context.Background(), conn, "nginx")
+	if err == nil {
+		t.Fatal("expected an error when systemctl exits non-zero")
+	}
+	want := `exited 1: "==== AUTHENTICATING FOR org.freedesktop.systemd1.manage-units ==== Authentication is required to start 'nginx.service'.`
+	if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "Access denied") {
+		t.Errorf("error = %v, want systemctl's whole reason on one line", err)
+	}
+}

@@ -56,7 +56,7 @@ func TestConnect_RefusesWhatItCannotRead(t *testing.T) {
 	}{
 		"no GNS3 at all":                          {map[string][2]string{}, "neither /v3/version nor /v2/version"},
 		"a version naming none":                   {map[string][2]string{"GET /v3/version": {"200", `{}`}}, "names no version"},
-		"a broken version":                        {map[string][2]string{"GET /v2/version": {"500", "boom\x1b[2J\nmore"}}, `500: "boom\x1b[2J"`},
+		"a broken version":                        {map[string][2]string{"GET /v2/version": {"500", "boom\x1b[2J\nmore"}}, `500: "boom\x1b[2J more"`},
 		"a login with no token":                   {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"200", `{}`}}, "no access token"},
 		"a login that fails":                      {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"503", "down"}}, "503"},
 		"a login answer that echoes the password": {map[string][2]string{"GET /v3/version": {"200", `{"version":"3.0.6"}`}, "POST /v3/access/users/login": {"422", `{"detail":[{"input":{"password":"x-ECHOED-SECRET"}}]}`}}, "422 (the answer is not shown"},
@@ -79,7 +79,8 @@ func TestConnect_RefusesWhatItCannotRead(t *testing.T) {
 }
 
 // TestNodes_RefusesAnAnswerItCannotRead: a v2 server's nodes that are not
-// a list, an error status, and an answer over the bound.
+// a list, an error status (with the server's own JSON message), and an
+// answer over the bound.
 func TestNodes_RefusesAnAnswerItCannotRead(t *testing.T) {
 	ctx := context.Background()
 	huge := `[` + strings.Repeat(`{"name":"n"},`, 2<<20) + `{}]`
@@ -88,6 +89,7 @@ func TestNodes_RefusesAnAnswerItCannotRead(t *testing.T) {
 		"GET /v2/projects":           {"200", `[{"project_id":"p","name":"lab","status":"opened"}]`},
 		"GET /v2/projects/p/nodes":   {"200", `{"not":"a list"}`},
 		"GET /v2/projects/q/nodes":   {"403", "forbidden"},
+		"GET /v2/projects/r/nodes":   {"404", "{\n    \"message\": \"Project ID r doesn't exist\",\n    \"status\": 404\n}"},
 		"GET /v2/projects/big/nodes": {"200", huge},
 	})
 	c, err := gns3.New(base, nil, gns3.Credentials{Username: "u", Password: "p"})
@@ -100,7 +102,9 @@ func TestNodes_RefusesAnAnswerItCannotRead(t *testing.T) {
 	if p, err := c.Projects(ctx); err != nil || len(p) != 1 || p[0].Name != "lab" {
 		t.Fatalf("Projects = %+v, %v", p, err)
 	}
-	for id, want := range map[string]string{"p": "not what this client reads", "q": "403", "big": "over"} {
+	for id, want := range map[string]string{"p": "not what this client reads", "q": "403", "big": "over",
+		// A server's own error JSON gives its message, not its first line "{".
+		"r": `404: "Project ID r doesn't exist"`} {
 		if _, err := c.Nodes(ctx, id); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Nodes(%s) = %v, want it to say %q", id, err, want)
 		}

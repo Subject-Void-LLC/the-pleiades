@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -212,12 +213,15 @@ func runCopy(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return fail(err)
 	}
 	if res.ExitCode != 0 {
-		return fail(fmt.Errorf("reading %s exited %d: %s", c.path, res.ExitCode, strings.TrimSpace(res.Stderr)))
+		return fail(fmt.Errorf("reading %s exited %d: %s", c.path, res.ExitCode, farside.Output(res.Stderr)))
 	}
 	out := answers(res.Stdout)
-	before, ok := out["before"]
+	before, ok, err := reportedDigest(out, "before")
+	if err != nil {
+		return fail(err)
+	}
 	if !ok {
-		return fail(fmt.Errorf("the host did not report the file's digest: %q", res.Stdout))
+		return fail(fmt.Errorf("the host did not report the file's digest: %s", farside.Output(res.Stdout)))
 	}
 	after := before
 	changed := before != c.sha256
@@ -235,12 +239,12 @@ func runCopy(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		case exitNoFolder:
 			return fail(fmt.Errorf("the folder %s does not exist on %s", c.path[:strings.LastIndex(c.path, `\`)+1], device.Name()))
 		case exitMismatch:
-			return fail(fmt.Errorf("the copy at %s has SHA-256 %s, not %s; nothing was written to it", c.path, out["got"], c.sha256))
+			return fail(fmt.Errorf("the copy at %s has SHA-256 %s, not %s; nothing was written to it", c.path, shown(out["got"], digestPattern), c.sha256))
 		default:
-			return fail(fmt.Errorf("the host's script exited %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr)))
+			return fail(fmt.Errorf("the host's script exited %d: %s", res.ExitCode, farside.Output(res.Stderr)))
 		}
 		if out["after"] != c.sha256 {
-			return fail(fmt.Errorf("the host reported %q after the copy, not %s", out["after"], c.sha256))
+			return fail(fmt.Errorf("the host reported %s after the copy, not %s", shown(out["after"], digestPattern), c.sha256))
 		}
 	}
 	stats := map[string]any{statPath: c.path, statSHA256: c.sha256, statSize: int64(len(c.data))}

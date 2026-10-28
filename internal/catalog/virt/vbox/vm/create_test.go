@@ -417,10 +417,6 @@ func TestHostKeys_Refusals(t *testing.T) {
 	if _, err := call(t, "virt.vbox.vm.host_keys", false, failing, map[string]any{"name": "ubuntu-lab"}); err == nil {
 		t.Error("recording the keys failed and the method did not")
 	}
-	var cannot *collection.CannotCheckError
-	if _, err := call(t, "virt.vbox.vm.host_keys", true, newRecorder(), map[string]any{"name": "missing"}); !errors.As(err, &cannot) {
-		t.Errorf("a check of a VM not made yet: %v", err)
-	}
 }
 
 // TestDelete_TheUUIDGuardRefusesAnotherVMOfTheName is B3's identity

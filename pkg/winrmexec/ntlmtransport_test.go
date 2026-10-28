@@ -28,6 +28,8 @@ type recordingHost struct {
 	mu     sync.Mutex
 	bodies []string
 	status int
+	// reply is the body answered with, empty for none.
+	reply string
 }
 
 func (h *recordingHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +42,14 @@ func (h *recordingHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(h.status)
+	_, _ = w.Write([]byte(h.reply))
 }
+
+// httpSys503 is the page http.sys itself answers with when the WinRM
+// listener's service is unavailable.
+const httpSys503 = "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\"\"http://www.w3.org/TR/html4/strict.dtd\">\r\n" +
+	"<HTML><HEAD><TITLE>Service Unavailable</TITLE>\r\n<META HTTP-EQUIV=\"Content-Type\" Content=\"text/html; charset=us-ascii\"></HEAD>\r\n" +
+	"<BODY><h2>Service Unavailable</h2>\r\n<hr><p>HTTP Error 503. The service is unavailable.</p>\r\n</BODY></HTML>\r\n"
 
 // exchangeTo builds the exchange newExchange builds for a password over
 // HTTP, aimed at server.
@@ -66,12 +75,15 @@ func exchangeTo(t *testing.T, server *httptest.Server) *exchange {
 func TestSealedTransport_AFailedHandshakeSendsNothing(t *testing.T) {
 	for _, tc := range []struct {
 		status int
+		reply  string
 		want   string
 	}{
-		{http.StatusServiceUnavailable, "ended with HTTP 503 and no sealed session"},
-		{http.StatusUnauthorized, "refused the login"},
+		{http.StatusServiceUnavailable, "", "ended with HTTP 503 and no sealed session;"},
+		// http.sys's own page: its words reach the error, not its markup.
+		{http.StatusServiceUnavailable, httpSys503, `no sealed session (the host said "Service Unavailable Service Unavailable HTTP Error 503. The service is unavailable.")`},
+		{http.StatusUnauthorized, "", "refused the login"},
 	} {
-		host := &recordingHost{status: tc.status}
+		host := &recordingHost{status: tc.status, reply: tc.reply}
 		server := httptest.NewServer(host)
 		x := exchangeTo(t, server)
 		message := winrm.NewExecuteCommandRequest(x.url, "shell-1", "Write-Output "+marker, nil, &x.params)

@@ -49,6 +49,10 @@ type model struct {
 	ip      string
 	pid     int
 	calls   []string
+	// config is the VM's vmx keys as vmcli's ConfigParams query prints
+	// them, and snapshots its snapshot names; a nil config fails the query.
+	config    string
+	snapshots []string
 }
 
 // Run answers each command a method sends, as Fusion would.
@@ -86,6 +90,13 @@ func (m *model) Run(_ context.Context, argv []string) (vmrun.Output, error) {
 			m.state = stateSuspended
 		}
 		return vmrun.Output{}, nil
+	case argv[0] == vmrun.FusionVMCLI && len(argv) == 4 && argv[2] == "ConfigParams" && argv[3] == "query":
+		if m.config == "" {
+			return vmrun.Output{Stderr: "vmcli: cannot read the configuration\n", ExitCode: 1}, nil
+		}
+		return vmrun.Output{Stdout: m.config}, nil
+	case argv[0] == vmrun.FusionVMRun && argv[3] == "listSnapshots":
+		return vmrun.Output{Stdout: fmt.Sprintf("Total snapshots: %d\n%s", len(m.snapshots), strings.Join(append(m.snapshots, ""), "\n"))}, nil
 	case argv[0] == vmrun.FusionVMRun && argv[3] == "checkToolsState":
 		if m.tools {
 			return vmrun.Output{Stdout: "running\n"}, nil
@@ -107,7 +118,8 @@ func (m *model) Run(_ context.Context, argv []string) (vmrun.Output, error) {
 func (m *model) changes() []string {
 	var out []string
 	for _, c := range m.calls {
-		if strings.HasPrefix(c, "/bin/test ") || strings.HasSuffix(c, " Power query") || strings.Contains(c, " getGuestIPAddress ") || strings.Contains(c, " checkToolsState ") {
+		if strings.HasPrefix(c, "/bin/test ") || strings.HasSuffix(c, " Power query") || strings.Contains(c, " getGuestIPAddress ") || strings.Contains(c, " checkToolsState ") ||
+			strings.HasSuffix(c, " ConfigParams query") || strings.Contains(c, " listSnapshots ") {
 			continue
 		}
 		out = append(out, c)

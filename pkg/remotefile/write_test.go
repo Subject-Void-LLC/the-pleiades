@@ -540,3 +540,21 @@ func TestApply_ChangesOwnershipBeforeMode(t *testing.T) {
 		}
 	}
 }
+
+// TestWrite_QuotesWhatTheDeviceSaid writes under a regular file, so the
+// real shell refuses with ENOTDIR, and checks that its own words reach the
+// error whole and quoted (pkg/farside), never cut to a first line.
+func TestWrite_QuotesWhatTheDeviceSaid(t *testing.T) {
+	conn := connect(t)
+	blocker := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing the blocker: %v", err)
+	}
+	err := remotefile.Write(context.Background(), conn, filepath.Join(blocker, "child"), []byte("x"))
+	if err == nil {
+		t.Fatal("Write under a regular file was reported as success")
+	}
+	if !strings.Contains(err.Error(), `: "`) || !strings.Contains(err.Error(), "Not a directory") || strings.Contains(err.Error(), "\n") {
+		t.Errorf("error = %v, want the shell's refusal quoted on one line", err)
+	}
+}

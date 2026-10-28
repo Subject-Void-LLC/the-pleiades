@@ -34,6 +34,10 @@ func TestInfo(t *testing.T) {
 	vm := lab()
 	vm.Snapshots = []vboxmanagetest.Snapshot{{Name: "clean", UUID: "5732a952-0b85-4e3a-820a-1a568f31166b", Description: "fresh install"}}
 	vm.Current = vm.Snapshots[0].UUID
+	vm.OSType, vm.Firmware = "Ubuntu (64-bit)", "EFI"
+	vm.NICs = map[int]vboxmanage.NIC{2: {Kind: "hostonly", MAC: "0800271A2B3C", HostOnlyAdapter: "VirtualBox Host-Only Ethernet Adapter"}, 1: {Kind: "nat", MAC: "080027AABBCC"}}
+	vm.Slots = []vboxmanage.Slot{{Controller: "SATA", ControllerType: "IntelAhci", Port: 0, Device: 0, Medium: `C:\vms\ubuntu-lab\disk.vdi`}}
+	vm.ConsoleLog = `C:\vms\ubuntu-lab\console.log`
 	model := vboxmanagetest.New(vm)
 	onModel(t, model)
 	for _, check := range []bool{false, true} {
@@ -46,6 +50,13 @@ func TestInfo(t *testing.T) {
 			"exists": true, "uuid": vm.UUID, "state": "poweroff", "memory_mb": 1024, "cpus": 2, "size": "", "autostart_enabled": false,
 			"snapshots":             []any{map[string]any{"name": "clean", "uuid": vm.Current, "description": "fresh install"}},
 			"current_snapshot_uuid": vm.Current,
+			"os_type":               "Ubuntu (64-bit)", "firmware": "EFI",
+			"nics": []any{
+				map[string]any{"number": 1, "kind": "nat", "mac": "080027AABBCC"},
+				map[string]any{"number": 2, "kind": "hostonly", "mac": "0800271A2B3C", "host_only_adapter": "VirtualBox Host-Only Ethernet Adapter"},
+			},
+			"storage":     []any{map[string]any{"controller": "SATA", "controller_type": "IntelAhci", "port": 0, "device": 0, "medium": `C:\vms\ubuntu-lab\disk.vdi`}},
+			"console_log": `C:\vms\ubuntu-lab\console.log`,
 		}
 		if !reflect.DeepEqual(rc.stats, want) {
 			t.Errorf("check %v: stats = %v\nwant %v", check, rc.stats, want)
@@ -56,14 +67,37 @@ func TestInfo(t *testing.T) {
 	}
 }
 
+// TestInfo_Missing: a VM the host does not have is exists false and
+// nothing else, in a run and in a check alike (Phase 131, R4).
 func TestInfo_Missing(t *testing.T) {
 	onModel(t, vboxmanagetest.New(lab()))
-	rc := newRecorder()
-	if _, err := call(t, "virt.vbox.vm.info", false, rc, map[string]any{"name": "no-such-vm"}); err != nil {
-		t.Fatal(err)
+	for _, check := range []bool{false, true} {
+		rc := newRecorder()
+		if res, err := call(t, "virt.vbox.vm.info", check, rc, map[string]any{"name": "no-such-vm"}); err != nil || res.Changed {
+			t.Fatalf("check %v: %+v, %v", check, res, err)
+		}
+		if !reflect.DeepEqual(rc.stats, map[string]any{"exists": false}) {
+			t.Errorf("check %v: stats = %v, want only exists: false", check, rc.stats)
+		}
 	}
-	if !reflect.DeepEqual(rc.stats, map[string]any{"exists": false}) {
-		t.Errorf("stats = %v, want only exists: false", rc.stats)
+}
+
+// TestLookups_AMissingVMIsExistsFalseInBothModes: addresses, the log and
+// the host keys of a VM the host does not have are exists false and
+// nothing else, in a run and in a check alike, as info answers it (Phase
+// 131, R4); host_keys waits for nothing.
+func TestLookups_AMissingVMIsExistsFalseInBothModes(t *testing.T) {
+	onModel(t, vboxmanagetest.New(lab()))
+	for _, fqcn := range []string{"virt.vbox.vm.addresses", "virt.vbox.vm.log", "virt.vbox.vm.host_keys"} {
+		for _, check := range []bool{false, true} {
+			rc := newRecorder()
+			if res, err := call(t, fqcn, check, rc, map[string]any{"name": "no-such-vm", "timeout": 1}); err != nil || res.Changed {
+				t.Fatalf("%s, check %v: %+v, %v", fqcn, check, res, err)
+			}
+			if !reflect.DeepEqual(rc.stats, map[string]any{"exists": false}) {
+				t.Errorf("%s, check %v: stats = %v, want only exists: false", fqcn, check, rc.stats)
+			}
+		}
 	}
 }
 

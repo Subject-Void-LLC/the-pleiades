@@ -116,12 +116,23 @@ func Declared(d collection.Descriptor) map[string]bool {
 // declares, its Doc.Params and its named fragments' alike, by name.
 func Types(d collection.Descriptor) map[string]string {
 	types := make(map[string]string, len(d.Manifest.Doc.Params))
-	shared, _ := Params(d.Manifest.Doc.Fragments)
-	for _, p := range shared {
-		types[p.Name] = p.Type
-	}
-	for _, p := range d.Manifest.Doc.Params {
-		types[p.Name] = p.Type
+	for name, p := range ByName(d) {
+		types[name] = p.Type
 	}
 	return types
+}
+
+// ByName returns every parameter d's documentation declares, its
+// Doc.Params and its named fragments' alike, by name. A method's own
+// declaration wins over a fragment's of the same name, as Types has it.
+func ByName(d collection.Descriptor) map[string]collection.Param {
+	out := make(map[string]collection.Param, len(d.Manifest.Doc.Params))
+	shared, _ := Params(d.Manifest.Doc.Fragments)
+	for _, p := range shared {
+		out[p.Name] = p
+	}
+	for _, p := range d.Manifest.Doc.Params {
+		out[p.Name] = p
+	}
+	return out
 }

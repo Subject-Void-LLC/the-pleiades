@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	moby "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -19,11 +20,13 @@ import (
 
 func init() { registerRead("container.list", List) }
 
-// List implements container.list: the engine's containers, running only
-// unless all is set, optionally those whose name matches a glob.
+// List implements container.list: every container on the engine, or the
+// running ones alone when all is false, optionally those whose name
+// matches a glob. Every container is the default (Phase 131's R5): a
+// stopped container is still part of what the engine holds.
 func List(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
 	const fqcn = "container.list"
-	all, err := sdk.BoolParamOr(params, paramAll, false)
+	all, err := sdk.BoolParamOr(params, paramAll, true)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -60,10 +63,37 @@ func List(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		out = append(out, map[string]any{
 			statName: name, statID: c.ID, statState: string(c.State), statImageID: c.ImageID,
 			statImage: c.Labels[containerengine.LabelManagedBy], "labels": maps.Clone(c.Labels),
+			"status": c.Status, "created": c.Created, "command": c.Command, "ports": summaryPorts(c.Ports),
 		})
 	}
 	slices.SortFunc(out, func(a, b any) int {
 		return strings.Compare(a.(map[string]any)[statName].(string), b.(map[string]any)[statName].(string))
 	})
 	return collection.Result{}, rc.SetStat(statContainers, out)
+}
+
+// summaryPorts is each port a listed container exposes, as docker ps writes
+// one: host_ip:host_port->container_port/proto when published (the host
+// address left out when it is every address), container_port/proto when
+// not, sorted so two reads compare equal.
+func summaryPorts(ports []moby.PortSummary) []string {
+	out := []string{}
+	for _, p := range ports {
+		inner := fmt.Sprintf("%d/%s", p.PrivatePort, p.Type)
+		if p.PublicPort == 0 {
+			out = append(out, inner)
+			continue
+		}
+		host := fmt.Sprint(p.PublicPort)
+		if p.IP.IsValid() && !p.IP.IsUnspecified() {
+			addr := p.IP.String()
+			if p.IP.Is6() {
+				addr = "[" + addr + "]"
+			}
+			host = addr + ":" + host
+		}
+		out = append(out, host+"->"+inner)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }

@@ -84,7 +84,8 @@ func TestGrants_ComparesWhatTheRoleWasGranted(t *testing.T) {
 }
 
 // TestGrants_RefusesADeclarationItCannotRead names an unknown kind, an
-// unknown privilege, a malformed pattern and an absent role.
+// unknown privilege and a malformed pattern; an absent role is a difference
+// (TestPGReads_AnswerAbsentAsData has the rest of it).
 func TestGrants_RefusesADeclarationItCannotRead(t *testing.T) {
 	h := newHarness(t)
 	for name, tc := range map[string]struct {
@@ -96,7 +97,7 @@ func TestGrants_RefusesADeclarationItCannotRead(t *testing.T) {
 		"an unknown privilege": {"admin", map[string]any{"tables": map[string]any{"public.t": []any{"EXECUTE"}}}, `"EXECUTE" is not a privilege a table has`},
 		"a schema pattern":     {"admin", map[string]any{"schemas": map[string]any{"pub*": []any{"USAGE"}}}, "is not a schema"},
 		"a bare table":         {"admin", map[string]any{"tables": map[string]any{"orders": []any{"SELECT"}}}, "is not a table"},
-		"an absent role":       {"nobody", map[string]any{}, "role nobody does not exist"},
+		"an absent role":       {"nobody", map[string]any{}, "missing: role nobody (it does not exist)"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := grants(h, tc.role, tc.expect); err == nil || !strings.Contains(err.Error(), tc.want) {

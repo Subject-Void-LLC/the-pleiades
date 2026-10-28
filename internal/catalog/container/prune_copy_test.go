@@ -152,7 +152,12 @@ func TestCopyIn_FromTheProject(t *testing.T) {
 			t.Errorf("%s was accepted", label)
 		}
 	}
-	if _, err := call(t, h, fresh(), "container.copy_out", false, map[string]any{"name": name, "src": "/tmp/absent"}); err == nil || !strings.Contains(err.Error(), "no /tmp/absent") {
-		t.Errorf("copy_out of an absent file = %v", err)
+	// An absent file is an answer, exists false, in a run and in a check
+	// (Phase 131, R4).
+	for _, check := range []bool{false, true} {
+		rc := fresh()
+		if _, err := call(t, h, rc, "container.copy_out", check, map[string]any{"name": name, "src": "/tmp/absent"}); err != nil || rc.stats["exists"] != false || rc.stats["content"] != nil {
+			t.Errorf("check %v: copy_out of an absent file = %v, %v", check, rc.stats, err)
+		}
 	}
 }

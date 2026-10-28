@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // parseCounted reads vmrun's counted lists: a header line "Total X: N" and
@@ -35,12 +37,14 @@ func parseCounted(s, header string) ([]string, error) {
 }
 
 // parseKeyValues reads vmcli's "key: value" listings. A key or value vmcli
-// quoted ('config.version': 8, nvram: 'sample.nvram') is unquoted. A line with
-// no colon is ignored; the first occurrence of a key wins.
+// quoted ('config.version': 8, nvram: 'sample.nvram') is unquoted. A quoted
+// key is read to its closing quote first, so a vmx key holding a colon of its
+// own ('nvme0:0.fileName': disk.vmdk) is not cut there. A line with no colon
+// is ignored; the first occurrence of a key wins.
 func parseKeyValues(s string) map[string]string {
 	out := map[string]string{}
 	for _, line := range nonEmpty(s) {
-		k, v, ok := strings.Cut(line, ":")
+		k, v, ok := cutKey(line)
 		if !ok {
 			continue
 		}
@@ -50,6 +54,21 @@ func parseKeyValues(s string) map[string]string {
 		}
 	}
 	return out
+}
+
+// cutKey splits one "key: value" line at the colon that ends the key: the
+// first colon after a quoted key's closing quote, or the first colon at all.
+func cutKey(line string) (string, string, bool) {
+	trimmed := strings.TrimLeft(line, " \t")
+	if strings.HasPrefix(trimmed, "'") {
+		if end := strings.Index(trimmed[1:], "'"); end >= 0 {
+			key, rest := trimmed[:end+2], trimmed[end+2:]
+			if v, ok := strings.CutPrefix(strings.TrimLeft(rest, " \t"), ":"); ok {
+				return key, v, true
+			}
+		}
+	}
+	return strings.Cut(line, ":")
 }
 
 // unquote removes one pair of single quotes around s.
@@ -65,7 +84,7 @@ func unquote(s string) string {
 func parseNetworks(s string) ([]Network, error) {
 	lines := nonEmpty(s)
 	if len(lines) < 2 || !strings.HasPrefix(lines[0], "Total host networks:") {
-		return nil, fmt.Errorf("expected the host network list, got %q", firstOf(lines))
+		return nil, fmt.Errorf("expected the host network list, got %s", farside.Output(s))
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(lines[0], "Total host networks:")))
 	if err != nil || n < 0 || len(lines) != n+2 {
@@ -107,12 +126,4 @@ func nonEmpty(s string) []string {
 		}
 	}
 	return out
-}
-
-// firstOf is the first of lines, or "" when there are none.
-func firstOf(lines []string) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	return lines[0]
 }

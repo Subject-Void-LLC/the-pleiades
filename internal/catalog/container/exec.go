@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -68,20 +69,17 @@ func Exec(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return collection.Result{}, err
 	}
 	if res.ExitCode != 0 {
-		return fail(fmt.Errorf("the command exited %d: %s", res.ExitCode, strings.TrimSpace(firstNonEmpty(res.Stderr, res.Stdout))))
+		return fail(fmt.Errorf("the command exited %d: %s", res.ExitCode, farside.Output(firstNonEmpty(res.Stderr, res.Stdout))))
 	}
 	return collection.Result{Changed: true}, nil
 }
 
-// firstNonEmpty is the first of values that is not empty, cut to a size
-// an error can carry.
+// firstNonEmpty is the first of values that is not only white space, or
+// the empty string. It picks which stream speaks for a failed command; the
+// caller bounds and quotes it with farside.Output before an error holds it.
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
-			const limit = 2048
-			if len(v) > limit {
-				return v[len(v)-limit:]
-			}
 			return v
 		}
 	}

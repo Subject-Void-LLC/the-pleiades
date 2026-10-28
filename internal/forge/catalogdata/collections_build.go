@@ -73,7 +73,7 @@ var buildCollections = []collectionscaffold.Config{
 			Params: []collection.Param{
 				{Name: "lockfile", Type: "string", Required: true, Description: "The lockfile's path on the device. Its format is recognized by its name (package-lock.json, Cargo.lock) unless format names one."},
 				{Name: "manifest", Type: "string", Description: "The manifest's path, when it is not the lockfile's sibling of the usual name (package.json, Cargo.toml). A Cargo workspace member is checked by naming its own Cargo.toml with the workspace's Cargo.lock."},
-				{Name: "format", Type: "string", Description: "The lockfile's format, npm or cargo, when its name does not say."},
+				{Name: "format", Type: "string", Choices: []string{"npm", "cargo"}, Description: "The lockfile's format, npm or cargo, when its name does not say."},
 				{Name: "sources", Type: "list of string", Description: "The sources entries may come from. For npm, registry host names (default registry.npmjs.org), git and file; for Cargo, Cargo's source strings (default both spellings of crates.io) and git."},
 				collection.Param{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},

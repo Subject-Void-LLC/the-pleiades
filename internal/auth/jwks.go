@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Federated Identity (PATTERNS.md): verifies tokens by fetching an Identity
@@ -186,12 +188,13 @@ func (p *jwksKeyProvider) refresh(ctx context.Context) error {
 		return fmt.Errorf("fetching JWKS: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("fetching JWKS: unexpected status %d", resp.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB is generous for a key set
 	if err != nil {
 		return fmt.Errorf("reading JWKS body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// The identity provider's own reason, bounded and quoted.
+		return fmt.Errorf("fetching JWKS: unexpected status %d: %s", resp.StatusCode, farside.Text(string(body)))
 	}
 
 	var set jwkSet

@@ -332,14 +332,18 @@ func TestClose_IsIdempotentAndReusable(t *testing.T) {
 }
 
 // TestServerErrorSurfaces proves a non-200, non-401 response is reported
-// with its status rather than being retried or swallowed.
+// with its status and the controller's own words rather than being retried
+// or swallowed.
 func TestServerErrorSurfaces(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/dna/system/api/v1/auth/token" {
 			_, _ = w.Write([]byte(`{"Token":"tok"}`))
 			return
 		}
+		// Catalyst Center's documented error wrapper, indented as the
+		// controller writes it.
 		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("{\n  \"response\": {\n    \"errorCode\": \"NCND00050\",\n    \"message\": \"An internal error occurred\",\n    \"detail\": \"Inventory service is not available\"\n  },\n  \"version\": \"1.0\"\n}"))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -350,8 +354,29 @@ func TestServerErrorSurfaces(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	_, err = c.DeviceCount(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "500") {
-		t.Fatalf("error = %v, want it to report the 500 status", err)
+	if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), `: "Inventory service is not available"`) {
+		t.Fatalf("error = %v, want it to report the 500 status and the controller's own detail", err)
+	}
+}
+
+// TestAuthErrorSurfaces proves a refused token request other than a 401
+// carries the controller's reason, not only its status.
+func TestAuthErrorSurfaces(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"response":{"errorCode":"NCND01022","message":"Access denied","detail":"Account is locked"},"version":"1.0"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := catalystcenter.New(srv.URL, "user", "pass")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	_, err = c.DeviceCount(context.Background())
+	if err == nil || !strings.Contains(err.Error(), `403 Forbidden: "Account is locked"`) || strings.Contains(err.Error(), "pass\"") {
+		t.Fatalf("error = %v, want the 403 and the controller's own detail", err)
 	}
 }
 

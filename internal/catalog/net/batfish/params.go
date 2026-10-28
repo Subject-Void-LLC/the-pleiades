@@ -35,6 +35,10 @@ type request struct {
 	scenarios     []scenario
 	accept        map[string]string
 	acceptFeature map[string]string
+	// networkPrefix begins the name of the Batfish network the task makes
+	// (bf.NewNetworkNameFor), bf.DefaultNetworkPrefix unless network names
+	// another.
+	networkPrefix string
 }
 
 // deviceConfig is one device's configuration.
@@ -81,15 +85,43 @@ type assertion struct {
 	minRows, maxRows int
 }
 
+// paramNetwork names the parameter that begins the Batfish network's name.
+const paramNetwork = "network"
+
+// readNetworkPrefix reads network: absent or empty is bf.DefaultNetworkPrefix,
+// and anything else must be a prefix bf.ValidNetworkPrefix takes, refused
+// before Batfish is reached.
+func readNetworkPrefix(params map[string]any) (string, error) {
+	v, ok := params[paramNetwork]
+	if !ok || v == nil {
+		return bf.DefaultNetworkPrefix, nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("%s: %s must be a string, not %T", checkFQCN, paramNetwork, v)
+	}
+	if s = strings.TrimSpace(s); s == "" {
+		return bf.DefaultNetworkPrefix, nil
+	}
+	if err := bf.ValidNetworkPrefix(s); err != nil {
+		return "", fmt.Errorf("%s: %s: %w", checkFQCN, paramNetwork, err)
+	}
+	return s, nil
+}
+
 // readParams reads the task.
 func readParams(rc sdk.RunbookContext, params map[string]any) (request, error) {
 	var req request
+	var err error
 	for k := range params {
 		switch k {
-		case "devices", "assertions", "scenarios", "accept_unrecognized", "target", "within":
+		case "devices", "assertions", "scenarios", "accept_unrecognized", paramNetwork, "target", "within":
 		default:
 			return req, fmt.Errorf("%s: no parameter %q", checkFQCN, k)
 		}
+	}
+	if req.networkPrefix, err = readNetworkPrefix(params); err != nil {
+		return req, err
 	}
 	devices, err := mapList(params, "devices")
 	if err != nil {

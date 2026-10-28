@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Product is which VMware product a host runs. It is the value of vmrun's -T
@@ -97,9 +99,10 @@ type Error struct {
 	kind     error
 }
 
-// Error implements error.
+// Error implements error, with the tool's words bounded and quoted
+// (pkg/farside), so a control character in them is shown, never sent.
 func (e *Error) Error() string {
-	return fmt.Sprintf("vmware %s failed (exit %d): %s", e.Op, e.ExitCode, e.Message)
+	return fmt.Sprintf("vmware %s failed (exit %d): %s", e.Op, e.ExitCode, farside.Output(e.Message))
 }
 
 // Unwrap lets errors.Is find the sentinel the message mapped to.
@@ -123,20 +126,24 @@ func classify(msg string) error {
 	return nil
 }
 
-// failure builds the *Error for a command that exited non-zero: the tool's
-// first line saying Error, or else its first non-empty line.
+// failure builds the *Error for a command that exited non-zero: the line
+// the tool marks "Error:" (vmrun's whole message is that one line), or else
+// everything it printed on one line (pkg/farside), never only its first
+// line, which for vmcli can be a heading.
 func failure(op string, out Output) *Error {
-	msg := firstLine(out.Stdout+"\n"+out.Stderr, "Error:")
+	msg := lineStarting(out.Stdout+"\n"+out.Stderr, "Error:")
 	if msg == "" {
-		msg = firstLine(out.Stdout+"\n"+out.Stderr, "")
+		msg = farside.Words(out.Stdout + "\n" + out.Stderr)
 	}
 	msg = strings.TrimSpace(strings.TrimPrefix(msg, "Error:"))
 	return &Error{Op: op, Message: msg, ExitCode: out.ExitCode, kind: classify(msg)}
 }
 
-// firstLine is the first line of s that starts with prefix after trimming
-// ("" matches any non-empty line), or "" when there is none.
-func firstLine(s, prefix string) string {
+// lineStarting is the first line of s that starts with prefix after
+// trimming ("" matches any non-empty line), or "" when there is none. It
+// finds a line to read; an error quoting the tool's output goes through
+// pkg/farside.
+func lineStarting(s, prefix string) string {
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && strings.HasPrefix(line, prefix) {

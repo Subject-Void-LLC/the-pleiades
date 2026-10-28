@@ -32,6 +32,8 @@ const (
 	statDifferences = "differences"
 	statOnlyHere    = "only_here"
 	statOnlyThere   = "only_there"
+	// statCompareExists says whether compare's database exists.
+	statCompareExists = "compare_exists"
 )
 
 // rowcounts' defaults and bounds.
@@ -136,17 +138,33 @@ func Rowcounts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	defer func() { _ = ssh.Close() }()
 
 	warnings := transportWarnings(conn)
-	here, err := countSide(ctx, ssh, conn, database, scope)
+	here, hereExists, err := countSide(ctx, ssh, conn, database, scope)
 	if err != nil {
 		return fail(err)
 	}
+	if err := rc.SetStat(statExists, hereExists); err != nil {
+		return collection.Result{}, err
+	}
 	var there map[string]int64
+	// absent are the databases compared that do not exist: with compare,
+	// each is a difference, so two that do not exist never agree.
+	var absent []string
 	if other != nil {
 		if other.Name != conn.Name {
 			warnings = append(warnings, transportWarnings(*other)...)
 		}
-		if there, err = countSide(ctx, ssh, *other, otherDatabase, scope); err != nil {
+		var thereExists bool
+		if there, thereExists, err = countSide(ctx, ssh, *other, otherDatabase, scope); err != nil {
 			return fail(err)
+		}
+		if err := rc.SetStat(statCompareExists, thereExists); err != nil {
+			return collection.Result{}, err
+		}
+		if !hereExists {
+			absent = append(absent, database+" on connection "+conn.Name)
+		}
+		if !thereExists {
+			absent = append(absent, otherDatabase+" on connection "+other.Name)
 		}
 	}
 
@@ -184,15 +202,19 @@ func Rowcounts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 			return collection.Result{}, err
 		}
 	}
-	if n := len(diffs) + len(onlyHere) + len(onlyThere); n > 0 {
-		lines := append([]string{}, diffs...)
+	if n := len(diffs) + len(onlyHere) + len(onlyThere) + len(absent); n > 0 {
+		var lines []string
+		for _, db := range absent {
+			lines = append(lines, db+": does not exist")
+		}
+		lines = append(lines, diffs...)
 		for _, t := range onlyHere {
 			lines = append(lines, t+": only in "+database)
 		}
 		for _, t := range onlyThere {
 			lines = append(lines, t+": only in "+otherDatabase)
 		}
-		return fail(fmt.Errorf("%s and %s differ in %d table(s)%s", database, otherDatabase, n, listed(lines)))
+		return fail(fmt.Errorf("%s and %s differ in %d way(s)%s", database, otherDatabase, n, listed(lines)))
 	}
 	return collection.Result{Changed: false}, recordWarnings(rc, warnings)
 }
@@ -230,14 +252,18 @@ func parseScope(params map[string]any) (countScope, error) {
 
 // countSide counts every table the scope includes in database, from one
 // snapshot (REPEATABLE READ READ ONLY), so the counts are one moment.
-// Partitions are counted through their parent, once.
-func countSide(ctx context.Context, ssh *remoteexec.Conn, conn wire.DatabaseConnection, database string, scope countScope) (map[string]int64, error) {
+// Partitions are counted through their parent, once. A database that does
+// not exist holds no tables and reports exists false.
+func countSide(ctx context.Context, ssh *remoteexec.Conn, conn wire.DatabaseConnection, database string, scope countScope) (counts map[string]int64, exists bool, err error) {
+	counts = map[string]int64{}
 	s, err := open(ctx, ssh, conn, database)
+	if pgclient.ErrorCode(err) == pgclient.InvalidCatalogName {
+		return counts, false, nil
+	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = s.Close() }()
-	counts := map[string]int64{}
 	err = s.Snapshot(ctx, pgclient.Limits{Statement: scope.timeout, Lock: defaultLockTimeout}, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `
 SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -284,7 +310,7 @@ WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition AND `+userSchema+` ORDER 
 		}
 		return nil
 	})
-	return counts, err
+	return counts, err == nil, err
 }
 
 // strs is a string list as a return value.

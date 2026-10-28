@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Identity is what an engine says it is, read the way onboarding pins it.
@@ -104,18 +105,10 @@ func getJSON(ctx context.Context, dial Dialer, path string, out any) error {
 		return fmt.Errorf("containerengine: GET %s answered more than %d bytes", path, maxIdentityAnswer)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("containerengine: GET %s answered %s: %s", path, resp.Status, truncate(string(body), 512))
+		return fmt.Errorf("containerengine: GET %s answered %s: %s", path, resp.Status, farside.Text(string(body)))
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return fmt.Errorf("containerengine: decoding GET %s: %w", path, err)
 	}
 	return nil
-}
-
-// truncate bounds text quoted from an engine into an error.
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }

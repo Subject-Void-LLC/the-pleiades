@@ -27,7 +27,10 @@ func TestList(t *testing.T) {
 		}
 		lab := vms[1].(map[string]any)
 		want := map[string]any{"name": "ubuntu-lab", "uuid": model.VM("ubuntu-lab").UUID, "state": "poweroff", "memory_mb": 2048, "cpus": 2,
-			"autostart_enabled": false, "address": "192.168.56.10", "device": "ubuntu-lab"}
+			"autostart_enabled": false, "address": "192.168.56.10", "device": "ubuntu-lab",
+			// What the model's showvminfo capture says of a machine whose
+			// type and firmware were never set.
+			"os_type": "Other/Unknown (64-bit)", "firmware": "BIOS"}
 		if !reflect.DeepEqual(lab, want) {
 			t.Errorf("check %v: %v\nwant %v", check, lab, want)
 		}

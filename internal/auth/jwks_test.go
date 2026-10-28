@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -350,6 +351,23 @@ func TestJWKSKeyProvider_ConstructionFailsClosed(t *testing.T) {
 	// document, proving the failures above are real, not a broken control.
 	good := jwksTestServer(t, jwksDocumentForRSAKey(t, &validKey.PublicKey, "k1"))
 	newTestJWKSProvider(t, good.URL)
+}
+
+// TestJWKSKeyProvider_ARefusalSaysWhatTheIdPSaid: a key set fetch the
+// identity provider refuses carries its own reason (an OAuth 2.0 error
+// body, as Keycloak and most IdPs write one), bounded and quoted, not the
+// status alone.
+func TestJWKSKeyProvider_ARefusalSaysWhatTheIdPSaid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"temporarily_unavailable","error_description":"Realm pleiades is starting"}`))
+	}))
+	t.Cleanup(srv.Close)
+	_, err := auth.NewJWKSKeyProvider(srv.URL)
+	if err == nil || !strings.Contains(err.Error(), `unexpected status 503: "Realm pleiades is starting"`) {
+		t.Fatalf("err = %v, want the 503 and the IdP's own reason", err)
+	}
 }
 
 func TestJWKSKeyProvider_Close_StopsBackgroundRefreshWithNoLeak(t *testing.T) {

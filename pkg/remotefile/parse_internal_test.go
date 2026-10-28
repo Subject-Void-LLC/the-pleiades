@@ -103,27 +103,6 @@ func TestNormalizeMode_PadsToFourDigits(t *testing.T) {
 	}
 }
 
-// TestFirstLine_KeepsAnErrorMessageShort covers the helper that stops a
-// page of remote output from becoming an error string.
-func TestFirstLine_KeepsAnErrorMessageShort(t *testing.T) {
-	for _, tc := range []struct{ name, in, want string }{
-		{"one line", "permission denied", "permission denied"},
-		{"many lines", "permission denied\nstack trace\nmore", "permission denied"},
-		{"leading and trailing space", "  denied  ", "denied"},
-		// A command that failed silently still owes the reader something
-		// to put in the error, rather than an empty quoted string.
-		{"no output at all", "", "no output"},
-		{"only whitespace", "   \n  ", "no output"},
-		{"a leading blank line", "\n\nreal message", "real message"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := firstLine(tc.in); got != tc.want {
-				t.Errorf("firstLine(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestOperand_ADashNeverReachesStatAsAnOption: a path starting with a dash
 // gets ./ before it, naming the same file, and every other path is left
 // exactly as it was given.

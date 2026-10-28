@@ -73,9 +73,9 @@ var routingCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
-			Description: "Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
+			Description: "Asks vtysh for each in JSON and returns it as data, and by default also the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
 			Params: []collection.Param{
-				{Name: "include_config", Type: "bool", Default: "false", Description: "Also return the running configuration, its secrets replaced."},
+				{Name: "include_config", Type: "bool", Default: "true", Description: "Return the running configuration, its secrets replaced, the default; false leaves it out (config_sha256 is returned either way)."},
 				hostKeyParam,
 			},
 			Returns: []collection.ReturnField{
@@ -86,10 +86,10 @@ var routingCollections = []collectionscaffold.Config{
 				{Name: "routes", Type: "dict", Returned: "always", Description: "show ip route json: every route by prefix."},
 				{Name: "bgp_summary", Type: "dict", Returned: "always", Description: "show bgp summary json, empty when BGP is not running."},
 				{Name: "config_sha256", Type: "string", Returned: "always", Description: "The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file."},
-				{Name: "running_config", Type: "string", Returned: "with include_config", Description: "The running configuration with its secrets replaced."},
+				{Name: "running_config", Type: "string", Returned: "unless include_config is false", Description: "The running configuration with its secrets replaced."},
 			},
 			Examples: []collection.Example{
-				{Name: "Read a router for a model", RunbookYAML: "- name: Read r1\n  net.frr.facts:\n    include_config: true\n  register: r1\n"},
+				{Name: "Read a router for a model", RunbookYAML: "- name: Read r1\n  net.frr.facts:\n  register: r1\n"},
 			},
 			SeeAlso: []string{"net.frr.command", "net.batfish.check"},
 		},
@@ -122,11 +122,12 @@ var routingCollections = []collectionscaffold.Config{
 		Transports:    []string{"ssh", "telnet", "console"},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
-			Summary:     "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
-			Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
+			Summary:     "Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing.",
+			Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. With state absent it waits for the opposite, such as a withdrawn network or a failed link: no selected route to any prefix given (or, for a prefix next_hops names, a route through none of those next hops, so a failover away from one neighbour can be waited for), with the same stable_for. At timeout it fails naming each route still missing (or, with state absent, still there), or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
 			Params: []collection.Param{
-				{Name: "prefixes", Type: "list of string", Required: true, Description: "The IPv4 prefixes that must each have a selected route, e.g. 10.3.3.0/24; the IPv4 routing table is the one read."},
-				{Name: "next_hops", Type: "dict", Description: "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}."},
+				{Name: "prefixes", Type: "list of string", Required: true, Description: "The IPv4 prefixes that must each have a selected route (with state absent, none), e.g. 10.3.3.0/24; the IPv4 routing table is the one read."},
+				{Name: "next_hops", Type: "dict", Description: "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}; with state absent, the next hops its route must no longer use."},
+				{Name: "state", Type: "string", Default: "present", Choices: []string{"present", "absent"}, ChoicesIgnoreCase: true, Description: "present waits for a selected route to every prefix given; absent waits until none of them has one (or, for a prefix next_hops names, until its route uses none of those next hops). Case is ignored."},
 				{Name: "stable_for", Type: "int", Default: "5", Description: "Seconds the routing table must stay unchanged."},
 				{Name: "timeout", Type: "int", Default: "120", Description: "Seconds to wait in all."},
 				hostKeyParam,
@@ -134,10 +135,11 @@ var routingCollections = []collectionscaffold.Config{
 			},
 			Returns: []collection.ReturnField{
 				{Name: "waited", Type: "float", Returned: "always", Description: "Seconds waited."},
-				{Name: "routes", Type: "dict", Returned: "always", Description: "Each prefix given, with the next hops its route used."},
+				{Name: "routes", Type: "dict", Returned: "always", Description: "Each prefix given, with the next hops its route used; with state absent, an empty list for a prefix with no route left."},
 			},
 			Examples: []collection.Example{
 				{Name: "Wait for OSPF to settle", RunbookYAML: "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"},
+				{Name: "Wait for a withdrawn network to leave the table", RunbookYAML: "- name: R1 no longer routes the retired LAN\n  wait.routes:\n    target: R1\n    prefixes: [10.9.9.0/24]\n    state: absent\n"},
 				{Name: "Wait for a branch to learn the data center over its tunnel", RunbookYAML: "- name: BR1 routes the data center through the hub\n  wait.routes:\n    target: BR1\n    prefixes: [10.0.0.0/16]\n    next_hops: {10.0.0.0/16: [10.255.0.1]}\n    timeout: 180\n"},
 			},
 			SeeAlso: []string{"net.frr.config", "net.trace"},
@@ -164,8 +166,8 @@ var routingCollections = []collectionscaffold.Config{
 			Description: "Reads the bridge through ovs-vsctl and changes only what differs. Its undo puts back what it found: a bridge it created is removed, a datapath it changed is set back. Removing a bridge also removes its ports, which its undo does not recreate, so that undo is partial and says so.",
 			Params: []collection.Param{
 				{Name: "name", Type: "string", Required: true, Description: "The bridge."},
-				{Name: "state", Type: "string", Default: "present", Description: "present or absent."},
-				{Name: "datapath_type", Type: "string", Description: "system (the kernel datapath) or netdev (userspace). Left unset, an existing bridge keeps its own and a new one gets Open vSwitch's default."},
+				{Name: "state", Type: "string", Default: "present", Choices: []string{"present", "absent"}, Description: "present or absent."},
+				{Name: "datapath_type", Type: "string", Choices: []string{"system", "netdev"}, Description: "system (the kernel datapath) or netdev (userspace). Left unset, an existing bridge keeps its own and a new one gets Open vSwitch's default."},
 				hostKeyParam,
 			},
 			Returns: []collection.ReturnField{
@@ -190,7 +192,7 @@ var routingCollections = []collectionscaffold.Config{
 			Params: []collection.Param{
 				{Name: "bridge", Type: "string", Required: true, Description: "The bridge the port belongs on."},
 				{Name: "name", Type: "string", Required: true, Description: "The port, usually an interface name (eth1)."},
-				{Name: "state", Type: "string", Default: "present", Description: "present or absent."},
+				{Name: "state", Type: "string", Default: "present", Choices: []string{"present", "absent"}, Description: "present or absent."},
 				{Name: "tag", Type: "int", Description: "An access VLAN, 1 to 4094; 0 removes the tag. Left unset, an existing port keeps its own."},
 				hostKeyParam,
 			},
@@ -215,11 +217,13 @@ var routingCollections = []collectionscaffold.Config{
 			Description: "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, a convert error Batfish reports (part of a device missing from the model), or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). Recognising a line is not modelling it, so a feature measured to be parsed and then ignored (on Cisco IOS: GLBP, IP SLA, SLA tracking, BFD, NHRP) is refused the same way until accepted by name: the model cannot predict its failover, and a passing gate must not imply that it did. The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
 			Params: []collection.Param{
 				{Name: "devices", Type: "list of dict", Required: true, Description: "Each device's whole configuration: name (the node's name, which a Cisco configuration's hostname must match), format (frr, the default, or cisco_ios), and config (the text, e.g. a registered net.frr.facts result's running_config) or src (a file in the project, read by the command line only)."},
-				{Name: "assertions", Type: "list of dict", Description: "What must hold of the configurations as given, each one of: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}; no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node[\"Ethernet0/1\"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."},
+				{Name: "assertions", Type: "list of dict", Description: "What must hold of the configurations as given, each a map with a single key: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}, where protocol is bgp, connected, eigrp, isis, kernel, local, ospf, rip or static (Batfish's own ibgp, aggregate, ospfIA, ospfE1, ospfE2, isisL1, isisL2 and eigrpEX are read as their family, so ibgp is written bgp); no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node[\"Ethernet0/1\"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."},
 				{Name: "scenarios", Type: "list of dict", Description: "Each a name, down_interfaces (node[interface], e.g. r1[eth2]) and down_nodes, and its own assertions, checked on the snapshot with those down."},
+				{Name: "network", Type: "string", Default: "pleiades", Description: "What the name of the Batfish network this task makes begins with, followed by a hyphen and 16 random hexadecimal digits (a lab's name, such as pleiades-cvd-opus, makes pleiades-cvd-opus-1f3a...), so the networks each lab makes on one shared Batfish service read as that lab's. 1 to 64 letters, digits, dots, hyphens and underscores, beginning with a letter or digit. The random part keeps two runs given the same name apart, and each task deletes only the network it made, when it ends. The whole name is returned as network."},
 				{Name: "accept_unrecognized", Type: "list of dict", Description: "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd, nhrp), and a reason (why the model may ignore it). Every other unrecognised line fails the task."},
 			},
 			Returns: []collection.ReturnField{
+				{Name: "network", Type: "string", Returned: "once the network is made", Description: "The Batfish network the task made and removed when it ended, its name beginning with the network parameter."},
 				{Name: "passed", Type: "bool", Returned: "always", Description: "Whether every assertion held and nothing went unrecognised unaccepted."},
 				{Name: "sha256", Type: "dict", Returned: "always", Description: "Each device's configuration's SHA-256, in hex, over the bytes as given."},
 				{Name: "parse", Type: "list of dict", Returned: "always", Description: "Each file's parse status (device, status)."},
@@ -245,7 +249,7 @@ var traceDoc = collection.Doc{
 		{Name: "max_hops", Type: "int", Default: "30", Description: "The most hops to try."},
 		{Name: "expect", Type: "dict", Description: "reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be)."},
 		{Name: "container", Type: "string", Description: "Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux. An empty value is refused rather than read as none: leave container out to trace from the device."},
-		{Name: "engine", Type: "string", Description: "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."},
+		{Name: "engine", Type: "string", Choices: []string{"docker", "podman"}, Description: "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."},
 		hostKeyParam,
 	},
 	Returns: []collection.ReturnField{

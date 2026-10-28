@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -217,7 +218,7 @@ func whoAmI(ctx context.Context, conn *remoteexec.Conn, filePath string) (identi
 	}
 	lines := strings.Split(strings.TrimRight(res.Stdout, "\n"), "\n")
 	if res.ExitCode != 0 || len(lines) != 7 {
-		return identity{}, fmt.Errorf("reading this login: exited %d: %s", res.ExitCode, firstLine(res.Stderr))
+		return identity{}, fmt.Errorf("reading this login: exited %d: %s", res.ExitCode, farside.Output(res.Stderr))
 	}
 	return identity{
 		root:         strings.TrimSpace(lines[0]) == "0",

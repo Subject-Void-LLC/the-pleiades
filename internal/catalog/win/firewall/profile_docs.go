@@ -12,10 +12,10 @@ func profileDoc() collection.Doc {
 			"The script is a constant and every value reaches it as JSON on standard input, held to its form first. " +
 			"The undo puts back the earlier value of each setting changed, as the value that was in force for a NotConfigured one. A check reads and reports what would change.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Choices: []string{"domain", "private", "public"}, Description: "The profile. One per task, so its undo is exact."},
+			{Name: paramName, Type: "string", Required: true, Choices: []string{"domain", "private", "public"}, ChoicesIgnoreCase: true, Description: "The profile. One per task, so its undo is exact."},
 			{Name: pfEnabled, Type: "bool", Description: "Whether the firewall is on for this profile."},
-			{Name: pfInbound, Type: "string", Choices: []string{"allow", "block"}, Description: "What it does with inbound traffic no rule matches. Windows' default is block."},
-			{Name: pfOutbound, Type: "string", Choices: []string{"allow", "block"}, Description: "What it does with outbound traffic no rule matches. Windows' default is allow."},
+			{Name: pfInbound, Type: "string", Choices: []string{"allow", "block"}, ChoicesIgnoreCase: true, Description: "What it does with inbound traffic no rule matches. Windows' default is block."},
+			{Name: pfOutbound, Type: "string", Choices: []string{"allow", "block"}, ChoicesIgnoreCase: true, Description: "What it does with outbound traffic no rule matches. Windows' default is allow."},
 			{Name: pfLogAllowed, Type: "bool", Description: "Whether allowed connections are logged."},
 			{Name: pfLogBlocked, Type: "bool", Description: "Whether dropped packets are logged."},
 			{Name: pfLogFile, Type: "string", Description: "The log file's path on the machine, as Windows takes it (%systemroot% may appear)."},

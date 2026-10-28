@@ -39,7 +39,7 @@ func init() {
 				Params: []collection.Param{
 					{Name: "bridge", Type: "string", Required: true, Description: "The bridge the port belongs on."},
 					{Name: "name", Type: "string", Required: true, Description: "The port, usually an interface name (eth1)."},
-					{Name: "state", Type: "string", Default: "present", Description: "present or absent."},
+					{Name: "state", Type: "string", Default: "present", Choices: []string{"present", "absent"}, Description: "present or absent."},
 					{Name: "tag", Type: "int", Description: "An access VLAN, 1 to 4094; 0 removes the tag. Left unset, an existing port keeps its own."},
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 				},

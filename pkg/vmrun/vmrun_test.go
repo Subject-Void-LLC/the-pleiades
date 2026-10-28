@@ -79,6 +79,22 @@ func TestParseKeyValues_RealConfigAndPowerCaptures(t *testing.T) {
 	}
 }
 
+// TestParseKeyValues_AQuotedKeyHoldingAColon: a disk's vmx key holds a colon
+// of its own, which vmcli quotes; the key is read to its closing quote, and
+// a value holding a colon keeps it.
+func TestParseKeyValues_AQuotedKeyHoldingAColon(t *testing.T) {
+	cfg := parseKeyValues("'nvme0:0.fileName': 'win11-arm.vmdk'\n'sata0:1.fileName': '/Users/me/Downloads/a:b.iso'\nguestOS: arm-windows11-64\n'unterminated: x\n")
+	for k, want := range map[string]string{
+		"nvme0:0.fileName": "win11-arm.vmdk", "sata0:1.fileName": "/Users/me/Downloads/a:b.iso", "guestOS": "arm-windows11-64",
+		// A quote that never closes is read the old way, at its first colon.
+		"'unterminated": "x",
+	} {
+		if cfg[k] != want {
+			t.Errorf("config %q = %q, want %q", k, cfg[k], want)
+		}
+	}
+}
+
 func TestParseNetworks_RealCapture(t *testing.T) {
 	got, err := parseNetworks(capture(t, "hostnetworks.txt"))
 	want := []Network{
@@ -121,6 +137,25 @@ func TestFailure_ClassifiesEveryRealMessage(t *testing.T) {
 		if strings.HasPrefix(e.Message, "Error:") || e.ExitCode != 255 {
 			t.Errorf("%q: message %q exit %d", line, e.Message, e.ExitCode)
 		}
+	}
+}
+
+// TestFailure_ATaggedLineOrAllOfIt: a captured vmrun line marked "Error:"
+// is the whole message, quoted in the error; output with no such line (a
+// vmcli refusal written over two lines) is read whole on one line, never
+// cut to its first line, and a control character in it is shown escaped.
+func TestFailure_ATaggedLineOrAllOfIt(t *testing.T) {
+	line := strings.Split(strings.TrimSpace(capture(t, "vmrun-errors.txt")), "\n")[0]
+	e := failure("snapshot", Output{Stdout: "noise before\n" + line + "\n", ExitCode: 255})
+	if e.Error() != `vmware snapshot failed (exit 255): "A snapshot with the name already exists"` {
+		t.Errorf("tagged: %q", e.Error())
+	}
+	e = failure("create", Output{Stderr: "Operation failed\nThe file is locked by another process\x1b[2J\n", ExitCode: 1})
+	if e.Error() != `vmware create failed (exit 1): "Operation failed The file is locked by another process\x1b[2J"` {
+		t.Errorf("untagged: %q", e.Error())
+	}
+	if e := failure("stop", Output{ExitCode: 1}); e.Error() != "vmware stop failed (exit 1): no output" {
+		t.Errorf("silent: %q", e.Error())
 	}
 }
 

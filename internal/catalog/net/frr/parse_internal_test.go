@@ -1,5 +1,5 @@
 // Tests of what the net.frr methods read from the router's own words:
-// frr-reload's difference and show version.
+// frr-reload's difference, show version, and vtysh's refusals.
 package frr
 
 import (
@@ -61,5 +61,24 @@ func TestReloadError(t *testing.T) {
 	}
 	if reloadError("x INFO: y\n") != "it printed nothing but logging" {
 		t.Error("logging only")
+	}
+}
+
+// TestRefusal reads vtysh -m -f's answer to a candidate it cannot load: the
+// whole candidate on stdout and the refused line, marked "% ", on stderr.
+// The error holds the refusal, not the candidate's first line, with the
+// secret on the refused line masked, on one line and quoted.
+func TestRefusal(t *testing.T) {
+	stdout := "frr version 10.1.1\nfrr defaults traditional\nhostname r1\n!\nrouter bgp 65001\n neighbor 10.0.0.2 remote-as 65002\n"
+	stderr := "line 7: % Unknown command[4]:  neighbor 10.0.0.2 password zebra ttl\n"
+	got := refusal(stdout + "\n" + stderr)
+	if !strings.HasPrefix(got, `"line 7: % Unknown command[4]: neighbor 10.0.0.2 password `) || strings.Contains(got, "zebra") || strings.Contains(got, "frr version") {
+		t.Errorf("refusal = %s, want the masked refused line alone", got)
+	}
+	if got := refusal("mktemp: failed to create file via template '/tmp/pleiades-frr.XXXXXX'\nRead-only file system\n"); got != `"mktemp: failed to create file via template '/tmp/pleiades-frr.XXXXXX' Read-only file system"` {
+		t.Errorf("an unmarked answer is not read whole: %s", got)
+	}
+	if got := refusal(" \n"); got != "no output" {
+		t.Errorf("an empty answer = %s", got)
 	}
 }

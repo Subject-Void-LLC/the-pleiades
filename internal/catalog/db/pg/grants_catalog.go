@@ -5,7 +5,6 @@ package pg
 import (
 	"context"
 	"database/sql"
-	"fmt"
 )
 
 // catalog is what the database holds that a declared set is compared
@@ -17,10 +16,13 @@ type catalog struct {
 	owned    []string
 	objects  map[string][]string // kind to objects
 	database string
+	// absent names the role or database that does not exist, "" when both
+	// do: such a catalog holds nothing.
+	absent string
 }
 
-// readCatalog reads what compareGrants compares, refusing a role that
-// does not exist.
+// readCatalog reads what compareGrants compares. A role that does not
+// exist is answered as a catalog holding nothing, absent naming it.
 func readCatalog(ctx context.Context, tx *sql.Tx, role string) (catalog, error) {
 	cat := catalog{objects: map[string][]string{}}
 	var exists bool
@@ -28,7 +30,8 @@ func readCatalog(ctx context.Context, tx *sql.Tx, role string) (catalog, error) 
 		return cat, err
 	}
 	if !exists {
-		return cat, fmt.Errorf("role %s does not exist", role)
+		cat.absent = "role " + role
+		return cat, nil
 	}
 	rows, err := tx.QueryContext(ctx, `
 WITH r AS (SELECT oid FROM pg_roles WHERE rolname = $1)
