@@ -702,6 +702,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 696. The device vars filter dropped only top-level secret-named keys and secret-shaped strings, so a nested password in group_vars reached the dispatch payload (a repeat of 'allowlist, never a strip list') (fixed before push)
 697. The vars loader followed symbolic links and read every file of a directory, so a link in a synced project pulled any readable YAML into every device's vars (fixed before push)
 698. My own scripted edits silently did nothing three times because the text they replaced did not match the file's indentation, and the next step assumed they had applied (fixed before push)
+699. An until task stopped after its first refused try, because the method had recorded a field before failing and the condition read it as holding (fixed before push)
+700. The CLI listed a looped or retried task as not run after it had run, because report entries gained the item or try suffix and the not-run check compared whole ids (fixed before push)
+701. Every CML error read `400: "{"` because the client kept the first line of the controller's indented JSON error (fixed before push)
+702. The skill's example of a rendered target was `target: "{{ item }}"`, which validate refuses since the same branch (fixed before push)
+703. net.ios.config failed a second, unchanged run on '% Policy already has the same matching fvrf statement' in three lab runs before the notice was added (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

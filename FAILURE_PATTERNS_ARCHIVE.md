@@ -16903,3 +16903,55 @@ free when it happened, and build the package alone on the same tree before namin
 **Fix.** Assert the pattern is present before replacing (`assert old in s`), and re-read after another agent has worked in the same file. Process only; no code.
 
 **Lesson.** An edit that can match nothing must fail when it does (a repeat in kind of the generated-code no-op in CLAUDE.md).
+
+## 699. An until task stopped after its first refused try, because the method had recorded a field before failing and the condition read it as holding (fixed before push)
+
+**Symptom.** Run 6, Sonnet: `virt.cml.lab.start` under `until: ["has(result.started.lab_id)"]`, `retries: 30` ran once, was refused with HTTP 400, and the run stopped after `tasks[0].attempt[0]`.
+
+**Root cause.** A failed run keeps the stats its method recorded before failing (the lab it found), so `has(result.started.lab_id)` was true on the failed try, `until` counted as held, and the task ended with the failure.
+
+**Fix.** A failed try never satisfies `until` (retry.go). Test: TestUntil_TheAgentsNodeStartShape, which fails without the fix.
+
+**Lesson.** A condition about a result is asked only of a run that produced one; a failure's partial stats are evidence, not a result.
+
+## 700. The CLI listed a looped or retried task as not run after it had run, because report entries gained the item or try suffix and the not-run check compared whole ids (fixed before push)
+
+**Symptom.** Run 6: `tasks[0]: not run (the run ended before reaching this task)` printed under nine successful tries of the same task.
+
+**Root cause.** The report's task id became the journal id (`tasks[0].attempt[2]`), and `addNotRun` looked the plan's `tasks[0]` up in that set. A repeat in kind of 692: an id gained a suffix and one lookup by the old id was missed.
+
+**Fix.** `addNotRun` compares `engine.BaseNodeID`, and `stoppedReason` does not name a retried or ignored failure. Test: TestAddNotRun_ATaskThatRanAsTriesIsNotListed.
+
+**Why 692 did not prevent it.** 692's fix found the lookups of journal entries; the report's own ids were changed in the same branch and their reader was not searched.
+
+**Lesson.** LESSONS 348 again: list every reader of an id when its shape changes, the report's included.
+
+## 701. Every CML error read `400: "{"` because the client kept the first line of the controller's indented JSON error (fixed before push)
+
+**Symptom.** Runs 5 and 6: three agents saw only `400: "{"` for a refused node start and had to guess the cause (a capacity limit) from timing across labs.
+
+**Root cause.** `pkg/cml`'s `firstLine` kept the first line of the body, and CML answers with indented JSON.
+
+**Fix.** The error shows the JSON `description`, `detail`, `message` or `error`, else the body on one line, bounded and quoted. Test: TestStatusError_SaysWhatTheControllerSaid.
+
+**Lesson.** An error built from another system's answer is checked against a real answer of that system, not a one-line sample.
+
+## 702. The skill's example of a rendered target was `target: "{{ item }}"`, which validate refuses since the same branch (fixed before push)
+
+**Symptom.** Run 6, Sonnet's review: SKILL.md showed `target: "{{ item }}"` with `within:` while `validate` refuses a loop item in a target.
+
+**Root cause.** The skill line was written for the run 5 friction item, before the refusal was added for the next one, and nothing tests the skill's examples against `validate`.
+
+**Fix.** The skill and `docs/04` use `{{ result.ticket.json.ci }}` and say a loop item cannot choose the target.
+
+**Lesson.** Advice text and a rule changed in one branch are read together before the branch ends.
+
+## 703. net.ios.config failed a second, unchanged run on '% Policy already has the same matching fvrf statement' in three lab runs before the notice was added (fixed before push)
+
+**Symptom.** Runs 4, 5 and 6: every second configuration run reported a failure or a change on `match fvrf` under an IKEv2 policy; each agent added an `accept:` for it.
+
+**Root cause.** The notice was not in `pkg/netcli`'s list of lines IOS prints for a line it already has.
+
+**Fix.** Added to `iosNotices`, with the count measured in run 5's stream (30). Test: config_dialog_test.go.
+
+**Lesson.** A friction item seen twice in lab reviews is fixed before the third run, not listed again.
