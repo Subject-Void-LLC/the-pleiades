@@ -221,17 +221,17 @@ func gatherProbes() []gatherProbe {
 		{
 			keys:    []string{gatherFactSystem},
 			command: "uname -s",
-			parse:   gatherSingle(gatherFactSystem, nil),
+			parse:   gatherSingle(gatherFactSystem),
 		},
 		{
 			keys:    []string{gatherFactKernel},
 			command: "uname -r",
-			parse:   gatherSingle(gatherFactKernel, nil),
+			parse:   gatherSingle(gatherFactKernel),
 		},
 		{
 			keys:    []string{gatherFactArchitecture},
 			command: "uname -m",
-			parse:   gatherSingle(gatherFactArchitecture, nil),
+			parse:   gatherSingle(gatherFactArchitecture),
 		},
 		{
 			keys:    []string{gatherFactDistribution, gatherFactDistributionVersion, gatherFactDistributionMajor, gatherFactDistributionRelease},
@@ -410,18 +410,15 @@ func gatherAllKeys() []string {
 }
 
 // gatherSingle builds the parser for a probe whose whole output is one
-// fact's value, optionally refined first.
+// fact's value.
 //
 // Empty output produces no fact rather than a fact whose value is the
 // empty string. That distinction is the contract: a condition reading
 // ansible_kernel must be able to tell a device that did not answer from
 // one that answered with nothing.
-func gatherSingle(key string, refine func(string) string) func(string) []gatherFact {
+func gatherSingle(key string) func(string) []gatherFact {
 	return func(stdout string) []gatherFact {
 		value := strings.TrimSpace(stdout)
-		if refine != nil {
-			value = refine(value)
-		}
 		if value == "" {
 			return nil
 		}

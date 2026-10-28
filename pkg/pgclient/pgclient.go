@@ -43,6 +43,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Target is one database and how to reach it.
@@ -156,9 +158,16 @@ func (s *Session) ServerVersion(ctx context.Context) (num, major int, err error)
 	if err := s.db.QueryRowContext(ctx, "SELECT current_setting('server_version_num')").Scan(&text); err != nil {
 		return 0, 0, err
 	}
+	return parseServerVersion(text)
+}
+
+// parseServerVersion reads server_version_num's text as ServerVersion
+// returns it. The text is the server's own answer, so a refusal quotes it
+// through pkg/farside: bounded, and with a control byte shown escaped.
+func parseServerVersion(text string) (num, major int, err error) {
 	num, err = strconv.Atoi(text)
 	if err != nil {
-		return 0, 0, fmt.Errorf("the server's version number %q is not a number", text)
+		return 0, 0, fmt.Errorf("the server's version number %s is not a number", farside.Text(text))
 	}
 	return num, num / 10000, nil
 }

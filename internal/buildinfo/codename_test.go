@@ -27,6 +27,30 @@ func TestCodenames_FollowTheRule(t *testing.T) {
 	}
 }
 
+// TestCodename_ReadsThisBuildsStampedVersion holds Codename to the version
+// this binary carries: an unstamped test binary is a development build with
+// no name, and one stamped as a release (what -ldflags -X writes into
+// version) carries that release's name.
+func TestCodename_ReadsThisBuildsStampedVersion(t *testing.T) {
+	saved := version
+	t.Cleanup(func() { version = saved })
+
+	version = ""
+	if got := Codename(); got != "" {
+		t.Errorf("an unstamped build's Codename() = %q, want none", got)
+	}
+	version = "0.3.0"
+	if got := Codename(); got != "Paranoid Porpoise" {
+		t.Errorf("a build stamped 0.3.0 has Codename() = %q, want %q", got, "Paranoid Porpoise")
+	}
+	version = "0.2.0"
+	if got := Codename(); got != "" {
+		t.Errorf("a build stamped with an unnamed release has Codename() = %q, want none", got)
+	}
+}
+
+// TestCodenameFor reads the name of each spelling of a release, and none for
+// an unnamed release or a development version.
 func TestCodenameFor(t *testing.T) {
 	for v, want := range map[string]string{
 		"0.3.0": "Paranoid Porpoise", "v0.3.0": "Paranoid Porpoise", "0.3.0-rc1": "Paranoid Porpoise",

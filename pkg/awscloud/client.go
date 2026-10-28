@@ -193,7 +193,7 @@ func (c *Client) FindInstanceByName(ctx context.Context, name string) (*Instance
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("awscloud: describing instances tagged %q: %w", name, err)
+		return nil, wrapSDK(fmt.Sprintf("describing instances tagged %q", name), err)
 	}
 	for _, r := range out.Reservations {
 		for _, i := range r.Instances {
@@ -227,7 +227,7 @@ func (c *Client) ListInstancesPage(ctx context.Context, nextToken string, maxRes
 
 	out, err := c.ec2.DescribeInstances(ctx, input)
 	if err != nil {
-		return nil, "", fmt.Errorf("awscloud: listing instances: %w", err)
+		return nil, "", wrapSDK("listing instances", err)
 	}
 
 	var instances []Instance
@@ -255,7 +255,7 @@ func (c *Client) RunInstance(ctx context.Context, name, imageID, instanceType st
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("awscloud: launching instance %q: %w", name, err)
+		return nil, wrapSDK(fmt.Sprintf("launching instance %q", name), err)
 	}
 	if len(out.Instances) == 0 {
 		return nil, fmt.Errorf("awscloud: RunInstances for %q returned no instances", name)
@@ -272,7 +272,7 @@ func (c *Client) DescribeInstance(ctx context.Context, instanceID string) (*Inst
 		if errorCode(err) == "InvalidInstanceID.NotFound" {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("awscloud: describing instance %q: %w", instanceID, err)
+		return nil, wrapSDK(fmt.Sprintf("describing instance %q", instanceID), err)
 	}
 	for _, r := range out.Reservations {
 		for _, i := range r.Instances {
@@ -288,7 +288,7 @@ func (c *Client) DescribeInstance(ctx context.Context, instanceID string) (*Inst
 func (c *Client) TerminateInstance(ctx context.Context, instanceID string) (*Instance, error) {
 	out, err := c.ec2.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}})
 	if err != nil {
-		return nil, fmt.Errorf("awscloud: terminating instance %q: %w", instanceID, err)
+		return nil, wrapSDK(fmt.Sprintf("terminating instance %q", instanceID), err)
 	}
 	if len(out.TerminatingInstances) == 0 {
 		return nil, fmt.Errorf("awscloud: TerminateInstances for %q returned no result", instanceID)
@@ -311,7 +311,7 @@ func (c *Client) BucketExists(ctx context.Context, bucket string) (bool, error) 
 	case "NotFound", "NoSuchBucket":
 		return false, nil
 	}
-	return false, fmt.Errorf("awscloud: checking bucket %q: %w", bucket, err)
+	return false, wrapSDK(fmt.Sprintf("checking bucket %q", bucket), err)
 }
 
 // CreateBucket creates bucket in this Client's region.
@@ -331,7 +331,7 @@ func (c *Client) CreateBucket(ctx context.Context, bucket string) error {
 		}
 	}
 	if _, err := c.s3.CreateBucket(ctx, input); err != nil {
-		return fmt.Errorf("awscloud: creating bucket %q: %w", bucket, err)
+		return wrapSDK(fmt.Sprintf("creating bucket %q", bucket), err)
 	}
 	return nil
 }
@@ -344,7 +344,7 @@ func (c *Client) CreateBucket(ctx context.Context, bucket string) error {
 // around.
 func (c *Client) DeleteBucket(ctx context.Context, bucket string) error {
 	if _, err := c.s3.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)}); err != nil {
-		return fmt.Errorf("awscloud: deleting bucket %q: %w", bucket, err)
+		return wrapSDK(fmt.Sprintf("deleting bucket %q", bucket), err)
 	}
 	return nil
 }
@@ -357,7 +357,7 @@ func (c *Client) DeleteBucket(ctx context.Context, bucket string) error {
 func (c *Client) BucketHoldsAnything(ctx context.Context, bucket string) (bool, error) {
 	out, err := c.s3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(bucket), MaxKeys: aws.Int32(1)})
 	if err != nil {
-		return false, fmt.Errorf("awscloud: listing bucket %q: %w", bucket, err)
+		return false, wrapSDK(fmt.Sprintf("listing bucket %q", bucket), err)
 	}
 	return len(out.Versions) > 0 || len(out.DeleteMarkers) > 0, nil
 }

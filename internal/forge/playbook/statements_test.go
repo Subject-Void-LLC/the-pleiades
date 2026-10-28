@@ -99,3 +99,63 @@ func TestTranslate_TemplateModule(t *testing.T) {
 		t.Errorf("findings %v, want module.semantics for the template file and args.unmapped for force", codes)
 	}
 }
+
+// TestTranslate_MoreStatementsRenderAsAnsibleWould converts the rest of the
+// statements a run-time template may hold (elif, set, a nested for, a set
+// inside a for, a raw block beside a read, and Jinja's whitespace markers),
+// each reading a registered result so it stays a template, and renders each
+// converted parameter with the values Ansible would have read.
+func TestTranslate_MoreStatementsRenderAsAnsibleWould(t *testing.T) {
+	cases := map[string]struct{ shell, want string }{
+		"elif":               {`{% if out.stdout == 'no' %}a{% elif out.stdout == 'yes' %}b{% else %}c{% endif %}`, "b"},
+		"set":                {`{% set word = out.stdout %}say {{ word }}`, "say 'yes'"},
+		"nested for":         {`{% for a in pair %}{% for b in pair %}{{ a }}{{ b }}{{ out.stdout }} {% endfor %}{% endfor %}`, "'x''x''yes' 'x''y''yes' 'y''x''yes' 'y''y''yes' "},
+		"raw beside a read":  {`{% raw %}{{ x }}{% endraw %} {{ out.stdout }}`, "{{ x }} 'yes'"},
+		"whitespace markers": {`[ {%- if out.stdout == 'yes' -%} on {%- endif %} ]`, "[on ]"},
+		"a set inside a for": {`{% for i in pair %}{% set j = i %}{{ j }}{% endfor %}{{ out.stdout }}`, "'x''y''yes'"},
+	}
+	tasks := ""
+	i := 0
+	names := map[string]string{}
+	for name, tc := range cases {
+		i++
+		task := "task" + string(rune('a'+i))
+		names[task] = name
+		tasks += "    - name: " + task + "\n      shell: \"" + strings.ReplaceAll(tc.shell, `"`, `\"`) + "\"\n"
+	}
+	res := convert(t, `- hosts: web
+  gather_facts: false
+  tasks:
+    - set_fact: {pair: [x, y]}
+    - name: probe
+      command: cat /etc/flag
+      register: out
+`+tasks)
+	if len(res.Runbooks) != 1 || res.Runbooks[0].Incomplete {
+		t.Fatalf("conversion incomplete: %v\n%s", res.Report.Findings, res.Runbooks[0].YAML)
+	}
+	dag := build(t, res.Runbooks[0].YAML)
+	eng := render.New()
+	values := map[string]any{"vars": map[string]any{"pair": []any{"x", "y"}}, "result": map[string]any{"out": map[string]any{"stdout": "yes"}}}
+	seen := 0
+	for _, task := range dag.Nodes {
+		name, ok := names[task.Name]
+		if !ok {
+			continue
+		}
+		seen++
+		src, _ := task.Params["cmd"].(string)
+		tmpl, err := eng.Compile(src)
+		if err != nil {
+			t.Errorf("%s: the converted template %q does not compile: %v", name, src, err)
+			continue
+		}
+		got, err := tmpl.Render(values)
+		if want := cases[name].want; err != nil || got != want {
+			t.Errorf("%s: %q renders %q, %v; want %q", name, src, got, err, want)
+		}
+	}
+	if seen != len(cases) {
+		t.Errorf("found %d of the %d converted tasks", seen, len(cases))
+	}
+}

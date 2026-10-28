@@ -41,6 +41,8 @@ func TestChoiceProblem(t *testing.T) {
 		"an int choice":                {port, 830, ""},
 		"an int from JSON":             {port, float64(22), ""},
 		"an int outside":               {port, 23, "it is not one of 22, 830"},
+		"an int64 a template rendered": {port, int64(830), ""},
+		"an int64 outside":             {port, int64(8300), "it is not one of 22, 830"},
 		"a map is the type rule's":     {state, map[string]any{}, ""},
 		"a boolean is the type rule's": {state, true, ""},
 		"no set takes anything":        {open, "anything", ""},

@@ -303,3 +303,47 @@ func TestNativeRefusals_Conditions(t *testing.T) {
 	undef.want = "tasks:\n  - name: w\n    exec.command: {cmd: go}\n    when: ['false']"
 	runRefusals(t, append(cases, undef))
 }
+
+// TestNativeRefusals_Statements covers the {% %} forms a run-time template
+// may not hold: each reads a registered result, so it stays a template, and
+// each is blocked. A malformed or unsupported statement is refused before
+// the rewrite, as Jinja the converter cannot evaluate, so every one reads
+// the same; an expression never closed is refused earlier still, as free-form
+// arguments that do not parse.
+func TestNativeRefusals_Statements(t *testing.T) {
+	run := "- {name: r, command: probe, register: out}\n"
+	shell := func(text string) string {
+		return run + "- {name: s, shell: \"" + text + " {{ out.stdout }}\"}"
+	}
+	runRefusals(t, []refusalCase{
+		rc("a for without in", shell("{% for h %}x{% endfor %}"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("Jinja this converter cannot evaluate", shell("{% endfor %}"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a for never closed", shell("{% for h in out.lines %}x"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a set block", shell("{% set x %}y{% endset %}"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a macro", shell("{% macro m() %}x{% endmacro %}"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a raw block never closed", shell("{% raw %}x"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a tag never closed", run+"- {name: s, shell: \"{{ out.stdout }} {% if out.rc\"}", 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a comment never closed", run+"- {name: s, shell: \"{{ out.stdout }} {# note\"}", 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("an expression never closed", run+"- {name: s, shell: \"{{ out.stdout }} {{ out.rc\"}", 1, "args.unparsable", "unbalanced quotes or {{ }}"),
+		rc("an if reading a call", shell("{% if foo(out.rc) %}x{% endif %}"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a for over a call", shell("{% for h in foo(out.rc) %}x{% endfor %}"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+		rc("a set of a call", shell("{% set x = foo(out.rc) %}"), 1, "template.unsupported", "Jinja this converter cannot evaluate"),
+	})
+}
+
+// TestNativeRefusals_TaskVarsHoldingRunTimeReads covers a task's vars whose
+// list and map values hold a registered result: each template inside them is
+// rewritten to read result.<register>, and the command reading them through
+// vars converts, builds and validates.
+func TestNativeRefusals_TaskVarsHoldingRunTimeReads(t *testing.T) {
+	c := rc("a list and a map in task vars, each reading a register",
+		"- {name: r, command: probe, register: out}\n"+
+			"- {name: s, command: \"echo {{ pair[0] }} {{ m.k }}\", vars: {pair: [\"{{ out.stdout }}\", b], m: {k: \"{{ out.stdout }}\"}}}",
+		0, "template.register", "")
+	c.want = "tasks:\n" +
+		"  - {name: r, exec.command: {cmd: probe}, register: out}\n" +
+		"  - name: s\n" +
+		"    exec.command: {cmd: \"echo {{ vars.pair[0] | quote }} {{ vars.m.k | quote }}\"}\n" +
+		"    vars: {m: {k: \"{{ result.out.stdout }}\"}, pair: [\"{{ result.out.stdout }}\", b]}"
+	runRefusals(t, []refusalCase{c})
+}
