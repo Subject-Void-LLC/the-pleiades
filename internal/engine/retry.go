@@ -48,11 +48,13 @@ func (r *run) tries(ctx context.Context, nodeID string, task *Task, started time
 			out.results = append(out.results, results...)
 			return out
 		}
-		held, err := r.untilHolds(task, key, roots, out)
-		if err != nil && out.failed {
-			// A try that failed has none of the fields a condition reads, so
-			// the condition cannot hold for it: try again, or give up.
-			held, err = false, nil
+		// A try that failed never satisfies until: the condition is about a
+		// run that worked. A method can record a field before it fails (CML's
+		// lab_id, found before the start was refused), and reading that as the
+		// condition holding ended a retry loop after its first refusal.
+		held, err := false, error(nil)
+		if !out.failed {
+			held, err = r.untilHolds(task, key, roots, out)
 		}
 		if err != nil {
 			failed := failedNode(nodeID, started, FailureStageConditionEval, fmt.Errorf("failed to evaluate until for %s: %w", taskLabel(nodeID, task), err))

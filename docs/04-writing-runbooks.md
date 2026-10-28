@@ -242,9 +242,10 @@ or read from `vars`. A list read from a device's output cannot choose which file
 and `validate` refuses it. An item used in a network config line or a ping target needs
 `| cli_token`, and one used in a shell command needs `| quote`.
 
-A target chosen from data, such as `target: "{{ item }}"`, needs `within:` naming the device or
-tag it must stay inside, written out in the runbook. Looping over the devices of `hosts:` is
-usually simpler.
+A target chosen from data, such as `target: "{{ result.ticket.json.ci }}"`, needs `within:`
+naming the device or tag it must stay inside, written out in the runbook. A loop's item cannot
+choose the target, since the target is resolved once, before any item exists: to do one thing on
+each device, put the devices in `hosts:`.
 
 ## Retries with until
 

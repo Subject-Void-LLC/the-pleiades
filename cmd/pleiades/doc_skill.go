@@ -303,8 +303,9 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  network config line or a ping target needs `| cli_token` (or `| quote` in a shell command); `validate` says\n" +
 	"  which. An item may name a project file (`dest: captures/{{ item }}.pcap`) only when the loop's list is\n" +
 	"  written in the runbook or read from `vars`, never when it came from a device's output.\n" +
-	"- A target chosen from data (`target: \"{{ item }}\"`) needs `within:` naming the device or tag it must stay\n" +
-	"  inside, written out; without it the runbook is refused. Prefer a loop over `hosts:` devices to a rendered target.\n" +
+	"- A target chosen from data (`target: \"{{ result.ticket.json.ci }}\"`) needs `within:` naming the device or tag\n" +
+	"  it must stay inside, written out; without it the runbook is refused. A loop's item cannot choose the target (it\n" +
+	"  is resolved once, before any item): to do one thing on each device, put the devices in `hosts:`.\n" +
 	"- `until:` (conditions over the task's own `register`), `retries:` (default 3, at most 100) and `delay:`\n" +
 	"  (seconds) run a task again until it holds. In `until:`, `changed_when:` and `failed_when:`, `result.<register>`\n" +
 	"  is always this run's own result, for this device and this item, even when other devices registered the same\n" +

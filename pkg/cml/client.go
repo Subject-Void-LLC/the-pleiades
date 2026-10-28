@@ -280,14 +280,24 @@ func (c *Client) call(ctx context.Context, method, path string, body []byte, int
 	return nil
 }
 
-// firstLine is a controller's words fit for an error: the first line, at
-// most 300 bytes, quoted so a control character is shown rather than
-// acted on.
+// firstLine is a controller's words fit for an error: what its JSON error
+// says (description, detail, message or error, the first present), or else
+// its text with every run of white space made one space, at most 300 bytes,
+// quoted so a control character is shown rather than acted on. CML answers
+// an error with indented JSON, so its first line alone is "{", which is all
+// a refused node start used to say.
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
+	var obj map[string]any
+	if strings.HasPrefix(s, "{") && json.Unmarshal([]byte(s), &obj) == nil {
+		for _, k := range []string{"description", "detail", "message", "error"} {
+			if v, ok := obj[k].(string); ok && strings.TrimSpace(v) != "" {
+				s = v
+				break
+			}
+		}
 	}
+	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > 300 {
 		s = s[:300] + "..."
 	}
