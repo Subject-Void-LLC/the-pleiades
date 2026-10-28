@@ -5,6 +5,7 @@ package batfish
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -94,6 +95,46 @@ func TestCheck_NamesTheNetworkAfterTheParameter(t *testing.T) {
 	want := []string{first, second, plain}
 	if strings.Join(fake.created, ",") != strings.Join(want, ",") || strings.Join(fake.deleted, ",") != strings.Join(want, ",") {
 		t.Errorf("created %q and deleted %q, want each task to make and delete only its own %q", fake.created, fake.deleted, want)
+	}
+}
+
+// failingNetworkContext refuses to record the network stat, as a run
+// context whose store has failed does.
+type failingNetworkContext struct{ networkContext }
+
+// SetStat refuses the network stat and records any other.
+func (c *failingNetworkContext) SetStat(k string, v any) error {
+	if k == paramNetwork {
+		return errors.New("the stat store refused it")
+	}
+	return c.networkContext.SetStat(k, v)
+}
+
+// TestCheck_DeletesItsNetworkWhenRecordingItFails: a task whose network
+// stat cannot be recorded still deletes the network it made, rather than
+// leaving it on a shared Batfish.
+func TestCheck_DeletesItsNetworkWhenRecordingItFails(t *testing.T) {
+	fake := &fakeBatfish{}
+	srv := httptest.NewServer(fake)
+	t.Cleanup(srv.Close)
+	svc, err := bfdevice.NewService(record.Record{Name: "batfish", Type: bfdevice.TypeService, Properties: map[string]inventory.PropertyValue{
+		bfdevice.APIBaseProperty: srv.URL,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := map[string]any{
+		"devices":    []any{map[string]any{"name": "r1", "config": "hostname r1\nrouter ospf\nexit\n"}},
+		"assertions": []any{map[string]any{"ospf_established": true}},
+	}
+	rc := &failingNetworkContext{networkContext{stats: map[string]any{}}}
+	if _, err := Check(context.Background(), rc, svc, params); err == nil || !strings.Contains(err.Error(), "refused it") {
+		t.Fatalf("Check() error = %v, want the refused stat", err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.created) != 1 || strings.Join(fake.deleted, ",") != fake.created[0] {
+		t.Errorf("created %q and deleted %q, want the network made to be deleted", fake.created, fake.deleted)
 	}
 }
 

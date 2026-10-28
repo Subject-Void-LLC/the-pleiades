@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -34,11 +33,10 @@ func gatherConfig(ctx context.Context, rc sdk.RunbookContext, session iosSession
 	if err != nil {
 		return false, err
 	}
-	masked, found, err := netcfg.MaskChecked(out)
 	// Whatever masking found is masked by value from here on, even when the
-	// subset is refused: the error says nothing of it, but a later task may
-	// print the same text.
-	sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
+	// subset is refused (maskChecked reads the secrets again for that): the
+	// error says nothing of them, but a later task may print the same text.
+	masked, err := maskChecked(rc, out)
 	if err != nil {
 		return false, fmt.Errorf("%s: the configuration is not returned, since masking cannot vouch for it: %w", showRunningConfig, err)
 	}

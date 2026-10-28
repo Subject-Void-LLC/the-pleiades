@@ -56,6 +56,10 @@ func TestCommandReadsOnly_AShowThatAnswersNothing(t *testing.T) {
 		{map[string]any{paramCommand: "show run | redirect flash:a.txt"}, false},
 		{map[string]any{paramCommand: "terminal length 0"}, false},
 		{map[string]any{paramCommand: "show {{ vars.what }}"}, false},
+		// A statement or a comment renders too (collection.IsTemplate), and
+		// can turn a show into anything.
+		{map[string]any{paramCommand: "show version{% if vars.go %} | redirect flash:a.txt{% endif %}"}, false},
+		{map[string]any{paramCommand: "show version {# note #}"}, false},
 		{map[string]any{paramCommand: "reload"}, false},
 		{map[string]any{}, false},
 	} {

@@ -328,11 +328,11 @@ func skipKindFor(cp *ConditionProgram) SkipKind {
 	}
 }
 
-// validFailureStage reports whether stage is one of the ten stages a
+// validFailureStage reports whether stage is one of the twelve stages a
 // failed node may record.
 //
 // Every one is listed rather than range-checked, because the point is
-// that adding an eleventh constant is not enough: a stage this function has
+// that adding a thirteenth constant is not enough: a stage this function has
 // never heard of is refused, and the entry that would have carried it is
 // not written. See projectLevel on what that costs whoever adds one.
 func validFailureStage(stage FailureStage) bool {
@@ -345,6 +345,8 @@ func validFailureStage(stage FailureStage) bool {
 		FailureStageLockAll,
 		FailureStageLockDevice,
 		FailureStageAction,
+		FailureStageFailedWhen,
+		FailureStageChangedWhen,
 		FailureStageRegisterMask,
 		FailureStageRecord:
 		return true
@@ -483,7 +485,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	case n.Err != nil:
 		if !validFailureStage(n.failureStage) {
 			return JournalEntry{}, fmt.Errorf(
-				"node %q (device %q) failed at stage %q, which is not one of the ten this journal records",
+				"node %q (device %q) failed at stage %q, which is not one of the twelve this journal records",
 				n.NodeID, n.Device, n.failureStage)
 		}
 		entry.Outcome = OutcomeFailed

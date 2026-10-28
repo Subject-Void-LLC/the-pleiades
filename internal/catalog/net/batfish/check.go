@@ -122,16 +122,19 @@ func Check(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err := client.CreateNetwork(ctx, network); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: creating network %s: %w", checkFQCN, network, err)
 	}
-	// Recorded at once, so even a task that fails later says which network
-	// on a shared Batfish was its own.
-	if err := rc.SetStat(paramNetwork, network); err != nil {
-		return collection.Result{}, err
-	}
+	// The network is deleted however the task ends, registered before
+	// anything else can return: a failure recording its name used to leave
+	// it on a shared Batfish for good.
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		_ = client.DeleteNetwork(cleanup, network)
 	}()
+	// Recorded at once, so even a task that fails later says which network
+	// on a shared Batfish was its own.
+	if err := rc.SetStat(paramNetwork, network); err != nil {
+		return collection.Result{}, err
+	}
 	if err := client.UploadSnapshot(ctx, network, baseSnapshot, zip); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", checkFQCN, err)
 	}

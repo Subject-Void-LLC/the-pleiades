@@ -200,6 +200,16 @@ type Template interface {
 	// the template reached it. A read of the loop variable's counters
 	// (loop.index) reads nothing the caller supplied and is not reported.
 	Expressions() []ExpressionInfo
+
+	// LeadingText is the literal text the template writes before anything
+	// else can: the text of the compiled tree up to its first node that is
+	// not text (an expression or a statement), as it renders. A comment is
+	// gone from it, a raw block counts as the text it writes, and whitespace
+	// control has already trimmed it. A caller that must know what fixed
+	// text a rendering begins with (a URL's scheme and host) judges this
+	// rather than the source, whose spelling of a tag it would have to
+	// re-parse.
+	LeadingText() string
 }
 
 // ExpressionKind says where an expression stands in its template, which

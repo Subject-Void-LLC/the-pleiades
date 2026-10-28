@@ -186,6 +186,9 @@ var (
 		engine.FailureStageSecretMask: true, engine.FailureStageRender: true, engine.FailureStageResolveTarget: true, engine.FailureStageLockAll: true,
 		engine.FailureStageLockDevice: true, engine.FailureStageAction: true, engine.FailureStageRegisterMask: true,
 		engine.FailureStageRecord: true,
+		// Added for Phase 88's failed_when and changed_when. Older journals
+		// never hold them and read as before.
+		engine.FailureStageFailedWhen: true, engine.FailureStageChangedWhen: true,
 	}
 	knownSkip = map[engine.SkipKind]bool{
 		engine.SkipKindNone: true, engine.SkipKindWhen: true, engine.SkipKindWhenOr: true,

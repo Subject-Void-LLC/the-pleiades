@@ -66,9 +66,11 @@ func WithRenderer(eng render.Engine) ExecutorOption {
 // IsTemplate reports whether s is a template: it holds an expression
 // "{{", a statement "{%" or a comment "{#". It is the one test of whether a
 // string renders, so a statement with no expression in it renders too
-// rather than reaching a device as its own source.
+// rather than reaching a device as its own source. It is
+// collection.IsTemplate, which a Collection may import, so a method's own
+// question about a call (net.ios.command's ReadOnlyCall) asks the same.
 func IsTemplate(s string) bool {
-	return strings.Contains(s, "{{") || strings.Contains(s, "{%") || strings.Contains(s, "{#")
+	return collection.IsTemplate(s)
 }
 
 // HasTemplate reports whether v, at any depth of a decoded YAML or JSON
@@ -458,24 +460,37 @@ func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, t
 			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, "+why, root))
 		}
 	}
-	if format == collection.ParamFormatURL && !URLPrefixFixed(tmpl.Source()) {
-		problems = append(problems, "this parameter is a URL, so the text before its first {{ must name the scheme and host and end the host with /, ? or #, or begin with / for a path on the device's API")
+	// The compiled template's own leading text is judged, never the source:
+	// a comment renders as nothing, so a "#" or "/" inside one fixes no
+	// host, and a raw block or a trim marker changes what the text is.
+	if format == collection.ParamFormatURL && !URLTextFixed(tmpl.LeadingText()) {
+		problems = append(problems, "this parameter is a URL, so the text before its first {{ or {% must name the scheme and host and end the host with /, ? or #, or begin with / for a path on the device's API")
 	}
 	return problems
 }
 
-// URLPrefixFixed reports whether the text of source before its first
-// expression fixes where the request goes: it begins with "/" (a path on
-// the target device's own API), or it holds a scheme, "://", a host, and
-// one of "/", "?" or "#" ending the host, so an expression can neither
-// choose the host nor extend it ("api.example.com{{ x }}" could become
-// "api.example.com.attacker.net").
-//
-// The prefix ends at the first statement too, not only the first {{: a
-// "{% if %}" or "{% for %}" before the host could choose or repeat it.
+// URLPrefixFixed reports whether the text of source before its first tag
+// fixes where the request goes, judged by URLTextFixed. It reads the source
+// alone, so it ends the prefix at the first tag of any kind: an expression
+// "{{", a statement "{%" (an if or a for before the host could choose or
+// repeat it) and a comment "{#" (which renders as nothing, so a "/" or "#"
+// inside one ends no host). A caller holding the compiled template judges
+// its LeadingText instead, which is exact where this is only safe.
 func URLPrefixFixed(source string) bool {
-	prefix, _, _ := strings.Cut(source, "{{")
-	prefix, _, _ = strings.Cut(prefix, "{%")
+	prefix := source
+	for _, open := range []string{"{{", "{%", "{#"} {
+		prefix, _, _ = strings.Cut(prefix, open)
+	}
+	return URLTextFixed(prefix)
+}
+
+// URLTextFixed reports whether prefix, the literal text a URL begins with,
+// fixes where the request goes: it begins with "/" (a path on the target
+// device's own API), or it holds a scheme, "://", a host, and one of "/",
+// "?" or "#" ending the host, so what follows can neither choose the host
+// nor extend it ("api.example.com{{ x }}" could become
+// "api.example.com.attacker.net").
+func URLTextFixed(prefix string) bool {
 	if strings.HasPrefix(prefix, "/") {
 		return true
 	}
@@ -601,6 +616,9 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 	sort.Strings(keys)
 	for _, key := range keys {
 		for _, source := range TemplateStrings(task.Params[key]) {
+			// A string holding a reference is passed to the method as written,
+			// so a statement beside one would reach the device as its source:
+			// secretref.Problems refuses it. A statement alone renders.
 			if isRef, problems := SecretRefProblems(source, secretRefs[key]); isRef {
 				if len(problems) > 0 {
 					return fmt.Errorf("parameter %s: %s", key, problems[0])

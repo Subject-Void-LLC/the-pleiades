@@ -35,6 +35,19 @@ func TestTemplateProblems_StatementsAreHeldToTheSameRules(t *testing.T) {
 		{"a project path from vars through a loop", "{% for n in vars.names %}{{ n }}{% endfor %}", collection.ParamFormatProjectPath, ""},
 		{"a URL whose host a condition chooses", "https://{% if vars.a %}a{% else %}b{% endif %}.example.com/{{ vars.p | urlencode }}", collection.ParamFormatURL, "scheme and host"},
 		{"a URL with a statement after its host", "https://api.example.com/{% if vars.a %}{{ vars.p | urlencode }}{% endif %}", collection.ParamFormatURL, ""},
+		// A comment renders as nothing, so the "#" or "/" inside one ends no
+		// host, and a comment cannot stand in for the scheme and host.
+		{"a comment's own # does not end the host", "https://api.example.com{# x #}{{ vars.h }}/p", collection.ParamFormatURL, "scheme and host"},
+		{"a comment's own URL fixes nothing", "{# https://x/ #}{{ vars.url }}", collection.ParamFormatURL, "scheme and host"},
+		{"a comment after the host's end", "https://api.example.com/{# x #}{{ vars.p | urlencode }}", collection.ParamFormatURL, ""},
+		{"text either side of a comment joins", "https://api.{# x #}example.com/{{ vars.p | urlencode }}", collection.ParamFormatURL, ""},
+		// A raw block is text: it can end the host, and it can hide nothing.
+		{"a raw block ends the host", "https://api.example.com{% raw %}/{% endraw %}{{ vars.p | urlencode }}", collection.ParamFormatURL, ""},
+		{"an empty raw block before the host", "https://{% raw %}{% endraw %}{{ vars.h }}/p", collection.ParamFormatURL, "scheme and host"},
+		// Whitespace control trims the text as it renders, and is judged so.
+		{"a trim marker after the host's end", "https://api.example.com/ {{- vars.p | urlencode }}", collection.ParamFormatURL, ""},
+		{"a trimmed comment joins the host to data", "https://api.example.com {#- / -#} {{ vars.h }}/p", collection.ParamFormatURL, "scheme and host"},
+		{"a set before the host", "{% set h = 'x' %}https://api.example.com/{{ vars.p | urlencode }}", collection.ParamFormatURL, "scheme and host"},
 		// A comparison, an in, a not and a test give only true or false,
 		// which carry no device syntax, so their operands need no quoting;
 		// what reaches the text through ~, and/or or a literal does.

@@ -740,7 +740,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		// it is, and the run carries on past it.
 		for _, out := range outs {
 			for i := range out {
-				if t := r.dag.Nodes[out[i].NodeID]; t != nil && t.IgnoreErrors && out[i].Err != nil && out[i].failureStage == FailureStageAction {
+				if t := r.dag.Nodes[out[i].NodeID]; t != nil && t.IgnoreErrors && out[i].Err != nil && out[i].failureStage.judgesTheRun() {
 					out[i].Ignored = true
 				}
 			}
@@ -1298,7 +1298,9 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 				if ferr != nil {
 					cause = fmt.Errorf("failed to evaluate failed_when: %w", ferr)
 				}
-				result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), cause))
+				// Its own stage, so the journal tells a run the author's
+				// failed_when failed from one the method itself failed.
+				result.fail(FailureStageFailedWhen, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), cause))
 				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
 				return finish(result)
 			}
@@ -1306,7 +1308,7 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		if p.changed != nil {
 			changed, cerr := r.holds(p.changed, cmd.Task, result.Device, ownRoots(cmd), own)
 			if cerr != nil {
-				result.fail(FailureStageAction, fmt.Errorf("task %s failed: failed to evaluate changed_when: %w", taskLabel(cmd.NodeID, cmd.Task), cerr))
+				result.fail(FailureStageChangedWhen, fmt.Errorf("task %s failed: failed to evaluate changed_when: %w", taskLabel(cmd.NodeID, cmd.Task), cerr))
 				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
 				return finish(result)
 			}

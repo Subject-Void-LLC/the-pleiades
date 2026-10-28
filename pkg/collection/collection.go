@@ -125,11 +125,22 @@ type Descriptor struct {
 	// such a call before the run, rather than the undo stopping halfway
 	// through. A method with an InverseSpec marked MayBePartial answers here
 	// too for the calls whose undo would be partial (net.ios.config's crypto
-	// key lines): with an UndoCall, validation asks it rather than refusing
-	// every call of the method. It is nil for a method whose every call is
-	// undone as declared, and Register refuses it on a method that is not
-	// reversible, since there it would answer a question nothing asks.
+	// key lines), but only when UndoCallDecidesPartial says so. It is nil
+	// for a method whose every call is undone as declared, and Register
+	// refuses it on a method that is not reversible, since there it would
+	// answer a question nothing asks.
 	UndoCall func(params map[string]any) string
+
+	// UndoCallDecidesPartial is the method's own statement that its UndoCall
+	// names every call whose undo would be partial, so validation asks it
+	// instead of refusing every call of a method with an InverseSpec marked
+	// MayBePartial. It is a field of its own, rather than read from UndoCall
+	// being set, so an UndoCall added later for another reason (calls that
+	// record no undo at all) cannot silently lift that refusal for a method
+	// whose partial calls it never names. Register refuses it without an
+	// UndoCall, and on a method with no MayBePartial inverse, where it would
+	// decide nothing.
+	UndoCallDecidesPartial bool
 
 	// ReadOnlyCall is, for a method that is not read-only as a whole but
 	// some of whose calls only read, the answer read from a call's
@@ -237,6 +248,9 @@ func Register(d Descriptor) error {
 	}
 	if d.UndoCall != nil && !d.Manifest.Reversibility.Reversible {
 		return fmt.Errorf("collection: %q carries an UndoCall function but does not declare itself reversible", d.Name)
+	}
+	if err := checkUndoCallDecidesPartial(d); err != nil {
+		return err
 	}
 	if err := checkReadOnlyCall(d); err != nil {
 		return err

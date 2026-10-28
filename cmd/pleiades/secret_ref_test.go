@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,7 +38,10 @@ func secretRouter(t *testing.T) *remoteexectest.Server {
 		// show gate raw prints the key with no word before it, so only
 		// masking by value can hide it (the review's F7).
 		Replies: map[string]string{"show running-config": "hostname r1\r\nend", "show gate raw": "  " + gatePSK},
-		Asks:    map[string][]remoteexectest.Question{gateStart: {{Text: "Password: ", Want: gatePassphrase, Declined: "% Bad passphrase"}}},
+		Asks: map[string][]remoteexectest.Question{
+			gateStart:        {{Text: "Password: ", Want: gatePassphrase, Declined: "% Bad passphrase"}},
+			"clear counters": {{Text: "Proceed? [yes/no]: ", Want: "yes", Declined: "% Not cleared"}},
+		},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -197,12 +201,42 @@ func TestCLI_SecretReferencesReachTheDeviceOnly(t *testing.T) {
 		for name, body := range map[string]string{
 			"in command text the method does not resolve": "id: bad-command\nhosts: r1\ntasks:\n  - name: x\n    net.ios.command:\n      command: \"show {{ secret.dmvpn.psk }}\"\n",
 			"beside a variable":                           "id: bad-mixed\nhosts: r1\ntasks:\n  - name: x\n    net.ios.config:\n      lines:\n        - \"pre-shared-key {{ secret.dmvpn.psk }} {{ vars.x | cli_token }}\"\n",
-			"with a filter":                               "id: bad-filter\nhosts: r1\ntasks:\n  - name: x\n    net.ios.config:\n      lines:\n        - \"pre-shared-key {{ secret.dmvpn.psk | quote }}\"\n",
+			// A string holding a reference is passed to the method as
+			// written, so a statement beside one would reach the device.
+			"inside a statement": "id: bad-statement\nhosts: r1\ntasks:\n  - name: x\n    net.ios.config:\n      lines:\n        - \"{% if vars.x %}pre-shared-key {{ secret.dmvpn.psk }}{% endif %}\"\n",
+			"with a filter":      "id: bad-filter\nhosts: r1\ntasks:\n  - name: x\n    net.ios.config:\n      lines:\n        - \"pre-shared-key {{ secret.dmvpn.psk | quote }}\"\n",
 		} {
 			rb := writeSecretRunbook(t, dir, strings.ReplaceAll(name, " ", "-"), "# What this does: a refused runbook.\n# Blast radius: none. Changes: nothing. Undo: none.\n"+body)
 			out, err := runPleiadesWithHome(t, dir, home, "validate", rb)
 			if err == nil || !strings.Contains(out, "secret reference") {
 				t.Errorf("%s: validate passed or said nothing of the reference: %v\n%s", name, err, out)
+			}
+		}
+	})
+
+	t.Run("a statement alone in lines or a prompts answer renders and is sent rendered", func(t *testing.T) {
+		srv := secretRouter(t)
+		dir, home := secretProject(t, srv)
+		rb := writeSecretRunbook(t, dir, "statements", "# What this does: sets a port's mode and clears counters, each chosen by a statement.\n# Blast radius: r1. Changes: r1's running configuration and counters. Undo: none (a gate).\n"+
+			"id: statements\nhosts: r1\ntasks:\n  - name: Set the mode\n    net.ios.config:\n      checkpoint: false\n      lines:\n        - interface Ethernet0/1\n"+
+			"        - \"{% if vars.trunk == 'yes' %}switchport mode trunk{% else %}switchport mode access{% endif %}\"\n"+
+			"  - name: Clear the counters\n    net.ios.command:\n      command: clear counters\n      prompts:\n        - match: 'Proceed\\? \\[yes/no\\]'\n"+
+			"          answer: \"{% if vars.sure == 'yes' %}yes{% else %}no{% endif %}\"\n")
+		// validate passes, warning only that each statement will run.
+		if out, err := runPleiadesWithHome(t, dir, home, "validate", rb, "-e", "trunk=yes", "-e", "sure=yes"); err != nil {
+			t.Fatalf("validate: %v\n%s", err, out)
+		}
+		rep, raw, code := runPleiadesJSONWithHome(t, dir, home, "run", rb, "-e", "trunk=yes", "-e", "sure=yes")
+		if code != 0 || rep.Outcome.Status != "complete" {
+			t.Fatalf("exit %d, outcome %+v\n%s", code, rep.Outcome, raw)
+		}
+		sent := srv.Commands()
+		if !slices.Contains(sent, "switchport mode trunk") || !slices.Contains(sent, "yes") {
+			t.Errorf("the router did not receive the rendered line and answer: %q", sent)
+		}
+		for _, c := range sent {
+			if strings.Contains(c, "{%") {
+				t.Errorf("the router received a statement's source: %q", c)
 			}
 		}
 	})

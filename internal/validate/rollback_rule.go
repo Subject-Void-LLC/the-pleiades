@@ -159,13 +159,16 @@ func whyNotUndoable(fqcn string, params map[string]any) string {
 				fqcn, spec.FQCN, strings.Join(spec.Withhold, " and "))
 		}
 		// A method whose undo is partial for some calls only says which
-		// through its UndoCall, asked below: net.ios.config's undo is
-		// partial only for a crypto key line, which its UndoCall names.
-		// Refusing every call for those few would keep it out of every
-		// rollback_on_failure block. A call the method misjudges cannot run a
-		// partial undo either way: the journal never marks one complete, and
-		// the engine replays only a complete undo.
-		if spec.MayBePartial && desc.UndoCall == nil {
+		// through its UndoCall, asked below, when it declares that its
+		// UndoCall decides partiality (Descriptor.UndoCallDecidesPartial):
+		// net.ios.config's undo is partial only for a crypto key line, which
+		// its UndoCall names. Refusing every call for those few would keep it
+		// out of every rollback_on_failure block. The declaration is its own
+		// field, so an UndoCall added for another reason never lifts this
+		// refusal. A call the method misjudges cannot run a partial undo
+		// either way: the journal never marks one complete, and the engine
+		// replays only a complete undo.
+		if spec.MayBePartial && !desc.UndoCallDecidesPartial {
 			return fmt.Sprintf("calls %s, whose undo through %s can leave part of what it changed in place", fqcn, spec.FQCN)
 		}
 	}

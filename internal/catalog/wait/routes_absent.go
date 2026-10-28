@@ -29,15 +29,29 @@ func routesState(params map[string]any) (bool, error) {
 	}
 }
 
+// tableUnread is what gone reports still there when the table read holds
+// no selected route at all. A router that routes anything has at least its
+// connected routes, so an empty table is a read that went wrong (a pager
+// cut, a refused command, a format the parser skips), and taking it as
+// every prefix gone would pass state absent without ever seeing the table.
+const tableUnread = "the routing table read holds no selected route at all, not even a connected one, so whether the routes are gone cannot be told (a cut or refused read, or output the parser does not recognize)"
+
 // gone is satisfied's opposite, for state absent. A prefix with no selected
 // route is gone. A prefix next_hops names is gone once its selected route
 // uses none of those next hops, whether or not another route took its
 // place. It returns each prefix with the next hops its route still uses (an
 // empty list when it has none) and, for each prefix not yet gone, what is
-// still there.
+// still there. A table with no selected route at all proves nothing gone,
+// so it returns tableUnread alone as what remains, and the wait goes on.
 func (w routesWant) gone(table map[string][]route) (map[string][]string, []string) {
 	used := map[string][]string{}
 	var remaining []string
+	if !anySelected(table) {
+		for _, p := range w.prefixes {
+			used[p] = []string{}
+		}
+		return used, []string{tableUnread}
+	}
 	for _, p := range w.prefixes {
 		hops, found := selectedHops(table[p])
 		if hops == nil {
@@ -59,6 +73,16 @@ func (w routesWant) gone(table map[string][]route) (map[string][]string, []strin
 		}
 	}
 	return used, remaining
+}
+
+// anySelected reports whether table holds a selected route to any prefix.
+func anySelected(table map[string][]route) bool {
+	for _, routes := range table {
+		if _, found := selectedHops(routes); found {
+			return true
+		}
+	}
+	return false
 }
 
 // selectedHops is whether routes holds a selected route, and the active

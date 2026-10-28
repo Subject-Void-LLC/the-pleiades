@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -153,6 +154,20 @@ func (t *compiled) Value(vars map[string]any) (any, bool, error) {
 func (t *compiled) Expressions() []ExpressionInfo {
 	out, _ := analyze(t.nodes)
 	return out
+}
+
+// LeadingText implements Template: the text nodes at the root of the tree
+// before its first other node, joined. A comment leaves no node, so the
+// text on either side of one joins as it renders.
+func (t *compiled) LeadingText() string {
+	var b strings.Builder
+	for _, n := range t.nodes {
+		if n.kind != nodeText {
+			break
+		}
+		b.WriteString(n.text)
+	}
+	return b.String()
 }
 
 // collectNames gathers the sorted, deduplicated set of root names the

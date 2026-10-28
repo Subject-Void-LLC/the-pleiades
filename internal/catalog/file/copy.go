@@ -288,6 +288,14 @@ func copyFile(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		// not finish with the attributes it needs.
 		if wrote {
 			if err := remotefile.PredictPut(ctx, conn, req.dest, before, effective); err != nil {
+				// A directory that is not there yet may be made by an earlier
+				// task in this run (file.directory, then this), which a check
+				// did not run: whether the write would land is unknown, not
+				// refused. A real run still fails on it.
+				var missing *remotefile.MissingDirError
+				if errors.As(err, &missing) {
+					return collection.Result{}, collection.CannotCheck(fmt.Sprintf("%s's directory %s does not exist now; an earlier task in the run may make it, so the write cannot be predicted", req.dest, missing.Dir))
+				}
 				return collection.Result{}, copyPutError(fqcn, req, err)
 			}
 		}

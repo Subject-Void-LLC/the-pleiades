@@ -127,8 +127,15 @@ func TestPut_AMissingDirectoryIsNamedAsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "its directory " + filepath.Dir(p) + " does not exist"
-	if err := remotefile.PredictPut(context.Background(), conn, p, before, remotefile.Attributes{}); err == nil || !strings.Contains(err.Error(), want) {
+	err = remotefile.PredictPut(context.Background(), conn, p, before, remotefile.Attributes{})
+	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("PredictPut = %v, want %q", err, want)
+	}
+	// The answer is typed, so a method's check can report the call as one it
+	// cannot check: an earlier task in the run may make the directory.
+	var missing *remotefile.MissingDirError
+	if !errors.As(err, &missing) || missing.Dir != filepath.Dir(p) {
+		t.Errorf("PredictPut = %#v, want a *MissingDirError naming %s", err, filepath.Dir(p))
 	}
 	r, err := remotefile.Put(context.Background(), conn, p, []byte("x\n"), before, remotefile.Attributes{})
 	if err == nil || !strings.Contains(err.Error(), want) || r.Touched {

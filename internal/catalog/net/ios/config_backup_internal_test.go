@@ -86,3 +86,41 @@ func TestConfig_ABackupMaskingCannotVouchForFailsBeforeAnyLine(t *testing.T) {
 		t.Error("a line reached the device after the backup failed")
 	}
 }
+
+// registrarContext is a stub context that records each secret a method
+// adds to the run's masking set (sdk.SecretRegistrar).
+type registrarContext struct {
+	*stubContext
+	learned []string
+}
+
+// RegisterSecret records values as the run's masking set would take them.
+func (c *registrarContext) RegisterSecret(values ...string) {
+	c.learned = append(c.learned, values...)
+}
+
+// TestMaskChecked_LearnsWhatItFoundEvenWhenItRefuses: the backup and the
+// facts' config subset each refuse a configuration masking cannot vouch
+// for, and the secret masking did find on it still joins the run's masking
+// set, as both their comments say, so a later task printing it is masked.
+func TestMaskChecked_LearnsWhatItFoundEvenWhenItRefuses(t *testing.T) {
+	config := "hostname r1\nradius-server host 10.0.0.1 key 7 FirstBk123 pac key 7 SecondBk456\nend"
+	rc := &registrarContext{stubContext: newStubContext()}
+	if _, err := maskedBackup(rc, config); err == nil {
+		t.Fatal("a configuration masking cannot vouch for was recorded")
+	}
+	if !slices.Contains(rc.learned, "FirstBk123") {
+		t.Errorf("the backup's refusal learned %d secrets, none of them the one masking found", len(rc.learned))
+	}
+
+	s := iolSession(t)
+	s.outputs[showRunningConfig] = config
+	withSession(t, s)
+	facts := &registrarContext{stubContext: newStubContext()}
+	if _, err := Facts(context.Background(), facts, nil, map[string]any{paramGatherSubset: []any{subsetConfig}}); err == nil {
+		t.Fatal("the config subset returned a configuration masking cannot vouch for")
+	}
+	if !slices.Contains(facts.learned, "FirstBk123") {
+		t.Errorf("the config subset's refusal learned %d secrets, none of them the one masking found", len(facts.learned))
+	}
+}

@@ -64,8 +64,19 @@ func registerUndoShapes(t *testing.T) {
 			return "keys is true, so the undo leaves the keys in place"
 		}
 		return ""
-	}}
+	}, UndoCallDecidesPartial: true}
 	if err := collection.Register(partialByCall); err != nil {
+		t.Fatal(err)
+	}
+	// A method whose undo may be partial, with an UndoCall that answers only
+	// for calls that record none and never said it decides partiality: its
+	// UndoCall must not lift the refusal of every call.
+	partialOtherCall := collection.Descriptor{Name: "undo.partialothercall", Manifest: collection.Manifest{
+		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Reversible: true,
+			Inverses: []sdk.InverseSpec{{FQCN: "undo.target", Record: []string{"name"}, MayBePartial: true}}},
+		Doc: collection.Doc{Params: []collection.Param{{Name: "name", Type: "string"}}},
+	}, Invoke: run, UndoCall: func(map[string]any) string { return "" }}
+	if err := collection.Register(partialOtherCall); err != nil {
 		t.Fatal(err)
 	}
 	// An external program's method, whose declaration is never honored.
@@ -145,8 +156,16 @@ func TestRollbackOnFailureRule_APartialUndoIsAskedOfTheCall(t *testing.T) {
 		"a call the method says is exact":   {block("undo.partialbycall", "          name: x\n"), ""},
 		"a call the method says is partial": {block("undo.partialbycall", "          name: x\n          keys: true\n"), "keys is true"},
 		"a method that never says which":    {block("undo.partial", "          name: x\n"), "can leave part of what it changed in place"},
-		"net.ios.config's ordinary lines":   {block("net.ios.config", "          lines:\n            - interface Loopback0\n            - description managed by pleiades\n"), ""},
-		"net.ios.config's crypto key line":  {block("net.ios.config", "          lines:\n            - crypto key generate rsa modulus 2048\n"), "crypto key line"},
+		// An UndoCall alone decides nothing about partiality: only a method
+		// that declares UndoCallDecidesPartial is asked.
+		"an UndoCall that does not decide partiality": {block("undo.partialothercall", "          name: x\n"), "can leave part of what it changed in place"},
+		"net.ios.config's ordinary lines":             {block("net.ios.config", "          lines:\n            - interface Loopback0\n            - description managed by pleiades\n"), ""},
+		"net.ios.config's crypto key line":            {block("net.ios.config", "          lines:\n            - crypto key generate rsa modulus 2048\n"), "crypto key line"},
+		// A line known only at run time could be a key line.
+		"net.ios.config's line rendered from data":   {block("net.ios.config", "          lines:\n            - \"{{ vars.keyline }}\"\n"), "not known before the run"},
+		"net.ios.config's line from a statement":     {block("net.ios.config", "          lines:\n            - \"{% if vars.k %}crypto key generate rsa{% endif %}\"\n"), "not known before the run"},
+		"net.ios.config's reference first on a line": {block("net.ios.config", "          lines:\n            - \"{{ secret.k.v }} key generate rsa\"\n"), "not known before the run"},
+		"net.ios.config's pre-shared key reference":  {block("net.ios.config", "          lines:\n            - crypto ikev2 keyring K\n            - \"pre-shared-key {{ secret.ike.key }}\"\n"), ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dag := yamlDAG(t, c.runbook)

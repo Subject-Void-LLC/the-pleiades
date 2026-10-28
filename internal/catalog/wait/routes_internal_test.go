@@ -93,6 +93,33 @@ func TestRoutes_Gone(t *testing.T) {
 	}
 }
 
+// TestRoutes_GoneNeedsATableItCanRead: a table with no selected route at
+// all (an empty read, a pager cut, an IOS answer whose shape the parser
+// skips, every route unselected) proves nothing gone, so state absent keeps
+// waiting, naming why, rather than passing on a table it never saw.
+func TestRoutes_GoneNeedsATableItCanRead(t *testing.T) {
+	w := routesWant{absent: true, prefixes: []string{"10.9.9.0/24"}, nextHops: map[string][]string{}}
+	for name, table := range map[string]map[string][]route{
+		"empty":            {},
+		"nil":              nil,
+		"unparsed ios":     iosRoutes(map[string]any{}),
+		"nothing selected": {"10.1.0.0/24": {{Selected: false, NextHops: []nextHop{{IP: "10.0.0.1", Active: true}}}}},
+	} {
+		used, remaining := w.gone(table)
+		if len(remaining) != 1 || remaining[0] != tableUnread {
+			t.Errorf("%s: remaining = %q, want the table named unread", name, remaining)
+		}
+		if got := used["10.9.9.0/24"]; got == nil || len(got) != 0 {
+			t.Errorf("%s: used = %#v, want an empty list per prefix", name, used)
+		}
+	}
+	// A table holding only a connected route is a real read: the prefix is gone.
+	connected := map[string][]route{"10.0.12.0/24": {{Protocol: "connected", Selected: true, NextHops: []nextHop{{Interface: "eth1", Active: true}}}}}
+	if _, remaining := w.gone(connected); len(remaining) != 0 {
+		t.Errorf("remaining = %q, want the prefix gone", remaining)
+	}
+}
+
 // TestRoutes_State: state is present or absent, its case ignored, and
 // anything else is refused before the router is reached.
 func TestRoutes_State(t *testing.T) {

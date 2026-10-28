@@ -64,6 +64,11 @@ func TestTemplateRule(t *testing.T) {
 		{"a secret reference where the method resolves it", "t117.lines:\n      lines:\n        - \"key {{ secret.dmvpn.psk }}\"", ""},
 		{"a secret reference with a filter", "t117.lines:\n      lines:\n        - \"key {{ secret.dmvpn.psk | quote }}\"", "no filter"},
 		{"a secret reference the engine would render", "t117.api:\n      url: /api/x\n      body: \"{{ secret.dmvpn.psk }}\"", "its method resolves itself"},
+		// A string holding a reference is passed to the method as written, so
+		// a statement beside one is refused; a statement alone renders.
+		{"a statement around a secret reference", "t117.lines:\n      lines:\n        - \"{% if vars.x %}key {{ secret.dmvpn.psk }}{% endif %}\"", "no other template expression, block or comment"},
+		{"a statement where secret references are taken", "t117.lines:\n      lines:\n        - \"{% if vars.x %}shutdown{% else %}no shutdown{% endif %}\"", ""},
+		{"an expression where secret references are taken", "t117.lines:\n      lines:\n        - \"description {{ vars.x | cli_token }}\"", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dag := yamlDAG(t, head+"  - name: the task\n    "+tc.task+"\n")

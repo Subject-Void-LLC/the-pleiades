@@ -56,6 +56,11 @@ func configCheckCall(params map[string]any) error {
 			return collection.CannotCheck(fmt.Sprintf("%s[%d] is a banner, whose text is entered as free text across lines", paramLines, i))
 		case trimmed == "end":
 			return collection.CannotCheck(fmt.Sprintf("%s[%d] is end, which leaves configuration mode, so the lines after it are not configuration", paramLines, i))
+		case trimmed == "do" || strings.HasPrefix(trimmed, "do "):
+			// A do line runs an exec command from configuration mode (do write
+			// memory, do reload, do copy), whose effect the running
+			// configuration does not show.
+			return collection.CannotCheck(fmt.Sprintf("%s[%d] is a do line, an exec command whose effect the configuration does not show", paramLines, i))
 		}
 	}
 	return nil
@@ -120,39 +125,48 @@ func maskPredicted(rc sdk.RunbookContext, predicted []predictedLine) ([]string, 
 }
 
 // level is one block a line is entered in: the configuration's own node,
-// or, synthetic, a block the lines open that the configuration lacks.
+// or a node with no lines standing for a block the lines open that the
+// configuration lacks, in which nothing is ever found.
 type level struct {
-	node      *iosconfig.Node
-	synthetic bool
+	node *iosconfig.Node
 }
 
 // predictLines walks lines as IOS's configuration mode would take them and
 // returns the differences they would make to the configuration roots holds.
 // Each line is looked for, as written, among the lines of the block the
-// lines before it entered, then of each block enclosing that one: found, it
-// changes nothing and, when it opens a block, becomes the block the next
-// line is looked for in.
-// Once the lines have opened a block the configuration lacks, a line is
-// looked for at the top level only, so a line of the new block never
-// matches the same line in a block the lines left. A "no X" line found
-// nowhere removes what X begins (the lines it names, shown with -), and
-// with nothing printed to remove is predicted to change, since IOS prints
-// neither some defaults nor their negations. exit leaves one block, and
-// comments and do commands change nothing.
+// lines before it entered, and there alone (scope): found, it changes
+// nothing and, when it opens a block, becomes the block the next line is
+// looked for in. IOS takes a line in the current submode first and only
+// one the submode refuses in a block enclosing it, which a check cannot
+// know, so a line found only in an enclosing block (a neighbor under the
+// router and not under the address family entered) is predicted to change:
+// a check errs toward change, never toward unchanged. The exceptions are
+// the lines that open a block: one IOS always opens at the top level
+// (blockOpeners) is looked for there, and an address family or a class
+// (nestedOpeners) in the current block and then each enclosing one, since
+// IOS leaves a submode for its parent to take it.
+// A block the configuration lacks has no lines, so every line entered in it
+// is a change. A "no X" line looks for what X begins where X would be
+// looked for and removes it (the lines it names, shown with -), and with
+// nothing printed to remove is predicted to change, since IOS prints
+// neither some defaults nor their negations. exit and IOS's own exit-
+// commands (exit-address-family) leave one block, and comments change
+// nothing. A do line is an exec command, which configCheckCall answers
+// unchecked; reached here, it is predicted to change.
 func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
 	p := predictor{stack: []level{{node: &iosconfig.Node{Children: roots}}}}
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
 		switch {
-		case line == "" || strings.HasPrefix(line, "!") || strings.HasPrefix(line, "do "):
+		case line == "" || strings.HasPrefix(line, "!"):
 			continue
-		case line == "exit":
+		case line == "exit" || strings.HasPrefix(line, "exit-"):
 			if len(p.stack) > 1 {
 				p.stack = p.stack[:len(p.stack)-1]
 			}
 			continue
 		}
-		if at, n := p.find(func(c *iosconfig.Node) bool { return c.Line == line }); n != nil {
+		if at, n := p.find(p.scope(line), func(c *iosconfig.Node) bool { return c.Line == line }); n != nil {
 			// Found, the line is entered in its block; it is the block the
 			// next line is looked for in only when it opens one (hostname
 			// does not).
@@ -163,7 +177,7 @@ func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
 			continue
 		}
 		if x, ok := strings.CutPrefix(line, "no "); ok {
-			at, removed := p.find(func(c *iosconfig.Node) bool { return c.Line == x || strings.HasPrefix(c.Line, x+" ") })
+			at, removed := p.find(p.scope(x), func(c *iosconfig.Node) bool { return c.Line == x || strings.HasPrefix(c.Line, x+" ") })
 			if len(removed) > 0 {
 				for _, r := range removed {
 					p.removeTree(p.path(at), r)
@@ -173,7 +187,7 @@ func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
 		}
 		if at := p.opens(line); at >= 0 {
 			p.emit(p.path(at), "+", line)
-			p.stack = append(p.stack[:at+1], level{node: &iosconfig.Node{Line: line}, synthetic: true})
+			p.stack = append(p.stack[:at+1], level{node: &iosconfig.Node{Line: line}})
 			continue
 		}
 		p.emit(p.path(len(p.stack)-1), "+", line)
@@ -191,16 +205,32 @@ type predictor struct {
 	shown []string
 }
 
-// find returns the level and the nodes matching match among the children
-// of the innermost block holding any, searching from the current block
-// outward; with a synthetic block entered, only the top level is searched.
-// It returns -1 and nil when none matches.
-func (p *predictor) find(match func(*iosconfig.Node) bool) (int, []*iosconfig.Node) {
-	from := len(p.stack) - 1
-	if slices.ContainsFunc(p.stack, func(l level) bool { return l.synthetic }) {
-		from = 0
+// scope returns the levels a line is looked for in, innermost first: the
+// top level alone for a line IOS always opens a block at (blockOpeners),
+// the current block and then each enclosing one for an address family or a
+// class (nestedOpeners), and the current block alone for every other line.
+// A synthetic block has no lines, so a line looked for in it alone is never
+// found there.
+func (p *predictor) scope(line string) []int {
+	current := len(p.stack) - 1
+	switch {
+	case slices.ContainsFunc(blockOpeners, func(o string) bool { return strings.HasPrefix(line, o) }):
+		return []int{0}
+	case slices.ContainsFunc(nestedOpeners, func(o string) bool { return strings.HasPrefix(line, o) }):
+		out := make([]int, 0, current+1)
+		for i := current; i >= 0; i-- {
+			out = append(out, i)
+		}
+		return out
 	}
-	for i := from; i >= 0; i-- {
+	return []int{current}
+}
+
+// find returns the level and the nodes matching match among the children
+// of the first level of levels holding any, in order. It returns -1 and nil
+// when none matches.
+func (p *predictor) find(levels []int, match func(*iosconfig.Node) bool) (int, []*iosconfig.Node) {
+	for _, i := range levels {
 		var found []*iosconfig.Node
 		for _, c := range p.stack[i].node.Children {
 			if match(c) {

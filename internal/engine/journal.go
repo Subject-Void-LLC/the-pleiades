@@ -496,8 +496,8 @@ const (
 // NodeResult.Err, which embeds device output verbatim.
 type FailureStage string
 
-// The stages a node execution can fail at. There are nine, one per
-// failure call site in executor.go, and the projection maps every one
+// The stages a node execution can fail at, one per failure call site in
+// the executor, and the projection maps every one
 // explicitly and fails closed on any branch it does not recognize
 // (validFailureStage, journal_entry.go).
 //
@@ -550,6 +550,18 @@ const (
 	// returning an error (executor.go:806). This is the common case and
 	// the only one that reaches a device.
 	FailureStageAction FailureStage = "action"
+
+	// FailureStageFailedWhen is the task's own failed_when holding over a
+	// run whose method succeeded, or failing to evaluate (executor.go,
+	// runOne): the author's classification failed the task, not the method
+	// or its transport. ActionChanged still says whether the method changed
+	// the device, which a rollback reads as it does for any entry.
+	FailureStageFailedWhen FailureStage = "failed_when"
+
+	// FailureStageChangedWhen is the task's own changed_when failing to
+	// evaluate over a run whose method succeeded (executor.go, runOne). The
+	// method ran and reported its own change, which ActionChanged keeps.
+	FailureStageChangedWhen FailureStage = "changed_when"
 
 	// FailureStageRegisterMask is register_mask failing over this task's
 	// own just-computed result (executor.go:816), before anything records

@@ -34,7 +34,9 @@ import (
 //     project file is replaced;
 //   - a secret reference, {{ secret.<name>.<field> }}, appears only in a
 //     parameter its method resolves itself (collection.Param.SecretRefs),
-//     written exactly so and standing apart from any other expression.
+//     written exactly so and standing apart from any other expression,
+//     statement or comment, since a string holding one is passed to the
+//     method as written.
 //
 // A rendered target is held to the same rules, and to within: besides,
 // which the runbook builder requires beside it. A task's rollback: steps

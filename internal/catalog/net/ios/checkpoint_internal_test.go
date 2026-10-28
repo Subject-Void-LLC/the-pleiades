@@ -517,6 +517,15 @@ func TestConfigUndoCall(t *testing.T) {
 		&map[string]any{paramLines: []any{"x"}, paramCheckpoint: true}:              false,
 		&map[string]any{paramLines: []any{"x"}, paramCheckpoint: false}:             true,
 		&map[string]any{paramLines: []any{"x"}, paramCheckpoint: "{{ vars.keep }}"}: true,
+		// A line known only at run time could be a crypto key line.
+		&map[string]any{paramLines: []any{"{{ vars.keyline }}"}}:                                             true,
+		&map[string]any{paramLines: []any{"{% if vars.k %}crypto key zeroize rsa{% endif %}"}}:               true,
+		&map[string]any{paramLines: []any{"x {# a comment #}"}}:                                              true,
+		&map[string]any{paramLines: []any{"{{ secret.k.v }} key generate rsa"}}:                              true,
+		&map[string]any{paramLines: []any{"crypto {{ secret.k.v }} generate rsa"}}:                           true,
+		&map[string]any{paramLines: []any{"crypto key generate rsa label {{ secret.k.v }}"}}:                 true,
+		&map[string]any{paramLines: []any{"pre-shared-key {{ secret.ike.key }}"}}:                            false,
+		&map[string]any{paramLines: []any{"crypto ikev2 keyring K", " pre-shared-key {{ secret.ike.key }}"}}: false,
 	} {
 		if got := configUndoCall(*params) != ""; got != want {
 			t.Errorf("configUndoCall(%v) records none = %v, want %v", *params, got, want)

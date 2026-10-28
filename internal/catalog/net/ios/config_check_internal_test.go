@@ -39,9 +39,17 @@ func TestCheckConfig_PredictsFromTheRunningConfigAndSendsNothing(t *testing.T) {
 		lines []any
 		want  []string
 	}{
-		{"already present", []any{"interface Loopback0", "description managed", "hostname r1", "no ip domain lookup"}, []string{}},
+		{"already present", []any{"interface Loopback0", "description managed", "exit", "hostname r1", "no ip domain lookup"}, []string{}},
 		{"partly present", []any{"interface Loopback0", "description new", "ip address 10.0.0.1 255.255.255.255"}, []string{"interface Loopback0", " +description new"}},
-		{"a new block and its lines", []any{"interface Loopback9", "description x", "hostname r1"}, []string{"+interface Loopback9", " +description x"}},
+		{"a new block and its lines", []any{"interface Loopback9", "description x", "exit", "hostname r1"}, []string{"+interface Loopback9", " +description x"}},
+		// IOS takes a line in the submode first, so a line found only in an
+		// enclosing block is a change: a check errs toward change.
+		{"a line found only in the enclosing block is a change", []any{"router bgp 65000", "address-family ipv4", "neighbor 192.0.2.1 remote-as 65001"}, []string{"router bgp 65000", " address-family ipv4", "  +neighbor 192.0.2.1 remote-as 65001"}},
+		{"a top-level line written inside a block is a change", []any{"interface Loopback0", "hostname r1"}, []string{"interface Loopback0", " +hostname r1"}},
+		{"a line of a new block is a change wherever else it is", []any{"interface Loopback9", "hostname r1"}, []string{"+interface Loopback9", " +hostname r1"}},
+		{"a no line looks only in the current block", []any{"router bgp 65000", "address-family ipv4", "no neighbor 192.0.2.1 remote-as 65001"}, []string{"router bgp 65000", " address-family ipv4", "  +no neighbor 192.0.2.1 remote-as 65001"}},
+		{"exit-address-family leaves the address family", []any{"router bgp 65000", "address-family ipv4", "neighbor 192.0.2.1 activate", "exit-address-family", "neighbor 192.0.2.1 remote-as 65001"}, []string{}},
+		{"a second interface is looked for at the top level", []any{"interface Loopback0", "description managed", "interface Loopback1", "description same"}, []string{}},
 		// The line is in the block the lines left, not the one they opened.
 		{"a line of a new block is not found in the block before it", []any{"interface Loopback1", "description same", "interface Loopback9", "description same"}, []string{"+interface Loopback9", " +description same"}},
 		{"a nested block", []any{"router bgp 65000", "address-family ipv4", "neighbor 192.0.2.1 activate", "neighbor 192.0.2.2 activate"}, []string{"router bgp 65000", " address-family ipv4", "  +neighbor 192.0.2.2 activate"}},
@@ -118,6 +126,7 @@ func TestCheckConfig_ACallItCannotPredictIsUncheckedBeforeContact(t *testing.T) 
 		{"a key line", map[string]any{paramLines: []any{"crypto key generate rsa modulus 2048"}}},
 		{"a banner", map[string]any{paramLines: []any{"banner motd ^C hello ^C"}}},
 		{"end", map[string]any{paramLines: []any{"hostname r2", "end", "write memory"}}},
+		{"a do line", map[string]any{paramLines: []any{"hostname r2", "do write memory"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,6 +165,19 @@ func TestPredictLines_NewBlocksAndNestedOpeners(t *testing.T) {
 	// A whole block a no line removes is shown removed, line by line.
 	got = renderPredicted(predictLines(roots, []string{"no router ospf 1"}))
 	if want := []string{"-router ospf 1", " -network 10.0.0.0 0.0.0.255 area 0"}; !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestPredictLines_ANeighborInAVRFIsNotTheRoutersNeighbor is the review's
+// case: the neighbor is configured under router bgp 1 but not in the VRF's
+// address family, where IOS adds it, so the line is a change there; and
+// another VRF's address family is still found under the router.
+func TestPredictLines_ANeighborInAVRFIsNotTheRoutersNeighbor(t *testing.T) {
+	roots := iosconfig.Parse("router bgp 1\n neighbor 10.0.0.2 remote-as 2\n !\n address-family ipv4 vrf RED\n  neighbor 10.0.0.9 activate\n exit-address-family\n !\n address-family ipv4 vrf BLUE\n  neighbor 10.0.0.2 remote-as 2\n exit-address-family\n!\nend")
+	got := renderPredicted(predictLines(roots, []string{"router bgp 1", "address-family ipv4 vrf RED", "neighbor 10.0.0.2 remote-as 2", "address-family ipv4 vrf BLUE", "neighbor 10.0.0.2 remote-as 2"}))
+	want := []string{"router bgp 1", " address-family ipv4 vrf RED", "  +neighbor 10.0.0.2 remote-as 2"}
+	if !slices.Equal(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

@@ -19,6 +19,10 @@ import (
 // steadyTable is a routing table with one selected route to 10.1.0.0/24.
 const steadyTable = `{"10.1.0.0/24":[{"protocol":"ospf","selected":true,"metric":20,"nexthops":[{"ip":"10.0.0.1","active":true}]}]}`
 
+// connectedOnly is a table after a route was withdrawn: the router still
+// has its connected route, as every router that routes anything does.
+const connectedOnly = `{"10.0.0.0/30":[{"protocol":"connected","selected":true,"nexthops":[{"interfaceName":"eth1","active":true}]}]}`
+
 // fakeVtysh puts a vtysh running script first on the PATH of every shell
 // the server starts for the rest of t.
 func fakeVtysh(t *testing.T, script string) {
@@ -131,13 +135,15 @@ func TestRoutes_RecordFailuresAreReported(t *testing.T) {
 // TestRoutes_StateAbsentWaitsForTheRouteToGo: with state absent (its case
 // ignored) the wait ends once the route is withdrawn, reporting the prefix
 // with no next hops; a route that stays fails at the timeout naming it; a
-// route moved off the next hop named counts as gone. The method before
-// state existed refused the parameter, then waited for the route present.
+// route moved off the next hop named counts as gone; and a table read
+// empty proves nothing gone, so the wait goes on and fails at its timeout
+// saying so. The method before state existed refused the parameter, then
+// waited for the route present.
 func TestRoutes_StateAbsentWaitsForTheRouteToGo(t *testing.T) {
 	server := startWaitServer(t)
 	counter := filepath.Join(t.TempDir(), "reads")
 	fakeVtysh(t, `n=$(cat '`+counter+`' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '`+counter+`'
-if [ $n -le 2 ]; then echo '`+steadyTable+`'; else echo '{}'; fi`)
+if [ $n -le 2 ]; then echo '`+steadyTable+`'; else echo '`+connectedOnly+`'; fi`)
 	rc := newWaitContext(server)
 	if _, err := wait.Routes(context.Background(), rc, newWaitTarget(server), routesParams(map[string]any{"state": "ABSENT"})); err != nil {
 		t.Fatalf("Routes = %v, want the wait to end once the route is withdrawn", err)
@@ -146,8 +152,14 @@ if [ $n -le 2 ]; then echo '`+steadyTable+`'; else echo '{}'; fi`)
 		t.Errorf("routes = %#v, want 10.1.0.0/24 with an empty list", rc.stats["routes"])
 	}
 
-	fakeVtysh(t, `echo '`+steadyTable+`'`)
+	fakeVtysh(t, `echo '{}'`)
 	_, err := wait.Routes(context.Background(), newWaitContext(server), newWaitTarget(server), routesParams(map[string]any{"state": "absent", "timeout": 2}))
+	if err == nil || !strings.Contains(err.Error(), "holds no selected route at all") {
+		t.Errorf("Routes over an empty table = %v, want a timeout saying the table read held no route", err)
+	}
+
+	fakeVtysh(t, `echo '`+steadyTable+`'`)
+	_, err = wait.Routes(context.Background(), newWaitContext(server), newWaitTarget(server), routesParams(map[string]any{"state": "absent", "timeout": 2}))
 	if err == nil || !strings.Contains(err.Error(), "still has a selected route to 10.1.0.0/24 (through 10.0.0.1)") {
 		t.Errorf("Routes = %v, want a timeout naming the route still there", err)
 	}

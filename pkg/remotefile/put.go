@@ -98,24 +98,43 @@ func Put(ctx context.Context, conn *remoteexec.Conn, filePath string, content []
 	return Replaced{Touched: true}, nil
 }
 
-// missingDir names filePath's directory as missing when it does not exist,
-// and is nil otherwise (including when it cannot tell). A write into a
-// directory that is not there used to be reported as one this login may
-// not write, which sent the reader after permissions; a check meets it
-// whenever an earlier task in the same check would have made the directory.
+// MissingDirError is Put's and PredictPut's answer when the file's
+// directory does not exist. Nothing was written. A real run reports it as
+// it reads; a check meets it whenever an earlier task in the same check
+// would have made the directory (file.directory, then file.template), so a
+// method's check answers it as a call it cannot check rather than a failure
+// (pkg/remotefile cannot name pkg/collection's answer itself).
+type MissingDirError struct {
+	// Path is the file the write was for.
+	Path string
+	// Dir is its directory, the one that does not exist.
+	Dir string
+}
+
+// Error says which directory is missing and that nothing was written.
+func (e *MissingDirError) Error() string {
+	return fmt.Sprintf("put %s: its directory %s does not exist, so nothing was written", e.Path, e.Dir)
+}
+
+// missingDir names filePath's directory as missing when it does not exist
+// (a *MissingDirError), and is nil otherwise (including when it cannot
+// tell). A write into a directory that is not there used to be reported as
+// one this login may not write, which sent the reader after permissions.
 func missingDir(ctx context.Context, conn *remoteexec.Conn, filePath string) error {
 	dir := path.Dir(filePath)
 	info, err := Stat(ctx, conn, dir)
 	if err != nil || info.Exists() {
 		return nil
 	}
-	return fmt.Errorf("put %s: its directory %s does not exist, so nothing was written", filePath, dir)
+	return &MissingDirError{Path: filePath, Dir: dir}
 }
 
 // PredictPut returns the refusal Put would make for the same arguments,
 // or nil when Put would write, for a check that must refuse what a real
 // run refuses. It only reads: the login's identity and whether it may
-// write the directory and the file.
+// write the directory and the file. A directory that does not exist is a
+// *MissingDirError, which a check reports as one it cannot check: an
+// earlier task in the same run may make it.
 func PredictPut(ctx context.Context, conn *remoteexec.Conn, filePath string, before Info, want Attributes) error {
 	if before.Exists() && before.Kind != KindFile {
 		return fmt.Errorf("put %s: it is a %s, not a regular file", filePath, before.Kind)

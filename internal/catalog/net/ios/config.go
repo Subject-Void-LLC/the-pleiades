@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 )
 
 // paramLines and paramBackup match cisco.ios.ios_config's own parameter
@@ -96,6 +97,9 @@ func init() {
 		Check:     CheckConfig,
 		CheckCall: configCheckCall,
 		UndoCall:  configUndoCall,
+		// configUndoCall names every call whose undo is partial (a crypto
+		// key line, or a line not known before the run).
+		UndoCallDecidesPartial: true,
 	})
 }
 
@@ -106,7 +110,7 @@ func configDoc() collection.Doc {
 			"A line that asks a question (removing a key pair asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers (a line left ending in ?, [confirm], [yes/no] or asking for a password) fails the line at once, naming it, rather than waiting; anything else a device waits on, such as a banner's text, still waits until the read limit. " +
 			"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
 			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate. " +
-			"A check reads the running configuration over the same session and sends no line: each line is looked for, as written, in the block the lines before it entered or one enclosing it, and the lines not found are reported under differences as IOS reports a change (+ added, - what a no line removes, each under the block it sits in), masked as the backup is, with changed when there is one. A line IOS prints differently (an abbreviation such as int, or a default it does not print, such as no shutdown) is predicted to change. A call with a secret reference, prompts or ask, a crypto key line, a banner or end is reported unchecked, since only applying it tells what it changes.",
+			"A check reads the running configuration over the same session and sends no line: each line is looked for, as written, in the block the lines before it entered and only there (a line that opens a block, such as interface or address-family, also where IOS would open it), so a line found only in an enclosing block, such as a neighbor under the router and not in the address family entered, is predicted to change; write exit before a top-level line. The lines not found are reported under differences as IOS reports a change (+ added, - what a no line removes, each under the block it sits in), masked as the backup is, with changed when there is one. A line IOS prints differently (an abbreviation such as int, or a default it does not print, such as no shutdown) is predicted to change. A call with a secret reference, prompts or ask, a crypto key line, a banner, end or a do line is reported unchecked, since only applying it tells what it changes.",
 		Params: append(append([]collection.Param{
 			{Name: paramLines, Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself. A line may name a stored secret, such as a pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the line is sent, and masked in everything the run reports. A line holding one holds no other template expression, and a value with whitespace, a control character or ? is refused.", Format: collection.ParamFormatCommand, SecretRefs: true},
 			{Name: paramCheckpoint, Type: "bool", Default: "true", Description: "Keep a checkpoint of the running configuration on the device before the change, which its undo returns to exactly. false records no undo, and reports the lines that would undo the change for the task's rollback: list."},
@@ -142,24 +146,76 @@ func configDoc() collection.Doc {
 // template whose value is not known before the run) records none, and one
 // with a crypto key line records a partial one, the only call whose undo is
 // (recordReplace), so validation asks this rather than refusing every call
-// for its MayBePartial declaration. A device with nowhere to keep a
-// checkpoint records none either, which only the run can find; the undo
-// then stops naming the task.
+// for its MayBePartial declaration (Descriptor.UndoCallDecidesPartial). A
+// line whose text is not known before the run (a template the engine
+// renders, or a secret reference standing where a key line's words are)
+// is answered as not known, the way a templated checkpoint is, since
+// either could turn out to be a crypto key line. A device with nowhere to
+// keep a checkpoint records none either, which only the run can find; the
+// undo then stops naming the task.
 func configUndoCall(params map[string]any) string {
 	if v, present := params[paramCheckpoint]; present && v != true {
 		return "checkpoint is not true, so no checkpoint is kept and the undo is lines only shown, never recorded"
 	}
-	if lines, _, err := sdk.StringSlice(params, paramLines); err == nil && changesKeys(lines) {
-		return "a crypto key line changes key material the configuration does not hold, so no checkpoint returns it"
+	lines, _, err := sdk.StringSlice(params, paramLines)
+	if err != nil {
+		// A lines that is not a list of text is the body's refusal.
+		return ""
+	}
+	for i, l := range lines {
+		switch {
+		case secretref.Has(l):
+			// A reference is passed to the method as written and resolved to
+			// one word: only where it stands can it make a key line.
+			if refMayMakeKeyLine(l) {
+				return fmt.Sprintf("%s[%d] holds a secret reference where a crypto key line's words would be, so whether it changes key material, which no checkpoint returns, is not known before the run", paramLines, i)
+			}
+		case collection.IsTemplate(l):
+			return fmt.Sprintf("%s[%d] is a template, so whether it is a crypto key line, whose key material no checkpoint returns, is not known before the run", paramLines, i)
+		case keyMaterial.MatchString(l):
+			return "a crypto key line changes key material the configuration does not hold, so no checkpoint returns it"
+		}
 	}
 	return ""
 }
+
+// keyVerbs are the crypto key commands that change a key pair.
+var keyVerbs = []string{"generate", "zeroize", "import", "move", "decrypt", "encrypt"}
 
 // keyMaterial is a line that changes a key pair, which IOS keeps outside
 // the configuration: no difference shows it and no configure replace
 // returns it (measured on IOL XE 17.15: a key pair made again under its
 // label is replaced, and the configuration reads the same).
-var keyMaterial = regexp.MustCompile(`^\s*crypto\s+key\s+(?:generate|zeroize|import|move|decrypt|encrypt)\b`)
+var keyMaterial = regexp.MustCompile(`^\s*crypto\s+key\s+(?:` + strings.Join(keyVerbs, "|") + `)\b`)
+
+// refMayMakeKeyLine reports whether a line holding secret references could
+// be a key material line once each is resolved. A resolved value is one
+// word with no whitespace (secretref.CheckValue), so the line can become
+// one only when it already is one, or when its text before the first
+// reference could still begin "crypto key <verb>": a reference first on
+// the line, or after "crypto", say. A pre-shared-key line cannot.
+func refMayMakeKeyLine(line string) bool {
+	if keyMaterial.MatchString(line) {
+		return true
+	}
+	// Problems refuses any other template beside a reference, so the first
+	// "{{" is the first reference.
+	before, _, found := strings.Cut(line, "{{")
+	if !found {
+		return false
+	}
+	start := strings.Join(strings.Fields(before), " ")
+	if start != "" && strings.TrimRight(before, " \t") != before {
+		// The text ends a word, so the reference begins the next one.
+		start += " "
+	}
+	for _, verb := range keyVerbs {
+		if strings.HasPrefix("crypto key "+verb, start) {
+			return true
+		}
+	}
+	return false
+}
 
 // keysWarning is what a run that changed key material says.
 const keysWarning = "a crypto key line changed key material, which the configuration does not hold: the run reports changed whatever its differences show, and no undo returns the key pair"

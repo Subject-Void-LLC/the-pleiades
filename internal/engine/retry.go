@@ -118,11 +118,25 @@ func (r *run) tries(ctx context.Context, nodeID string, task *Task, started time
 // than the method's own run.
 func hasNonActionFailure(results []NodeResult) bool {
 	for _, res := range results {
-		if res.Err != nil && res.failureStage != FailureStageAction {
+		if res.Err != nil && !res.failureStage.judgesTheRun() {
 			return true
 		}
 	}
 	return false
+}
+
+// judgesTheRun reports whether stage is a failure of the method's own run
+// or of the task's own judgment of it (failed_when, changed_when): the
+// failures ignore_errors ignores and until tries again. Every other stage
+// (a target, a lock, a render, a mask, a record) is not about what the
+// method did on the device, and would fail the same way each time.
+func (stage FailureStage) judgesTheRun() bool {
+	switch stage {
+	case FailureStageAction, FailureStageFailedWhen, FailureStageChangedWhen:
+		return true
+	default:
+		return false
+	}
 }
 
 // summarize reads one run's results: the stats of the first that has some,
