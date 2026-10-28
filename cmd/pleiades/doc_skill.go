@@ -299,9 +299,9 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  list, or `\"{{ vars.names }}\"`, runs the task once per item in order (at most 1000), and reads the item as\n" +
 	"  `{{ item }}`, `{{ item.field }}`, `{{ loop.index }}`. An item put in command text is quoted with `| quote`.\n" +
 	"  `loop_control:` renames the item (`loop_var`), names the position (`index_var`) and labels each result\n" +
-	"  (`label`). A failed item does not stop the others, and each item is its own journal entry. An item put in a\n" +
-	"  network config line or a ping target needs `| cli_token` (or `| quote` in a shell command); `validate` says\n" +
-	"  which. An item may name a project file (`dest: captures/{{ item }}.pcap`) only when the loop's list is\n" +
+	"  (`label`). A failed item does not stop the others, and each item is its own journal entry. Every expression in\n" +
+	"  a network config line or a ping target, an item or a variable from `host_vars` alike, needs `| cli_token` (in a\n" +
+	"  shell command, `| quote`); `validate` says which. An item may name a project file (`dest: captures/{{ item }}.pcap`) only when the loop's list is\n" +
 	"  written in the runbook or read from `vars`, never when it came from a device's output.\n" +
 	"- A target chosen from data (`target: \"{{ result.ticket.json.ci }}\"`) needs `within:` naming the device or tag\n" +
 	"  it must stay inside, written out; without it the runbook is refused. A loop's item cannot choose the target (it\n" +

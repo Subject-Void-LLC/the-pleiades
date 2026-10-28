@@ -137,6 +137,8 @@ func (d *configIOS) serve(channel ssh.Channel) {
 			write("% Duplicate permit statement ignored\r\n")
 		case line == "proposal P":
 			write("% Policy already has same proposal set\r\n")
+		case line == "match fvrf WAN-TRANSPORT-INET":
+			write("% Policy already has the same matching fvrf statement\r\n")
 		case line == "match identity remote any":
 			write("% Already found same 'match identity' statement in this profile\r\n")
 		case line == "crypto key generate rsa label K modulus 2048":
@@ -276,7 +278,7 @@ func TestConfigWith_OutputThatIsNoQuestion(t *testing.T) {
 func TestConfigWith_NoticesAreNotRejections(t *testing.T) {
 	session := newConfigSession(t, &configIOS{})
 	res, err := session.ConfigWith(context.Background(),
-		[]string{"permit ip any any", "proposal P", "match identity remote any", "crypto key generate rsa label K modulus 2048", "frob"},
+		[]string{"permit ip any any", "proposal P", "match fvrf WAN-TRANSPORT-INET", "match identity remote any", "crypto key generate rsa label K modulus 2048", "frob"},
 		netcli.ConfigOptions{Accept: []*regexp.Regexp{regexp.MustCompile(`^% Frob is deprecated`)}})
 	if err != nil {
 		t.Fatal(err)
@@ -284,6 +286,7 @@ func TestConfigWith_NoticesAreNotRejections(t *testing.T) {
 	want := []string{
 		"% Duplicate permit statement ignored",
 		"% Policy already has same proposal set",
+		"% Policy already has the same matching fvrf statement",
 		"% Already found same 'match identity' statement in this profile",
 		"% Key pair was generated at: 17:00:00 UTC Oct 24 2026",
 		"% Frob is deprecated and was ignored",

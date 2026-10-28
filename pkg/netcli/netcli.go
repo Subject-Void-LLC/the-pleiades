@@ -151,6 +151,10 @@ var (
 	iosNotices = []*regexp.Regexp{
 		regexp.MustCompile(`^% Duplicate (?:permit|deny) statement ignored\b`),
 		regexp.MustCompile(`^% Policy already has same proposal set\b`),
+		// match fvrf <vrf> under an IKEv2 policy that already has it: seen 30
+		// times in one second configuration run in the blind CVD lab (runs 5
+		// and 6, 2026-10-27), and in runs 4 and 5 before that.
+		regexp.MustCompile(`^% Policy already has the same matching fvrf statement\b`),
 		regexp.MustCompile(`^% Already found same '[^']*' statement in this profile\b`),
 		regexp.MustCompile(`^% Key pair was generated at: `),
 		// crypto key generate rsa ... modulus <n>, made and made again
