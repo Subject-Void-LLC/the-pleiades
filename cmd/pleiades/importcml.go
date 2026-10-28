@@ -332,7 +332,11 @@ func cmlPickLab(ctx context.Context, c *cml.Client, want string) (cml.Lab, error
 func cmlSelect(nodes []cml.Node, lab, only string, addresses addressFlags) ([]cml.Node, error) {
 	byLabel := map[string]cml.Node{}
 	for _, n := range nodes {
-		if !clabNodeName.MatchString(n.Label) {
+		// A connector or an unmanaged switch never becomes a device (it has no
+		// management address), so its label may be any CML allows, such as
+		// "System Bridge CORE1"; only a node that could be imported is held to
+		// a device's name.
+		if !clabNodeName.MatchString(n.Label) && !cmlUnmanaged[n.NodeDefinition] {
 			return nil, fmt.Errorf("node %q of lab %q is not a name a device can take", n.Label, lab)
 		}
 		if _, dup := byLabel[n.Label]; dup {
