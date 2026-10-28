@@ -6,17 +6,16 @@ status: beta
 
 ## Changelog
 
-[`CHANGELOG.md`](../CHANGELOG.md) at the repository root is the real, current
-record. This project has not cut a tagged release yet, so everything lives under an
-`Unreleased` heading, grouped by date once a first release exists. Entries are
-assembled from `changelog/*.md` fragments (see
-[`changelog/README.md`](../changelog/README.md) for the naming convention and the
-five change types); a generator to automate that assembly is planned but not built,
-so assembly is manual today.
+[`CHANGELOG.md`](../CHANGELOG.md) at the repository root records what changed from one
+release to the next. 0.3.0 is the first release, so its entry points to the release notes
+below; the history kept under it is the development before any release, not a list of
+changes to one. From 0.3.0 on, each change is a `changelog/*.md` fragment (see
+[`changelog/README.md`](../changelog/README.md) for the naming convention and the change
+types), assembled into `CHANGELOG.md` when a release is cut, by hand for now.
 
 ## Release notes
 
-None yet. There is no tagged release to write notes for.
+- [0.3.0 "Paranoid Porpoise"](releases/v0.3.0.md), the first release.
 
 ## Breaking changes and deprecations
 
