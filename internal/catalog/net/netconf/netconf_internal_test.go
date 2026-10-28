@@ -3,6 +3,7 @@ package netconf
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -463,5 +464,82 @@ func TestRealOpenSession_RefusesANilDevice(t *testing.T) {
 	}()
 	if _, err := realOpenSession(context.Background(), newStubContext(), nil, nil, "net.netconf.config", netconf.Running); err == nil {
 		t.Fatal("realOpenSession() error = nil, want a refusal for a nil device")
+	}
+}
+
+// maskingContext is a stubContext handing out a credential and recording
+// what the method adds to the run's masking set.
+type maskingContext struct {
+	*stubContext
+	secrets    map[string]string
+	registered []string
+}
+
+func (c *maskingContext) InjectSecrets() map[string]string { return c.secrets }
+
+func (c *maskingContext) RegisterSecret(values ...string) {
+	c.registered = append(c.registered, values...)
+}
+
+// TestConfig_BackupIsMasked is the backup stat's security rule: the device's
+// secrets, and the run's own credential, never reach the stat, while the
+// configuration around them does. The old code recorded the raw XML.
+func TestConfig_BackupIsMasked(t *testing.T) {
+	doc := `<native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native"><hostname>Cat8kv</hostname>` +
+		`<enable><secret><type>9</type><secret>$9$enableHashValue</secret></secret></enable>` +
+		`<username><name>admin</name><password><encryption>0</encryption><password>cisco</password></password></username>` +
+		`<tacacs><server><name>T1</name><key><key>tacacsShared99</key></key></server></tacacs>` +
+		`<banner>login with DeviceLoginPw1</banner></native>`
+	f := &fakeSession{getPayload: datastore.Payload{Encoding: datastore.EncodingXML, Bytes: []byte(doc)}}
+	useSession(t, f)
+	rc := &maskingContext{stubContext: newStubContext(), secrets: map[string]string{"username": "admin", "password": "DeviceLoginPw1"}}
+
+	if _, err := Config(context.Background(), rc, nil, map[string]any{paramContent: "<native/>", paramBackup: true}); err != nil {
+		t.Fatalf("Config() error = %v, want nil", err)
+	}
+	got := rc.stats[statBackup].(string)
+	for _, secret := range []string{"$9$enableHashValue", ">cisco<", "tacacsShared99", "DeviceLoginPw1"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("the backup stat holds %q:\n%s", secret, got)
+		}
+	}
+	for _, kept := range []string{"<hostname>Cat8kv</hostname>", "<name>admin</name>", "<type>9</type>", "<name>T1</name>"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("the backup stat lost %q:\n%s", kept, got)
+		}
+	}
+	if !slices.Contains(rc.registered, "tacacsShared99") {
+		t.Errorf("registered = %q, want the TACACS+ key in the run's masking set", rc.registered)
+	}
+	if len(f.editCalls) != 1 {
+		t.Errorf("EditConfig called %d times, want 1", len(f.editCalls))
+	}
+}
+
+// TestConfig_AnUnvouchedBackupStopsBeforeApplying: a configuration masking
+// cannot vouch for records nothing and applies nothing.
+func TestConfig_AnUnvouchedBackupStopsBeforeApplying(t *testing.T) {
+	for name, doc := range map[string]string{
+		"not well-formed":  `<native><password>leaked-pw</native>`,
+		"secret attribute": `<native><server key="leaked-pw"/></native>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeSession{getPayload: datastore.Payload{Encoding: datastore.EncodingXML, Bytes: []byte(doc)}}
+			useSession(t, f)
+			rc := newStubContext()
+			_, err := Config(context.Background(), rc, nil, map[string]any{paramContent: "<native/>", paramBackup: true})
+			if err == nil {
+				t.Fatal("Config() error = nil, want the masking refusal")
+			}
+			if strings.Contains(err.Error(), "leaked-pw") {
+				t.Fatalf("the error quotes the configuration: %v", err)
+			}
+			if _, ok := rc.stats[statBackup]; ok {
+				t.Fatal("a backup stat was recorded")
+			}
+			if len(f.editCalls) != 0 {
+				t.Fatalf("EditConfig was called %d time(s) after the backup was refused", len(f.editCalls))
+			}
+		})
 	}
 }

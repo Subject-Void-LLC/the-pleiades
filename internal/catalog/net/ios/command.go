@@ -45,8 +45,25 @@ func init() {
 			NoCheckReason: "an arbitrary command can be anything the device accepts, and what it changes, if anything, is known only once the device has run it",
 			Doc:           commandDoc(),
 		},
-		Invoke: Command,
+		Invoke:       Command,
+		ReadOnlyCall: commandReadsOnly,
 	})
+}
+
+// commandReadsOnly is net.ios.command's ReadOnlyCall: a call only reads when
+// its command is a show (or IOS's abbreviation of it), dir, more, ping or
+// traceroute that writes no file (iosShow), and it answers no question
+// (no prompts, ask or expect_disconnect: an answer is typed at the device,
+// and what it does is the author's to know). terminal, which iosShow also
+// takes as unchanged, is left out: it changes the session it runs in. A
+// command still holding a template is not read yet, so it is not read-only.
+func commandReadsOnly(params map[string]any) bool {
+	line, ok := params[paramCommand].(string)
+	if !ok || strings.Contains(line, "{{") || clidialog.Uses(params) || !iosShow(line) {
+		return false
+	}
+	first := strings.Fields(strings.ToLower(line))
+	return len(first) > 0 && first[0] != "terminal"
 }
 
 // commandDoc is net.ios.command's reference documentation, which
@@ -156,6 +173,23 @@ func learnSecrets(rc sdk.RunbookContext, text string) string {
 	masked, found := netcfg.MaskFound(text)
 	sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
 	return masked
+}
+
+// maskedBackup is a whole running configuration masked for a stat
+// (net.ios.config's backup), through netcfg.MaskChecked as net.ios.facts'
+// config subset is: every secret is replaced by its placeholder, each long
+// enough is added to the run's masking set, and a line masking cannot vouch
+// for (a second secret it leaves in place) returns an error and none of the
+// text.
+func maskedBackup(rc sdk.RunbookContext, config string) (string, error) {
+	masked, found, err := netcfg.MaskChecked(config)
+	if err != nil {
+		return "", fmt.Errorf("the configuration is not recorded, since masking cannot vouch for it: %w", err)
+	}
+	// Each secret long enough is masked by value from here on, so a later
+	// task that prints it with no secret word before it masks it too.
+	sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
+	return masked, nil
 }
 
 // readOnlyCommands are the exec commands, written in full, that read or

@@ -4,12 +4,26 @@ package collection
 // params map. It exists so a generated reference page can render a real
 // parameter table without anyone hand-maintaining a second copy of it.
 type Param struct {
-	Name        string   `json:"name"`
-	Type        string   `json:"type"`
-	Required    bool     `json:"required,omitempty"`
-	Default     string   `json:"default,omitempty"`
-	Choices     []string `json:"choices,omitempty"`
-	Description string   `json:"description"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Required bool   `json:"required,omitempty"`
+	Default  string `json:"default,omitempty"`
+
+	// Choices, when set, is the closed set of values the parameter takes
+	// (Phase 131's R2): pleiades doc and the reference print it, validation
+	// refuses a literal outside it naming the set, and the engine refuses a
+	// rendered one the same way (ChoiceProblem). For a list, each item is
+	// held to it. Leave it empty for a parameter whose values are open,
+	// such as a name, a path, or a set the device or a controller defines.
+	Choices []string `json:"choices,omitempty"`
+
+	// ChoicesIgnoreCase says the method matches Choices ignoring case and
+	// surrounding space, as http.check upper-cases its method and the
+	// Windows firewall methods lower-case their words, so validation
+	// accepts what the method itself accepts.
+	ChoicesIgnoreCase bool `json:"choicesIgnoreCase,omitempty"`
+
+	Description string `json:"description"`
 
 	// Format says where the parameter's text lands when that matters to a
 	// rendered value (Phase 117a): on a command line, or as a URL. A

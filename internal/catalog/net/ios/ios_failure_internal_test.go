@@ -124,13 +124,13 @@ func TestConfig_ABackupThatCannotBeRecordedStopsTheChange(t *testing.T) {
 	}
 }
 
-// TestFacts_ReportWhichCommandTheDeviceCouldNotAnswer covers the three
-// reads net.ios.facts makes: each failure names the command it came from,
+// TestFacts_ReportWhichCommandTheDeviceCouldNotAnswer covers each read
+// net.ios.facts makes: each failure names the command it came from,
 // since "show inventory" failing on a device that answered "show version"
 // is a different problem from the session dying.
 func TestFacts_ReportWhichCommandTheDeviceCouldNotAnswer(t *testing.T) {
 	refused := errors.New("% Invalid input detected")
-	for _, command := range []string{"show version", "show inventory", "show ip interface brief"} {
+	for _, command := range []string{"show version", "show inventory", "show ip interface brief", "show interfaces", "show vrf", showRunningConfig} {
 		t.Run(command, func(t *testing.T) {
 			withSession(t, &fakeSession{commandErrs: map[string]error{command: refused}})
 			_, err := Facts(context.Background(), newStubContext(), nil, map[string]any{"gather_subset": []any{"all"}})

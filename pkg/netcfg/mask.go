@@ -27,18 +27,23 @@ const MaskPrefix = "pleiades-masked-"
 // snmp-server community x RO, crypto isakmp key x address y, standby 1
 // authentication x, ip rip authentication string x, an IKEv2 keyring
 // peer's pre-shared-key [local|remote] x, and an IKEv2 profile's
-// authentication local pre-share key x. A key chain's "key 1"
+// authentication local pre-share key x, an autonomous access point's
+// wpa-psk ascii 0 x, and a wireless controller's security wpa psk set-key
+// ascii 0 x. A key chain's "key 1"
 // names a key, not a secret, so a line's leading "key" counts only outside
 // a key chain block (a RADIUS or TACACS server's "key 7 x" holds one).
+// An SNMPv3 user's passwords, an OSPFv3 IPsec SPI's keys and a manual
+// IPsec session key line's keys have their own readers (rest.go).
 var secretWords = []string{
 	"password", "secret", "authentication-key", "message-digest-key", "key-string",
 	"area-password", "domain-password", "community", "key", "authentication",
-	"pre-shared-key", "passphrase", "password-encrypt",
+	"pre-shared-key", "passphrase", "password-encrypt", "wpa-psk", "set-key",
 }
 
 // skipped are the words that can stand between a secret word and its
-// secret: an encryption type, a key id, an algorithm, a form.
-var skipped = []string{"md5", "sha1", "sha256", "sha384", "sha512", "hmac-sha-256", "clear", "hash-algo", "text", "string"}
+// secret: an encryption type, a key id, an algorithm, a form (ascii, hex),
+// a privilege level (enable secret level 5 9 x).
+var skipped = []string{"md5", "sha1", "sha256", "sha384", "sha512", "hmac-sha-256", "clear", "hash-algo", "text", "string", "ascii", "hex", "level"}
 
 // notSecret are the words after "authentication" that name a mode rather
 // than hold a secret: ip ospf authentication message-digest, ip rip
@@ -144,7 +149,10 @@ func words(line string) []word {
 
 // maskLine masks the secret one line holds, if any: the first word after a
 // secret word that is not an encryption type, a key id, an algorithm or a
-// mode. inKeyChain says the line is inside a key chain block, where a
+// mode, and, when that secret is clear text (type 0 or untyped) and the
+// command does not go on past it (secretIsOneWord), every word after it to
+// the end of the line, since IOS reads such a secret to the end of the
+// line. inKeyChain says the line is inside a key chain block, where a
 // leading "key" names a key.
 func maskLine(line string, inKeyChain bool, found *[]string) string {
 	ws := words(line)
@@ -159,6 +167,15 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 	}
 	if len(ws) >= 3 && ws[0].text == "snmp-server" && ws[1].text == "host" {
 		return maskSNMPHost(line, ws, found)
+	}
+	if len(ws) >= 3 && ws[0].text == "snmp-server" && ws[1].text == "user" {
+		return maskSNMPUser(line, ws, found)
+	}
+	if spi := ipsecSPIAt(ws); spi >= 0 {
+		return maskIPsecSPI(line, ws, spi, found)
+	}
+	if spi := sessionKeySPI(ws); spi >= 0 {
+		return maskSessionKey(line, ws, spi, found)
 	}
 	for i, w := range ws {
 		if !slices.Contains(secretWords, w.text) || (w.text == "key" && i == 0 && inKeyChain) {
@@ -188,6 +205,16 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 		// (standby 1 authentication md5 key-string x), is not the secret.
 		if slices.Contains(secretWords, target) || (w.text == "authentication" && slices.Contains(notSecret, target)) || (psk && slices.Contains(pskPeers, target)) || (w.text == "key" && slices.Contains(keyCommands, target)) {
 			continue
+		}
+		// IOS XE's global "password encryption aes" turns type 6 encryption
+		// on; it holds no password.
+		if w.text == "password" && i == 0 && target == "encryption" {
+			continue
+		}
+		// A clear-text secret (type 0, or no type) runs to the end of the
+		// line: username admin password 0 two words holds "two words".
+		if !typedSecret(ws, i, j) && !secretIsOneWord(ws, i) {
+			return replaceRest(line, ws[j:], found)
 		}
 		return replaceWord(line, ws[j], found)
 	}

@@ -57,7 +57,7 @@ func init() {
 					{Name: "count", Type: "int", Default: "5", Description: "How many echoes to send, passed to IOS as \"repeat\"."},
 					{Name: "source", Type: "string", Description: "Source address or interface for the ping, passed to IOS as \"source\".", Format: collection.ParamFormatCommand},
 					{Name: "vrf", Type: "string", Description: "VRF to ping from, passed to IOS as \"vrf\".", Format: collection.ParamFormatCommand},
-					{Name: "state", Type: "string", Default: "present", Description: "\"present\" fails the task if the destination is unreachable (0 percent success); \"absent\" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead."},
+					{Name: "state", Type: "string", Default: "present", Choices: []string{statePresent, stateAbsent}, ChoicesIgnoreCase: true, Description: "\"present\" fails the task if the destination is unreachable (0 percent success); \"absent\" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead."},
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 					{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 				},

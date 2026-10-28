@@ -179,8 +179,11 @@ func TestDifferences_ReadsTheDevicesOwnReport(t *testing.T) {
 	if got, err := iosconfig.Differences(differencesNone); err != nil || got != nil {
 		t.Errorf("none: got %q, %v; want nil", got, err)
 	}
-	if _, err := iosconfig.Differences(differencesError); !errors.Is(err, iosconfig.ErrNotDifferences) {
-		t.Errorf("an error answer: err = %v, want ErrNotDifferences, never no differences", err)
+	// The refusal's first line is the caret alone; the error carries the
+	// line after it too, where IOS says what it refused.
+	if _, err := iosconfig.Differences(differencesError); !errors.Is(err, iosconfig.ErrNotDifferences) ||
+		!strings.Contains(err.Error(), `"^ % Invalid input detected at '^' marker."`) {
+		t.Errorf("an error answer: err = %v, want ErrNotDifferences with the device's whole refusal, never no differences", err)
 	}
 	if got, err := iosconfig.Differences("!Contextual Config Diffs:\n+ntp clock-period 1\n-ntp clock-period 2\n"); err != nil || len(got) != 0 {
 		t.Errorf("only the clock period: got %q, %v; want none", got, err)

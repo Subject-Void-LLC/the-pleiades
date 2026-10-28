@@ -11,6 +11,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 )
 
 // Node is one configuration line and the lines indented under it.
@@ -208,11 +211,11 @@ func undo(before, after []*Node, path []string, out *[]string) error {
 func refuseInside(path []string, line string) error {
 	for _, p := range path {
 		if slices.ContainsFunc(append(slices.Clone(unsupportedInside), unsupportedLines...), func(u string) bool { return strings.HasPrefix(p, u) }) {
-			return fmt.Errorf("%w (%s)", ErrUnsupported, firstLine(p))
+			return fmt.Errorf("%w (%s)", ErrUnsupported, netcfg.Mask(strings.TrimSpace(p)))
 		}
 	}
 	if slices.ContainsFunc(unsupportedLines, func(u string) bool { return strings.HasPrefix(line, u) }) {
-		return fmt.Errorf("%w (%s)", ErrUnsupported, firstLine(line))
+		return fmt.Errorf("%w (%s)", ErrUnsupported, netcfg.Mask(strings.TrimSpace(line)))
 	}
 	return nil
 }
@@ -263,7 +266,7 @@ var ErrNotDifferences = errors.New("the device's answer is not a configuration d
 // makes (Parse's ignored lines) are left out.
 func Differences(output string) ([]string, error) {
 	if !strings.Contains(output, "Contextual Config Diffs") {
-		return nil, fmt.Errorf("%w: %q", ErrNotDifferences, firstLine(output))
+		return nil, fmt.Errorf("%w: %s", ErrNotDifferences, farside.MaskedOutput(output, netcfg.Mask))
 	}
 	if strings.Contains(output, "No changes were found") {
 		return nil, nil
@@ -286,14 +289,4 @@ func Differences(output string) ([]string, error) {
 		lines = append(lines, raw)
 	}
 	return lines, nil
-}
-
-// firstLine returns text's first non-blank line, for an error.
-func firstLine(text string) string {
-	for line := range strings.SplitSeq(text, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line
-		}
-	}
-	return ""
 }

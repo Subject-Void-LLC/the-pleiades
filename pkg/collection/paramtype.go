@@ -110,7 +110,8 @@ func ParamFits(typ string, v any) (bool, error) {
 // declared type and a word neither knows would refuse every value. It also
 // refuses a parameter both required and defaulted: validation refuses a
 // task leaving out a required one, so a default it states would be one no
-// task could ever get.
+// task could ever get. And it refuses a declared set of choices that
+// contradicts the parameter (checkChoices).
 func checkParamTypes(d Descriptor) error {
 	for _, p := range d.Manifest.Doc.Params {
 		if !KnownParamType(p.Type) {
@@ -122,6 +123,9 @@ func checkParamTypes(d Descriptor) error {
 				d.Name, p.Name, p.Default)
 		}
 		if err := checkAlias(d, p); err != nil {
+			return err
+		}
+		if err := checkChoices(d, p); err != nil {
 			return err
 		}
 	}

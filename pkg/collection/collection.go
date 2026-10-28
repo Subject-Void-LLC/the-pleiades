@@ -128,6 +128,18 @@ type Descriptor struct {
 	// reversible, since there it would answer a question nothing asks.
 	UndoCall func(params map[string]any) string
 
+	// ReadOnlyCall is, for a method that is not read-only as a whole but
+	// some of whose calls only read, the answer read from a call's
+	// parameters alone: true when a call with params changes nothing
+	// (net.ios.command running "show version"). It follows CheckCall's
+	// precedent, so validation can treat such a call as it treats a
+	// read-only method (an until over it repeats no change), and the engine
+	// holds a call it answered true for to its claim as it holds a read-only
+	// method (Descriptor.ReadsOnly). It is nil for every other method, and
+	// Register refuses it on a method whose manifest already declares
+	// ReadOnly, since there it would answer a question nothing asks.
+	ReadOnlyCall func(params map[string]any) bool
+
 	// Provider is nil for a method compiled into this binary. For a method
 	// an external Collection program provides, it names that program. Only
 	// the loader that runs the program sets it, when it registers the
@@ -222,6 +234,9 @@ func Register(d Descriptor) error {
 	}
 	if d.UndoCall != nil && !d.Manifest.Reversibility.Reversible {
 		return fmt.Errorf("collection: %q carries an UndoCall function but does not declare itself reversible", d.Name)
+	}
+	if err := checkReadOnlyCall(d); err != nil {
+		return err
 	}
 
 	if err := checkReservedParams(d); err != nil {
