@@ -61,6 +61,9 @@ func Put(ctx context.Context, conn *remoteexec.Conn, filePath string, content []
 
 	tmp, cleanup, err := writeBeside(ctx, conn, filePath, content)
 	if err != nil {
+		if missing := missingDir(ctx, conn, filePath); missing != nil {
+			return Replaced{}, missing
+		}
 		return Replaced{}, fmt.Errorf("put %s: %w", filePath, err)
 	}
 	made, err := Stat(ctx, conn, tmp)
@@ -95,6 +98,20 @@ func Put(ctx context.Context, conn *remoteexec.Conn, filePath string, content []
 	return Replaced{Touched: true}, nil
 }
 
+// missingDir names filePath's directory as missing when it does not exist,
+// and is nil otherwise (including when it cannot tell). A write into a
+// directory that is not there used to be reported as one this login may
+// not write, which sent the reader after permissions; a check meets it
+// whenever an earlier task in the same check would have made the directory.
+func missingDir(ctx context.Context, conn *remoteexec.Conn, filePath string) error {
+	dir := path.Dir(filePath)
+	info, err := Stat(ctx, conn, dir)
+	if err != nil || info.Exists() {
+		return nil
+	}
+	return fmt.Errorf("put %s: its directory %s does not exist, so nothing was written", filePath, dir)
+}
+
 // PredictPut returns the refusal Put would make for the same arguments,
 // or nil when Put would write, for a check that must refuse what a real
 // run refuses. It only reads: the login's identity and whether it may
@@ -108,6 +125,9 @@ func PredictPut(ctx context.Context, conn *remoteexec.Conn, filePath string, bef
 		return fmt.Errorf("put %s: %w", filePath, err)
 	}
 	if !who.dirWritable {
+		if err := missingDir(ctx, conn, filePath); err != nil {
+			return err
+		}
 		return fmt.Errorf("put %s: writing beside it: this login (%s) may not write %s", filePath, who.login, path.Dir(filePath))
 	}
 	if who.root {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
@@ -111,6 +112,27 @@ func TestPut_AGroupItCannotGiveIsRefusedUntouched(t *testing.T) {
 	// A check refuses the same.
 	if err := remotefile.PredictPut(context.Background(), conn, p, before, remotefile.Attributes{Group: noSuchGroup}); !errors.As(err, &refusal) || refusal.Field != "group" {
 		t.Errorf("PredictPut = %v, want the same group refusal", err)
+	}
+}
+
+// TestPut_AMissingDirectoryIsNamedAsMissing: a write into a directory that
+// does not exist says so, in a check and in a run, rather than blaming this
+// login's permissions (found proving file.template on macOS, where a check
+// after a predicted file.directory reported "may not write").
+func TestPut_AMissingDirectoryIsNamedAsMissing(t *testing.T) {
+	conn := connect(t)
+	p := filepath.Join(t.TempDir(), "no-such-dir", "f")
+	before, err := remotefile.Stat(context.Background(), conn, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "its directory " + filepath.Dir(p) + " does not exist"
+	if err := remotefile.PredictPut(context.Background(), conn, p, before, remotefile.Attributes{}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("PredictPut = %v, want %q", err, want)
+	}
+	r, err := remotefile.Put(context.Background(), conn, p, []byte("x\n"), before, remotefile.Attributes{})
+	if err == nil || !strings.Contains(err.Error(), want) || r.Touched {
+		t.Errorf("Put = %+v, %v; want an untouched %q", r, err, want)
 	}
 }
 

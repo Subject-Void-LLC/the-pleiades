@@ -1145,8 +1145,8 @@ func TestCopy_WriteFailureIsReported(t *testing.T) {
 	if err == nil {
 		t.Fatal("a failed write was reported as success")
 	}
-	if !strings.Contains(err.Error(), "put "+dest) || !strings.Contains(err.Error(), "writing beside it") {
-		t.Errorf("error = %q, want it to name the path and the write that failed", err)
+	if !strings.Contains(err.Error(), "put "+dest) || !strings.Contains(err.Error(), "its directory "+filepath.Dir(dest)+" does not exist") {
+		t.Errorf("error = %q, want it to name the path and the directory that is missing", err)
 	}
 	if _, statErr := os.Lstat(dest); !os.IsNotExist(statErr) {
 		t.Errorf("os.Lstat(%s) = %v, want the path still absent", dest, statErr)
