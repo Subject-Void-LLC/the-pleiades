@@ -80,7 +80,7 @@ func (c *CheckModeFlag) set(raw string) error {
 		return nil
 	case slices.Contains(checkModeFalse, value):
 		return fmt.Errorf("%s", checkModeFalseRefusal)
-	case strings.Contains(raw, "{{") || strings.Contains(raw, "{%"):
+	case IsTemplate(raw):
 		return fmt.Errorf("check_mode must be a literal true, not a template (%q): a template could resolve to false when the run starts", raw)
 	default:
 		return fmt.Errorf("check_mode must be true (or Ansible's yes, on, y or t), got %q", raw)

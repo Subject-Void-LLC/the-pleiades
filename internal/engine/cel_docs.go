@@ -16,7 +16,8 @@ import (
 // condition's environment: its functions, then its macros.
 type ConditionLibrary struct {
 	// Name is the library, as cel-go or this engine names it.
-	Name      string
+	Name string
+	// Functions are the functions and macros the library adds.
 	Functions []ConditionFunction
 }
 
@@ -24,7 +25,10 @@ type ConditionLibrary struct {
 // overloads it adds (ext.Network adds overloads to the standard library's
 // own string function, and only those are its).
 type ConditionFunction struct {
-	Name        string
+	// Name is the function or macro, as a condition calls it.
+	Name string
+	// Description is the library's own description of it, which may be
+	// empty.
 	Description string
 	// Macro is set for an AST-rewriting construct such as optMap.
 	Macro bool
@@ -35,8 +39,11 @@ type ConditionFunction struct {
 
 // ConditionOverload is one signature and its examples.
 type ConditionOverload struct {
+	// Signature is the overload's argument and result types; empty for a
+	// macro.
 	Signature string
-	Examples  []string
+	// Examples are the library's examples of a call, which may be none.
+	Examples []string
 }
 
 // conditionLibraryNames names CELLibraryOptions' entries, in its order.

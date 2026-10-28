@@ -521,8 +521,8 @@ always this platform's own.
 reason. Each is one of four things: AWX builds the type's environment in Python
 rather than in an injector document, so there is no document to import (`gce`,
 `azure_rm`, `openstack`, `terraform`); the document uses Jinja control flow, which
-this platform's renderer refuses rather than passing through as text (`insights`,
-`rhv`); the type feeds a subsystem that does not exist here, such as webhooks,
+the renderer now supports, and has not yet been ported and checked against AWX's
+own output (`insights`, `rhv`); the type feeds a subsystem that does not exist here, such as webhooks,
 collection installation, content signing or an inventory plugin, or reads a
 deployment-wide setting this platform has no surface for (`github_token`,
 `gitlab_token`, `bitbucket_dc_token`, `galaxy_api_token`, `gpg_public_key`,

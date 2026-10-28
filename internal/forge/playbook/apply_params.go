@@ -165,6 +165,9 @@ func (t *translator) setParam(c *plannedCall, param string, item any, in argIn, 
 	default:
 		v, err = toNative(node, typ, param)
 	}
+	if err == nil {
+		v, err = keepLiteral(v)
+	}
 	if err != nil {
 		var rerr *resolveError
 		if errors.As(err, &rerr) {
@@ -174,6 +177,46 @@ func (t *translator) setParam(c *plannedCall, param string, item any, in argIn, 
 	}
 	c.params[param] = v
 	return nil
+}
+
+// keepLiteral wraps each string in v that would render as a template in
+// {% raw %}...{% endraw %}. v is a value the conversion resolved, the text
+// Ansible hands the module, which Ansible never renders again; a runbook
+// renders any parameter holding {{, {% or {#, so without the wrapper a
+// resolved "{%s}" would be read as a statement. Text that holds an endraw
+// of its own cannot be wrapped and leaves the task for a person.
+func keepLiteral(v any) (any, error) {
+	switch x := v.(type) {
+	case string:
+		if !hasTemplate(x) {
+			return x, nil
+		}
+		if strings.Contains(x, "endraw") {
+			return nil, &resolveError{"template.unsupported", "a resolved value holds Jinja delimiters and an endraw, so it cannot be kept literal in the runbook"}
+		}
+		return "{% raw %}" + x + "{% endraw %}", nil
+	case []any:
+		out := make([]any, len(x))
+		for i, item := range x {
+			w, err := keepLiteral(item)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = w
+		}
+		return out, nil
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, item := range x {
+			w, err := keepLiteral(item)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = w
+		}
+		return out, nil
+	}
+	return v, nil
 }
 
 // paramTypes returns fqcn's declared parameters and their types, its

@@ -249,16 +249,17 @@ func TestCompileRefusals(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "a statement block is refused rather than passed through",
-			// Passing it through as literal text would render a loop's
+			name: "a statement this renderer does not implement is refused rather than passed through",
+			// Passing it through as literal text would render a macro's
 			// source code where its output belonged, with nothing to
-			// suggest the renderer had not run it.
-			source:  "{% for x in y %}{{ x }}{% endfor %}",
+			// suggest the renderer had not run it. statement_test.go has
+			// the rest.
+			source:  "{% macro m() %}{{ x }}{% endmacro %}",
 			wantErr: render.ErrSyntax,
 		},
 		{
-			name:    "a comment block is refused",
-			source:  "{# nothing to see #}",
+			name:    "an unterminated comment block is refused",
+			source:  "{# nothing to see",
 			wantErr: render.ErrSyntax,
 		},
 		{

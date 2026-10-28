@@ -25,7 +25,7 @@ func TestEmit_ModuleAsKey(t *testing.T) {
         - name: ping
           ping:
     - name: not converted
-      template: {src: a.j2, dest: /etc/a}
+      pause: {seconds: 1}
 `)
 	if len(res.Runbooks) != 1 {
 		t.Fatalf("%d runbooks", len(res.Runbooks))
@@ -48,7 +48,7 @@ func TestEmit_ModuleAsKey(t *testing.T) {
 		}
 	}
 	walk(doc["tasks"])
-	for _, want := range []string{"pkg.apt.install", "svc.start", "net.ssh.ping", "ansible.unconverted.template", "ansible.incomplete"} {
+	for _, want := range []string{"pkg.apt.install", "svc.start", "net.ssh.ping", "ansible.unconverted.pause", "ansible.incomplete"} {
 		if !keys[want] {
 			t.Errorf("no task is keyed %s:\n%s", want, text)
 		}

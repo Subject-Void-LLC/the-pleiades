@@ -124,7 +124,7 @@ func checkTagName(name string) error {
 	switch {
 	case name == "":
 		return fmt.Errorf("a tag may not be empty")
-	case strings.Contains(name, "{{") || strings.Contains(name, "{%"):
+	case IsTemplate(name):
 		return fmt.Errorf("tag %q is a template, and nothing renders a tag: write the name itself", name)
 	case termsafe.Check(name) != nil:
 		return fmt.Errorf("tag %q holds a control or text-direction character", termsafe.EscapeLine(name))

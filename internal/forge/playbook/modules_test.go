@@ -113,7 +113,7 @@ func TestModules_Map(t *testing.T) {
 		{name: "cli_command", task: "{cli_command: {command: show version}}", fqcns: []string{"net.cli.command"}, class: playbook.ClassImperative},
 		{name: "cli_command prompt", task: "{cli_command: {command: reload, prompt: confirm, answer: y}}", code: "args.unmapped"},
 		{name: "cli_config", task: "{cli_config: {config: hostname r1}}", fqcns: []string{"net.cli.config"}, code: "module.semantics"},
-		{name: "ios_config", task: "{ios_config: {lines: [hostname r1], save_when: modified}}", fqcns: []string{"net.ios.config"}, params: map[string]any{"lines": []any{"hostname r1"}}, code: "module.semantics", class: playbook.ClassImperative},
+		{name: "ios_config", task: "{ios_config: {lines: [hostname r1], save_when: modified}}", fqcns: []string{"net.ios.config"}, params: map[string]any{"lines": []any{"hostname r1"}}, code: "module.semantics", class: playbook.ClassAsserted},
 		{name: "ios_config one line", task: "{ios_config: {lines: hostname r1}}", fqcns: []string{"net.ios.config"}, params: map[string]any{"lines": []any{"hostname r1"}}},
 		{name: "ios_config parents", task: "{ios_config: {lines: [shutdown], parents: [interface Gi1]}}", code: "args.unmapped"},
 		{name: "ios_facts", task: "{ios_facts: {gather_subset: [min]}}", fqcns: []string{"net.ios.facts"}, class: playbook.ClassObserve},

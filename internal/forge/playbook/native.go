@@ -39,52 +39,6 @@ var fieldAfter = regexp.MustCompile(`^\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)`)
 // lastFilter matches the final filter of an expression.
 var lastFilter = regexp.MustCompile(`\|\s*([A-Za-z_][A-Za-z0-9_]*)(\s*\((?:[^()]|\([^()]*\))*\))?\s*$`)
 
-// rewriteTemplate rewrites every {{ }} expression in s so it reads the
-// runbook's roots. names are the loop names a task's own loop gives, kept as
-// written. A non-empty quote is appended to each expression that does not
-// already end with a command-safe filter.
-func (t *translator) rewriteTemplate(s string, names []string, quote string, at Position) (string, *resolveError) {
-	if strings.Contains(s, "{%") || strings.Contains(s, "{#") {
-		return "", &resolveError{"template.unsupported", "the template uses a statement or a comment, which a runbook's template has none of"}
-	}
-	var out strings.Builder
-	rest := s
-	for {
-		open := strings.Index(rest, "{{")
-		if open < 0 {
-			out.WriteString(rest)
-			return out.String(), nil
-		}
-		out.WriteString(rest[:open])
-		end := exprEnd(rest[open+2:])
-		if end < 0 {
-			return "", &resolveError{"template.unsupported", "a {{ is never closed"}
-		}
-		inner := rest[open+2 : open+2+end]
-		trimmed := strings.TrimSpace(inner)
-		if strings.HasPrefix(trimmed, "-") || strings.HasSuffix(trimmed, "-") {
-			return "", &resolveError{"template.unsupported", "whitespace control in {{ }} has no equivalent here"}
-		}
-		if text, ok, berr := t.boundText(trimmed); berr != nil {
-			return "", berr
-		} else if ok {
-			out.WriteString(text)
-			rest = rest[open+2+end+2:]
-			continue
-		}
-		expr, err := t.rewriteExpr(trimmed, names, at)
-		if err != nil {
-			return "", err
-		}
-		if quote != "" && !commandSafe(expr) {
-			expr += " | " + quote
-			t.note("template.quoted", at, "a {{ }} expression in command text was given | "+quote)
-		}
-		out.WriteString("{{ " + expr + " }}")
-		rest = rest[open+2+end+2:]
-	}
-}
-
 // exprEnd returns the index of the }} closing an expression that begins s,
 // skipping quoted text, or -1.
 func exprEnd(s string) int {

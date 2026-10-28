@@ -71,7 +71,7 @@ func TestTranslate_Constructs(t *testing.T) {
 		{name: "two modules", tasks: "- {command: x, shell: y}", code: "module.ambiguous", blocked: 1},
 		{name: "no module", tasks: "- {name: nothing}", code: "module.ambiguous", blocked: 1},
 		{name: "unmapped module", tasks: "- {frobnicate: {a: 1}}", code: "module.unmapped", blocked: 1},
-		{name: "manual module", tasks: "- {template: {src: a, dest: b}}", code: "module.manual", blocked: 1},
+		{name: "manual module", tasks: "- {pause: {seconds: 1}}", code: "module.manual", blocked: 1},
 		{name: "unmapped argument", tasks: "- {command: {cmd: x, bogus: 1}}", code: "args.unmapped", blocked: 1},
 		{name: "blocked argument", tasks: "- {command: {cmd: x, strip_empty_ends: false}}", code: "args.unmapped", blocked: 1},
 		{name: "dropped argument", tasks: "- {command: {cmd: x, warn: false}}", code: "keyword.reporting", converted: 1},

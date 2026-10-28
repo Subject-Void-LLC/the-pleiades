@@ -10,10 +10,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 )
 
-// defaultFilter is the render filter that makes a missing value optional
-// out loud ({{ vars.region | default('us-east-1') }}).
-const defaultFilter = "default"
-
 // VarsRule refuses a task that reads vars.<name> when no scope it can see
 // defines name, the failure the renderer would otherwise report only when the
 // task dispatches, after the tasks before it have already run. A name is
@@ -26,9 +22,12 @@ const defaultFilter = "default"
 // that said, since it is the likelier mistake than a name typed wrong.
 //
 // It reads a template's expressions (render.Template.Expressions) and a
-// condition's syntax tree, never the text around them. A read guarded by
-// | default(...) is optional, and so is a name the task's condition tests with
-// has(vars.<name>) or "<name>" in vars.
+// condition's syntax tree, never the text around them. A read the renderer
+// marks Guarded is optional (| default(...) on the path itself, is defined,
+// or a read only an is defined lets through), and so is a name the task's
+// condition tests with has(vars.<name>) or "<name>" in vars. A default after
+// another filter guards nothing: the filter before it fails on the missing
+// name first, as it does when the task renders.
 //
 // It applies only when the caller knows every variable the run will have
 // (WorldView.VariablesKnown); otherwise it finds nothing. A task with a
@@ -54,10 +53,12 @@ func VarsRule(world WorldView) []Finding {
 		if len(reads) == 0 {
 			continue
 		}
-		// A name the task's condition tests for is written for its absence.
+		// A name the task's condition tests for is written for its absence:
+		// the task is skipped without it. A guard inside a template covers
+		// only the reads the renderer marks Guarded, never the others.
 		guarded := map[string]bool{}
 		for _, r := range reads {
-			if r.optional {
+			if r.optional && r.where == "condition" {
 				guarded[r.name] = true
 			}
 		}

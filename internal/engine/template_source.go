@@ -23,6 +23,25 @@ const maxTemplateFileBytes = 64 << 20
 // templateContentParam is the parameter a rendered template file lands in.
 const templateContentParam = "content"
 
+// The two parameters a method with a template-file parameter may declare to
+// set the template's block whitespace (render.Options), with Ansible's
+// template module's names. Each defaults to what the method's own Doc
+// declares, so file.template's defaults are Ansible's: trim_blocks true,
+// lstrip_blocks false.
+// The engine consumes both, as it does the template file itself, so a
+// method never receives them.
+const (
+	templateTrimParam   = "trim_blocks"
+	templateLstripParam = "lstrip_blocks"
+)
+
+// TemplateOptionParams returns the parameters a method with a template-file
+// parameter may declare to set its template's block whitespace, which the
+// engine reads and removes before the method runs.
+func TemplateOptionParams() []string {
+	return []string{templateTrimParam, templateLstripParam}
+}
+
 // TemplateFileReader reads one file of the run's project, the way
 // sdk.ProjectFiles does: relative, inside the project, no symbolic link, never
 // .pleiades, a regular file of at most max bytes.
@@ -69,8 +88,10 @@ func templateFileParam(fqcn string) string {
 // renderTemplateFile removes task's template-file parameter and returns its
 // rendered text, which the caller sets as the content parameter AFTER the other
 // parameters render, so the text is never rendered a second time (a rendered
-// value holding "{{" must stay literal). It returns task unchanged and false
-// when the task declares or sets none. The copy shares everything but Params, so the DAG's own task
+// value holding "{{" must stay literal). With no template file set, a content
+// that is a template renders here instead, under the same block options
+// (renderTemplateContent). It returns task unchanged and false when the task
+// declares no template file, or sets neither. The copy shares everything but Params, so the DAG's own task
 // stays as authored.
 //
 // It fails closed: a name that is itself templated (a path must be written, not
@@ -84,15 +105,20 @@ func (r *run) renderTemplateFile(task *Task, ctx map[string]any) (*Task, string,
 	if name == "" {
 		return task, "", false, nil
 	}
+	opts, err := templateOptions(task)
+	if err != nil {
+		return nil, "", false, err
+	}
+	task = withoutParam(withoutParam(task, templateTrimParam), templateLstripParam)
 	raw, set := task.Params[name]
 	if !set || raw == nil {
-		return task, "", false, nil
+		return r.renderTemplateContent(task, ctx, opts)
 	}
 	path, ok := raw.(string)
 	if !ok || path == "" {
 		return nil, "", false, fmt.Errorf("parameter %s must name a file in the project", name)
 	}
-	if strings.Contains(path, "{{") {
+	if IsTemplate(path) {
 		return nil, "", false, fmt.Errorf("parameter %s names a template file and must be written out, not computed: an expression in it could pick which project file is read", name)
 	}
 	if _, both := task.Params[templateContentParam]; both {
@@ -111,10 +137,64 @@ func (r *run) renderTemplateFile(task *Task, ctx map[string]any) (*Task, string,
 		}
 		return nil, "", false, fmt.Errorf("parameter %s: %w", name, err)
 	}
-	text, err := renderTemplateText(r.x.renderer, string(data), ctx, task)
+	text, err := renderTemplateText(r.x.renderer, string(data), ctx, task, opts)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("parameter %s: template %s: %w", name, path, err)
 	}
+	return withoutParam(task, name), text, true, nil
+}
+
+// renderTemplateContent renders the content parameter of a method that
+// takes a template file, under the same options a file would be, so a
+// template behaves the same written in the runbook or kept in the project.
+// Content that is not a template is left for the method as written.
+func (r *run) renderTemplateContent(task *Task, ctx map[string]any, opts render.Options) (*Task, string, bool, error) {
+	body, ok := task.Params[templateContentParam].(string)
+	if !ok || !IsTemplate(body) {
+		return task, "", false, nil
+	}
+	if r.x.renderer == nil {
+		return nil, "", false, errors.New("this run has no template renderer, so a template cannot be rendered")
+	}
+	text, err := renderTemplateText(r.x.renderer, body, ctx, task, opts)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("parameter %s: %w", templateContentParam, err)
+	}
+	return withoutParam(task, templateContentParam), text, true, nil
+}
+
+// templateOptions returns the block whitespace options task's template
+// renders under: each parameter as written, which must be true or false,
+// or the default the method declares for it.
+func templateOptions(task *Task) (render.Options, error) {
+	defaults := map[string]bool{}
+	if d, ok := collection.Lookup(task.FQCN); ok {
+		for _, p := range d.Manifest.Doc.Params {
+			defaults[p.Name] = p.Default == "true"
+		}
+	}
+	read := func(name string) (bool, error) {
+		v, set := task.Params[name]
+		if !set || v == nil {
+			return defaults[name], nil
+		}
+		b, ok := v.(bool)
+		if !ok {
+			return false, fmt.Errorf("parameter %s is true or false, written out: it decides how the template is read, before anything renders", name)
+		}
+		return b, nil
+	}
+	trim, err := read(templateTrimParam)
+	if err != nil {
+		return render.Options{}, err
+	}
+	lstrip, err := read(templateLstripParam)
+	return render.Options{TrimBlocks: trim, LstripBlocks: lstrip}, err
+}
+
+// withoutParam returns a copy of task without the parameter name. The copy
+// shares everything but Params, so the DAG's own task stays as authored.
+func withoutParam(task *Task, name string) *Task {
 	params := make(map[string]any, len(task.Params))
 	for k, v := range task.Params {
 		if k != name {
@@ -123,14 +203,14 @@ func (r *run) renderTemplateFile(task *Task, ctx map[string]any) (*Task, string,
 	}
 	out := *task
 	out.Params = params
-	return &out, text, true, nil
+	return &out
 }
 
 // renderTemplateText compiles and renders one template body, holding it to the
 // roots a parameter may read. An undefined variable is the renderer's own
 // error, so a misspelled name never writes an empty value into a file.
-func renderTemplateText(eng render.Engine, body string, ctx map[string]any, task *Task) (string, error) {
-	tmpl, err := eng.Compile(body)
+func renderTemplateText(eng render.Engine, body string, ctx map[string]any, task *Task, opts render.Options) (string, error) {
+	tmpl, err := eng.CompileWith(body, opts)
 	if err != nil {
 		return "", err
 	}

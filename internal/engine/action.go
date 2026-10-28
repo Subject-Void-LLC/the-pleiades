@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -57,7 +56,7 @@ type TargetResolver interface {
 // resolves the rendered target itself (resolveBounded), never through here.
 func TaskTarget(dag *DAG, task *Task) string {
 	if target, ok := task.Params[collection.TargetParam].(string); ok && target != "" {
-		if task.Within != "" && strings.Contains(target, "{{") {
+		if task.Within != "" && IsTemplate(target) {
 			return task.Within
 		}
 		return target

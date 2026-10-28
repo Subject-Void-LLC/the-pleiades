@@ -233,7 +233,7 @@ func readsOf(eng render.Engine, pt paramTask) []varRead {
 				if len(expr.Path) < 2 || expr.Path[0] != engine.TemplateRootVars {
 					continue
 				}
-				reads = append(reads, varRead{name: expr.Path[1], where: "parameter " + key, optional: slices.Contains(expr.Filters, defaultFilter)})
+				reads = append(reads, varRead{name: expr.Path[1], where: "parameter " + key, optional: expr.Guarded})
 			}
 		}
 	}

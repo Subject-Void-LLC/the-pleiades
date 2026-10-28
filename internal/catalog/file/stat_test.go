@@ -87,6 +87,35 @@ func TestStat_ReportsWhatIsAtThePathAndChangesNothing(t *testing.T) {
 	}
 }
 
+// TestStat_AnAbsentPathIsExistsFalseInBothModes (Phase 131, R4): a path
+// with nothing at it is an answer, exists false and kind absent, through
+// the registered run and the registered check alike, never a failure.
+func TestStat_AnAbsentPathIsExistsFalseInBothModes(t *testing.T) {
+	server := startTouchServer(t)
+	d, ok := collection.Lookup("file.stat")
+	if !ok {
+		t.Fatal("file.stat is not registered")
+	}
+	absent := filepath.Join(t.TempDir(), "absent")
+	for _, check := range []bool{false, true} {
+		method := d.Invoke
+		if check {
+			method = d.Check
+		}
+		rc := newTouchContext(server)
+		res, err := method(context.Background(), rc, newTouchDevice(server), touchParams(absent, nil))
+		if err != nil || res.Changed {
+			t.Fatalf("check %v: %+v, %v", check, res, err)
+		}
+		if rc.stats["exists"] != false || rc.stats["kind"] != "absent" || rc.stats["path"] != absent {
+			t.Errorf("check %v: stats = %v", check, rc.stats)
+		}
+		if _, ok := rc.stats["owner"]; ok {
+			t.Errorf("check %v: an owner reported for nothing: %v", check, rc.stats)
+		}
+	}
+}
+
 func TestStat_Refusals(t *testing.T) {
 	server := startTouchServer(t)
 	rc := newTouchContext(server)

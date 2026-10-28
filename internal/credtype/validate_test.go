@@ -133,7 +133,15 @@ func TestCredentialTypeValidateRefusals(t *testing.T) {
 			},
 		},
 		{
-			name: "an injector using a statement block the renderer does not implement",
+			name: "an injector using a statement the renderer does not implement",
+			mutate: func(ct *credtype.CredentialType) {
+				ct.Injectors.Env["API_TOKEN"] = "{% macro m() %}{{ api_token }}{% endmacro %}"
+			},
+		},
+		{
+			// The loop's own name is not an input, so only the list it walks
+			// is checked against the declared inputs, and y is not one.
+			name: "an injector looping over an input the type does not declare",
 			mutate: func(ct *credtype.CredentialType) {
 				ct.Injectors.Env["API_TOKEN"] = "{% for x in y %}{{ x }}{% endfor %}"
 			},
@@ -331,6 +339,12 @@ func TestValidInjectorShapes(t *testing.T) {
 		{
 			name: "the single-file spelling",
 			inj:  credtype.Injectors{File: map[string]string{"template": "token={{ api_token }}\n"}},
+		},
+		{
+			// AWX renders its injectors with Jinja2, so an exported type may
+			// branch on an optional input, as AWX's own rhv type does.
+			name: "a file ending in an if on an optional input",
+			inj:  credtype.Injectors{File: map[string]string{"template": "token={{ api_token }}\n{% if api_url | default('') %}url={{ api_url }}\n{% endif %}"}},
 		},
 		{
 			name: "the multi-file spelling, which the release gate requires two of",

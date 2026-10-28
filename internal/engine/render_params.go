@@ -20,8 +20,9 @@
 //     capabilities and state, deviceRoot), which makes the task render and
 //     decide its condition once per device (device_root.go).
 //
-// A value with no "{{" is passed through untouched, so a runbook that
-// renders nothing costs nothing and behaves as it always did.
+// A value with no "{{", "{%" or "{#" is passed through untouched, so a
+// runbook that renders nothing costs nothing and behaves as it always did.
+// A "{%" meant for the device itself is written {% raw %}...{% endraw %}.
 package engine
 
 import (
@@ -62,12 +63,20 @@ func WithRenderer(eng render.Engine) ExecutorOption {
 	return func(x *Executor) { x.renderer = eng }
 }
 
+// IsTemplate reports whether s is a template: it holds an expression
+// "{{", a statement "{%" or a comment "{#". It is the one test of whether a
+// string renders, so a statement with no expression in it renders too
+// rather than reaching a device as its own source.
+func IsTemplate(s string) bool {
+	return strings.Contains(s, "{{") || strings.Contains(s, "{%") || strings.Contains(s, "{#")
+}
+
 // HasTemplate reports whether v, at any depth of a decoded YAML or JSON
-// value, holds a string with a template action in it.
+// value, holds a string that IsTemplate.
 func HasTemplate(v any) bool {
 	switch t := v.(type) {
 	case string:
-		return strings.Contains(t, "{{")
+		return IsTemplate(t)
 	case map[string]any:
 		for _, e := range t {
 			if HasTemplate(e) {
@@ -155,11 +164,14 @@ func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 // into stdin is the text 7, where keeping the number handed the method a
 // value its string reader takes for absent. Any other rendered parameter
 // keeps its value's type and must be of the declared type
-// (collection.ParamFits), or the task fails naming it. A parameter with no
+// (collection.ParamFits), or the task fails naming it. Every rendered
+// parameter that declares a closed set must also render to one of its
+// choices (collection.ChoiceProblem). A parameter with no
 // template, or one the method does not declare (validation's finding), is
 // left as it is.
 func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map[string]any) (map[string]any, error) {
 	types := ParamTypes(fqcn)
+	decls := paramDecls(fqcn)
 	secretRefs := ParamSecretRefs(fqcn)
 	out := make(map[string]any, len(params))
 	for key, value := range params {
@@ -191,6 +203,11 @@ func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map
 				return nil, fmt.Errorf("parameter %s rendered to %s, and %s declares it %s", key, collection.ValueKind(rendered), fqcn, typ)
 			}
 		}
+		// A rendered value is held to the parameter's declared set, as
+		// validation holds a literal one (collection.ChoiceProblem).
+		if problem := collection.ChoiceProblem(decls[key], rendered); problem != "" {
+			return nil, fmt.Errorf("parameter %s of %s rendered to a value outside its choices: %s", key, fqcn, problem)
+		}
 		out[key] = rendered
 	}
 	return out, nil
@@ -204,7 +221,7 @@ func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map
 func renderText(eng render.Engine, v any, ctx map[string]any) (any, error) {
 	switch t := v.(type) {
 	case string:
-		if !strings.Contains(t, "{{") {
+		if !IsTemplate(t) {
 			return t, nil
 		}
 		tmpl, err := eng.Compile(t)
@@ -356,7 +373,7 @@ func singleWriters(tree map[string]any) map[string]any {
 func renderValue(eng render.Engine, v any, ctx map[string]any) (any, error) {
 	switch t := v.(type) {
 	case string:
-		if !strings.Contains(t, "{{") {
+		if !IsTemplate(t) {
 			return t, nil
 		}
 		tmpl, err := eng.Compile(t)
@@ -423,7 +440,11 @@ func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, t
 			problems = append(problems, fmt.Sprintf("an expression reads %q, and a parameter may read only %s", root, strings.Join(roots, ", ")))
 			continue
 		}
-		if format == collection.ParamFormatCommand && (len(expr.Filters) == 0 || !slices.Contains(commandSafeFilters, expr.Filters[len(expr.Filters)-1])) {
+		// Only an output expression's value is written into the text. A
+		// statement's condition, loop list or set value reaches it only
+		// through a name it binds, and each read of that name is reported
+		// as an output expression of its own (render's scope analysis).
+		if format == collection.ParamFormatCommand && expr.Kind == render.ExpressionOutput && (len(expr.Filters) == 0 || !slices.Contains(commandSafeFilters, expr.Filters[len(expr.Filters)-1])) {
 			problems = append(problems, "this parameter is command text, so each expression must end with | quote (a shell) or | cli_token (a network CLI)")
 		}
 		// A project path the run writes may take only what the person
@@ -449,8 +470,12 @@ func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, t
 // one of "/", "?" or "#" ending the host, so an expression can neither
 // choose the host nor extend it ("api.example.com{{ x }}" could become
 // "api.example.com.attacker.net").
+//
+// The prefix ends at the first statement too, not only the first {{: a
+// "{% if %}" or "{% for %}" before the host could choose or repeat it.
 func URLPrefixFixed(source string) bool {
 	prefix, _, _ := strings.Cut(source, "{{")
+	prefix, _, _ = strings.Cut(prefix, "{%")
 	if strings.HasPrefix(prefix, "/") {
 		return true
 	}
@@ -522,12 +547,23 @@ func ParamTypes(fqcn string) map[string]string {
 	return fragment.Types(desc)
 }
 
+// paramDecls returns each declared parameter of fqcn, its own and its
+// fragments' (fragment.ByName), or an empty map for a name that is not a
+// registered method.
+func paramDecls(fqcn string) map[string]collection.Param {
+	desc, ok := collection.Lookup(fqcn)
+	if !ok {
+		return map[string]collection.Param{}
+	}
+	return fragment.ByName(desc)
+}
+
 // TemplateStrings returns every string in v, at any depth, that holds a
 // template action, in a stable order.
 func TemplateStrings(v any) []string {
 	switch t := v.(type) {
 	case string:
-		if strings.Contains(t, "{{") {
+		if IsTemplate(t) {
 			return []string{t}
 		}
 	case map[string]any:

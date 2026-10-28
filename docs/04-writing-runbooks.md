@@ -412,6 +412,89 @@ tasks:
     loop: [dev, test, prod]
 ```
 
+A template can loop and branch with Jinja's statements: `{% if %}` with
+`{% elif %}` and `{% else %}`, `{% for x in list %}` with `{% else %}` for an
+empty list, `{% set name = value %}`, `{# comments #}` and `{% raw %}`. Inside
+a loop, `loop.index`, `loop.index0`, `loop.first`, `loop.last` and
+`loop.length` count the items, and `{% for k, v in vars.map.items() %}` walks
+a mapping's keys in sorted order.
+
+`file.template` reads its template as Ansible's `template` module does:
+`trim_blocks` is on, so a line that holds only a statement or a comment
+leaves no blank line behind, and `lstrip_blocks` is off. Set either on the
+task, `trim_blocks: false` or `lstrip_blocks: true`, to change it; with
+`lstrip_blocks` a tag can be indented with the text around it. Both apply
+to `content` and to a `src` file alike. Inside a tag, a `-` (`{%-`, `-%}`)
+trims all the whitespace beside it and a `+` (`{%+`, `+%}`) keeps what the
+two options would remove.
+
+```yaml
+# Writes a proxy's upstream list from the backends the runbook names.
+# Blast radius: the web servers.
+# Changes: one file under /tmp.
+# Undo: delete the file.
+id: template-statements
+hosts: web
+vars:
+  backends: [app1, app2]
+  tls: true
+tasks:
+  - name: Upstream list
+    file.template:
+      dest: /tmp/upstream.conf
+      content: |
+        upstream app {
+        {% for name in vars.backends %}
+          server {{ name }}:8080;
+        {% endfor %}
+        }
+        {% if vars.tls %}
+        listen 443 ssl;
+        {% else %}
+        listen 80;
+        {% endif %}
+```
+
+That writes:
+
+```text
+upstream app {
+  server app1:8080;
+  server app2:8080;
+}
+listen 443 ssl;
+```
+
+A condition is a Jinja expression: `{% if vars.env == 'prod' and not
+vars.drain %}`, `{% if 'web' in vars.roles %}`, `{% if vars.tls is defined %}`.
+It has literals (`'text'`, `42`, `1.5`, `true`, `none`, `[a, b]`,
+`{'k': v}`), the comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`, `in` and
+`not in`, `and`, `or` and `not`, the tests `is defined`, `is none`,
+`is string`, `is number`, `is mapping`, `is iterable` and `is sameas`, `~` to
+join text, and parentheses. Their meaning is Python's, as in Jinja: a number
+never equals text, and ordering a number against text is an error, not false.
+`and` and `or` stop at the first operand that decides, so the other is never
+read. There is no arithmetic. A value is true unless it is false, none, zero
+or an empty text, list or mapping. A name a template does not set and nobody
+supplied is an error, except under `default` or `is defined`.
+`pleiades doc filters` lists every statement, operator, test and filter.
+A `set` inside a loop lasts for that pass only. One render runs
+at most 10,000 loop passes in all, nested loops counted together, and writes
+at most 1 MiB. `macro`, `include`, `import`, `extends`, `call` and every other
+statement are refused by name: by `pleiades validate` for a template written
+in the runbook, and before anything is written for a template file.
+
+Every task parameter that holds `{{`, `{%` or `{#` renders, so a statement
+alone is enough: `cmd: "{% if vars.drain %}systemctl stop app{% endif %}"`.
+Every other parameter keeps Jinja's own whitespace defaults, with both
+options off, as Ansible renders a module's arguments. Text meant for the
+device itself, such as a shell's `printf '{%s}'` or a Jinja file copied onto
+a host, is wrapped so it is sent as written:
+`cmd: "printf '{% raw %}{%s}{% endraw %}' x"`. `pleiades validate` warns about
+a parameter that holds `{%` or `{#` and no `{{`, since it may be such text.
+Unlike Ansible's `template` module, a block tag keeps the newline after it,
+which is Jinja's own default, so trim it with `-` as above.
+
 ## Reusing a task list like a function
 
 A file of tasks that you `import_tasks` is a function, and the `vars:` on the

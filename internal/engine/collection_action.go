@@ -198,7 +198,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		if err != nil {
 			return ActionResult{Stats: failedStats(task.FQCN, mode, stats)}, methodError(task.FQCN, mode, err)
 		}
-		if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
+		if err := holdReadOnly(desc, task.FQCN, task.Params, result.Changed, stats); err != nil {
 			return ActionResult{}, err
 		}
 		return ActionResult{Changed: result.Changed, Stats: stats}, nil
@@ -276,7 +276,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if err != nil {
 		return ActionResult{Stats: failedStats(task.FQCN, mode, stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
 	}
-	if err := holdReadOnly(desc, task.FQCN, result.Changed, stats); err != nil {
+	if err := holdReadOnly(desc, task.FQCN, task.Params, result.Changed, stats); err != nil {
 		return ActionResult{Secrets: secrets}, err
 	}
 
@@ -336,7 +336,8 @@ func keepsUndo(fqcn string, mode collection.Mode, stats map[string]interface{}) 
 }
 
 // holdReadOnly fails a built-in method that declares it only reads
-// (Reversibility.ReadOnly) and reported a change or an undo anyway.
+// (Reversibility.ReadOnly), or whose ReadOnlyCall declares that this call
+// with params only reads, and reported a change or an undo anyway.
 //
 // The declaration is what a rollback relies on to say a failed read-only
 // task left nothing behind, and what lets a runbook marked reversible run
@@ -346,8 +347,11 @@ func keepsUndo(fqcn string, mode collection.Mode, stats map[string]interface{}) 
 // (sdk.Unchanged), as wait.connection does. An external Collection
 // program's declaration is not honored at all (Descriptor.Provider), so it
 // is not held either.
-func holdReadOnly(desc collection.Descriptor, fqcn string, changed bool, stats map[string]interface{}) error {
-	if !desc.Manifest.Reversibility.ReadOnly || desc.Provider != nil {
+func holdReadOnly(desc collection.Descriptor, fqcn string, params map[string]any, changed bool, stats map[string]interface{}) error {
+	// A call the method's ReadOnlyCall answered read-only for these
+	// parameters is held as a read-only method is, since validation has
+	// already leaned on that answer (an until over it is not warned about).
+	if !desc.ReadsOnly(params) || desc.Provider != nil {
 		return nil
 	}
 	if changed {

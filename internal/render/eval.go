@@ -4,13 +4,22 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 )
 
-// eval resolves one expression against vars and returns its rendered text.
-//
-// This is where the strict-undefined rule described in the package comment
-// is actually enforced, and where its single exception lives.
-func (e *expression) eval(vars map[string]any) (string, error) {
+// env is what an expression evaluates against: the names in scope, and
+// the step budget that bounds the work one render may do.
+type env interface {
+	// lookup resolves a root name: the innermost name a statement bound,
+	// then the caller's variables.
+	lookup(name string) (any, bool)
+
+	// charge spends n steps of the render's budget, refusing past it.
+	charge(n int) error
+}
+
+// eval evaluates one expression and returns its rendered text.
+func (e *expression) eval(vars env) (string, error) {
 	value, err := e.evalValue(vars)
 	if err != nil {
 		return "", err
@@ -22,62 +31,181 @@ func (e *expression) eval(vars map[string]any) (string, error) {
 	return out, nil
 }
 
-// evalValue resolves e's path and applies its filters, returning the
-// value before any conversion to text: the half of eval that Value shares.
-func (e *expression) evalValue(vars map[string]any) (any, error) {
-	value, defined := e.resolve(vars)
-	chain := e.filters
-
-	// The default filter is the only escape from strict-undefined, and it
-	// rescues only when it is the first filter in the chain. That mirrors
-	// Jinja2: "{{ a | lower | default('x') }}" fails on an undefined a,
-	// because lower runs first and has nothing to lowercase. Accepting it
-	// anywhere in the chain would quietly change what a template imported
-	// from AWX evaluates to.
-	if len(chain) > 0 && chain[0].name == filterDefault {
-		if !defined {
-			value = chain[0].args[0]
-			defined = true
+// evalValue evaluates e to its value, before any conversion to text: the
+// half of eval that Value shares. An undefined name is returned as it is,
+// so a caller can tell it with errors.Is; every other error names e.
+func (e *expression) evalValue(vars env) (any, error) {
+	value, err := e.body.evaluate(vars)
+	if err != nil {
+		if _, undefined := err.(*UndefinedError); undefined {
+			return nil, err
 		}
-		chain = chain[1:]
-	}
-
-	if !defined {
-		return nil, &UndefinedError{Name: e.reference()}
-	}
-
-	for _, f := range chain {
-		// A default past the first position has nothing to do: the value
-		// is defined by construction at this point. It is accepted rather
-		// than refused so that an AWX template using the redundant form
-		// still compiles.
-		if f.name == filterDefault {
-			continue
-		}
-
-		var err error
-		value, err = filters[f.name].apply(value, f.args)
-		if err != nil {
-			return nil, fmt.Errorf("%w (in %q)", err, e.source)
-		}
+		return nil, fmt.Errorf("%w (in %q)", err, e.source)
 	}
 	return value, nil
 }
 
-// resolve walks the expression's path through vars.
+// evaluate computes one node's value. This is where the strict-undefined
+// rule described in the package comment is enforced, and where its two
+// exceptions live: the default filter and the defined test, each applied
+// directly to a path.
+func (n *exprNode) evaluate(vars env) (any, error) {
+	switch n.kind {
+	case exprRef:
+		value, defined := n.resolve(vars)
+		if !defined {
+			return nil, &UndefinedError{Name: n.reference()}
+		}
+		return value, nil
+
+	case exprLiteral:
+		return n.value, nil
+
+	case exprList:
+		out := make([]any, len(n.args))
+		for i, a := range n.args {
+			v, err := a.evaluate(vars)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = v
+		}
+		return out, nil
+
+	case exprMap:
+		out := make(map[string]any, len(n.args))
+		for i, a := range n.args {
+			v, err := a.evaluate(vars)
+			if err != nil {
+				return nil, err
+			}
+			out[n.keys[i]] = v
+		}
+		return out, nil
+
+	case exprMethod:
+		v, err := n.operand.evaluate(vars)
+		if err != nil {
+			return nil, err
+		}
+		items, err := mappingItems(v, n.name)
+		if err != nil {
+			return nil, err
+		}
+		return items, vars.charge(len(items))
+
+	case exprNot:
+		v, err := n.operand.evaluate(vars)
+		if err != nil {
+			return nil, err
+		}
+		return !truthy(v), nil
+
+	case exprAnd, exprOr:
+		// Each operand is evaluated only if the ones before it did not
+		// decide the answer, so a branch not taken reads nothing. As in
+		// Jinja2 the result is the deciding operand, not a boolean.
+		var v any
+		for _, a := range n.args {
+			var err error
+			if v, err = a.evaluate(vars); err != nil {
+				return nil, err
+			}
+			if truthy(v) == (n.kind == exprOr) {
+				return v, nil
+			}
+		}
+		return v, nil
+
+	case exprCompare:
+		return n.compare(vars)
+
+	case exprConcat:
+		return n.concat(vars)
+
+	case exprFilter:
+		return n.applyFilter(vars)
+
+	case exprTest:
+		return n.applyTest(vars)
+	}
+	return nil, fmt.Errorf("%w: unknown expression", ErrSyntax)
+}
+
+// concat joins its operands' text, as ~ does: the same text each would
+// render as, so null, a list or a mapping is an error (use to_json).
+func (n *exprNode) concat(vars env) (any, error) {
+	var b strings.Builder
+	for _, a := range n.args {
+		v, err := a.evaluate(vars)
+		if err != nil {
+			return nil, err
+		}
+		s, err := text(v)
+		if err != nil {
+			return nil, err
+		}
+		b.WriteString(s)
+		if b.Len() > maxOutputBytes {
+			return nil, fmt.Errorf("%w: ~ built more than %d bytes", ErrTooLarge, maxOutputBytes)
+		}
+	}
+	return b.String(), vars.charge(b.Len() / bytesPerStep)
+}
+
+// applyFilter applies one filter. default rescues only an undefined path
+// it is applied to directly, which mirrors Jinja2:
+// "{{ a | lower | default('x') }}" fails on an undefined a, because lower
+// runs first and has nothing to lowercase. Accepting it anywhere would
+// quietly change what a template imported from AWX evaluates to.
+func (n *exprNode) applyFilter(vars env) (any, error) {
+	if n.name == filterDefault {
+		if n.operand.kind == exprRef {
+			if value, defined := n.operand.resolve(vars); defined {
+				return value, nil
+			}
+			return n.args[0].evaluate(vars)
+		}
+		// A default past the first position has nothing to do: the value
+		// is defined by construction. It is accepted so an AWX template
+		// using the redundant form still compiles.
+		return n.operand.evaluate(vars)
+	}
+	value, err := n.operand.evaluate(vars)
+	if err != nil {
+		return nil, err
+	}
+	out, err := filters[n.name].apply(value, nil)
+	if err != nil {
+		return nil, err
+	}
+	// A filter's work grows with what it reads and writes; a loop must
+	// not be able to repeat a megabyte's work ten thousand times.
+	return out, vars.charge(workOf(value) + workOf(out))
+}
+
+// workOf is the step cost of handling value: one step per bytesPerStep of
+// text.
+func workOf(value any) int {
+	if s, ok := value.(string); ok {
+		return len(s) / bytesPerStep
+	}
+	return 0
+}
+
+// resolve walks a path through vars.
 //
 // The second return value distinguishes absent from present-and-null, which
 // is the distinction the whole strict-undefined rule rests on. A key that
 // is present with a nil value is defined, and rendering it is an error with
 // its own message, because a caller who explicitly supplied null meant
 // something different from a caller who supplied nothing.
-func (e *expression) resolve(vars map[string]any) (any, bool) {
-	current, ok := vars[e.root]
+func (n *exprNode) resolve(vars env) (any, bool) {
+	current, ok := vars.lookup(n.root)
 	if !ok {
 		return nil, false
 	}
-
-	for _, s := range e.steps {
+	for _, s := range n.steps {
 		current, ok = descend(current, s)
 		if !ok {
 			return nil, false

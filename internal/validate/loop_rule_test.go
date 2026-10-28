@@ -72,6 +72,47 @@ tasks:
 	}
 }
 
+// TestUntilWarnings_ACallThatOnlyReadsIsNotWarnedAbout: net.ios.command
+// declares per call (ReadOnlyCall) that a show writing no file and
+// answering no question only reads, so an until over it is not warned
+// about, while the same method running reload, a show answering a prompt,
+// a show piped to a file, or terminal is.
+func TestUntilWarnings_ACallThatOnlyReadsIsNotWarnedAbout(t *testing.T) {
+	dag := yamlDAG(t, `id: u
+tasks:
+  - net.ios.command:
+      command: "show version | include Version"
+    register: a
+    until: ["true"]
+  - net.ios.command:
+      command: reload
+    register: b
+    until: ["true"]
+  - net.ios.command:
+      command: show version
+      prompts:
+        - match: 'x'
+          answer: "y"
+    register: c
+    until: ["true"]
+  - net.ios.command:
+      command: "show running-config | redirect flash:x"
+    register: d
+    until: ["true"]
+  - net.ios.command:
+      command: terminal length 0
+    register: e
+    until: ["true"]
+`)
+	var nodes []string
+	for _, f := range validate.UntilWarnings(validate.WorldView{DAG: dag}) {
+		nodes = append(nodes, f.Node)
+	}
+	if strings.Join(nodes, ",") != "tasks[1],tasks[2],tasks[3],tasks[4]" {
+		t.Errorf("warned about %v, want every task but the plain show", nodes)
+	}
+}
+
 func TestVarsRule_ReadsLateFactsTemplatedTargetsAndALoopExpression(t *testing.T) {
 	world := func(runbook string) validate.WorldView {
 		return validate.WorldView{DAG: yamlDAG(t, runbook), VariablesKnown: true}

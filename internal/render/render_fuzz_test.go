@@ -95,6 +95,65 @@ func FuzzCompileAndRender(f *testing.F) {
 		strings.Repeat("{{ item.", 200) + "x" + strings.Repeat(" }}", 200),
 		strings.Repeat("{{ item }},", 5000),
 		"{{ item | to_json }}{{ loop.first }}{{ loop.last }}{{ loop.index0 }}",
+
+		// Statements: each one, its edge cases, refused ones, whitespace
+		// control, nesting near the bound, and loops whose work the bounds
+		// must stop.
+		"{% if a %}x{% elif b %}y{% else %}z{% endif %}",
+		"{% if not a %}{{ b }}{% endif %}",
+		"{% if a %}{% else %}{{ b }}{% endif %}",
+		"{% for x in a %}{{ x }}{{ loop.index }}/{{ loop.length }}{% else %}{{ b }}{% endfor %}",
+		"{% for k, v in a.items() %}{{ k }}={{ v }}{% endfor %}",
+		"{% for k in a.keys() %}{% endfor %}{% for v in a.values() %}{{ v }}{% endfor %}",
+		"{% set n = a | upper %}{% for x in b %}{% set n = x %}{{ n }}{% endfor %}{{ n }}",
+		"{% if c %}{% set n = a %}{% endif %}{{ n }}",
+		"{{ n }}{% set n = a %}{{ n }}",
+		"{% for a in a %}{% for a in a %}{{ a }}{% endfor %}{% endfor %}",
+		"a {%- if b -%} c {%- endif -%} d {#- e -#} f",
+		"{% raw %}{{ x }}{% endraw %}",
+		"{% raw -%} {% if %} {%- endraw %}",
+		"{% if %}",
+		"{% endif %}",
+		"{% if a %}",
+		"{% else %}",
+		"{% for loop in a %}{% endfor %}",
+		"{% for a, b, c in d %}{% endfor %}",
+		"{% for x in y if z %}{% endfor %}",
+		"{% set a %}{% endset %}",
+		"{% macro m() %}{% endmacro %}",
+		"{% include 'x' %}",
+		"{% if {{ a }} %}{% endif %}",
+		"{# {{ a }} {% if %} #}",
+		"{#",
+		"{% raw %}",
+		strings.Repeat("{% if a %}", 17) + strings.Repeat("{% endif %}", 17),
+		strings.Repeat("{% for x in a %}", 16) + "{{ x }}" + strings.Repeat("{% endfor %}", 16),
+		strings.Repeat("{% if c %}{% set n = a %}{% endif %}", 20) + "{{ n }}",
+		strings.Repeat("{% raw %}{%", 2000),
+
+		// Expressions: literals, every operator, tests, nesting near the
+		// bounds, and forms refused.
+		"{% if vars.env == 'prod' %}p{% elif n >= 2 and not off %}m{% endif %}",
+		"{{ a == 'x' }}{{ a != 1 }}{{ a < 'b' <= c }}{{ 1 < 2.5 }}{{ [1, 2] < [1, 3] }}",
+		"{{ a in ['x', 'y'] }}{{ 'k' not in m }}{{ 'ub' in a }}{{ a in (1,) }}",
+		"{{ a or b }}{{ a and b }}{{ not a }}{{ (a or b) and c }}",
+		"{{ a is defined }}{{ a is not defined }}{{ a is none }}{{ a is string }}{{ a is number }}",
+		"{{ a is mapping }}{{ a is iterable }}{{ a is sameas false }}{{ a is sameas(none) }}",
+		"{{ a ~ '-' ~ b | upper }}{{ (a ~ b) | quote }}",
+		`{{ [a, {'k': b, "j": [1, 2.5, -3, 0x1f, true, None]}] | to_json }}`,
+		"{{ 'esc\\x41\\101\\n\\'' }}",
+		"{{ m.items() | to_json }}{% for k, v in m.items() %}{{ k }}{% endfor %}",
+		"{{ a | default(b) }}{{ a | default(b ~ 'x') | quote }}",
+		"{% set on = a == 'x' %}{{ on }}{% set l = [a, b] %}{% for x in l %}{{ x }}{% endfor %}",
+		"{{ {'a': {'b': {'c': 1}}} | to_json }}",
+		"{{ '}}' }}{% set s = '%}' %}{{ s }}",
+		"{{ a + 1 }}", "{{ -a }}", "{{ a if b else c }}", "{{ a[b] }}", "{{ a.upper() }}", "{{ a is even }}",
+		"{{ 012 }}", "{{ 1e999 }}", "{{ [1, 2 }}", "{{ {a: 1} }}", "{{ and }}", "{{ a == }}",
+		"{{ " + strings.Repeat("(", 33) + "a" + strings.Repeat(")", 33) + " }}",
+		"{{ " + strings.Repeat("not ", 40) + "a }}",
+		"{{ [" + strings.Repeat("a,", 300) + "] }}",
+		"{{ " + strings.Repeat("a ~ ", 500) + "a }}",
+		"{{ " + strings.Repeat("[", 40) + strings.Repeat("]", 40) + " }}",
 	}
 	for _, s := range seeds {
 		f.Add(s)
@@ -210,9 +269,19 @@ func FuzzCompileAndRender(f *testing.F) {
 		// "default" in its literal text is skipped too. Over-broad is the
 		// safe direction, because it only ever skips a case, never passes
 		// a violation.
-		if strings.Contains(source, "default") {
+		if strings.Contains(source, "default") || strings.Contains(source, "defined") {
 			return
 		}
+		// A statement can leave a name in a branch not taken or a loop that
+		// ran no time, so with statements the property is the one beneath
+		// the rule: a render without a name either fails with ErrUndefined,
+		// because it read the name, or never read it and so writes exactly
+		// what the complete map wrote. It never writes anything else.
+		// and, or and a chained comparison ("a in b in c" too) short-circuit
+		// the same way. The substring tests are over-broad, the safe
+		// direction: they only ever choose the weaker, still sound, form.
+		branching := strings.Contains(source, "{%") || strings.Contains(source, "and") ||
+			strings.Contains(source, "or") || strings.Contains(source, "in") || strings.ContainsAny(source, "<>=!")
 		for _, missing := range names {
 			partial := make(map[string]any, len(full))
 			for k, v := range full {
@@ -222,6 +291,12 @@ func FuzzCompileAndRender(f *testing.F) {
 			}
 
 			got, err := tmpl.Render(partial)
+			if err == nil && branching {
+				if got != out {
+					t.Fatalf("Render(%q) without %q succeeded with %q, and the complete map gave %q", source, missing, got, out)
+				}
+				continue
+			}
 			if err == nil {
 				t.Fatalf("Render(%q) without %q succeeded and produced %q, so a missing variable was silently substituted", source, missing, got)
 			}
@@ -250,7 +325,8 @@ func valueIsWhole(source string) bool {
 	if strings.HasSuffix(strings.TrimRight(source, " \t\r\n"), "-}}") {
 		source = strings.TrimRight(source, " \t\r\n")
 	}
-	return strings.Count(source, "{{") == 1 && strings.HasPrefix(source, "{{") && strings.HasSuffix(source, "}}")
+	// No count of "{{" here: a string literal may hold one ("{{ '{{' }}").
+	return strings.HasPrefix(source, "{{") && strings.HasSuffix(source, "}}")
 }
 
 // TestRender_LoopItemShapes renders the shapes a loop hands a template: an

@@ -13,28 +13,48 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
-// checkStatus turns an HTTP status into the error an operator can act on.
+// checkStatus turns an HTTP status into the error an operator can act on,
+// ending with said, what Vault itself answered ("" for none).
 //
 // The three that matter are separated deliberately: "this token cannot read
 // that path", "there is nothing at that path" and "the server is unwell"
 // send somebody to three different places, and one error for all three
-// sends them to the wrong one.
-func checkStatus(status int, ref reference) error {
+// sends them to the wrong one. Vault's own words say which policy or seal
+// state it was, which the status alone cannot.
+func checkStatus(status int, ref reference, said string) error {
 	switch {
 	case status == http.StatusOK:
 		return nil
 	case status == http.StatusForbidden, status == http.StatusUnauthorized:
-		return fmt.Errorf("%w: this source credential's token is not permitted to read %s", credtype.ErrLookupReference, ref)
+		return fmt.Errorf("%w: this source credential's token is not permitted to read %s%s", credtype.ErrLookupReference, ref, said)
 	case status == http.StatusNotFound:
 		// Vault answers 404 both for a path that holds nothing and for a
 		// mount that does not exist, and it does not distinguish them, so
 		// neither does this.
-		return fmt.Errorf("%w: nothing is stored at %s, or that mount does not exist", credtype.ErrLookupReference, ref)
+		return fmt.Errorf("%w: nothing is stored at %s, or that mount does not exist%s", credtype.ErrLookupReference, ref, said)
 	default:
-		return fmt.Errorf("%w: the Vault server answered %d reading %s", credtype.ErrLookupReference, status, ref)
+		return fmt.Errorf("%w: the Vault server answered %d reading %s%s", credtype.ErrLookupReference, status, ref, said)
 	}
+}
+
+// said is Vault's own answer to a refused read, fit for an error: its
+// errors list through pkg/farside, with this lookup's token masked by value
+// first, since these errors reach a job record and a proxy in front of
+// Vault could echo a request header. A 200's body is the secret itself and
+// is never quoted, and an answer that says nothing ({"errors":[]}, Vault's
+// usual 404) adds nothing.
+func (l *Lookup) said(status int, body []byte) string {
+	words := strings.ReplaceAll(farside.Words(string(body)), " ", "")
+	if status == http.StatusOK || words == "" || words == `{"errors":[]}` {
+		return ""
+	}
+	return ": Vault said " + farside.Masked(string(body), func(s string) string {
+		return redact.Text([]string{l.token}, s)
+	})
 }
 
 // valueFrom takes the one field the reference names out of the response.

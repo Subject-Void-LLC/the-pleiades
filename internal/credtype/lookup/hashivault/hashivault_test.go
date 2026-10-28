@@ -219,6 +219,32 @@ func TestStatusesAreClassifiedSeparately(t *testing.T) {
 	}
 }
 
+// TestRefusalsCarryVaultsOwnWords serves the error bodies Vault documents
+// (a JSON object holding an errors list) and checks that its reason reaches
+// the error, quoted, while its usual empty 404 list adds nothing.
+func TestRefusalsCarryVaultsOwnWords(t *testing.T) {
+	for _, tc := range []struct {
+		status     int
+		body, want string
+	}{
+		{http.StatusForbidden, `{"errors":["1 error occurred:\n\t* permission denied\n\n"]}`, `prod/api#token: Vault said "1 error occurred: * permission denied"`},
+		{http.StatusServiceUnavailable, `{"errors":["Vault is sealed"]}`, `prod/api#token: Vault said "Vault is sealed"`},
+		{http.StatusNotFound, `{"errors":[]}`, "or that mount does not exist"},
+	} {
+		stub := newVaultStub(t, tc.body)
+		stub.status = tc.status
+		_, err := sourceFor(t, stub, nil).Resolve(context.Background(), refFor(t, map[string]string{
+			"secret_path": "prod/api", "secret_key": "token",
+		}))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("status %d: Resolve() error = %v, want it to hold %s", tc.status, err, tc.want)
+		}
+		if tc.status == http.StatusNotFound && strings.Contains(err.Error(), "Vault said") {
+			t.Errorf("an empty errors list was quoted: %v", err)
+		}
+	}
+}
+
 // TestNoErrorEverCarriesTheTokenOrTheValue is the property that matters
 // most in this file, because these errors reach a job record.
 func TestNoErrorEverCarriesTheTokenOrTheValue(t *testing.T) {
@@ -232,6 +258,9 @@ func TestNoErrorEverCarriesTheTokenOrTheValue(t *testing.T) {
 		metadata map[string]string
 	}{
 		{name: "a forbidden read", body: "{}", status: http.StatusForbidden},
+		// A refusal whose words echo the token, as a proxy echoing the
+		// request header could: Vault's words are quoted, the token is not.
+		{name: "a refusal echoing the token", body: `{"errors":["permission denied for ` + token + `"]}`, status: http.StatusForbidden},
 		{name: "a missing key", body: kv2(map[string]any{"other": value}), status: http.StatusOK},
 		{name: "an object value", body: kv2(map[string]any{"token": map[string]any{"a": value}}), status: http.StatusOK},
 		{name: "a malformed body", body: "not json at all", status: http.StatusOK},
