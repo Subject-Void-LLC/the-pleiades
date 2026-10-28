@@ -11,7 +11,27 @@ Ubuntu container over SSH, the same lab set up in
 [`examples/webserver_lab/`](../examples/webserver_lab/). Nothing here is
 hand-written to look plausible.
 
-### 1. Build the binary
+### 1. Get the binary
+
+From a release: download the archive for your system and the `SHA256SUMS` file from the
+release page. Each archive holds `pleiades`, `controller` and `runner` (with `.exe` on
+Windows) and the license. Check it, then unpack it somewhere on your `PATH`:
+
+```console
+$ sha256sum --ignore-missing -c SHA256SUMS
+the-pleiades_0.3.0_linux_amd64.tar.gz: OK
+$ tar -xzf the-pleiades_0.3.0_linux_amd64.tar.gz -C ~/.local/bin pleiades
+$ pleiades version
+pleiades 0.3.0
+Paranoid Porpoise
+```
+
+Archives exist for Linux, macOS and Windows, each on amd64 and arm64. On macOS,
+`shasum -a 256 -c SHA256SUMS` does the check; on Windows, compare
+`Get-FileHash <archive>` with the archive's line in `SHA256SUMS`. The archives are not
+signed yet; the checksum list is what a download is checked against.
+
+Or build it from a checkout:
 
 ```console
 $ go build -o pleiades ./cmd/pleiades
