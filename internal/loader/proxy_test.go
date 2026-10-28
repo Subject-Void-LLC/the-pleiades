@@ -238,7 +238,9 @@ func TestProxy_AFailureKeepsWhatTheProgramRecorded(t *testing.T) {
 	if _, err := d.Invoke(t.Context(), rc, newSSHDevice(), nil); err == nil || !strings.Contains(err.Error(), "command exited 3") {
 		t.Fatalf("Invoke = %v, want the program's failure", err)
 	}
-	if rc.stats["rc"] != float64(3) || rc.stats["stdout"] != "partial" {
+	// The program's whole number reads back as an int, as a built-in
+	// method's own stat is (pkg/wire's numbers.go).
+	if rc.stats["rc"] != 3 || rc.stats["stdout"] != "partial" {
 		t.Errorf("stats = %v, want the exit status and output the program recorded", rc.stats)
 	}
 }
