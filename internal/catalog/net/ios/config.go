@@ -139,9 +139,12 @@ func configDoc() collection.Doc {
 
 // configUndoCall is net.ios.config's answer, from a call alone, to whether
 // it records an undo: a call with checkpoint anything but true (false, or a
-// template whose value is not known before the run) records none. A device
-// with nowhere to keep a checkpoint records none either, which only the
-// run can find; the undo then stops naming the task.
+// template whose value is not known before the run) records none, and one
+// with a crypto key line records a partial one, the only call whose undo is
+// (recordReplace), so validation asks this rather than refusing every call
+// for its MayBePartial declaration. A device with nowhere to keep a
+// checkpoint records none either, which only the run can find; the undo
+// then stops naming the task.
 func configUndoCall(params map[string]any) string {
 	if v, present := params[paramCheckpoint]; present && v != true {
 		return "checkpoint is not true, so no checkpoint is kept and the undo is lines only shown, never recorded"

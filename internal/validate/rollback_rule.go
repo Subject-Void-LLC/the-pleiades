@@ -158,7 +158,14 @@ func whyNotUndoable(fqcn string, params map[string]any) string {
 			return fmt.Sprintf("calls %s, whose undo through %s keeps %s out of the journal, so no rollback can replay it",
 				fqcn, spec.FQCN, strings.Join(spec.Withhold, " and "))
 		}
-		if spec.MayBePartial {
+		// A method whose undo is partial for some calls only says which
+		// through its UndoCall, asked below: net.ios.config's undo is
+		// partial only for a crypto key line, which its UndoCall names.
+		// Refusing every call for those few would keep it out of every
+		// rollback_on_failure block. A call the method misjudges cannot run a
+		// partial undo either way: the journal never marks one complete, and
+		// the engine replays only a complete undo.
+		if spec.MayBePartial && desc.UndoCall == nil {
 			return fmt.Sprintf("calls %s, whose undo through %s can leave part of what it changed in place", fqcn, spec.FQCN)
 		}
 	}

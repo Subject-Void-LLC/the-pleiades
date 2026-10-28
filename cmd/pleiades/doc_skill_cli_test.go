@@ -1,4 +1,5 @@
-// The skill's own runbook, checked and run through the real binary.
+// The skill's own runbooks, checked through the real binary, and the
+// first run against a real sshd.
 package main_test
 
 import (
@@ -92,5 +93,63 @@ func TestCLI_DocCreateSkillTeachesARunbookThatValidatesAndRuns(t *testing.T) {
 		if task.Status != "changed" {
 			t.Errorf("task %q ended %q, want it to have run:\n%s", task.Name, task.Status, out)
 		}
+	}
+}
+
+// yamlBlocks returns every fenced yaml block of a Markdown text, in order.
+func yamlBlocks(markdown string) []string {
+	var blocks []string
+	rest := markdown
+	for {
+		var ok bool
+		if _, rest, ok = strings.Cut(rest, "```yaml\n"); !ok {
+			return blocks
+		}
+		block, after, closed := strings.Cut(rest, "```")
+		if !closed {
+			return blocks
+		}
+		blocks, rest = append(blocks, block), after
+	}
+}
+
+// TestCLI_DocCreateSkillsRollbackExampleValidates writes the skill through
+// the real binary, takes the runbook its network section teaches a block's
+// rollback_on_failure by (net.ios.config with no rollback: list) out of the
+// file an agent reads, and validates it against a Cisco router as named,
+// warnings counted as failures. The skill once said this works while
+// validate refused every such block; a skill that teaches what validate
+// refuses teaches the agent the mistake (FAILURE_PATTERNS 548, 702).
+func TestCLI_DocCreateSkillsRollbackExampleValidates(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	for _, args := range [][]string{
+		{"init"},
+		{"add-host", "core1", "--type", "cisco_router", "--set", "host=192.0.2.10"},
+		{"doc", "--create-skill"},
+	} {
+		if out, err := runPleiadesWithHome(t, dir, home, args...); err != nil {
+			t.Fatalf("pleiades %s: %v\n%s", args[0], err, out)
+		}
+	}
+	skill, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runbook string
+	for _, block := range yamlBlocks(string(skill)) {
+		if strings.Contains(block, "rollback_on_failure: true") {
+			runbook = block
+		}
+	}
+	if !strings.Contains(runbook, "net.ios.config:") || strings.Contains(runbook, "rollback:\n") {
+		t.Fatalf("SKILL.md holds no rollback_on_failure example over net.ios.config without a rollback: list:\n%s", skill)
+	}
+	path := filepath.Join("runbooks", "loopback_change.yaml")
+	if err := os.WriteFile(filepath.Join(dir, path), []byte(runbook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runPleiadesWithHome(t, dir, home, "validate", path)
+	if err != nil || !strings.Contains(out, "validate: no issues found") || strings.Contains(out, "[warning]") {
+		t.Fatalf("the skill's rollback example does not validate cleanly: err=%v\n%s\n--- runbook ---\n%s", err, out, runbook)
 	}
 }

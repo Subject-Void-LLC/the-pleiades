@@ -209,7 +209,8 @@ func TestLab_FailureWalk(t *testing.T) {
 		{"virt.cml.lab.list", false, func(string) map[string]any { return nil }, func(id string) []string { return []string{"GET /labs", "GET /labs/" + id} }},
 		{"virt.cml.lab.info", false, byID, func(string) []string { return []string{"/nodes", "/interfaces", "/links"} }},
 		{"virt.cml.lab.create", false, func(string) map[string]any { return map[string]any{"title": "new"} }, func(string) []string { return []string{"GET /labs", "POST /labs"} }},
-		{"virt.cml.lab.start", false, byID, func(string) []string { return []string{"/nodes", "/state/start"} }},
+		// GET /labs is the controller-wide count alone: the lab is named by id.
+		{"virt.cml.lab.start", false, byID, func(string) []string { return []string{"/nodes", "GET /labs", "/state/start"} }},
 		{"virt.cml.lab.stop", true, byID, func(string) []string { return []string{"/nodes", "/state/stop"} }},
 		{"virt.cml.lab.delete", true, byID, func(id string) []string { return []string{"PUT /labs/" + id + "/stop", "/wipe", "DELETE /labs/" + id} }},
 	} {

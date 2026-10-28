@@ -414,8 +414,10 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  `net.ios.config` accepts; any other `% ` line fails the task. `accept:` lists the notices a task also accepts,\n" +
 	"  each a pattern you write after reading the device's own words; never accept a rejection to make a task pass.\n" +
 	"- `net.ios.config` keeps a checkpoint of the running configuration on the device and records an exact undo\n" +
-	"  (`net.ios.replace`), so `pleiades rollback` and a block's `rollback_on_failure` work with no `rollback:` list,\n" +
-	"  and a second run of the same lines reports unchanged. When its result warns that no undo was recorded (a\n" +
+	"  (`net.ios.replace`), so `pleiades rollback` and a block's `rollback_on_failure` work with no `rollback:` list\n" +
+	"  (the example below), and a second run of the same lines reports unchanged. A `crypto key` line, or\n" +
+	"  `checkpoint: false`, records no exact undo, and `validate` refuses `rollback_on_failure` over it: keep that\n" +
+	"  task out of such a block. When its result warns that no undo was recorded (a\n" +
 	"  device with no writable file system), and for `net.cli.config` or a configuring `net.ios.command`, give the\n" +
 	"  task a `rollback:` list: `undo_lines` in the result has the lines, masked; put each masked secret back. Read a\n" +
 	"  device's state before and after with `net.ios.parse` (structured) or a `show` through `net.ios.command`, both\n" +
@@ -430,6 +432,12 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  block's `always:`, so a failed proof still hands back a whole lab. `virt.cml.lab.info` shows every node's state and\n" +
 	"  link before you change one. An IOL node's ports are `Ethernet0/0` to `Ethernet0/3`, never `GigabitEthernet`; read\n" +
 	"  them with `net.ios.facts` before configuring one.\n" +
+	"- A router `virt.cml.node.create` seeds with `device:` takes SSH only on its vty lines: to reach it over Telnet,\n" +
+	"  put `line vty 0 4` and under it `transport input ssh telnet` in its `configuration:` before its first start. An\n" +
+	"  external connector has one interface, `port`, and an unmanaged switch has `port0` to `port7`.\n" +
+	"- `virt.cml.lab.start` reports `controller_nodes_running` and `controller_nodes_needed`, in a check too. A\n" +
+	"  controller at its license's node limit refuses a start, and the error says so: free capacity before running it\n" +
+	"  again, and remember that a lab you tear down mid-task gives its capacity to whoever starts next.\n" +
 	"- `when:` goes on the tasks inside a block, never on the block itself, which is refused.\n" +
 	"- `wait.routes` waits for a Cisco IOS router's routes too (`show ip route`, the global table), as for FRR.\n" +
 	"  With `state: absent` it waits for the prefixes' routes to go (a withdrawn network, a failed link); with\n" +
@@ -443,7 +451,37 @@ const skillNetwork = "## Changing a network\n\n" +
 	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
 	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
 	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +
-	"  checks that before any change, and says so when it is missing.\n\n"
+	"  checks that before any change, and says so when it is missing.\n\n" +
+	"A change to a Cisco router that undoes itself when the proof after it fails:\n\n" +
+	"```yaml\n" +
+	skillRollbackRunbook +
+	"```\n\n"
+
+// skillRollbackRunbook is the network section's example of a block with
+// rollback_on_failure over net.ios.config and no rollback: list.
+// TestCLI_DocCreateSkillsRollbackExampleValidates validates it as written,
+// since a skill that teaches a runbook validate refuses teaches the agent
+// the mistake.
+const skillRollbackRunbook = `# What this does: adds Loopback0 on core1 and pings it from core1, undoing the
+# change inside the run when the ping fails.
+# Blast radius: core1 only.
+# Changes: core1's running configuration (one loopback interface).
+# Undo: pleiades rollback <run-id>; a failed ping undoes it before the run ends.
+id: loopback_change
+hosts: core1
+tasks:
+  - name: Add a loopback and prove it answers, undone if it does not
+    rollback_on_failure: true
+    block:
+      - name: Add Loopback0
+        net.ios.config:
+          lines:
+            - interface Loopback0
+            - ip address 192.0.2.1 255.255.255.255
+      - name: Ping it from the router
+        net.ios.ping:
+          dest: 192.0.2.1
+`
 
 // skillRunbook is the runbook the skill teaches by. It reads only, so a
 // reader who runs it as written changes nothing.

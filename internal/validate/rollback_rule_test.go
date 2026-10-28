@@ -52,6 +52,22 @@ func registerUndoShapes(t *testing.T) {
 	if err := collection.Register(byCall); err != nil {
 		t.Fatal(err)
 	}
+	// A method whose undo may be partial, and says for which calls: with
+	// keys: true it leaves something in place (net.ios.config's crypto key
+	// lines).
+	partialByCall := collection.Descriptor{Name: "undo.partialbycall", Manifest: collection.Manifest{
+		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Reversible: true,
+			Inverses: []sdk.InverseSpec{{FQCN: "undo.target", Record: []string{"name"}, MayBePartial: true}}},
+		Doc: collection.Doc{Params: []collection.Param{{Name: "name", Type: "string"}, {Name: "keys", Type: "bool"}}},
+	}, Invoke: run, UndoCall: func(params map[string]any) string {
+		if params["keys"] == true {
+			return "keys is true, so the undo leaves the keys in place"
+		}
+		return ""
+	}}
+	if err := collection.Register(partialByCall); err != nil {
+		t.Fatal(err)
+	}
 	// An external program's method, whose declaration is never honored.
 	external := collection.Descriptor{Name: "undo.external", Manifest: collection.Manifest{
 		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Reversible: true, Inverses: []sdk.InverseSpec{target}},
@@ -110,6 +126,40 @@ func TestReversibleRule_AsksTheCallWhenTheMethodSaysItDepends(t *testing.T) {
 	block := "id: r\nhosts: web\ntasks:\n  - name: b\n    rollback_on_failure: true\n    block:\n      - name: step\n        undo.bycall:\n          name: x\n          keep: false\n"
 	if findings := validate.RollbackOnFailureRule(validate.WorldView{DAG: yamlDAG(t, block)}); len(findings) != 1 || !strings.Contains(findings[0].Message, "keep is not true") {
 		t.Errorf("rollback_on_failure: findings %+v, want the call refused", findings)
+	}
+}
+
+// TestRollbackOnFailureRule_APartialUndoIsAskedOfTheCall: a method whose
+// undo may be partial and that says for which calls (an UndoCall) is
+// refused only for those calls, by both rules that promise an undo; one
+// that does not say is still refused for every call. The real
+// net.ios.config, whose undo is partial only for a crypto key line, passes
+// a block of ordinary lines (the generated skill teaches exactly that) and
+// is refused for a key line.
+func TestRollbackOnFailureRule_APartialUndoIsAskedOfTheCall(t *testing.T) {
+	registerUndoShapes(t)
+	block := func(method, params string) string {
+		return "id: r\nhosts: web\ntasks:\n  - name: b\n    rollback_on_failure: true\n    block:\n      - name: step\n        " + method + ":\n" + params
+	}
+	for name, c := range map[string]struct{ runbook, want string }{
+		"a call the method says is exact":   {block("undo.partialbycall", "          name: x\n"), ""},
+		"a call the method says is partial": {block("undo.partialbycall", "          name: x\n          keys: true\n"), "keys is true"},
+		"a method that never says which":    {block("undo.partial", "          name: x\n"), "can leave part of what it changed in place"},
+		"net.ios.config's ordinary lines":   {block("net.ios.config", "          lines:\n            - interface Loopback0\n            - description managed by pleiades\n"), ""},
+		"net.ios.config's crypto key line":  {block("net.ios.config", "          lines:\n            - crypto key generate rsa modulus 2048\n"), "crypto key line"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dag := yamlDAG(t, c.runbook)
+			findings := validate.RollbackOnFailureRule(validate.WorldView{DAG: dag})
+			reversible := strings.Replace(c.runbook, "tasks:\n", "reversible: true\ntasks:\n", 1)
+			findings = append(findings, validate.ReversibleRule(validate.WorldView{DAG: yamlDAG(t, reversible)})...)
+			switch {
+			case c.want == "" && len(findings) != 0:
+				t.Errorf("refused: %+v", findings)
+			case c.want != "" && (len(findings) != 2 || !strings.Contains(findings[0].Message, c.want) || !strings.Contains(findings[1].Message, c.want)):
+				t.Errorf("findings %+v, want both rules to refuse it naming %q", findings, c.want)
+			}
+		})
 	}
 }
 

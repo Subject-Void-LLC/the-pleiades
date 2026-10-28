@@ -9,7 +9,29 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
+
+// NodeLimitWords are the words a controller's refusal holds when it runs
+// as many nodes as its license allows, as CML 2.7.2 answers a node's start
+// then: 400, "Licensing issue: Maximum node count exceeded." (measured on a
+// shared controller, the blind lab's run 7).
+const NodeLimitWords = "maximum node count exceeded"
+
+// NodeLimitReached reports whether err is the controller refusing a start
+// because it already runs as many nodes as its license allows: a 400 whose
+// own words (farside.Words) hold NodeLimitWords, in any case. Any other
+// refusal is not, so a caller never tells an agent to free capacity when
+// the controller said something else.
+func NodeLimitReached(err error) bool {
+	var se *StatusError
+	if !errors.As(err, &se) || se.Status != http.StatusBadRequest {
+		return false
+	}
+	return strings.Contains(strings.ToLower(farside.Words(se.Body)), NodeLimitWords)
+}
 
 // Capacity is what RunningNodes counted.
 type Capacity struct {

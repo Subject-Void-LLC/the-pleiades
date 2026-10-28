@@ -1,10 +1,13 @@
 // Tests of RunningNodes against cmltest's controller: the nodes running
 // across every lab counted, a lab gone or closed to the login skipped, and
-// any other failure reported.
+// any other failure reported; and of NodeLimitReached, which tells the
+// controller's node-limit refusal from every other.
 package cml_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
@@ -61,5 +64,41 @@ func TestRunningNodes_CountsEveryLabTheLoginCanRead(t *testing.T) {
 	unconnected, _ := cml.New(ctl.URL, ctl.Client(), cml.Credentials{Username: "admin", Password: "pw"})
 	if _, err := unconnected.RunningNodes(ctx); err == nil {
 		t.Error("a count before Connect was answered")
+	}
+}
+
+// TestNodeLimitReached_OnlyTheLicensesRefusal: the controller's own 400 at
+// its node limit, read through a real start against cmltest's controller,
+// is the limit; the same words with another status, another 400, an error
+// that is no answer at all and nil are not.
+func TestNodeLimitReached_OnlyTheLicensesRefusal(t *testing.T) {
+	ctl := cmltest.New(t, "admin", "pw")
+	c := connected(t, ctl)
+	ctx := context.Background()
+	lab, _ := c.CreateLab(ctx, "full")
+	first, _ := c.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "R1", Definition: "iol-xe"})
+	second, _ := c.CreateNode(ctx, lab.ID, cml.NodeSpec{Label: "R2", Definition: "iol-xe"})
+	ctl.Mu.Lock()
+	ctl.NodeLimit = 1
+	ctl.Mu.Unlock()
+	if err := c.StartNode(ctx, lab.ID, first); err != nil {
+		t.Fatalf("a start under the limit: %v", err)
+	}
+	err := c.StartNode(ctx, lab.ID, second)
+	if !cml.NodeLimitReached(err) {
+		t.Fatalf("a start past the limit = %v, want the license's refusal", err)
+	}
+	if !strings.Contains(err.Error(), `400: "Licensing issue: Maximum node count exceeded."`) {
+		t.Errorf("the refusal does not carry the controller's words: %v", err)
+	}
+	for name, other := range map[string]error{
+		"another status":  &cml.StatusError{Status: 500, Body: `{"description": "Licensing issue: Maximum node count exceeded."}`},
+		"another 400":     &cml.StatusError{Status: 400, Body: `{"description": "node R2 is not stopped"}`},
+		"not an answer":   errors.New("maximum node count exceeded"),
+		"no error at all": nil,
+	} {
+		if cml.NodeLimitReached(other) {
+			t.Errorf("%s was taken for the node limit: %v", name, other)
+		}
 	}
 }

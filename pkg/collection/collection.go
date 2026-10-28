@@ -123,8 +123,11 @@ type Descriptor struct {
 	// checkpoint: false). It follows CheckCall's precedent, so validation
 	// can refuse reversible: true or a block's rollback_on_failure over
 	// such a call before the run, rather than the undo stopping halfway
-	// through. It is nil for a method whose every call is undone as
-	// declared, and Register refuses it on a method that is not
+	// through. A method with an InverseSpec marked MayBePartial answers here
+	// too for the calls whose undo would be partial (net.ios.config's crypto
+	// key lines): with an UndoCall, validation asks it rather than refusing
+	// every call of the method. It is nil for a method whose every call is
+	// undone as declared, and Register refuses it on a method that is not
 	// reversible, since there it would answer a question nothing asks.
 	UndoCall func(params map[string]any) string
 

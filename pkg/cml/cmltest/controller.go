@@ -21,13 +21,19 @@ import (
 // Token is the bearer token the controller hands every login.
 const Token = "cmltest-token"
 
-// Interfaces are the interfaces each definition is made with, as the DevNet
-// sandbox's CML 2.7.2 makes them: IOL XE's Loopback0 (which has no slot)
-// and four Ethernet ports in slots 0 to 3, and a single interface, "port",
-// for anything else (an external connector's).
+// Interfaces are the interfaces each definition is made with, as CML 2.7.2
+// makes them (read back from a real controller in the blind lab's builds):
+// IOL XE's Loopback0 (which has no slot) and four Ethernet ports in slots 0
+// to 3, an unmanaged switch's port0 to port7, and a single interface,
+// "port", for anything else (an external connector's).
 var Interfaces = map[string][]string{
-	"iol-xe": {"Loopback0", "Ethernet0/0", "Ethernet0/1", "Ethernet0/2", "Ethernet0/3"},
+	"iol-xe":           {"Loopback0", "Ethernet0/0", "Ethernet0/1", "Ethernet0/2", "Ethernet0/3"},
+	"unmanaged_switch": {"port0", "port1", "port2", "port3", "port4", "port5", "port6", "port7"},
 }
+
+// NodeLimitRefusal is what CML 2.7.2 answers, with 400, a node's start on a
+// controller already running as many nodes as its license allows.
+const NodeLimitRefusal = "Licensing issue: Maximum node count exceeded."
 
 // Definitions are the node definitions the controller offers.
 var Definitions = []string{"iol-xe", "iosv", "external_connector", "unmanaged_switch"}
@@ -100,6 +106,10 @@ type Controller struct {
 	// a controller refusing one node's start, as a shared controller with
 	// no room left does.
 	Refuse map[string]int
+	// NodeLimit, above zero, is how many nodes may run at once across
+	// every lab: a node's start that would run one more answers 400 with
+	// NodeLimitRefusal, as a controller at its license's limit does.
+	NodeLimit int
 	// PCAP is what /pcap/{key} answers for any capture's key; nil answers a
 	// minimal empty pcap file.
 	PCAP []byte
@@ -494,6 +504,9 @@ func (c *Controller) serveNode(w http.ResponseWriter, r *http.Request, lab *Lab,
 		}
 		delete(lab.Nodes, n.ID)
 		w.WriteHeader(http.StatusNoContent)
+	case route == "state/start" && c.NodeLimit > 0 && !running(n.State) && c.runningNodes() >= c.NodeLimit:
+		// One more running node would pass the license's limit.
+		fail(w, http.StatusBadRequest, "%s", NodeLimitRefusal)
 	case route == "state/start" || route == "state/stop":
 		_ = transition(n, strings.TrimPrefix(route, "state/"))
 		w.WriteHeader(http.StatusNoContent)
@@ -516,6 +529,25 @@ func (c *Controller) serveNode(w http.ResponseWriter, r *http.Request, lab *Lab,
 	default:
 		fail(w, http.StatusNotFound, "no such call: %s %s", r.Method, r.URL.Path)
 	}
+}
+
+// running reports whether a node in state counts against the license:
+// queued, started or booted, as pkg/cml.Running counts it.
+func running(state string) bool {
+	return state == "QUEUED" || state == "STARTED" || state == "BOOTED"
+}
+
+// runningNodes counts the nodes running across every lab.
+func (c *Controller) runningNodes() int {
+	count := 0
+	for _, lab := range c.Labs {
+		for _, n := range lab.Nodes {
+			if running(n.State) {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 // sortedLinks is lab's links in id order.
