@@ -1,1 +1,0 @@
-`gate.run` now accepts `engine` (docker or podman), the parameter it asks for on a device that runs both Docker and Podman. Before, it told such a task to set `engine:`, and `pleiades validate` then refused the task for passing a parameter `gate.run` did not declare, so the check could not run there at all. `build.digests.check` and `build.digests.refresh` accept it too.

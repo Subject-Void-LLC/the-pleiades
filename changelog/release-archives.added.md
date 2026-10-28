@@ -1,1 +1,0 @@
-Added `make release`, which builds `pleiades`, `controller` and `runner` for Linux, macOS and Windows on amd64 and arm64 with the version stamped in and a `SHA256SUMS` file, and a tag workflow that publishes the same archives from `main`.

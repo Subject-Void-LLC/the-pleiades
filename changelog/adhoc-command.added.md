@@ -1,1 +1,0 @@
-Added `pleiades adhoc <hosts> <method> [key=value | key:=yaml ...]`, which runs one method against a device or a tag with no runbook written, and is validated, checked, journaled and reported exactly as a runbook of that one task would be.

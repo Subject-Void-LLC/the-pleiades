@@ -1,1 +1,0 @@
-A Runner now tells the broker a dispatch is still in progress every ten seconds while it works on it, so a run longer than the thirty second acknowledgement wait is no longer delivered a second time while it is still running. Each such delivery used to meet the run's own lease and use up the retries and the dead letter a failed run needed.

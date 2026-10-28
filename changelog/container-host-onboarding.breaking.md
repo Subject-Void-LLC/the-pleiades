@@ -1,1 +1,0 @@
-A `container_host` no longer accepts `docker_endpoint`, and holds `DockerCapable` only after `pleiades onboard` finds its engine, so remove the property and onboard each container host once; the transport `docker` is replaced by `engine_local`, `engine_socket`, `engine_stdio` and `engine_tls`.

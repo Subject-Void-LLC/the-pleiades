@@ -1,1 +1,0 @@
-A check of `identity.user.create` or `identity.user.modify` naming a primary group the device does not have yet now reports the task unchecked, naming the group, instead of failing, since an earlier task in the run often creates it. Accept it by name with `--allow-unchecked identity.user.create`; a real run still fails if the group is missing when it gets there.

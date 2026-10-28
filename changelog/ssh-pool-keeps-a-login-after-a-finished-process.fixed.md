@@ -1,1 +1,0 @@
-A device's SSH login now stays pooled for its next task after a task ran a streamed command that finished, rather than being closed and logged into again, which made every task over a container engine's `dial-stdio` log in afresh.

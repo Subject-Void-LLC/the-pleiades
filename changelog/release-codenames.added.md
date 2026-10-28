@@ -1,1 +1,0 @@
-A release build now prints its codename on a second line of `pleiades version`, `runner version` and `controller version`, and the release title carries it (v0.3.0 is "Paranoid Porpoise"). The version number stays the identity of a release.

@@ -1,1 +1,0 @@
-`virt.vbox.vm.clone` takes `packages`: packages a Linux or FreeBSD clone's first boot installs as root, through cloud-init or FreeBSD's nuageinit. On FreeBSD, `sudo` among them gives the login the passwordless sudo its seed grants it.

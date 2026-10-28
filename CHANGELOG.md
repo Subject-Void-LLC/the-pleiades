@@ -15,7 +15,9 @@ The first tagged release. What it does, how to install it and its known limits a
 ## Before 0.3.0 (development history, not a release)
 
 What follows was recorded while the project was built, before any release existed. It is
-kept as history; it is not a list of changes to a version anyone ran.
+kept as history; it is not a list of changes to a version anyone ran. The 377 per-change
+fragments written under `changelog/` during development were retired at 0.3.0, whose
+release notes summarize them; they remain in the repository's history before that release.
 
 ### Added
 

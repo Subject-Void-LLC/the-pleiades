@@ -1,1 +1,0 @@
-Every answer a Kubernetes session reads from an API server is now held to 64 MiB, so a get, a list or a log read cannot grow the memory of the process running the task without end; a watch, a followed log and an exec, attach or port-forward connection are streams, left to the method that opens them. Before, only discovery was bounded.
