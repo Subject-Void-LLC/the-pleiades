@@ -27,7 +27,39 @@ type Containers struct {
 	// and without it asks the daemon for a network called bridge, which
 	// Podman does not have.
 	Socket string
+	// Share makes the pass run only the Podman machine's share of the packages
+	// it is given (testgate -host podman), which pr-check gives the whole
+	// container list: the machine and this one each compute the same plan from
+	// it and run their own part, so the pass ends on both at about one time.
+	Share bool
 }
+
+// StartedMark is where, relative to the login's home, a container pass notes
+// that it started the Podman machine itself, so whichever way the pass ends
+// (its own end, a stop sent from here, or an interrupt that killed the shell
+// first and left a later run or stop to find the note), the machine it started
+// is stopped again and one it found running is left running.
+const StartedMark = ".pleiades-podman/started-by-check"
+
+// podmanClean defines the shell function clean, which removes what a container
+// pass's tests left in the Podman machine: the containers testcontainers or
+// docker compose labelled (with their anonymous volumes), the networks so
+// labelled, every unused anonymous volume (64 hex digits; a named volume can
+// hold someone's data and is kept), and the dangling images a rebuilt fixture
+// leaves untagged (telnetd's, each run). It keeps every tagged image, so the
+// next run pulls nothing again. It counts what it removed into cleaned, and
+// prints nothing itself, so it works on a channel that has gone away.
+const podmanClean = `clean() {
+	c=$(for l in org.testcontainers=true com.docker.compose.project; do podman ps -aq --filter "label=$l" 2>/dev/null; done | sort -u)
+	n=$(for l in org.testcontainers=true com.docker.compose.project; do podman network ls -q --filter "label=$l" 2>/dev/null; done | sort -u)
+	[ -n "$c" ] && podman rm -f -v $c >/dev/null 2>&1
+	[ -n "$n" ] && podman network rm -f $n >/dev/null 2>&1
+	v=$(podman volume ls -q --filter dangling=true 2>/dev/null | grep -E '^[0-9a-f]+$' | awk 'length($0) == 64')
+	[ -n "$v" ] && podman volume rm -f $v >/dev/null 2>&1
+	i=$(podman images -q --filter dangling=true 2>/dev/null | sort -u)
+	[ -n "$i" ] && podman rmi $i >/dev/null 2>&1
+	cleaned="$(printf '%s\n' $c | grep -c .) container(s), $(printf '%s\n' $n | grep -c .) network(s), $(printf '%s\n' $v | grep -c .) anonymous volume(s) and $(printf '%s\n' $i | grep -c .) dangling image(s)"
+}`
 
 // ContainerNeeds are the commands a machine must have to run the container
 // packages: the tests build images and look for the docker command, and
@@ -38,45 +70,74 @@ var ContainerNeeds = []Need{
 }
 
 // ContainerTestScript is what the machine runs for a container pass in sha's
-// tree: it starts the Podman machine when it is not running (and stops it
-// again at the end, so its memory is free again), links its socket
-// under a name testcontainers accepts, points DOCKER_HOST at it, removes every
-// container before and after (Ryuk, testcontainers' own cleanup, is off: it
-// never sees its readiness line through Podman's API and exits), and runs one
-// testgate pass over packages with a coverage measurement. It is TestScript's
-// job handling, so an interrupt ends the pass and the containers it started.
+// tree: it starts the Podman machine when it is not running, noting so
+// (StartedMark), links its socket under a name testcontainers accepts, points
+// DOCKER_HOST at it, cleans before and after (podmanClean; Ryuk,
+// testcontainers' own cleanup, is off: it never sees its readiness line
+// through Podman's API and exits), and runs one testgate pass over packages
+// with a coverage measurement, only Podman's share of them when Share is set.
+// However it ends, pass, fail, a stop sent from here, or a TERM, HUP, INT or
+// broken pipe, done_ cleans, stops the machine when this run (or an earlier
+// one that never got to) started it, and only then says what it removed, with
+// SIGPIPE ignored, so a channel that has gone away cannot stop it partway. It
+// is TestScript's job handling, so an interrupt ends the pass and the
+// containers it started.
 //
 // None of it uses a template brace, which Pleiades would render in the
 // command before it reached the machine.
 func (x POSIX) ContainerTestScript(sha string, parallel int, packages []string) string {
 	sock := x.Containers.Socket
 	pkgs := strings.Join(packages, " ")
+	host := ""
+	if x.Containers.Share {
+		host = "-host podman "
+	}
 	return fmt.Sprintf(`exec 2>&1
 export PATH="$PATH:%[1]s"
 export GOCACHE="$HOME/%[2]s/%[10]s"
 cd "$HOME/%[2]s/%[3]s" || exit 2
+mark="$HOME/%[13]s"
+mkdir -p "$(dirname "$mark")" || exit 2
 started=0
-if ! podman machine list | grep -q 'Currently running'; then podman machine start || exit 2; started=1; fi
+if ! podman machine list | grep -q 'Currently running'; then podman machine start || exit 2; started=1; : > "$mark"; elif [ -f "$mark" ]; then started=1; fi
 real=$(podman machine inspect | grep -A3 PodmanSocket | grep '"Path"' | sed 's/.*"Path": *"\(.*\)".*/\1/')
 [ -n "$real" ] || { echo "no Podman machine socket: is a machine created (podman machine init --rootful)?"; exit 2; }
 mkdir -p "$(dirname "$HOME/%[4]s")" && ln -sf "$real" "$HOME/%[4]s" || exit 2
 export DOCKER_HOST="unix://$HOME/%[4]s" TESTCONTAINERS_RYUK_DISABLED=true
-clean() { podman rm -f -a >/dev/null 2>&1; podman network prune -f >/dev/null 2>&1; podman volume prune -f >/dev/null 2>&1; }
-done_() { clean; [ "$started" = 1 ] && podman machine stop >/dev/null 2>&1; true; }
+%[14]s
+done_() { trap '' PIPE; clean; stopped=""; if [ "$started" = 1 ]; then podman machine stop >/dev/null 2>&1; rm -f "$mark"; stopped=", and stopped the Podman machine it started"; fi; echo "%[15]s: cleanup after the container pass removed $cleaned$stopped"; true; }
 %[7]s
 clean
+[ "$cleaned" = "0 container(s), 0 network(s), 0 anonymous volume(s) and 0 dangling image(s)" ] || echo "%[15]s: before the container pass, cleanup removed what an earlier one left: $cleaned"
 rm -f %[8]s %[9]s
 set -m
-%[6]s/bin/sh -c 'go run ./tools/testgate -full -p %[11]d -coverage-out %[9]s -report-out %[8]s %[5]s' &
+%[6]s/bin/sh -c 'go run ./tools/testgate -full %[16]s-p %[11]d -coverage-out %[9]s -report-out %[8]s %[5]s' &
 job=$!
 set +m
 echo "$job" > %[12]s
-trap 'stop_run "$job"; rm -f %[12]s; done_; exit 143' TERM HUP INT
+trap 'stop_run "$job"; rm -f %[12]s; done_; exit 143' TERM HUP INT PIPE
 wait "$job"
 status=$?
 rm -f %[12]s
 done_
-exit $status`, x.Path, x.Dir, sha, sock, pkgs, x.Wrap, stopRun, ContainerRecordFile, ContainerCoverageFile, CacheDir, parallelOrOne(parallel), x.PIDFile())
+exit $status`, x.Path, x.Dir, sha, sock, pkgs, x.Wrap, stopRun, ContainerRecordFile, ContainerCoverageFile, CacheDir, parallelOrOne(parallel), x.PIDFile(), StartedMark, podmanClean, x.Tool, host)
+}
+
+// ContainerStopScript is StopScript for a container pass: it ends the run, then
+// cleans the Podman machine and stops it when a pass started it
+// (StartedMark), since an interrupt can kill the pass's own shell before its
+// done_ runs. It does nothing to a machine no pass started.
+func (x POSIX) ContainerStopScript(sha string) string {
+	return fmt.Sprintf(`export PATH="$PATH:%[1]s"
+pid=$(cat "$HOME/%[2]s/%[3]s/%[4]s" 2>/dev/null)
+%[5]s
+case "$pid" in ''|*[!0-9]*) ;; *) stop_run "$pid" ;; esac
+podman machine list 2>/dev/null | grep -q 'Currently running' || exit 0
+%[6]s
+clean
+if [ -f "$HOME/%[7]s" ]; then podman machine stop >/dev/null 2>&1; rm -f "$HOME/%[7]s"; cleaned="$cleaned, and stopped the Podman machine a pass started"; fi
+echo "%[8]s: stopping the container pass, cleanup removed $cleaned"
+exit 0`, x.Path, x.Dir, sha, x.PIDFile(), stopRun, podmanClean, StartedMark, x.Tool)
 }
 
 // parallelOrOne is how many container packages run at once: one unless the

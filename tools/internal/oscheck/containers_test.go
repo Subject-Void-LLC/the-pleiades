@@ -22,7 +22,7 @@ func TestContainerTestScript_Contents(t *testing.T) {
 		`podman machine start`,
 		`export DOCKER_HOST="unix://$HOME/.pleiades-podman/podman.sock" TESTCONTAINERS_RYUK_DISABLED=true`,
 		"caffeinate -dims /bin/sh -c 'go run ./tools/testgate -full -p 1 -coverage-out .pleiades-coverage-containers.json -report-out .pleiades-record-containers.json github.com/x/a github.com/x/b' &",
-		`trap 'stop_run "$job"; rm -f .maccheck-containers.pid; done_; exit 143' TERM HUP INT`,
+		`trap 'stop_run "$job"; rm -f .maccheck-containers.pid; done_; exit 143' TERM HUP INT PIPE`,
 	} {
 		if !strings.Contains(s, w) {
 			t.Errorf("script does not hold %q:\n%s", w, s)
@@ -38,6 +38,14 @@ func TestContainerTestScript_Contents(t *testing.T) {
 	}
 	if got := containerPosix.ContainerTestScript("abc", 3, []string{"a/b"}); !strings.Contains(got, "-full -p 3 ") {
 		t.Errorf("an explicit parallelism is not used:\n%s", got)
+	}
+	shared := containerPosix
+	shared.Containers = &Containers{Socket: ".pleiades-podman/podman.sock", Share: true}
+	if got := shared.ContainerTestScript("abc", 0, []string{"a/b"}); !strings.Contains(got, "testgate -full -host podman -p 1 ") {
+		t.Errorf("a shared pass does not run Podman's share alone:\n%s", got)
+	}
+	if s := containerPosix.ContainerStopScript("abc"); strings.Contains(s, "{{") || strings.Contains(s, "}}") {
+		t.Errorf("the stop script holds a template brace:\n%s", s)
 	}
 }
 
@@ -90,6 +98,8 @@ echo "podman $*" >> "` + home + `/podman.calls"
 case "$1 $2" in
 "machine list") echo "NAME VM TYPE CREATED LAST UP"; echo "m applehv now ` + state + `" ;;
 "machine inspect") printf '[{"ConnectionInfo": {\n "PodmanSocket": {\n  "Path": "` + real + `"\n },\n "PodmanPipe": null}}]\n' ;;
+"ps -aq") case "$*" in *org.testcontainers*) echo c-test ;; esac ;;
+"volume ls") echo named-data; echo ` + strings.Repeat("ab", 32) + ` ;;
 esac
 exit 0
 `
@@ -151,8 +161,17 @@ func TestContainerTestScript_RunsTheTestsAgainstPodmanAndCleansUp(t *testing.T) 
 	if strings.Contains(podmanCalls, "machine start") || strings.Contains(podmanCalls, "machine stop") {
 		t.Errorf("a machine that was already running was started or stopped:\n%s", podmanCalls)
 	}
-	if n := strings.Count(podmanCalls, "podman rm -f -a"); n != 2 {
-		t.Errorf("containers were removed %d time(s), want before and after:\n%s", n, podmanCalls)
+	if n := strings.Count(podmanCalls, "podman rm -f -v c-test"); n != 2 {
+		t.Errorf("the test containers were removed %d time(s), want before and after:\n%s", n, podmanCalls)
+	}
+	if strings.Contains(podmanCalls, "rm -f -a") || strings.Contains(podmanCalls, "rm -f named-data") || strings.Contains(podmanCalls, "volume prune") {
+		t.Errorf("the cleanup removed what no test labelled, or a named volume:\n%s", podmanCalls)
+	}
+	if !strings.Contains(podmanCalls, "podman volume rm -f "+strings.Repeat("ab", 32)) {
+		t.Errorf("the unused anonymous volume was not removed:\n%s", podmanCalls)
+	}
+	if !strings.Contains(out, "cleanup after the container pass removed 1 container(s), 0 network(s), 1 anonymous volume(s)") {
+		t.Errorf("the cleanup did not say what it removed:\n%s", out)
 	}
 	cov, err := h.x.ContainerCoverage(context.Background(), "abc")
 	_ = cov
@@ -171,6 +190,57 @@ func TestContainerTestScript_StartsAMachineThatIsNotRunning(t *testing.T) {
 	if !strings.Contains(calls, "podman machine start") || !strings.Contains(calls, "podman machine stop") {
 		t.Errorf("a stopped machine was not started and stopped again:\n%s", calls)
 	}
+	if _, err := os.Stat(filepath.Join(h.home, StartedMark)); !os.IsNotExist(err) {
+		t.Errorf("the note that the pass started the machine outlived the stop: %v", err)
+	}
+}
+
+// A machine an earlier, interrupted pass started (its note left behind) is
+// stopped by the next pass, which finds it running; one nobody noted is not.
+func TestContainerTestScript_StopsAMachineAnInterruptedPassStarted(t *testing.T) {
+	h := newPodmanHome(t, true)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(h.home, StartedMark)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.home, StartedMark), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := h.run(t); code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if calls := h.read(t, "podman.calls"); !strings.Contains(calls, "podman machine stop") {
+		t.Errorf("the machine an interrupted pass started was left running:\n%s", calls)
+	}
+}
+
+// The stop sent from here when a pass is interrupted cleans and stops a
+// machine a pass started, whose own shell may already be gone, and leaves a
+// machine no pass started running.
+func TestContainerStopScript_CleansAndStopsOnlyAMachineAPassStarted(t *testing.T) {
+	for _, noted := range []bool{true, false} {
+		h := newPodmanHome(t, true)
+		if noted {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(h.home, StartedMark)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.home, StartedMark), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command("/bin/sh", "-c", h.x.ContainerStopScript("abc"))
+		cmd.Env = append(os.Environ(), "HOME="+h.home, "PATH="+h.x.Path+":/usr/bin:/bin")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("noted=%v: %v\n%s", noted, err, out)
+		}
+		calls := h.read(t, "podman.calls")
+		if !strings.Contains(calls, "podman rm -f -v c-test") || !strings.Contains(string(out), "cleanup removed 1 container(s)") {
+			t.Errorf("noted=%v: the stop did not clean, or did not say so:\n%s\n%s", noted, calls, out)
+		}
+		if got := strings.Contains(calls, "machine stop"); got != noted {
+			t.Errorf("noted=%v: machine stopped %v:\n%s", noted, got, calls)
+		}
+	}
 }
 
 // A failing pass must exit with its status and still remove the containers it
@@ -184,7 +254,7 @@ func TestContainerTestScript_AFailedPassExitsWithItsStatusAndCleansUp(t *testing
 	if code != 3 {
 		t.Fatalf("exit %d, want the tests' 3:\n%s", code, out)
 	}
-	if n := strings.Count(h.read(t, "podman.calls"), "podman rm -f -a"); n != 2 {
+	if n := strings.Count(h.read(t, "podman.calls"), "podman rm -f -v c-test"); n != 2 {
 		t.Errorf("a failed pass removed containers %d time(s), want before and after", n)
 	}
 }

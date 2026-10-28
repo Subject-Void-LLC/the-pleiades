@@ -85,9 +85,10 @@ func (r pleiadesRemote) Coverage(ctx context.Context, sha string) (string, error
 const podmanSocket = ".pleiades-podman/podman.sock"
 
 // forContainers is this Mac as a container run uses it: its tests run
-// against the Mac's Podman, and it must have podman and docker as well.
-func (r pleiadesRemote) forContainers() pleiadesRemote {
-	r.posix.Containers = &oscheck.Containers{Socket: podmanSocket}
+// against the Mac's Podman, and it must have podman and docker as well. With
+// share, the run is only the Mac's share of the packages (oscheck.Containers).
+func (r pleiadesRemote) forContainers(share bool) pleiadesRemote {
+	r.posix.Containers = &oscheck.Containers{Socket: podmanSocket, Share: share}
 	return r
 }
 

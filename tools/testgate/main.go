@@ -33,13 +33,18 @@
 // (mask.go). -race=false leaves the race detector out, for a machine that
 // cannot build with it (tools/wincheck's Windows box).
 //
+// -host shares a container package list between this machine and a Podman
+// machine beside it (pr-check's Mac) by time, as -shard does among CI's
+// runners, with hosts.json saying what Podman can run; -host-plan prints the
+// share each gets (hosts.go).
+//
 // -report-out writes the run's record (flakegate.Run) for tools/prreport, and
 // -commit with -clean stamps it with the commit pr-check began at and whether
 // its tree was clean then, so a merge can tell this run's records from an
 // earlier run's.
 //
 // Usage: go run ./tools/testgate [-integration | -full | -repeat n] [-strict] [-race=false] [-p n]
-// [-shard k/n] [-coverage-out file] [-report-out file [-commit sha -clean yes|no]] [-list] [package ...]
+// [-shard k/n | -host here|podman] [-host-plan] [-coverage-out file] [-report-out file [-commit sha -clean yes|no]] [-list] [package ...]
 package main
 
 import (
@@ -77,12 +82,17 @@ func main() {
 	flag.IntVar(&o.repeat, "repeat", 0, "run every test this many times in one process, untagged and without -race (test-repeat)")
 	flag.IntVar(&o.parallel, "p", 0, "how many packages go test runs at once (go test -p); 0 keeps its default")
 	flag.StringVar(&o.shard, "shard", "", "k/n: test only this shard of the named packages")
+	flag.StringVar(&o.host, "host", "", "here or podman: test only this machine's share of the named packages, shared by time between this machine and a Podman machine (hosts.json)")
 	flag.StringVar(&o.coverageOut, "coverage-out", "", "write each package's coverage to this JSON file (needs -full)")
 	flag.StringVar(&o.reportOut, "report-out", "", "write the run's record (verdict, failures with their output, skips, coverage) to this JSON file, whatever the outcome")
 	flag.StringVar(&o.commit, "commit", "", "stamp the record with the full commit hash pr-check began at (needs -clean)")
 	flag.StringVar(&o.clean, "clean", "", "yes or no: stamp the record with whether the working tree was clean as pr-check began (needs -commit)")
 	list := flag.Bool("list", false, "print the packages this run would test, one per line, and test nothing")
 	packagesFile := flag.String("packages-file", "", "read the packages to test from this file as well, separated by spaces or lines: how a caller passes a list longer than a command line holds (cmd.exe stops at 8191 characters)")
+	plan := flag.Bool("host-plan", false, "print how the named packages are shared between here and a Podman machine, one line per host: its name, its predicted minutes and its packages; test nothing")
+	engineClock := flag.Bool("engine-time", false, "print the container engine's own clock (docker info), the time a later -clean-containers -since names; test nothing")
+	cleanAfter := flag.Bool("clean-containers", false, "remove the test containers, networks and anonymous volumes created since -since, and print what was removed; test nothing")
+	since := flag.String("since", "", "with -clean-containers, the engine time (RFC 3339) the container pass began at, from -engine-time")
 	checkDurations := flag.Bool("durations-check", false, "hold the -coverage-out measurements named as arguments to durations.json: fail on a measured package it has no time for, warn on one whose time moved a lot")
 	flag.Parse()
 	o.packages = flag.Args()
@@ -104,6 +114,40 @@ func main() {
 			fmt.Fprintln(os.Stderr, "testgate:", err)
 			os.Exit(1)
 		}
+		return
+	}
+
+	// -engine-time and -clean-containers bracket pr-check's container pass,
+	// so what its tests left in the engine is removed, pass or fail
+	// (clean.go).
+	if *engineClock {
+		t, err := engineTime(dockerCLI)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		fmt.Println(t.Format(time.RFC3339Nano))
+		return
+	}
+	if *cleanAfter {
+		from, err := time.Parse(time.RFC3339Nano, *since)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testgate: -clean-containers needs -since naming the engine time the pass began at (-engine-time): %v\n", err)
+			os.Exit(2)
+		}
+		res, err := cleanContainers(dockerCLI, from)
+		printClean(os.Stdout, res, from)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// -host-plan answers "what does each machine run, and for how long?" for
+	// pr-check, which starts the Podman machine's share only when it has one.
+	if *plan {
+		printHostPlan(os.Stdout, o.packages, durations(), hosts())
 		return
 	}
 
@@ -156,6 +200,9 @@ func run(o options) (err error) {
 	label := fmt.Sprintf("testgate %s", strings.Join(args, " "))
 	if o.shard != "" {
 		label += fmt.Sprintf(", shard %s (%d packages)", o.shard, len(packages))
+	}
+	if o.host != "" {
+		label += fmt.Sprintf(", %s's share (%d packages)", o.host, len(packages))
 	}
 	rec.Label = label
 

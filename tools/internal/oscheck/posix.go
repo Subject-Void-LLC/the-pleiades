@@ -198,8 +198,15 @@ func (x POSIX) Test(ctx context.Context, target, sha string, parallel int, packa
 	run := func(ctx context.Context) (Outcome, error) {
 		return x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", script), fmt.Sprintf("--timeout=%d", TestTimeout))
 	}
+	stopScript := x.StopScript(sha)
+	if x.Containers != nil {
+		stopScript = x.ContainerStopScript(sha)
+	}
 	stop := func(ctx context.Context) error {
-		_, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.StopScript(sha)))
+		out, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", stopScript))
+		if s := strings.TrimSpace(out); s != "" {
+			fmt.Fprintln(stdout, s)
+		}
 		return err
 	}
 	return RunTests(ctx, target, run, stop, stdout)

@@ -429,35 +429,13 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e
 
-# MAC_CONTAINER_PACKAGES are the container packages pr-check runs on the Mac
-# (tools/maccheck -containers) instead of here, against the Mac's Podman, when
-# a Mac is configured: native arm64 containers in a rootful Podman machine, at
-# a speed that matched this machine's (18 packages, about 1090 s of the
-# durations file's time, in 17m46s on an M4, 2026-10-26). They are the packages
-# whose containers are NATS, Postgres, sshd or telnetd and which use no host
-# socket, privileged mode, compose or kind; each was run there and passed.
-# tools/internal/flakegate's TestEveryContainerPackageIsClassified holds every
-# DOCKER_DEPENDENT_PACKAGES entry to this list or to a written reason it stays
-# here, so a new container package must be placed.
-MAC_CONTAINER_PACKAGES := \
-	github.com/Subject-Void-LLC/the-pleiades/internal/backup \
-	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg \
-	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
-	github.com/Subject-Void-LLC/the-pleiades/internal/election \
-	github.com/Subject-Void-LLC/the-pleiades/internal/ent \
-	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate \
-	github.com/Subject-Void-LLC/the-pleiades/internal/event \
-	github.com/Subject-Void-LLC/the-pleiades/internal/keyregistry \
-	github.com/Subject-Void-LLC/the-pleiades/internal/lock \
-	github.com/Subject-Void-LLC/the-pleiades/internal/meshid \
-	github.com/Subject-Void-LLC/the-pleiades/internal/runner \
-	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
-	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
-	github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet \
-	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
-	github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient \
-	github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer \
-	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer
+# Which container packages can run on the Mac's Podman, and why each other one
+# cannot, is tools/testgate/hosts.json, not a list here: pr-check shares the
+# branch's container packages between this machine and the Mac by time
+# (testgate -host-plan, -host), and tools/internal/flakegate's
+# TestEveryContainerPackageIsClassified holds every DOCKER_DEPENDENT_PACKAGES
+# entry to one of that file's two lists, so a new container package must be
+# placed.
 
 # test-no-docker runs every package NOT in DOCKER_DEPENDENT_PACKAGES, so
 # it proves those packages genuinely execute on the machine running it
@@ -717,8 +695,23 @@ ci-containers:
 # before the fast pass, beside the Linux passes. The Mac's chain is its
 # -phase prepare (checking it, building pleiades, sending the tree), then
 # -phase vuln running govulncheck on that tree, then its -phase test and its
-# container half on Podman (MAC_CONTAINER_PACKAGES) together, each with a
-# job file of its own in the one tree. The Windows ARM VM's check runs on its
+# share of the container packages on Podman together, each with a job file of
+# its own in the one tree.
+#
+# The container packages are shared with the Mac by time when one is
+# configured and answers on its SSH port (maccheck -reachable): testgate
+# -host-plan deals them, longest first by tools/testgate/durations.json, to
+# whichever of the two has less so far, among those tools/testgate/hosts.json
+# says Podman can run (the rest run here first), a package durations.json
+# times test by test (tests/e2e) dealt test by test, and both machines are
+# handed the whole list, each running its own share (testgate -host here,
+# maccheck -containers -share). With no Mac, or one that does not answer,
+# every container package runs here, as before. Each side cleans up after its
+# pass, pass, fail or interrupt: here testgate -clean-containers removes the
+# test containers, networks and anonymous volumes created since the pass began
+# (by the engine's own clock, testgate -engine-time), keeping images, the build
+# cache and named volumes; on the Mac the pass's script does the same through
+# Podman and stops a Podman machine it started. The Windows ARM VM's check runs on its
 # own from the start; Fusion suspends the VM again when it ends. The FreeBSD
 # and Windows machines are lab VMs a check starts when it needs one and puts
 # back afterwards, its state saved, so they run one after the other
@@ -828,8 +821,8 @@ PR_CHECK_ALWAYS := \
 # tree mac's prepare phase sends. A name pr-check does not know stops make
 # before anything runs. PR_STAMP is what every pass and step is told about
 # where the gate began, so its record carries it.
-# containers-mac is the container half run on the Mac against its Podman (MAC_CONTAINER_PACKAGES,
-# tools/maccheck -containers) when a Mac is configured; it brings coverage and sends the Mac its tree.
+# containers-mac is the Mac's share of the container packages, run against its Podman (tools/maccheck
+# -containers -share) when a Mac is configured and answers; it brings coverage and sends the Mac its tree.
 PR_CHECK_PARTS := fast coverage-fast repeat containers containers-mac durations mac bsd win winarm govulncheck images coverage sizes
 LEGS ?=
 comma := ,
@@ -854,12 +847,20 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		if printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
-	mac_pkgs=""; here_pkgs=""; \
-	if [ -n "$$PLEIADES_MAC" ] || grep -q '^PLEIADES_MAC=' tests/mac/.env 2>/dev/null; then mac_on=yes; else mac_on=no; fi; \
-	for pkg in $$mine_docker; do \
-		if [ $$mac_on = yes ] && printf '%s\n' $(MAC_CONTAINER_PACKAGES) | grep -qx "$$pkg"; then mac_pkgs="$$mac_pkgs $$pkg"; else here_pkgs="$$here_pkgs $$pkg"; fi; \
-	done; \
-	mine_docker="$$here_pkgs"; \
+	all_docker="$$mine_docker"; docker_args="$$mine_docker"; mac_pkgs=""; since=""; \
+	if [ -n "$$mine_docker" ] && { [ -n "$$PLEIADES_MAC" ] || grep -q '^PLEIADES_MAC=' tests/mac/.env 2>/dev/null; }; then \
+		if go run ./tools/maccheck -reachable; then \
+			plan="$$(go run ./tools/testgate -host-plan $$all_docker)" || exit 1; \
+			mac_pkgs="$$(printf '%s\n' "$$plan" | awk '$$1 == "podman" { for (i = 3; i <= NF; i++) print $$i }')"; \
+			if [ -n "$$mac_pkgs" ]; then \
+				mine_docker="$$(printf '%s\n' "$$plan" | awk '$$1 == "here" { for (i = 3; i <= NF; i++) print $$i }')"; \
+				docker_args="-host here $$all_docker"; \
+				echo "pr-check: the container packages are shared by time with the Mac's Podman (tools/testgate/hosts.json): about $$(printf '%s\n' "$$plan" | awk '$$1 == "here" { print $$2 }') minutes here and $$(printf '%s\n' "$$plan" | awk '$$1 == "podman" { print $$2 }') there, by CI's times in tools/testgate/durations.json"; \
+			fi; \
+		else \
+			echo "pr-check: the Mac did not answer, so every container package runs here"; \
+		fi; \
+	fi; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE), and $$(echo $$mac_pkgs | wc -w) container package(s) on the Mac's Podman"; \
 	want() { [ -z "$(LEGS_RUN)" ] && return 0; case " $(LEGS_RUN) " in *" $$1 "*) return 0;; esac; return 1; }; \
 	rec=$(COVERAGE_DIR)/pr/records; report=$(COVERAGE_DIR)/pr/prreport; \
@@ -885,7 +886,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	$$report begin -dir $$rec -commit "$(GATE_START_COMMIT)" -expect "$$expect" || exit 1; \
 	status=0; legs=""; ran_fast=no; \
 	step() { name=$$1; shift; "$$@"; s=$$?; $$report step -dir $$rec -name $$name -exit $$s $(PR_STAMP) || status=1; [ $$s -eq 0 ] || status=1; }; \
-	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; go run ./tools/failures record-prcheck -report $$rec/report.json || true; }; \
+	stop() { trap - INT TERM EXIT; for leg in $$legs; do kill -TERM $${leg#*:} 2>/dev/null; done; for leg in $$legs; do wait $${leg#*:}; done; [ -z "$$since" ] || go run ./tools/testgate -clean-containers -since "$$since" || true; $$report merge -dir $$rec -commit "$(GATE_START_COMMIT)" -interrupted || true; go run ./tools/failures record-prcheck -report $$rec/report.json || true; }; \
 	trap 'stop; exit 130' INT; trap 'stop; exit 143' TERM; trap stop EXIT; \
 	vuln() { \
 		if [ -f $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready ] && [ "$$(cat $(COVERAGE_DIR)/pr/$(VULN_CHECK).ready)" = "$(GATE_START_COMMIT)" ]; then \
@@ -917,7 +918,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 			kids=""; \
 			if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast & kids=$$!; fi; \
 			if [ -n "$$mac_pkgs" ] && want containers-mac; then \
-				$(COVERAGE_DIR)/pr/maccheck -containers -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$mac_pkgs > $(COVERAGE_DIR)/pr/containers-mac.log 2>&1 & kids="$$kids $$!"; \
+				$(COVERAGE_DIR)/pr/maccheck -containers -share -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$all_docker > $(COVERAGE_DIR)/pr/containers-mac.log 2>&1 & kids="$$kids $$!"; \
 			fi; \
 			for k in $$kids; do wait $$k || ms=1; done; \
 		fi; \
@@ -964,7 +965,9 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	fi; \
 	if [ -n "$$mine_docker" ] && want containers; then \
 		echo "pr-check: the containers pass begins"; \
-		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$mine_docker || status=1; \
+		since="$$(go run ./tools/testgate -engine-time)" || since=""; \
+		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$docker_args || status=1; \
+		if [ -n "$$since" ]; then go run ./tools/testgate -clean-containers -since "$$since" || true; since=""; fi; \
 	fi; \
 	if want images; then \
 		if docker info >/dev/null 2>&1; then \

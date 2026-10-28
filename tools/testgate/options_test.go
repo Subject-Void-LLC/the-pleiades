@@ -43,6 +43,8 @@ func TestValidate(t *testing.T) {
 		"a clean with no commit":        {clean: "yes"},
 		"a short commit":                {commit: "abc123", clean: "yes"},
 		"a clean that is not yes or no": {commit: strings.Repeat("a", 40), clean: "maybe"},
+		"a host share of ./...":         {host: hostHere},
+		"a host share and a shard":      {host: hostHere, shard: "1/2", packages: []string{"a"}},
 	} {
 		if err := o.validate(); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -53,6 +55,25 @@ func TestValidate(t *testing.T) {
 	}
 	if err := (options{full: true, commit: strings.Repeat("a", 40), clean: "no"}).validate(); err != nil {
 		t.Errorf("a stamped run was refused: %v", err)
+	}
+}
+
+// TestPieces_WithoutAHostEveryPackageRunsHere is pr-check with no Mac, or one
+// that did not answer: no -host is passed, and every package runs whole, here,
+// as before the container pass was shared.
+func TestPieces_WithoutAHostEveryPackageRunsHere(t *testing.T) {
+	packages := []string{modulePrefix + "tests/e2e", modulePrefix + "internal/event", modulePrefix + "cmd/pleiades"}
+	pieces, err := options{full: true, packages: packages}.pieces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pieces) != len(packages) {
+		t.Fatalf("got %d pieces for %d packages: %+v", len(pieces), len(packages), pieces)
+	}
+	for _, p := range pieces {
+		if p.filter() != nil {
+			t.Errorf("%s is narrowed with no host named: %v", p.pkg, p.filter())
+		}
 	}
 }
 
