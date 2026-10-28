@@ -38,12 +38,13 @@ converter, docs, skill text and Walk-tier proof for them.
   `-cover`.
 - Review (fp-reviewer, 10 findings) fixed before this handoff: `d1318b37`, `578390c2`, `7d54619e`. FAILURE_PATTERNS
   691 to 698, LESSONS 348 to 351, twelve changelog fragments.
-- Blind CVD lab, run 5 (turn A, prompt unchanged, built at `b1999791`): Opus 44 PASS 0 FAIL, 27.8 min, 217 turns, $9.69;
-  Haiku 7 FAIL of 41 (no router answered; likely `GigabitEthernet0/0` for the IOL's `Ethernet0/0`, unproven). Against
-  run 4: tasks 121 to 39, repeated tasks 69 to 0, probes before the first run 50 to 47, turns 113 to 217, cost $6.93 to
-  $9.69. The AARs are `~/pleiades-cvd/runs/AAR-run5-opus.md` and `AAR-run5-haiku.md`; the comparison is a private
-  artifact. Findings from the Opus run fixed after it: `48716acc` (CLI rollback of a loop item, `result.<register>` in
-  `until`, an authored loop's item in a project path, skill text) and `578390c2`. Those fixes have not run on a lab.
+- Blind CVD lab, runs 5 and 6 (turn A, prompt unchanged but for per-instance addresses and a Batfish naming line).
+  Run 5 at `b1999791`: Opus 44/0, Haiku 34/7. Run 6 at `d5994cdf`, three instances at once: Opus 44/0 (rollback of loop
+  items held on the lab), Haiku 37/1 (a grader false positive; 13 shell-rule breaks), Sonnet 44/6 (it stopped CORE2
+  and the controller refused the restarts, HTTP 400). Run 4's 69 repeated tasks are 0 in both Opus runs and Sonnet's,
+  22 in Haiku's run 6. Reviews `~/pleiades-cvd/runs/AAR-run5-*.md` and `AAR-run6-*.md`, metrics `runs/metrics-*.json`,
+  comparison in a private artifact. Fixes from run 5: `48716acc`, `578390c2`; from run 6: `7783c730`, `0d111b4f`
+  (not yet run on a lab). Records: FAILURE_PATTERNS 699 to 703.
 
 ### Blocker
 
