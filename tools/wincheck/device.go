@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,12 +36,22 @@ const winPath = `C:\go\bin;C:\mingit\cmd;C:\mingw64\bin;C:\Program Files\Go\bin;
 // in to be sent; each archive is deleted once sent.
 const files = ".wincheck"
 
+// dataDir is what a data directory setting must look like, since every
+// script reads it: an absolute drive path of plain characters, such as
+// D:\pleiades, with no trailing backslash.
+var dataDir = regexp.MustCompile(`^[A-Za-z]:\\[A-Za-z0-9._-]+(\\[A-Za-z0-9._-]+)*$`)
+
 // windows is the real machine.
 type windows struct {
 	oscheck.Lab
 	// dedicated says the machine is a lab VM kept for checks, whose login's
 	// Go caches the readiness step clears before every run (Dedicated).
 	dedicated bool
+	// data is the directory every run's variable data goes under (its
+	// trees, its Go build and module caches and its TEMP), or "" for the
+	// login's profile and its own caches: the lab's win-check mounts its
+	// second disk as D: and names D:\pleiades.
+	data string
 }
 
 // Dedicated is the machine as a lab VM a check starts and puts back
@@ -54,25 +65,49 @@ func (w windows) Dedicated() oscheck.Leg {
 // own name: wincheck's and winarmcheck's are separate builds, so one check
 // never runs the other's binary (an older one could not read a project whose
 // records name capabilities it predates).
-func newLeg(tool string) func(project, device string) (oscheck.Leg, error) {
-	return func(project, device string) (oscheck.Leg, error) {
-		return newLegFor(tool, project, device)
+func newLeg(tool string) func(project, device, data string) (oscheck.Leg, error) {
+	return func(project, device, data string) (oscheck.Leg, error) {
+		return newLegFor(tool, project, device, data)
 	}
 }
 
-// newLegFor is newLeg's machine.
-func newLegFor(tool, project, device string) (oscheck.Leg, error) {
+// newLegFor is newLeg's machine, its variable data under data when one is
+// named.
+func newLegFor(tool, project, device, data string) (oscheck.Leg, error) {
+	if data != "" && !dataDir.MatchString(data) {
+		return nil, fmt.Errorf("the data directory %q is not an absolute drive path of plain characters, such as D:\\pleiades", data)
+	}
 	lab, err := oscheck.NewLab(tool, project, device)
 	if err != nil {
 		return nil, err
 	}
-	return windows{Lab: lab}, nil
+	return windows{Lab: lab, data: data}, nil
 }
 
 // shell runs script through exec.winrm.shell, under PowerShell, with env's
-// values as $env:PLEIADES_<NAME>, returning its standard output.
+// values as $env:PLEIADES_<NAME> (and the data directory as
+// $env:PLEIADES_DATA when the machine has one), returning its standard
+// output.
 func (w windows) shell(ctx context.Context, script string, env map[string]string, seconds int) (string, error) {
-	return w.Pleiades.Adhoc(ctx, "exec.winrm.shell", shellParams(script, env, seconds)...)
+	return w.Pleiades.Adhoc(ctx, "exec.winrm.shell", w.params(script, env, seconds)...)
+}
+
+// params are exec.winrm.shell's parameters for script with env, the data
+// directory added as DATA when the machine has one: every script the
+// machine runs gets them this way, the test script included, since a
+// script given the data directory for its tree and one not given it look
+// in different places (the test script looked in the profile for a tree the
+// prepare script had put on D:, 2026-10-29).
+func (w windows) params(script string, env map[string]string, seconds int) []string {
+	if w.data != "" {
+		with := make(map[string]string, len(env)+1)
+		for k, v := range env {
+			with[k] = v
+		}
+		with["DATA"] = w.data
+		env = with
+	}
+	return shellParams(script, env, seconds)
 }
 
 // shellParams are exec.winrm.shell's parameters for script, under
@@ -102,7 +137,7 @@ func (w windows) Ready() error {
 	if err != nil {
 		return fmt.Errorf("checking %s: %v", w.Target, err)
 	}
-	note, err := readyAnswer(w.Target, out, w.dedicated)
+	note, err := readyAnswer(w.Target, out, w.dedicated, w.data)
 	if note != "" {
 		fmt.Printf("wincheck: %s\n", note)
 	}
@@ -116,26 +151,35 @@ func (w windows) Ready() error {
 	return nil
 }
 
+// rootLine is the line every script starts with: the directory the trees
+// are under, the data directory when the machine has one ($env:PLEIADES_DATA)
+// and the login's profile otherwise.
+const rootLine = `$root = if ($env:PLEIADES_DATA) { $env:PLEIADES_DATA } else { $env:USERPROFILE }
+`
+
 // readyScript prints the platform, then go, git and tar, or no-go, no-git
 // and no-tar when one is not on the PATH, then the whole gigabytes free on
-// the drive holding the login's profile, where the trees and the check's
-// build cache are, before and after making room, one line each. Making room
-// removes only what is this check's own, under winDir: every tree but the
-// newest Kept-1, and, while the space free is still under MinFreeGB,
-// oscheck.CacheDir, which the prune passes over by name (a leading dot hides
-// nothing on Windows).
+// the drive holding the data directory (the login's profile without one),
+// where the trees and the check's build cache are, before and after making
+// room, one line each. Making room removes only what is this check's own,
+// under winDir: every tree but the newest Kept-1, and, while the space free
+// is still under MinFreeGB, oscheck.CacheDir, which the prune passes over by
+// name (a leading dot hides nothing on Windows).
 var readyScript = readyScriptWith("")
 
 // dedicatedReadyScript is readyScript for a lab VM kept for checks: before
 // anything else it clears the login's own Go build cache (GOCACHE removed
 // names its default, %LocalAppData%\go-build), the go-build work folders and
-// Test* temporary folders a stopped go test left in its TEMP, and, while
-// still under MinFreeGB, its
-// module cache, which the next build downloads again (owner, 2026-10-27).
+// Test* temporary folders a stopped go test left in its TEMP (and in the
+// data directory's tmp, where a run's TEMP goes when the machine has one),
+// and, while still under MinFreeGB, its module cache (and the data
+// directory's gomod), which the next build downloads again (owner,
+// 2026-10-27).
 var dedicatedReadyScript = readyScriptWith(`Remove-Item Env:GOCACHE -ErrorAction SilentlyContinue
 if (Get-Command go.exe -ErrorAction SilentlyContinue) { & go.exe clean -cache 2>&1 | Out-Null }
-foreach ($f in 'go-build*', 'Test*') { Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter $f -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+foreach ($d in @($env:TEMP) + @(if ($env:PLEIADES_DATA) { Join-Path $root 'tmp' })) { foreach ($f in 'go-build*', 'Test*') { Get-ChildItem -LiteralPath $d -Directory -Filter $f -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue } }
 if ([int](Get-FreeGB) -lt ` + strconv.Itoa(oscheck.MinFreeGB) + ` -and (Get-Command go.exe -ErrorAction SilentlyContinue)) { & go.exe clean -modcache 2>&1 | Out-Null }
+if ([int](Get-FreeGB) -lt ` + strconv.Itoa(oscheck.MinFreeGB) + ` -and $env:PLEIADES_DATA) { Remove-Item -LiteralPath (Join-Path $root 'gomod') -Recurse -Force -ErrorAction SilentlyContinue }
 `)
 
 // readyScriptWith is the readiness script with first run after the space
@@ -144,8 +188,8 @@ func readyScriptWith(first string) string {
 	return `$env:Path = '` + winPath + `;' + $env:Path
 [string][Environment]::OSVersion.Platform
 foreach ($c in 'go', 'git', 'tar') { if (Get-Command "$c.exe" -ErrorAction SilentlyContinue) { $c } else { "no-$c" } }
-function Get-FreeGB { [string][math]::Floor((Get-Item $env:USERPROFILE).PSDrive.Free / 1GB) }
-$base = Join-Path $env:USERPROFILE '` + winDir + `'
+` + rootLine + `function Get-FreeGB { [string][math]::Floor((Get-Item $root).PSDrive.Free / 1GB) }
+$base = Join-Path $root '` + winDir + `'
 $before = Get-FreeGB
 ` + first + `if (Test-Path -LiteralPath $base) {
 	` + pruneLine + `
@@ -170,8 +214,13 @@ if ($LASTEXITCODE -ne 0) {
 }`
 
 // readyAnswer checks readyScript's output, returning what room it made;
-// dedicated says the script was dedicatedReadyScript.
-func readyAnswer(target, out string, dedicated bool) (string, error) {
+// dedicated says the script was dedicatedReadyScript, and data is the data
+// directory the trees are under, or "" for the profile.
+func readyAnswer(target, out string, dedicated bool, data string) (string, error) {
+	root := `%USERPROFILE%`
+	if data != "" {
+		root = data
+	}
 	lines := strings.Fields(out)
 	switch {
 	case len(lines) != 6:
@@ -186,10 +235,10 @@ func readyAnswer(target, out string, dedicated bool) (string, error) {
 		return "", fmt.Errorf("%s has no tar.exe, which unpacks the tree; Windows has had it since Windows 10 1803 and Server 2019", target)
 	}
 	if dedicated {
-		return oscheck.Room(target, lines[4], lines[5], `%USERPROFILE%\`+winDir+`\`+oscheck.CacheDir+`; and, on this machine kept for checks, the login's Go build and module caches and its TEMP\go-build folders`,
+		return oscheck.Room(target, lines[4], lines[5], root+`\`+winDir+`\`+oscheck.CacheDir+`; and, on this machine kept for checks, the login's Go build and module caches and its TEMP\go-build folders`,
 			"what is left is outside Go's caches")
 	}
-	return oscheck.Room(target, lines[4], lines[5], `%USERPROFILE%\`+winDir+`\`+oscheck.CacheDir,
+	return oscheck.Room(target, lines[4], lines[5], root+`\`+winDir+`\`+oscheck.CacheDir,
 		`the login's own Go cache is %LocalAppData%\go-build`)
 }
 
@@ -228,19 +277,20 @@ func (w windows) Ship(sha string) error {
 }
 
 // treeLines are the lines every script after readyScript starts with:
-// stop at the first error, and name the trees' directory and sha's tree.
+// stop at the first error, and name the directory the trees are under, the
+// trees' directory and sha's tree.
 const treeLines = `$ErrorActionPreference = 'Stop'
-$base = Join-Path $env:USERPROFILE '` + winDir + `'
+` + rootLine + `$base = Join-Path $root '` + winDir + `'
 $tree = Join-Path $base $env:PLEIADES_SHA
 `
 
 // prepareScript makes the trees' directory, removes all but the newest
 // Kept-1 trees (pruneLine, which keeps the build cache) and any earlier copy
-// of sha's, and prints the profile directory.
+// of sha's, and prints the directory the trees are under.
 var prepareScript = treeLines + `New-Item -ItemType Directory -Force -Path $base | Out-Null
 ` + pruneLine + `
 foreach ($old in @($tree, ($tree + '.tar.gz'))) { if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force } }
-$env:USERPROFILE`
+$root`
 
 // unpackScript unpacks sha's archive into its tree, which tar.exe will not
 // make itself, and deletes the archive.
@@ -259,7 +309,7 @@ func (w windows) Test(ctx context.Context, sha string, parallel int, packages []
 	fmt.Fprintln(stdout, "wincheck: running on the Windows machine; Pleiades returns the output when the run ends, since it does not stream it yet")
 	env := map[string]string{"SHA": sha, "PARALLEL": strconv.Itoa(parallel), "PACKAGES": strings.Join(packages, " ")}
 	run := func(ctx context.Context) (oscheck.Outcome, error) {
-		return w.Pleiades.AdhocOutcome(ctx, "exec.winrm.shell", shellParams(testScript, env, oscheck.TestTimeout)...)
+		return w.Pleiades.AdhocOutcome(ctx, "exec.winrm.shell", w.params(testScript, env, oscheck.TestTimeout)...)
 	}
 	stop := func(ctx context.Context) error {
 		_, err := w.shell(ctx, stopScript, map[string]string{"SHA": sha}, 60)
@@ -294,8 +344,14 @@ const pidFile = ".wincheck.pid"
 // that reused the number.
 var testScript = `$ErrorActionPreference = 'Continue'
 $env:Path = '` + winPath + `;' + $env:Path
-$env:GOCACHE = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') '` + oscheck.CacheDir + `'
-$tree = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') $env:PLEIADES_SHA
+` + rootLine + `$env:GOCACHE = Join-Path (Join-Path $root '` + winDir + `') '` + oscheck.CacheDir + `'
+if ($env:PLEIADES_DATA) {
+	$env:GOMODCACHE = Join-Path $root 'gomod'
+	$env:TEMP = Join-Path $root 'tmp'
+	$env:TMP = $env:TEMP
+	New-Item -ItemType Directory -Force -Path $env:GOMODCACHE, $env:TEMP | Out-Null
+}
+$tree = Join-Path (Join-Path $root '` + winDir + `') $env:PLEIADES_SHA
 if (-not (Test-Path -LiteralPath $tree)) { "no tree at $tree; run -phase prepare first"; exit 2 }
 if ($env:PLEIADES_PACKAGES -cnotmatch '^[A-Za-z0-9._/ -]+$') { 'the package list is not import paths and spaces'; exit 2 }
 Set-Location -LiteralPath $tree
@@ -348,7 +404,7 @@ func (w windows) Records(ctx context.Context, sha string) ([]flakegate.Run, erro
 // recordsScript prints each record file in sha's tree that exists, read as
 // UTF-8, which is how testgate wrote it: Windows PowerShell 5.1 would
 // otherwise read a file with no byte order mark in the system's code page.
-const recordsScript = `$tree = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') $env:PLEIADES_SHA
+const recordsScript = rootLine + `$tree = Join-Path (Join-Path $root '` + winDir + `') $env:PLEIADES_SHA
 foreach ($f in '` + recordFull + `', '` + recordRepeat + `') {
 	$p = Join-Path $tree $f
 	if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw -Encoding UTF8 }
@@ -357,7 +413,7 @@ foreach ($f in '` + recordFull + `', '` + recordRepeat + `') {
 // stopScript ends the test run testScript started in sha's tree, and every
 // process under it, by the process ID in pidFile; it does nothing when
 // there is no such file or it holds anything but a number.
-var stopScript = `$tree = Join-Path (Join-Path $env:USERPROFILE '` + winDir + `') $env:PLEIADES_SHA
+var stopScript = rootLine + `$tree = Join-Path (Join-Path $root '` + winDir + `') $env:PLEIADES_SHA
 $id = Get-Content -LiteralPath (Join-Path $tree '` + pidFile + `') -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($id -match '^\d+$') { & taskkill.exe /T /F /PID $id 2>&1 | Out-Null }
 exit 0`

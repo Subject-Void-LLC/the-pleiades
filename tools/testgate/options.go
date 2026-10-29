@@ -40,10 +40,6 @@ type options struct {
 	// shard is "k/n": this run owns the k-th of n shards, balanced by how
 	// long each package's tests take (shardOf). Empty means every package.
 	shard string
-	// host is hostHere or hostPodman: this run is that machine's share of the
-	// packages, shared between the two by time (planHosts). Empty means every
-	// package.
-	host string
 	// coverageOut is where the run's per-package coverage is written, as
 	// JSON, for coverage-check -measured. Empty writes nothing.
 	coverageOut string
@@ -109,12 +105,6 @@ func (o options) validate() error {
 	if o.shard != "" && len(o.packages) == 0 {
 		return fmt.Errorf("-shard needs an explicit package list: ./... cannot be divided without listing it")
 	}
-	if o.host != "" && o.shard != "" {
-		return fmt.Errorf("-host shares the packages between two machines and -shard among CI's; pass one of them")
-	}
-	if o.host != "" && len(o.packages) == 0 {
-		return fmt.Errorf("-host needs an explicit package list: ./... cannot be shared without listing it")
-	}
 	if _, err := o.stamp(); err != nil {
 		return err
 	}
@@ -127,29 +117,14 @@ func (o options) selected() ([]string, error) {
 	if len(o.packages) == 0 {
 		return []string{"./..."}, nil
 	}
-	if o.host != "" {
-		pieces, err := o.pieces()
-		if err != nil {
-			return nil, err
-		}
-		owned := make([]string, 0, len(pieces))
-		for _, p := range pieces {
-			owned = append(owned, p.pkg)
-		}
-		return owned, nil
-	}
 	return shardOf(o.packages, o.shard)
 }
 
 // pieces is what this run tests of each package it owns: piecesOf with the
-// times in durations.json, or hostPieces with them and hosts.json for a -host
-// run, or ./... whole when no package was named.
+// times in durations.json, or ./... whole when no package was named.
 func (o options) pieces() ([]piece, error) {
 	if len(o.packages) == 0 {
 		return []piece{{pkg: "./..."}}, nil
-	}
-	if o.host != "" {
-		return hostPieces(o.packages, o.host, durations(), hosts())
 	}
 	return piecesOf(o.packages, o.shard, durations())
 }

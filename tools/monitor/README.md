@@ -98,7 +98,7 @@ Both answer 404 when the monitor has no live run (`serve`).
   then `coverage-fast`, the fast pass's own coverage floors; a failing one
   prints `pr-check: the container-free packages miss a coverage floor ...`
   and every part not yet begun is marked not-run. Then the Mac's prepare lines
-  (`maccheck: ...`), govulncheck, `pr-check: the mac tests run beside ...`,
+  (`maccheck: ...`), `pr-check: the mac tests run beside ...`,
   `pr-check: the bsd win tests run one after another ...`, the testgate passes
   (fast, repeat, containers; each `ok`/`FAIL` package line counts toward the
   pass, which ends at `testgate: all tests passed` or `exit status N`),

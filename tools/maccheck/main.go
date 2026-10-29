@@ -22,33 +22,18 @@
 // Usage:
 //
 //	go run ./tools/maccheck [-optional] [-phase all|prepare|test] [-mac target] [-commit HEAD] [-p N] package...
-//	go run ./tools/maccheck -phase vuln -govulncheck v1.6.0 [-mac target] [-commit HEAD]
-//	go run ./tools/maccheck -containers [-share] [-phase test] [-coverage-out file] package...
-//	go run ./tools/maccheck -reachable
-//
-// -containers runs container packages against the Mac's rootful Podman
-// machine, starting it when it is stopped and stopping it again afterwards,
-// and removing what the tests left there however the pass ends; with -share
-// the packages are pr-check's whole container list, of which the Mac runs only
-// its share by time (testgate -host podman), this machine running the rest.
-// -reachable answers only whether a Mac is configured and answers on its SSH
-// port, which pr-check asks before sharing anything with it.
 //
 // -phase splits the run in two, so pr-check can start the Mac's tests and
 // run the Linux ones while they go: prepare checks the Mac, builds
 // pleiades and sends the tree, all of which uses this machine; test runs
 // the tests on the tree prepare sent, which uses only the Mac. all (the
 // default) is both. Interrupted (SIGINT or SIGTERM) while the tests run,
-// it stops them on the Mac too. vuln runs govulncheck on the tree prepare
-// sent, on the Mac's memory (it took 7 GB there with a vulnerable call to
-// trace), scanning for this machine's operating system and architecture
-// with its Go release, so its answer is the one a scan here gives.
-// tools/internal/oscheck holds the flow it shares with tools/bsdcheck and
-// tools/wincheck.
+// it stops them on the Mac too. tools/internal/oscheck holds the flow it
+// shares with tools/bsdcheck and tools/wincheck.
 //
 // With -optional, a clone with no Mac configured is a skip, said so, which
-// is how pr-check calls it. Exit status: 0 passed or skipped, 1 a test (or
-// govulncheck) failed, 2 the Mac could not be used.
+// is how pr-check calls it. Exit status: 0 passed or skipped, 1 a test
+// failed, 2 the Mac could not be used.
 package main
 
 import (
@@ -104,9 +89,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, remote fu
 	fs.SetOutput(stderr)
 	o := oscheck.Flags(fs, "the Mac")
 	target := fs.String("mac", "", "the Mac to use, instead of "+envKey)
-	containers := fs.Bool("containers", false, "run the container-dependent packages against the Mac's Podman, with a coverage measurement for -coverage-out, instead of the container-free passes")
-	share := fs.Bool("share", false, "with -containers, the packages are the whole container list, shared by time between this machine and the Mac (testgate -host): run only the Mac's share")
-	reachable := fs.Bool("reachable", false, "only answer whether a Mac is configured and answers on its SSH port: exit 0 if so, 2 if not, saying why; run nothing")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -137,25 +119,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, remote fu
 		return 2
 	}
 	leg := remote(mac)
-	if *reachable {
-		if err := leg.Reachable(); err != nil {
-			fmt.Fprintf(stderr, "maccheck: %v\n", err)
-			return 2
-		}
-		return 0
-	}
-	if *share && !*containers {
-		fmt.Fprintf(stderr, "maccheck: -share is for -containers, whose list pr-check shares with this machine\n")
-		return 2
-	}
-	if *containers {
-		c, ok := leg.(interface{ forContainers(bool) pleiadesRemote })
-		if !ok {
-			fmt.Fprintf(stderr, "maccheck: -containers needs the real Mac end, which can run Podman\n")
-			return 2
-		}
-		leg = c.forContainers(*share)
-	}
 	flow := oscheck.Flow{Tool: "maccheck", Machine: "the Mac", OS: "macOS", Target: mac, Advice: changeOrRemove(file)}
 	return flow.Run(ctx, o, stdout, stderr, leg)
 }

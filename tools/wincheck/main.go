@@ -60,6 +60,7 @@ var check = oscheck.LabCheck{
 	VMHostKey:  "PLEIADES_WIN_VM_HOST",
 	VMKey:      "PLEIADES_WIN_VM",
 	BoxWait:    oscheck.WindowsWait,
+	DataKey:    "PLEIADES_WINRM_DATA",
 }
 
 // checkARM is the Windows ARM machine's check: a VM on a Mac running VMware
@@ -75,6 +76,7 @@ var checkARM = oscheck.LabCheck{
 	VMKey:      "PLEIADES_WINARM_VM",
 	BoxWait:    oscheck.WindowsWait,
 	Box:        oscheck.FusionBox,
+	DataKey:    "PLEIADES_WINARM_DATA",
 }
 
 // pick is the check args select, and the arguments left for it: -arm64,

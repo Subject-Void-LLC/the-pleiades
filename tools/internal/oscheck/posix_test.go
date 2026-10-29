@@ -5,14 +5,11 @@
 package oscheck
 
 import (
-	"context"
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -210,100 +207,6 @@ func TestStopScript_NothingToStop(t *testing.T) {
 		if out, err := h.sh(h.x.StopScript("abc")).CombinedOutput(); err != nil || len(out) != 0 {
 			t.Errorf("pid file %q: %v %q", content, err, out)
 		}
-	}
-}
-
-// vulnHome is a fake home for VulnScript: a tree for commit abc, and a
-// stand-in go that, asked to install, writes a stand-in govulncheck into
-// GOBIN printing what it was run with and exiting with scanStatus, or
-// fails the install when installStatus is not 0.
-func vulnHome(t *testing.T, installStatus, scanStatus int) (home, bin string) {
-	t.Helper()
-	needsSh(t)
-	home = t.TempDir()
-	bin = filepath.Join(home, "bin")
-	for _, dir := range []string{bin, filepath.Join(home, "trees", "abc")} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	scanner := "#!/bin/sh\necho \"scan $* in $PWD GOOS=$GOOS GOARCH=$GOARCH GOTOOLCHAIN=$GOTOOLCHAIN\"\nexit " + strconv.Itoa(scanStatus) + "\n"
-	goStandIn := "#!/bin/sh\necho \"go $* GOBIN=$GOBIN GOOS=${GOOS-unset} GOARCH=${GOARCH-unset} GOTOOLCHAIN=${GOTOOLCHAIN-unset}\"\n" +
-		"[ " + strconv.Itoa(installStatus) + " -eq 0 ] || exit " + strconv.Itoa(installStatus) + "\n" +
-		"mkdir -p \"$GOBIN\"\ncat > \"$GOBIN/govulncheck\" <<'EOF'\n" + scanner + "EOF\nchmod +x \"$GOBIN/govulncheck\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(goStandIn), 0o700); err != nil { // #nosec G306 -- a test's own stand-in program
-		t.Fatal(err)
-	}
-	return home, bin
-}
-
-// TestVulnScript: govulncheck is installed into the commit's tree for the
-// machine itself, then scans every package there for the platform and Go
-// release named, and the script exits with the scan's status (3 is
-// govulncheck's for a vulnerability found). A failed install ends it with
-// its own status, and a tree that was never sent with 2.
-func TestVulnScript(t *testing.T) {
-	x := POSIX{Dir: "trees"}
-	run := func(home, bin, sha string) (string, int) {
-		t.Helper()
-		x.Path = bin
-		cmd := exec.Command("/bin/sh", "-c", x.VulnScript(sha, "v1.6.0", "linux", "amd64", "go1.26.10"))
-		cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":/usr/bin:/bin")
-		cmd.Env = slices.DeleteFunc(cmd.Env, func(kv string) bool {
-			return strings.HasPrefix(kv, "GOOS=") || strings.HasPrefix(kv, "GOARCH=") || strings.HasPrefix(kv, "GOTOOLCHAIN=")
-		})
-		out, err := cmd.Output()
-		var exit *exec.ExitError
-		if err != nil && !errors.As(err, &exit) {
-			t.Fatal(err)
-		}
-		return string(out), cmd.ProcessState.ExitCode()
-	}
-
-	home, bin := vulnHome(t, 0, 3)
-	out, code := run(home, bin, "abc")
-	tree := filepath.Join(home, "trees", "abc")
-	for _, w := range []string{
-		"go install golang.org/x/vuln/cmd/govulncheck@v1.6.0 GOBIN=" + filepath.Join(tree, ".pleiades-bin") + " GOOS=unset GOARCH=unset GOTOOLCHAIN=unset",
-		"scan ./... in " + tree + " GOOS=linux GOARCH=amd64 GOTOOLCHAIN=go1.26.10",
-	} {
-		if !strings.Contains(out, w) {
-			t.Errorf("output does not say %q:\n%s", w, out)
-		}
-	}
-	if code != 3 {
-		t.Errorf("exit %d, want the scan's 3:\n%s", code, out)
-	}
-
-	home, bin = vulnHome(t, 0, 0)
-	if out, code := run(home, bin, "abc"); code != 0 {
-		t.Errorf("a clean scan exited %d:\n%s", code, out)
-	}
-	home, bin = vulnHome(t, 7, 0)
-	if out, code := run(home, bin, "abc"); code != 7 || strings.Contains(out, "scan ") {
-		t.Errorf("a failed install exited %d and went on to scan:\n%s", code, out)
-	}
-	if out, code := run(home, bin, "missing"); code != 2 || !strings.Contains(out, "missing") {
-		t.Errorf("a missing tree exited %d:\n%s", code, out)
-	}
-}
-
-// TestVulnScript_Wrap: the scan runs under Wrap, with the platform and
-// release named before it so they reach the scan through it.
-func TestVulnScript_Wrap(t *testing.T) {
-	s := posix.VulnScript("abc", "v1.6.0", "linux", "amd64", "go1.26.10")
-	if !strings.Contains(s, "\n"+`GOTOOLCHAIN=go1.26.10 GOOS=linux GOARCH=amd64 caffeinate -dims "$PWD/.pleiades-bin/govulncheck" ./...`+"\nstatus=$?\n") || !strings.HasSuffix(s, "exit $status") {
-		t.Errorf("the scan does not run under Wrap with its environment:\n%s", s)
-	}
-}
-
-// TestVuln_NeedsPrepareFirst: with no pleiades built here, a scan says to
-// run -phase prepare rather than calling a binary that is not there.
-func TestVuln_NeedsPrepareFirst(t *testing.T) {
-	x := posix
-	x.Pleiades = Pleiades{Binary: filepath.Join(t.TempDir(), "pleiades")}
-	if _, err := x.Vuln(context.Background(), "abc", "v1.6.0", io.Discard); err == nil || !strings.Contains(err.Error(), "run -phase prepare first") {
-		t.Fatalf("err %v", err)
 	}
 }
 

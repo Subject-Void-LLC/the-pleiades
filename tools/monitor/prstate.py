@@ -24,7 +24,7 @@ PASS = "pass"
 FAIL = "fail"
 NOT_RUN = "not-run"
 # ENDED is a stage that finished but whose verdict no line or record has
-# given yet (govulncheck prints no verdict line of its own, for example).
+# given yet (the images step prints no verdict line of its own, for example).
 ENDED = "ended"
 # SKIPPED is a stage this run does not have (no container package changed).
 SKIPPED = "skipped"
@@ -42,17 +42,19 @@ STATIC_TARGETS = [
 # HIDDEN_UNTIL_SEEN are targets only --trace shows; they stay off the page
 # until something happens to them.
 HIDDEN_UNTIL_SEEN = ("tools", "templ-gen")
-# containers-mac is the container half pr-check runs on the Mac against its Podman (maccheck -containers).
-PASSES = ["fast", "repeat", "containers", "containers-mac"]
-LEGS = ["mac", "bsd", "win", "winarm"]
+# The three testgate passes here, and the three machines a check runs the
+# container-free packages on (the Mac, and the FreeBSD and Windows lab VMs).
+PASSES = ["fast", "repeat", "containers"]
+LEGS = ["mac", "bsd", "win"]
 # coverage-fast checks the fast pass's coverage floors before anything else
-# runs; sizes records the binary sizes (tools/binsize) after durations.
-STEPS = ["coverage-fast", "govulncheck", "images", "coverage", "durations", "sizes"]
+# runs; resources holds the run's measurements to tools/testgate/resources.json
+# after durations; sizes records the binary sizes (tools/binsize) last.
+STEPS = ["coverage-fast", "images", "coverage", "durations", "resources", "sizes"]
 # The parts report.json can list as expected.
 REPORT_PARTS = PASSES + LEGS + STEPS
 # The order the dashboard lists stages in.
-DISPLAY_ORDER = (STATIC_TARGETS + ["scope", "fast", "coverage-fast", "repeat", "containers", "containers-mac"] + LEGS
-                 + ["govulncheck", "images", "coverage", "durations", "sizes"])
+DISPLAY_ORDER = (STATIC_TARGETS + ["scope", "fast", "coverage-fast", "repeat", "containers"] + LEGS
+                 + ["images", "coverage", "durations", "resources", "sizes"])
 
 # A verdict word from a record or prreport's summary, as a stage status.
 VERDICT_STATUS: Dict[str, str] = {

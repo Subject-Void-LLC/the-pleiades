@@ -119,9 +119,8 @@ func fixture(t *testing.T) string {
 // its kind, each list in the order pr-check runs them.
 func TestMerge_ReadsEveryRecordInOrder(t *testing.T) {
 	dir := fixture(t)
-	// govulncheck runs before the tests, between the Mac's prepare and test
-	// phases, so it leads the steps.
-	if err := WriteStep(dir, "govulncheck", 0, "", stamp, now); err != nil {
+	// sizes is the last of the Linux steps, so it ends the steps.
+	if err := WriteStep(dir, "sizes", 0, "", stamp, now); err != nil {
 		t.Fatal(err)
 	}
 	r := merge(t, dir, MergeOptions{Commit: commit})
@@ -135,7 +134,7 @@ func TestMerge_ReadsEveryRecordInOrder(t *testing.T) {
 	for _, s := range r.Steps {
 		steps = append(steps, s.Name)
 	}
-	if !slices.Equal(passes, []string{"fast", "containers"}) || !slices.Equal(legs, []string{"mac", "bsd", "win"}) || !slices.Equal(steps, []string{"govulncheck", "images", "coverage"}) {
+	if !slices.Equal(passes, []string{"fast", "containers"}) || !slices.Equal(legs, []string{"mac", "bsd", "win"}) || !slices.Equal(steps, []string{"images", "coverage", "sizes"}) {
 		t.Errorf("passes %v legs %v steps %v", passes, legs, steps)
 	}
 	if r.Verdict != flakegate.VerdictFail || len(r.Problems) != 0 || r.Commit != commit || r.Kind != ReportKind || r.Schema != ReportSchema || !r.Generated.Equal(now) {

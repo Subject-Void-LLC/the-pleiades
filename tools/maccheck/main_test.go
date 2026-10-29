@@ -125,9 +125,6 @@ func TestRun_TheFlow(t *testing.T) {
 		{"tests fail", "me@mac", pkgs, &fakeRemote{}, 1, "reachable ready ship test", []string{"the tests failed on me@mac"}},
 		{"tests pass", "me@mac", pkgs, &fakeRemote{passed: true}, 0, "reachable ready ship test", []string{"all tests passed on me@mac"}},
 		{"-mac wins over the setting", "me@mac", append([]string{"-mac", "other@mac2"}, pkgs...), &fakeRemote{passed: true}, 0, "reachable ready ship test", []string{"on other@mac2"}},
-		{"-reachable, and it answers", "me@mac", []string{"-reachable"}, &fakeRemote{}, 0, "reachable", nil},
-		{"-reachable, and it does not", "me@mac", []string{"-reachable"}, &fakeRemote{reachable: errors.New("me@mac (10.0.0.9:22) did not answer")}, 2, "reachable", []string{"did not answer"}},
-		{"-share without -containers", "me@mac", append([]string{"-share"}, pkgs...), &fakeRemote{}, 2, "", []string{"-share is for -containers"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.configure != "" {
