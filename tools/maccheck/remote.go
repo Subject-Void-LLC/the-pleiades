@@ -59,6 +59,9 @@ func newRemote(project, mac string) pleiadesRemote {
 		Path:     macPath,
 		Wrap:     "caffeinate -dims ",
 		Files:    "files",
+		// The Mac is its owner's machine, with a disk shared with everything
+		// else on it: each run's build cache goes when the run ends.
+		DropCache: true,
 	}}
 }
 

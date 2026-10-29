@@ -292,7 +292,7 @@ func TestVulnScript(t *testing.T) {
 // release named before it so they reach the scan through it.
 func TestVulnScript_Wrap(t *testing.T) {
 	s := posix.VulnScript("abc", "v1.6.0", "linux", "amd64", "go1.26.10")
-	if !strings.HasSuffix(s, `GOTOOLCHAIN=go1.26.10 GOOS=linux GOARCH=amd64 caffeinate -dims "$PWD/.pleiades-bin/govulncheck" ./...`) {
+	if !strings.Contains(s, "\n"+`GOTOOLCHAIN=go1.26.10 GOOS=linux GOARCH=amd64 caffeinate -dims "$PWD/.pleiades-bin/govulncheck" ./...`+"\nstatus=$?\n") || !strings.HasSuffix(s, "exit $status") {
 		t.Errorf("the scan does not run under Wrap with its environment:\n%s", s)
 	}
 }

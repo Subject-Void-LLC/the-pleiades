@@ -39,6 +39,9 @@ func TestContainerTestScript_Contents(t *testing.T) {
 	if got := containerPosix.ContainerTestScript("abc", 3, []string{"a/b"}); !strings.Contains(got, "-full -p 3 ") {
 		t.Errorf("an explicit parallelism is not used:\n%s", got)
 	}
+	if !strings.Contains(s, `export DOCKER_CONFIG="$cfg"`) || strings.Contains(s, "/.docker") {
+		t.Errorf("the pass does not use a docker configuration of its own, or touches the login's ~/.docker:\n%s", s)
+	}
 	shared := containerPosix
 	shared.Containers = &Containers{Socket: ".pleiades-podman/podman.sock", Share: true}
 	if got := shared.ContainerTestScript("abc", 0, []string{"a/b"}); !strings.Contains(got, "testgate -full -host podman -p 1 ") {
@@ -100,11 +103,18 @@ case "$1 $2" in
 "machine inspect") printf '[{"ConnectionInfo": {\n "PodmanSocket": {\n  "Path": "` + real + `"\n },\n "PodmanPipe": null}}]\n' ;;
 "ps -aq") case "$*" in *org.testcontainers*) echo c-test ;; esac ;;
 "volume ls") echo named-data; echo ` + strings.Repeat("ab", 32) + ` ;;
+"images ") echo "REPOSITORY TAG IMAGE ID CREATED SIZE"
+	echo "docker.io/library/nats 2.14.4-alpine id-nats 3 months 27 MB"
+	echo "docker.io/pleiades/telnetd 3.20.10 id-telnetd 1 hour 8 MB"
+	echo "ghcr.io/notconf/notconf <none> id-notconf 4 months 199 MB"
+	echo "docker.io/library/debian bookworm-slim id-debian 8 days 100 MB"
+	echo "<none> <none> id-dangling 2 days 8 MB" ;;
 esac
 exit 0
 `
 	goStand := `#!/bin/sh
 echo "go DOCKER_HOST=$DOCKER_HOST RYUK=$TESTCONTAINERS_RYUK_DISABLED $*" >> "` + home + `/go.calls"
+if [ "$2" = ./tools/testimages ]; then echo nats:2.14.4-alpine; echo ghcr.io/notconf/notconf@sha256:9ef5; exit 0; fi
 [ -f "` + home + `/go.exit" ] && exit "$(cat "` + home + `/go.exit")"
 echo '{"coverage":{}}' > .pleiades-coverage-containers.json
 echo '{"schema":1,"kind":"testgate","label":"full","verdict":"pass"}' > .pleiades-record-containers.json
@@ -272,5 +282,51 @@ func TestContainerTestScript_NoMachineSocketIsStatus2(t *testing.T) {
 	}
 	if strings.Contains(h.read(t, "go.calls"), "testgate") {
 		t.Error("the tests ran with no Podman socket")
+	}
+}
+
+// The pass removes the tagged images no test names (debian here), keeps what
+// the tests build (pleiades/...) and what tools/testimages lists, whatever its
+// tag or digest, and with DropCache removes its own Go build cache, not the
+// container-free pass's.
+func TestContainerTestScript_PrunesStaleImagesAndDropsItsCache(t *testing.T) {
+	h := newPodmanHome(t, true)
+	h.x.DropCache = true
+	for _, dir := range []string{ContainerCacheDir, CacheDir} {
+		if err := os.MkdirAll(filepath.Join(h.home, "trees", dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, code := h.run(t)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	calls := h.read(t, "podman.calls")
+	if !strings.Contains(calls, "podman rmi -f id-debian") {
+		t.Errorf("the image no test names was not removed:\n%s", calls)
+	}
+	for _, kept := range []string{"id-nats", "id-telnetd", "id-notconf"} {
+		if strings.Contains(calls, "rmi -f "+kept) {
+			t.Errorf("removed %s, which a test names or builds:\n%s", kept, calls)
+		}
+	}
+	if !strings.Contains(out, "1 image(s) no test names, its Go build cache") {
+		t.Errorf("the cleanup did not say what it removed:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(h.home, "trees", ContainerCacheDir)); !os.IsNotExist(err) {
+		t.Errorf("the container pass's build cache is still there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.home, "trees", CacheDir)); err != nil {
+		t.Errorf("the container-free pass's build cache was removed too: %v", err)
+	}
+	if s := h.x.TestScript("abc", 0, []string{"a/b"}); strings.Count(s, `rm -rf "$HOME/trees/`+CacheDir+`"`) != 2 {
+		t.Errorf("the container-free pass does not drop its own cache at its end and on an interrupt:\n%s", s)
+	}
+	if s := h.x.VulnScript("abc", "v1.0.0", "linux", "amd64", "go1.26.0"); !strings.Contains(s, VulnCacheDir) || !strings.Contains(s, `rm -rf "$HOME/trees/`+VulnCacheDir+`"`) {
+		t.Errorf("the scan does not build into and drop its own cache:\n%s", s)
+	}
+	h.x.DropCache = false
+	if s := h.x.ContainerTestScript("abc", 0, []string{"a/b"}); strings.Contains(s, "rm -rf \"$HOME/trees/"+ContainerCacheDir) {
+		t.Errorf("a machine that keeps its cache had it dropped:\n%s", s)
 	}
 }

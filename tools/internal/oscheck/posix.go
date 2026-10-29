@@ -48,6 +48,13 @@ type POSIX struct {
 	// puts back), so readyScript also clears the login's own Go caches before
 	// each run, which on any other machine are the owner's (dedicatedClean).
 	Dedicated bool
+	// DropCache removes each run's Go build cache when the run ends, pass, fail
+	// or interrupt, rather than only when the machine runs short of space: the
+	// Mac's grew to 20 GB in two days (2026-10-28) on a disk it shares with its
+	// owner. Each kind of run builds into a cache of its own (CacheDir,
+	// ContainerCacheDir, VulnCacheDir), since a container pass and a
+	// container-free one run at once and neither may remove the other's.
+	DropCache bool
 }
 
 // Kept is how many trees a machine keeps, the newest.
@@ -96,7 +103,7 @@ before=$(free_gb)
 %[5]s
 if [ -d "$base" ]; then
 	ls -1t "$base" | tail -n +%[2]d | while read -r old; do rm -rf "${base:?}/$old"; done
-	if [ "$(free_gb)" -lt %[3]d ]; then rm -rf "${base:?}/%[4]s"; fi
+	if [ "$(free_gb)" -lt %[3]d ]; then rm -rf "${base:?}/%[4]s" "${base:?}/%[4]s-containers" "${base:?}/%[4]s-vuln"; fi
 fi
 echo "$before"
 free_gb`, x.Dir, Kept, MinFreeGB, CacheDir, x.dedicatedClean()))
@@ -244,11 +251,11 @@ set -m
 job=$!
 set +m
 echo "$job" > %[6]s
-trap 'stop_run "$job"; rm -f %[6]s; exit 143' TERM HUP INT
+trap 'stop_run "$job"; rm -f %[6]s; %[12]sexit 143' TERM HUP INT
 wait "$job"
 status=$?
 rm -f %[6]s
-exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1], CacheDir)
+%[12]sexit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1], CacheDir, x.dropCache(CacheDir))
 }
 
 // VulnTimeout bounds a govulncheck run on the machine, in seconds, as the
@@ -294,8 +301,10 @@ func (x POSIX) VulnScript(sha, version, goos, goarch, goVersion string) string {
 export PATH="$PATH:%[1]s"
 export GOCACHE="$HOME/%[2]s/%[9]s"
 cd "$HOME/%[2]s/%[3]s" || exit 2
-GOBIN="$PWD/.pleiades-bin" go install golang.org/x/vuln/cmd/govulncheck@%[4]s || exit $?
-GOTOOLCHAIN=%[7]s GOOS=%[5]s GOARCH=%[6]s %[8]s"$PWD/.pleiades-bin/govulncheck" ./...`, x.Path, x.Dir, sha, version, goos, goarch, goVersion, x.Wrap, CacheDir)
+GOBIN="$PWD/.pleiades-bin" go install golang.org/x/vuln/cmd/govulncheck@%[4]s || { status=$?; %[10]sexit $status; }
+GOTOOLCHAIN=%[7]s GOOS=%[5]s GOARCH=%[6]s %[8]s"$PWD/.pleiades-bin/govulncheck" ./...
+status=$?
+%[10]sexit $status`, x.Path, x.Dir, sha, version, goos, goarch, goVersion, x.Wrap, VulnCacheDir, x.dropCache(VulnCacheDir))
 }
 
 // Records reads back the testgate records TestScript's passes wrote in
@@ -365,6 +374,10 @@ const MinFreeGB = 4
 // whatever else that login builds, so no check ever removes it. A dot name
 // keeps it out of the trees a prune removes.
 const CacheDir = ".gocache"
+
+// VulnCacheDir is the Go build cache a govulncheck run builds into, apart from
+// the tests' (see POSIX.DropCache).
+const VulnCacheDir = CacheDir + "-vuln"
 
 // Room reads a readiness check's free space before and after it made room
 // (whole gigabytes as text): note says what was removed when the machine

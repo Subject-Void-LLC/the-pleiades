@@ -206,3 +206,60 @@ func TestHostsJSON_IsReadAndConsistent(t *testing.T) {
 		}
 	}
 }
+
+// TestPlanHosts_AHeavyPackageGoesToPodmanFirst checks memory comes before
+// time: a package over the budget that Podman can run goes there even though
+// time alone would put it here, and one over the budget that only here can
+// run stays here and is named, with the largest memory each host runs.
+func TestPlanHosts_AHeavyPackageGoesToPodmanFirst(t *testing.T) {
+	table := shareTable
+	table.BudgetMB = 1500
+	table.MemoryMB = map[string]float64{"a": 2500, "b": 400, "c": 300, "pinned": 1800}
+	seconds := map[string]float64{"a": 100, "b": 300, "c": 200, "pinned": 50}
+	plan := planHosts(pkgs("a", "b", "c", "pinned"), seconds, table)
+	if got := strings.Join(owned(plan.pieces[hostPodman]), " "); !strings.Contains(got, "a") {
+		t.Errorf("podman runs %q, want the heavy package a", got)
+	}
+	if got := strings.Join(owned(plan.pieces[hostHere]), " "); strings.Contains(got, "a") {
+		t.Errorf("here runs %q, which includes the heavy package Podman can run", got)
+	}
+	if len(plan.overHere) != 1 || plan.overHere[0] != modulePrefix+"pinned" {
+		t.Errorf("over the budget here: %v, want only pinned", plan.overHere)
+	}
+	if plan.peak[hostHere] != 1800 || plan.peak[hostPodman] != 2500 {
+		t.Errorf("peaks %v, want here 1800 and podman 2500", plan.peak)
+	}
+	var out bytes.Buffer
+	printHostPlan(&out, pkgs("a", "b", "c", "pinned"), seconds, table)
+	if !strings.Contains(out.String(), "memory here: the largest unit takes 1800 MB against a budget of 1500 MB; over it, and only here can run them: "+modulePrefix+"pinned") {
+		t.Errorf("printed %q", out.String())
+	}
+	// Without a budget, memory decides nothing.
+	plan = planHosts(pkgs("a", "b", "c"), seconds, shareTable)
+	if got := strings.Join(owned(plan.pieces[hostHere]), " "); got != "b" {
+		t.Errorf("with no budget here runs %q, want b, the longest, by time alone", got)
+	}
+}
+
+// TestPlanHosts_StartTimesShiftTheBalance checks a host whose share starts
+// later gets less of it, so the two end together: Podman starting 300 s late
+// takes only what fits after that.
+func TestPlanHosts_StartTimesShiftTheBalance(t *testing.T) {
+	table := shareTable
+	table.StartSeconds = map[string]float64{hostHere: 0, hostPodman: 300}
+	seconds := map[string]float64{"a": 400, "b": 300, "c": 200, "d": 100}
+	plan := planHosts(pkgs("a", "b", "c", "d"), seconds, table)
+	// a goes here (0 < 300), b to Podman (300 < 400), c here (400 < 600), and d
+	// here on the tie at 600.
+	if plan.ends[hostHere] != 700 || plan.ends[hostPodman] != 600 {
+		t.Errorf("ends %v, want here 700 and podman 600", plan.ends)
+	}
+	if plan.seconds[hostPodman] != 300 || plan.seconds[hostHere] != 700 {
+		t.Errorf("shares %v, want podman 300 and here 700", plan.seconds)
+	}
+	var out bytes.Buffer
+	printHostPlan(&out, pkgs("a", "b", "c", "d"), seconds, table)
+	if !strings.Contains(out.String(), "ends: here about 12 min and podman about 10 min after pr-check begins") {
+		t.Errorf("printed %q", out.String())
+	}
+}

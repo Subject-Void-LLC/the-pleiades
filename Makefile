@@ -694,9 +694,16 @@ ci-containers:
 # -arm64). None shares this machine's CPU or memory, so each starts at t0,
 # before the fast pass, beside the Linux passes. The Mac's chain is its
 # -phase prepare (checking it, building pleiades, sending the tree), then
-# -phase vuln running govulncheck on that tree, then its -phase test and its
-# share of the container packages on Podman together, each with a job file of
-# its own in the one tree.
+# -phase vuln running govulncheck on that tree, then its -phase test, then its
+# share of the container packages on Podman, each with a job file of its own
+# in the one tree. That share waits for the Mac's own tests and for the winarm
+# leg (the Windows ARM VM in the Mac's Fusion) to end, pass or fail, since all
+# three would otherwise compete for the Mac's CPU and memory: the winarm leg
+# writes $(COVERAGE_DIR)/pr/winarm.done with its exit status when it ends (or
+# is stopped), and the Mac's job waits on that file. This machine's own
+# container share starts as soon as its passes allow, as before; the plan
+# counts each share from when it starts (tools/testgate/hosts.json's
+# start_seconds), so the two still end together.
 #
 # The container packages are shared with the Mac by time when one is
 # configured and answers on its SSH port (maccheck -reachable): testgate
@@ -839,12 +846,23 @@ $(error LEGS names $(LEGS_UNKNOWN), which pr-check does not run; its parts are $
 endif
 endif
 PR_STAMP = $(if $(GATE_START_COMMIT),-commit $(GATE_START_COMMIT) -clean $(GATE_START_CLEAN))
+# PR_CHECK_LEAVE_TO_CI are packages pr-check never runs here or on the Mac,
+# even when the branch's scope reaches them; the pull request's Actions jobs
+# run them (tests/e2e on the containers shards, test by test). tests/e2e's
+# compose tests build the shipped images and run the stack, and alone they
+# took 6.8 GB on this WSL host (3.8 GB of free memory and 3.0 GB of swap,
+# 2026-10-29), past the monitor's 3 GB swap-growth watchdog, and they do not
+# yet run on the Mac's Podman (its machine ran out building the images, and
+# the upgrade gate needs a git checkout). The owner's decision, 2026-10-29:
+# leave tests/e2e to CI, as this file and CLAUDE.md already said.
+PR_CHECK_LEAVE_TO_CI := github.com/Subject-Void-LLC/the-pleiades/tests/e2e
 pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	@$(SPLIT_PACKAGES); \
 	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
 	mine_fast=""; mine_docker=""; \
 	for pkg in $$(printf '%s\n' $$scope $(PR_CHECK_ALWAYS) | sort -u); do \
-		if printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
+		if printf '%s\n' $(PR_CHECK_LEAVE_TO_CI) | grep -qx "$$pkg"; then echo "pr-check: $$pkg is left to CI (PR_CHECK_LEAVE_TO_CI)"; \
+		elif printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
 	all_docker="$$mine_docker"; docker_args="$$mine_docker"; mac_pkgs=""; since=""; \
@@ -915,22 +933,29 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 			vuln_step & kids=$$!; wait $$kids || ms=1; \
 		fi; \
 		if [ -f $(COVERAGE_DIR)/pr/mac.ready ]; then \
-			kids=""; \
-			if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast & kids=$$!; fi; \
+			if want mac; then $(COVERAGE_DIR)/pr/maccheck -phase test -report-out $$rec/mac.json -p $(PR_CHECK_PARALLELISM) $$mine_fast & kids=$$!; wait $$kids || ms=1; fi; \
 			if [ -n "$$mac_pkgs" ] && want containers-mac; then \
-				$(COVERAGE_DIR)/pr/maccheck -containers -share -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$all_docker > $(COVERAGE_DIR)/pr/containers-mac.log 2>&1 & kids="$$kids $$!"; \
+				if [ ! -f $(COVERAGE_DIR)/pr/winarm.done ]; then echo "pr-check: containers-mac waits for the winarm leg, which runs on the same Mac, to end"; fi; \
+				while [ ! -f $(COVERAGE_DIR)/pr/winarm.done ]; do sleep 10; done; \
+				echo "pr-check: the mac and winarm legs have ended, so containers-mac starts"; \
+				$(COVERAGE_DIR)/pr/maccheck -containers -share -phase test -report-out $$rec/containers-mac.json -coverage-out $(COVERAGE_DIR)/pr/containers-mac.json -p 1 $$all_docker > $(COVERAGE_DIR)/pr/containers-mac.log 2>&1 & kids=$$!; \
+				wait $$kids || ms=1; \
 			fi; \
-			for k in $$kids; do wait $$k || ms=1; done; \
 		fi; \
 		return $$ms; \
 	}; \
+	rm -f $(COVERAGE_DIR)/pr/winarm.done; \
 	if want winarm; then \
-		$(COVERAGE_DIR)/pr/winarmcheck -arm64 -optional -report-out $$rec/winarm.json -p $(WINARM_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/winarm.log 2>&1 & legs="$$legs winarm:$$!"; \
+		( $(COVERAGE_DIR)/pr/winarmcheck -arm64 -optional -report-out $$rec/winarm.json -p $(WINARM_CHECK_PARALLELISM) $$mine_fast > $(COVERAGE_DIR)/pr/winarm.log 2>&1 & child=$$!; \
+		  trap 'kill -TERM $$child 2>/dev/null; wait $$child; echo 143 > $(COVERAGE_DIR)/pr/winarm.done; exit 143' TERM; \
+		  wait $$child; s=$$?; echo $$s > $(COVERAGE_DIR)/pr/winarm.done; exit $$s ) & legs="$$legs winarm:$$!"; \
 		echo "pr-check: the winarm tests run from the start, beside the ones below, on the Windows ARM VM the Mac's Fusion runs; their output follows them ($(COVERAGE_DIR)/pr/winarm.log)"; \
+	else \
+		echo "winarm not run" > $(COVERAGE_DIR)/pr/winarm.done; \
 	fi; \
 	if want mac || { [ -n "$$mac_pkgs" ] && want containers-mac; }; then \
 		mac_job > $(COVERAGE_DIR)/pr/mac.log 2>&1 & legs="$$legs mac:$$!"; \
-		echo "pr-check: the mac tests run from the start, beside the ones below: the Mac prepares, scans with govulncheck, then runs its tests and its containers on Podman together; their output follows them ($(COVERAGE_DIR)/pr/mac.log, $(COVERAGE_DIR)/pr/containers-mac.log)"; \
+		echo "pr-check: the mac tests run from the start, beside the ones below: the Mac prepares, scans with govulncheck, then runs its tests, and its share of the containers on Podman once those tests and the winarm leg have ended; their output follows them ($(COVERAGE_DIR)/pr/mac.log, $(COVERAGE_DIR)/pr/containers-mac.log)"; \
 	fi; \
 	if [ -n "$$labs" ]; then \
 		( for os in $$labs; do \

@@ -61,6 +61,32 @@ const podmanClean = `clean() {
 	cleaned="$(printf '%s\n' $c | grep -c .) container(s), $(printf '%s\n' $n | grep -c .) network(s), $(printf '%s\n' $v | grep -c .) anonymous volume(s) and $(printf '%s\n' $i | grep -c .) dangling image(s)"
 }`
 
+// podmanPruneStale defines the shell function prune_stale, which removes the
+// tagged images in the Podman machine that no test names any more: every image
+// whose repository is neither one the tests build (pleiades/...) nor one
+// tools/testimages lists from the source (keep, read once as the pass begins).
+// A repository is kept whatever its tag, so a pin moving to a new tag leaves
+// the old one until it is no longer named at all. With no keep list (it could
+// not be read) it removes nothing, rather than every image. It counts what it
+// removed into stale and prints nothing.
+const podmanPruneStale = `prune_stale() {
+	stale=0
+	[ -n "$keep" ] || return 0
+	for pair in $(podman images 2>/dev/null | awk 'NR > 1 && $1 != "<none>" { print $3 "," $1 }'); do
+		id=${pair%%,*}; repo=${pair#*,}
+		short=$(printf '%s\n' "$repo" | sed -e 's#^docker[.]io/##' -e 's#^library/##' -e 's#^localhost/##')
+		case "$short" in pleiades/*) continue ;; esac
+		printf '%s\n' "$keep" | grep -qxF "$short" && continue
+		podman rmi -f "$id" >/dev/null 2>&1 && stale=$((stale + 1))
+	done
+}`
+
+// ContainerCacheDir is the Go build cache a container pass builds into, in its
+// trees' directory: its own, apart from the container-free pass's CacheDir,
+// since the two run at once on one machine and each removes its cache when it
+// ends (POSIX.DropCache).
+const ContainerCacheDir = CacheDir + "-containers"
+
 // ContainerNeeds are the commands a machine must have to run the container
 // packages: the tests build images and look for the docker command, and
 // Podman runs the containers.
@@ -77,9 +103,12 @@ var ContainerNeeds = []Need{
 // through Podman's API and exits), and runs one testgate pass over packages
 // with a coverage measurement, only Podman's share of them when Share is set.
 // However it ends, pass, fail, a stop sent from here, or a TERM, HUP, INT or
-// broken pipe, done_ cleans, stops the machine when this run (or an earlier
-// one that never got to) started it, and only then says what it removed, with
-// SIGPIPE ignored, so a channel that has gone away cannot stop it partway. It
+// broken pipe, done_ cleans, removes the tagged images no test names any more
+// (podmanPruneStale, against the list tools/testimages reads as the pass
+// begins), removes the pass's Go build cache when DropCache is set, stops the
+// machine when this run (or an earlier one that never got to) started it, and
+// only then says what it removed, with SIGPIPE ignored, so a channel that has
+// gone away cannot stop it partway. It
 // is TestScript's job handling, so an interrupt ends the pass and the
 // containers it started.
 //
@@ -104,8 +133,11 @@ real=$(podman machine inspect | grep -A3 PodmanSocket | grep '"Path"' | sed 's/.
 [ -n "$real" ] || { echo "no Podman machine socket: is a machine created (podman machine init --rootful)?"; exit 2; }
 mkdir -p "$(dirname "$HOME/%[4]s")" && ln -sf "$real" "$HOME/%[4]s" || exit 2
 export DOCKER_HOST="unix://$HOME/%[4]s" TESTCONTAINERS_RYUK_DISABLED=true
+%[20]s
+keep=$(go run ./tools/testimages ./... 2>/dev/null | sed -e 's#[@].*##' -e 's#:[^/:]*$##' -e 's#^docker[.]io/##' -e 's#^library/##' | sort -u)
 %[14]s
-done_() { trap '' PIPE; clean; stopped=""; if [ "$started" = 1 ]; then podman machine stop >/dev/null 2>&1; rm -f "$mark"; stopped=", and stopped the Podman machine it started"; fi; echo "%[15]s: cleanup after the container pass removed $cleaned$stopped"; true; }
+%[17]s
+done_() { trap '' PIPE; clean; prune_stale; %[18]sstopped=""; if [ "$started" = 1 ]; then podman machine stop >/dev/null 2>&1; rm -f "$mark"; stopped=", and stopped the Podman machine it started"; fi; echo "%[15]s: cleanup after the container pass removed $cleaned, $stale image(s) no test names%[19]s$stopped"; true; }
 %[7]s
 clean
 [ "$cleaned" = "0 container(s), 0 network(s), 0 anonymous volume(s) and 0 dangling image(s)" ] || echo "%[15]s: before the container pass, cleanup removed what an earlier one left: $cleaned"
@@ -120,11 +152,46 @@ wait "$job"
 status=$?
 rm -f %[12]s
 done_
-exit $status`, x.Path, x.Dir, sha, sock, pkgs, x.Wrap, stopRun, ContainerRecordFile, ContainerCoverageFile, CacheDir, parallelOrOne(parallel), x.PIDFile(), StartedMark, podmanClean, x.Tool, host)
+exit $status`, x.Path, x.Dir, sha, sock, pkgs, x.Wrap, stopRun, ContainerRecordFile, ContainerCoverageFile, ContainerCacheDir, parallelOrOne(parallel), x.PIDFile(), StartedMark, podmanClean, x.Tool, host,
+		podmanPruneStale, x.dropCache(ContainerCacheDir), x.droppedCache(), dockerConfig(sock))
 }
 
-// ContainerStopScript is StopScript for a container pass: it ends the run, then
-// cleans the Podman machine and stops it when a pass started it
+// dockerConfig is the shell that gives the pass a docker command configuration
+// of its own, beside the Podman socket's link (sock's directory, under the
+// login's home): one naming Homebrew's CLI plugin directory, so `docker
+// compose` and `docker buildx` resolve there (tests/e2e's compose release
+// gates build and run the shipped images with them), while the login's own
+// ~/.docker is never read or written. Where Homebrew has no plugin directory
+// the configuration names none, and those gates fail as they did before.
+func dockerConfig(sock string) string {
+	return fmt.Sprintf(`cfg="$HOME/$(dirname %[1]s)/docker"
+plugins="$(brew --prefix 2>/dev/null)/lib/docker/cli-plugins"
+mkdir -p "$cfg" && if [ -d "$plugins" ]; then printf '%%s\n' '{' "  \"cliPluginsExtraDirs\": [\"$plugins\"]" '}' > "$cfg/config.json"; else printf '%%s\n' '{' '}' > "$cfg/config.json"; fi
+export DOCKER_CONFIG="$cfg"`, sock)
+}
+
+// dropCache is the shell command, ending in "; ", that removes the build cache
+// dir (one of CacheDir, ContainerCacheDir, VulnCacheDir) when DropCache is set,
+// or nothing.
+func (x POSIX) dropCache(dir string) string {
+	if !x.DropCache {
+		return ""
+	}
+	return fmt.Sprintf(`rm -rf "$HOME/%s/%s"; `, x.Dir, dir)
+}
+
+// droppedCache is what a pass's last line adds when it removed its build
+// cache.
+func (x POSIX) droppedCache() string {
+	if !x.DropCache {
+		return ""
+	}
+	return ", its Go build cache"
+}
+
+// ContainerStopScript is StopScript for a container pass: it ends the run,
+// removes the pass's Go build cache when DropCache is set, then cleans the
+// Podman machine and stops it when a pass started it
 // (StartedMark), since an interrupt can kill the pass's own shell before its
 // done_ runs. It does nothing to a machine no pass started.
 func (x POSIX) ContainerStopScript(sha string) string {
@@ -132,12 +199,13 @@ func (x POSIX) ContainerStopScript(sha string) string {
 pid=$(cat "$HOME/%[2]s/%[3]s/%[4]s" 2>/dev/null)
 %[5]s
 case "$pid" in ''|*[!0-9]*) ;; *) stop_run "$pid" ;; esac
+%[9]s
 podman machine list 2>/dev/null | grep -q 'Currently running' || exit 0
 %[6]s
 clean
 if [ -f "$HOME/%[7]s" ]; then podman machine stop >/dev/null 2>&1; rm -f "$HOME/%[7]s"; cleaned="$cleaned, and stopped the Podman machine a pass started"; fi
 echo "%[8]s: stopping the container pass, cleanup removed $cleaned"
-exit 0`, x.Path, x.Dir, sha, x.PIDFile(), stopRun, podmanClean, StartedMark, x.Tool)
+exit 0`, x.Path, x.Dir, sha, x.PIDFile(), stopRun, podmanClean, StartedMark, x.Tool, x.dropCache(ContainerCacheDir))
 }
 
 // parallelOrOne is how many container packages run at once: one unless the
