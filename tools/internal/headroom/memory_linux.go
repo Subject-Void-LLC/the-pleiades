@@ -8,6 +8,7 @@ package headroom
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // read is Read on Linux.
@@ -39,8 +40,15 @@ func cgroupMemory(cgroupFile, root string) (limitMB, usedMB float64, ok bool) {
 	if path == "" {
 		return 0, 0, false
 	}
-	dir := filepath.Join(root, filepath.FromSlash(path))
-	maxText, err := os.ReadFile(filepath.Join(dir, "memory.max")) // #nosec G304 -- under the cgroup file system
+	// The cgroup's files are read under root, which refuses a path that
+	// climbs out of it however the cgroup file names the cgroup.
+	tree, err := os.OpenRoot(root)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer func() { _ = tree.Close() }()
+	dir := filepath.FromSlash(strings.TrimPrefix(path, "/"))
+	maxText, err := tree.ReadFile(filepath.Join(dir, "memory.max"))
 	if err != nil {
 		return 0, 0, false
 	}
@@ -48,7 +56,7 @@ func cgroupMemory(cgroupFile, root string) (limitMB, usedMB float64, ok bool) {
 	if !ok {
 		return 0, 0, false
 	}
-	current, err := os.ReadFile(filepath.Join(dir, "memory.current")) // #nosec G304 -- under the cgroup file system
+	current, err := tree.ReadFile(filepath.Join(dir, "memory.current"))
 	if err != nil {
 		return 0, 0, false
 	}

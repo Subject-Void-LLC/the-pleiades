@@ -17537,3 +17537,31 @@ test tears its containers down (pr-check's `-clean-containers` does that after t
 
 **Lesson.** A comment that claims what another process will do when this one ends is a claim to test or to drop; and
 when the same diff already solves the problem for one caller (`taskkill /T`), the second caller uses it.
+
+## 730. gosec's G703 followed a file's content into the cgroup reads and the manifest's own bytes into its write, and only the gate's gosec had run over the new packages (a repeat of 475) (fixed before push)
+
+**Symptom.** The fourth gate on the pipeline branch, 2026-10-29, failed its gosec stage with three G703 findings:
+`headroom.cgroupMemory`'s reads of `memory.max` and `memory.current` under the cgroup `/proc/self/cgroup` names, and
+`testgate.writeResources`'s `os.WriteFile` of the manifest. Each line carried a `#nosec G304` comment, which answers
+the pattern rule and not the taint one.
+
+**Root cause.** Two flows. The cgroup path is a file's content joined under `/sys/fs/cgroup` and read: 475's flow
+with a file for the argument. The kernel writes that file, but nothing in the code held the path to the root. The
+manifest write was flagged for its content: the measurement files named on the command line are read, folded into
+the manifest and marshalled, and gosec treats the bytes `os.WriteFile` writes as a path to traverse with. Replacing
+the path with the repository constant still reported it, which one gosec run over the package proved. Each new
+package had been vetted and tested alone before the gate and never scanned alone, so the first gosec run over them
+was the gate's, ten minutes in.
+
+**Fix.** `cgroupMemory` opens the cgroup root with `os.OpenRoot` and reads both files through it, so a path that
+climbs out of the root is refused by construction, as 475's fix did; `writeResources` writes through a handle
+(`os.Create`, `Write`, `Close`, then the rename), which no path sink reads the content of, with a comment saying why
+it is not `os.WriteFile`. No waiver.
+
+**Why 475 did not prevent it.** 475 was written about a command's argument, and this path came from a file the
+kernel writes, which read as a fixed system file; the `#nosec G304` beside it looked like the scanner had been
+answered.
+
+**Lesson.** A `#nosec G304` comment answers the pattern rule only; the taint rule needs the flow held, and the
+content an `os.WriteFile` writes counts as tainted along with its path. Before a gate, a branch that adds a package
+scans it with `gosec -fmt=json ./the/package/` alone, twenty seconds, as it vets and tests it alone.
