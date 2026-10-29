@@ -1,6 +1,10 @@
 // A lab check's machine as a VirtualBox VM: started when a run needs it and
-// put back afterwards with its state saved, so a box holds the host's
-// memory only while a check runs on it (the lab's bsd-check takes 4 GB).
+// put back afterwards, shut down, so a box holds the host's memory only
+// while a check runs on it (the lab's bsd-check takes 4 GB). It is shut
+// down rather than saved (owner, 2026-10-29): a saved VM's disks cannot be
+// compacted, and its saved state holds the guest's whole memory on the
+// host's disk. The next start is a cold boot, about two minutes at four
+// CPUs, which bootWait allows for.
 package oscheck
 
 import (
@@ -34,7 +38,7 @@ type Box struct {
 
 // BoxMethods are the Collection methods a box is driven through, which is all
 // that differs between hypervisors: each reads the VM's state, starts it, and
-// puts it back with its memory saved so the next start resumes it.
+// puts it back.
 type BoxMethods struct {
 	// Hypervisor names it in what a check prints ("VirtualBox").
 	Hypervisor string
@@ -44,17 +48,30 @@ type BoxMethods struct {
 	Param string
 	// Running is the state Info reports for a running VM.
 	Running string
-	// PutBack is Stop's parameter that saves the VM rather than ending it.
-	PutBack string
+	// PutBack are Stop's parameters that put the VM back: a shutdown through
+	// the guest, or a suspend.
+	PutBack []string
+	// Fallback are Stop's parameters tried when PutBack fails, or none: a VM
+	// whose guest did not shut down on its power button has its power cut,
+	// since a check's VM holds nothing a cut loses but a run's own caches.
+	Fallback []string
+	// PutBackWord says how the VM was put back ("shut down", "suspended").
+	PutBackWord string
 	// CheckVM refuses a VM identity this hypervisor cannot have.
 	CheckVM func(string) error
 }
 
+// ShutdownWait is how many seconds a VirtualBox box's guest gets to shut
+// down on its power button before its power is cut: a FreeBSD or Windows
+// Server guest with nothing running shuts down in well under a minute.
+const ShutdownWait = 300
+
 // VirtualBoxBox is a box on a VirtualBox host (virt.vbox.*), named by its VM
-// name, saved when put back.
+// name, shut down when put back (its power button, then its power cut).
 var VirtualBoxBox = BoxMethods{
 	Hypervisor: "VirtualBox", Info: "virt.vbox.vm.info", Start: "virt.vbox.vm.start", Stop: "virt.vbox.vm.stop",
-	Param: "name", Running: "running", PutBack: "mode=save",
+	Param: "name", Running: "running",
+	PutBack: []string{"mode=acpi", fmt.Sprintf("timeout=%d", ShutdownWait)}, Fallback: []string{"mode=poweroff"}, PutBackWord: "shut down",
 	CheckVM: func(vm string) error {
 		if !deviceName.MatchString(vm) {
 			return fmt.Errorf("%q is not a VM name", vm)
@@ -68,7 +85,7 @@ var VirtualBoxBox = BoxMethods{
 // VM, without which macOS throttles a VM a check starts over SSH.
 var FusionBox = BoxMethods{
 	Hypervisor: "VMware Fusion", Info: "virt.fusion.vm.info", Start: "virt.fusion.vm.start", Stop: "virt.fusion.vm.stop",
-	Param: "vmx", Running: "on", PutBack: "mode=suspend",
+	Param: "vmx", Running: "on", PutBack: []string{"mode=suspend"}, PutBackWord: "suspended",
 	CheckVM: vmrun.CheckVMX,
 }
 
@@ -114,13 +131,14 @@ func LabBoxOf(s Settings, hostKey, vmKey, device string, m BoxMethods) (host, vm
 }
 
 // bootWait bounds how long a started box may take to answer a login: a
-// saved one resumes in seconds, a cold one boots (Windows on one CPU takes
-// a few minutes).
+// shut-down one boots cold (about two minutes at four CPUs, measured
+// 2026-10-27; Windows on one CPU took a few).
 const bootWait = 10 * time.Minute
 
 // PutBackGrace bounds putting a box back, whatever ended the run, so a
-// host that stopped answering cannot hold the check open.
-const PutBackGrace = 5 * time.Minute
+// host that stopped answering cannot hold the check open: the guest's
+// ShutdownWait, then the power cut and a read.
+const PutBackGrace = time.Duration(ShutdownWait)*time.Second + 3*time.Minute
 
 // SteadyWait is how a box this run started is waited for, as any
 // Pleiades user would wait for one: wait.connection, within bootWait, for
@@ -170,7 +188,7 @@ func (b Box) Up(ctx context.Context, tool string, stdout io.Writer) (bool, error
 	if state == m.Running {
 		return false, nil
 	}
-	fmt.Fprintf(stdout, "%s: starting the VM %s on %s (it was %s); it is put back, saved, when the run ends\n", tool, b.VM, b.Host.Device, FirstOf(state, "in no state it named"))
+	fmt.Fprintf(stdout, "%s: starting the VM %s on %s (it was %s); it is put back, %s, when the run ends\n", tool, b.VM, b.Host.Device, FirstOf(state, "in no state it named"), m.PutBackWord)
 	if _, err := adhocStats(ctx, b.Host, m.Start, m.Param+"="+b.VM); err != nil {
 		return false, fmt.Errorf("starting the VM %s on %s: %v", b.VM, b.Host.Device, err)
 	}
@@ -184,17 +202,27 @@ func (b Box) Up(ctx context.Context, tool string, stdout io.Writer) (bool, error
 	return true, nil
 }
 
-// PutBack saves the box's state, which frees its memory on the host; the
-// next Up resumes it. It has a context of its own, bounded by PutBackGrace,
-// since it runs after an interrupt too.
+// PutBack puts the box back (its methods' PutBack: a shutdown through the
+// guest, or a suspend), which frees its memory on the host and, shut down,
+// leaves its disks free to compact; a shutdown the guest did not finish is
+// followed by the Fallback, its power cut. The next Up starts it again. It
+// has a context of its own, bounded by PutBackGrace, since it runs after an
+// interrupt too.
 func (b Box) PutBack(tool string, stdout io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), PutBackGrace)
 	defer cancel()
 	m := b.methods()
-	if _, err := adhocStats(ctx, b.Host, m.Stop, m.Param+"="+b.VM, m.PutBack); err != nil {
-		return fmt.Errorf("putting the VM %s back on %s: %v; it is still running, and %s with %s puts it away", b.VM, b.Host.Device, err, m.Stop, m.PutBack)
+	params := append([]string{m.Param + "=" + b.VM}, m.PutBack...)
+	_, err := adhocStats(ctx, b.Host, m.Stop, params...)
+	if err != nil && len(m.Fallback) > 0 {
+		fmt.Fprintf(stdout, "%s: the VM %s on %s did not shut down on its own (%v); cutting its power, which loses nothing a check's VM keeps\n", tool, b.VM, b.Host.Device, err)
+		params = append([]string{m.Param + "=" + b.VM}, m.Fallback...)
+		_, err = adhocStats(ctx, b.Host, m.Stop, params...)
 	}
-	fmt.Fprintf(stdout, "%s: put the VM %s back on %s, its state saved\n", tool, b.VM, b.Host.Device)
+	if err != nil {
+		return fmt.Errorf("putting the VM %s back on %s: %v; it is still running, and %s with %s puts it away", b.VM, b.Host.Device, err, m.Stop, strings.Join(params[1:], " "))
+	}
+	fmt.Fprintf(stdout, "%s: put the VM %s back on %s, %s\n", tool, b.VM, b.Host.Device, m.PutBackWord)
 	return nil
 }
 
