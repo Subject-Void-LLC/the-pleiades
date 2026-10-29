@@ -51,7 +51,7 @@ func RunGoTestJSONObserved(args, packages []string, echo io.Writer, obs Observer
 	cmd := exec.Command("go", full...)
 	cmd.Stderr = os.Stderr
 	if obs != nil {
-		ownGroup(cmd)
+		OwnGroup(cmd)
 		obs.Prepare(cmd)
 	}
 

@@ -215,7 +215,7 @@ func (b Box) PutBack(tool string, stdout io.Writer) error {
 	params := append([]string{m.Param + "=" + b.VM}, m.PutBack...)
 	_, err := adhocStats(ctx, b.Host, m.Stop, params...)
 	if err != nil && len(m.Fallback) > 0 {
-		fmt.Fprintf(stdout, "%s: the VM %s on %s did not shut down on its own (%v); cutting its power, which loses nothing a check's VM keeps\n", tool, b.VM, b.Host.Device, err)
+		fmt.Fprintf(stdout, "%s: the VM %s on %s did not shut down on its own (%v); cutting its power, which can leave its data disk's file system for the next boot to repair\n", tool, b.VM, b.Host.Device, err)
 		params = append([]string{m.Param + "=" + b.VM}, m.Fallback...)
 		_, err = adhocStats(ctx, b.Host, m.Stop, params...)
 	}

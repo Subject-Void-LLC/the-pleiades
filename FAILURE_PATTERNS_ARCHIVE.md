@@ -17661,3 +17661,26 @@ ada0s1b plus 2 GB on md99.
 
 **Lesson.** A machine's last words go where it writes them as it dies: on a VM with a serial console that is a file the
 next start truncates, so read it first.
+
+## 735. Stopping each gate at its first failure terminated a lab VM's ACPI put-back, the power cuts that followed damaged its new data disk, and the VM would not boot (a repeat of 733's cause) (fixed before push)
+
+**Symptom.** The ninth gate on the pipeline branch, 2026-10-29: "FreeBSD: stopped at box: the VM bsd-check started, and
+bsd-check did not answer logins steadily within 10m0s ... circuit open for 192.168.56.42:22". The VM's console log on
+the host, read before anything restarted it, ended with "/dev/ada1p1: UNEXPECTED SOFT UPDATE INCONSISTENCY; RUN fsck
+MANUALLY ... Automatic file system check failed; help! ... going to single user mode". The damaged inodes' times
+(17:31 to 17:45) are the times of the earlier gates' power cuts.
+
+**Root cause.** Three things together. The gate was stopped the instant a leg reported a failure, during its put-back,
+and the stop terminated the put-back's pleiades, which shared the check's process group (733). The check's fallback then
+cut the VM's power, under a message saying that loses nothing, written before the VM had a data disk. And the data disk
+was mounted from fstab with no `failok`, on a VM without `fsck_y_enable`, so one dirty file system stopped the boot at a
+prompt on a serial line nobody can type into. The kernel panic two minutes into the eighth gate (734) was most likely the
+same damage.
+
+**Fix.** Every pleiades a check runs starts in a process group of its own (`flakegate.OwnGroup`, now exported), so the
+gate's stop does not end a put-back's shutdown, while the check's context still ends every other call
+(`TestAdhoc_RunsInAProcessGroupOfItsOwn`). The fallback's message says a power cut can leave the data disk's file system
+for the next boot to repair. The damaged disk was replaced through `virt.vbox.vm.detach_disk` and `attach_disk`, and the
+VM's mount gets `failok` and `fsck_y_enable="YES"`.
+
+**Lesson.** LESSONS 356.

@@ -18,7 +18,7 @@ import (
 // that has not started is an error rather than a signal to nothing.
 func TestSignalGroup_EndsWhatTheRunStarted(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 30 & echo $!; wait")
-	ownGroup(cmd)
+	OwnGroup(cmd)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

@@ -11,8 +11,10 @@ import (
 	"syscall"
 )
 
-// ownGroup makes cmd start in a process group of its own.
-func ownGroup(cmd *exec.Cmd) {
+// OwnGroup makes cmd start in a process group of its own, so a signal to
+// the group that started it (a terminal's interrupt, a gate's stop) does
+// not reach it; its starter ends it through its context instead.
+func OwnGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 

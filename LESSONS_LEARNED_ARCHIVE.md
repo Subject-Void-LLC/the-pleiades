@@ -6582,3 +6582,23 @@ was measured (`BudgetMB` from the container packages' peaks, the floor and swap 
 caught), and the record's `package_mb` is what moves it next. What is cut to make room (a share of the work on another
 machine, a leg for a platform no release ships, a scan another gate runs within minutes) is removed, not flagged off:
 every exception list is a second policy.
+
+## 356. Stopping a run is itself an action with side effects: let a machine that is shutting down finish, because a power cut is never free once the machine keeps data of its own (2026-10-29).
+
+**Why.** The gate rule is "fail means stop", and on 2026-10-29 I applied it the moment the monitor reported a FreeBSD
+leg failed. That moment falls while the leg is still putting its lab VM back. The gate's stop reached the put-back's
+pleiades through the shared process group, the ACPI shutdown died mid-call, and the check cut the VM's power, with a
+message saying that "loses nothing a check's VM keeps". That had been true while the VM kept nothing. The same branch had
+just given it a data disk. Four power cuts in one afternoon left `/data`'s soft-updates file system inconsistent. The
+next test run panicked the kernel two minutes in (FAILURE_PATTERNS 734). The boot after that refused to fsck `/data`
+unattended and stopped at a single-user prompt on a serial line VirtualBox writes to a file and never reads. The VM could
+not be reached by SSH, by keys or by the gate, and its data disk had to be rebuilt. Each step was reasonable on its own.
+The error was treating the stop as free, and believing a comment about what a power cut costs after the thing it
+described had changed.
+
+**Rule in practice.** Before stopping a run, look at what it is doing: a leg putting a machine back, a migration, a
+write to shared state finishes first. A stop must not reach a teardown whose job is to leave things safe, so a
+put-back runs in its own process group on its own context. A machine that keeps data must survive an unclean stop
+without help: UFS gets `fsck_y_enable="YES"` and `failok` on a data mount, or the file system journals. When a
+machine's role changes (it gains a disk, a database, a cache), re-read every comment and message that says what losing
+it costs.

@@ -388,6 +388,7 @@ story, per `.AGENTS/AGENTS.md`.
 353. **The skill and the docs are claims: each runbook they teach is validated by a test that runs everywhere (a repeat of 301) (2026-10-28).**
 354. **An audit that finds nothing in part of its scope says why: nothing there, or nothing wrong (a repeat of 211) (2026-10-28).**
 355. **A resource policy lives in the one tool every environment already runs (testgate, with tools/internal/headroom), with numbers measured there and moved from its records; what is cut to make room is removed, not flagged off (2026-10-29).**
+356. **Stopping a run is itself an action with side effects: let a machine that is shutting down finish, because a power cut is never free once the machine keeps data of its own.**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

@@ -8,7 +8,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -52,5 +54,24 @@ func TestAdhoc_ARunWithNoReportSaysHowItEnded(t *testing.T) {
 	silent := standIn(t, `exit 0`)
 	if _, err := silent.AdhocStats(ctx, "virt.vbox.vm.stop"); err == nil || !strings.Contains(err.Error(), "printed no report") {
 		t.Errorf("a silent clean run: %v", err)
+	}
+}
+
+// TestAdhoc_RunsInAProcessGroupOfItsOwn: each pleiades a check runs starts
+// in a process group other than the check's, so the gate's stop, a signal to
+// the check's group, does not end a put-back's shutdown halfway
+// (FAILURE_PATTERNS 735).
+func TestAdhoc_RunsInAProcessGroupOfItsOwn(t *testing.T) {
+	p := standIn(t, `printf '{"tasks":[{"status":"ok","stats":{"stdout":"%s"}}],"outcome":{"exit_code":0}}' "$(ps -o pgid= -p $$ | tr -d ' ')"`)
+	got, err := p.Adhoc(context.Background(), "exec.command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pgid, err := strconv.Atoi(strings.TrimSpace(got))
+	if err != nil {
+		t.Fatalf("the stand-in printed %q as its group", got)
+	}
+	if mine := syscall.Getpgrp(); pgid == mine {
+		t.Errorf("pleiades ran in the check's own process group %d", mine)
 	}
 }

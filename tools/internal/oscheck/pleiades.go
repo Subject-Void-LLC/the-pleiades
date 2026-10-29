@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
 // Pleiades is this branch's pleiades binary and the device it drives, in
@@ -84,6 +86,11 @@ func (p Pleiades) adhocJSON(ctx context.Context, method string, params ...string
 		var stderr bytes.Buffer
 		cmd := exec.CommandContext(ctx, p.Binary, args...) // #nosec G204 -- the binary this check built, with arguments it wrote
 		cmd.Stderr = &stderr
+		// Its own process group: a signal to the check's group (the gate's
+		// stop) does not end it mid-call, so a put-back's shutdown, on a
+		// context of its own, finishes; ctx still ends every other call
+		// (FAILURE_PATTERNS 733, 735).
+		flakegate.OwnGroup(cmd)
 		got, err := cmd.Output()
 		why = endedWith(err, stderr.String())
 		return got

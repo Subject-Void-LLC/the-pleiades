@@ -15,8 +15,8 @@ import (
 	"strconv"
 )
 
-// ownGroup does nothing on Windows.
-func ownGroup(*exec.Cmd) {}
+// OwnGroup does nothing on Windows.
+func OwnGroup(*exec.Cmd) {}
 
 // SignalGroup ends cmd and every process under it, whatever sig is: Windows
 // delivers no signal to another process, so a stop is a kill of the tree,
