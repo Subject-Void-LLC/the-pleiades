@@ -42,6 +42,9 @@ func fullPRReport(t *testing.T) prreport.Report {
 		Coverage:       map[string]float64{"x/a": 91.5},
 		Missing:        map[string][]string{"x/a": {"localstack"}},
 		PackageSeconds: map[string]float64{"x/a": 3.25},
+		Headroom: &flakegate.Headroom{AvailableMB: 4300, LimitMB: 4500, MinAvailableMB: 1800, SwapGrowthMB: 120, ParallelAsked: 0, ParallelRan: 2,
+			DiskFreeGB: map[string]float64{"/home/me/src": 749.5}, PackageMB: map[string]float64{"x/a": 850}, PackageDiskMB: map[string]float64{"x/a": 310},
+			MinDiskFreeGB: map[string]float64{"/home/me/src": 749.2}, Stopped: "memory available 650 MB, under the 700 MB floor", Samples: 240},
 	}
 	if err := flakegate.WriteRun(filepath.Join(dir, "fast.json"), fast); err != nil {
 		t.Fatal(err)

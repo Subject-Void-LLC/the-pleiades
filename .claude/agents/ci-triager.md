@@ -23,7 +23,9 @@ diagnosis, with evidence, that says plainly when something has happened before. 
 
 - `go run ./tools/prreport` for the summary, `-json` for the full model, `-failures` for the failures that count
   with their output, `-skips` for every skip with its reason, `-leg NAME` for one part (`fast`, `repeat`,
-  `containers`, `mac`, `bsd`, `win`, `govulncheck`, `images`, `coverage`, `durations`).
+  `containers`, `mac`, `bsd`, `win`, `images`, `coverage`, `durations`, `sizes`). Each testgate record
+  carries a `headroom` field: the memory and disk the machine had, the parallelism the run used, what each
+  package cost, and why a run was stopped early, which is where a kill or an unexplained build failure is read.
 - If it warns that the report is for a commit other than HEAD, say so first; the report may not describe the code.
 - A verdict of `running` or `interrupted` is not a result. Say what ran and what did not.
 

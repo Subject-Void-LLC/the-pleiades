@@ -18,6 +18,7 @@ var prReportModelFiles = []string{
 	"tools/internal/prreport/report.go",
 	"tools/internal/flakegate/run.go",
 	"tools/internal/flakegate/report.go",
+	"tools/internal/flakegate/headroom.go",
 	"tools/internal/oscheck/report.go",
 }
 

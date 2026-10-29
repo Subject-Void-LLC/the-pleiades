@@ -1,0 +1,2965 @@
+{
+  "schema": 1,
+  "complete": false,
+  "units": {
+    "cmd/controller": {
+      "seconds": {
+        "min": 134,
+        "max": 134
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "cmd/demo": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "cmd/pleiades": {
+      "seconds": {
+        "min": 948,
+        "max": 948
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "cmd/runner": {
+      "seconds": {
+        "min": 267,
+        "max": 267
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "examples/external_collection": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/access": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/adapters/legacy": {
+      "seconds": {
+        "min": 12,
+        "max": 12
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/adapters/native": {
+      "seconds": {
+        "min": 52,
+        "max": 52
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/adapters/routing": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/api": {
+      "seconds": {
+        "min": 16,
+        "max": 16
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/apispec": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/archtest": {
+      "seconds": {
+        "min": 102,
+        "max": 102
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/auth": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/auth/authtest": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/backup": {
+      "seconds": {
+        "min": 53,
+        "max": 53
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/buildinfo": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/ai": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/ai/bench": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/ai/model": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/ai/prompt": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/ai/provider": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/archive": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/build/digests": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/build/lock": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/cloud/aws/ec2": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/cloud/aws/s3": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/container": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/container/engine": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/container/image": {
+      "seconds": {
+        "min": 4,
+        "max": 4
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/container/network": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/container/registry": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/container/volume": {
+      "seconds": {
+        "min": 6,
+        "max": 6
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/db/pg": {
+      "seconds": {
+        "min": 43,
+        "max": 43
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/edge": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/exec": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/exec/winrm": {
+      "seconds": {
+        "min": 9,
+        "max": 9
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/facts": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/file": {
+      "seconds": {
+        "min": 14,
+        "max": 14
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/file/block": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/file/line": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/fragment": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/fs": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/fw/firewalld": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/gate": {
+      "seconds": {
+        "min": 12,
+        "max": 12
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/http": {
+      "seconds": {
+        "min": 11,
+        "max": 11
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/identity/group": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/identity/user": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/batfish": {
+      "seconds": {
+        "min": 41,
+        "max": 41
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/catalyst": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/cli": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/eos": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/frr": {
+      "seconds": {
+        "min": 10,
+        "max": 10
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/ios": {
+      "seconds": {
+        "min": 11,
+        "max": 11
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/junos": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/netconf": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/ovs": {
+      "seconds": {
+        "min": 6,
+        "max": 6
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/pcap": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/net/ssh": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/pkg": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/pkg/apt": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/pkg/dnf": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/pleiades/builtin/connection": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/pleiades/builtin/project": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/pleiades/builtin/wait": {
+      "seconds": {
+        "min": 16,
+        "max": 16
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/scan": {
+      "seconds": {
+        "min": 15,
+        "max": 15
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/svc": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/svc/systemd": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/svc/windows": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/virt/cml/capture": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/virt/cml/lab": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/virt/cml/link": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/virt/cml/node": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/virt/fusion/vm": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/virt/vbox/snapshot": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/virt/vbox/vm": {
+      "seconds": {
+        "min": 17,
+        "max": 17
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/wait": {
+      "seconds": {
+        "min": 70,
+        "max": 70
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/win": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/win/archive": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/win/capability": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/win/cpu": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/win/feature": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/win/file": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog/win/firewall": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/clireport": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/credential": {
+      "seconds": {
+        "min": 4,
+        "max": 4
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/credstore": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/credstore/resolve": {
+      "seconds": {
+        "min": 10,
+        "max": 10
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/credtype": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/credtype/lookup/file": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/credtype/lookup/hashivault": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/credtype/managed": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/crypto": {
+      "seconds": {
+        "min": 4,
+        "max": 4
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/dispatch": {
+      "seconds": {
+        "min": 11,
+        "max": 11
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/election": {
+      "seconds": {
+        "min": 15,
+        "max": 15
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/engine": {
+      "seconds": {
+        "min": 29,
+        "max": 29
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ent": {
+      "seconds": {
+        "min": 33,
+        "max": 33
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ent/migrate": {
+      "seconds": {
+        "min": 104,
+        "max": 104
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ent/migrate/gen": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ent/schema": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/event": {
+      "seconds": {
+        "min": 214,
+        "max": 214
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/forge/catalogdata": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/forge/collectionscaffold": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/forge/externalscaffold": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/forge/playbook": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory": {
+      "seconds": {
+        "min": 13,
+        "max": 13
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/ai": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/ai/aitest": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/aws": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/batfish": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/catalyst": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/cisco": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/cloudflare": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/cml": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/console": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/container": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/engines": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/generic": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/kubernetes": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/linux": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/devices/windows": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/onboard": {
+      "seconds": {
+        "min": 201,
+        "max": 201
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/plugins": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/plugins/aws": {
+      "seconds": {
+        "min": 6,
+        "max": 6
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/plugins/catalystcenter": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/plugins/staticyaml": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/record": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/inventory/syncplugin": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/journal": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/jsonschema": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/keyregistry": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/launch": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/launch/kinds/runbook": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/launchable": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/launchable/types": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/launchable/types/jobtemplate": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/launchable/types/projectsync": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/loader": {
+      "seconds": {
+        "min": 6,
+        "max": 6
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/localauth": {
+      "seconds": {
+        "min": 12,
+        "max": 12
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/lock": {
+      "seconds": {
+        "min": 9,
+        "max": 9
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/meshid": {
+      "seconds": {
+        "min": 57,
+        "max": 57
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/project": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/redact": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/render": {
+      "seconds": {
+        "min": 4,
+        "max": 4
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/rollback": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/runbook": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/runner": {
+      "seconds": {
+        "min": 363,
+        "max": 363
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/schedule": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/segment": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/setup": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/testsupport": {
+      "seconds": {
+        "min": 35,
+        "max": 35
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/topology": {
+      "seconds": {
+        "min": 37,
+        "max": 37
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/transport/ssh": {
+      "seconds": {
+        "min": 66,
+        "max": 66
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/transport/telnet": {
+      "seconds": {
+        "min": 20,
+        "max": 20
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/transport/winrm": {
+      "seconds": {
+        "min": 16,
+        "max": 16
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/render": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/credentials": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/credentialtypes": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/devices": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/grants": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/inventories": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/jobs": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/organizations": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/projects": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/runbooks": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/schedules": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/teams": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/resources/templates": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/session": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/view": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/ui/web": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "internal/validate": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/aiprovider": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/aitask": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/awscloud": {
+      "seconds": {
+        "min": 41,
+        "max": 41
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/batfish": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/bsdinstall": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/catalystcenter": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/cfapi": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/clidialog": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/cml": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/cml/cmltest": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/cmlconsole": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/collection": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/containerengine": {
+      "seconds": {
+        "min": 23,
+        "max": 23
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/devicetls": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/external": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/farside": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/gns3": {
+      "seconds": {
+        "min": 13,
+        "max": 13
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/httpapi": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/inventory": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/inventory/inventorytest": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/iosconfig": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/iosparse": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/iso9660": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/kubeapi": {
+      "seconds": {
+        "min": 37,
+        "max": 37
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/netcfg": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/netcli": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/netconf": {
+      "seconds": {
+        "min": 23,
+        "max": 23
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/pgclient": {
+      "seconds": {
+        "min": 16,
+        "max": 16
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/remoteexec": {
+      "seconds": {
+        "min": 25,
+        "max": 25
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/remotefile": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/remotesvc": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/scpxfer": {
+      "seconds": {
+        "min": 10,
+        "max": 10
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/sdk": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/sftpxfer": {
+      "seconds": {
+        "min": 12,
+        "max": 12
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/vboxmanage": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/vboxmanage/vboxmanagetest": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/vmrun": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/winrmdism": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/winrmexec": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/winrmsvc": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/wire": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestBackupReleaseGate_ComposeFromBackupToACleanMachine": {
+      "seconds": {
+        "min": 245,
+        "max": 245
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestCatalystCenter_LiveRejectsBadCredential": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestCatalystCenter_LiveResyncIsIdempotent": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestCatalystCenter_LiveSync": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestChaos_NATSSeverance": {
+      "seconds": {
+        "min": 9,
+        "max": 9
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestChaos_PostgresSeverance": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestCredentialInjection_ReachesARealPlaybookThroughTheRealBinaries": {
+      "seconds": {
+        "min": 22,
+        "max": 22
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestGrandIntegration": {
+      "seconds": {
+        "min": 14,
+        "max": 14
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestGrandIntegration_AnEmptyInventoryFailsClosed": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestGrandIntegration_EachKindReachesItsOwnAdapter": {
+      "seconds": {
+        "min": 22,
+        "max": 22
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestInventorySyncAWSThroughTheRealCLI": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestInventorySyncAWSWithoutARegionFailsWithAUsableMessage": {
+      "seconds": {
+        "min": 5,
+        "max": 5
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestLocalAuthReleaseGate_BootstrapThenPasswordSignIn": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestLocalAuthReleaseGate_EveryFailureIsIndistinguishable": {
+      "seconds": {
+        "min": 9,
+        "max": 9
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestLocalAuthReleaseGate_LoginRefusesWithoutTheCSRFPair": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestLocalAuthReleaseGate_PasswordChangeRevokesOtherSessions": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestMainBranch_FindsMainAsTheCloneHasIt": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestMeshTransportReleaseGate_TheRealBinariesReachTheBrokerOverWSSThroughATerminatingProxy": {
+      "seconds": {
+        "min": 42,
+        "max": 42
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestPackagingReleaseGate_ComposeStack": {
+      "seconds": {
+        "min": 323,
+        "max": 323
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestPackagingReleaseGate_ImagesRunUnprivilegedWithNoShell": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestPackagingReleaseGate_KubernetesInstall": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestRunnerHeartbeatReleaseGate_SeveredBrokerIsDetected": {
+      "seconds": {
+        "min": 31,
+        "max": 31
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestScrubbedPackagingEnv_DropsWhatAParentMakePasses": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestSetupReleaseGate_ComposeFromNothingToASignIn": {
+      "seconds": {
+        "min": 11,
+        "max": 11
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestSetupReleaseGate_ComposeSetupAtATerminal": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_ActivityStreamRecordsWhatTheWebUIDid": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_ChartServesRealAggregates": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_FullCRUDRoundTrip": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_ListsRealDevicesFromPostgres": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_LogStreamAuthenticatesWithTheCookieAlone": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_LoginMintsAHardenedSessionCookie": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_LogoutRevokesImmediately": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_SessionCookieWorksAcrossControllers": {
+      "seconds": {
+        "min": 12,
+        "max": 12
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_StaticAssetsAreContentHashedAndImmutable": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_UnauthenticatedIsRedirectedToLogin": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_ViewerAndAdminSeeDifferentControls": {
+      "seconds": {
+        "min": 7,
+        "max": 7
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUI_WriteWithoutCSRFChangesNothing": {
+      "seconds": {
+        "min": 8,
+        "max": 8
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack": {
+      "seconds": {
+        "min": 322,
+        "max": 322
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tests/e2e TestUpgradeReleaseGate_HelmUpgrade": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/bsdcheck": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/coverage-check": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/failures": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/gatereceipt": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/gencatalog": {
+      "seconds": {
+        "min": 17,
+        "max": 17
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/gendocs": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/internal/flakegate": {
+      "seconds": {
+        "min": 11,
+        "max": 11
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/internal/oscheck": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/internal/prreport": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/maccheck": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/prreport": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/release": {
+      "seconds": {
+        "min": 34,
+        "max": 34
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/testgate": {
+      "seconds": {
+        "min": 17,
+        "max": 17
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "tools/wincheck": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "runs": 1,
+      "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    }
+  }
+}

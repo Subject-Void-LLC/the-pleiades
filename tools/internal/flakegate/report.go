@@ -147,6 +147,19 @@ type Measurement struct {
 	// the packages testgate -shard divides test by test, keyed by import
 	// path and test name with a space between.
 	TestSeconds map[string]float64 `json:"test_seconds,omitempty"`
+	// MemoryMB is the most each package's tests cost the machine while they
+	// ran, in MB (Headroom.PackageMB), so the budget a run is sized by
+	// (tools/internal/headroom's BudgetMB) can be held to what the packages
+	// really take.
+	MemoryMB map[string]float64 `json:"memory_mb,omitempty"`
+	// DiskMB is the most each package's run wrote to disk, in MB
+	// (Headroom.PackageDiskMB).
+	DiskMB map[string]float64 `json:"disk_mb,omitempty"`
+	// TestMemoryMB and TestDiskMB are the same for each top-level test of the
+	// packages testgate -shard divides test by test, keyed as TestSeconds is,
+	// so tools/testgate/resources.json can hold a divided package's tests.
+	TestMemoryMB map[string]float64 `json:"test_memory_mb,omitempty"`
+	TestDiskMB   map[string]float64 `json:"test_disk_mb,omitempty"`
 }
 
 // TestElapsed returns how long each top-level test of the packages split
