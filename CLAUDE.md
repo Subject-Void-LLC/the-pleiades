@@ -415,7 +415,7 @@ numbers are measured and each says where it came from (`headroom.go`); move them
 `package_mb`, not by feel. What each unit has needed rides with the tests in
 `tools/testgate/resources.json`: for every package (and every test of `tests/e2e`, which the
 shards divide) the seconds, memory and disk it took, least and most, over the runs that measured
-it, with the host and the date. `make resources-record` folds a gate's measurements in; pr-check's
+it, with the host and the date. `make resources-record` folds a gate's measurements in, a lab leg's under its own machine; pr-check's
 `resources` step and `make coverage-measured` hold a run to it (`testgate -resources-check`: an
 unknown unit is named, and fails once the manifest says `complete`); and a local pass packs its
 `-p` by the most memory the manifest records for its packages rather than a flat budget. Sharding

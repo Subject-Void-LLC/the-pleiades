@@ -16,11 +16,20 @@
     "cmd/demo": {
       "seconds": {
         "min": 0,
-        "max": 0
+        "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 265
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 677
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -51,9 +60,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -62,9 +80,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 41
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 45
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -95,20 +122,54 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "internal/api": {
       "seconds": {
-        "min": 16,
+        "min": 15,
         "max": 16
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 543
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 136
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
+        "linux/amd64"
+      ]
+    },
+    "internal/api/wellknown": {
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 2,
+      "last": "2026-10-29",
+      "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -117,9 +178,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 91
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -137,11 +207,20 @@
     "internal/auth": {
       "seconds": {
         "min": 1,
-        "max": 1
+        "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -150,9 +229,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -172,9 +260,34 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
+        "linux/amd64"
+      ]
+    },
+    "internal/catalog": {
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 2,
+      "last": "2026-10-29",
+      "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -183,9 +296,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 21
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -194,9 +316,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -205,9 +336,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -216,9 +356,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 891
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -227,9 +376,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 21
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -238,9 +396,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 9
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 899
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -249,9 +416,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 11,
+        "max": 182
+      },
+      "disk_mb": {
+        "min": 24,
+        "max": 1015
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -260,9 +436,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -370,9 +555,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -381,9 +575,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 182
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1015
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -392,9 +595,18 @@
         "min": 9,
         "max": 9
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 164
+      },
+      "disk_mb": {
+        "min": 23,
+        "max": 1005
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -403,9 +615,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 20
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -425,9 +646,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 123
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 990
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -436,9 +666,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 134
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 996
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -447,9 +686,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -458,9 +706,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 141
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 998
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -469,9 +726,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 141
+      },
+      "disk_mb": {
+        "min": 19,
+        "max": 998
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -480,9 +746,18 @@
         "min": 12,
         "max": 12
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 460
+      },
+      "disk_mb": {
+        "min": 25,
+        "max": 1015
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -491,9 +766,18 @@
         "min": 11,
         "max": 11
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 460
+      },
+      "disk_mb": {
+        "min": 22,
+        "max": 1015
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -502,9 +786,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 27
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -513,9 +806,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 147
+      },
+      "disk_mb": {
+        "min": 21,
+        "max": 1022
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -546,9 +848,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -557,9 +868,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 147
+      },
+      "disk_mb": {
+        "min": 23,
+        "max": 1022
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -568,9 +888,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -590,9 +919,18 @@
         "min": 11,
         "max": 11
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 142
+      },
+      "disk_mb": {
+        "min": 26,
+        "max": 1119
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -601,9 +939,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 142
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1119
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -612,9 +959,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 20
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -634,9 +990,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -645,9 +1010,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 76
+      },
+      "disk_mb": {
+        "min": 19,
+        "max": 1039
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -656,9 +1030,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 70
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1027
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -667,9 +1050,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -678,9 +1070,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 6
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1042
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -689,9 +1090,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 6
+      },
+      "disk_mb": {
+        "min": 20,
+        "max": 1042
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -700,9 +1110,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -711,9 +1130,18 @@
         "min": 16,
         "max": 16
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 33,
+        "max": 1041
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -733,9 +1161,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -744,9 +1181,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 25
+      },
+      "disk_mb": {
+        "min": 20,
+        "max": 1058
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -755,9 +1201,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 25
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1058
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -766,9 +1221,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -777,9 +1241,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 12
+      },
+      "disk_mb": {
+        "min": 23,
+        "max": 1056
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -788,9 +1261,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -799,9 +1281,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 45
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1069
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -810,9 +1301,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 20
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -821,9 +1321,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -832,9 +1341,18 @@
         "min": 17,
         "max": 17
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 102
+      },
+      "disk_mb": {
+        "min": 38,
+        "max": 1104
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -854,9 +1372,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -865,9 +1392,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -876,9 +1412,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -887,9 +1432,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 35
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -898,9 +1452,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -909,9 +1472,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -920,9 +1492,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -931,9 +1512,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -942,20 +1532,38 @@
         "min": 4,
         "max": 4
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 46
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "internal/credstore": {
       "seconds": {
-        "min": 5,
+        "min": 4,
         "max": 5
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 61
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -975,9 +1583,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 47
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -986,9 +1603,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -997,9 +1623,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1008,9 +1643,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1202
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1852
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1019,9 +1663,18 @@
         "min": 4,
         "max": 4
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1030,9 +1683,18 @@
         "min": 11,
         "max": 11
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 119
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1049,12 +1711,21 @@
     },
     "internal/engine": {
       "seconds": {
-        "min": 29,
+        "min": 28,
         "max": 29
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 110
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1096,9 +1767,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1118,9 +1798,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 90
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1129,9 +1818,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1274
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1562
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1140,9 +1838,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1202
+      },
+      "disk_mb": {
+        "min": 48,
+        "max": 1562
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1151,20 +1858,38 @@
         "min": 7,
         "max": 7
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 152
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 130
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "internal/inventory": {
       "seconds": {
-        "min": 13,
+        "min": 12,
         "max": 13
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 336
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 120
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1173,9 +1898,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1184,9 +1918,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1195,9 +1938,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1206,9 +1958,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 952
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1455
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1217,9 +1978,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1228,9 +1998,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1239,9 +2018,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 40
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1250,9 +2038,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 966
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1463
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1261,9 +2058,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1272,9 +2078,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1283,9 +2098,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 35
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1294,9 +2118,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1305,9 +2138,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 91
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1316,9 +2158,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 944
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1487
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1327,9 +2178,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1371,9 +2231,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1382,9 +2251,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1393,9 +2271,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1404,20 +2291,38 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "internal/journal": {
       "seconds": {
-        "min": 5,
+        "min": 4,
         "max": 5
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 121
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1426,9 +2331,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 36
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1448,9 +2362,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1459,9 +2382,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 105
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1470,9 +2402,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1481,9 +2422,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1492,9 +2442,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1503,9 +2462,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1514,9 +2482,18 @@
         "min": 6,
         "max": 6
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 42
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1525,9 +2502,18 @@
         "min": 12,
         "max": 12
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 69
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1558,9 +2544,18 @@
         "min": 5,
         "max": 5
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 76
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1569,9 +2564,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1105
+      },
+      "disk_mb": {
+        "min": 38,
+        "max": 1562
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1580,9 +2584,18 @@
         "min": 4,
         "max": 4
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1105
+      },
+      "disk_mb": {
+        "min": 39,
+        "max": 1562
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1591,9 +2604,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1602,9 +2624,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 109
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1624,9 +2655,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 135
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1635,9 +2675,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1646,9 +2695,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1701,9 +2759,18 @@
         "min": 16,
         "max": 16
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 61
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1712,9 +2779,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1723,9 +2799,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1734,9 +2819,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1745,9 +2839,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1756,9 +2859,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1767,9 +2879,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1778,9 +2899,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1789,9 +2919,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 117
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1800,9 +2939,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1811,9 +2959,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1822,9 +2979,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1833,9 +2999,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1844,9 +3019,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1855,9 +3039,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1866,9 +3059,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 72
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1877,9 +3079,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1888,9 +3099,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 120
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1899,9 +3119,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 135
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1910,9 +3139,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1043
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1745
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1921,9 +3159,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1043
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1745
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1954,9 +3201,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 44
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1965,9 +3221,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1976,9 +3241,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1987,9 +3261,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 48
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -1998,9 +3281,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 886
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1747
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2009,9 +3301,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2020,9 +3321,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 886
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1747
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2031,9 +3341,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 43
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2053,9 +3372,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2064,9 +3392,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 925
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1760
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2075,9 +3412,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 925
+      },
+      "disk_mb": {
+        "min": 42,
+        "max": 1752
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2097,9 +3443,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2108,9 +3463,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 889
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1760
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2119,9 +3483,18 @@
         "min": 0,
         "max": 0
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2130,9 +3503,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2141,9 +3523,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 977
+      },
+      "disk_mb": {
+        "min": 43,
+        "max": 1772
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2174,9 +3565,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 977
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1772
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2185,9 +3585,18 @@
         "min": 5,
         "max": 5
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 971
+      },
+      "disk_mb": {
+        "min": 45,
+        "max": 1773
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2215,12 +3624,21 @@
     },
     "pkg/remoteexec": {
       "seconds": {
-        "min": 25,
+        "min": 24,
         "max": 25
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 172,
+        "max": 1580
+      },
+      "disk_mb": {
+        "min": 47,
+        "max": 1814
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2229,9 +3647,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1004
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1796
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2240,9 +3667,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 46
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2262,9 +3698,18 @@
         "min": 5,
         "max": 5
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1399
+      },
+      "disk_mb": {
+        "min": 46,
+        "max": 1801
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2284,9 +3729,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2295,9 +3749,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1548
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1813
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2306,9 +3769,18 @@
         "min": 3,
         "max": 3
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1540
+      },
+      "disk_mb": {
+        "min": 46,
+        "max": 1814
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2317,20 +3789,38 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "pkg/winrmexec": {
       "seconds": {
-        "min": 8,
+        "min": 7,
         "max": 8
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 985
+      },
+      "disk_mb": {
+        "min": 54,
+        "max": 1831
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2339,9 +3829,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2350,9 +3849,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 985
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1831
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2812,9 +4320,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 958
+      },
+      "disk_mb": {
+        "min": 46,
+        "max": 1821
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2823,9 +4340,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2834,9 +4360,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2845,20 +4380,38 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 1017
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1838
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "tools/gencatalog": {
       "seconds": {
         "min": 17,
-        "max": 17
+        "max": 20
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 467
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 512
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2867,20 +4420,58 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 186
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "tools/internal/flakegate": {
       "seconds": {
         "min": 11,
-        "max": 11
+        "max": 12
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 41,
+        "max": 1501
+      },
+      "disk_mb": {
+        "min": 52,
+        "max": 1883
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
+        "linux/amd64"
+      ]
+    },
+    "tools/internal/headroom": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 2,
+      "last": "2026-10-29",
+      "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2889,9 +4480,18 @@
         "min": 2,
         "max": 2
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 979
+      },
+      "disk_mb": {
+        "min": 51,
+        "max": 1865
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2900,9 +4500,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 970
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 1866
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2911,9 +4520,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2922,31 +4540,58 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "tools/release": {
       "seconds": {
         "min": 34,
-        "max": 34
+        "max": 38
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 670,
+        "max": 3111
+      },
+      "disk_mb": {
+        "min": 141,
+        "max": 2876
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
     "tools/testgate": {
       "seconds": {
         "min": 17,
-        "max": 17
+        "max": 21
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 656,
+        "max": 1341
+      },
+      "disk_mb": {
+        "min": 59,
+        "max": 2077
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     },
@@ -2955,9 +4600,18 @@
         "min": 1,
         "max": 1
       },
-      "runs": 1,
+      "memory_mb": {
+        "min": 0,
+        "max": 552
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 55
+      },
+      "runs": 3,
       "last": "2026-10-29",
       "hosts": [
+        "freebsd/amd64",
         "linux/amd64"
       ]
     }

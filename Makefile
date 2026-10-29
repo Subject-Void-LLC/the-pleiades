@@ -628,11 +628,13 @@ coverage-measured:
 # resources-record folds the last gate's measurements (pr-check's under
 # $(COVERAGE_DIR)/pr, or test-full's and CI's under $(COVERAGE_DIR)) into
 # tools/testgate/resources.json: each unit's seconds, memory and disk, least
-# and most, for this host today. Run it after a gate whose numbers should
+# and most, for this host today, and each lab leg's memory and disk (from
+# its record under $(COVERAGE_DIR)/pr/records) for that machine, so a lab
+# VM's pass is packed by what it cost there. Run it after a gate whose numbers should
 # count, then commit the manifest; pr-check never writes it, since the
 # receipt needs a clean tree.
 resources-record:
-	@files="$$(ls $(COVERAGE_DIR)/pr/fast.json $(COVERAGE_DIR)/pr/containers.json $(COVERAGE_DIR)/*.json 2>/dev/null)"; \
+	@files="$$(ls $(COVERAGE_DIR)/pr/fast.json $(COVERAGE_DIR)/pr/containers.json $(COVERAGE_DIR)/pr/records/mac.json $(COVERAGE_DIR)/pr/records/bsd.json $(COVERAGE_DIR)/pr/records/win.json $(COVERAGE_DIR)/*.json 2>/dev/null)"; \
 	[ -n "$$files" ] || { echo "resources-record: no measurement files under $(COVERAGE_DIR); run make pr-check or make test-full first" >&2; exit 2; }; \
 	go run ./tools/testgate -resources-record $$files
 

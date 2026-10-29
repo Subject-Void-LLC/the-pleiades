@@ -17586,3 +17586,25 @@ package. Now 97.5% and 97.2%.
 **Lesson.** A review fix is new code: after the last fix, measure each touched package against
 `coverage-floor.json` before the gate, not only after the first draft. A helper added to a `pkg/` package gets its
 test in that package, since another package's tests do not count toward its floor.
+
+## 732. The resources manifest read only this machine's passes, so a 4 GB lab VM ran two packages at once into tools/release's cold 2 GB link and the memory floor stopped the FreeBSD leg (fixed before push)
+
+**Symptom.** The sixth gate on the pipeline branch, 2026-10-29: the FreeBSD leg stopped after 25 minutes with
+"memory available 423 MB, under the 700 MB floor". Its record charged `tools/release` 3111 MB of memory and 2876 MB
+of disk; nine other packages were charged past the 1200 MB budget. No test failed.
+
+**Root cause.** `TestReleaseBuildReportsItsVersion` builds the real runner. A lab VM clears its Go caches before each
+run, so the build is cold, and the runner's link alone peaks near 2 GB (measured here: 2042 MB at four compiles,
+2030 MB at one; the release flags already strip symbols). The VM's testgate packed two packages at once because the
+manifest knew nothing about them there: `make resources-record` read only this machine's passes, where the warm cache
+measured `tools/release` at 670 MB. The policy did what it was built to do; the numbers it packs by never included
+the smallest machines.
+
+**Fix.** `-resources-record` folds a lab leg's record in too, each run's per-package memory and disk under the VM's
+own GOOS/GOARCH (`resources_legs.go`), and `make resources-record` passes the legs' records. The manifest now holds
+the FreeBSD run, so a 3.5 GB lab pass packs to one package at a time beside a 3111 MB one. A leg's numbers err high,
+since packages that ran together are each charged the whole fall, which packs tighter, never looser.
+
+**Lesson.** A measurement that sizes a machine has to come from that machine: a cache, a core count and a memory size
+all change what a test costs. When a policy that stops a run is added, feed it the numbers of the smallest machine it
+governs before the first gate, not after the first stop.

@@ -239,7 +239,9 @@ func writeResources(path string, r Resources) error {
 
 // resourcesRecord is -resources-record: it reads the measurement files,
 // folds them into the manifest at path for this host today, writes it back,
-// and says what changed.
+// and says what changed. A lab leg's record among the files is folded in
+// under its own machine's GOOS/GOARCH, one measurement per run it holds
+// (legMeasurements).
 func resourcesRecord(w io.Writer, path string, files []string, host string, now time.Time) error {
 	if len(files) == 0 {
 		return fmt.Errorf("-resources-record needs the measurement files to read")
@@ -252,11 +254,57 @@ func resourcesRecord(w io.Writer, path string, files []string, host string, now 
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	m, err := readMeasurements(files, dividedUnits(r, durations()))
-	if err != nil {
-		return err
+	divided := dividedUnits(r, durations())
+	var own []string
+	var runs []hostMeasured
+	for _, f := range files {
+		raw, err := os.ReadFile(f) // #nosec G304 -- a measurement file the Makefile names
+		if err != nil {
+			return err
+		}
+		legRuns, isLeg, err := legMeasurements(raw, divided)
+		if err != nil {
+			return fmt.Errorf("%s: %w", f, err)
+		}
+		if isLeg {
+			runs = append(runs, legRuns...)
+			continue
+		}
+		own = append(own, f)
 	}
-	added, widened, counted := record(&r, m, host, now.UTC().Format("2006-01-02"))
+	if len(own) > 0 {
+		m, err := readMeasurements(own, divided)
+		if err != nil {
+			return err
+		}
+		runs = append([]hostMeasured{{host: host, m: m}}, runs...)
+	}
+	date := now.UTC().Format("2006-01-02")
+	changed := map[string]string{}
+	var counted []string
+	for _, run := range runs {
+		a, wd, c := record(&r, run.m, run.host, date)
+		for _, key := range a {
+			changed[key] = "added"
+		}
+		for _, key := range wd {
+			if changed[key] == "" {
+				changed[key] = "widened"
+			}
+		}
+		counted = append(counted, c...)
+	}
+	var added, widened []string
+	for key, how := range changed {
+		if how == "added" {
+			added = append(added, key)
+		} else {
+			widened = append(widened, key)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(widened)
+	counted = notIn(counted, changed)
 	if err := writeResources(path, r); err != nil {
 		return err
 	}
@@ -268,6 +316,19 @@ func resourcesRecord(w io.Writer, path string, files []string, host string, now 
 		fmt.Fprintf(w, "  widened %s: %s\n", key, describe(r.Units[key]))
 	}
 	return nil
+}
+
+// notIn returns keys, without repeats, that changed does not name.
+func notIn(keys []string, changed map[string]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, key := range keys {
+		if changed[key] == "" && !seen[key] {
+			seen[key] = true
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 // describe says a unit's ranges in a line.
