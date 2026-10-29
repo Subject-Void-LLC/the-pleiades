@@ -35,6 +35,7 @@ Makes sure a VM has the disk at path attached, as a hard disk in its first free 
 | `port` | `int` | always | The SATA port the disk is attached at (predicted, in a check). |
 | `created` | `bool` | always | Whether this task made the disk (predicted, in a check). |
 | `diff` | `dict` | always | Whether the disk was attached before this task and after it. |
+| `warnings` | `list` | when the VM could not be read back after the disk was attached | What the task could not confirm: the disk is attached, and the port is the one it was put in rather than the one read back. |
 
 ## Undoing this
 

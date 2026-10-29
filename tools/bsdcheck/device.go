@@ -4,9 +4,7 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"regexp"
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
@@ -17,11 +15,6 @@ import (
 // archive and FreeBSD's go package put it.
 const bsdPath = "$HOME/sdk/go/bin:/usr/local/go/bin:/usr/local/bin"
 
-// dataDir is what PLEIADES_BSD_DATA must look like, since it is written
-// into every script the machine runs: an absolute directory of plain
-// characters, such as /data.
-var dataDir = regexp.MustCompile(`^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
-
 // freebsd is the real machine.
 type freebsd struct {
 	oscheck.Lab
@@ -31,8 +24,8 @@ type freebsd struct {
 // newLeg is device in project, its variable data under data when one is
 // named (the lab's bsd-check mounts its second disk at /data).
 func newLeg(project, device, data string) (oscheck.Leg, error) {
-	if data != "" && !dataDir.MatchString(data) {
-		return nil, fmt.Errorf("PLEIADES_BSD_DATA=%q is not an absolute directory of plain characters, such as /data", data)
+	if err := oscheck.CheckPOSIXDataDir(check.DataKey, data); err != nil {
+		return nil, err
 	}
 	lab, err := oscheck.NewLab("bsdcheck", project, device)
 	if err != nil {

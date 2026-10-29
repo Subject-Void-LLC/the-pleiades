@@ -68,8 +68,10 @@ const MinFreeGB = 4
 const SampleEvery = 5 * time.Second
 
 // StopGrace is how long a stopped run gets to end after SIGTERM before
-// SIGKILL: pr-check's own trap takes about this long to stop its legs, and a
-// go test asked to stop tears its containers down first.
+// SIGKILL: time for go test and its test binaries to exit and be reaped. A
+// test binary that gets the signal ends without its cleanup, so what its
+// containers left is removed by pr-check's own cleanup after the pass
+// (testgate -clean-containers), not by the stop.
 const StopGrace = 30 * time.Second
 
 // Memory is one reading of the machine's memory, in MB.

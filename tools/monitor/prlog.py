@@ -58,6 +58,10 @@ EXIT_STATUS = re.compile(r"^exit status (\d+)$")
 COVERAGE_LINE = re.compile(r"^coverage-check: ")
 COVERAGE_DONE = re.compile(r"^coverage-check: \d+ package\(s\) measured")
 DURATIONS_DONE = re.compile(r"^testgate: durations\.json ")
+# RESOURCES_LINE is any line of the resources step (testgate -resources-check
+# names tools/testgate/resources.json in each), and RESOURCES_DONE its last.
+RESOURCES_LINE = re.compile(r"^testgate: .*tools/testgate/resources\.json")
+RESOURCES_DONE = re.compile(r"^testgate: tools/testgate/resources\.json holds ")
 NO_DOCKER = re.compile(r"^pr-check: no Docker daemon answered")
 WAITING = re.compile(r"^pr-check: waiting for the ([\w-]+) tests")
 SUMMARY = re.compile(r"^pr-check(?: at (\S+))?, (.+?): ([A-Z][A-Z-]*)(?: \(exit (-?\d+)\))?$")
@@ -80,7 +84,7 @@ RFC3339 = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:
 LOGGED = list(ps.LEGS)
 
 # STEP_ORDER is the serial order of what follows the testgate passes.
-STEP_ORDER = ["images", "coverage", "durations"]
+STEP_ORDER = ["images", "coverage", "durations", "resources"]
 
 
 def next_after_pass(state: ps.RunState, name: str) -> Optional[str]:
@@ -417,6 +421,15 @@ def on_step_line(state: ps.RunState, line: str, now: float) -> bool:
         if main != "durations":
             advance(state, "durations", now)
         state.close_main(now, ps.PASS)
+        return True
+    if RESOURCES_DONE.match(line):
+        if main != "resources":
+            advance(state, "resources", now)
+        state.close_main(now, ps.PASS)
+        return True
+    if RESOURCES_LINE.match(line):
+        if main != "resources":
+            advance(state, "resources", now)
         return True
     return False
 

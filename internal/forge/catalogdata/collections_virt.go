@@ -168,6 +168,7 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "port", Type: "int", Returned: "always", Description: "The SATA port the disk is attached at (predicted, in a check)."},
 				{Name: "created", Type: "bool", Returned: "always", Description: "Whether this task made the disk (predicted, in a check)."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the disk was attached before this task and after it."},
+				{Name: "warnings", Type: "list", Returned: "when the VM could not be read back after the disk was attached", Description: "What the task could not confirm: the disk is attached, and the port is the one it was put in rather than the one read back."},
 			},
 			Examples: []collection.Example{
 				{Name: "Give a lab VM a data disk", RunbookYAML: "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Give it a 40 GB data disk\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n\n- name: Start it again\n  virt.vbox.vm.start:\n    name: bsd-check\n"},
@@ -193,6 +194,7 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "detached", Type: "bool", Returned: "always", Description: "Whether this task took the disk off the VM (predicted, in a check)."},
 				{Name: "deleted", Type: "bool", Returned: "always", Description: "Whether this task deleted the disk from the host (predicted, in a check)."},
 				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the disk was attached before this task and after it."},
+				{Name: "warnings", Type: "list", Returned: "when the VM could not be read back after the disk was taken off", Description: "What the task could not confirm: the disk is off the VM, which the task could not read again."},
 			},
 			Examples: []collection.Example{
 				{Name: "Throw a lab VM's data disk away and start over", RunbookYAML: "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Delete its data disk\n  virt.vbox.vm.detach_disk:\n    name: bsd-check\n    path: G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi\n    delete: true\n\n- name: Give it a fresh one\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n"},

@@ -16871,7 +16871,8 @@
             "name",
             "path",
             "delete"
-          ]
+          ],
+          "mayKeepOnFailure": true
         }
       ]
     },
@@ -16921,6 +16922,12 @@
           "type": "dict",
           "returned": "always",
           "description": "Whether the disk was attached before this task and after it."
+        },
+        {
+          "name": "warnings",
+          "type": "list",
+          "returned": "when the VM could not be read back after the disk was attached",
+          "description": "What the task could not confirm: the disk is attached, and the port is the one it was put in rather than the one read back."
         }
       ],
       "examples": [
@@ -17190,7 +17197,8 @@
           "record": [
             "name",
             "path"
-          ]
+          ],
+          "mayKeepOnFailure": true
         }
       ]
     },
@@ -17236,6 +17244,12 @@
           "type": "dict",
           "returned": "always",
           "description": "Whether the disk was attached before this task and after it."
+        },
+        {
+          "name": "warnings",
+          "type": "list",
+          "returned": "when the VM could not be read back after the disk was taken off",
+          "description": "What the task could not confirm: the disk is off the VM, which the task could not read again."
         }
       ],
       "examples": [

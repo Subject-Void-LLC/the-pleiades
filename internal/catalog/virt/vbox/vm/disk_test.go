@@ -88,7 +88,7 @@ func TestAttachDisk_MakesAndAttaches(t *testing.T) {
 		t.Errorf("diff %v -> %v", before, after)
 	}
 	want := map[string]any{"fqcn": "virt.vbox.vm.detach_disk", "params": map[string]any{"name": "ubuntu-lab", "path": dataDisk, "delete": true},
-		"description": "Take " + dataDisk + " off ubuntu-lab and delete it from the host, since this task made it."}
+		"description": "Take " + dataDisk + " off ubuntu-lab and delete it from the host, since this task made it.", sdk.InverseKeepOnFailureKey: true}
 	if inverse := rc.stats[sdk.StatInverse]; !reflect.DeepEqual(inverse, want) {
 		t.Fatalf("inverse %v\nwant %v", inverse, want)
 	}
@@ -187,7 +187,7 @@ func TestAttachDisk_AnExistingDiskIsAttachedNotMade(t *testing.T) {
 		t.Error("a detach that was not asked to delete deleted the disk")
 	}
 	want := map[string]any{"fqcn": "virt.vbox.vm.attach_disk", "params": map[string]any{"name": "ubuntu-lab", "path": kept},
-		"description": "Attach " + kept + " to ubuntu-lab again, as it was before this task."}
+		"description": "Attach " + kept + " to ubuntu-lab again, as it was before this task.", sdk.InverseKeepOnFailureKey: true}
 	if !reflect.DeepEqual(detach.stats[sdk.StatInverse], want) {
 		t.Errorf("detach inverse %v\nwant %v", detach.stats[sdk.StatInverse], want)
 	}
@@ -237,6 +237,96 @@ func TestAttachDisk_Refusals(t *testing.T) {
 		if !errors.As(err, &cannot) || !strings.Contains(cannot.Reason, "unless an earlier task stops it") {
 			t.Errorf("a check of a %s VM: %v", state, err)
 		}
+	}
+}
+
+// TestDiskMethods_EachStepFailing walks the failure paths after a change:
+// an attach that fails after this task made the disk deletes it again, so
+// nothing is orphaned; a read-back that fails after the attach leaves the
+// detach in the journal, kept through the failure, with a warning; a delete
+// that fails after the detach leaves the attach in the journal the same way.
+func TestDiskMethods_EachStepFailing(t *testing.T) {
+	refused := vboxmanage.Output{ExitCode: 1, Stderr: "VBoxManage.exe: error: refused\r\n"}
+
+	// The attach refused: the disk the task made is deleted again.
+	model := modelWith(withSATA())
+	model.Fail = map[string]vboxmanage.Output{"VBoxManage.exe storageattach": refused}
+	onModel(t, model)
+	rc := newRecorder()
+	_, err := call(t, "virt.vbox.vm.attach_disk", false, rc, map[string]any{"name": "ubuntu-lab", "size_gb": 1})
+	if err == nil || !strings.Contains(err.Error(), "refused") || !strings.Contains(err.Error(), "the disk this task made at "+dataDisk+" was deleted again") {
+		t.Errorf("a refused attach: %v", err)
+	}
+	if model.Files[dataDisk] != nil || rc.stats[sdk.StatInverse] != nil {
+		t.Errorf("a refused attach left the disk (%v) or an undo (%v)", model.Files[dataDisk] != nil, rc.stats[sdk.StatInverse])
+	}
+	// A disk the host already had is not deleted when the attach fails.
+	model = modelWith(withSATA())
+	if err := model.VBoxHost().CreateDisk(context.Background(), dataDisk, 1024); err != nil {
+		t.Fatal(err)
+	}
+	model.Fail = map[string]vboxmanage.Output{"VBoxManage.exe storageattach": refused}
+	onModel(t, model)
+	if _, err := call(t, "virt.vbox.vm.attach_disk", false, newRecorder(), map[string]any{"name": "ubuntu-lab"}); err == nil || strings.Contains(err.Error(), "deleted again") || model.Files[dataDisk] == nil {
+		t.Errorf("a refused attach of the host's own disk: %v, file kept %v", err, model.Files[dataDisk] != nil)
+	}
+
+	// The read-back after the attach fails: the disk is on the VM, its undo
+	// is journaled and kept, and the task passes with a warning.
+	model = modelWith(withSATA())
+	model.Fail = map[string]vboxmanage.Output{"VBoxManage.exe showvminfo": refused}
+	model.Skip = map[string]int{"VBoxManage.exe showvminfo": 1}
+	onModel(t, model)
+	rc = newRecorder()
+	result, err := call(t, "virt.vbox.vm.attach_disk", false, rc, map[string]any{"name": "ubuntu-lab", "size_gb": 1})
+	if err != nil || !result.Changed || rc.stats["port"] != 1 {
+		t.Fatalf("a failed read-back: %+v, %v, %v", result, err, rc.stats)
+	}
+	inverse, _ := rc.stats[sdk.StatInverse].(map[string]any)
+	if inverse[sdk.InverseKeepOnFailureKey] != true || inverse["fqcn"] != "virt.vbox.vm.detach_disk" {
+		t.Errorf("the undo is not kept through a failure: %v", inverse)
+	}
+	if w, _ := rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "could not be read back") {
+		t.Errorf("warnings = %v", rc.stats[sdk.StatWarnings])
+	}
+
+	// The delete after the detach fails: the disk is off the VM, and the
+	// attach that puts it back is journaled and kept.
+	vm := withSATA()
+	vm.Slots[1].Medium = dataDisk
+	model = modelWith(vm)
+	// The disk is registered on the host, as an attached disk is.
+	if err := model.VBoxHost().CreateDisk(context.Background(), dataDisk, 1024); err != nil {
+		t.Fatal(err)
+	}
+	model.Fail = map[string]vboxmanage.Output{"VBoxManage.exe closemedium": refused}
+	onModel(t, model)
+	rc = newRecorder()
+	if _, err := call(t, "virt.vbox.vm.detach_disk", false, rc, map[string]any{"name": "ubuntu-lab", "path": dataDisk, "delete": true}); err == nil || !strings.Contains(err.Error(), "is off \"ubuntu-lab\" and could not be deleted") {
+		t.Errorf("a refused delete: %v", err)
+	}
+	if slots := model.VM("ubuntu-lab").Slots; slots[1].Medium != "none" {
+		t.Errorf("the disk is still in slot 1: %+v", slots[1])
+	}
+	inverse, _ = rc.stats[sdk.StatInverse].(map[string]any)
+	if inverse[sdk.InverseKeepOnFailureKey] != true || inverse["fqcn"] != "virt.vbox.vm.attach_disk" {
+		t.Errorf("the attach that puts the disk back is not journaled and kept: %v", inverse)
+	}
+
+	// A detach whose read-back fails passes with a warning, its undo kept.
+	vm = withSATA()
+	vm.Slots[1].Medium = dataDisk
+	model = modelWith(vm)
+	model.Fail = map[string]vboxmanage.Output{"VBoxManage.exe showvminfo": refused}
+	model.Skip = map[string]int{"VBoxManage.exe showvminfo": 1}
+	onModel(t, model)
+	rc = newRecorder()
+	if result, err := call(t, "virt.vbox.vm.detach_disk", false, rc, map[string]any{"name": "ubuntu-lab", "path": dataDisk}); err != nil || !result.Changed {
+		t.Fatalf("a failed read-back after a detach: %+v, %v", result, err)
+	}
+	inverse, _ = rc.stats[sdk.StatInverse].(map[string]any)
+	if inverse[sdk.InverseKeepOnFailureKey] != true || rc.stats[sdk.StatWarnings] == nil {
+		t.Errorf("inverse %v, warnings %v", inverse, rc.stats[sdk.StatWarnings])
 	}
 }
 

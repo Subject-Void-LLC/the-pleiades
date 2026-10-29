@@ -34,6 +34,7 @@ Makes sure the disk at path is not attached to a VM: one attached is taken out o
 | `detached` | `bool` | always | Whether this task took the disk off the VM (predicted, in a check). |
 | `deleted` | `bool` | always | Whether this task deleted the disk from the host (predicted, in a check). |
 | `diff` | `dict` | always | Whether the disk was attached before this task and after it. |
+| `warnings` | `list` | when the VM could not be read back after the disk was taken off | What the task could not confirm: the disk is off the VM, which the task could not read again. |
 
 ## Undoing this
 

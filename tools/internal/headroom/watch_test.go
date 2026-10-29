@@ -84,13 +84,16 @@ func TestWatch_LoopReadsAndStops(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the loop never asked for a stop")
 	}
-	time.Sleep(30 * time.Millisecond)
 	r := w.Finish()
+	// No count of later samples is asserted: how many ticks land between the
+	// stop and Finish is the scheduler's, not the test's (FAILURE_PATTERNS
+	// 687's class). The readings before the stop were sampled, the failed
+	// one was not, and the stop was asked for once.
 	if len(stopped) != 0 {
 		t.Errorf("stop was called %d more time(s)", len(stopped))
 	}
-	if r.Samples < 3 || r.MinAvailableMB > 3000 {
-		t.Errorf("report = %+v: the failed reading is not a sample, the rest are", r)
+	if r.Samples < 2 || r.MinAvailableMB > 3000 || r.Stopped == "" {
+		t.Errorf("report = %+v: the two readings before the stop are samples", r)
 	}
 }
 

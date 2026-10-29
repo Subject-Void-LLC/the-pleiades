@@ -47,6 +47,8 @@ type guard struct {
 	mu sync.Mutex
 	// current is the go test running now, or nil.
 	current *exec.Cmd
+	// kill is the delayed SIGKILL a stop armed, or nil; Ended disarms it.
+	kill *time.Timer
 	// stopped is why the run was stopped from here, or "".
 	stopped string
 }
@@ -142,6 +144,19 @@ func (g *guard) Started(cmd *exec.Cmd) {
 	g.current = cmd
 }
 
+// Ended forgets a go test that has been waited for, and disarms the delayed
+// kill a stop may have armed against it, so neither reaches a process that
+// is gone and a pid since reused.
+func (g *guard) Ended(*exec.Cmd) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.current = nil
+	if g.kill != nil {
+		g.kill.Stop()
+		g.kill = nil
+	}
+}
+
 // Event charges the packages running at each reading: a package's start
 // event begins its account, its own pass, fail or skip event ends it. A
 // top-level test of a divided package (tests/e2e's) is charged one by one as
@@ -198,7 +213,15 @@ func (g *guard) stop(reason string) {
 		return
 	}
 	_ = flakegate.SignalGroup(cmd, syscall.SIGTERM)
-	time.AfterFunc(headroom.StopGrace, func() { _ = flakegate.SignalGroup(cmd, syscall.SIGKILL) })
+	g.kill = time.AfterFunc(headroom.StopGrace, func() {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		// Only while the same command is still the current one: Ended clears
+		// it, and its pid may belong to something else by now.
+		if g.current == cmd {
+			_ = flakegate.SignalGroup(cmd, syscall.SIGKILL)
+		}
+	})
 }
 
 // Stopped is why the run was stopped from here, or "".

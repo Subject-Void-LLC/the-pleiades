@@ -50,8 +50,10 @@ made the lab VMs shut down after a check and keep every run's variable data on a
 - Lab: bsd-check's data disk (40 GB, `/dev/ada1p1` on `/data`) and win-check's (60 GB, `D:`) exist, made and
   formatted through pleiades; `tests/bsd/.env` and `tests/win/.env` name them. FAILURE_PATTERNS 726 (a restart right
   after a shutdown left the VM off once; the start by hand worked).
-- Records: LESSONS 355, FAILURE_PATTERNS 726 and 727 (the first Windows proof found the test script bypassing the
-  data directory's env; fixed). Memory notes `pipeline-cut-and-headroom`, `lab-vms-shutdown-data-disk`.
+- Records: LESSONS 355, FAILURE_PATTERNS 726 to 729 (727: the first Windows proof found the test script bypassing
+  the data directory's env; 728 and 729: the branch review found the disk methods' undo recorded after fallible steps
+  and the Windows stop ending go.exe alone; all fixed). Memory notes `pipeline-cut-and-headroom`,
+  `lab-vms-shutdown-data-disk`.
 
 ### Open
 

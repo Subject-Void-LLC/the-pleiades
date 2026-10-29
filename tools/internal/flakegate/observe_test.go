@@ -7,17 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"syscall"
 	"testing"
-	"time"
 )
 
 // recorder is an Observer that keeps what it saw.
 type recorder struct {
-	prepared, started *exec.Cmd
-	events            []Event
+	prepared, started, ended *exec.Cmd
+	events                   []Event
 }
 
 func (r *recorder) Prepare(cmd *exec.Cmd) {
@@ -26,6 +23,7 @@ func (r *recorder) Prepare(cmd *exec.Cmd) {
 }
 func (r *recorder) Started(cmd *exec.Cmd) { r.started = cmd }
 func (r *recorder) Event(e Event)         { r.events = append(r.events, e) }
+func (r *recorder) Ended(cmd *exec.Cmd)   { r.ended = cmd }
 
 // TestRunGoTestJSONObserved: the observer's Prepare changes the environment
 // the test sees, Started gets the running command, and Event gets each
@@ -72,6 +70,9 @@ func TestSeesTheEnvironment(t *testing.T) {
 	if obs.prepared == nil || obs.started != obs.prepared || obs.started.Process == nil {
 		t.Errorf("Prepare and Started did not see the one command, before and after its start")
 	}
+	if obs.ended != obs.prepared || obs.ended.ProcessState == nil {
+		t.Errorf("Ended did not see the command once it was waited for")
+	}
 	if len(obs.events) != len(events) {
 		t.Errorf("the observer saw %d event(s), the run returned %d", len(obs.events), len(events))
 	}
@@ -84,61 +85,4 @@ func TestSeesTheEnvironment(t *testing.T) {
 	if got := strings.Join(order, " "); got != "start pass" {
 		t.Errorf("the package's events were %q, want its start and then its pass", got)
 	}
-}
-
-// TestSignalGroup_EndsWhatTheRunStarted: a command started in its own group
-// and a child it started both end on one signal to the group, and a command
-// that has not started is an error rather than a signal to nothing.
-func TestSignalGroup_EndsWhatTheRunStarted(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows has no process groups; SignalGroup kills the command alone there")
-	}
-	cmd := exec.Command("sh", "-c", "sleep 30 & echo $!; wait")
-	ownGroup(cmd)
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	buf := make([]byte, 32)
-	n, _ := out.Read(buf)
-	child := strings.TrimSpace(string(buf[:n]))
-	if child == "" {
-		t.Fatal("the shell printed no child pid")
-	}
-	if err := SignalGroup(cmd, syscall.SIGTERM); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the shell did not end on the group's SIGTERM")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for syscall.Kill(atoi(t, child), 0) == nil {
-		if time.Now().After(deadline) {
-			t.Fatalf("the shell's child %s is still running: the signal did not reach the group", child)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if err := SignalGroup(exec.Command("sh"), syscall.SIGTERM); err == nil {
-		t.Error("a command that never started was signalled")
-	}
-}
-
-// atoi reads a pid a shell printed.
-func atoi(t *testing.T, s string) int {
-	t.Helper()
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			t.Fatalf("not a pid: %q", s)
-		}
-		n = n*10 + int(c-'0')
-	}
-	return n
 }

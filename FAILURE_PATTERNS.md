@@ -729,9 +729,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 723. wait.routes with state: absent read an empty or unparsed routing table as every route gone, and its own test used an empty table for "withdrawn" (a repeat of 13 and 451) (fixed before push)
 724. pkg/farside.Output kept the first 300 bytes of a failed container.exec command's stderr, where the old code had kept the last 2048 bytes, so the reason was cut off (a repeat of 651 and 701) (fixed before push)
 725. net.batfish.check registered its network's cleanup after a SetStat that could fail, so a failure there left the network on a shared Batfish (a repeat of 193) (fixed before push)
-
-Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 726. virt.vbox.vm.start through the autostart service, run right after an ACPI shutdown and a storage change, ran the service and left the VM powered off; the same start 30 s later worked (open: cause not proven)
 727. wincheck's test script looked for the tree in the login's profile while its prepare script had put it on the data disk, because Test() built the script's parameters without the env the data directory rides in (fixed before push)
+728. virt.vbox.vm.attach_disk and detach_disk recorded their undo after reads and writes that could fail, so a failed attach orphaned the disk it made and a failed read-back dropped the undo (a repeat of 452, 563 and 638) (fixed before push)
+729. A headroom stop on Windows ended the go command alone and left its test binaries running, while the file's comment said they end with it (fixed before push)
+
+Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
 Append a new entry to the archive first, in full, then add its one-line, same-numbered title here. Never renumber an existing entry. Before writing one, search the archive for its class, by symptom and by cause: when it has happened before, the title says "(a repeat of N)" and the entry says why N's fix did not hold (LESSONS 274).

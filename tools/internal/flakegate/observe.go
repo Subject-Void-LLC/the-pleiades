@@ -18,14 +18,18 @@ import (
 
 // Observer sees a go test run from outside it. Prepare sees the command
 // before it starts, and may change its environment; Started sees it
-// running; Event sees each event of its output as it is read, in order.
-// A run with an Observer is started in a process group of its own where the
-// system has them (SignalGroup), so a stop reaches every process under go
-// test: its test binaries, compiles and links.
+// running; Event sees each event of its output as it is read, in order;
+// Ended sees it once it has been waited for, so nothing the observer armed
+// against the running command (a delayed kill) fires at a process that is
+// gone and a pid since reused. A run with an Observer is started in a
+// process group of its own where the system has them (SignalGroup), so a
+// stop reaches every process under go test: its test binaries, compiles and
+// links.
 type Observer interface {
 	Prepare(cmd *exec.Cmd)
 	Started(cmd *exec.Cmd)
 	Event(e Event)
+	Ended(cmd *exec.Cmd)
 }
 
 // RunGoTestJSONObserved is RunGoTestJSONPackages with obs watching the run;
@@ -95,6 +99,9 @@ func RunGoTestJSONObserved(args, packages []string, echo io.Writer, obs Observer
 	scanErr := scanner.Err()
 
 	waitErr := cmd.Wait()
+	if obs != nil {
+		obs.Ended(cmd)
+	}
 	if scanErr != nil {
 		return events, fmt.Errorf("reading go test output: %w", scanErr)
 	}

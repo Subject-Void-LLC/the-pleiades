@@ -253,6 +253,11 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(state.stage("durations").status, ps.RUNNING)
         feed(state, ["testgate: durations.json holds a time for each"], 80)
         self.assertEqual(state.stage("durations").status, ps.PASS)
+        feed(state, ["testgate: 2 measured unit(s) are not in tools/testgate/resources.json yet (it is still being seeded); fold this run in with -resources-record:",
+                     "  x/new"], 82)
+        self.assertEqual(state.stage("resources").status, ps.RUNNING)
+        feed(state, ["testgate: tools/testgate/resources.json holds 269 unit(s); this run measured 3"], 85)
+        self.assertEqual(state.stage("resources").status, ps.PASS)
         feed(state, ["pr-check at abc123, 2026-10-24 14:24 UTC: PASS (exit 0)",
                      "  images      pass     exit 0", "  bsd         not-run  FreeBSD: stopped"], 90)
         self.assertEqual((state.verdict, state.exit_code), ("pass", 0))
@@ -268,8 +273,13 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(state.stage("containers").status, ps.SKIPPED)
         self.assertEqual(state.stage("images").status, ps.RUNNING)
         feed(state, ["coverage-check: 3 package(s) measured"], 10)
-        self.assertIsNone(state.main)
+        # durations is skipped with no container package, and resources, which
+        # reads the fast pass's measurement too, runs in its place.
+        self.assertEqual(state.main, "resources")
         self.assertEqual(state.stage("durations").status, ps.SKIPPED)
+        feed(state, ["testgate: tools/testgate/resources.json holds 269 unit(s); this run measured 3"], 12)
+        self.assertIsNone(state.main)
+        self.assertEqual(state.stage("resources").status, ps.PASS)
 
     def test_make_error_fails_its_target(self) -> None:
         """Fails the static target make gave up on."""

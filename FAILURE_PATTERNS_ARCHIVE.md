@@ -17493,3 +17493,47 @@ first proof of the Windows data disk.
 
 **Lesson.** A value every script needs is added where the parameters are built, once, not in one of two callers; and a
 change to where a machine keeps its work is proven by the live leg before it is called done.
+
+## 728. virt.vbox.vm.attach_disk and detach_disk recorded their undo after reads and writes that could fail, so a failed attach orphaned the disk it made and a failed read-back dropped the undo (a repeat of 452, 563 and 638) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-29, of the two methods written that morning: `createmedium` then a refused
+`storageattach` (the class of 726, a VBoxSVC still busy) left a 40 GB VDI registered on the host with nothing
+journaling it, and a rerun found it registered and attached it without `size_gb`; an attach that succeeded and a
+`showvminfo` that failed afterwards (a dropped WinRM session) left the disk attached and the task failed with no undo in
+the journal. detach_disk had the same order. Latent: no failure was seen live.
+
+**Root cause.** `sdk.RecordInverse` came last, after the read-back and the stats, with no `KeepOnFailure`, and nothing
+undid a disk the task had made when a later step failed. 638's lesson asks exactly this of every method that creates
+something; 563's second half says a read that fails after the change is a warning, not a failure. The sibling in the
+same package, `clone.go`, does both (`TestClone_EachStepFailing`), and the new tests asserted the inverse only on the
+happy path.
+
+**Fix.** attach_disk deletes the disk it made when a later step fails before the attach, records its undo (kept through
+a failure) the moment the attach succeeds, and reads back under a warning; detach_disk records the attach that puts the
+disk back as soon as the detach succeeds unless the delete that follows removes it, and a delete that fails records it.
+`TestDiskMethods_EachStepFailing` walks each path on the model host; both manifests declare `MayKeepOnFailure` and the
+`warnings` return.
+
+**Why 638 did not prevent it.** 638's lesson was written about VM creation and read before writing that method; the
+disk methods were written a week later from resize.go's shape, which changes nothing it has to clean up.
+
+**Lesson.** A method that makes something journals the undo the line after the step that made it, kept through what
+follows, and undoes its own making when a later step fails; its test walks each step failing, as clone's does.
+
+## 729. A headroom stop on Windows ended the go command alone and left its test binaries running, while the file's comment said they end with it (fixed before push)
+
+**Symptom.** The branch review, 2026-10-29: `flakegate.SignalGroup` on Windows called `cmd.Process.Kill()`, which is
+TerminateProcess on one process, and its comment claimed the test binaries end "when their output pipe does", which a
+process blocked on a wait never notices. On win-check (4 GB) a memory-floor stop would have freed the least memory on
+the machine that most needed it, and the next readiness step would have found the leftovers. Latent: no stop fired.
+
+**Root cause.** Windows has no process group a signal reaches, and the first version reached for the one call that
+exists on every platform. The fix already lived in the same diff: wincheck's own stop script ends a run with
+`taskkill /T /F`.
+
+**Fix.** `SignalGroup` on Windows runs `taskkill /T /F /PID` on the go command, which ends every process under it, and
+kills the go command alone only if taskkill cannot run; headroom's `StopGrace` comment no longer claims a stopped go
+test tears its containers down (pr-check's `-clean-containers` does that after the pass).
+
+**Lesson.** A comment that claims what another process will do when this one ends is a claim to test or to drop; and
+when the same diff already solves the problem for one caller (`taskkill /T`), the second caller uses it.

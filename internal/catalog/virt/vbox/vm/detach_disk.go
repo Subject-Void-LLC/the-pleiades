@@ -35,7 +35,7 @@ func init() {
 				Reversible: true,
 				Notes:      "A run that detached a disk it kept emits virt.vbox.vm.attach_disk back; one that deleted the disk emits nothing, since what it held is gone; one that found it detached emits nothing.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "virt.vbox.vm.attach_disk", Record: []string{"name", "path"}},
+					{FQCN: "virt.vbox.vm.attach_disk", Record: []string{"name", "path"}, MayKeepOnFailure: true},
 				},
 			},
 			SupportsCheck: true,
@@ -51,6 +51,7 @@ func init() {
 					{Name: "detached", Type: "bool", Returned: "always", Description: "Whether this task took the disk off the VM (predicted, in a check)."},
 					{Name: "deleted", Type: "bool", Returned: "always", Description: "Whether this task deleted the disk from the host (predicted, in a check)."},
 					{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the disk was attached before this task and after it."},
+					{Name: "warnings", Type: "list", Returned: "when the VM could not be read back after the disk was taken off", Description: "What the task could not confirm: the disk is off the VM, which the task could not read again."},
 				},
 				Examples: []collection.Example{
 					{Name: "Throw a lab VM's data disk away and start over", RunbookYAML: "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Delete its data disk\n  virt.vbox.vm.detach_disk:\n    name: bsd-check\n    path: G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi\n    delete: true\n\n- name: Give it a fresh one\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n"},
@@ -112,19 +113,29 @@ func runDetachDisk(ctx context.Context, rc sdk.RunbookContext, device inventory.
 	if mode == collection.ModeCheck {
 		return collection.Result{Changed: attached || deleting}, recordDetach(rc, fqcn, attached, deleting, attached)
 	}
+	var warnings []string
 	if attached {
 		if err := h.Detach(ctx, name, slot); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
-		m, err = mustRead(ctx, h, name, device, fqcn)
-		if err != nil {
+		// The disk is off the VM: unless the delete below removes it, the undo
+		// stands from here whatever follows.
+		if deleting {
+			if err := h.DeleteDisk(ctx, path); err != nil {
+				if rerr := recordAttachBack(rc, fqcn, name, path); rerr != nil {
+					return collection.Result{}, rerr
+				}
+				return collection.Result{}, fmt.Errorf("%s: %s is off %q and could not be deleted from the host: %w", fqcn, path, name, err)
+			}
+		} else if err := recordAttachBack(rc, fqcn, name, path); err != nil {
 			return collection.Result{}, err
 		}
-		if _, still := slotHolding(m, path); still {
+		if m, err = mustRead(ctx, h, name, device, fqcn); err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s was taken off %q, and the VM could not be read back afterwards: %v", path, name, err))
+		} else if _, still := slotHolding(m, path); still {
 			return collection.Result{}, fmt.Errorf("%s: %s was taken off %q and still reads back in one of its slots", fqcn, path, name)
 		}
-	}
-	if deleting {
+	} else if deleting {
 		if err := h.DeleteDisk(ctx, path); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
@@ -132,16 +143,24 @@ func runDetachDisk(ctx context.Context, rc sdk.RunbookContext, device inventory.
 	if err := recordDetach(rc, fqcn, attached, deleting, attached); err != nil {
 		return collection.Result{}, err
 	}
-	if attached && !deleting {
-		if err := sdk.RecordInverse(rc, sdk.Inverse{
-			FQCN:        "virt.vbox.vm.attach_disk",
-			Params:      map[string]any{paramName: name, paramPath: path},
-			Description: fmt.Sprintf("Attach %s to %s again, as it was before this task.", path, name),
-		}); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return collection.Result{Changed: attached || deleting}, nil
+}
+
+// recordAttachBack records the attach that undoes a detach of a disk still on
+// the host, kept through a later failure since the disk is already off the VM.
+func recordAttachBack(rc sdk.RunbookContext, fqcn, name, path string) error {
+	if err := sdk.RecordInverse(rc, sdk.Inverse{
+		FQCN:          "virt.vbox.vm.attach_disk",
+		Params:        map[string]any{paramName: name, paramPath: path},
+		Description:   fmt.Sprintf("Attach %s to %s again, as it was before this task.", path, name),
+		KeepOnFailure: true,
+	}); err != nil {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return nil
 }
 
 // recordDetach sets a detach's stats and its diff.

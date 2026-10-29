@@ -48,7 +48,7 @@ func init() {
 				Reversible: true,
 				Notes:      "A run that attached the disk emits virt.vbox.vm.detach_disk, deleting the disk from the host only when this task made it; one that found it attached emits nothing.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: "virt.vbox.vm.detach_disk", Record: []string{"name", "path", "delete"}},
+					{FQCN: "virt.vbox.vm.detach_disk", Record: []string{"name", "path", "delete"}, MayKeepOnFailure: true},
 				},
 			},
 			SupportsCheck: true,
@@ -65,6 +65,7 @@ func init() {
 					{Name: "port", Type: "int", Returned: "always", Description: "The SATA port the disk is attached at (predicted, in a check)."},
 					{Name: "created", Type: "bool", Returned: "always", Description: "Whether this task made the disk (predicted, in a check)."},
 					{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the disk was attached before this task and after it."},
+					{Name: "warnings", Type: "list", Returned: "when the VM could not be read back after the disk was attached", Description: "What the task could not confirm: the disk is attached, and the port is the one it was put in rather than the one read back."},
 				},
 				Examples: []collection.Example{
 					{Name: "Give a lab VM a data disk", RunbookYAML: "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Give it a 40 GB data disk\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n\n- name: Start it again\n  virt.vbox.vm.start:\n    name: bsd-check\n"},
@@ -141,30 +142,51 @@ func runAttachDisk(ctx context.Context, rc sdk.RunbookContext, device inventory.
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}
+	// From here a disk this task made is on the host: a step that fails
+	// before it is attached deletes it again, so a failed task leaves no disk
+	// nothing journals (the shape of FAILURE_PATTERNS 638).
+	unmade := func(stepErr error) error {
+		if !create {
+			return stepErr
+		}
+		if err := h.DeleteDisk(ctx, path); err != nil {
+			return fmt.Errorf("%w; the disk this task made at %s could not be deleted again: %v", stepErr, path, err)
+		}
+		return fmt.Errorf("%w; the disk this task made at %s was deleted again", stepErr, path)
+	}
 	if emptyDrive {
 		if err := h.Detach(ctx, name, slot); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: removing the empty DVD drive from SATA port %d: %w", fqcn, slot.Port, err)
+			return collection.Result{}, unmade(fmt.Errorf("%s: removing the empty DVD drive from SATA port %d: %w", fqcn, slot.Port, err))
 		}
 	}
 	if err := h.AttachDiskAt(ctx, name, slot, path); err != nil {
+		return collection.Result{}, unmade(fmt.Errorf("%s: %w", fqcn, err))
+	}
+	// The disk is on the VM: its undo stands from here whatever follows, so a
+	// read-back that fails still leaves the detach in the journal.
+	if err := sdk.RecordInverse(rc, sdk.Inverse{
+		FQCN:          "virt.vbox.vm.detach_disk",
+		Params:        map[string]any{paramName: name, paramPath: path, paramDelete: create},
+		Description:   detachDescription(name, path, create),
+		KeepOnFailure: true,
+	}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	m, err = mustRead(ctx, h, name, device, fqcn)
-	if err != nil {
+	port := slot.Port
+	var warnings []string
+	if m, err = mustRead(ctx, h, name, device, fqcn); err != nil {
+		warnings = append(warnings, fmt.Sprintf("%s is attached to %q at SATA port %d, and the VM could not be read back afterwards: %v", path, name, slot.Port, err))
+	} else {
+		held, ok := slotHolding(m, path)
+		if !ok {
+			return collection.Result{}, fmt.Errorf("%s: %s was attached to %q and does not read back in any of its slots", fqcn, path, name)
+		}
+		port = held.Port
+	}
+	if err := recordAttach(rc, fqcn, path, port, create, false, true); err != nil {
 		return collection.Result{}, err
 	}
-	held, ok := slotHolding(m, path)
-	if !ok {
-		return collection.Result{}, fmt.Errorf("%s: %s was attached to %q and does not read back in any of its slots", fqcn, path, name)
-	}
-	if err := recordAttach(rc, fqcn, path, held.Port, create, false, true); err != nil {
-		return collection.Result{}, err
-	}
-	if err := sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:        "virt.vbox.vm.detach_disk",
-		Params:      map[string]any{paramName: name, paramPath: path, paramDelete: create},
-		Description: detachDescription(name, path, create),
-	}); err != nil {
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return collection.Result{Changed: true}, nil

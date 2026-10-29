@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,11 +34,6 @@ const winPath = `C:\go\bin;C:\mingit\cmd;C:\mingw64\bin;C:\Program Files\Go\bin;
 // files is the directory, relative to the project, the archive is written
 // in to be sent; each archive is deleted once sent.
 const files = ".wincheck"
-
-// dataDir is what a data directory setting must look like, since every
-// script reads it: an absolute drive path of plain characters, such as
-// D:\pleiades, with no trailing backslash.
-var dataDir = regexp.MustCompile(`^[A-Za-z]:\\[A-Za-z0-9._-]+(\\[A-Za-z0-9._-]+)*$`)
 
 // windows is the real machine.
 type windows struct {
@@ -74,8 +68,8 @@ func newLeg(tool string) func(project, device, data string) (oscheck.Leg, error)
 // newLegFor is newLeg's machine, its variable data under data when one is
 // named.
 func newLegFor(tool, project, device, data string) (oscheck.Leg, error) {
-	if data != "" && !dataDir.MatchString(data) {
-		return nil, fmt.Errorf("the data directory %q is not an absolute drive path of plain characters, such as D:\\pleiades", data)
+	if err := oscheck.CheckWindowsDataDir("the data directory", data); err != nil {
+		return nil, err
 	}
 	lab, err := oscheck.NewLab(tool, project, device)
 	if err != nil {
