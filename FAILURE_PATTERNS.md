@@ -731,5 +731,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 725. net.batfish.check registered its network's cleanup after a SetStat that could fail, so a failure there left the network on a shared Batfish (a repeat of 193) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
+726. virt.vbox.vm.start through the autostart service, run right after an ACPI shutdown and a storage change, ran the service and left the VM powered off; the same start 30 s later worked (open: cause not proven)
+727. wincheck's test script looked for the tree in the login's profile while its prepare script had put it on the data disk, because Test() built the script's parameters without the env the data directory rides in (fixed before push)
 
 Append a new entry to the archive first, in full, then add its one-line, same-numbered title here. Never renumber an existing entry. Before writing one, search the archive for its class, by symptom and by cause: when it has happened before, the title says "(a repeat of N)" and the entry says why N's fix did not hold (LESSONS 274).

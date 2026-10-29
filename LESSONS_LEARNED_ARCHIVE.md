@@ -6563,3 +6563,22 @@ and nothing carried it to a scope that was empty from the start.
 
 **Rule in practice.** An audit's result names each part of its scope with what it examined (a count of methods, files
 or lines), and says plainly when a part held nothing to examine, and why.
+
+## 355. A resource policy lives in the one tool every environment already runs, with numbers measured there (2026-10-29).
+
+**Why.** By 2026-10-29 the test pipeline had five separate answers to "how much memory and disk may a run take": a
+cgroup wrapper and a Python watchdog on the WSL host, a hand-measured table of each container package's memory in
+`hosts.json` deciding which ran on a Mac's Podman, a readiness script per OS check (FreeBSD and Windows each in their
+own words) refusing a disk under 4 GB, a CI job deleting toolchains to make room, and nothing at all inside the run on
+any of them. The host crashed four times, a FreeBSD VM's kernel killed compiles (its `-p` was its CPU count, on 4 GB), a
+full disk read as 169 build failures with no compiler output, and a 7 GB govulncheck was moved to a Mac to keep it out
+of the gate. Each fix was right where it was made and absent everywhere else. The owner's words: "the same rigor of
+memory and disk space management across local, remote, and container environments."
+
+**Rule in practice.** Find the one command every environment runs the tests through (`tools/testgate`, on this
+machine, each check's machine and a CI runner) and put the policy there (`tools/internal/headroom`): the `-p` the free
+memory fits, the disk check before anything builds, the sampler, the stop, and the record. Each number says where it
+was measured (`BudgetMB` from the container packages' peaks, the floor and swap growth from the crashes the monitor
+caught), and the record's `package_mb` is what moves it next. What is cut to make room (a share of the work on another
+machine, a leg for a platform no release ships, a scan another gate runs within minutes) is removed, not flagged off:
+every exception list is a second policy.

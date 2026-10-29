@@ -17453,3 +17453,43 @@ error returned with the network still on the Batfish service, for good. Latent: 
 code, so the order was written again in a new method.
 
 **Lesson.** A cleanup is registered on the line after the acquisition succeeds, before anything else can return.
+
+## 726. virt.vbox.vm.start through the autostart service, run right after an ACPI shutdown and a storage change, ran the service and left the VM powered off; the same start 30 s later worked (open: cause not proven)
+
+**Symptom.** 2026-10-29, `~/pleiades-lab/runbooks/bsd/check-06-data-disk.yaml` against vengeance: `virt.vbox.vm.start`
+(bsd-check resumed from its saved state), `virt.vbox.vm.stop mode: acpi` (the guest shut down, 14:21:40 UTC),
+`virt.vbox.vm.attach_disk size_gb: 40` (attached on SATA port 1) all changed, then `virt.vbox.vm.start` failed:
+"VBoxAutostartSvcvengeancepleiades-gate ran and bsd-check is poweroff; its log is VBoxAutostart.log in the account's
+.VirtualBox folder". `pleiades adhoc vengeance virt.vbox.vm.start name=bsd-check` at 14:22:30 started it in 30 s. The
+service's log by then held only the second run (it is opened fresh each run): "Setting up ... Shutting down" 3.6 s
+apart, the VM running.
+
+**Root cause.** Not proven. The start came within seconds of a guest shutdown and a `storageattach`, each of which
+holds the machine's session and the account's VBoxSVC for a moment after it returns; `WindowsAutostart.Start` waits
+for VBoxSVC to exit before starting the service, so the likeliest gap is the machine's session still closing when the
+service read it. The first run's log was overwritten before it was read.
+
+**Fix.** None yet. The lab runbooks that stop, attach and start keep the order; a start that fails this way is run
+again by hand. The next instance should read `VBoxAutostart.log` before anything else runs the service, and
+`WindowsAutostart.Start` can then decide whether one more service run after a short wait is the right answer.
+
+**Lesson.** A log a service rewrites on every run is evidence only until the next run: read it first, then retry.
+
+## 727. wincheck's test script looked for the tree in the login's profile while its prepare script had put it on the data disk, because Test() built the script's parameters without the env the data directory rides in (fixed before push)
+
+**Symptom.** 2026-10-29, the first live run of `go run ./tools/wincheck -p 1 ...` with `PLEIADES_WINRM_DATA=D:\pleiades`:
+"no tree at C:\Users\Administrator\.pleiades-wincheck\<sha>; run -phase prepare first", after the prepare phase had
+unpacked that tree under `D:\pleiades\.pleiades-wincheck`. The readiness, prepare, unpack, records and stop scripts all
+saw the data directory; the test script alone did not.
+
+**Root cause.** The data directory reaches a script as `$env:PLEIADES_DATA`, added to the env map by `windows.shell`.
+`Test()` called `shellParams` directly (it needs `AdhocOutcome`, not `Adhoc`), so its env never held `DATA`, and the
+script's `$root` fell back to the profile. Every unit test checked the scripts' text, which was right; none ran the one
+path that bypassed the env.
+
+**Fix.** `windows.params` builds every script's parameters, `shell` and `Test` both through it;
+`TestParams_EveryScriptGetsTheDataDirectory` holds the test script's params to it. The live run that found it is the
+first proof of the Windows data disk.
+
+**Lesson.** A value every script needs is added where the parameters are built, once, not in one of two callers; and a
+change to where a machine keeps its work is proven by the live leg before it is called done.

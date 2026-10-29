@@ -4,88 +4,81 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-28. Branch `feat/authoring-parity-v0-3-0`, off `main` at `122b8c92`, through `6537201e` and the records
-after it. Not pushed, no pull request, `make pr-check` has not run, no tag cut. The gate waits for the Mac (offline,
-the owner away), unless the owner says to run without the Mac leg.**
+**2026-10-29. Branch `feat/authoring-parity-v0-3-0`, off `main` at `122b8c92`, through `7ff4ddab` plus this
+session's uncommitted tree. Not pushed, no pull request, `make pr-check` has not run on this tree, no tag cut.**
 
-The branch is v0.3.0 "Paranoid Porpoise": Crawl and Walk plus authoring parity. The previous status (archived) covers
-the first 16 commits; this one covers `e8f37785` onward.
+This session cut the test pipeline down to the Crawl and Walk tiers and gave it one memory and disk policy, at the
+owner's direction ("cut all fat that does not align with the current crawl walk tier"; "the same rigor of memory and
+disk space management across local, remote, and container environments"), then, at the owner's second direction,
+made the lab VMs shut down after a check and keep every run's variable data on a second disk.
 
-### What works
+### What works (unit-tested; the lab proofs are listed under Open)
 
-- Templates (`d554c7d7`, Phase 87): `{% if %}`, `{% for %}` with `loop.*`, `{% set %}`, comments, `raw` and whitespace
-  control; comparisons, `and`/`or`/`not`/`in`, `~`, `is` tests; arithmetic, inline if, computed subscripts, macros and
-  includes refused by name; bounded (10000 iterations, 1 Mi steps, nesting 16). A param holding only a statement renders;
-  `file.template` takes `trim_blocks` and `lstrip_blocks`. Tests in `internal/render` (`TestStatements`,
-  `TestStatementBounds`, `TestExpressionRefusals`), `TestStatementOnlyParamsRender`, `TestGuardedReads_KeepTheRootRules`.
-- `net.ios.config` check mode and structural backup masking (`2dbfa586`): `netcfg.MaskChecked`, new `netcfg.MaskXML`
-  for `net.netconf.config` (FAILURE_PATTERNS 704, 705). `net.ios.facts` gathers everything by default, as stats too.
-- Phase 131 R1 to R5 across the built-ins (`b617af7f`): `pkg/farside`, declared Choices, Returns held to the code,
-  absence as `exists: false`, whole describe results; archtests `TestNoClientCutsTheFarSideToAFirstLine`,
-  `TestAParamSayingOneOfDeclaresItsChoices`, `TestEveryRecordedKeyIsDeclared`, `TestALookupAnswersAbsenceAsData`,
-  `TestEveryReturnSaysWhenItIsReturned` (FAILURE_PATTERNS 709 to 712, 715).
-- Walk number types (`1cb9929c`, `pkg/wire/numbers.go`, FAILURE_PATTERNS 706): `TestTypedStats_MeanTheSameOnBothTiers`.
-- Versioned JSON contracts (`03b5a80c`): `run-report.json`, `doc-filters.json`, `doc-conditions.json`, schema_version 1;
-  `TestCLI_RunReportFitsItsSchema`, `TestDocJSON_FitsItsSchema`.
-- CML (`083d266f`, `db9465d0`): `lab.info` whole lab and running-node count; `lab.start` reports what it started and the
-  controller's headroom, and names a node-limit refusal; `node.create` documents vty transport and port names.
-  `rollback_on_failure` accepts `net.ios.config` again (FAILURE_PATTERNS 707, `TestCLI_DocCreateSkillsRollbackExampleValidates`).
-- `file.template` proven through pleiades on macOS and FreeBSD (reported by the session; no record of those runs is
-  in the repository); it found FAILURE_PATTERNS 708 (`fb323b4a`).
-- Release: `CurrentRelease` is 0.3.0 (`ed2c66c9`), install docs from a real 0.3.0 build (`66205f5c`), notes in
-  `docs/releases/v0.3.0.md` (`62010139`), patch releases may add (`docs/13-releases-and-stability.md`, `abf62285`),
-  changelog fragments retired into the notes (`a0489de8`). Ledger moves of 2026-10-28: v0.3.0's unbuilt phases to v0.4.0
-  (117b, 117c) and v0.5.0 (41, 81, 114a, 115a, 115b, 117d, 122e, 122f, 126).
-- Lab run 7 at `abf62285` (`~/pleiades-cvd/runs/AAR-run7-comparison.md`): turn A Opus 44-0, Sonnet 44-0, Haiku 26-12
-  (the controller's node cap refused its start); turn B regraded 14-0, except Haiku 13-1. Harness fixes: FAILURE_PATTERNS
-  716.
-- Records: FAILURE_PATTERNS 704 to 716, LESSONS 352 to 354. Roadmap: Phase 131 at 16 of 21, Phase 88 at 10 of 14.
-- The branch review's findings are fixed in `718a6eae` and `614be11a` and recorded as FAILURE_PATTERNS 717 to 725.
-
-### Blocker
-
-- The Mac is offline and the owner is away, so `make pr-check`'s Mac leg cannot run; the gate waits for it.
+- **Cut from pr-check, code removed:** the Mac's Podman share of the container packages (`testgate -host`,
+  `hosts.json`, `maccheck -containers`, `oscheck.Containers`), the Windows ARM leg (`wincheck -arm64` stays for a
+  hand run), and govulncheck (it runs in `make ci` and CI's `ci` job). The CI `winrm` job is gone. The Makefile's
+  pr-check recipe, the monitor (`tools/monitor`), prreport's part order, CLAUDE.md and `docs/design/os-checks.md`
+  say so. `PR_CHECK_PARTS` is now fast, coverage-fast, repeat, containers, durations, mac, bsd, win, images,
+  coverage, sizes.
+- **One policy, `tools/internal/headroom`, applied inside `tools/testgate`** (headroom.go there): the disk check
+  before anything builds (4 GB where the run builds and in TMPDIR), `-p` lowered to what the free memory fits
+  (1200 MB a package after 1 GB kept; a cgroup limit such as `capped`'s is read on Linux), `GOMEMLIMIT` at the
+  budget unless set, a sampler every 5 s charging each running package, a stop (SIGTERM to go test's own process
+  group, SIGKILL 30 s later) under 700 MB or 3 GB of swap growth, an interrupt forwarded the same way, and a
+  `headroom` field in every record (`flakegate.Headroom`; schema regenerated). Readers for Linux, macOS, FreeBSD and
+  Windows. Tests: `tools/internal/headroom` (89%), `tools/internal/flakegate` (93.6%, observed run and process group
+  proven against the real toolchain), `tools/testgate` (80.9%), archtest green.
+- **Lab VMs shut down, not saved:** `oscheck.Box.PutBack` is `virt.vbox.vm.stop mode=acpi timeout=300`, then
+  `mode=poweroff` if the guest did not shut down (`PutBackGrace` 8 min). Tests in `tools/internal/oscheck`.
+- **Data disk:** two new methods, `virt.vbox.vm.attach_disk` and `virt.vbox.vm.detach_disk` (catalog 212), with
+  `pkg/vboxmanage.AttachDiskAt`/`HasDisk`, tested against the model host; `PLEIADES_BSD_DATA`,
+  `PLEIADES_WINRM_DATA`, `PLEIADES_WINARM_DATA` name the directory, and every POSIX and Windows check script puts
+  the trees, GOCACHE, GOMODCACHE and TMPDIR/TEMP there and wipes leftovers before a run (`tools/internal/oscheck`,
+  `tools/bsdcheck`, `tools/wincheck` tests). Lab runbooks: `~/pleiades-lab/runbooks/bsd/check-06-data-disk.yaml`,
+  `check-07-data-mount.yaml`, `win/check-08-data-disk.yaml`, `check-09-data-mount.yaml` (all validate).
+- **The resources manifest (owner's ask, 2026-10-29: "min/max resources needed per test ... in a json manifest for
+  faster rebalancing", "disk usage should be known too"):** `tools/testgate/resources.json` holds, per unit (a package,
+  or a test of `tests/e2e`), the seconds, memory and disk ever recorded, least and most, with the run count, the last
+  date and the hosts. `testgate -resources-record` folds a run's measurements in (`make resources-record`), and
+  `testgate -resources-check` holds a run to it (pr-check's new `resources` step; `make coverage-measured`): an unknown
+  unit is named while `complete` is false and fails once it is true, and one far past its recorded most is named. A
+  local pass now packs its `-p` by the manifest's recorded memory for its packages (`packedParallelism`). The guard
+  samples disk too (`headroom.DiskWatch`): the record carries `package_disk_mb` and `min_disk_free_gb`, and the
+  measurement `disk_mb`, `test_memory_mb` and `test_disk_mb` for the divided packages' tests. The manifest is seeded
+  with seconds from `durations.json` and the last fast pass (269 units, `complete: false`); memory and disk fill as
+  gates and CI runs are folded in. Sharding still reads `durations.json`.
+- Lab: bsd-check's data disk (40 GB, `/dev/ada1p1` on `/data`) and win-check's (60 GB, `D:`) exist, made and
+  formatted through pleiades; `tests/bsd/.env` and `tests/win/.env` name them. FAILURE_PATTERNS 726 (a restart right
+  after a shutdown left the VM off once; the start by hand worked).
+- Records: LESSONS 355, FAILURE_PATTERNS 726 and 727 (the first Windows proof found the test script bypassing the
+  data directory's env; fixed). Memory notes `pipeline-cut-and-headroom`, `lab-vms-shutdown-data-disk`.
 
 ### Open
 
-- Gate not exercised: full `cmd/pleiades` and `cmd/runner`, the Mac, BSD, Windows and Windows ARM legs, real floors.
-- Security (FAILURE_PATTERNS 704): an IOS secret under eight characters, or a NETCONF datastore secret, in the backup of
-  a run before `2dbfa586` was readable in its report; rotate any such secret on a device that is not lab-only.
-- Phase 131: the audit table is `.SPECIFICATION/PHASE131_AGENT_CONTEXT_AUDIT.md`; R1 and R5 are ticked and NETCONF's
-  `RPCError` is bounded (`614be11a`). R4 for eight single-object lookups and the client audit's written record were in
-  progress when this was written.
-- Phases 87 to 89: `set_fact` was built as `vars.<name>`, not `nodes.<name>` (item open for the owner). Closed in
-  `614be11a`/`6537201e`: a Walk-tier `until` gate, a journal stage for `failed_when`/`changed_when`, `with_items` kept as
-  an alias in 0.3.x, both under a loop, and the Documentation Gates now cite the release notes. Adversarial,
-  Schema/Injection and Release Gate items open.
-- Run 7 ranked items still open: one source for device configuration, rollback stepping over subsumed runs, the docs
-  list (item 7) and the messages (item 8). The capacity slots have not run in a lab turn.
-- Carried: Groundconfig's two failing entries and uncommitted knowledge; FAILURE_PATTERNS 668 and 677; not built on
-  purpose: handlers, `serial:`, `async`/`poll`, rescue across Walk segments, other `with_*` forms.
+- **Lab proofs passed** (`.IGNORE/timings.md`, 2026-10-29): `go run ./tools/bsdcheck -p 1 tools/internal/prreport`
+  booted bsd-check cold from power-off, built and tested on `/data` (`.pleiades-bsdcheck/{.gocache,<sha>}`, `gomod`,
+  `tmp`; 601 MB used of 39 GB), passed both passes in 2m38s and shut the VM down through ACPI; `wincheck` did the same
+  on `D:\pleiades` in 6m10s with cgo and the race detector on. A leg tests the committed tree, so the policy's own
+  FreeBSD and Windows readers (`headroom.Read`) run on the legs once this tree is committed; their unit tests ran here.
+  Both VMs are powered off.
+- The manifest's memory and disk numbers come from runs made after this change; `make resources-record` after the
+  next gate, and after CI's artifacts are downloaded, fills them. Set `complete: true` once every package is in it.
+- Compaction itself (`VBoxManage modifymedium --compact`) is not a method yet; the shutdown makes it possible.
+- The branch's earlier open items (Phase 131 R4, Phase 87 to 89 gates, run 7 items, the Mac leg for the full gate)
+  are unchanged from the archived status.
 
 ### Next, in order
 
-1. Measure coverage floors for the changed packages before the gate.
-2. When the Mac is back (or the owner says to run without it), run the gate: `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`,
-   waited on with one background `curl` on `/wait?for=fail,end`. On a failure, stop, prove the failing packages alone,
-   fix, rerun.
-3. Push once and open one pull request: the failure-pattern classes checked, run 7's table with its caveats, no AI
-   attribution.
-4. After it merges, the owner decides the tag and the next work.
+1. Finish the lab proofs above and record their timings in `.IGNORE/timings.md`.
+2. Commit this session's work (the owner asked for no commit; the tree is dirty), then `make pr-check` through the
+   monitor, push, one pull request.
 
 ### Files changed this session
 
-`pkg/netcfg` (`checked.go`, `rest.go`, `xml*.go`), `internal/catalog/net/ios` (config, check, facts),
-`internal/catalog/net/netconf/config.go`, `internal/render`, `internal/engine` (render params), `internal/validate`
-(guarded reads, choices, rollback rule), `internal/forge/playbook`, `pkg/wire/numbers.go`, `pkg/farside`, about 160
-files across `internal/catalog` and `pkg` for R1 to R5, `internal/archtest`, `internal/clireport`,
-`internal/jsonschema`, `tools/gendocs`, `pkg/cml`, `internal/catalog/virt/cml`, `pkg/remotefile/put.go`,
-`cmd/pleiades` (doc, skill, add-credential, import-cml), docs and `docs/releases/v0.3.0.md`, `changelog/` (emptied).
-
-### Lab state
-
-Run 7's turn B tore down each instance's lab (only `default-lab` remains on the controller). The harness gained the
-instance filter (`grade.sh`) and capacity slots (`run5-instance.sh`). `bsd-check` was saved again
-(`virt.vbox.vm.stop mode=save`) after the FreeBSD `file.template` proof. Two small test files are left under
-`/tmp/pleiades-template-proof` on the Mac (it stopped answering SSH during cleanup) and in the saved `bsd-check`; remove
-each with `file.remove recurse=true` when the machine is next up.
+`tools/internal/headroom/*` (new), `tools/testgate/{headroom.go,resources.go,resources.json,main.go,options.go,pieces.go}`
+(hosts.go, hosts.json removed), `tools/internal/flakegate/{observe.go,procgroup_*.go,headroom.go,run.go,report.go,flakegate.go}`,
+`tools/internal/oscheck/{box.go,lab.go,posix.go,flow.go}` (containers.go removed), `tools/maccheck`, `tools/bsdcheck`,
+`tools/wincheck`, `tools/internal/prreport/report.go`, `tools/gendocs/prreportschema*.go`, `tools/monitor/*.py`,
+`Makefile`, `.github/workflows/ci.yml`, `internal/catalog/virt/vbox/vm/{attach_disk,detach_disk}.go`,
+`pkg/vboxmanage/create.go`, `internal/forge/catalogdata/collections_virt.go`, `docs/reference` (regenerated),
+`CLAUDE.md`, `docs/design/os-checks.md`, `tests/{bsd,win}/.env.example`, `.claude/agents/ci-triager.md`.

@@ -72,11 +72,11 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
   and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
   (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
-- **Module catalog: 210 registered FQCNs; 208 implemented, 2 declared-not-implemented.** These counts
+- **Module catalog: 212 registered FQCNs; 210 implemented, 2 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
-  this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 36, `ai` 11,
+  this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 38, `ai` 11,
   `svc` 16, `net` 25, `file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
   `http` 3, `pleiades` 3, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
@@ -327,7 +327,7 @@ make ci-fast         # every container-free package, tolerant, then test-repeat:
 make ci-containers SHARD=k/n  # one shard of the container packages (a CI job)
 make pr-check        # before every push to a pull request: what its required jobs run, for the packages the branch changes
 make mac-check       # the branch's container-free packages on a real Mac (PLEIADES_MAC in tests/mac/.env), through pleiades; pr-check runs it when a Mac is named
-make bsd-check       # the same on a FreeBSD machine a project manages (tests/bsd/.env), and make win-check on a Windows one (tests/win/.env, no -race); a VM one is started and saved again around the run, and pr-check runs them one at a time beside the Linux passes
+make bsd-check       # the same on a FreeBSD machine a project manages (tests/bsd/.env), and make win-check on a Windows one (tests/win/.env, no -race); a VM one is started and shut down again around the run, its variable data on a second disk (PLEIADES_BSD_DATA, PLEIADES_WINRM_DATA), and pr-check runs them one at a time beside the Linux passes
 make coverage-measured # the floors, from the coverage test-full or the CI jobs recorded, not from another run
 make test-clean-room # the fast tier in a pinned Go container with no host tools, home or git identity: "works for others"
 make ci-remote       # the static checks: `ci` minus every test target
@@ -368,9 +368,12 @@ and a failed e2e test's full, masked Controller and Runner logs are uploaded as
 coverage-measured` over the numbers those jobs uploaded, which runs and fails rather than
 being skipped when one of them failed, since GitHub counts a skipped required check as
 passed), `nightly` (`make test-full`, strict, no tolerance), `vulns`
-(`make govulncheck` on the schedule, since an advisory lands without any code changing) and an
-experimental `winrm` job against the Windows runner's own WinRM service. Every job is a
-make target, so there is still no CI-only step. The pull-request jobs use push-gate's
+(`make govulncheck` on the schedule, since an advisory lands without any code changing). The
+experimental `winrm` job was cut on 2026-10-29 (it had never passed and blocked nothing; the
+lab's win-check VM is the WinRM target the pre-push gate tests). Every job is a
+make target, so there is still no CI-only step. Every test job runs `tools/testgate`, which holds
+the runner to the same memory and disk policy as every other machine (`tools/internal/headroom`,
+below). The pull-request jobs use push-gate's
 rule (a failure that passes re-run alone is contention, named in the job summary); the
 nightly job does not, so a real concurrency bug that the rule cannot tell from contention
 is still counted. Every `tools/testgate` run ends with a skip ledger (each skipped test and
@@ -391,6 +394,37 @@ file is tagged `!integration`, which `tools/internal/flakegate`'s
 `TestNothingIsExcludedByTheIntegrationTag` holds true. The old `test-race`,
 `test-integration` and `coverage` targets stay for a developer who wants one alone.
 
+**One memory and disk policy, wherever the tests run (2026-10-29).** `tools/testgate` is the
+one command every environment runs the tests through (this WSL host, the Mac, the FreeBSD and
+Windows lab VMs, and a CI runner), so the policy lives there, in `tools/internal/headroom`, and
+each machine is held to the same numbers rather than to a guess of its own. Before anything
+builds, the run refuses a disk under 4 GB free where it builds or writes, naming what frees
+space; it reads the machine's memory (and a cgroup limit it runs under, such as `capped`'s) and
+lowers `-p` to what that memory fits, 1200 MB a package after the 1 GB the machine keeps, never
+under 1; it sets `GOMEMLIMIT` to the package budget for every Go process it starts unless the
+caller set one; a sampler reads the machine every five seconds, charges each running package
+with the fall it sees, and stops the run (SIGTERM to go test's own process group, SIGKILL
+thirty seconds later) when the memory free goes under 700 MB or the swap in use grows 3 GB past
+where it began; and an interrupt to testgate stops the run the same way. A run stopped this way
+reaches no verdict (its failures are the stop's, so none is re-run alone or counted) and its
+record says why. Every record carries `headroom` (the memory and disk as the run began, the
+lowest memory seen, the swap grown, the `-p` asked and used, each package's cost, and the stop
+reason), and each pass ends with one line saying the same, so a kill or a build failure with no
+compiler output (FAILURE_PATTERNS 690) is read from numbers rather than guessed. The budget's
+numbers are measured and each says where it came from (`headroom.go`); move them from a run's
+`package_mb`, not by feel. What each unit has needed rides with the tests in
+`tools/testgate/resources.json`: for every package (and every test of `tests/e2e`, which the
+shards divide) the seconds, memory and disk it took, least and most, over the runs that measured
+it, with the host and the date. `make resources-record` folds a gate's measurements in; pr-check's
+`resources` step and `make coverage-measured` hold a run to it (`testgate -resources-check`: an
+unknown unit is named, and fails once the manifest says `complete`); and a local pass packs its
+`-p` by the most memory the manifest records for its packages rather than a flat budget. Sharding
+still balances by `durations.json` until the manifest has CI's numbers. What a CI runner, a lab VM and this machine do about disk before
+the run differs (CI deletes unused toolchains, a lab VM clears its login's Go caches and
+`go-build` leftovers, the Mac drops each run's build cache when it ends); what they do once the
+run starts is now the same. The monitor's watchdog (`tools/monitor`) stays as the outer guard
+around the whole `make` here.
+
 **The gate is GitHub Actions (since 2026-10-13), not a local run.** A change reaches `main`
 only by merging a pull request, and that pull request's checks are the gate: the repository's
 ruleset ("Main Branch Guardrails") requires a pull request and requires `ci (ubuntu-24.04,
@@ -401,13 +435,14 @@ every shard whatever their number, and the four shard names in the ruleset are r
 repository is public, so hosted runners cost nothing, and a pull request's checks finish in
 about half an hour where `make push-gate` takes about an hour and a half here and has run this
 machine out of memory. `make push-gate` and `make ci` stay for a developer who wants them
-and for the refs below that still need a receipt. The schedule-only jobs (`nightly`, `vulns`,
-`winrm`) never run on a pull request; dispatch the workflow on its branch when a change
+and for the refs below that still need a receipt. The schedule-only jobs (`nightly` and
+`vulns`) never run on a pull request; dispatch the workflow on its branch when a change
 touches them.
 
-**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote` (its
-`govulncheck` on the Mac when one is ready, for this machine's platform and Go release, since a
-scan that traces a vulnerable call took 7 GB there), vet for macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it
+**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote`'s static
+checks but `govulncheck` (a scan that traces a vulnerable call builds the whole module's call
+graph, over 4 GB here and 7 GB on a Mac; `make ci` and CI's `ci` job run it on every pull
+request within minutes), vet for macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it
 through the same `testgate` passes, the container-free ones three times strictly as
 `test-repeat` does, and `coverage-check -measured -scoped` over the floors of exactly what it
 measured; the container-list guard and `internal/archtest` always run, and so does
@@ -434,8 +469,9 @@ Read a pr-check run back from its record, not its logs. Each testgate pass, each
 there, holding pr-check's own exit status, so it never passes a run the gate failed. `go run
 ./tools/prreport` prints it again; `-json` is the same model for an agent, `-failures` the
 failures that count with their output, `-skips` every skip by reason, and `-leg NAME` one pass
-(`fast`, `repeat`, `containers`), leg (`mac`, `bsd`, `win`) or step (`govulncheck`, `images`,
-`coverage`, `durations`). A report for a commit other than HEAD says so on stderr. The report is a versioned
+(`fast`, `repeat`, `containers`), leg (`mac`, `bsd`, `win`) or step (`images`, `coverage`,
+`durations`, `sizes`). Each testgate record carries `headroom`: the memory and disk the machine
+had, the `-p` the run used, what each package cost, and why a run was stopped early. A report for a commit other than HEAD says so on stderr. The report is a versioned
 contract for tools, schema 2, published as `docs/reference/schemas/pr-check-report.json` from
 `tools/internal/prreport`. A reader ignores unknown fields, treats an unknown verdict or outcome as not a
 pass, and refuses an unknown major version. The verdict is `pass`, `fail`, `incomplete`, `running`
@@ -513,7 +549,7 @@ receipt at all, an unreadable one, one that does not say which gate ran or names
 this repository does not have, one dated ahead of the clock (an age is a subtraction, so a
 future date used to mean a receipt that never expired), one past `MaxReceiptAge` (a day,
 which exists for `govulncheck` alone, since that is the one check whose answer moves
-without the tree moving), a ref outside the gated history, a rewind, and an object that is
+without the tree moving; `make ci`'s receipt still covers it, pr-check's no longer runs it), a ref outside the gated history, a rewind, and an object that is
 not a commit at all. `git push --no-verify` still skips the lot.
 
 Two things this does **not** prove, both worth saying plainly. Only the tip is gated: a
