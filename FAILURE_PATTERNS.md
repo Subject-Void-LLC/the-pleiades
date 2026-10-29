@@ -736,6 +736,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 730. gosec's G703 followed a file's content into the cgroup reads and the manifest's own bytes into its write, and only the gate's gosec had run over the new packages (a repeat of 475) (fixed before push)
 731. The review fixes added failure branches to the disk methods and two helpers to pkg/vboxmanage with no test measured against a floor, and the gate's coverage-fast stage found both packages under (fixed before push)
 732. The resources manifest read only this machine's passes, so a 4 GB lab VM ran two packages at once into tools/release's cold 2 GB link and the memory floor stopped the FreeBSD leg (fixed before push)
+733. A lab VM's ACPI put-back printed no report in every gate and fell back to cutting the power, while the same stop by hand worked, and the check had thrown away the evidence (open: cause not proven)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

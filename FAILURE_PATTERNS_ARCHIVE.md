@@ -17603,8 +17603,36 @@ the smallest machines.
 **Fix.** `-resources-record` folds a lab leg's record in too, each run's per-package memory and disk under the VM's
 own GOOS/GOARCH (`resources_legs.go`), and `make resources-record` passes the legs' records. The manifest now holds
 the FreeBSD run, so a 3.5 GB lab pass packs to one package at a time beside a 3111 MB one. A leg's numbers err high,
-since packages that ran together are each charged the whole fall, which packs tighter, never looser.
+since packages that ran together are each charged the whole fall, which packs tighter, never looser. The seventh
+gate showed that one package at a time is not enough: alone, `tools/release` took the VM from 3449 MB free to 663 MB.
+`TestReleaseBuildReportsItsVersion` now skips, as `needs memory:` in the skip ledger, where the memory free less the
+build's measured 2800 MB would fall under the gate's floor, so it runs here, on CI and on the Mac and skips on a 4 GB
+lab VM. Giving the lab VM more memory would run it there; that is the lab's owner's call.
 
 **Lesson.** A measurement that sizes a machine has to come from that machine: a cache, a core count and a memory size
 all change what a test costs. When a policy that stops a run is added, feed it the numbers of the smallest machine it
 governs before the first gate, not after the first stop.
+
+## 733. A lab VM's ACPI put-back printed no report in every gate and fell back to cutting the power, while the same stop by hand worked, and the check had thrown away the evidence (open: cause not proven)
+
+**Symptom.** Gates five, six and seven on the pipeline branch, 2026-10-29: each FreeBSD leg ended with "the VM bsd-check
+on vengeance did not shut down on its own (pleiades adhoc virt.vbox.vm.stop printed no report: unexpected end of JSON
+input); cutting its power". The VM ended powered off each time. The lab project's journal holds no run of the ACPI stop,
+only the power cut ten seconds later, so the first pleiades exited before any task ran.
+
+**What was ruled out.** The binary (`.git/pleiades-bsdcheck/pleiades`) was built at the start of the leg and not
+replaced. The same binary, with the same parameters, straight after an `exec.command` on the VM as the leg runs it,
+shut the VM down through ACPI in 28 s and printed its report, twice. A run in the same project does not refuse another
+(runs only warn). The kernel log shows no out-of-memory kill, but the gate's own memory scope, where every gate command
+runs under a 4500 MB cap beside the container pass, was gone before it could be read.
+
+**Root cause.** Not proven. `Pleiades.adhocJSON` discarded the command's exit status and stderr, so a run that died,
+was killed or refused before its report left only the JSON reader's error.
+
+**Fix (the evidence, not the cause).** `adhocJSON` keeps the last run's exit status and the last five lines of its
+stderr, and `Adhoc`, `AdhocStats` and `AdhocOutcome` report a run with no report as "printed no report and ended with
+<status>: <stderr>" (`TestAdhoc_ARunWithNoReportSaysHowItEnded`, through a stand-in binary). The next gate's leg names
+the cause; close this entry then.
+
+**Lesson.** A wrapper that runs a command and reads only its stdout must keep the exit status and stderr for the
+failure it cannot parse: "printed no report" is a symptom, and three gates' worth of the same symptom bought nothing.
