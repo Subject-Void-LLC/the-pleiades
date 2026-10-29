@@ -16848,6 +16848,94 @@
       ]
     }
   },
+  "virt.vbox.vm.attach_disk": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that attached the disk emits virt.vbox.vm.detach_disk, deleting the disk from the host only when this task made it; one that found it attached emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.detach_disk",
+          "record": [
+            "name",
+            "path",
+            "delete"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Gives a stopped VirtualBox VM a second disk, made new on the host when it is not there yet.",
+      "description": "Makes sure a VM has the disk at path attached, as a hard disk in its first free SATA port (or, with none free, the port holding an empty DVD drive, which a Windows clone keeps once its seed is ejected; the drive is removed for the disk): one already attached reports no change; one the host has registered but not attached is attached; otherwise a new, empty VDI of size_gb is made at path (the VM's own folder and <name>-data.vdi when path is not given), growing on the host as the guest writes to it, and attached. The guest sees a blank disk it must partition and format itself; nothing here touches the guest. VirtualBox attaches a disk only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A run that attached the disk emits virt.vbox.vm.detach_disk, deleting the disk only when this task made it. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and the host's disks, and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "The disk's path on the host, an absolute drive path such as G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi; when not given, the VM's own folder and <name>-data.vdi."
+        },
+        {
+          "name": "size_gb",
+          "type": "int",
+          "description": "How big a disk to make, in gigabytes, when the host has none at path; a disk already there keeps its size. Required unless the disk exists."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The disk's path on the host."
+        },
+        {
+          "name": "port",
+          "type": "int",
+          "returned": "always",
+          "description": "The SATA port the disk is attached at (predicted, in a check)."
+        },
+        {
+          "name": "created",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task made the disk (predicted, in a check)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether the disk was attached before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Give a lab VM a data disk",
+          "runbookYaml": "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Give it a 40 GB data disk\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n\n- name: Start it again\n  virt.vbox.vm.start:\n    name: bsd-check\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.detach_disk",
+        "virt.vbox.vm.stop",
+        "virt.vbox.vm.info"
+      ]
+    }
+  },
   "virt.vbox.vm.clone": {
     "supportedTransports": [
       "winrm"
@@ -17077,6 +17165,89 @@
       "seeAlso": [
         "virt.vbox.vm.clone",
         "virt.vbox.vm.stop"
+      ]
+    }
+  },
+  "virt.vbox.vm.detach_disk": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that detached a disk it kept emits virt.vbox.vm.attach_disk back; one that deleted the disk emits nothing, since what it held is gone; one that found it detached emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.attach_disk",
+          "record": [
+            "name",
+            "path"
+          ]
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Takes a disk off a stopped VirtualBox VM, deleting it from the host when asked.",
+      "description": "Makes sure the disk at path is not attached to a VM: one attached is taken out of its slot, and with delete true forgotten and deleted from the host too, with everything the guest wrote on it; one not attached reports no change, except that with delete true a disk the host still holds, attached to nothing, is deleted. VirtualBox detaches a disk only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A run that detached a disk it kept emits virt.vbox.vm.attach_disk back; one that deleted it emits nothing, since what the disk held is gone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and the host's disks, and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The disk's path on the host, as virt.vbox.vm.attach_disk reported it."
+        },
+        {
+          "name": "delete",
+          "type": "bool",
+          "default": "false",
+          "description": "Whether to forget the disk and delete its file from the host once it is off the VM, losing what the guest wrote on it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "detached",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task took the disk off the VM (predicted, in a check)."
+        },
+        {
+          "name": "deleted",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task deleted the disk from the host (predicted, in a check)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether the disk was attached before this task and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Throw a lab VM's data disk away and start over",
+          "runbookYaml": "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Delete its data disk\n  virt.vbox.vm.detach_disk:\n    name: bsd-check\n    path: G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi\n    delete: true\n\n- name: Give it a fresh one\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.attach_disk",
+        "virt.vbox.vm.stop",
+        "virt.vbox.vm.info"
       ]
     }
   },

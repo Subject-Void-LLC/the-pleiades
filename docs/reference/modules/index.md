@@ -28,10 +28,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
-| `virt` | 36 | 36 |
+| `virt` | 38 | 38 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **210** | **208** |
+| **total** | **212** | **210** |
 
 ## All methods
 
@@ -216,8 +216,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |
 | [virt.vbox.vm.addresses](virt/vbox/vm/addresses.md) | implemented | Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone. |
+| [virt.vbox.vm.attach_disk](virt/vbox/vm/attach_disk.md) | implemented | Gives a stopped VirtualBox VM a second disk, made new on the host when it is not there yet. |
 | [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file. |
 | [virt.vbox.vm.delete](virt/vbox/vm/delete.md) | implemented | Deletes a stopped VirtualBox VM and its disks. |
+| [virt.vbox.vm.detach_disk](virt/vbox/vm/detach_disk.md) | implemented | Takes a disk off a stopped VirtualBox VM, deleting it from the host when asked. |
 | [virt.vbox.vm.eject_seed](virt/vbox/vm/eject_seed.md) | implemented | Takes a VM's seed out of its DVD drive and deletes it, once its first boot has read it. |
 | [virt.vbox.vm.host_keys](virt/vbox/vm/host_keys.md) | implemented | Reads a VM's SSH host keys from what cloud-init printed on its serial console. |
 | [virt.vbox.vm.import_disk](virt/vbox/vm/import_disk.md) | implemented | Makes a VirtualBox VM from a disk image on the host, such as Microsoft's Windows Server evaluation VHDX. |

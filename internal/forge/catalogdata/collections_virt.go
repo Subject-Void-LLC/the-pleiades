@@ -150,6 +150,57 @@ var virtCollections = []collectionscaffold.Config{
 		},
 	},
 	{
+		Name:          "virt.vbox.vm.attach_disk",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Gives a stopped VirtualBox VM a second disk, made new on the host when it is not there yet.",
+			Description: "Makes sure a VM has the disk at path attached, as a hard disk in its first free SATA port (or, with none free, the port holding an empty DVD drive, which a Windows clone keeps once its seed is ejected; the drive is removed for the disk): one already attached reports no change; one the host has registered but not attached is attached; otherwise a new, empty VDI of size_gb is made at path (the VM's own folder and <name>-data.vdi when path is not given), growing on the host as the guest writes to it, and attached. The guest sees a blank disk it must partition and format itself; nothing here touches the guest. VirtualBox attaches a disk only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A run that attached the disk emits virt.vbox.vm.detach_disk, deleting the disk only when this task made it." +
+				vboxHostParamNote + " A check reads the VM and the host's disks, and sends nothing.",
+			Params: []collection.Param{
+				vmNameParam,
+				{Name: "path", Type: "string", Description: "The disk's path on the host, an absolute drive path such as G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi; when not given, the VM's own folder and <name>-data.vdi."},
+				{Name: "size_gb", Type: "int", Description: "How big a disk to make, in gigabytes, when the host has none at path; a disk already there keeps its size. Required unless the disk exists."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "path", Type: "string", Returned: "always", Description: "The disk's path on the host."},
+				{Name: "port", Type: "int", Returned: "always", Description: "The SATA port the disk is attached at (predicted, in a check)."},
+				{Name: "created", Type: "bool", Returned: "always", Description: "Whether this task made the disk (predicted, in a check)."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the disk was attached before this task and after it."},
+			},
+			Examples: []collection.Example{
+				{Name: "Give a lab VM a data disk", RunbookYAML: "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Give it a 40 GB data disk\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n\n- name: Start it again\n  virt.vbox.vm.start:\n    name: bsd-check\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.detach_disk", "virt.vbox.vm.stop", "virt.vbox.vm.info"},
+		},
+	},
+	{
+		Name:          "virt.vbox.vm.detach_disk",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Takes a disk off a stopped VirtualBox VM, deleting it from the host when asked.",
+			Description: "Makes sure the disk at path is not attached to a VM: one attached is taken out of its slot, and with delete true forgotten and deleted from the host too, with everything the guest wrote on it; one not attached reports no change, except that with delete true a disk the host still holds, attached to nothing, is deleted. VirtualBox detaches a disk only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A run that detached a disk it kept emits virt.vbox.vm.attach_disk back; one that deleted it emits nothing, since what the disk held is gone." +
+				vboxHostParamNote + " A check reads the VM and the host's disks, and sends nothing.",
+			Params: []collection.Param{
+				vmNameParam,
+				{Name: "path", Type: "string", Required: true, Description: "The disk's path on the host, as virt.vbox.vm.attach_disk reported it."},
+				{Name: "delete", Type: "bool", Default: "false", Description: "Whether to forget the disk and delete its file from the host once it is off the VM, losing what the guest wrote on it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "detached", Type: "bool", Returned: "always", Description: "Whether this task took the disk off the VM (predicted, in a check)."},
+				{Name: "deleted", Type: "bool", Returned: "always", Description: "Whether this task deleted the disk from the host (predicted, in a check)."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the disk was attached before this task and after it."},
+			},
+			Examples: []collection.Example{
+				{Name: "Throw a lab VM's data disk away and start over", RunbookYAML: "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Delete its data disk\n  virt.vbox.vm.detach_disk:\n    name: bsd-check\n    path: G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi\n    delete: true\n\n- name: Give it a fresh one\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.attach_disk", "virt.vbox.vm.stop", "virt.vbox.vm.info"},
+		},
+	},
+	{
 		Name:          "virt.vbox.snapshot.take",
 		Capabilities:  []capability.Name{capability.NameVirtualBox},
 		Transports:    []string{"winrm"},
