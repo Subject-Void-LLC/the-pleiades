@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -14,7 +15,16 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/headroom"
 )
+
+// releaseBuildMB is what building and linking the real runner costs a
+// machine whose build cache is cold, as a lab VM's is on every run: 2786 MB
+// on the FreeBSD lab VM on 2026-10-29, from its testgate record, run alone.
+// The link alone peaks near 2 GB on any machine, with symbols stripped.
+const releaseBuildMB = 2800
 
 // TestParsePlatforms checks the accepted and refused spellings.
 func TestParsePlatforms(t *testing.T) {
@@ -154,6 +164,15 @@ func TestRunRefusesBadUsage(t *testing.T) {
 func TestReleaseBuildReportsItsVersion(t *testing.T) {
 	if testing.Short() {
 		t.Skip("links a real binary")
+	}
+	// A machine that cannot hold the link above the gate's memory floor
+	// skips, named in the skip ledger, rather than have the gate stop the
+	// whole run for it (FAILURE_PATTERNS 732). A machine whose memory cannot
+	// be read runs it.
+	if m, err := headroom.Read(); err == nil {
+		need.Require(t, "memory", m.AvailableMB-releaseBuildMB >= headroom.FloorMB,
+			fmt.Sprintf("building and linking the runner costs about %d MB, and %.0f MB free would leave this machine under the gate's %d MB memory floor",
+				releaseBuildMB, m.AvailableMB, headroom.FloorMB))
 	}
 	root, err := filepath.Abs("../..")
 	if err != nil {
