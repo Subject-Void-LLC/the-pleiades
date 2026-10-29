@@ -17684,3 +17684,24 @@ for the next boot to repair. The damaged disk was replaced through `virt.vbox.vm
 VM's mount gets `failok` and `fsck_y_enable="YES"`.
 
 **Lesson.** LESSONS 356.
+
+## 736. testimages -served asked the registry for a container test's Image: "sha256:img", a short stand-in for an image ID the scanner's 64-digit rule let through (a repeat of 465 and 416) (fixed before push)
+
+**Symptom.** The tenth gate on the pipeline branch, 2026-10-29: the `images` step failed after three tries with
+"testimages: could not find sha256:img" and "denied: requested access to the resource is denied". The FreeBSD leg (all
+181 packages, 1h10m) and the container pass had passed.
+
+**Root cause.** `internal/catalog/container/describe_internal_test.go`, written on this branch, builds a fake
+`moby.InspectResponse` with `Image: "sha256:img"`. The scanner keeps an `Image` field's value when it has name:tag's
+shape, and 465's fix refused an image ID only in its real form, sha256 followed by 64 hex digits. A three-letter
+stand-in has name:tag's shape with a repository called sha256, so it passed, and CI's container jobs would have tried
+to pull it too.
+
+**Why 465 did not prevent it.** 465 matched the value the failing test held rather than what makes it not an image:
+the repository name. Any tag after sha256 is the same mistake.
+
+**Fix.** `pullable` refuses a reference whose repository is sha256 or sha512, whatever the tag (`isContentAddress`),
+and the scanner's test names both short stand-ins.
+
+**Lesson.** When a filter refuses a false positive, refuse it by the property that makes it false (no registry serves a
+repository called sha256), not by the exact value that tripped it last time.

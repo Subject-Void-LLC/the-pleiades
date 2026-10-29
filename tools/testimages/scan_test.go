@@ -15,8 +15,9 @@ import (
 // variable, and drops a locally built image, prose, a parameter name, a
 // reference with no tag, a value shaped like name:tag whose name has no
 // letter (a uid:gid pair, which tests/e2e names packagingImageUID, and an
-// address), and an image ID (a docker test's fakeImageID), each of which
-// CI's pull step once tried to fetch as an image.
+// address), and an image ID (a docker test's fakeImageID) or a short stand-in
+// for one (a container test's Image: "sha256:img"), each of which CI's pull
+// step or testimages -served once tried to fetch as an image.
 func TestScanFile_FindsEveryShapeAndNothingElse(t *testing.T) {
 	src := `package x
 
@@ -32,11 +33,14 @@ const packagingImageUID = "65532:65532"
 const registryImageAddr = "127.0.0.1:5000"
 const fakeImageID = "sha256:9f2c0e6a9b2d3c5e7f8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e"
 const pinnedImageID = "sha512:` + strings.Repeat("ab", 64) + `"
+const shortFakeImageID = "sha256:img"
 
 type req struct{ Image string }
 
 var r = req{Image: "gitea/gitea:1.22.6"}
 var s = req{Image: "Windows Server 2025"}
+var c = req{Image: "sha256:img"}
+var d = req{Image: "sha512:abc"}
 `
 	file, err := parser.ParseFile(token.NewFileSet(), "x.go", src, 0)
 	if err != nil {

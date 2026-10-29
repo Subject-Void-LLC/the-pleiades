@@ -20,12 +20,17 @@ import (
 // parameter name is not mistaken for one.
 var imageRef = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$`)
 
-// imageID is an image's content address as an engine reports it (docker
-// image inspect's .Id). It has name:tag's shape, a repository called
-// "sha256" with a 64-character tag, but names no repository: no registry
-// serves an image by its ID, and CI's pull step asked Docker Hub for a
-// repository called sha256 when a test named a fake one fakeImageID.
-var imageID = regexp.MustCompile(`^sha(256:[a-f0-9]{64}|512:[a-f0-9]{128})$`)
+// isContentAddress reports whether ref is an image's content address as an
+// engine reports it (docker image inspect's .Id, a container's .Image), or a
+// test's stand-in for one: name:tag's shape with a repository called sha256
+// or sha512. No registry serves an image by its ID, whatever the tag's
+// length: CI's pull step asked Docker Hub for a repository called sha256
+// when a test named a fake ID fakeImageID, and testimages -served did again
+// for a container test's Image: "sha256:img" (FAILURE_PATTERNS 736).
+func isContentAddress(ref string) bool {
+	name := repository(ref)
+	return name == "sha256" || name == "sha512"
+}
 
 // scanDir returns the image references in every Go file in dir, tests
 // included, since tests are what start containers.
@@ -90,7 +95,7 @@ func pullable(expr ast.Expr) (string, bool) {
 	if err != nil || !imageRef.MatchString(ref) || !strings.ContainsAny(ref, ":@") {
 		return "", false
 	}
-	if strings.HasPrefix(ref, "pleiades/") || imageID.MatchString(ref) {
+	if strings.HasPrefix(ref, "pleiades/") || isContentAddress(ref) {
 		return "", false
 	}
 	// A name with no letter is not an image, whatever its shape: "65532:65532"
