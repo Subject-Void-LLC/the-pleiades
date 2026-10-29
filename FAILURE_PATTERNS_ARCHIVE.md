@@ -17565,3 +17565,24 @@ answered.
 **Lesson.** A `#nosec G304` comment answers the pattern rule only; the taint rule needs the flow held, and the
 content an `os.WriteFile` writes counts as tainted along with its path. Before a gate, a branch that adds a package
 scans it with `gosec -fmt=json ./the/package/` alone, twenty seconds, as it vets and tests it alone.
+
+## 731. The review fixes added failure branches to the disk methods and two helpers to pkg/vboxmanage with no test measured against a floor, and the gate's coverage-fast stage found both packages under (fixed before push)
+
+**Symptom.** The fifth gate on the pipeline branch, 2026-10-29, failed `coverage-fast` sixteen minutes in:
+`internal/catalog/virt/vbox/vm` at 95.8% against a 97.2% floor and `pkg/vboxmanage` at 96.0% against 97.0%. Every
+stage after it was skipped, and the FreeBSD leg was stopped.
+
+**Root cause.** The review fixes for 728 added failure branches to attach_disk and detach_disk: the made disk deleted
+again, the undo recorded early, warnings on a failed read-back, and every `SetStat` and `RecordDiff` error return.
+`HasDisk` and `AttachDiskAt` were added to `pkg/vboxmanage` and tested only through the VM package, and coverage is
+counted per package. Each package's tests were run and passed after the fixes, and none was measured against its
+floor.
+
+**Fix.** `disk_failures_test.go` drives each refusal the host or the context can make, through the recorder's
+`failOn` and the model host's `Fail` and `Skip`. `hasdisk_test.go` tests `HasDisk` (case, absence, a failed list)
+and `AttachDiskAt` (the reported free port, an unknown controller refused before anything runs) in their own
+package. Now 97.5% and 97.2%.
+
+**Lesson.** A review fix is new code: after the last fix, measure each touched package against
+`coverage-floor.json` before the gate, not only after the first draft. A helper added to a `pkg/` package gets its
+test in that package, since another package's tests do not count toward its floor.

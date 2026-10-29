@@ -734,6 +734,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 728. virt.vbox.vm.attach_disk and detach_disk recorded their undo after reads and writes that could fail, so a failed attach orphaned the disk it made and a failed read-back dropped the undo (a repeat of 452, 563 and 638) (fixed before push)
 729. A headroom stop on Windows ended the go command alone and left its test binaries running, while the file's comment said they end with it (fixed before push)
 730. gosec's G703 followed a file's content into the cgroup reads and the manifest's own bytes into its write, and only the gate's gosec had run over the new packages (a repeat of 475) (fixed before push)
+731. The review fixes added failure branches to the disk methods and two helpers to pkg/vboxmanage with no test measured against a floor, and the gate's coverage-fast stage found both packages under (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
