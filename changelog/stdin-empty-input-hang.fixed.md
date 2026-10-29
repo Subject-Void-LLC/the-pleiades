@@ -1,1 +1,0 @@
-A method sending empty standard input to a command over SSH could hang: the end of input could reach the server before the command started, and the command never saw it. Standard input is now copied only once the command has started. `net.frr.config`'s backup of an empty `frr.conf` hung this way.

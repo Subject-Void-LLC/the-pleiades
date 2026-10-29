@@ -46,10 +46,16 @@ const (
 )
 
 // bucket is one caller's token bucket plus the last time it was used, so
-// idle entries can be swept.
+// idle entries can be swept, and the order of that use, so the least
+// recently seen caller is found even when many share one clock reading.
 type bucket struct {
 	limiter  *rate.Limiter
 	lastSeen time.Time
+	// seq is the limiter's use counter when the bucket was last used. A
+	// clock tick can be coarse (Windows), so a flood of callers can share
+	// one lastSeen; ordering by time then fell to the map's random order,
+	// and the oldest caller could survive eviction.
+	seq uint64
 }
 
 // RateLimiter is a per-caller token bucket with a bounded, self-evicting
@@ -68,6 +74,8 @@ type RateLimiter struct {
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
+	// uses counts calls to Allow, giving each bucket's use an order.
+	uses uint64
 }
 
 // NewRateLimiter builds a limiter from cfg, filling in defaults for the
@@ -110,7 +118,8 @@ func (rl *RateLimiter) Allow(key string) bool {
 		b = &bucket{limiter: rate.NewLimiter(rl.limit, rl.burst)}
 		rl.buckets[key] = b
 	}
-	b.lastSeen = now
+	rl.uses++
+	b.lastSeen, b.seq = now, rl.uses
 	return b.limiter.AllowN(now, 1)
 }
 
@@ -132,10 +141,10 @@ func (rl *RateLimiter) evictLocked(now time.Time) {
 	}
 	for len(rl.buckets) >= rl.maxCallers {
 		oldestKey := ""
-		var oldestSeen time.Time
+		var oldestSeq uint64
 		for key, b := range rl.buckets {
-			if oldestKey == "" || b.lastSeen.Before(oldestSeen) {
-				oldestKey, oldestSeen = key, b.lastSeen
+			if oldestKey == "" || b.seq < oldestSeq {
+				oldestKey, oldestSeq = key, b.seq
 			}
 		}
 		delete(rl.buckets, oldestKey)

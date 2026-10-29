@@ -94,10 +94,9 @@ var gateConstructs = map[string]string{
 const gateBlockedPlaybook = `- hosts: web
   gather_facts: false
   tasks:
-    - name: render the config
-      ansible.builtin.template:
-        src: app.conf.j2
-        dest: /etc/app.conf
+    - name: wait for the operator
+      ansible.builtin.pause:
+        prompt: continue?
     - name: drain it at the load balancer
       ansible.builtin.command: lb drain web
       delegate_to: lb1
@@ -193,7 +192,7 @@ func TestMigratePlaybookReleaseGate(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s accepted an incomplete conversion:\n%s", command[0], out)
 		}
-		for _, want := range []string{"the guard an incomplete conversion starts with", "did not convert (ansible.builtin.template)", "did not convert (ansible.builtin.command)"} {
+		for _, want := range []string{"the guard an incomplete conversion starts with", "did not convert (ansible.builtin.pause)", "did not convert (ansible.builtin.command)"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%s does not name %q:\n%s", command[0], want, out)
 			}

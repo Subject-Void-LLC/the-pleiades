@@ -48,6 +48,7 @@ var check = oscheck.LabCheck{
 	DeviceKey:  "PLEIADES_BSD_DEVICE",
 	VMHostKey:  "PLEIADES_BSD_VM_HOST",
 	VMKey:      "PLEIADES_BSD_VM",
+	DataKey:    "PLEIADES_BSD_DATA",
 }
 
 func main() {

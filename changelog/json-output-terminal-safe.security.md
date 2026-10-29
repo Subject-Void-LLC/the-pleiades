@@ -1,1 +1,0 @@
-`pleiades onboard --json` and `pleiades doc --json` now write DEL, the C1 control characters and the Unicode direction overrides as `\u` escapes, so text from a device or an external program cannot act on the terminal the document is printed on.

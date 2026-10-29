@@ -14,7 +14,7 @@ import (
 // indexPlaybook records every definition in plays.
 func (t *translator) indexPlaybook(plays []*yaml.Node) {
 	for _, play := range plays {
-		t.ix.addLiterals(lookup(play, "vars"), t.file)
+		t.ix.addLiterals(lookup(play, "vars"), t.file, scopePlay)
 		t.indexVarsFiles(lookup(play, "vars_files"))
 		if prompts := deref(lookup(play, "vars_prompt")); prompts != nil {
 			for _, p := range prompts.Content {
@@ -57,7 +57,7 @@ func (t *translator) indexVarsFiles(files *yaml.Node) {
 			t.unreadableVars(f, "a vars file that is not a map")
 			continue
 		}
-		t.ix.addLiterals(root, name)
+		t.ix.addLiterals(root, name, "")
 	}
 }
 
@@ -74,7 +74,11 @@ func (t *translator) indexTasks(list *yaml.Node, depth int) {
 		return
 	}
 	for _, task := range list.Content {
-		t.ix.addLiterals(lookup(task, "vars"), t.file)
+		taskScope := scopeTask
+		if lookup(task, "block") != nil {
+			taskScope = scopeBlock
+		}
+		t.ix.addLiterals(lookup(task, "vars"), t.file, taskScope)
 		entries, _ := mapEntries(task)
 		module, looped, conditional := "", false, false
 		for _, e := range entries {
@@ -101,7 +105,7 @@ func (t *translator) indexTasks(list *yaml.Node, depth int) {
 			if looped || conditional || args == nil || args.Kind != yaml.MappingNode {
 				t.addRuntimeKeys(args)
 			} else {
-				t.ix.addLiterals(args, t.file)
+				t.ix.addLiterals(args, t.file, scopeFact)
 			}
 		case "include_vars":
 			t.ix.unknownSource = "include_vars"
@@ -128,7 +132,7 @@ func (t *translator) indexTasks(list *yaml.Node, depth int) {
 func (t *translator) addRuntimeKeys(args *yaml.Node) {
 	entries, _ := mapEntries(args)
 	for _, e := range entries {
-		t.ix.addRuntime(e.key, nodePos(e.keyAt, t.file))
+		t.ix.addFact(e.key, nodePos(e.keyAt, t.file))
 	}
 }
 

@@ -48,9 +48,9 @@ func allowDoc() collection.Doc {
 			"be true without the other. Both configurations are read before anything is sent, so a half " +
 			"already allowing the rule is left alone and reports no change from that half.",
 		Params: []collection.Param{
-			{Name: paramPort, Type: "int", Description: "The port to allow. Exactly one of port or service is required."},
-			{Name: paramProtocol, Type: "string", Default: "tcp", Description: "The protocol for port (tcp or udp). Ignored when service is given."},
-			{Name: paramService, Type: "string", Description: "The firewalld service name to allow, e.g. http. Exactly one of port or service is required."},
+			{Name: paramPort, Type: "int", Description: "The port to allow. Give port or service: exactly one is required."},
+			{Name: paramProtocol, Type: "string", Default: "tcp", Choices: []string{"tcp", "udp", "sctp", "dccp"}, Description: "The protocol for port: tcp, udp, sctp or dccp, as firewalld takes them. Ignored when service is given."},
+			{Name: paramService, Type: "string", Description: "The firewalld service name to allow, e.g. http. Give port or service: exactly one is required."},
 			{Name: paramZone, Type: "string", Default: "public", Description: "The firewalld zone to allow the rule in."},
 			{Name: paramPermanent, Type: "bool", Default: "true", Description: "Also add the rule to the permanent configuration, so it survives a reload."},
 			{Name: paramImmediate, Type: "bool", Default: "true", Description: "Also add the rule to the runtime configuration, so it takes effect now."},

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/jsonschema"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
@@ -41,6 +42,9 @@ func fullPRReport(t *testing.T) prreport.Report {
 		Coverage:       map[string]float64{"x/a": 91.5},
 		Missing:        map[string][]string{"x/a": {"localstack"}},
 		PackageSeconds: map[string]float64{"x/a": 3.25},
+		Headroom: &flakegate.Headroom{AvailableMB: 4300, LimitMB: 4500, MinAvailableMB: 1800, SwapGrowthMB: 120, ParallelAsked: 0, ParallelRan: 2,
+			DiskFreeGB: map[string]float64{"/home/me/src": 749.5}, PackageMB: map[string]float64{"x/a": 850}, PackageDiskMB: map[string]float64{"x/a": 310},
+			MinDiskFreeGB: map[string]float64{"/home/me/src": 749.2}, Stopped: "memory available 650 MB, under the 700 MB floor", Samples: 240},
 	}
 	if err := flakegate.WriteRun(filepath.Join(dir, "fast.json"), fast); err != nil {
 		t.Fatal(err)
@@ -102,12 +106,12 @@ func TestPRReportSchema_MatchesModel(t *testing.T) {
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatal(err)
 	}
-	v := &schemaValidator{defs: schema["$defs"].(map[string]any), seen: map[string]bool{}, seenNull: map[string]bool{}, nullable: map[string]bool{}}
-	for _, problem := range v.check("report", report, schema) {
+	v := jsonschema.NewValidator(schema)
+	for _, problem := range v.Check("report", report, schema) {
 		t.Error(problem)
 	}
-	for _, declared := range v.declared {
-		if !v.seen[declared] {
+	for _, declared := range v.Declared {
+		if !v.Seen[declared] {
 			t.Errorf("the fixture never gives %s a value, so the schema's claim about it is untested", declared)
 		}
 	}

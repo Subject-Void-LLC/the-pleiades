@@ -28,7 +28,7 @@ Holds the runbook until a TCP port accepts a connection, or until it stops accep
 | `timeout` | `int` | no | `300` | How many seconds to wait in total before giving up, at most 86400. Measured from the start of the task, so delay, the SSH connection and the tool check all come out of this budget, exactly as Ansible measures it. Running out is an error, not a quiet pass. |
 | `delay` | `int` | no | `0` | How many seconds to wait before the first check, at most 86400. Useful when a service is known to accept connections briefly before it is really ready. |
 | `sleep` | `int` | no | `1` | How many seconds to wait between checks, at least 1 and at most 86400. The sleep happens on the runner, not on the device, so it costs the device nothing. Zero is refused because it would open SSH sessions in a tight loop. |
-| `state` | `string` | no | `started` | Wait for the port to start accepting connections, or to stop. Ansible's present and absent describe a path and its drained describes connection counts, so all three are refused here rather than silently read as started. |
+| `state` | `string` | no | `started` | Wait for the port to start accepting connections, or to stop. Ansible's present and absent describe a path and its drained describes connection counts, so all three are refused here rather than silently read as started. **Choices:** `started`, `stopped`. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

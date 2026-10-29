@@ -135,7 +135,10 @@ func unguardedReads(eng render.Engine, task *engine.Task, maybe map[string]bool)
 			if (root != engine.TemplateRootNodes && root != engine.TemplateRootResult) || len(expr.Path) < 2 || !maybe[expr.Path[1]] {
 				continue
 			}
-			if !slices.Contains(expr.Filters, "default") {
+			// A read the renderer marks Guarded (under default on the path
+			// itself, tested with is defined, or reached only past such a
+			// test) handles the register's absence itself.
+			if !expr.Guarded {
 				reads[expr.Path[1]] = true
 			}
 		}

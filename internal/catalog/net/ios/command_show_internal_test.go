@@ -35,3 +35,36 @@ func TestIOSShow_OnlyAShowThatWritesNoFile(t *testing.T) {
 		}
 	}
 }
+
+// TestCommandReadsOnly_AShowThatAnswersNothing: net.ios.command's
+// ReadOnlyCall declares a call read-only only for a command that reads and
+// writes no file (iosShow), with no question answered, no template still
+// to render, and not terminal, which changes its session.
+func TestCommandReadsOnly_AShowThatAnswersNothing(t *testing.T) {
+	answer := []any{map[string]any{"match": "x", "answer": "y"}}
+	for _, tc := range []struct {
+		params map[string]any
+		want   bool
+	}{
+		{map[string]any{paramCommand: "show version | include Version"}, true},
+		{map[string]any{paramCommand: "ping 192.0.2.1"}, true},
+		{map[string]any{paramCommand: "traceroute 192.0.2.1"}, true},
+		{map[string]any{paramCommand: "dir flash:"}, true},
+		{map[string]any{paramCommand: "more flash:a.cfg"}, true},
+		{map[string]any{paramCommand: "show version", "prompts": answer}, false},
+		{map[string]any{paramCommand: "show version", "expect_disconnect": true}, false},
+		{map[string]any{paramCommand: "show run | redirect flash:a.txt"}, false},
+		{map[string]any{paramCommand: "terminal length 0"}, false},
+		{map[string]any{paramCommand: "show {{ vars.what }}"}, false},
+		// A statement or a comment renders too (collection.IsTemplate), and
+		// can turn a show into anything.
+		{map[string]any{paramCommand: "show version{% if vars.go %} | redirect flash:a.txt{% endif %}"}, false},
+		{map[string]any{paramCommand: "show version {# note #}"}, false},
+		{map[string]any{paramCommand: "reload"}, false},
+		{map[string]any{}, false},
+	} {
+		if got := commandReadsOnly(tc.params); got != tc.want {
+			t.Errorf("commandReadsOnly(%v) = %v, want %v", tc.params, got, tc.want)
+		}
+	}
+}

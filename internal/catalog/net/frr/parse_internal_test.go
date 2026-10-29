@@ -1,11 +1,13 @@
 // Tests of what the net.frr methods read from the router's own words:
-// frr-reload's difference and show version.
+// frr-reload's difference, show version, and vtysh's refusals.
 package frr
 
 import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // TestParseReloadTest reads both sections of frr-reload.py --test, keeping
@@ -61,5 +63,30 @@ func TestReloadError(t *testing.T) {
 	}
 	if reloadError("x INFO: y\n") != "it printed nothing but logging" {
 		t.Error("logging only")
+	}
+	// A long traceback line is held to farside's bound, keeping its end, and a
+	// control byte in it is shown escaped.
+	long := reloadError("Traceback\n" + strings.Repeat("y", 3000) + "\x1b[2J ValueError: the real reason\n")
+	if !strings.Contains(long, "ValueError: the real reason") || strings.ContainsRune(long, 0x1b) || len(long) > farside.MaxBytes+5 {
+		t.Errorf("reloadError of a long traceback = %d bytes: %.120q", len(long), long)
+	}
+}
+
+// TestRefusal reads vtysh -m -f's answer to a candidate it cannot load: the
+// whole candidate on stdout and the refused line, marked "% ", on stderr.
+// The error holds the refusal, not the candidate's first line, with the
+// secret on the refused line masked, on one line and quoted.
+func TestRefusal(t *testing.T) {
+	stdout := "frr version 10.1.1\nfrr defaults traditional\nhostname r1\n!\nrouter bgp 65001\n neighbor 10.0.0.2 remote-as 65002\n"
+	stderr := "line 7: % Unknown command[4]:  neighbor 10.0.0.2 password zebra ttl\n"
+	got := refusal(stdout + "\n" + stderr)
+	if !strings.HasPrefix(got, `"line 7: % Unknown command[4]: neighbor 10.0.0.2 password `) || strings.Contains(got, "zebra") || strings.Contains(got, "frr version") {
+		t.Errorf("refusal = %s, want the masked refused line alone", got)
+	}
+	if got := refusal("mktemp: failed to create file via template '/tmp/pleiades-frr.XXXXXX'\nRead-only file system\n"); got != `"mktemp: failed to create file via template '/tmp/pleiades-frr.XXXXXX' Read-only file system"` {
+		t.Errorf("an unmarked answer is not read whole: %s", got)
+	}
+	if got := refusal(" \n"); got != "no output" {
+		t.Errorf("an empty answer = %s", got)
 	}
 }

@@ -168,12 +168,12 @@ func TestReceive_ATimedOutFaultInAReplyStillWaits(t *testing.T) {
 // the sentence inside it rather than as the envelope around it.
 func TestHTTPFault_ReadsAsItsSentence(t *testing.T) {
 	err := &httpFault{url: "https://h:5986/wsman", status: 500, body: timedOutFaultBody(t)}
-	want := "winrm: https://h:5986/wsman answered 500: The WS-Management service cannot complete the operation within the time specified in OperationTimeout."
+	want := `winrm: https://h:5986/wsman answered 500: "The WS-Management service cannot complete the operation within the time specified in OperationTimeout."`
 	if err.Error() != want {
 		t.Errorf("Error() = %q, want %q", err.Error(), want)
 	}
 	bare := &httpFault{url: "u", status: 503, body: "  no   fault here  "}
-	if bare.Error() != "winrm: u answered 503: no fault here" {
+	if bare.Error() != `winrm: u answered 503: "no fault here"` {
 		t.Errorf("Error() without a fault = %q", bare.Error())
 	}
 }

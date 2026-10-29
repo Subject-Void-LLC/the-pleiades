@@ -6,7 +6,7 @@ status: beta
 
 Reads a VM's SSH host keys from what cloud-init printed on its serial console.
 
-Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the console once, without waiting.
+Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing is waited for, so a later task can decide what to do. A check reads the console once, without waiting, and answers a missing VM the same way.
 
 ## Attributes
 
@@ -30,7 +30,8 @@ Waits for cloud-init to print the VM's SSH host keys on its serial console, whic
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `ssh_host_keys` | `list` | always | Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet. |
+| `exists` | `bool` | always | Whether a VM with this name is registered on the host. |
+| `ssh_host_keys` | `list` | when exists | Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet. |
 
 ## Undoing this
 

@@ -36,6 +36,23 @@ type translator struct {
 	// indexed records the imported files the variable index has read, so
 	// each is read once however often it is imported.
 	indexed map[string]bool
+	// loopNames are the names the native loop of the task being converted
+	// gives its templates (item, loop and loop_control's names); loopVarName
+	// and loopIndexName are loop_control's two, for validation's roots.
+	loopNames                  []string
+	loopVarName, loopIndexName string
+	// usedVars are the variables a rewritten template reads as vars.<name>,
+	// the only ones whose definitions the runbook carries.
+	usedVars map[string]bool
+	// bound are the item values of the unrolled loop copy being converted,
+	// which a rewritten template writes as literals.
+	bound map[string]any
+	// noted are findings raised while rewriting a template, for the task
+	// being converted to cite.
+	noted []string
+	// synth numbers the registers made for a changed_when or failed_when
+	// task that wrote none.
+	synth int
 }
 
 // Translate converts the playbook named name inside src, which should be
@@ -65,6 +82,7 @@ func Translate(src fs.FS, name string, _ Options) (result Result, err error) {
 		seen:      map[findingKey]string{},
 		registers: map[string]produced{},
 		indexed:   map[string]bool{},
+		usedVars:  map[string]bool{},
 	}
 	t.res = newResolver(t.ix)
 	data, err := readBounded(src, name, maxPlaybookBytes)

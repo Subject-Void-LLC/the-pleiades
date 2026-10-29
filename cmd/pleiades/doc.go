@@ -187,6 +187,11 @@ func lookupEntry(entries []catalogEntry, fqcn string) (catalogEntry, error) {
 			return e, nil
 		}
 	}
+	// A command's own name is a question about the CLI, which its --help
+	// answers; say so rather than calling it an unknown method.
+	if commandNames[fqcn] {
+		return catalogEntry{}, fmt.Errorf("pleiades doc: %q is a pleiades command, not a method: run 'pleiades %s --help' for its usage ('pleiades doc --list' lists the methods)", fqcn, fqcn)
+	}
 	return catalogEntry{}, fmt.Errorf("pleiades doc: unknown fqcn %q (see 'pleiades doc --list'; a device type is looked up by its name, such as cisco_router)", fqcn)
 }
 
@@ -362,6 +367,11 @@ func printParams(doc collection.Doc) {
 			req = ", required"
 		}
 		fmt.Printf("  %-20s %s%s\n    %s\n", p.Name, p.Type, req, p.Description)
+		// A closed set is printed on its own line, so an author reads the
+		// values the method takes rather than guessing one (Phase 131, R2).
+		if len(p.Choices) > 0 {
+			fmt.Printf("    choices: %s\n", p.ChoiceList())
+		}
 	}
 }
 
@@ -470,4 +480,16 @@ func engineVersionNote(external bool) string {
 		return " (not checked: " + version + " is a development build)"
 	}
 	return ""
+}
+
+// commandNames are the CLI's own command names, for doc to recognize one. It
+// is filled in init from the command table, which refers to runDoc, so reading
+// the table here directly would be an initialization cycle.
+var commandNames = map[string]bool{}
+
+// init fills commandNames.
+func init() {
+	for name := range commands {
+		commandNames[name] = true
+	}
 }

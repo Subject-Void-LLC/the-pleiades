@@ -29,7 +29,7 @@ Runs tracepath, which needs no raw socket and so no privilege, and returns each 
 | `max_hops` | `int` | no | `30` | The most hops to try. |
 | `expect` | `dict` | no | - | reached (bool), includes (list of addresses that must be hops) and avoids (list that must not be). |
 | `container` | `string` | no | - | Trace from this container on the device, a container host, rather than from the device itself. The device then needs a container engine, not SSH and Linux. An empty value is refused rather than read as none: leave container out to trace from the device. |
-| `engine` | `string` | no | - | With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred. |
+| `engine` | `string` | no | - | With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred. **Choices:** `docker`, `podman`. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

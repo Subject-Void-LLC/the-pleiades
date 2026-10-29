@@ -147,7 +147,7 @@ func migrateDoc() collection.Doc {
 func grantsDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Compares the privileges granted to a role with a declared set, and fails naming each extra and each missing one.",
-		Description: "Reads, in one snapshot, every privilege granted to role itself in the database (on the database, schemas, tables, views, sequences, functions and columns, outside the system schemas, each with whether it carries the grant option), the roles it is a member of, and the objects it owns, and compares them with expect. A pattern schema.* stands for every object of its kind in the schema that exists; an exact object that does not exist is missing. Privileges reached through PUBLIC or through another role's membership are that grant's to answer for and are not compared; an owner holds everything on what it owns, so ownership is compared as its own entry, extra unless owns declares it. A column grant is its own entry, never folded into its table's. A grant option held but not declared is extra, and one declared but not held is missing. Default privileges are not compared. It only reads, so a check of it is the task itself." + transportNote,
+		Description: "Reads, in one snapshot, every privilege granted to role itself in the database (on the database, schemas, tables, views, sequences, functions and columns, outside the system schemas, each with whether it carries the grant option), the roles it is a member of, and the objects it owns, and compares them with expect. A pattern schema.* stands for every object of its kind in the schema that exists; an exact object that does not exist is missing. Privileges reached through PUBLIC or through another role's membership are that grant's to answer for and are not compared; an owner holds everything on what it owns, so ownership is compared as its own entry, extra unless owns declares it. A column grant is its own entry, never folded into its table's. A grant option held but not declared is extra, and one declared but not held is missing. Default privileges are not compared. A role or a database that does not exist holds nothing and is reported as exists false, in a run and in a check: the declared set then lacks the role itself, which missing names first with everything else it declares, so the task fails naming them rather than passing a set nothing could hold. It only reads, so a check of it is the task itself." + transportNote,
 		Params: []collection.Param{
 			connectionParam, databaseParam,
 			{Name: paramGrantsRole, Type: "string", Required: true, Description: "The role whose privileges are compared."},
@@ -158,6 +158,7 @@ func grantsDoc() collection.Doc {
 		Returns: []collection.ReturnField{
 			{Name: statExtra, Type: "list of string", Returned: "on success", Description: "Every privilege, membership and owned object the role has that the set does not declare, which is empty for a task that succeeded."},
 			{Name: statMissing, Type: "list of string", Returned: "on success", Description: "Every one the set declares that the role lacks, which is empty for a task that succeeded."},
+			{Name: statExists, Type: "bool", Returned: "always", Description: "Whether the role and the database exist; false when either does not, which missing names."},
 			warningsReturn,
 		},
 		Examples: []collection.Example{
@@ -171,7 +172,7 @@ func grantsDoc() collection.Doc {
 func rowcountsDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Counts every table's rows exactly, and with compare fails naming each table whose counts differ from a second database's.",
-		Description: "Counts the rows of every table outside the system schemas with count(*), in a REPEATABLE READ READ ONLY transaction per database, so each side's counts are one moment; partitions are counted through their parent, once. With compare, a second database (on the same connection, or another named one, reached through the same device) is counted the same way and the two are compared table by table: a different count, or a table only one side has, fails the task. Comparing a live database with a copy of it differs by whatever was written since; the comparison is for copies at rest, such as a restore checked against the dump's source taken at the same time. Planner estimates are never used. It only reads, so a check of it is the task itself." + transportNote,
+		Description: "Counts the rows of every table outside the system schemas with count(*), in a REPEATABLE READ READ ONLY transaction per database, so each side's counts are one moment; partitions are counted through their parent, once. With compare, a second database (on the same connection, or another named one, reached through the same device) is counted the same way and the two are compared table by table: a different count, or a table only one side has, fails the task. Comparing a live database with a copy of it differs by whatever was written since; the comparison is for copies at rest, such as a restore checked against the dump's source taken at the same time. Planner estimates are never used. A database that does not exist holds no tables and is reported as exists false, in a run and in a check; with compare, a side that does not exist is a difference that fails the task, so two that do not exist never agree. It only reads, so a check of it is the task itself." + transportNote,
 		Params: []collection.Param{
 			connectionParam, databaseParam,
 			{Name: paramCompare, Type: "dict", Description: "The database to compare with: database, and connection when it is on another server. Any other key is refused."},
@@ -186,6 +187,8 @@ func rowcountsDoc() collection.Doc {
 			{Name: statDifferences, Type: "int", Returned: "on success", Description: "How many tables' counts differ, which is zero for a task that succeeded."},
 			{Name: statOnlyHere, Type: "list of string", Returned: "on success", Description: "Tables only the first database has."},
 			{Name: statOnlyThere, Type: "list of string", Returned: "on success", Description: "Tables only the compared database has."},
+			{Name: statExists, Type: "bool", Returned: "always", Description: "Whether the database exists; one that does not is counted as holding no tables."},
+			{Name: statCompareExists, Type: "bool", Returned: "with compare", Description: "Whether the compared database exists; one that does not is a difference."},
 			warningsReturn,
 		},
 		Examples: []collection.Example{

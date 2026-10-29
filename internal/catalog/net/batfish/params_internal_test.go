@@ -3,6 +3,7 @@
 package batfish
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -79,6 +80,38 @@ func TestReadParams_Refusals(t *testing.T) {
 	}
 	if req.devices[0].format != formatFRR || req.scenarios[0].interfaces[0].Hostname != "r1" || req.scenarios[0].assertions[0].from != `r1["eth3"]` || !req.scenarios[0].assertions[0].delivered {
 		t.Errorf("read %+v", req)
+	}
+}
+
+// TestRouteProtocolIsAFamily: a route assertion's protocol is one of the
+// families a route is compared by, and a name Batfish uses itself (ibgp,
+// ospfIA), which protocolFamily folds away so it could never match, is
+// refused naming the set, as is every other word.
+func TestRouteProtocolIsAFamily(t *testing.T) {
+	nodes := map[string]bool{"r1": true}
+	route := func(protocol string) map[string]any {
+		return map[string]any{"node": "r1", "prefix": "10.0.0.0/8", "protocol": protocol}
+	}
+	for _, p := range routeProtocols {
+		if _, err := readAssertion(kindRoute, route(p), nodes); err != nil {
+			t.Errorf("protocol %q was refused: %v", p, err)
+		}
+	}
+	for _, p := range []string{"ibgp", "ospfIA", "aggregate", "OSPF", "", "eigrpEX"} {
+		_, err := readAssertion(kindRoute, route(p), nodes)
+		if err == nil || !strings.Contains(err.Error(), strings.Join(routeProtocols, ", ")) {
+			t.Errorf("protocol %q = %v, want a refusal naming %v", p, err, routeProtocols)
+		}
+	}
+	// Every name Batfish gives a route folds into the set, so the set is
+	// the whole of what a comparison can see.
+	for _, batfish := range []string{"aggregate", "bgp", "ibgp", "connected", "eigrp", "eigrpEX", "isisL1", "isisL2", "isisEL1", "isisEL2", "kernel", "local", "ospf", "ospfIA", "ospfE1", "ospfE2", "rip", "static"} {
+		if family := protocolFamily(batfish); !slices.Contains(routeProtocols, family) {
+			t.Errorf("Batfish's %q folds to %q, which a route assertion cannot name", batfish, family)
+		}
+	}
+	if _, err := readAssertion(kindRoute, map[string]any{"node": "r1", "prefix": "10.0.0.0/8"}, nodes); err != nil {
+		t.Errorf("a route with no protocol was refused: %v", err)
 	}
 }
 

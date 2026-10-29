@@ -115,7 +115,7 @@ func runPipeline(opts runOptions, src runSource) error {
 		// A run that stopped after its plan and before its first task (the
 		// project's runs were busy, its journal could not be opened) still
 		// names every task it never ran.
-		rep.addNotRun(notRunNotStarted)
+		addNotRun(rep, notRunNotStarted)
 	}
 	if writeErr := writeJSON(os.Stdout, rep); writeErr != nil {
 		return writeErr
@@ -154,7 +154,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	rep := planReport(src.label, items, dag, mode, world)
 	if report := validate.Validate(world); report.HasErrors() {
 		rep.Validation = validationIssues(report, items)
-		rep.addNotRun(notRunRefused)
+		addNotRun(rep, notRunRefused)
 		rep.Outcome = runOutcome{Status: "invalid", Message: "validation failed, not executing", ExitCode: 1}
 		if !opts.asJSON {
 			fmt.Print(report.String())
@@ -250,11 +250,11 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// off partway may already have changed devices.
 	rep.Tasks = taskReports(dag, &result, items, opts.allowUnchecked)
 	if err != nil {
-		rep.addNotRun(notRunAborted)
+		addNotRun(rep, notRunAborted)
 		rep.Outcome = runOutcome{Status: "error", Message: "execution aborted: " + redact.Text(result.Secrets, err.Error()), ExitCode: 1}
 		return rep, fmt.Errorf("execution aborted: %w", err)
 	}
-	rep.addNotRun(stoppedReason(rep.Tasks))
+	addNotRun(rep, stoppedReason(rep.Tasks))
 	if len(result.Metadata) > 0 {
 		rep.Metadata, _ = redact.Value(result.Secrets, result.Metadata).(map[string]any)
 	}
@@ -522,6 +522,9 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// Task params that hold a template render through this one engine
 		// (internal/engine's render_params.go).
 		engine.WithRenderer(render.New()),
+		// file.template's src is a template in the project, read here and
+		// rendered by that engine; a Runner holds no project and passes none.
+		engine.WithTemplateFiles(engine.ProjectTemplateFiles(opts.dir, projectWriteGuards(opts.dir)...)),
 		// Marks each entry of a rollback with what it undoes; a no-op for an
 		// ordinary run, whose rollbackOf is empty.
 		engine.WithRollback(opts.rollbackOf, opts.undoes),

@@ -1,0 +1,150 @@
+{
+  "$defs": {
+    "ConditionFunction": {
+      "description": "ConditionFunction is one function or macro a library adds, with only the overloads it adds (ext.Network adds overloads to the standard library's own string function, and only those are its).",
+      "properties": {
+        "Description": {
+          "description": "Description is the library's own description of it, which may be empty.",
+          "type": "string"
+        },
+        "Macro": {
+          "description": "Macro is set for an AST-rewriting construct such as optMap.",
+          "type": "boolean"
+        },
+        "Name": {
+          "description": "Name is the function or macro, as a condition calls it.",
+          "type": "string"
+        },
+        "Overloads": {
+          "description": "Overloads are a function's signatures, each with its examples; a macro has one, with no signature.",
+          "items": {
+            "$ref": "#/$defs/ConditionOverload"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "Name",
+        "Description",
+        "Macro",
+        "Overloads"
+      ],
+      "type": "object"
+    },
+    "ConditionLibrary": {
+      "description": "ConditionLibrary is what one entry of CELLibraryOptions adds to a condition's environment: its functions, then its macros.",
+      "properties": {
+        "Functions": {
+          "description": "Functions are the functions and macros the library adds.",
+          "items": {
+            "$ref": "#/$defs/ConditionFunction"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "Name": {
+          "description": "Name is the library, as cel-go or this engine names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "Name",
+        "Functions"
+      ],
+      "type": "object"
+    },
+    "ConditionOverload": {
+      "description": "ConditionOverload is one signature and its examples.",
+      "properties": {
+        "Examples": {
+          "description": "Examples are the library's examples of a call, which may be none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "Signature": {
+          "description": "Signature is the overload's argument and result types; empty for a macro.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "Signature",
+        "Examples"
+      ],
+      "type": "object"
+    },
+    "DocRoot": {
+      "description": "DocRoot is one name a template or condition reads, and what it holds.",
+      "properties": {
+        "holds": {
+          "description": "Holds says what the name holds, in a sentence.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the name as a template or condition writes it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "holds"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "ConditionsTopic is `pleiades doc conditions --json`: what a when, when_or or when_cel condition may read and call. Printed by pleiades doc conditions --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets. So a reader ignores a field it does not know, treats a status or kind it does not know as not a pass, and refuses a major version it does not know.",
+  "properties": {
+    "forms": {
+      "description": "Forms are the three ways a task is gated.",
+      "items": {
+        "$ref": "#/$defs/DocRoot"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "libraries": {
+      "description": "Libraries are what the condition language adds beyond CEL's own operators and macros, one entry per library, read from the engine.",
+      "items": {
+        "$ref": "#/$defs/ConditionLibrary"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "roots": {
+      "description": "Roots are the names a condition may read.",
+      "items": {
+        "$ref": "#/$defs/DocRoot"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "description": "SchemaVersion is this document's major version, ConditionsVersion.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "forms",
+    "roots",
+    "libraries"
+  ],
+  "title": "Pleiades doc conditions",
+  "type": "object"
+}

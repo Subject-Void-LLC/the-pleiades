@@ -45,12 +45,13 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone.",
-				Description: "Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the same as a run.",
+				Description: "Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the same as a run, a missing VM included.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 				},
 				Returns: []collection.ReturnField{
-					{Name: "addresses", Type: "list", Returned: "always", Description: "Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires."},
+					{Name: "exists", Type: "bool", Returned: "always", Description: "Whether a VM with this name is registered on the host."},
+					{Name: "addresses", Type: "list", Returned: "when exists", Description: "Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires."},
 					{Name: "address", Type: "string", Returned: "when there is one", Description: "The address to reach the VM at: the fixed one, or else a held DHCP lease's. A first boot that applied its fixed address leaves the lease it took before then marked held for a while, so a VM whose fixed address was never applied is known by that lease being the only one it answers at."},
 				},
 				Examples: []collection.Example{
@@ -80,9 +81,17 @@ func Addresses(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	if err != nil {
 		return collection.Result{}, err
 	}
-	m, err := mustRead(ctx, h, name, device, fqcn)
+	m, exists, err := read(ctx, h, name)
 	if err != nil {
-		return collection.Result{}, err
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// A VM the host does not have is an answer, exists false, in a run and
+	// in a check alike.
+	if !exists {
+		return collection.Result{}, setExistsFalse(rc, fqcn)
+	}
+	if err := rc.SetStat(statExists, true); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	extra, err := h.ExtraData(ctx, name)
 	if err != nil {

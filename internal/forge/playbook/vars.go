@@ -27,7 +27,23 @@ type varDef struct {
 	value *yaml.Node
 	// register names the module whose result a register definition holds.
 	register string
+	// scope says where the definition is written, when the converter
+	// carries it into the runbook (vars at a play, block or task, a
+	// set_fact); empty for every definition it does not.
+	scope varScope
 }
+
+// varScope is where a variable is defined, for a definition the converted
+// runbook carries as native vars: or set_fact.
+type varScope string
+
+// The scopes a variable definition can have.
+const (
+	scopePlay  varScope = "play"
+	scopeBlock varScope = "block"
+	scopeTask  varScope = "task"
+	scopeFact  varScope = "set_fact"
+)
 
 // varIndex is every variable definition in one playbook.
 type varIndex struct {
@@ -43,11 +59,44 @@ func newVarIndex() *varIndex { return &varIndex{defs: map[string][]varDef{}} }
 
 // addLiterals records every key of m, a vars: map, as a literal
 // definition.
-func (ix *varIndex) addLiterals(m *yaml.Node, file string) {
+func (ix *varIndex) addLiterals(m *yaml.Node, file string, scope varScope) {
 	entries, _ := mapEntries(m)
 	for _, e := range entries {
-		ix.defs[e.key] = append(ix.defs[e.key], varDef{at: nodePos(e.keyAt, file), value: e.value})
+		ix.defs[e.key] = append(ix.defs[e.key], varDef{at: nodePos(e.keyAt, file), value: e.value, scope: scope})
 	}
+}
+
+// addFact records name as set by a set_fact the runbook carries, whose
+// value exists only at run time.
+func (ix *varIndex) addFact(name string, at Position) {
+	ix.defs[name] = append(ix.defs[name], varDef{at: at, scope: scopeFact})
+}
+
+// demote records that the set_fact defining name sets it at run time, so a
+// read of it is no longer folded into the literal it was written with.
+func (ix *varIndex) demote(name string) {
+	defs := ix.defs[name]
+	for i := range defs {
+		if defs[i].scope == scopeFact {
+			defs[i].value = nil
+		}
+	}
+}
+
+// native reports whether every definition of name is one the runbook
+// carries (play, block and task vars, set_fact), so a read of it can be
+// written vars.<name> and mean what the playbook meant.
+func (ix *varIndex) native(name string) bool {
+	defs := ix.defs[name]
+	if len(defs) == 0 || isMagic(name) {
+		return false
+	}
+	for _, d := range defs {
+		if d.scope == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // addRuntime records name as set only at run time.

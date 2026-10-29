@@ -1,1 +1,0 @@
-Under mesh identity the Controller may now dead-letter a Runner's result it failed to record five times. Without the grant the dead letter was refused, the message was neither dead-lettered nor terminated, and its job stayed running.

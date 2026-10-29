@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 )
 
@@ -143,7 +144,7 @@ func Attach(ctx context.Context, shell netcli.Shell, line string) error {
 		return fmt.Errorf("cmlconsole: connecting to console %s: %w", line, err)
 	}
 	if !strings.Contains(out, "Escape character is") {
-		return fmt.Errorf("cmlconsole: the console server did not connect console %s: %s", line, lastLine(serverPrompt.ReplaceAllString(ansi.ReplaceAllString(out, ""), "")))
+		return fmt.Errorf("cmlconsole: the console server did not connect console %s: %s", line, farside.Text(lastLine(serverPrompt.ReplaceAllString(ansi.ReplaceAllString(out, ""), ""))))
 	}
 	return nil
 }

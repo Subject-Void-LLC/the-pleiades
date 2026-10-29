@@ -4,6 +4,7 @@
 package main
 
 import (
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func TestReadyAnswer(t *testing.T) {
 		"Win32NT\ngo\ngit\ntar\n21":                   {err: "answered the readiness check"},
 		"Win32NT\ngo":                                 {err: "answered the readiness check"},
 	} {
-		note, err := readyAnswer("win-1", out, false)
+		note, err := readyAnswer("win-1", out, false, "")
 		if (want.err == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want.err) {
 			t.Errorf("readyAnswer(%q) = %v, want %q", out, err, want.err)
 		}
@@ -45,8 +46,9 @@ func TestDedicatedReadyScript(t *testing.T) {
 	for _, w := range []string{
 		"Remove-Item Env:GOCACHE -ErrorAction SilentlyContinue",
 		"& go.exe clean -cache 2>&1 | Out-Null",
-		"foreach ($f in 'go-build*', 'Test*') { Get-ChildItem -LiteralPath $env:TEMP -Directory -Filter $f",
+		"foreach ($d in @($env:TEMP) + @(if ($env:PLEIADES_DATA) { Join-Path $root 'tmp' })) { foreach ($f in 'go-build*', 'Test*') { Get-ChildItem -LiteralPath $d -Directory -Filter $f",
 		"if ([int](Get-FreeGB) -lt 4 -and (Get-Command go.exe -ErrorAction SilentlyContinue)) { & go.exe clean -modcache",
+		"if ([int](Get-FreeGB) -lt 4 -and $env:PLEIADES_DATA) { Remove-Item -LiteralPath (Join-Path $root 'gomod')",
 	} {
 		if !strings.Contains(dedicatedReadyScript, w) {
 			t.Errorf("the dedicated ready script does not hold %q:\n%s", w, dedicatedReadyScript)
@@ -63,9 +65,53 @@ func TestDedicatedReadyScript(t *testing.T) {
 	if !ok || !d.Dedicated().(windows).dedicated {
 		t.Error("windows does not become a dedicated machine when the check runs it as a box")
 	}
-	note, err := readyAnswer("win-1", "Win32NT\ngo\ngit\ntar\n3\n3", true)
+	note, err := readyAnswer("win-1", "Win32NT\ngo\ngit\ntar\n3\n3", true, "")
 	if err == nil || !strings.Contains(err.Error(), "the login's Go build and module caches") || !strings.Contains(err.Error(), "outside Go's caches") || note == "" {
 		t.Errorf("a dedicated machine still short says %v (note %q)", err, note)
+	}
+	if _, err := readyAnswer("win-1", "Win32NT\ngo\ngit\ntar\n3\n3", true, `D:\pleiades`); err == nil || !strings.Contains(err.Error(), `D:\pleiades\.pleiades-wincheck\.gocache`) {
+		t.Errorf("a machine with a data directory names the profile's cache: %v", err)
+	}
+}
+
+// TestNewLegFor_DataDirectory: a data directory named in the settings
+// reaches every script as $env:PLEIADES_DATA, and one that is not an
+// absolute drive path of plain characters is refused by name.
+func TestNewLegFor_DataDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if out, err := exec.Command("git", "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	leg, err := newLegFor("wincheck", "/p", "win-1", `D:\pleiades`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := leg.(windows)
+	if w.data != `D:\pleiades` {
+		t.Errorf("data = %q", w.data)
+	}
+	for _, bad := range []string{`D:`, `D:\`, `D:\a b`, `D:\a"b`, "/data", `D:\pleiades\`} {
+		if _, err := newLegFor("wincheck", "/p", "win-1", bad); err == nil || !strings.Contains(err.Error(), "not an absolute drive path") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	for name, script := range map[string]string{"ready": readyScript, "dedicated ready": dedicatedReadyScript, "prepare": prepareScript, "unpack": unpackScript, "test": testScript, "stop": stopScript, "records": recordsScript} {
+		if !strings.Contains(script, rootLine) {
+			t.Errorf("the %s script does not read the data directory from the environment:\n%s", name, script)
+		}
+		if strings.Contains(strings.ReplaceAll(script, rootLine, ""), "$env:USERPROFILE") {
+			t.Errorf("the %s script still reads the profile beside the root:\n%s", name, script)
+		}
+	}
+	for _, w := range []string{
+		"$env:GOMODCACHE = Join-Path $root 'gomod'",
+		"$env:TEMP = Join-Path $root 'tmp'",
+		"$env:TMP = $env:TEMP",
+	} {
+		if !strings.Contains(testScript, w) {
+			t.Errorf("the test script does not hold %q:\n%s", w, testScript)
+		}
 	}
 }
 
@@ -75,7 +121,7 @@ func TestDedicatedReadyScript(t *testing.T) {
 // short, only under its own directory; and every run builds into that cache.
 func TestReadyScript_MakesRoomOnlyFromItsOwn(t *testing.T) {
 	for _, w := range []string{
-		`$base = Join-Path $env:USERPROFILE '.pleiades-wincheck'`,
+		`$base = Join-Path $root '.pleiades-wincheck'`,
 		`Where-Object { $_.Name -ne '.gocache' } | Sort-Object LastWriteTime -Descending | Select-Object -Skip 2 | Remove-Item`,
 		`if ([int](Get-FreeGB) -lt 4) { Remove-Item -LiteralPath (Join-Path $base '.gocache') -Recurse`,
 	} {
@@ -89,7 +135,7 @@ func TestReadyScript_MakesRoomOnlyFromItsOwn(t *testing.T) {
 	if !strings.Contains(prepareScript, pruneLine) {
 		t.Errorf("the prepare script's prune would remove the build cache:\n%s", prepareScript)
 	}
-	if !strings.Contains(testScript, `$env:GOCACHE = Join-Path (Join-Path $env:USERPROFILE '.pleiades-wincheck') '.gocache'`) {
+	if !strings.Contains(testScript, `$env:GOCACHE = Join-Path (Join-Path $root '.pleiades-wincheck') '.gocache'`) {
 		t.Errorf("the test script does not build into the check's own cache:\n%s", testScript)
 	}
 }
@@ -181,10 +227,37 @@ func TestShellParams(t *testing.T) {
 	}
 }
 
+// TestParams_EveryScriptGetsTheDataDirectory: a machine with a data
+// directory sends it as DATA with every script's env, beside the values
+// given, and leaves a given env map as it was; a machine without one sends
+// nothing more. The test script runs through the same params as the rest.
+func TestParams_EveryScriptGetsTheDataDirectory(t *testing.T) {
+	w := windows{data: `D:\pleiades`}
+	given := map[string]string{"SHA": "abc"}
+	params := w.params(testScript, given, 9)
+	env, ok := strings.CutPrefix(params[len(params)-1], "env:=")
+	var decoded map[string]string
+	if !ok || yaml.Unmarshal([]byte(env), &decoded) != nil || decoded["DATA"] != `D:\pleiades` || decoded["SHA"] != "abc" {
+		t.Errorf("env = %q", params[len(params)-1])
+	}
+	if _, leaked := given["DATA"]; leaked {
+		t.Error("the given env map was changed")
+	}
+	if got := w.params("x", nil, 5); len(got) != 4 {
+		t.Errorf("no env given still gets DATA: %q", got)
+	}
+	if got := (windows{}).params("x", nil, 5); len(got) != 3 {
+		t.Errorf("a machine with no data directory sent one: %q", got)
+	}
+}
+
 // TestCheck names wincheck's settings as the WinRM release gates name
 // theirs, so one project serves both.
 func TestCheck(t *testing.T) {
-	if check.ProjectKey != "PLEIADES_WINRM_PROJECT" || check.DeviceKey != "PLEIADES_WINRM_DEVICE" || check.EnvFile != "tests/win/.env" {
+	if check.ProjectKey != "PLEIADES_WINRM_PROJECT" || check.DeviceKey != "PLEIADES_WINRM_DEVICE" || check.DataKey != "PLEIADES_WINRM_DATA" || check.EnvFile != "tests/win/.env" {
 		t.Errorf("check = %+v", check)
+	}
+	if checkARM.DataKey != "PLEIADES_WINARM_DATA" {
+		t.Errorf("checkARM = %+v", checkARM)
 	}
 }

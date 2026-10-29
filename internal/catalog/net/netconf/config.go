@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Parameter names come from ansible.netcommon.netconf_config rather than
@@ -100,16 +101,16 @@ func configDoc() collection.Doc {
 		Description: "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
 		Params: []collection.Param{
 			{Name: paramContent, Type: "string", Required: true, Description: "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names."},
-			{Name: paramDatastore, Type: "string", Default: "running", Description: "The datastore to configure: running, candidate or startup. A datastore the device does not advertise support for is refused before anything is applied. Cisco IOS XE offers only running."},
-			{Name: paramDefaultOperation, Type: "string", Default: "merge", Description: "What the device does with elements carrying no explicit operation attribute: merge, replace or none. RFC 6241 defines no \"delete\" here; express a delete with an nc:operation attribute in content."},
-			{Name: paramErrorOption, Type: "string", Default: "rollback-on-error when the device supports it, otherwise the device's own stop-on-error default", Description: "How the device handles a rejected element: stop-on-error, continue-on-error or rollback-on-error. Left unset this method asks for rollback-on-error whenever the device advertises the capability, because stop-on-error leaves a rejected document half applied."},
-			{Name: paramLock, Type: "string", Default: "never", Description: "Whether to lock the datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."},
+			{Name: paramDatastore, Type: "string", Default: "running", Choices: []string{"running", "candidate", "startup"}, ChoicesIgnoreCase: true, Description: "The datastore to configure: running, candidate or startup. A datastore the device does not advertise support for is refused before anything is applied. Cisco IOS XE offers only running."},
+			{Name: paramDefaultOperation, Type: "string", Default: "merge", Choices: []string{"merge", "replace", "none"}, Description: "What the device does with elements carrying no explicit operation attribute: merge, replace or none. RFC 6241 defines no \"delete\" here; express a delete with an nc:operation attribute in content."},
+			{Name: paramErrorOption, Type: "string", Choices: []string{"stop-on-error", "continue-on-error", "rollback-on-error"}, Description: "How the device handles a rejected element: stop-on-error, continue-on-error or rollback-on-error. Left unset this method asks for rollback-on-error whenever the device advertises the capability, and otherwise leaves the device its own default, stop-on-error, because stop-on-error leaves a rejected document half applied."},
+			{Name: paramLock, Type: "string", Default: "never", Choices: []string{"never", "always", "if_supported"}, ChoicesIgnoreCase: true, Description: "Whether to lock the datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."},
 			{Name: paramCommit, Type: "bool", Default: "true", Description: "Commit after a successful edit. Only meaningful when datastore is candidate, since a running-datastore edit is already live; ignored otherwise."},
-			{Name: paramBackup, Type: "bool", Default: "false", Description: "Capture the datastore's full contents with get-config before applying anything, recorded under the backup stat."},
+			{Name: paramBackup, Type: "bool", Default: "false", Description: "Capture the datastore's full contents with get-config before applying anything, recorded under the backup stat with every secret masked. A configuration masking cannot vouch for fails the task before anything is applied."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
-			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The datastore's full contents as XML, captured immediately before this task's own document was applied. Not sanitized: a device's configuration genuinely contains its enable secret, local user password hashes, and any TACACS+/RADIUS shared key, in whatever strength of encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
+			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The datastore's full contents as XML, captured immediately before this task's own document was applied, with every secret masked: the text of each leaf whose name holds a secret (password, secret, a key such as auth-key or pre-shared-key, encrypted-password, RFC 8177's key-string, keystring and hexadecimal-string, OpenConfig's key-clear-text, an SNMP community), of every other leaf inside such an element at any depth but its encryption type, id, algorithm or lifetime (and, two or more levels down outside SNMP, a name or address), and of each crypt-shaped value ($1$, $6$, $9$) is replaced by pleiades-masked- and sixteen hexadecimal digits, equal secrets alike within one run; the run's own credential is masked wherever it appears, other leaves are read by the configuration text masker net.ios.config's backup uses, and comments are withheld. Every element, name, address and encryption type stays where it was. A document that is not well-formed XML, holds a DOCTYPE, nests past 256 elements, has an attribute that may hold a secret, or has a line the text masker cannot vouch for fails the task before anything is applied, and none of it is recorded. net.netconf.config refuses content holding a placeholder, so this text cannot be applied back as it is."},
 		},
 		Examples: []collection.Example{
 			{
@@ -184,7 +185,14 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: capturing backup: %w", fqcn, err)
 		}
-		if err := rc.SetStat(statBackup, string(payload.Bytes)); err != nil {
+		// Recorded masked, never as the device has it, and before anything
+		// is applied: a backup masking cannot vouch for stops the task here,
+		// so the change never goes ahead without the backup it asked for.
+		masked, err := maskedBackup(rc, string(payload.Bytes))
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: capturing backup: %w", fqcn, err)
+		}
+		if err := rc.SetStat(statBackup, masked); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	}
@@ -208,6 +216,37 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 
 	return collection.Result{Changed: true}, nil
+}
+
+// maskedBackup is a datastore's XML masked for the backup stat through
+// netcfg.MaskXML: each secret leaf is replaced by its placeholder, the run's
+// own credential is masked wherever it appears whole, and each secret found
+// that is long enough joins the run's masking set, so a later task printing
+// it is masked too. A document masking cannot vouch for returns an error and
+// none of the text.
+func maskedBackup(rc sdk.RunbookContext, doc string) (string, error) {
+	masked, found, err := netcfg.MaskXML(doc, credentialValues(rc.InjectSecrets())...)
+	if err != nil {
+		return "", fmt.Errorf("the configuration is not recorded, since masking cannot vouch for it: %w", err)
+	}
+	sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
+	return masked, nil
+}
+
+// credentialValues are the secret values of the credential a run handed this
+// method, leaving out the fields the engine itself does not mask by value
+// (a username, a certificate, a seed's login and host), the same set the
+// engine's credentialSecrets keeps.
+func credentialValues(secrets map[string]string) []string {
+	var out []string
+	for key, value := range secrets {
+		switch key {
+		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey, wire.SecretSeedHost:
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 // datastoreParam resolves the datastore to configure, refusing an

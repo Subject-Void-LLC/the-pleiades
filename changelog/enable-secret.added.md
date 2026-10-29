@@ -1,1 +1,0 @@
-Added an enable secret to a device credential (`pleiades add-credential --enable-password` or `--enable-password-stdin`). The IOS methods now accept an account that lands in user mode (`R1>`): commands run there, and with the enable secret stored they enter privileged mode; `net.ios.config` in user mode is refused by name rather than waiting for a prompt that never comes.

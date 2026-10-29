@@ -16,7 +16,7 @@ import (
 func init() { registerRead("container.logs", Logs) }
 
 // Logs implements container.logs: the last lines a container wrote,
-// bounded.
+// bounded, or exists false for a container that is not there.
 func Logs(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
 	const fqcn = "container.logs"
 	fail := func(err error) (collection.Result, error) {
@@ -55,13 +55,16 @@ func Logs(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err != nil {
 		return fail(err)
 	}
+	// A container that is not there is an answer, exists false, as
+	// container.info gives it, so a plan can branch on it in a run and in a
+	// check alike.
 	if !exists {
-		return fail(fmt.Errorf("there is no container named %s", name))
+		return collection.Result{}, recordStats(rc, map[string]any{statName: name, statExists: false})
 	}
 	tty := c.Config != nil && c.Config.Tty
 	stdout, stderr, err := s.Logs(ctx, c.ID, tail, since, tty, maxLogBytes)
 	if err != nil {
 		return fail(err)
 	}
-	return collection.Result{}, recordStats(rc, map[string]any{statName: name, statID: c.ID, statStdout: stdout, statStderr: stderr})
+	return collection.Result{}, recordStats(rc, map[string]any{statName: name, statExists: true, statID: c.ID, statStdout: stdout, statStderr: stderr})
 }

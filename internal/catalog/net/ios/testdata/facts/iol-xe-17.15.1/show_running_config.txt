@@ -1,0 +1,167 @@
+Building configuration...
+
+Current configuration : 3614 bytes
+!
+! Last configuration change at 22:31:09 UTC Tue Oct 27 2026
+!
+version 17.15
+service timestamps debug datetime msec
+service timestamps log datetime msec
+!
+hostname R1
+!
+boot-start-marker
+boot-end-marker
+!
+!
+vrf definition Mgmt-intf
+ !
+ address-family ipv4
+ exit-address-family
+!
+no logging console
+no aaa new-model
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+ip domain name virl.info
+ip cef
+login on-success log
+no ipv6 cef
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+crypto pki trustpoint TP-self-signed-131184641
+ enrollment selfsigned
+ subject-name cn=IOS-Self-Signed-Certificate-131184641
+ revocation-check none
+ rsakeypair TP-self-signed-131184641
+ hash sha256
+!
+!
+crypto pki certificate chain TP-self-signed-131184641
+ certificate self-signed 01
+  3082032E 30820216 A0030201 02020101 300D0609 2A864886 F70D0101 0B050030 
+  30312E30 2C060355 04030C25 494F532D 53656C66 2D536967 6E65642D 43657274 
+  69666963 6174652D 31333131 38343634 31301E17 0D323431 30303931 37323934 
+  315A170D 33343130 30393137 32393431 5A303031 2E302C06 03550403 0C25494F 
+  532D5365 6C662D53 69676E65 642D4365 72746966 69636174 652D3133 31313834 
+  36343130 82012230 0D06092A 864886F7 0D010101 05000382 010F0030 82010A02 
+  82010100 D0E0D11B D2C5FF58 2D245289 5DE8E347 7E5C4B55 2B3ACDDF 87678319 
+  2193EBE3 83A40243 3112458B 075843B0 6C095D2C 91520EB1 C5EAF8C4 2ABFE350 
+  4DDED528 148DAA92 CB7AE1E8 F73FE1A2 A8A2585F 6C275332 EC2AD44E 109DC365 
+  9CAD7877 2C826CC3 630E61FE 1BD60B9E 1BC2CF2E 165F15D1 931657AE 6A289777 
+  017433C8 0C0CF022 13AF1A59 BF64BBAA 9EE926E8 E680CC53 C8958F3D C56DD640 
+  961D1208 01633827 34219EF1 32D90D6D B24C8431 EDF864B6 C6DE585B EED6DF35 
+  137C18B0 7A20FDEF 8A4B05FC 09ECFB1B 6E1D5CDA 28B4AD07 7483A9C7 D83CD4DC 
+  0887F551 F0554C03 621286D4 22B6DB5C 7F418F11 CF432AB5 C5E248C6 FF142E0C 
+  48633615 02030100 01A35330 51301D06 03551D0E 04160414 1469F8FA 4C49C577 
+  294E2BE9 5026314C DB0C3DF3 301F0603 551D2304 18301680 141469F8 FA4C49C5 
+  77294E2B E9502631 4CDB0C3D F3300F06 03551D13 0101FF04 05300301 01FF300D 
+  06092A86 4886F70D 01010B05 00038201 0100CCAE AC03F27A 051543F1 2E092351 
+  7050AA48 985DE633 DC68C572 99F490C9 5A67FEC8 98DEC65D F9250F7B AE4FF0E9 
+  0970A003 45D5CF76 4C9B1E3C 13776C1D 215FCAF0 D8046470 C5D60754 380693E2 
+  19EB849E 97FABBA4 7B7D1C52 0D8D97EB 5D8A0617 CB0601CC AB3B2D93 E5761608 
+  5E1EF047 8C31A436 9F29C3AD EA451790 BEBC66EC 004310A8 EA6A88AD DA9FF47D 
+  05756477 8780A49A FF310D68 55188F9B BBCE19B6 71BF492B E0329EB2 4F5BD91B 
+  A6505C16 68B6E97D 4B1CE826 B451176D 7F49D62B 64423770 AAE5DAB4 33BFF9B3 
+  7B6CD073 56ACA23F 4FCF7F63 BB0E6F2C 8A6018FF B9A611B8 F7BAAB0E D5BA1F7B 
+  98527CAC B56E1D6F 12481889 0A5F2BA5 EDA3
+  	quit
+!
+!
+memory free low-watermark processor 81225
+!
+!
+spanning-tree mode rapid-pvst
+!
+enable password REDACTED-AT-CAPTURE
+!
+username ******** password 0 REDACTED-AT-CAPTURE
+username admin password 0 REDACTED-AT-CAPTURE
+!
+!
+!
+!
+!
+! 
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+interface Ethernet0/0
+ ip address 10.10.10.100 255.255.255.0
+!
+interface Ethernet0/1
+ ip address 1.1.1.1 255.255.255.0
+!
+interface Ethernet0/2
+ description to port1.sandbox-backend
+ vrf forwarding Mgmt-intf
+ ip address 10.10.20.171 255.255.255.0
+!
+interface Ethernet0/3
+ no ip address
+ shutdown
+!
+ip forward-protocol nd
+!
+!
+ip http server
+ip http secure-server
+ip route 20.20.20.0 255.255.255.0 1.1.1.2
+ip route vrf Mgmt-intf 0.0.0.0 0.0.0.0 10.10.20.254
+ip ssh bulk-mode 131072
+ip ssh server algorithm authentication password
+no logging btrace
+!
+!
+!
+control-plane
+!
+!
+!
+line con 0
+ exec-timeout 0 0
+ password REDACTED-AT-CAPTURE
+ logging synchronous
+ stopbits 1
+line aux 0
+line vty 0 4
+ exec-timeout 0 0
+ password REDACTED-AT-CAPTURE
+ login local
+ transport input telnet ssh
+!
+!
+!
+!
+end

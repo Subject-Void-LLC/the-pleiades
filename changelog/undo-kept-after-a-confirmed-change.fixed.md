@@ -1,1 +1,0 @@
-A task whose change landed and was then followed by a failure (a lost connection while reading a file back) now keeps its undo, so `rollback_on_failure` and `pleiades rollback` undo it. `file.copy` gives a new file its owner, group and mode before it takes the old one's place, so a refused `chown` no longer leaves new content owned by the wrong account.

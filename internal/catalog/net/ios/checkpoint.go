@@ -44,7 +44,7 @@ func checkpointFileSystem(ctx context.Context, session iosSession) (string, erro
 		return "", err
 	}
 	if netcli.IOS.ErrorPattern.MatchString(out) {
-		return "", fmt.Errorf("%w: show file systems: %s", errNoCheckpoint, strings.TrimSpace(firstErrorLine(out)))
+		return "", fmt.Errorf("%w: show file systems: %s", errNoCheckpoint, deviceRefusal(out))
 	}
 	return pickFileSystem(out)
 }
@@ -110,7 +110,7 @@ func saveRunning(ctx context.Context, session iosSession, path string) error {
 		return fmt.Errorf("saving the running configuration to %s: %w", path, err)
 	}
 	if netcli.IOS.ErrorPattern.MatchString(res.Output) {
-		return fmt.Errorf("saving the running configuration to %s: %s", path, strings.TrimSpace(firstErrorLine(res.Output)))
+		return fmt.Errorf("saving the running configuration to %s: %s", path, deviceRefusal(res.Output))
 	}
 	return nil
 }
@@ -123,7 +123,7 @@ func differences(ctx context.Context, session iosSession, from, to string) ([]st
 		return nil, err
 	}
 	if netcli.IOS.ErrorPattern.MatchString(out) {
-		return nil, fmt.Errorf("comparing %s with %s: %s", from, to, strings.TrimSpace(firstErrorLine(out)))
+		return nil, fmt.Errorf("comparing %s with %s: %s", from, to, deviceRefusal(out))
 	}
 	lines, err := iosconfig.Differences(out)
 	if err != nil {
@@ -148,7 +148,7 @@ func deleteFile(ctx context.Context, session iosSession, path string) error {
 		return fmt.Errorf("deleting %s: %w", path, err)
 	}
 	if netcli.IOS.ErrorPattern.MatchString(out) {
-		return fmt.Errorf("deleting %s: %s", path, strings.TrimSpace(firstErrorLine(out)))
+		return fmt.Errorf("deleting %s: %s", path, deviceRefusal(out))
 	}
 	return nil
 }

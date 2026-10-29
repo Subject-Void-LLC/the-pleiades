@@ -151,8 +151,8 @@ var miscModules = []Entry{
 	{
 		Module:  "cisco.ios.ios_config",
 		Aliases: []string{"ios_config"},
-		Default: &Call{FQCN: "net.ios.config", Class: ClassImperative, Basis: "net.ios.config sends every line on every run and compares none of them with the running configuration",
-			Note: "ios_config sends only the lines missing from the running configuration; net.ios.config sends every line and always reports a change"},
+		Default: &Call{FQCN: "net.ios.config", Class: ClassAsserted, Basis: "the lines present in the running configuration: a run reports unchanged when the device's own archive shows no difference, and a check predicts the lines it would add",
+			Note: "ios_config sends only the lines missing from the running configuration; net.ios.config sends every line and reports a change only when the device's configuration differs afterwards"},
 		Args: []Arg{
 			{Name: "lines", Aliases: []string{"commands"}, To: "lines"},
 			{Name: "backup", To: "backup", Note: backupNote},

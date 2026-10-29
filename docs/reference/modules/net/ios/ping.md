@@ -27,7 +27,7 @@ Answers a different question from net.ssh.ping, and the difference is the point:
 | `count` | `int` | no | `5` | How many echoes to send, passed to IOS as "repeat". |
 | `source` | `string` | no | - | Source address or interface for the ping, passed to IOS as "source". |
 | `vrf` | `string` | no | - | VRF to ping from, passed to IOS as "vrf". |
-| `state` | `string` | no | `present` | "present" fails the task if the destination is unreachable (0 percent success); "absent" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead. |
+| `state` | `string` | no | `present` | "present" fails the task if the destination is unreachable (0 percent success); "absent" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead. **Choices:** `present`, `absent` (case ignored). |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 | `insecure_telnet` | `bool` | no | `false` | Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust. |
 

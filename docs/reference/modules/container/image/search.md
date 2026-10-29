@@ -23,7 +23,7 @@ Runs the registry's search through the engine, anonymously: Docker Hub unless te
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `term` | `string` | yes | - | What to search for. |
 | `limit` | `int` | no | `25` | The most results to return, from 1 to 100. |
 | `official_only` | `bool` | no | `false` | Return official images only. |

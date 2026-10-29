@@ -116,3 +116,19 @@ func validateInverseSpec(spec sdk.InverseSpec) error {
 	}
 	return nil
 }
+
+// checkUndoCallDecidesPartial refuses UndoCallDecidesPartial where it would
+// decide nothing: with no UndoCall to ask, or on a method none of whose
+// inverses is marked MayBePartial.
+func checkUndoCallDecidesPartial(d Descriptor) error {
+	if !d.UndoCallDecidesPartial {
+		return nil
+	}
+	if d.UndoCall == nil {
+		return fmt.Errorf("collection: %q sets UndoCallDecidesPartial but carries no UndoCall to decide with", d.Name)
+	}
+	if !slices.ContainsFunc(d.Manifest.Reversibility.Inverses, func(s sdk.InverseSpec) bool { return s.MayBePartial }) {
+		return fmt.Errorf("collection: %q sets UndoCallDecidesPartial but declares no inverse that may be partial", d.Name)
+	}
+	return nil
+}

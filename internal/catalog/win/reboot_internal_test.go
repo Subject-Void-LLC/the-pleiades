@@ -154,7 +154,7 @@ func TestReboot_GivesUpAtItsTimeout(t *testing.T) {
 func TestReboot_RefusedRestartIsAnError(t *testing.T) {
 	h := &rebootHost{boots: []any{boot0}, exits: []any{5}}
 	h.install(t)
-	if _, err := runReboot(t, nil); err == nil || !strings.Contains(err.Error(), "shutdown.exe exited 5: shutdown said no") || len(h.sleeps) != 0 {
+	if _, err := runReboot(t, nil); err == nil || !strings.Contains(err.Error(), `shutdown.exe exited 5: "shutdown said no`) || len(h.sleeps) != 0 {
 		t.Errorf("%v, sleeps %v", err, h.sleeps)
 	}
 	h = &rebootHost{boots: []any{boot0}, exits: []any{errShutdownScheduled, errors.New("abort failed")}}
@@ -199,7 +199,7 @@ func TestReboot_Refusals(t *testing.T) {
 		"numeric message":   {map[string]any{"msg": 5}, []any{boot0}, "not text"},
 		"control character": {map[string]any{"msg": "a\x01b"}, []any{boot0}, "U+0001"},
 		"unreadable boot":   {nil, []any{errors.New("access denied")}, "access denied"},
-		"not a time":        {nil, []any{"yesterday"}, "is not a time"},
+		"not a time":        {nil, []any{"yesterday"}, `the boot time "yesterday" is not an RFC 3339 time`},
 	} {
 		h := &rebootHost{boots: tc.boots, exits: []any{0}}
 		h.install(t)
@@ -226,7 +226,7 @@ func TestReboot_AFailedBootReadExitIsAnError(t *testing.T) {
 	rebootRun = func(context.Context, winrmexec.Target, winrmexec.Auth, winrmexec.Shell, string, winrmexec.Options) (winrmexec.Result, error) {
 		return winrmexec.Result{ExitCode: 1, Stderr: "Get-CimInstance : Access denied"}, nil
 	}
-	if _, err := runReboot(t, nil); err == nil || !strings.Contains(err.Error(), "exited 1: Get-CimInstance : Access denied") {
+	if _, err := runReboot(t, nil); err == nil || !strings.Contains(err.Error(), `exited 1: "Get-CimInstance : Access denied"`) {
 		t.Errorf("%v", err)
 	}
 }

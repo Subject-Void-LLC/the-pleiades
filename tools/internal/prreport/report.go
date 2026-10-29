@@ -361,7 +361,7 @@ func (r Report) has(name string) bool {
 
 // orderOf ranks the names pr-check gives its records in the order it runs
 // them; any other name follows, alphabetically.
-var orderOf = map[string]int{"govulncheck": 1, "fast": 2, "repeat": 3, "containers": 4, "containers-mac": 5, "mac": 6, "bsd": 7, "win": 8, "winarm": 9, "images": 10, "coverage": 11, "durations": 12}
+var orderOf = map[string]int{"fast": 1, "repeat": 2, "containers": 3, "mac": 4, "bsd": 5, "win": 6, "images": 7, "coverage": 8, "durations": 9, "resources": 10, "sizes": 11}
 
 // order is a name's sort key.
 func order(name string) string {

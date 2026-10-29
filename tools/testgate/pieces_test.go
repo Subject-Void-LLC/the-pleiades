@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/headroom"
 )
 
 // runsTest reports whether a go test run narrowed by p's filter runs the
@@ -230,16 +233,26 @@ func TestWholeCoverageOnly_RefusesAPartsCoverage(t *testing.T) {
 // TestRunPieces_RunsEachPartAloneAndTheWholeTogether proves the pieces
 // against real go test runs: the whole package runs, and the divided one
 // runs exactly the test its piece names, in a go test of its own, since a
-// -run on the shared one would have narrowed the whole package too.
+// -run on the shared one would have narrowed the whole package too. The
+// guard watching the runs sees each package begin, so its account names
+// every package that ran.
 func TestRunPieces_RunsEachPartAloneAndTheWholeTogether(t *testing.T) {
 	throwawayModule(t, true)
+	still := headroom.Memory{TotalMB: 8000, AvailableMB: 4000}
+	g := &guard{watch: headroom.StartWatch(still, func() (headroom.Memory, error) { return still, nil }, time.Hour, func(string) {})}
+	defer g.finish()
 	events, waitErr, err := runPieces([]string{"-count=1"}, []piece{
 		{pkg: "gateproof/good"},
 		{pkg: "gateproof/skipper", run: []string{"TestCloud"}},
 		{pkg: "gateproof/bad", skip: []string{"TestBroken"}},
-	})
+	}, g)
 	if err != nil || waitErr != nil {
 		t.Fatalf("runPieces = %v, %v", waitErr, err)
+	}
+	for _, pkg := range []string{"gateproof/good", "gateproof/skipper", "gateproof/bad"} {
+		if _, ok := g.peaks()[pkg]; !ok {
+			t.Errorf("the guard never saw %s begin: its account holds %v", pkg, g.peaks())
+		}
 	}
 	ran := map[string]string{}
 	for _, evt := range events {

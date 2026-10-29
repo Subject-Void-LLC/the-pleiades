@@ -25,7 +25,7 @@ Reads the port through ovs-vsctl and changes only what differs. Its undo puts ba
 | --- | --- | --- | --- | --- |
 | `bridge` | `string` | yes | - | The bridge the port belongs on. |
 | `name` | `string` | yes | - | The port, usually an interface name (eth1). |
-| `state` | `string` | no | `present` | present or absent. |
+| `state` | `string` | no | `present` | present or absent. **Choices:** `present`, `absent`. |
 | `tag` | `int` | no | - | An access VLAN, 1 to 4094; 0 removes the tag. Left unset, an existing port keeps its own. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 

@@ -56,8 +56,15 @@ func (t *translator) unrollItems(in argIn, bindings map[string]any) ([]any, *blo
 		}
 		return items, nil
 	}
+	if mentions(in.node, t.loopNames) {
+		return nil, nil
+	}
 	v, rerr := t.goValue(in.node, bindings, in.at)
 	if rerr != nil {
+		if rerr.code == "template.unresolved" && hasTemplateNode(in.node) {
+			// One value, which setParam reads as a native template or refuses.
+			return nil, nil
+		}
 		return nil, &blockReason{rerr.code, in.at, fmt.Sprintf("%s: %s", in.name, rerr.why)}
 	}
 	switch x := v.(type) {
@@ -134,13 +141,32 @@ func (t *translator) setParam(c *plannedCall, param string, item any, in argIn, 
 	case resolved:
 		v, err = coerceGo(r.v, typ, param)
 	case hasTemplateNode(node):
-		raw, rerr := t.goValue(node, bindings, in.at)
+		native := mentions(node, t.loopNames)
+		var raw any
+		var rerr *resolveError
+		if !native {
+			raw, rerr = t.goValue(node, bindings, in.at)
+			native = rerr != nil && rerr.code == "template.unresolved"
+		}
+		if native {
+			nv, nerr := t.nativeParam(node, c.call.FQCN, param, typ, bindings, in.at)
+			switch {
+			case nerr == nil:
+				c.params[param] = nv
+				return nil
+			case rerr == nil || nerr.code != "template.unresolved":
+				rerr = nerr
+			}
+		}
 		if rerr != nil {
 			return &blockReason{rerr.code, in.at, fmt.Sprintf("%s: %s", in.name, rerr.why)}
 		}
 		v, err = coerceGo(raw, typ, param)
 	default:
 		v, err = toNative(node, typ, param)
+	}
+	if err == nil {
+		v, err = keepLiteral(v)
 	}
 	if err != nil {
 		var rerr *resolveError
@@ -151,6 +177,46 @@ func (t *translator) setParam(c *plannedCall, param string, item any, in argIn, 
 	}
 	c.params[param] = v
 	return nil
+}
+
+// keepLiteral wraps each string in v that would render as a template in
+// {% raw %}...{% endraw %}. v is a value the conversion resolved, the text
+// Ansible hands the module, which Ansible never renders again; a runbook
+// renders any parameter holding {{, {% or {#, so without the wrapper a
+// resolved "{%s}" would be read as a statement. Text that holds an endraw
+// of its own cannot be wrapped and leaves the task for a person.
+func keepLiteral(v any) (any, error) {
+	switch x := v.(type) {
+	case string:
+		if !hasTemplate(x) {
+			return x, nil
+		}
+		if strings.Contains(x, "endraw") {
+			return nil, &resolveError{"template.unsupported", "a resolved value holds Jinja delimiters and an endraw, so it cannot be kept literal in the runbook"}
+		}
+		return "{% raw %}" + x + "{% endraw %}", nil
+	case []any:
+		out := make([]any, len(x))
+		for i, item := range x {
+			w, err := keepLiteral(item)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = w
+		}
+		return out, nil
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, item := range x {
+			w, err := keepLiteral(item)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = w
+		}
+		return out, nil
+	}
+	return v, nil
 }
 
 // paramTypes returns fqcn's declared parameters and their types, its

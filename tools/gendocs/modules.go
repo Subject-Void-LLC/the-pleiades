@@ -243,6 +243,24 @@ func secretRefsNote(refs bool) string {
 	return "**Accepts `{{ secret.<name>.<field> }}`:** "
 }
 
+// choicesNote is the tail a parameter's description gets in the reference
+// when it declares a closed set: every value it takes, each as code, so a
+// reader copies one rather than guessing (Phase 131, R2).
+func choicesNote(p collection.Param) string {
+	if len(p.Choices) == 0 {
+		return ""
+	}
+	values := make([]string, len(p.Choices))
+	for i, c := range p.Choices {
+		values[i] = code(c)
+	}
+	note := " **Choices:** " + strings.Join(values, ", ")
+	if p.ChoicesIgnoreCase {
+		note += " (case ignored)"
+	}
+	return note + "."
+}
+
 func writeParameters(b *strings.Builder, doc collection.Doc) {
 	var params []collection.Param
 	for _, name := range doc.Fragments {
@@ -258,7 +276,7 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 
 	rows := make([][]string, len(params))
 	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + aliasNote(p.AliasOf) + p.Description}
+		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + aliasNote(p.AliasOf) + p.Description + choicesNote(p)}
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))

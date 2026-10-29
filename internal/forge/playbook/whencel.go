@@ -12,7 +12,9 @@ package playbook
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -37,6 +39,15 @@ type celCtx struct {
 	perDevice     map[string]bool
 	// negated is set while translating under an odd number of nots.
 	negated bool
+	// own names the register whose result the condition reads as the task's
+	// own, result.<own>.<field>, once and not per device (until, changed_when,
+	// failed_when); empty for a when.
+	own string
+	// loopNames are the names a native loop gives a condition, read as
+	// written (item, item.key, loop.index).
+	loopNames []string
+	// loopVar is the name loop_control gave the item.
+	loopVar string
 }
 
 // term is a condition node's translation: a constant, or CEL text of a
@@ -49,6 +60,9 @@ type term struct {
 	// register is set for a single registered field, and field is the
 	// native field it reads.
 	register, field string
+	// loopRead is set for a read of a native loop's item or position, whose
+	// type is known only for loop.
+	loopRead bool
 }
 
 // celError says why a condition cannot be translated, and which code.
@@ -80,6 +94,8 @@ func (c *celCtx) eval(e *expr) (term, *celError) {
 	switch e.kind {
 	case exprLiteral:
 		return term{constant: true, value: e.value}, nil
+	case exprRegex:
+		return c.regex(e)
 	case exprList:
 		list := []any{}
 		for _, item := range e.items {
@@ -118,6 +134,9 @@ func (c *celCtx) eval(e *expr) (term, *celError) {
 // variable translates a variable read: a constant when the playbook fixes
 // it, a registered field when a converted task produced it.
 func (c *celCtx) variable(e *expr) (term, *celError) {
+	if slices.Contains(c.loopNames, e.name) {
+		return c.loopRead(e)
+	}
 	if p, ok := c.registers[e.name]; ok {
 		return c.registered(e, p)
 	}
@@ -163,9 +182,74 @@ func (c *celCtx) registered(e *expr, p produced) (term, *celError) {
 			}
 		}
 	}
+	if c.own == e.name {
+		return term{cel: "result" + celKey(e.name) + celKey(native), typ: typ, register: e.name, field: native}, nil
+	}
 	c.readsRegister = true
 	c.perDevice[e.name] = true
 	return term{cel: "stat" + celKey(e.name) + "[d]" + celKey(native), typ: typ, register: e.name, field: native}, nil
+}
+
+// loopRead translates a read of a native loop's item (item, item.key,
+// item[0]), which the runbook evaluates for each item. A condition always
+// reads the item as item, whatever loop_var named it; the position
+// (loop.index, index_var) is not a root of a condition.
+func (c *celCtx) loopRead(e *expr) (term, *celError) {
+	if e.name != "item" && e.name != c.loopVar {
+		return term{}, unsupported("%s is the loop's position, which a condition cannot read", e.name)
+	}
+	cel := "item"
+	for _, step := range e.path {
+		switch s := step.(type) {
+		case string:
+			cel += celKey(s)
+		case int64:
+			cel += "[" + strconv.FormatInt(s, 10) + "]"
+		}
+	}
+	return term{cel: cel, typ: "dyn", loopRead: true}, nil
+}
+
+// regexUnsafe says why pattern may mean something else to CEL's RE2 than to
+// Python's re, or "" when it cannot.
+func regexUnsafe(pattern string) string {
+	switch {
+	case strings.Contains(pattern, "$"):
+		return "a $ anchor, which Python lets match before a final newline and RE2 does not"
+	case strings.Contains(pattern, "(?"):
+		return "a group option or lookaround"
+	case regexp.MustCompile(`\\[1-9ZzGgkK]`).MatchString(pattern):
+		return "a backreference or an escape the two engines read differently"
+	case regexp.MustCompile(`[*+?}]\+`).MatchString(pattern):
+		return "a possessive quantifier"
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return "a pattern RE2 does not read"
+	}
+	return ""
+}
+
+// regex translates is search, is match and is regex over a registered text.
+func (c *celCtx) regex(e *expr) (term, *celError) {
+	in, err := c.eval(e.left)
+	if err != nil {
+		return term{}, err
+	}
+	pattern, _ := e.value.(string)
+	if why := regexUnsafe(pattern); why != "" {
+		return term{}, unsupported("the pattern of %s holds %s", e.name, why)
+	}
+	if in.constant || in.typ != "string" {
+		return term{}, unsupported("%s is translated over a registered or loop text only", e.name)
+	}
+	if e.name == "match" {
+		pattern = "^(?:" + pattern + ")"
+	}
+	cel := in.cel + ".matches(" + strconv.Quote(pattern) + ")"
+	if e.negate {
+		cel = "!(" + cel + ")"
+	}
+	return term{cel: cel, typ: "bool"}, nil
 }
 
 // wrapAll wraps cel, which reads register r per device as stat.r[d], in

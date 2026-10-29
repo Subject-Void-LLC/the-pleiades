@@ -6505,3 +6505,100 @@ Each was invisible to unit tests and to the run before it, because the run befor
 **Repeat.** LESSONS 342 says to run a new check leg end to end on its real machine before relying on it, and that was
 done for `winarm`. It did not hold for configuration changes, which are new legs in all but name: installing a compiler
 or a docker CLI changed which tests ran, and starting legs at t0 changed what the monitor saw.
+
+## 348. A new field on a type that something copies by naming its fields is added to the copy in the same change; and an id that gains a suffix gets every lookup by the old id changed, in every tier (2026-10-27).
+
+**Why.** 2026-10-27, authoring parity. `engine.Select` rebuilt the DAG field by field and dropped the two fields `vars:` added (FAILURE_PATTERNS 691). Per-item journal ids gained `.item[k]` and `.attempt[k]`; the CLI's rollback and the planner's verify were taught to strip them and the Controller's own copy of the lookup was not, until a gate against a real Controller refused the first rollback (692).
+
+**Rule in practice.** For a new field, search for the type's composite literals. For a changed id, list the references of the map or function the old id went into, across `cmd/`, `internal/api` and `internal/rollback`, not the package being edited. A release gate through the real Controller is what found the second.
+
+## 349. A retry, an ignore and a cancel each name what they cover: only the method's own failure is retried, an ignored or retried failure stays a failure in the record, and a stopped wait is the task's failure (2026-10-27).
+
+**Why.** The review of the loop and retry code found three ways to lose a failure: retrying a refused login (694), clearing an error so a cancel returned success (695), and recording a retried or ignored failure as a success in the journal. The honest shape is a flag on a result that still carries its error (`Retried`, `Ignored`), which the run's count skips and the journal records as it happened.
+
+**Rule in practice.** A new control-flow keyword that absorbs a failure adds a flag, never clears the error; its tests include a cancel mid-wait and a non-method failure.
+
+## 350. A filter that several tiers must agree on is one function they all call, and it looks inside nested values; the loader refuses what the runtime would drop (2026-10-27).
+
+**Why.** The loader, the dispatch payload and the engine each stripped a little of a device's vars at the top level, and a nested `password` passed all three (696). `redact.CleanVars` is now the one filter at runtime, and the loader refuses a nested secret key by name so an operator is told rather than silently missing a variable.
+
+**Related.** A vars file path comes from a repository, so links are refused and the number of files is bounded (697).
+
+## 351. A test harness that wires a production object by hand copies every option the composition root passes, and a scripted edit asserts its target is present (2026-10-27).
+
+**Why.** The Walk gate's adapter lacked the renderer `cmd/runner` passes, so the first templated runbook failed only in the test (693). Separately, three `str.replace` edits matched nothing and the next step assumed they had applied (698).
+
+**Rule in practice.** In a harness, compare its constructor call with the composition root's line by line. In a script, `assert old in text` before replacing, and re-read a shared file after another agent worked in it.
+
+## 352. Read a release row's recorded reasoning before proposing to move work into it (2026-10-28).
+
+**Why.** 2026-10-28, while v0.3.0's unbuilt phases were being moved out before the first tag. A recommendation to the
+owner put work into v0.4.0 without first reading the release ledger, where v0.4.0 is kept small on purpose: "the
+security chain and the two phases it stands on, still nothing else", for a reason the owner recorded there. The owner
+had to ask again. The reasoning was one paragraph away from the row the recommendation named.
+
+**Rule in practice.** Before proposing to move a phase, read the target row and every dated paragraph under "The release
+ledger" in `.SPECIFICATION/IMPLEMENTATION.md` that names that release, and say in the proposal how the move fits the
+reason written there, or why that reason no longer holds.
+
+## 353. The skill and the docs are claims: each runbook they teach is validated by a test that runs everywhere (a repeat of 301) (2026-10-28).
+
+**Why.** Lab run 7 found SKILL.md and docs/16 teaching a `rollback_on_failure` block that `validate` had refused for
+four days (FAILURE_PATTERNS 707). LESSONS 301 says any runbook the project ships as text passes validation in a test
+pr-check always runs. Its tests reached method examples and guide pages such as docs/04
+(`TestCLI_WritingRunbooksPageExamplesValidate`), not the skill, and FAILURE_PATTERNS 702 found that gap one lab run
+earlier and fixed only the line in front of it.
+
+**Rule in practice.** A runbook added to the skill gets a test like `TestCLI_DocCreateSkillsRollbackExampleValidates`,
+which writes the skill through the binary and validates the block as an agent would copy it, warnings counted as
+failures. As of 2026-10-28 that test and `TestCLI_DocCreateSkillTeachesARunbookThatValidatesAndRuns` hold the skill's
+runbooks; no test was found that validates the runbooks in docs/16.
+
+## 354. An audit that finds nothing in part of its scope says why: nothing there, or nothing wrong (a repeat of 211) (2026-10-28).
+
+**Why.** In Phase 131's audit of the built-in methods against its five rules, the scope named Phase 119f's methods,
+which moved to v0.5.0 on 2026-10-27 and do not exist. "No findings" for that part reads as "checked and clean". LESSONS
+211 already says a verifier must tell "never checked" from "disproved"; it was written about agents that died partway,
+and nothing carried it to a scope that was empty from the start.
+
+**Rule in practice.** An audit's result names each part of its scope with what it examined (a count of methods, files
+or lines), and says plainly when a part held nothing to examine, and why.
+
+## 355. A resource policy lives in the one tool every environment already runs, with numbers measured there (2026-10-29).
+
+**Why.** By 2026-10-29 the test pipeline had five separate answers to "how much memory and disk may a run take": a
+cgroup wrapper and a Python watchdog on the WSL host, a hand-measured table of each container package's memory in
+`hosts.json` deciding which ran on a Mac's Podman, a readiness script per OS check (FreeBSD and Windows each in their
+own words) refusing a disk under 4 GB, a CI job deleting toolchains to make room, and nothing at all inside the run on
+any of them. The host crashed four times, a FreeBSD VM's kernel killed compiles (its `-p` was its CPU count, on 4 GB), a
+full disk read as 169 build failures with no compiler output, and a 7 GB govulncheck was moved to a Mac to keep it out
+of the gate. Each fix was right where it was made and absent everywhere else. The owner's words: "the same rigor of
+memory and disk space management across local, remote, and container environments."
+
+**Rule in practice.** Find the one command every environment runs the tests through (`tools/testgate`, on this
+machine, each check's machine and a CI runner) and put the policy there (`tools/internal/headroom`): the `-p` the free
+memory fits, the disk check before anything builds, the sampler, the stop, and the record. Each number says where it
+was measured (`BudgetMB` from the container packages' peaks, the floor and swap growth from the crashes the monitor
+caught), and the record's `package_mb` is what moves it next. What is cut to make room (a share of the work on another
+machine, a leg for a platform no release ships, a scan another gate runs within minutes) is removed, not flagged off:
+every exception list is a second policy.
+
+## 356. Stopping a run is itself an action with side effects: let a machine that is shutting down finish, because a power cut is never free once the machine keeps data of its own (2026-10-29).
+
+**Why.** The gate rule is "fail means stop", and on 2026-10-29 I applied it the moment the monitor reported a FreeBSD
+leg failed. That moment falls while the leg is still putting its lab VM back. The gate's stop reached the put-back's
+pleiades through the shared process group, the ACPI shutdown died mid-call, and the check cut the VM's power, with a
+message saying that "loses nothing a check's VM keeps". That had been true while the VM kept nothing. The same branch had
+just given it a data disk. Four power cuts in one afternoon left `/data`'s soft-updates file system inconsistent. The
+next test run panicked the kernel two minutes in (FAILURE_PATTERNS 734). The boot after that refused to fsck `/data`
+unattended and stopped at a single-user prompt on a serial line VirtualBox writes to a file and never reads. The VM could
+not be reached by SSH, by keys or by the gate, and its data disk had to be rebuilt. Each step was reasonable on its own.
+The error was treating the stop as free, and believing a comment about what a power cut costs after the thing it
+described had changed.
+
+**Rule in practice.** Before stopping a run, look at what it is doing: a leg putting a machine back, a migration, a
+write to shared state finishes first. A stop must not reach a teardown whose job is to leave things safe, so a
+put-back runs in its own process group on its own context. A machine that keeps data must survive an unclean stop
+without help: UFS gets `fsck_y_enable="YES"` and `failok` on a data mount, or the file system journals. When a
+machine's role changes (it gains a disk, a database, a cache), re-read every comment and message that says what losing
+it costs.

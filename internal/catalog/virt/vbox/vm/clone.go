@@ -57,7 +57,7 @@ func init() {
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "from", Type: "string", Required: true, Description: "The VM to clone, named as name is."},
-					{Name: "snapshot", Type: "string", Required: true, Description: "The snapshot of from to clone. Exactly one of from's snapshots may have this name."},
+					{Name: "snapshot", Type: "string", Required: true, Description: "The snapshot of from to clone. from must have exactly one snapshot of this name."},
 					{Name: "login", Type: "string", Required: true, Description: "The inventory device whose stored login the VM is seeded with, usually the device that stands for this VM. For a Linux VM, one reached over SSH: its user name, its key's public half and a hash of its password. For a Windows VM, one reached over WinRM whose credential names Administrator: its password."},
 					{Name: "address", Type: "string", Required: true, Description: "The host-only adapter's address with its prefix, as 192.168.56.10/24. Keep it out of the host-only DHCP server's range."},
 					{Name: "hostname", Type: "string", Description: "The VM's host name, or a Windows VM's computer name, which is at most 15 letters, digits and hyphens. Defaults to name, which must then be a valid one."},

@@ -27,7 +27,7 @@ func TestAddNotRun(t *testing.T) {
 		},
 		Tasks: []taskReport{{ID: "pretasks[0]", Status: statusOK}, {ID: "tasks[0]", Status: statusFailed}},
 	}
-	rep.addNotRun(notRunAborted)
+	addNotRun(rep, notRunAborted)
 	want := []string{"pretasks[0]", "tasks[0]", "tasks[1].block[0]", "tasks[1].rescue[0]", "tasks[1].always[0]", "tasks[2].parallel[0]"}
 	if len(rep.Tasks) != len(want) {
 		t.Fatalf("tasks = %+v, want %v", rep.Tasks, want)

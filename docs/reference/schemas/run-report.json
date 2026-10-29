@@ -1,0 +1,736 @@
+{
+  "$defs": {
+    "BlastRadius": {
+      "description": "BlastRadius is validate.BlastRadius as the report writes it.",
+      "properties": {
+        "devices": {
+          "description": "Devices is the number of distinct devices any task targets.",
+          "type": "integer"
+        },
+        "tiers": {
+          "description": "Tiers are the distinct tier properties among them.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "devices"
+      ],
+      "type": "object"
+    },
+    "Gap": {
+      "description": "Gap is a change the plan does not undo, and why.",
+      "properties": {
+        "device": {
+          "description": "DeviceID and DeviceName name the device the node changed, when one.",
+          "type": "string"
+        },
+        "device_id": {
+          "description": "DeviceID and DeviceName name the device the node changed, when one.",
+          "type": "string"
+        },
+        "node": {
+          "description": "Node is the node, in the run being undone, whose change this is.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Reason says why the plan does not undo it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "PlanSection": {
+      "description": "PlanSection is one of pretasks, tasks and posttasks.",
+      "properties": {
+        "section": {
+          "description": "Section is \"pretasks\", \"tasks\" or \"posttasks\". Known values: pretasks, tasks, posttasks. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "pretasks",
+            "tasks",
+            "posttasks"
+          ],
+          "type": "string"
+        },
+        "tasks": {
+          "description": "Tasks are the section's tasks, in order.",
+          "items": {
+            "$ref": "#/$defs/PlanTask"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "section",
+        "tasks"
+      ],
+      "type": "object"
+    },
+    "PlanTask": {
+      "description": "PlanTask is one authored task, with the groups nested under it.",
+      "properties": {
+        "always": {
+          "description": "Always is a block's always tasks, run however Block ended.",
+          "items": {
+            "$ref": "#/$defs/PlanTask"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "block": {
+          "description": "Block is a block's own tasks.",
+          "items": {
+            "$ref": "#/$defs/PlanTask"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "ID is the task's node id (tasks[0], tasks[1].block[0]).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is \"block\" or \"parallel\" for a group, empty otherwise. Known values: block, parallel. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "block",
+            "parallel"
+          ],
+          "type": "string"
+        },
+        "method": {
+          "description": "Method is the method or action it calls; empty for a group.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the task's name, which may be empty.",
+          "type": "string"
+        },
+        "parallel": {
+          "description": "Parallel is a parallel group's tasks, run side by side.",
+          "items": {
+            "$ref": "#/$defs/PlanTask"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "rescue": {
+          "description": "Rescue is a block's rescue tasks, run when one of Block fails.",
+          "items": {
+            "$ref": "#/$defs/PlanTask"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "selected": {
+          "description": "Selected is false for a task --tags or --skip-tags left out.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "selected"
+      ],
+      "type": "object"
+    },
+    "Problem": {
+      "description": "Problem is one reason the plan was refused.",
+      "properties": {
+        "accept": {
+          "description": "Accept names the flag, and its argument, that accepts this problem, empty when nothing can.",
+          "type": "string"
+        },
+        "device": {
+          "description": "DeviceID and DeviceName name the device it concerns, when one.",
+          "type": "string"
+        },
+        "device_id": {
+          "description": "DeviceID and DeviceName name the device it concerns, when one.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind says which sort of refusal this is when there are several to tell apart: one of the Kind constants for a later run, empty for every other refusal.",
+          "type": "string"
+        },
+        "node": {
+          "description": "Node is the node, in the run being undone, the problem is about, when one.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Reason says why the plan was refused.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "Provider": {
+      "description": "Provider is where a method's code comes from when it is not compiled into this binary: an external Collection program.",
+      "properties": {
+        "Digest": {
+          "description": "Digest is the SHA-256 digest (\"sha256:<hex>\") the program was loaded with.",
+          "type": "string"
+        },
+        "Program": {
+          "description": "Program is the path of the external Collection program.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "Program",
+        "Digest"
+      ],
+      "type": "object"
+    },
+    "ProvisionalStep": {
+      "description": "ProvisionalStep is one step whose check is provisional, and why.",
+      "properties": {
+        "device": {
+          "description": "Device is the name of the device the step runs on.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the step's task name in the rollback run.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Reason says which earlier step changes the device first.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "device",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "RollbackReport": {
+      "description": "RollbackReport is a rollback's own part of the run report.",
+      "properties": {
+        "already_undone": {
+          "description": "AlreadyUndone are changes an earlier rollback of the run undid.",
+          "items": {
+            "$ref": "#/$defs/Gap"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "left": {
+          "description": "Left are changes left in place, by --leave.",
+          "items": {
+            "$ref": "#/$defs/Gap"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "levels": {
+          "description": "Levels are the undo's tasks in the order they run.",
+          "items": {
+            "items": {
+              "$ref": "#/$defs/Step"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "nothing_to_undo": {
+          "description": "NothingToUndo are changes whose task's rollback: list is empty: its runbook says undoing them means doing nothing.",
+          "items": {
+            "$ref": "#/$defs/Gap"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "of": {
+          "description": "Of is the run undone.",
+          "type": "string"
+        },
+        "problems": {
+          "description": "Problems are why the rollback was refused, when it was.",
+          "items": {
+            "$ref": "#/$defs/Problem"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "provisional": {
+          "description": "Provisional are, in a check, the steps on a device an earlier step of the rollback changes first: their checks meet the device as it is now.",
+          "items": {
+            "$ref": "#/$defs/ProvisionalStep"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "unaccepted_unknown": {
+          "description": "UnacceptedUnknown counts Unknown not named with --allow-unknown.",
+          "type": "integer"
+        },
+        "unknown": {
+          "description": "Unknown are effects nobody can say were changes: failed actions and an unsealed journal.",
+          "items": {
+            "$ref": "#/$defs/Gap"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "of",
+        "unaccepted_unknown"
+      ],
+      "type": "object"
+    },
+    "RunOutcome": {
+      "description": "RunOutcome is how a run ended, with the status the command exits with.",
+      "properties": {
+        "allowed_unchecked": {
+          "description": "AllowedUnchecked names the unchecked tasks --allow-unchecked allowed, each as its node id and its device's name (\"tasks[3] [r1]\").",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "exit_code": {
+          "description": "ExitCode is the command's exit status.",
+          "type": "integer"
+        },
+        "message": {
+          "description": "Message is the line the text view ends with.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status is complete, rescued, failed, incomplete, invalid or error. Known values: complete, rescued, failed, incomplete, invalid, error. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "complete",
+            "rescued",
+            "failed",
+            "incomplete",
+            "invalid",
+            "error"
+          ],
+          "type": "string"
+        },
+        "unchecked": {
+          "description": "Unchecked counts tasks a check did not cover and nothing allowed.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "message",
+        "exit_code"
+      ],
+      "type": "object"
+    },
+    "RunWarning": {
+      "description": "RunWarning is something about the run as a whole that the person running it has to know, shown in the text view and kept in --json.",
+      "properties": {
+        "devices": {
+          "description": "Devices names the devices the two runs share.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Kind is concurrent_run, concurrent_change or concurrent_unknown. Known values: concurrent_run, concurrent_change, concurrent_unknown. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "concurrent_run",
+            "concurrent_change",
+            "concurrent_unknown"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "description": "Message is the line the text view prints.",
+          "type": "string"
+        },
+        "pid": {
+          "description": "PID is the other run's process, for a concurrent_run.",
+          "type": "integer"
+        },
+        "run_id": {
+          "description": "RunID names the other run, for a concurrent_change: what `pleiades journal show` takes.",
+          "type": "string"
+        },
+        "runbook": {
+          "description": "Runbook is what the other run runs.",
+          "type": "string"
+        },
+        "when": {
+          "description": "When is \"start\" for what the run found as it began, \"end\" for what it found as it ended. Known values: start, end. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "start",
+            "end"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "when",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Step": {
+      "description": "Step is one task of a rollback run.",
+      "properties": {
+        "device": {
+          "description": "DeviceID and DeviceName name the device the step runs on: the one the node changed.",
+          "type": "string"
+        },
+        "device_id": {
+          "description": "DeviceID and DeviceName name the device the step runs on: the one the node changed.",
+          "type": "string"
+        },
+        "emitter": {
+          "description": "Emitter is the method the node ran: what recorded the undo, or whose runbook task carries the rollback: list.",
+          "type": "string"
+        },
+        "index": {
+          "description": "Index is the step's place in the node's undo: 0 for a recorded undo, its position in the rollback: list for an authored one.",
+          "type": "integer"
+        },
+        "method": {
+          "description": "FQCN and Params are the task to run.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the task's name in the rollback run.",
+          "type": "string"
+        },
+        "node": {
+          "description": "Node is the node, in the run being undone, this step undoes.",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {},
+          "description": "FQCN and Params are the task to run.",
+          "type": "object"
+        },
+        "partial": {
+          "description": "Partial marks a recorded undo that does not put everything back, run because the operator named it in AllowPartial.",
+          "type": "boolean"
+        },
+        "source": {
+          "description": "Source says where the step came from: \"recorded\" or \"authored\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "device_id",
+        "device",
+        "index",
+        "emitter",
+        "method",
+        "params",
+        "name",
+        "source"
+      ],
+      "type": "object"
+    },
+    "TaskReport": {
+      "description": "TaskReport is one task's result on one device. Every text in it that came from a device or a method is masked.",
+      "properties": {
+        "allowed_unchecked": {
+          "description": "AllowedUnchecked marks an unchecked task --allow-unchecked accepts.",
+          "type": "boolean"
+        },
+        "device": {
+          "description": "Device is the device's inventory id (a UUID), empty for a controller-side task and for a task that never ran. It stays the id by contract, since a name can change and be reused; Host is the name.",
+          "type": "string"
+        },
+        "error": {
+          "description": "Error is a failed task's error.",
+          "type": "string"
+        },
+        "finished_at": {
+          "description": "FinishedAt is when it ended.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "host": {
+          "description": "Host is the device's inventory name, the one a person reads.",
+          "type": "string"
+        },
+        "id": {
+          "description": "ID is the task's node id.",
+          "type": "string"
+        },
+        "ignored": {
+          "description": "Ignored marks a failure of a task that sets ignore_errors: it is a failure here and in the journal, and the run went on past it.",
+          "type": "boolean"
+        },
+        "label": {
+          "description": "Label is the loop_control label of the item this result is, when the task is a loop and its author wrote one. The item's own value is never reported, since it may be a secret.",
+          "type": "string"
+        },
+        "method": {
+          "description": "Method is the method or action it called.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the task's name, which may be empty.",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider",
+          "description": "Provider names the external program that ran the method, if one did."
+        },
+        "reason": {
+          "description": "Reason is why a task was skipped, could not be checked, or was never run.",
+          "type": "string"
+        },
+        "rescued_by": {
+          "description": "RescuedBy names the first task of the rescue: that answered this failed task's failure; the run went on past it.",
+          "type": "string"
+        },
+        "retried": {
+          "description": "Retried marks a failure the task tried again; only its last try fails the task.",
+          "type": "boolean"
+        },
+        "started_at": {
+          "description": "StartedAt is when the task's own execution began.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "stats": {
+          "additionalProperties": {},
+          "description": "Stats is everything the task reported, masked.",
+          "type": "object"
+        },
+        "status": {
+          "description": "Status is what the task did. Known values: ok, changed, would_change, checked_only, failed, held, skipped, unchecked, conditional_skip, not_run. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "ok",
+            "changed",
+            "would_change",
+            "checked_only",
+            "failed",
+            "held",
+            "skipped",
+            "unchecked",
+            "conditional_skip",
+            "not_run"
+          ],
+          "type": "string"
+        },
+        "undoes": {
+          "description": "Undoes names the task this one undid: a step of a block's rollback_on_failure, which undid what the block's tasks completed when one of them failed. Its id is that task's, with .undo[step].",
+          "type": "string"
+        },
+        "unreached": {
+          "description": "Unreached marks a failed task whose device never answered: its connection failed or timed out before anything was sent, so nothing ran and running it again is safe. A refused login is not unreached.",
+          "type": "boolean"
+        },
+        "warnings": {
+          "description": "Warnings are what the person running the work has to act on.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ValidationIssue": {
+      "description": "ValidationIssue is one validate.Finding.",
+      "properties": {
+        "device": {
+          "description": "Device is the inventory id of the device it concerns, if one.",
+          "type": "string"
+        },
+        "host": {
+          "description": "Host is that device's inventory name.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Message says why.",
+          "type": "string"
+        },
+        "node": {
+          "description": "Node is the task it refused.",
+          "type": "string"
+        },
+        "rule": {
+          "description": "Rule names the rule that refused the runbook.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule",
+        "node",
+        "message"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "RunReport is one run, as both views print it. Printed by pleiades run, adhoc and rollback --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets. So a reader ignores a field it does not know, treats a status or kind it does not know as not a pass, and refuses a major version it does not know.",
+  "properties": {
+    "blast_radius": {
+      "$ref": "#/$defs/BlastRadius",
+      "description": "BlastRadius is how many devices the run targets."
+    },
+    "inventory_hosts": {
+      "description": "InventoryHosts is how many devices the inventory holds.",
+      "type": "integer"
+    },
+    "journal": {
+      "description": "Journal is the path of this run's journal file, empty when RunID is.",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {},
+      "description": "Metadata is what set_metadata tasks recorded, masked.",
+      "type": "object"
+    },
+    "mode": {
+      "description": "Mode is execute or check, after check_mode in the runbook is applied. Known values: execute, check. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+      "examples": [
+        "execute",
+        "check"
+      ],
+      "type": "string"
+    },
+    "nodes": {
+      "description": "Nodes is how many tasks the runbook compiled to.",
+      "type": "integer"
+    },
+    "outcome": {
+      "$ref": "#/$defs/RunOutcome",
+      "description": "Outcome is how the run ended."
+    },
+    "plan": {
+      "description": "Plan is the authored task tree, section by section.",
+      "items": {
+        "$ref": "#/$defs/PlanSection"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "rollback": {
+      "$ref": "#/$defs/RollbackReport",
+      "description": "Rollback is, for `pleiades rollback`, what it planned: the run it undoes, what it leaves in place, what nobody can say changed, and, when it refused, why."
+    },
+    "run_id": {
+      "description": "RunID names this run in its journal, and is what `pleiades rollback` and `pleiades journal show` take. Empty for a check, which writes no journal, and for a run that never started.",
+      "type": "string"
+    },
+    "runbook": {
+      "description": "Runbook names what ran: the runbook's path, or the ad-hoc call.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "SchemaVersion is this report's major version, RunReportVersion.",
+      "type": "integer"
+    },
+    "selection": {
+      "description": "Selection is the --tags and --skip-tags that chose the tasks.",
+      "type": "string"
+    },
+    "service_effecting": {
+      "description": "ServiceEffecting is the runbook's own declaration.",
+      "type": "boolean"
+    },
+    "tasks": {
+      "description": "Tasks is each task's result on each device, in the executor's order.",
+      "items": {
+        "$ref": "#/$defs/TaskReport"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "validation": {
+      "description": "Validation is what stopped the run before it started.",
+      "items": {
+        "$ref": "#/$defs/ValidationIssue"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "warnings": {
+      "description": "Warnings are about the run as a whole: another run changing the same devices when it started (concurrent_run), or a change another run journaled to them while it worked (concurrent_change). A check has none, since it changes nothing.",
+      "items": {
+        "$ref": "#/$defs/RunWarning"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "runbook",
+    "mode",
+    "nodes",
+    "inventory_hosts",
+    "service_effecting",
+    "blast_radius",
+    "outcome"
+  ],
+  "title": "Pleiades run report",
+  "type": "object"
+}

@@ -1,5 +1,79 @@
 {
   "$defs": {
+    "Headroom": {
+      "description": "Headroom is what the machine had while a run ran, and how the run was bounded by it (tools/internal/headroom); absent on a record written before testgate measured it.",
+      "properties": {
+        "available_mb": {
+          "description": "AvailableMB is the memory free as the run began, in MB: MemAvailable or its equivalent, or inside a cgroup with a memory limit the smaller of that and what the limit had left.",
+          "type": "number"
+        },
+        "disk_free_gb": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "DiskFreeGB is the space free, in GB, on each file system the run builds and writes on, by path, as the run began.",
+          "type": "object"
+        },
+        "limit_mb": {
+          "description": "LimitMB is the cgroup memory limit the run ran under, in MB, or 0 with none.",
+          "type": "number"
+        },
+        "min_available_mb": {
+          "description": "MinAvailableMB is the least memory free seen while the run ran.",
+          "type": "number"
+        },
+        "min_disk_free_gb": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "MinDiskFreeGB is the least space free seen on each file system the run builds and writes on, by path, in GB.",
+          "type": "object"
+        },
+        "package_disk_mb": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "PackageDiskMB is the most each package's run wrote to disk, in MB: the largest fall in free space below where the run began on any one of the file systems it builds and writes on (its build cache, test binaries and temporary files), charged as PackageMB is.",
+          "type": "object"
+        },
+        "package_mb": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "PackageMB is the most each package's tests cost the machine while they ran, in MB: the fall in free memory below where the run began, swap growth included. With several packages running at once each is charged the whole fall, so it is a bound on what a package took, not its share; with one at a time it is its own.",
+          "type": "object"
+        },
+        "parallel_asked": {
+          "description": "ParallelAsked is the -p the run was asked for; 0 is go test's own default, the CPU count.",
+          "type": "integer"
+        },
+        "parallel_ran": {
+          "description": "ParallelRan is the -p the run used, lowered from ParallelAsked to what the free memory fit.",
+          "type": "integer"
+        },
+        "samples": {
+          "description": "Samples is how many times the machine was read while the run ran.",
+          "type": "integer"
+        },
+        "stopped": {
+          "description": "Stopped is why the run was stopped before it ended: the memory floor, swap growth, or a signal; empty for a run that ended on its own.",
+          "type": "string"
+        },
+        "swap_growth_mb": {
+          "description": "SwapGrowthMB is the most the swap in use grew past where it began.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "available_mb",
+        "min_available_mb",
+        "swap_growth_mb",
+        "parallel_asked",
+        "parallel_ran",
+        "samples"
+      ],
+      "type": "object"
+    },
     "Leg": {
       "description": "Leg is one OS check's leg, by its record's name.",
       "properties": {
@@ -205,6 +279,10 @@
             "array",
             "null"
           ]
+        },
+        "headroom": {
+          "$ref": "#/$defs/Headroom",
+          "description": "Headroom is what the machine had while the run ran and how the run was bounded by it; absent on a record written before testgate measured it."
         },
         "kind": {
           "description": "Kind is always testgate. Known values: testgate. A newer producer may add others, and a reader treats one it does not know as not a pass.",

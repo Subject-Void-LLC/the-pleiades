@@ -326,12 +326,17 @@ func TestGather_EmitsEveryFactThisMachineCanAnswer(t *testing.T) {
 
 	node := gatherCommandOutput(t, "uname", "-n")
 	short, _, _ := strings.Cut(node, ".")
+	version := gatherOSReleaseValue(t, "VERSION_ID")
+	major, _, _ := strings.Cut(version, ".")
 	for key, want := range map[string]any{
-		"ansible_hostname":             short,
-		"ansible_kernel":               gatherCommandOutput(t, "uname", "-r"),
-		"ansible_architecture":         gatherCommandOutput(t, "uname", "-m"),
-		"ansible_distribution":         gatherOSReleaseValue(t, "NAME"),
-		"ansible_distribution_version": gatherOSReleaseValue(t, "VERSION_ID"),
+		"ansible_hostname":                   short,
+		"ansible_nodename":                   node,
+		"ansible_system":                     gatherCommandOutput(t, "uname", "-s"),
+		"ansible_distribution_major_version": major,
+		"ansible_kernel":                     gatherCommandOutput(t, "uname", "-r"),
+		"ansible_architecture":               gatherCommandOutput(t, "uname", "-m"),
+		"ansible_distribution":               gatherOSReleaseValue(t, "NAME"),
+		"ansible_distribution_version":       gatherOSReleaseValue(t, "VERSION_ID"),
 	} {
 		if got := rc.facts[key]; got != want {
 			t.Errorf("%s fact = %v, want %v read straight off this machine", key, got, want)
@@ -372,6 +377,37 @@ func TestGather_EmitsEveryFactThisMachineCanAnswer(t *testing.T) {
 		t.Errorf("ansible_processor_count fact = %v, want it absent: this machine's /proc/cpuinfo has no physical id field", got)
 	case wantSockets != 0 && got != wantSockets:
 		t.Errorf("ansible_processor_count fact = %v, want %d distinct physical ids", got, wantSockets)
+	}
+
+	// The logical processors, counted here with this file's own reading of
+	// /proc/cpuinfo, and the memory and swap a default run now returns too.
+	var vcpus int
+	for _, line := range strings.Split(gatherReadFile(t, "/proc/cpuinfo"), "\n") {
+		if label, _, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(label) == "processor" {
+			vcpus++
+		}
+	}
+	if vcpus > 0 && rc.facts["ansible_processor_vcpus"] != vcpus {
+		t.Errorf("ansible_processor_vcpus fact = %v, want %d processor entries", rc.facts["ansible_processor_vcpus"], vcpus)
+	}
+	if mb, ok := rc.facts["ansible_swaptotal_mb"].(int64); !ok || mb < 0 {
+		t.Errorf("ansible_swaptotal_mb fact = %#v, want a non-negative int64", rc.facts["ansible_swaptotal_mb"])
+	}
+}
+
+// TestGather_EveryNewFactIsDeclared: each fact the default run added is a
+// Returns entry, so pleiades doc names it and a register reads it (R3).
+func TestGather_EveryNewFactIsDeclared(t *testing.T) {
+	d, _ := collection.Lookup("facts.gather")
+	declared := map[string]bool{}
+	for _, r := range d.Manifest.Doc.Returns {
+		declared[r.Name] = true
+	}
+	for _, key := range []string{"ansible_nodename", "ansible_system", "ansible_distribution_major_version", "ansible_distribution_release",
+		"ansible_swaptotal_mb", "ansible_processor_vcpus", "ansible_processor_cores"} {
+		if !declared[key] {
+			t.Errorf("%s is gathered but not declared in Returns", key)
+		}
 	}
 }
 
@@ -509,9 +545,13 @@ func TestGather_FilterNarrowsToOneFactOfAProbeThatAnswersTwo(t *testing.T) {
 // TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip is what
 // stops that skip firing where the evidence is supposed to come from.
 func TestGather_FilterMatchesAsAGlob(t *testing.T) {
+	version := gatherOSReleaseValue(t, "VERSION_ID")
+	major, _, _ := strings.Cut(version, ".")
 	want := map[string]any{
-		"ansible_distribution":         gatherOSReleaseValue(t, "NAME"),
-		"ansible_distribution_version": gatherOSReleaseValue(t, "VERSION_ID"),
+		"ansible_distribution":               gatherOSReleaseValue(t, "NAME"),
+		"ansible_distribution_version":       version,
+		"ansible_distribution_major_version": major,
+		"ansible_distribution_release":       gatherOSReleaseValue(t, "VERSION_CODENAME"),
 	}
 
 	server := startGatherServer(t)
@@ -528,8 +568,8 @@ func TestGather_FilterMatchesAsAGlob(t *testing.T) {
 			t.Errorf("%s fact = %v, want %v read straight off this machine: the glob should have matched it", key, got, value)
 		}
 	}
-	if len(rc.facts) != 2 {
-		t.Errorf("facts = %v, want only the two the glob matches", rc.facts)
+	if len(rc.facts) != len(want) {
+		t.Errorf("facts = %v, want only the %d the glob matches", rc.facts, len(want))
 	}
 }
 

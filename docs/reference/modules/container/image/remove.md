@@ -23,7 +23,7 @@ Removes the reference image names: a tag is removed, and the image with it when 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `image` | `string` | yes | - | The image: a reference, or an image ID. |
 | `id` | `string` | no | - | The image ID the reference must still name. |
 | `force` | `bool` | no | `false` | Remove an image a stopped container uses; the engine still refuses one a running container uses. On Podman, force also deletes the stopped containers using the image, which Docker leaves. |

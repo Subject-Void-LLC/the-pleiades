@@ -1,1 +1,0 @@
-New `win.file.copy` copies a project file to a Windows host over WinRM, sending it on the command's standard input and keeping it only when its SHA-256 matches; a file already there with that digest is no change.

@@ -58,6 +58,11 @@ func renderDoc(doc collection.Doc) string {
 			}
 			fields = appendStringField(fields, "Default", p.Default)
 			fields = appendStringSliceField(fields, "Choices", p.Choices)
+			// Matching the choices ignoring case: dropping the mark would
+			// make validation refuse a value the method accepts.
+			if p.ChoicesIgnoreCase {
+				fields = append(fields, "ChoicesIgnoreCase: true")
+			}
 			fields = appendStringField(fields, "Description", p.Description)
 			fields = appendStringField(fields, "AliasOf", p.AliasOf)
 			// A parameter that may hold {{ secret.x.y }} references: dropping

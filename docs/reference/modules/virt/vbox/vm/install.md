@@ -24,12 +24,12 @@ Makes sure a VM of this name exists, creating it by installing an operating syst
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted. |
-| `installer` | `string` | yes | - | The operating system the ISO installs, which sets how: windows reads an answer file by itself, and freebsd is started from its installer's Welcome dialog. Declared here, never inferred from os_type. |
+| `installer` | `string` | yes | - | The operating system the ISO installs, which sets how: windows reads an answer file by itself, and freebsd is started from its installer's Welcome dialog. Declared here, never inferred from os_type. **Choices:** `windows`, `freebsd`. |
 | `iso` | `string` | yes | - | The installation ISO's absolute path on the host, such as Microsoft's Windows Server evaluation ISO or FreeBSD's dvd1 ISO. It is attached and then taken out again, never changed or deleted. |
 | `image` | `string` | no | - | windows only, and required with it. The edition to install: its name in the ISO's install.wim, such as Windows Server 2025 Standard Evaluation, which is Server Core, or Windows Server 2025 Datacenter Evaluation (Desktop Experience); or its index there, 1 for the first. |
 | `os_type` | `string` | yes | - | The VM's guest OS type, as VBoxManage list ostypes names it: Windows2025_64 for Windows Server 2025, Windows2022_64 for 2022, Ubuntu_64 for Ubuntu. VirtualBox tunes the VM to it, and virt.vbox.vm.clone seeds a clone of a Windows type with a Windows answer file. |
 | `disk_gb` | `int` | no | `64` | The size of the VM's new disk, in gigabytes, at least 32 for windows and 8 for freebsd. It grows on the host as the guest writes to it. |
-| `size` | `string` | no | `medium` | The VM's size while it installs, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Windows Server needs at least small. |
+| `size` | `string` | no | `medium` | The VM's size while it installs, a T-shirt size, which sets its CPUs and memory together as a cloud's instance type does: xsmall is 1 CPU and 1024 MB, small 1 CPU and 2048 MB, medium 2 CPUs and 4096 MB, large 4 CPUs and 8192 MB, and xlarge 8 CPUs and 16384 MB. Windows Server needs at least small. **Choices:** `xsmall`, `small`, `medium`, `large`, `xlarge`. |
 | `language` | `string` | no | `en-US` | windows only. The installation's language and locale, as a tag such as en-US. The ISO must hold it. |
 | `timeout` | `int` | no | `7200` | How many seconds to wait for the install to finish and the VM to power itself off. |
 

@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -57,7 +56,7 @@ type TargetResolver interface {
 // resolves the rendered target itself (resolveBounded), never through here.
 func TaskTarget(dag *DAG, task *Task) string {
 	if target, ok := task.Params[collection.TargetParam].(string); ok && target != "" {
-		if task.Within != "" && strings.Contains(target, "{{") {
+		if task.Within != "" && IsTemplate(target) {
 			return task.Within
 		}
 		return target
@@ -204,6 +203,19 @@ func (builtinActionExecutor) Execute(_ context.Context, task *Task, _ inventory.
 			return ActionResult{}, fmt.Errorf("fqcn %q requires a non-empty params.data map", task.FQCN)
 		}
 		return ActionResult{Stats: data, IsMetadata: true}, nil
+	case FailName, FailFQCN:
+		return ActionResult{}, fmt.Errorf("%s", failMessage(task))
+	case AssertName, AssertFQCN:
+		// runOne evaluates an assert itself, which it alone can (assert.go).
+		return ActionResult{}, fmt.Errorf("fqcn %q is evaluated by the engine, not run as a method", task.FQCN)
+	case SetFactName, SetFactFQCN:
+		// The facts are the params, already rendered; runOne records them for
+		// the device (vars.go), so a later task reads them as vars.
+		facts, _, err := splitFacts(task.Params)
+		if err != nil {
+			return ActionResult{}, fmt.Errorf("fqcn %q: %w", task.FQCN, err)
+		}
+		return ActionResult{Stats: facts}, nil
 	default:
 		return ActionResult{}, fmt.Errorf("fqcn %q has no in-process implementation yet (Phase W6 adds a real transport)", task.FQCN)
 	}

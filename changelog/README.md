@@ -20,5 +20,7 @@ same registry `pleiades validate` reads.
 ```
 
 A pull request that changes nothing a user can see (refactoring, internal tests, CI
-plumbing) needs no fragment. A generator will eventually assemble these into
-`CHANGELOG.md` at release and remove them; until that lands, assembly is manual.
+plumbing) needs no fragment. At a release the fragments are assembled into that
+version's section of `CHANGELOG.md` and removed. A generator will eventually do this;
+until it lands, assembly is manual. The development fragments from before 0.3.0 were
+retired at that release, whose notes (`docs/releases/v0.3.0.md`) summarize them.

@@ -23,11 +23,11 @@ Reads a gate manifest (YAML, at most 1 MiB, decoded strictly) from the device an
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `manifest` | `string` | yes | - | The gate manifest's path on the device. A check's dir is relative to the manifest's own directory. |
 | `kinds` | `list of string` | no | - | Run only checks of these kinds. Every kind when absent. A kind the manifest does not have is refused. |
 | `checks` | `list of string` | no | - | Run only these checks, by name, among those the kinds select. A name the manifest does not have is refused. |
-| `heavy` | `string` | no | `include` | include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass. |
+| `heavy` | `string` | no | `include` | include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass. **Choices:** `include`, `exclude`, `only`. |
 | `parallelism` | `int` | no | - | How many checks run at once, overriding the manifest's defaults.parallelism; 1 when neither sets it, at most 16. Heavy checks still run one at a time and serial checks alone. |
 | `fail_on_skip` | `bool` | no | `false` | Fail the task when any check is skipped, for a gate whose every check must run. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |

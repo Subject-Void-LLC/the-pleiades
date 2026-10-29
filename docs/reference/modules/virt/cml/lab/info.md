@@ -4,9 +4,9 @@ status: beta
 
 # virt.cml.lab.info
 
-Reports one CML lab: its nodes, their interfaces and its links.
+Reports one CML lab: its nodes, their interfaces and links, and how many nodes the controller runs.
 
-Reads one lab and changes nothing. A lab that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read.
+Reads one lab and changes nothing: each node's label, definition and state, each of its interfaces with the link it is on (the link's state, and the node and interface at its other end), every link, and how many nodes run on the controller, so a plan can see how full a shared controller is before it stops or starts a node. A lab that does not exist is not a failure: exists is false and only the controller's count is reported, so a later task can decide what to do. The count is of what this login can see (every lab GET /labs?show_all=true lists it), which may be fewer nodes than the controller runs, and it is not the controller's limit, which CML does not show an ordinary user. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read, a missing lab included.
 
 ## Attributes
 
@@ -33,8 +33,10 @@ Reads one lab and changes nothing. A lab that does not exist is not a failure: e
 | `id` | `string` | when exists | The lab's id. |
 | `title` | `string` | when exists | The lab's title. |
 | `state` | `string` | when exists | DEFINED_ON_CORE, STARTED or STOPPED. |
-| `nodes` | `list` | when exists | Each node as id, label, definition, state and interfaces (each as label and connected). |
-| `links` | `list` | when exists | Each link as id, a, a_interface, b and b_interface, by node label and interface label. |
+| `nodes` | `list` | when exists | Each node as id, label, definition, state (DEFINED_ON_CORE, STOPPED, QUEUED, STARTED or BOOTED) and interfaces. Each interface is label and connected and, when it is on a link, link (the link's id), link_state, peer and peer_interface (the node and interface at the link's other end, by label). |
+| `links` | `list` | when exists | Each link as id, a, a_interface, b, b_interface (by node label and interface label) and state: STARTED carries traffic, STOPPED is cut as if unplugged, DEFINED_ON_CORE has never run. |
+| `controller_nodes_running` | `int` | always | How many nodes are queued, started or booted across every lab this login can see, this one's included. It may be fewer than the controller runs, and it is not the controller's limit. |
+| `controller_labs` | `int` | always | How many labs controller_nodes_running counts. |
 
 ## Undoing this
 

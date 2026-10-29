@@ -37,6 +37,10 @@ func (k *keyValueList) Set(s string) error {
 	if pkginventory.IsReservedProperty(key) {
 		return fmt.Errorf("--set cannot write property %s: only %s writes it", key, pkginventory.ReservedPropertyWriter(key))
 	}
+	// The vars property is a mapping, which one key=value cannot express.
+	if key == pkginventory.VarsProperty {
+		return fmt.Errorf("--set cannot write property %s: write variables in group_vars/ or host_vars/ beside %s, or under the host's properties in it", key, inventory.DefaultInventoryFilename)
+	}
 	if k.values == nil {
 		k.values = map[string]interface{}{}
 	}

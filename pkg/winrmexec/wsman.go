@@ -46,6 +46,8 @@ import (
 
 	"github.com/masterzen/winrm"
 	"github.com/masterzen/winrm/soap"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // WS-Man vocabulary this file uses. The resource URI names the Windows
@@ -426,7 +428,9 @@ func describeFault(err error) error {
 		text += "\n" + parsed.Body
 	}
 	if m := faultText.FindStringSubmatch(text); m != nil {
-		return &faultError{message: strings.TrimSpace(m[1]), err: err}
+		// The sentence is the host's own text: quoted and bounded through
+		// pkg/farside, so a control byte in it is shown rather than sent.
+		return &faultError{message: farside.Text(m[1]), err: err}
 	}
 	return err
 }

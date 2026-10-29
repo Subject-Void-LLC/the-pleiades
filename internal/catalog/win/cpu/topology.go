@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wincpu"
@@ -126,7 +127,7 @@ func Topology(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	case wincpu.ExitConstrained:
 		return collection.Result{}, fmt.Errorf("%s: PowerShell on %s runs in %s, which refuses the Add-Type the read needs", fqcn, device.Name(), languageMode(res.Stdout))
 	default:
-		return collection.Result{}, fmt.Errorf("%s: the host's script exited %d: %s", fqcn, res.ExitCode, strings.TrimSpace(res.Stderr+" "+res.Stdout))
+		return collection.Result{}, fmt.Errorf("%s: the host's script exited %d: %s", fqcn, res.ExitCode, farside.Output(res.Stderr+"\n"+res.Stdout))
 	}
 	t, err := wincpu.Parse(res.Stdout)
 	if err != nil {

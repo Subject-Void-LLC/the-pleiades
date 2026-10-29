@@ -42,22 +42,22 @@ func TestCollectionRule_UnregisteredName(t *testing.T) {
 // 34's Release Gate: pleiades validate rejects a runbook calling a real
 // catalog name whose manifest Status is still StatusDeclared.
 //
-// file.template is the fixture rather than an arbitrary declared name,
+// net.junos.config is the fixture rather than an arbitrary declared name,
 // because it is documented (CLAUDE.md, the module catalog reference) as
-// staying declared for a real, structural reason: the render engine
-// lives in internal/render, which a Collection may not import. A name
-// that stays declared on purpose is a stable fixture; one declared only
-// because nobody had gotten to it yet is not, and pkg.apt.install was
-// exactly that until this namespace was implemented.
+// staying declared for a real, structural reason: it needs a device type
+// that does not exist yet (Phase 74d). A name that stays declared on
+// purpose is a stable fixture; one declared only because nobody had
+// gotten to it yet is not, and pkg.apt.install and file.template were
+// exactly that until they were implemented.
 func TestCollectionRule_DeclaredButUnimplemented(t *testing.T) {
-	world := validate.WorldView{DAG: dagWithOneTask("file.template", "")}
+	world := validate.WorldView{DAG: dagWithOneTask("net.junos.config", "")}
 
 	report := validate.Validate(world)
 	if !report.HasErrors() {
 		t.Fatal("expected a declared-but-unimplemented collection name to be flagged")
 	}
 	msg := report.String()
-	if !strings.Contains(msg, "file.template") {
+	if !strings.Contains(msg, "net.junos.config") {
 		t.Errorf("expected the message to name the fqcn, got: %s", msg)
 	}
 	if !strings.Contains(msg, "declared but not yet implemented") {
@@ -139,7 +139,7 @@ func TestCollectionRule_StressAllCatalogNames(t *testing.T) {
 // TestCapabilityRule_NamedTaskInMessage: a task's human-given Name, when
 // set, is folded into the Finding's Message alongside its synthesized ID.
 func TestCollectionRule_NamedTaskInMessage(t *testing.T) {
-	world := validate.WorldView{DAG: dagWithOneTask("file.template", "")}
+	world := validate.WorldView{DAG: dagWithOneTask("net.junos.config", "")}
 	world.DAG.Nodes["tasks[0]"].Name = "render a config file"
 
 	findings := validate.CollectionRule(world)

@@ -123,10 +123,36 @@ type Descriptor struct {
 	// checkpoint: false). It follows CheckCall's precedent, so validation
 	// can refuse reversible: true or a block's rollback_on_failure over
 	// such a call before the run, rather than the undo stopping halfway
-	// through. It is nil for a method whose every call is undone as
-	// declared, and Register refuses it on a method that is not
-	// reversible, since there it would answer a question nothing asks.
+	// through. A method with an InverseSpec marked MayBePartial answers here
+	// too for the calls whose undo would be partial (net.ios.config's crypto
+	// key lines), but only when UndoCallDecidesPartial says so. It is nil
+	// for a method whose every call is undone as declared, and Register
+	// refuses it on a method that is not reversible, since there it would
+	// answer a question nothing asks.
 	UndoCall func(params map[string]any) string
+
+	// UndoCallDecidesPartial is the method's own statement that its UndoCall
+	// names every call whose undo would be partial, so validation asks it
+	// instead of refusing every call of a method with an InverseSpec marked
+	// MayBePartial. It is a field of its own, rather than read from UndoCall
+	// being set, so an UndoCall added later for another reason (calls that
+	// record no undo at all) cannot silently lift that refusal for a method
+	// whose partial calls it never names. Register refuses it without an
+	// UndoCall, and on a method with no MayBePartial inverse, where it would
+	// decide nothing.
+	UndoCallDecidesPartial bool
+
+	// ReadOnlyCall is, for a method that is not read-only as a whole but
+	// some of whose calls only read, the answer read from a call's
+	// parameters alone: true when a call with params changes nothing
+	// (net.ios.command running "show version"). It follows CheckCall's
+	// precedent, so validation can treat such a call as it treats a
+	// read-only method (an until over it repeats no change), and the engine
+	// holds a call it answered true for to its claim as it holds a read-only
+	// method (Descriptor.ReadsOnly). It is nil for every other method, and
+	// Register refuses it on a method whose manifest already declares
+	// ReadOnly, since there it would answer a question nothing asks.
+	ReadOnlyCall func(params map[string]any) bool
 
 	// Provider is nil for a method compiled into this binary. For a method
 	// an external Collection program provides, it names that program. Only
@@ -222,6 +248,12 @@ func Register(d Descriptor) error {
 	}
 	if d.UndoCall != nil && !d.Manifest.Reversibility.Reversible {
 		return fmt.Errorf("collection: %q carries an UndoCall function but does not declare itself reversible", d.Name)
+	}
+	if err := checkUndoCallDecidesPartial(d); err != nil {
+		return err
+	}
+	if err := checkReadOnlyCall(d); err != nil {
+		return err
 	}
 
 	if err := checkReservedParams(d); err != nil {

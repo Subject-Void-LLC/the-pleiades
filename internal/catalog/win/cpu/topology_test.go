@@ -13,6 +13,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -151,6 +152,27 @@ func TestTopology_NoMaskAcrossGroups(t *testing.T) {
 	}
 }
 
+// addTypeFailed is the error record Windows PowerShell 5.1 writes to stderr
+// when Add-Type cannot compile its source: CRLF lines naming the temporary
+// file, the caret line and the category. The method's error holds it on one
+// line, quoted and bounded by pkg/farside.
+const addTypeFailed = "Add-Type : c:\\Users\\gate\\AppData\\Local\\Temp\\k3x1.0.cs(3) : The type or namespace name 'Kernel32' could not be found\r\n" +
+	"At line:1 char:1\r\n" +
+	"+ Add-Type -TypeDefinition $source\r\n" +
+	"+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n" +
+	"    + CategoryInfo          : InvalidData: (c:\\Users\\gate\\...\\k3x1.0.cs(3) :String) [Add-Type], Exception\r\n" +
+	"    + FullyQualifiedErrorId : SOURCE_CODE_ERROR,Microsoft.PowerShell.Commands.AddTypeCommand\r\n"
+
+// TestTopology_AFailedScriptIsOneQuotedLine: the script's error record
+// reaches the error as farside.Output quotes it, with no raw line break.
+func TestTopology_AFailedScriptIsOneQuotedLine(t *testing.T) {
+	answer(t, winrmexec.Result{ExitCode: 1, Stderr: addTypeFailed}, nil)
+	_, err := call(t, false, &recorder{stats: map[string]any{}}, host, nil)
+	if err == nil || !strings.Contains(err.Error(), farside.Output(addTypeFailed+"\n")) || strings.ContainsAny(err.Error(), "\r\n") {
+		t.Errorf("err = %v, want the record on one quoted line", err)
+	}
+}
+
 func TestTopology_Failures(t *testing.T) {
 	notWindows := &inventorytest.Stub{StubName: "linux", Caps: []capability.Name{capability.NameWinRM}}
 	for why, tt := range map[string]struct {
@@ -167,7 +189,7 @@ func TestTopology_Failures(t *testing.T) {
 		"WinRM fails":        {host, nil, winrmexec.Result{}, errors.New("connection refused"), "connection refused"},
 		"constrained":        {host, nil, winrmexec.Result{ExitCode: 20, Stdout: "language=ConstrainedLanguage\r\n"}, nil, "runs in ConstrainedLanguage, which refuses the Add-Type"},
 		"constrained, blank": {host, nil, winrmexec.Result{ExitCode: 20}, nil, "a restricted language mode"},
-		"the script fails":   {host, nil, winrmexec.Result{ExitCode: 1, Stderr: "Add-Type : Cannot add type."}, nil, "exited 1: Add-Type : Cannot add type."},
+		"the script fails":   {host, nil, winrmexec.Result{ExitCode: 1, Stderr: addTypeFailed}, nil, `exited 1: "Add-Type : c:\\Users\\gate\\AppData\\Local\\Temp\\k3x1.0.cs(3) : The type or namespace name 'Kernel32' could not be found At line:1 char:1`},
 		"garbled output":     {host, nil, winrmexec.Result{Stdout: "cpuset lp=x"}, nil, "wincpu:"},
 	} {
 		answer(t, tt.result, tt.err)

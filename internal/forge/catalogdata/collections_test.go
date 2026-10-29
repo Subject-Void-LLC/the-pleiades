@@ -81,9 +81,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// info, create, start, stop and delete, virt.cml.node.create and delete,
 	// and virt.cml.link.create and delete. VMware Fusion added the 208th
 	// through 210th: virt.fusion.vm.info, start and stop.
+	// A lab VM's data disk added the 211th and 212th: virt.vbox.vm.attach_disk
+	// and detach_disk.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 210
+	const wantCollections = 212
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

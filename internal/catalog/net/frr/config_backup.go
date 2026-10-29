@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 )
@@ -64,7 +66,7 @@ func (s *session) writePrivate(ctx context.Context, p, content string) error {
 		return fmt.Errorf("%s: writing %s: %w", configFQCN, p, err)
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%s: writing %s: exited %d: %s", configFQCN, p, res.ExitCode, firstLine(res.Stderr))
+		return fmt.Errorf("%s: writing %s: exited %d: %s", configFQCN, p, res.ExitCode, farside.MaskedOutput(res.Stderr, netcfg.Mask))
 	}
 	return nil
 }

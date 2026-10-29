@@ -41,7 +41,7 @@ func TestParamTypeRule(t *testing.T) {
 		{"an undeclared parameter is ParamsRule's", "exec.shell", map[string]any{"cmd": "cat", "stdn": 4}, nil},
 		{"null is absent", "exec.shell", map[string]any{"cmd": "cat", "stdin": nil}, nil},
 		{"engine action", "noop", map[string]any{"anything": 1}, nil},
-		{"declared-only method", "file.template", map[string]any{"src": 1}, nil},
+		{"declared-only method", "net.junos.config", map[string]any{"src": 1}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			findings := validate.ParamTypeRule(validate.WorldView{DAG: dagWithParams(tc.fqcn, tc.params)})

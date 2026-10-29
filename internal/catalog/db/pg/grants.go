@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // grants' own parameters and returns.
@@ -23,6 +26,9 @@ const (
 
 	statExtra   = "extra"
 	statMissing = "missing"
+	// statExists says whether what a read names exists: db.pg.grants' role
+	// and database, db.pg.rowcounts' database.
+	statExists = "exists"
 )
 
 // grantKinds are the object kinds a declared set names, each with the
@@ -117,34 +123,25 @@ func Grants(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, err
 	}
 	defer func() { _ = ssh.Close() }()
-	s, err := open(ctx, ssh, conn, database)
+	cat, err := grantsCatalog(ctx, ssh, conn, database, role, expect, timeout)
 	if err != nil {
-		return fail(err)
-	}
-	defer func() { _ = s.Close() }()
-	_, major, err := s.ServerVersion(ctx)
-	if err != nil {
-		return fail(err)
-	}
-	if err := expect.fitServer(major); err != nil {
-		return fail(err)
-	}
-
-	var cat catalog
-	if err := s.Snapshot(ctx, pgclient.Limits{Statement: timeout, Lock: defaultLockTimeout}, func(tx *sql.Tx) error {
-		var err error
-		cat, err = readCatalog(ctx, tx, role)
-		return err
-	}); err != nil {
 		return fail(err)
 	}
 	extra, missing := compareGrants(expect, cat)
+	if cat.absent != "" {
+		// The declared set names a role in a database, so one that does not
+		// exist is a difference: answered as data, and still not a pass.
+		missing = append([]string{cat.absent + " (it does not exist)"}, missing...)
+	}
 	toAny := func(in []string) []any {
 		out := make([]any, len(in))
 		for i, v := range in {
 			out[i] = v
 		}
 		return out
+	}
+	if err := rc.SetStat(statExists, cat.absent == ""); err != nil {
+		return collection.Result{}, err
 	}
 	if err := rc.SetStat(statExtra, toAny(extra)); err != nil {
 		return collection.Result{}, err
@@ -163,6 +160,34 @@ func Grants(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return fail(fmt.Errorf("role %s in %s differs from the declared set in %d way(s)%s", role, database, len(lines), listed(lines)))
 	}
 	return collection.Result{Changed: false}, recordWarnings(rc, transportWarnings(conn))
+}
+
+// grantsCatalog reads role's catalog in database, fitting expect to the
+// server first. A database that does not exist is answered as a catalog
+// holding nothing, absent naming it, as readCatalog answers a role.
+func grantsCatalog(ctx context.Context, ssh *remoteexec.Conn, conn wire.DatabaseConnection, database, role string, expect expectation, timeout time.Duration) (catalog, error) {
+	s, err := open(ctx, ssh, conn, database)
+	if pgclient.ErrorCode(err) == pgclient.InvalidCatalogName {
+		return catalog{objects: map[string][]string{}, database: database, absent: "database " + database}, nil
+	}
+	if err != nil {
+		return catalog{}, err
+	}
+	defer func() { _ = s.Close() }()
+	_, major, err := s.ServerVersion(ctx)
+	if err != nil {
+		return catalog{}, err
+	}
+	if err := expect.fitServer(major); err != nil {
+		return catalog{}, err
+	}
+	var cat catalog
+	err = s.Snapshot(ctx, pgclient.Limits{Statement: timeout, Lock: defaultLockTimeout}, func(tx *sql.Tx) error {
+		var err error
+		cat, err = readCatalog(ctx, tx, role)
+		return err
+	})
+	return cat, err
 }
 
 // compareGrants is every privilege, membership and owned object the role

@@ -13,7 +13,7 @@ import (
 )
 
 // labCheck is a lab check as a test configures one.
-var labCheck = LabCheck{Tool: "xcheck", Kind: "box", OS: "BoxOS", EnvFile: "tests/x/.env", ProjectKey: "X_PROJECT", DeviceKey: "X_DEVICE"}
+var labCheck = LabCheck{Tool: "xcheck", Kind: "box", OS: "BoxOS", EnvFile: "tests/x/.env", ProjectKey: "X_PROJECT", DeviceKey: "X_DEVICE", DataKey: "X_DATA"}
 
 // TestLabTarget: neither setting is no machine, both name one (with ~/
 // expanded), and one alone, a device name pleiades would misread, or a
@@ -55,12 +55,13 @@ func TestLabCheck_Run(t *testing.T) {
 	writeFile(t, project, "inventory.yaml", "devices: []\n")
 	file := filepath.Join(dir, "tests/x/.env")
 	pkgs := []string{"github.com/x/a"}
+	var gotData string
 	run := func(leg *fakeLeg, args ...string) (int, string, string, string) {
 		t.Helper()
 		var gotProject, gotDevice string
 		var stdout, stderr bytes.Buffer
-		code := labCheck.Run(context.Background(), args, &stdout, &stderr, func(p, d string) (Leg, error) {
-			gotProject, gotDevice = p, d
+		code := labCheck.Run(context.Background(), args, &stdout, &stderr, func(p, d, data string) (Leg, error) {
+			gotProject, gotDevice, gotData = p, d, data
 			return leg, nil
 		})
 		return code, stdout.String() + stderr.String(), gotProject, gotDevice
@@ -87,15 +88,20 @@ func TestLabCheck_Run(t *testing.T) {
 
 	writeFile(t, dir, "tests/x/.env", "X_PROJECT="+project+"\nX_DEVICE=box-1\n")
 	code, out, gotProject, gotDevice := run(&fakeLeg{passed: true}, pkgs...)
-	if code != 0 || gotProject != project || gotDevice != "box-1" || !strings.Contains(out, "all tests passed on box-1 (BoxOS)") {
-		t.Errorf("configured: exit %d, leg for %q %q\n%s", code, gotProject, gotDevice, out)
+	if code != 0 || gotProject != project || gotDevice != "box-1" || gotData != "" || !strings.Contains(out, "all tests passed on box-1 (BoxOS)") {
+		t.Errorf("configured: exit %d, leg for %q %q %q\n%s", code, gotProject, gotDevice, gotData, out)
 	}
 	if code, out, _, _ := run(&fakeLeg{reachable: errors.New("box-1 did not answer")}, pkgs...); code != 2 || !strings.Contains(out, "To stop testing on a box: delete "+file) {
 		t.Errorf("unreachable: exit %d\n%s", code, out)
 	}
+	// The data directory reaches the machine too, when the settings name one.
+	writeFile(t, dir, "tests/x/.env", "X_PROJECT="+project+"\nX_DEVICE=box-1\nX_DATA=/data\n")
+	if code, _, _, _ := run(&fakeLeg{passed: true}, pkgs...); code != 0 || gotData != "/data" {
+		t.Errorf("with a data directory: exit %d, leg given %q", code, gotData)
+	}
 
 	var stderr bytes.Buffer
-	failing := func(string, string) (Leg, error) { return nil, errors.New("no git directory") }
+	failing := func(string, string, string) (Leg, error) { return nil, errors.New("no git directory") }
 	if code := labCheck.Run(context.Background(), pkgs, &stderr, &stderr, failing); code != 2 || !strings.Contains(stderr.String(), "no git directory") {
 		t.Errorf("a machine that could not be made: exit %d\n%s", code, &stderr)
 	}

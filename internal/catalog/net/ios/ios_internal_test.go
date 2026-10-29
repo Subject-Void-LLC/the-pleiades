@@ -313,11 +313,18 @@ GigabitEthernet1       10.10.20.148    YES NVRAM  up                    up
 GigabitEthernet2       unassigned      YES NVRAM  administratively down down    
 GigabitEthernet3       unassigned      YES NVRAM  administratively down down    `
 
+// factsSession is the Catalyst 8000V's replies to the min and brief
+// commands. It answers show interfaces and show vrf with nothing, and show
+// running-config as IOS answers an account in user mode, so the default
+// (all) gathers min and interfaces and leaves config out with a warning.
 func factsSession() *fakeSession {
 	return &fakeSession{outputs: map[string]string{
 		"show version":            realShowVersion,
 		"show inventory":          realShowInventory,
 		"show ip interface brief": realShowIPIntBrief,
+		"show interfaces":         "",
+		"show vrf":                "",
+		showRunningConfig:         userModeRefusal,
 	}}
 }
 
@@ -434,7 +441,10 @@ func TestFacts_OmitsAnUnassignedAddressRatherThanReportingTheWordUnassigned(t *t
 	}
 }
 
-func TestFacts_EmitsFactsAndNeverStats(t *testing.T) {
+// TestFacts_RecordsEachValueAsAFactAndAStat: a fact is drift data and a
+// stat is what register, until and when read, and every value but the
+// configuration is both, under one name.
+func TestFacts_RecordsEachValueAsAFactAndAStat(t *testing.T) {
 	_, rc, err := runFacts(t, nil)
 	if err != nil {
 		t.Fatalf("Facts: %v", err)
@@ -442,20 +452,22 @@ func TestFacts_EmitsFactsAndNeverStats(t *testing.T) {
 	if len(rc.facts) == 0 {
 		t.Fatal("no facts emitted")
 	}
-	if len(rc.stats) != 0 {
-		t.Errorf("SetStat was called with %v: a fact gatherer records drift data through EmitFact only", rc.stats)
+	for name, v := range rc.facts {
+		if !reflect.DeepEqual(rc.stats[name], v) {
+			t.Errorf("fact %s = %v, stat = %v, want the same value as both", name, v, rc.stats[name])
+		}
 	}
 }
 
-func TestFacts_DefaultsToTheMinSubsetAndSkipsTheInterfaceCommand(t *testing.T) {
-	f, rc, err := runFacts(t, nil)
+// TestFacts_OnlyMinSendsOnlyTheMinCommands: a task asking for min alone
+// sends show version and show inventory and nothing else.
+func TestFacts_OnlyMinSendsOnlyTheMinCommands(t *testing.T) {
+	f, rc, err := runFacts(t, map[string]any{paramGatherSubset: []any{subsetMin}})
 	if err != nil {
 		t.Fatalf("Facts: %v", err)
 	}
-	for _, line := range f.commandCalls {
-		if strings.Contains(line, "interface") {
-			t.Errorf("ran %q without being asked for the interfaces subset", line)
-		}
+	if !reflect.DeepEqual(f.commandCalls, []string{"show version", "show inventory"}) {
+		t.Errorf("sent %v, want only the min subset's commands", f.commandCalls)
 	}
 	if _, ok := rc.facts[factInterfaces]; ok {
 		t.Error("emitted an interfaces fact without being asked for that subset")
@@ -465,13 +477,21 @@ func TestFacts_DefaultsToTheMinSubsetAndSkipsTheInterfaceCommand(t *testing.T) {
 	}
 }
 
-func TestFacts_ExpandsAllIntoEverySubset(t *testing.T) {
-	_, rc, err := runFacts(t, map[string]any{paramGatherSubset: []any{subsetAll}})
-	if err != nil {
-		t.Fatalf("Facts: %v", err)
-	}
-	if got := rc.facts[factGatherSubset]; !reflect.DeepEqual(got, []string{subsetInterfaces, subsetMin}) {
-		t.Errorf("%s = %v, want [interfaces min]", factGatherSubset, got)
+// TestFacts_DefaultsToAll: no gather_subset means all, and all is every
+// subset; config is left out here because this session answers show
+// running-config as a user-mode account is answered.
+func TestFacts_DefaultsToAll(t *testing.T) {
+	for _, params := range []map[string]any{nil, {paramGatherSubset: []any{subsetAll}}} {
+		f, rc, err := runFacts(t, params)
+		if err != nil {
+			t.Fatalf("Facts: %v", err)
+		}
+		if !reflect.DeepEqual(f.commandCalls, []string{"show version", "show inventory", "show ip interface brief", "show interfaces", "show vrf", showRunningConfig}) {
+			t.Errorf("sent %v, want every subset's commands", f.commandCalls)
+		}
+		if got := rc.facts[factGatherSubset]; !reflect.DeepEqual(got, []string{subsetInterfaces, subsetMin}) {
+			t.Errorf("%s = %v, want [interfaces min] with config refused", factGatherSubset, got)
+		}
 	}
 }
 
@@ -711,9 +731,12 @@ func TestReadOnlyChecks_NeverConfigure(t *testing.T) {
 		fqcn   string
 		params map[string]any
 		want   func(line string) bool
+		// outputs answers named commands as a real device did; every other
+		// line gets the ping summary.
+		outputs map[string]string
 	}{
-		{"net.ios.facts", map[string]any{"gather_subset": []any{"all"}}, func(l string) bool { return strings.HasPrefix(l, "show ") }},
-		{"net.ios.ping", map[string]any{"dest": "10.0.0.1"}, func(l string) bool { return strings.HasPrefix(l, "ping ") }},
+		{"net.ios.facts", map[string]any{"gather_subset": []any{"all"}}, func(l string) bool { return strings.HasPrefix(l, "show ") }, iolSession(t).outputs},
+		{"net.ios.ping", map[string]any{"dest": "10.0.0.1"}, func(l string) bool { return strings.HasPrefix(l, "ping ") }, nil},
 	} {
 		t.Run(tc.fqcn, func(t *testing.T) {
 			d, ok := collection.Lookup(tc.fqcn)
@@ -721,7 +744,7 @@ func TestReadOnlyChecks_NeverConfigure(t *testing.T) {
 				t.Fatalf("%s does not declare a check", tc.fqcn)
 			}
 			run := func(method collection.Method) (*fakeSession, *stubContext, collection.Result) {
-				session := &fakeSession{defaultOutput: "Success rate is 100 percent (5/5), round-trip min/avg/max = 1/1/1 ms"}
+				session := &fakeSession{outputs: tc.outputs, defaultOutput: "Success rate is 100 percent (5/5), round-trip min/avg/max = 1/1/1 ms"}
 				swapOpenSession(t, func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any, string) (iosSession, error) {
 					return session, nil
 				})

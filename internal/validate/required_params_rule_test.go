@@ -39,7 +39,7 @@ func TestRequiredParamsRule(t *testing.T) {
 		{"engine action", "noop", nil, nil},
 		{"engine keyword spelled with dots", "pleiades.builtin.set_metadata", nil, nil},
 		{"unregistered method", "totally.fake.name", nil, nil},
-		{"declared-only method", "file.template", nil, nil},
+		{"declared-only method", "net.junos.config", nil, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			findings := validate.RequiredParamsRule(validate.WorldView{DAG: dagWithParams(tc.fqcn, tc.params)})

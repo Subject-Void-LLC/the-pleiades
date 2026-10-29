@@ -19,7 +19,7 @@ func lockDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: paramLockfile, Type: "string", Required: true, Description: "The lockfile's path on the device. Its format is recognized by its name (package-lock.json, Cargo.lock) unless format names one."},
 			{Name: paramManifest, Type: "string", Description: "The manifest's path, when it is not the lockfile's sibling of the usual name (package.json, Cargo.toml). A Cargo workspace member is checked by naming its own Cargo.toml with the workspace's Cargo.lock."},
-			{Name: paramFormat, Type: "string", Description: "The lockfile's format, npm or cargo, when its name does not say."},
+			{Name: paramFormat, Type: "string", Choices: []string{"npm", "cargo"}, Description: "The lockfile's format, npm or cargo, when its name does not say."},
 			{Name: paramSources, Type: "list of string", Description: "The sources entries may come from. For npm, registry host names (default registry.npmjs.org), git and file; for Cargo, Cargo's source strings (default both spellings of crates.io) and git."},
 			hostKeyParam,
 		},

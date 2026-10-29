@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -227,9 +228,11 @@ func extract(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	case exitDestIsNot:
 		return fail(fmt.Errorf("%s is on %s and is not a folder", r.dest, device.Name()))
 	case exitTar:
-		return fail(fmt.Errorf("tar.exe could not extract %s (exit %s): %s", r.src, out["tar"], strings.TrimSpace(res.Stderr)))
+		// tar writes its last real error just before its summary line, so the
+		// end is kept.
+		return fail(fmt.Errorf("tar.exe could not extract %s (exit %s): %s", r.src, out["tar"], farside.OutputTail(res.Stderr)))
 	default:
-		return fail(fmt.Errorf("the host's script exited %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr+" "+res.Stdout)))
+		return fail(fmt.Errorf("the host's script exited %d: %s", res.ExitCode, farside.Output(res.Stderr+"\n"+res.Stdout)))
 	}
 	switch {
 	case out["missing"] == "src":
@@ -239,11 +242,11 @@ func extract(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	skipped := out["skip"] == "creates"
 	if !skipped && out["dest_existed"] == "" {
-		return fail(fmt.Errorf("the host did not report what it found: %q", res.Stdout))
+		return fail(fmt.Errorf("the host did not report what it found: %s", farside.Output(res.Stdout)))
 	}
 	changed := !skipped
 	if mode == collection.ModeExecute && changed && out["extracted"] != "true" {
-		return fail(fmt.Errorf("the host did not report the extraction: %q", res.Stdout))
+		return fail(fmt.Errorf("the host did not report the extraction: %s", farside.Output(res.Stdout)))
 	}
 	existed := skipped || out["dest_existed"] == "True"
 	for k, v := range map[string]any{statDest: r.dest, statExtracted: changed} {

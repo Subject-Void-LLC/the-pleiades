@@ -40,15 +40,10 @@ COMMANDS: Dict[str, str] = {
     "actionlint": "workflow-lint",
     "GOOS=darwin go vet -tags integration ./...": "pr-check-vet",
 }
-SCOPE_COUNT = re.compile(r"^pr-check: (\d+) container-free and (\d+) container package\(s\) against ([^\s,]+)"
-                         r"(?:, and (\d+) container package\(s\) on the Mac's Podman)?")
+SCOPE_COUNT = re.compile(r"^pr-check: (\d+) container-free and (\d+) container package\(s\) against ([^\s,]+)")
 PRSCOPE = re.compile(r"^prscope: ")
-OSCHECK = re.compile(r"^(mac|bsd|win|winarm)check: (.*)$")
-TREE_SENT = re.compile(r"^(mac|bsd|win|winarm)check: the tree of \S+ is on ")
-VULN_REMOTE_START = re.compile(r"^\w+check: govulncheck \S+ runs on ")
-VULN_REMOTE_PASS = re.compile(r"^\w+check: govulncheck \S+ passed on ")
-VULN_REMOTE_FAIL = re.compile(r"^\w+check: govulncheck \S+ failed on ")
-VULN_HERE = re.compile(r"^pr-check: the \w+ check (?:could not run govulncheck|has no tree to scan), so govulncheck runs here")
+OSCHECK = re.compile(r"^(mac|bsd|win)check: (.*)$")
+TREE_SENT = re.compile(r"^(mac|bsd|win)check: the tree of \S+ is on ")
 LEG_BESIDE = re.compile(r"^pr-check: the (\w+) tests run beside the ones below")
 LAB_BESIDE = re.compile(r"^pr-check: the ([\w ]+) tests run one after another beside")
 # LEG_AT_START and LAB_AT_START are the same lines when the legs start at t0,
@@ -63,6 +58,10 @@ EXIT_STATUS = re.compile(r"^exit status (\d+)$")
 COVERAGE_LINE = re.compile(r"^coverage-check: ")
 COVERAGE_DONE = re.compile(r"^coverage-check: \d+ package\(s\) measured")
 DURATIONS_DONE = re.compile(r"^testgate: durations\.json ")
+# RESOURCES_LINE is any line of the resources step (testgate -resources-check
+# names tools/testgate/resources.json in each), and RESOURCES_DONE its last.
+RESOURCES_LINE = re.compile(r"^testgate: .*tools/testgate/resources\.json")
+RESOURCES_DONE = re.compile(r"^testgate: tools/testgate/resources\.json holds ")
 NO_DOCKER = re.compile(r"^pr-check: no Docker daemon answered")
 WAITING = re.compile(r"^pr-check: waiting for the ([\w-]+) tests")
 SUMMARY = re.compile(r"^pr-check(?: at (\S+))?, (.+?): ([A-Z][A-Z-]*)(?: \(exit (-?\d+)\))?$")
@@ -81,12 +80,11 @@ BINSIZE_ROW = re.compile(r"^  ([\w.-]+/[\w.-]+)\s+([\d.]+ [KMG]iB)\s*(.*)$")
 RFC3339 = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$")
 
 # LOGGED are the stages with a log of their own under .coverage/pr: each OS
-# leg, and the container half on the Mac's Podman, which runs beside the
-# Mac's own tests.
-LOGGED = ps.LEGS + ["containers-mac"]
+# leg.
+LOGGED = list(ps.LEGS)
 
 # STEP_ORDER is the serial order of what follows the testgate passes.
-STEP_ORDER = ["images", "coverage", "durations"]
+STEP_ORDER = ["images", "coverage", "durations", "resources"]
 
 
 def next_after_pass(state: ps.RunState, name: str) -> Optional[str]:
@@ -195,8 +193,6 @@ def on_scope_count(state: ps.RunState, m: re.Match[str], now: float) -> None:
     state.finish("scope", now, ps.PASS)
     state.fast_total, state.docker_total, state.base = int(m.group(1)), int(m.group(2)), m.group(3)
     state.stage("scope").detail = "%s container-free and %s container package(s) against %s" % m.groups()[:3]
-    if m.group(4) is not None:
-        state.stage("scope").detail += ", and %s on the Mac's Podman" % m.group(4)
     for name in ("fast", "repeat"):
         state.stage(name).total = state.fast_total
         if state.fast_total == 0:
@@ -204,10 +200,6 @@ def on_scope_count(state: ps.RunState, m: re.Match[str], now: float) -> None:
     if state.fast_total == 0:
         state.set_verdict("coverage-fast", ps.SKIPPED, "no container-free package changed")
     state.stage("containers").total = state.docker_total
-    if m.group(4) is not None:
-        state.stage("containers-mac").total = int(m.group(4))
-        if m.group(4) == "0":
-            state.set_verdict("containers-mac", ps.SKIPPED, "no container package changed that runs on the Mac")
     if state.docker_total == 0:
         state.set_verdict("containers", ps.SKIPPED, "no container package changed")
         state.set_verdict("durations", ps.SKIPPED, "no container package changed")
@@ -263,19 +255,10 @@ def on_oscheck(state: ps.RunState, leg: str, line: str, now: float) -> None:
     state.stage(leg).last_line = line
     leg_step(state.stage(leg), line)
     if TREE_SENT.match(line):
-        state.stage(leg).detail = "tree sent; its tests start after govulncheck"
+        state.stage(leg).detail = "tree sent; its tests run on the machine"
         # The leg stays running: only its prepare phase is over.
         if state.main == leg:
             state.main = None
-        advance(state, "govulncheck", now)
-    elif VULN_REMOTE_START.match(line):
-        if state.main != "govulncheck":
-            advance(state, "govulncheck", now)
-        state.stage("govulncheck").detail = "on the %s machine" % leg
-    elif VULN_REMOTE_PASS.match(line):
-        state.finish("govulncheck", now, ps.PASS)
-    elif VULN_REMOTE_FAIL.match(line):
-        state.finish("govulncheck", now, ps.FAIL)
 
 
 def on_trace(state: ps.RunState, target: str, now: float) -> None:
@@ -439,6 +422,15 @@ def on_step_line(state: ps.RunState, line: str, now: float) -> bool:
             advance(state, "durations", now)
         state.close_main(now, ps.PASS)
         return True
+    if RESOURCES_DONE.match(line):
+        if main != "resources":
+            advance(state, "resources", now)
+        state.close_main(now, ps.PASS)
+        return True
+    if RESOURCES_LINE.match(line):
+        if main != "resources":
+            advance(state, "resources", now)
+        return True
     return False
 
 
@@ -486,15 +478,6 @@ def feed_line(state: ps.RunState, line: str, now: float) -> None:
     m = OSCHECK.match(line)
     if m:
         on_oscheck(state, m.group(1), line, now)
-        return
-    if VULN_HERE.match(line):
-        if state.main == "mac":
-            # The Mac sent no tree, so it has no tests to run later.
-            state.finish("mac", now, ps.ENDED)
-            state.stage("mac").detail = "no tree on the machine, so its tests do not run"
-            state.main = None
-        advance(state, "govulncheck", now)
-        state.stage("govulncheck").detail = "on this machine"
         return
     m = PASS_BEGIN.match(line)
     if m:
@@ -604,14 +587,12 @@ def feed_leg_line(state: ps.RunState, leg: str, line: str, now: float) -> None:
 
     Args:
         state: The run.
-        leg: One of LOGGED: an OS leg, or containers-mac.
+        leg: One of LOGGED: an OS leg.
         line: The line.
         now: The time it was read.
     """
     line = line.rstrip("\r\n")
     if not line.strip():
-        return
-    if leg == "mac" and on_mac_vuln(state, line, now):
         return
     st = state.stage(leg)
     # The Windows leg begins when the FreeBSD one ends: they share the lab.
@@ -634,33 +615,6 @@ def feed_leg_line(state: ps.RunState, leg: str, line: str, now: float) -> None:
         state.finish(leg, now, ps.FAIL)
     elif LEG_PUT_BACK.match(line):
         state.finish(leg, now, ps.ENDED)
-
-
-def on_mac_vuln(state: ps.RunState, line: str, now: float) -> bool:
-    """Reads the govulncheck lines the Mac's log holds: the scan runs on the
-    Mac, after its prepare phase and before its tests, or here when it cannot.
-
-    Args:
-        state: The run.
-        line: A line of the Mac's log.
-        now: The time it was read.
-
-    Returns:
-        Whether the line was one of them.
-    """
-    vuln = state.stage("govulncheck")
-    if VULN_REMOTE_START.match(line) or VULN_HERE.match(line):
-        if vuln.status == ps.PENDING:
-            state.start("govulncheck", now)
-        vuln.detail = "on the mac machine" if VULN_REMOTE_START.match(line) else "on this machine"
-        return True
-    if VULN_REMOTE_PASS.match(line):
-        state.finish("govulncheck", now, ps.PASS)
-        return True
-    if VULN_REMOTE_FAIL.match(line):
-        state.finish("govulncheck", now, ps.FAIL)
-        return True
-    return False
 
 
 def parse_time(text: str) -> Optional[float]:

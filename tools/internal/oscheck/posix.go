@@ -12,12 +12,11 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/headroom"
 )
 
 // POSIX is a check's machine when it runs a POSIX shell.
@@ -40,18 +39,52 @@ type POSIX struct {
 	// Files is the directory, relative to Pleiades.Project, the archive is
 	// written in to be sent; each archive is deleted once sent.
 	Files string
-	// Containers, when set, makes Test run the container-dependent packages
-	// against the machine's Podman (ContainerTestScript) in place of the
-	// container-free passes.
-	Containers *Containers
+	// Data is the absolute directory on the machine every run's variable data
+	// goes under: Dir with the trees and the build cache, the module cache
+	// (gomod) and the temporary directory (tmp); on a lab VM a second disk
+	// mounted there. Empty, the trees go under the login's home and the
+	// caches and temporary files where the login's own are.
+	Data string
 	// Dedicated says the machine exists to run checks (a VM a check starts and
 	// puts back), so readyScript also clears the login's own Go caches before
 	// each run, which on any other machine are the owner's (dedicatedClean).
 	Dedicated bool
+	// DropCache removes each run's Go build cache (CacheDir) when the run
+	// ends, pass, fail or interrupt, rather than only when the machine runs
+	// short of space: the Mac's grew to 20 GB in two days (2026-10-28) on a
+	// disk it shares with its owner.
+	DropCache bool
 }
 
 // Kept is how many trees a machine keeps, the newest.
 const Kept = 3
+
+// root is the shell text for the directory the trees' directory is under:
+// Data, or the login's home.
+func (x POSIX) root() string {
+	if x.Data != "" {
+		return x.Data
+	}
+	return "$HOME"
+}
+
+// base is the shell text for the trees' directory, under root.
+func (x POSIX) base() string {
+	return x.root() + "/" + x.Dir
+}
+
+// dataEnv is the shell that points a run's module cache and temporary
+// directory under Data, making both, or nothing without a Data: go test's
+// work folders, the tests' temporary folders and every module downloaded
+// then live on the data disk too, with the trees and the build cache.
+func (x POSIX) dataEnv() string {
+	if x.Data == "" {
+		return ""
+	}
+	return fmt.Sprintf(`mkdir -p "%[1]s/tmp" "%[1]s/gomod" || exit 2
+export TMPDIR="%[1]s/tmp" GOMODCACHE="%[1]s/gomod"
+`, x.Data)
+}
 
 // Need is a command the machine must have on its PATH, and what to do when
 // it does not.
@@ -60,7 +93,8 @@ type Need struct {
 }
 
 // Ready asks the machine for its kernel, for each of needs and for the
-// space free under its login's home, making room first (readyScript),
+// space free under its data directory (its login's home when it has
+// none), making room first (readyScript),
 // refusing one whose kernel is not kernel (noun names such a machine:
 // "Mac"), that lacks a command, or that still has less than MinFreeGB free
 // (Room). Room it made is said on standard output.
@@ -78,20 +112,21 @@ func (x POSIX) Ready(target, kernel, noun string, needs ...Need) error {
 
 // readyScript prints the kernel's name, then for each need its command, or
 // no- and its command when it is not on the PATH, then the whole gigabytes
-// free on the file system holding the login's home, where the trees and the
-// check's build cache are, before and after making room, one line each.
-// Making room removes what is this check's own, under Dir: every tree but
-// the newest Kept-1 (ls skips the dot-named CacheDir), and, while the space
-// free is still under MinFreeGB, CacheDir. On a Dedicated machine it first
-// clears the login's own Go build cache and the go-build folders it left in
-// /tmp, every run, and its module cache while still short (dedicatedClean).
+// free on the file system holding the data directory (the login's home
+// without one), where the trees and the check's build cache are, before and
+// after making room, one line each. Making room removes what is this
+// check's own, under Dir: every tree but the newest Kept-1 (ls skips the
+// dot-named CacheDir), and, while the space free is still under MinFreeGB,
+// CacheDir. On a Dedicated machine it first clears the login's own Go build
+// cache and the go-build folders it left in /tmp, every run, and its module
+// cache while still short (dedicatedClean).
 func (x POSIX) readyScript(needs []Need) string {
 	lines := []string{`export PATH="$PATH:` + x.Path + `"`, "uname -s"}
 	for _, n := range needs {
 		lines = append(lines, fmt.Sprintf("command -v %[1]s >/dev/null 2>&1 && echo %[1]s || echo no-%[1]s", n.Command))
 	}
-	lines = append(lines, fmt.Sprintf(`free_gb() { df -Pk "$HOME" | awk 'NR==2 {print int($4/1048576)}'; }
-base="$HOME/%[1]s"
+	lines = append(lines, fmt.Sprintf(`free_gb() { df -Pk "%[6]s" | awk 'NR==2 {print int($4/1048576)}'; }
+base="%[1]s"
 before=$(free_gb)
 %[5]s
 if [ -d "$base" ]; then
@@ -99,7 +134,7 @@ if [ -d "$base" ]; then
 	if [ "$(free_gb)" -lt %[3]d ]; then rm -rf "${base:?}/%[4]s"; fi
 fi
 echo "$before"
-free_gb`, x.Dir, Kept, MinFreeGB, CacheDir, x.dedicatedClean()))
+free_gb`, x.base(), Kept, MinFreeGB, CacheDir, x.dedicatedClean(), x.root()))
 	return strings.Join(lines, "\n")
 }
 
@@ -109,14 +144,23 @@ free_gb`, x.Dir, Kept, MinFreeGB, CacheDir, x.dedicatedClean()))
 // work folders and its tests' Test* temporary folders: 5 GB of them filled
 // bsd-check after a day of interrupted gates, 2026-10-27), and, while still
 // under MinFreeGB, the login's module cache, which the next build downloads
-// again. Nothing on another machine.
+// again. With a Data directory, the run's own temporary directory under it
+// is emptied every run, and its module cache there while short. Nothing on
+// another machine.
 func (x POSIX) dedicatedClean() string {
 	if !x.Dedicated {
 		return ""
 	}
+	dirs := `/tmp "${TMPDIR:-/tmp}"`
+	modcache := ""
+	if x.Data != "" {
+		dirs += fmt.Sprintf(` "%s/tmp"`, x.Data)
+		modcache = fmt.Sprintf(`
+if [ "$(free_gb)" -lt %d ]; then rm -rf "%s/gomod"; fi`, MinFreeGB, x.Data)
+	}
 	return fmt.Sprintf(`if command -v go >/dev/null 2>&1; then GOCACHE= go clean -cache >/dev/null 2>&1; fi
-for d in /tmp "${TMPDIR:-/tmp}"; do find "$d" -mindepth 1 -maxdepth 1 \( -name 'go-build*' -o -name 'Test*' \) -user "$(id -u)" -exec rm -rf {} + 2>/dev/null; done
-if [ "$(free_gb)" -lt %d ] && command -v go >/dev/null 2>&1; then go clean -modcache >/dev/null 2>&1; fi`, MinFreeGB)
+for d in %s; do [ -d "$d" ] && find "$d" -mindepth 1 -maxdepth 1 \( -name 'go-build*' -o -name 'Test*' \) -user "$(id -u)" -exec rm -rf {} + 2>/dev/null; done
+if [ "$(free_gb)" -lt %d ] && command -v go >/dev/null 2>&1; then go clean -modcache >/dev/null 2>&1; fi%s`, dirs, MinFreeGB, modcache)
 }
 
 // readyAnswer checks readyScript's output, returning what room it made.
@@ -133,18 +177,20 @@ func (x POSIX) readyAnswer(target, kernel, noun, out string, needs []Need) (stri
 			return "", fmt.Errorf("%s has no %s on its PATH (looked in its PATH and %s): %s", target, n.Command, x.Path, n.Why)
 		}
 	}
+	cache := strings.Replace(x.base(), "$HOME", "~", 1) + "/" + CacheDir
 	if x.Dedicated {
-		return Room(target, lines[len(lines)-2], lines[len(lines)-1], "~/"+x.Dir+"/"+CacheDir+"; and, on this machine kept for checks, the login's Go build and module caches and its /tmp/go-build folders",
+		return Room(target, lines[len(lines)-2], lines[len(lines)-1], cache+"; and, on this machine kept for checks, the login's Go build and module caches and its /tmp/go-build folders",
 			"what is left is outside Go's caches")
 	}
-	return Room(target, lines[len(lines)-2], lines[len(lines)-1], "~/"+x.Dir+"/"+CacheDir,
+	return Room(target, lines[len(lines)-2], lines[len(lines)-1], cache,
 		"for the lab's bsd-check, runbooks/bsd/check-05-disk-cleanup.yaml clears its login's own Go cache")
 }
 
 // Ship sends commit sha's tree: exec.command removes all but the newest
-// trees and answers the login's home directory, git archive writes the
-// tree into the project, file.copy sends it, and archive.extract unpacks it
-// into a directory of its own and deletes the archive.
+// trees and answers the directory the trees are under (the data directory,
+// or the login's home), git archive writes the tree into the project,
+// file.copy sends it, and archive.extract unpacks it into a directory of
+// its own and deletes the archive.
 func (x POSIX) Ship(sha string) error {
 	ctx := context.Background()
 	out, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.prepareScript(sha)))
@@ -153,7 +199,7 @@ func (x POSIX) Ship(sha string) error {
 	}
 	home := strings.TrimSpace(out)
 	if !strings.HasPrefix(home, "/") {
-		return fmt.Errorf("%s named %q as its home directory", x.Machine, home)
+		return fmt.Errorf("%s named %q as the directory its trees go under", x.Machine, home)
 	}
 	src := path.Join(x.Files, sha+".tar.gz")
 	local := filepath.Join(x.Pleiades.Project, filepath.FromSlash(src))
@@ -174,14 +220,14 @@ func (x POSIX) Ship(sha string) error {
 
 // prepareScript makes the trees' directory, removes all but the newest
 // Kept-1 trees (ls lists no dot name, so CacheDir stays) and any earlier
-// copy of sha's, and prints the home directory.
+// copy of sha's, and prints the directory the trees are under.
 func (x POSIX) prepareScript(sha string) string {
 	return fmt.Sprintf(`set -e
-base="$HOME/%[1]s"
+base="%[1]s"
 mkdir -p "$base"
 ls -1t "$base" | tail -n +%[2]d | while read -r old; do rm -rf "${base:?}/$old"; done
 rm -rf "${base:?}/%[3]s" "${base:?}/%[3]s.tar.gz"
-printf '%%s\n' "$HOME"`, x.Dir, Kept, sha)
+printf '%%s\n' "%[4]s"`, x.base(), Kept, sha, x.root())
 }
 
 // Test runs the packages on sha's tree through exec.command (see
@@ -192,14 +238,14 @@ func (x POSIX) Test(ctx context.Context, target, sha string, parallel int, packa
 	}
 	fmt.Fprintf(stdout, "%s: running on %s; Pleiades returns the output when the run ends, since it does not stream it yet\n", x.Tool, x.Machine)
 	script := x.TestScript(sha, parallel, packages)
-	if x.Containers != nil {
-		script = x.ContainerTestScript(sha, parallel, packages)
-	}
 	run := func(ctx context.Context) (Outcome, error) {
 		return x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", script), fmt.Sprintf("--timeout=%d", TestTimeout))
 	}
 	stop := func(ctx context.Context) error {
-		_, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.StopScript(sha)))
+		out, err := x.Pleiades.Adhoc(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.StopScript(sha)))
+		if s := strings.TrimSpace(out); s != "" {
+			fmt.Fprintln(stdout, s)
+		}
 		return err
 	}
 	return RunTests(ctx, target, run, stop, stdout)
@@ -228,8 +274,8 @@ func (x POSIX) TestScript(sha string, parallel int, packages []string) string {
 	p := fmt.Sprintf("-p %d", parallel)
 	return fmt.Sprintf(`exec 2>&1
 export PATH="$PATH:%[1]s"
-export GOCACHE="$HOME/%[2]s/%[11]s"
-cd "$HOME/%[2]s/%[3]s" || exit 2
+export GOCACHE="%[2]s/%[11]s"
+%[13]scd "%[2]s/%[3]s" || exit 2
 %[8]s
 rm -f %[9]s %[10]s
 set -m
@@ -237,58 +283,20 @@ set -m
 job=$!
 set +m
 echo "$job" > %[6]s
-trap 'stop_run "$job"; rm -f %[6]s; exit 143' TERM HUP INT
+trap 'stop_run "$job"; rm -f %[6]s; %[12]sexit 143' TERM HUP INT
 wait "$job"
 status=$?
 rm -f %[6]s
-exit $status`, x.Path, x.Dir, sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1], CacheDir)
+%[12]sexit $status`, x.Path, x.base(), sha, p, pkgs, x.PIDFile(), x.Wrap, stopRun, RecordFiles[0], RecordFiles[1], CacheDir, x.dropCache(CacheDir), x.dataEnv())
 }
 
-// VulnTimeout bounds a govulncheck run on the machine, in seconds, as the
-// task's own timeout: a scan took 8 to 35 seconds on a Mac in October 2026,
-// and the first one also downloads govulncheck and a Go release.
-const VulnTimeout = 30 * 60
-
-// goRelease is what this machine's Go release must look like to be named to
-// another machine's go command, which fetches it.
-var goRelease = regexp.MustCompile(`^go[0-9]+\.[0-9]+(\.[0-9]+)?$`)
-
-// Vuln runs govulncheck release version over sha's tree through
-// exec.command (VulnScript), analyzing it for this machine's own operating
-// system, architecture and Go release, so its answer is the one a scan here
-// gives. An interrupt ends the pleiades here; a scan it leaves on the
-// machine ends by itself.
-func (x POSIX) Vuln(ctx context.Context, sha, version string, stdout io.Writer) (bool, error) {
-	if !FileExists(x.Pleiades.Binary) {
-		return false, fmt.Errorf("this worktree has no pleiades for %s yet; run -phase prepare first", x.Machine)
+// dropCache is the shell command, ending in "; ", that removes the check's
+// build cache (CacheDir) when DropCache is set, or nothing.
+func (x POSIX) dropCache(dir string) string {
+	if !x.DropCache {
+		return ""
 	}
-	if !goRelease.MatchString(runtime.Version()) {
-		return false, fmt.Errorf("this machine's Go is %s, not a release %s can fetch to scan as this machine would", runtime.Version(), x.Machine)
-	}
-	fmt.Fprintf(stdout, "%s: govulncheck %s runs on %s, scanning for %s/%s with %s as a scan here would\n", x.Tool, version, x.Machine, runtime.GOOS, runtime.GOARCH, runtime.Version())
-	out, err := x.Pleiades.AdhocOutcome(ctx, "exec.command", "argv:="+ArgvYAML("/bin/sh", "-c", x.VulnScript(sha, version, runtime.GOOS, runtime.GOARCH, runtime.Version())), fmt.Sprintf("--timeout=%d", VulnTimeout))
-	if err != nil {
-		return false, err
-	}
-	fmt.Fprintln(stdout, strings.TrimRight(out.Output, "\r\n"))
-	return out.ExitCode == 0, nil
-}
-
-// VulnScript is what the machine runs for Vuln, in sha's tree: it installs
-// govulncheck release version into the tree, where it goes when the tree is
-// pruned (Go's build cache makes the next install cheap), then runs it over
-// every package under Wrap, exiting with its status. GOTOOLCHAIN names
-// goVersion for the scan, since the machine's own go may be newer than the
-// toolchain line and would otherwise judge its own standard library; GOOS
-// and GOARCH name goos and goarch for the scan alone, since the install
-// builds a program the machine runs. Both build into the check's CacheDir.
-func (x POSIX) VulnScript(sha, version, goos, goarch, goVersion string) string {
-	return fmt.Sprintf(`exec 2>&1
-export PATH="$PATH:%[1]s"
-export GOCACHE="$HOME/%[2]s/%[9]s"
-cd "$HOME/%[2]s/%[3]s" || exit 2
-GOBIN="$PWD/.pleiades-bin" go install golang.org/x/vuln/cmd/govulncheck@%[4]s || exit $?
-GOTOOLCHAIN=%[7]s GOOS=%[5]s GOARCH=%[6]s %[8]s"$PWD/.pleiades-bin/govulncheck" ./...`, x.Path, x.Dir, sha, version, goos, goarch, goVersion, x.Wrap, CacheDir)
+	return fmt.Sprintf(`rm -rf "%s/%s"; `, x.base(), dir)
 }
 
 // Records reads back the testgate records TestScript's passes wrote in
@@ -304,13 +312,9 @@ func (x POSIX) Records(ctx context.Context, sha string) ([]flakegate.Run, error)
 // RecordsScript prints each of RecordFiles in sha's tree that exists, one
 // after another.
 func (x POSIX) RecordsScript(sha string) string {
-	files := RecordFiles
-	if x.Containers != nil {
-		files = []string{ContainerRecordFile}
-	}
-	return fmt.Sprintf(`cd "$HOME/%s/%s" || exit 0
+	return fmt.Sprintf(`cd "%s/%s" || exit 0
 for f in %s; do [ -f "$f" ] && cat "$f"; done
-exit 0`, x.Dir, sha, strings.Join(files, " "))
+exit 0`, x.base(), sha, strings.Join(RecordFiles, " "))
 }
 
 // stopRun defines the shell function both scripts end a run with: SIGTERM to
@@ -325,32 +329,29 @@ const stopRun = `stop_tree() { kids=$(pgrep -P "$1" 2>/dev/null); kill -TERM "$1
 stop_run() { kill -TERM -- "-$1" 2>/dev/null; stop_tree "$1"; }`
 
 // PIDFile is where, in the unpacked tree, TestScript writes its tests'
-// job. A container pass has its own: it runs in the same tree beside the
-// container-free one, and sharing a file would let either's stop end the
-// other's run.
+// job.
 func (x POSIX) PIDFile() string {
-	if x.Containers != nil {
-		return "." + x.Tool + "-containers.pid"
-	}
 	return "." + x.Tool + ".pid"
 }
 
 // StopScript ends every process of the test run TestScript started in
 // sha's tree (see stopRun), and does nothing when there is no run.
 func (x POSIX) StopScript(sha string) string {
-	return fmt.Sprintf(`pid=$(cat "$HOME/%[1]s/%[2]s/%[3]s" 2>/dev/null) || exit 0
+	return fmt.Sprintf(`pid=$(cat "%[1]s/%[2]s/%[3]s" 2>/dev/null) || exit 0
 case "$pid" in ''|*[!0-9]*) exit 0 ;; esac
 %[4]s
 stop_run "$pid"
-exit 0`, x.Dir, sha, x.PIDFile(), stopRun)
+exit 0`, x.base(), sha, x.PIDFile(), stopRun)
 }
 
 // MinFreeGB is the space, in whole gigabytes, a machine must have free
-// before a check runs on it. A run unpacks a tree and builds every package
-// it tests and their dependencies into Go's build cache: bsd-check's grew to
-// 7.8 GB and filled its disk on 2026-10-19, and every package then failed to
-// build with no compiler message reaching the report.
-const MinFreeGB = 4
+// before a check runs on it: the one policy's (headroom.MinFreeGB), which
+// testgate holds the run to again on the machine itself. A run unpacks a
+// tree and builds every package it tests and their dependencies into Go's
+// build cache: bsd-check's grew to 7.8 GB and filled its disk on 2026-10-19,
+// and every package then failed to build with no compiler message reaching
+// the report.
+const MinFreeGB = headroom.MinFreeGB
 
 // CacheDir is the Go build cache (GOCACHE) a check's runs build into, in its
 // trees' directory, so the cache is the check's own to remove when the

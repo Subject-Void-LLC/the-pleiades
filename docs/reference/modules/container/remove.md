@@ -23,7 +23,7 @@ Removes the container named name; an absent one is no change. A running, restart
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The container's name. |
 | `id` | `string` | no | - | The container's ID, which the container named must still have: an undo recorded against one container never acts on another that took its name since. |
 | `force` | `bool` | no | `false` | Remove a running container, killing it first. |

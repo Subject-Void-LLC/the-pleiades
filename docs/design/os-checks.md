@@ -84,10 +84,18 @@ VirtualBox host in the same project) and optionally `PLEIADES_BSD_VM` or `PLEIAD
 the device's by default), manages its power:
 
 - **Before the run** it reads the VM with `virt.vbox.vm.info`; one that is not running is started with
-  `virt.vbox.vm.start` and waited for with `wait.connection`, up to ten minutes. A saved VM resumes in seconds.
+  `virt.vbox.vm.start` and waited for with `wait.connection`, up to ten minutes. A shut-down VM boots cold, about
+  two minutes at four CPUs.
 - **When the run ends**, passed, failed or interrupted, a VM this run started is put back with `virt.vbox.vm.stop`
-  `mode: save`: its memory is written to disk and the host has it back. A VM that was already running is left
-  running.
+  `mode: acpi` (five minutes for the guest to shut down on its power button), then `mode: poweroff` if it did not:
+  the host has its memory back, and a powered-off VM's disks can be compacted, which a saved one's cannot (owner,
+  2026-10-29). A VM that was already running is left running.
+- **A second disk for variable data.** Each box keeps every run's trees, Go build and module caches and temporary
+  files on a data disk, apart from its system disk: `virt.vbox.vm.attach_disk` gives the VM the disk, a guest-side
+  runbook formats and mounts it (`/data` on FreeBSD, `D:` on Windows), and `PLEIADES_BSD_DATA` or
+  `PLEIADES_WINRM_DATA` names the directory to the check, which then builds, caches and writes temporary files
+  there and wipes its leftovers before each run. The system disk stays small, and the data disk can be compacted
+  or thrown away and made again (`virt.vbox.vm.detach_disk` with `delete`) with the VM shut down.
 - **Split phases** hand the box over in the ready file: a `-phase prepare` that started it leaves it running and
   says so there, and the `-phase test` given that file puts it back.
 - `virt.vbox.vm.start` refuses a VM the host has no room for, keeping 1 GB for itself, and says to stop another.
@@ -98,14 +106,15 @@ Each machine runs beside the Linux passes, not after them:
 
 - **The Mac: prepare here, test in the background.** `-phase prepare` checks it, builds `pleiades` and sends the
   tree; `-phase test` then runs on the Mac's own CPU and memory while the Linux passes run here.
-- **govulncheck on the Mac, between those phases.** `-phase vuln` runs it on the tree prepare sent, before the
-  Mac's tests start, so the two never share its memory. A scan that traces a vulnerable call builds a call graph
-  of the whole module: 7 GB on a Mac in October 2026, more than this machine could spare.
-  - It scans for this machine's operating system, architecture and Go release (`GOOS`, `GOARCH` and
-    `GOTOOLCHAIN`), so its answer is the one a scan here gives. The Mac's own Go may be newer than the toolchain
-    line, and would otherwise judge its own standard library.
-  - With no Mac ready, or one that cannot run it, it runs here.
-  - pr-check records it as the step `govulncheck`.
+- **One policy for memory and disk on every machine.** Each check's readiness step makes room from what is the
+  check's own and refuses a machine under 4 GB free; then the `testgate` pass on the machine applies the same
+  policy every environment runs under (`tools/internal/headroom`): `-p` lowered to what the machine's free
+  memory fits, the run refused on a disk under 4 GB, the run followed and stopped before the machine runs out,
+  and each package's cost written into the record (`headroom`) the check reads back.
+- **What a check no longer runs.** govulncheck on the Mac (`-phase vuln`), the Mac's share of the container
+  packages on its Podman (`-containers`) and the Windows ARM VM's leg were cut from pr-check on 2026-10-29: the
+  gate holds to the Crawl and Walk tiers, and `make ci` and CI's `ci` job run govulncheck on every pull request.
+  `go run ./tools/wincheck -arm64` still runs the ARM check by hand.
 - **The VMs: one at a time, in the background.** FreeBSD's check runs whole, its box started and put back, then
   Windows', so at most one box holds the host's memory (`LAB_CHECKS`).
 - Each machine's output goes to `.coverage/pr/<mac|bsd|win>.log`.
@@ -197,6 +206,7 @@ Each is something a Pleiades user doing the same would meet.
 | No method installed a feature on demand, and none restarted a host. | Closed 2026-10-18: `win.capability.install` and `win.capability.remove` (DISM as SYSTEM, since Windows Update refuses a WinRM logon) and `win.reboot`, `win_reboot`'s counterpart. |
 | `win.schtask` had never reached a host: its script did not fit the command line. | Closed 2026-10-18: found while trying to run DISM as SYSTEM; its tests now hold the script to the command line's limit. |
 | A box held the host's memory whether or not a check was running. | Closed 2026-10-18: a check starts its VM and saves its state afterwards (`virt.vbox.vm.stop`'s new `mode: save`). |
+| A saved box's disks could never be compacted, and every run's caches grew on its system disk. | Closed 2026-10-29: a check shuts its VM down afterwards (`mode: acpi`, then `poweroff`), and each run's variable data lives on a second disk (`virt.vbox.vm.attach_disk`, `PLEIADES_BSD_DATA`, `PLEIADES_WINRM_DATA`). |
 | A FreeBSD login had no way to root. | Closed for the lab 2026-10-18: a clone's first boot can install `sudo`, which then honors the rule the seed always wrote. |
 
 ## Failure modes
@@ -207,7 +217,7 @@ Each is something a Pleiades user doing the same would meet.
 | A setting is half set, misspelled, names a device pleiades would misread, or names a directory that is no project | Refused before anything runs, naming the setting and how to change or remove it. |
 | The machine does not answer | Refused within seconds, before anything else: the Mac by its SSH port, a lab machine by `wait.connection`. A VM the check started has ten minutes to answer, and is put back if it does not. |
 | The host has no room for the VM | `virt.vbox.vm.start` refuses, naming what it needs and what is free, and nothing runs. |
-| The VM cannot be put back | The run fails saying so, even when its tests passed, since the box still holds the host's memory; `virt.vbox.vm.stop` with `mode: save` puts it away. |
+| The VM cannot be put back | The run fails saying so, even when its tests passed, since the box still holds the host's memory; `virt.vbox.vm.stop` with `mode: acpi` (or `poweroff`) puts it away. |
 | The Mac refuses this machine's key, or its host key is unknown or changed | Refused by a plain `ssh` login before Pleiades is involved, with the command that fixes it. |
 | Not the right system, or a tool missing | Refused, naming which and how to install it. |
 | The tests fail | Exit 1, with the machine's output. |

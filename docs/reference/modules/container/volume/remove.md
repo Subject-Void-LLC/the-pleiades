@@ -23,7 +23,7 @@ Removes the volume named name and its data; an absent one is no change. A volume
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The volume's name. |
 | `created_at` | `string` | no | - | When the engine made the volume, as container.volume.create returned it, which the volume named must still have. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task, when the engine is reached over SSH. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |

@@ -4,12 +4,20 @@ All notable user-facing changes to The Pleiades are recorded here. Format loosel
 [Keep a Changelog](https://keepachangelog.com/); entries are assembled from
 `changelog/*.md` fragments (see `changelog/README.md`).
 
-This project does not yet use semantic version tags; entries below are grouped by
-date until a first tagged release. The numbering and compatibility rules those tags
-will follow are in
+Releases are numbered `MAJOR.MINOR.PATCH`; the numbering and compatibility rules are in
 [Releases and stability](docs/13-releases-and-stability.md#versioning-and-deprecation-policy).
 
-## Unreleased
+## 0.3.0 "Paranoid Porpoise" (initial release)
+
+The first tagged release. What it does, how to install it and its known limits are in the
+[release notes](docs/releases/v0.3.0.md).
+
+## Before 0.3.0 (development history, not a release)
+
+What follows was recorded while the project was built, before any release existed. It is
+kept as history; it is not a list of changes to a version anyone ran. The 377 per-change
+fragments written under `changelog/` during development were retired at 0.3.0, whose
+release notes summarize them; they remain in the repository's history before that release.
 
 ### Added
 

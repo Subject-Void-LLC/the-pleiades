@@ -163,7 +163,7 @@ func replace(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		left, err := differences(ctx, session, plan.checkpoint, runningConfig)
 		switch {
 		case complained && (err != nil || len(left) > 0):
-			return collection.Result{}, fmt.Errorf("%s: configure replace %s: %s", fqcn, plan.checkpoint, strings.TrimSpace(netcfg.Mask(firstErrorLine(out))))
+			return collection.Result{}, fmt.Errorf("%s: configure replace %s: %s", fqcn, plan.checkpoint, deviceRefusal(out))
 		case err != nil:
 			return collection.Result{}, fmt.Errorf("%s: after the replace: %w", fqcn, err)
 		case len(left) > 0:

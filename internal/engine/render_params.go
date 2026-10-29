@@ -20,8 +20,9 @@
 //     capabilities and state, deviceRoot), which makes the task render and
 //     decide its condition once per device (device_root.go).
 //
-// A value with no "{{" is passed through untouched, so a runbook that
-// renders nothing costs nothing and behaves as it always did.
+// A value with no "{{", "{%" or "{#" is passed through untouched, so a
+// runbook that renders nothing costs nothing and behaves as it always did.
+// A "{%" meant for the device itself is written {% raw %}...{% endraw %}.
 package engine
 
 import (
@@ -62,12 +63,22 @@ func WithRenderer(eng render.Engine) ExecutorOption {
 	return func(x *Executor) { x.renderer = eng }
 }
 
+// IsTemplate reports whether s is a template: it holds an expression
+// "{{", a statement "{%" or a comment "{#". It is the one test of whether a
+// string renders, so a statement with no expression in it renders too
+// rather than reaching a device as its own source. It is
+// collection.IsTemplate, which a Collection may import, so a method's own
+// question about a call (net.ios.command's ReadOnlyCall) asks the same.
+func IsTemplate(s string) bool {
+	return collection.IsTemplate(s)
+}
+
 // HasTemplate reports whether v, at any depth of a decoded YAML or JSON
-// value, holds a string with a template action in it.
+// value, holds a string that IsTemplate.
 func HasTemplate(v any) bool {
 	switch t := v.(type) {
 	case string:
-		return strings.Contains(t, "{{")
+		return IsTemplate(t)
 	case map[string]any:
 		for _, e := range t {
 			if HasTemplate(e) {
@@ -90,8 +101,43 @@ func HasTemplate(v any) bool {
 // roots are the roots this one evaluation adds (a rescue task's error, the
 // device a per-device task runs on).
 func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
-	if !HasTemplate(task.Params) {
+	hasFile := templateFileParam(task.FQCN) != ""
+	if !hasFile && !HasTemplate(task.Params) {
 		return task, nil
+	}
+	if r.x.renderer == nil && !hasFile {
+		return nil, errors.New("this run has no template renderer, so a parameter holding {{ cannot be rendered")
+	}
+	ctx, err := r.templateContext()
+	if err != nil {
+		return nil, err
+	}
+	vars, err := r.mergedVars(task, roots)
+	if err != nil {
+		return nil, err
+	}
+	ctx[TemplateRootVars] = vars
+	for k, v := range roots {
+		if k != hostVarsRoot {
+			ctx[k] = v
+		}
+	}
+	// A template file (file.template's src) is rendered to text here and set
+	// as the content parameter only after the other parameters render, so the
+	// rendered text is never rendered a second time.
+	fileText, fromFile := "", false
+	if hasFile {
+		if task, fileText, fromFile, err = r.renderTemplateFile(task, ctx); err != nil {
+			return nil, err
+		}
+	}
+	if !HasTemplate(task.Params) {
+		if !fromFile {
+			return task, nil
+		}
+		out := *task
+		out.Params = withContent(task.Params, fileText)
+		return &out, nil
 	}
 	if r.x.renderer == nil {
 		return nil, errors.New("this run has no template renderer, so a parameter holding {{ cannot be rendered")
@@ -102,19 +148,15 @@ func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 	if err := checkTaskTemplates(r.x.renderer, task); err != nil {
 		return nil, err
 	}
-	ctx, err := r.templateContext()
-	if err != nil {
-		return nil, err
-	}
-	for k, v := range roots {
-		ctx[k] = v
-	}
 	rendered, err := renderParams(r.x.renderer, task.FQCN, task.Params, ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := *task
 	out.Params = rendered
+	if fromFile {
+		out.Params = withContent(rendered, fileText)
+	}
 	return &out, nil
 }
 
@@ -124,11 +166,14 @@ func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 // into stdin is the text 7, where keeping the number handed the method a
 // value its string reader takes for absent. Any other rendered parameter
 // keeps its value's type and must be of the declared type
-// (collection.ParamFits), or the task fails naming it. A parameter with no
+// (collection.ParamFits), or the task fails naming it. Every rendered
+// parameter that declares a closed set must also render to one of its
+// choices (collection.ChoiceProblem). A parameter with no
 // template, or one the method does not declare (validation's finding), is
 // left as it is.
 func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map[string]any) (map[string]any, error) {
 	types := ParamTypes(fqcn)
+	decls := paramDecls(fqcn)
 	secretRefs := ParamSecretRefs(fqcn)
 	out := make(map[string]any, len(params))
 	for key, value := range params {
@@ -160,6 +205,11 @@ func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map
 				return nil, fmt.Errorf("parameter %s rendered to %s, and %s declares it %s", key, collection.ValueKind(rendered), fqcn, typ)
 			}
 		}
+		// A rendered value is held to the parameter's declared set, as
+		// validation holds a literal one (collection.ChoiceProblem).
+		if problem := collection.ChoiceProblem(decls[key], rendered); problem != "" {
+			return nil, fmt.Errorf("parameter %s of %s rendered to a value outside its choices: %s", key, fqcn, problem)
+		}
 		out[key] = rendered
 	}
 	return out, nil
@@ -173,7 +223,7 @@ func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map
 func renderText(eng render.Engine, v any, ctx map[string]any) (any, error) {
 	switch t := v.(type) {
 	case string:
-		if !strings.Contains(t, "{{") {
+		if !IsTemplate(t) {
 			return t, nil
 		}
 		tmpl, err := eng.Compile(t)
@@ -325,7 +375,7 @@ func singleWriters(tree map[string]any) map[string]any {
 func renderValue(eng render.Engine, v any, ctx map[string]any) (any, error) {
 	switch t := v.(type) {
 	case string:
-		if !strings.Contains(t, "{{") {
+		if !IsTemplate(t) {
 			return t, nil
 		}
 		tmpl, err := eng.Compile(t)
@@ -373,37 +423,74 @@ var commandSafeFilters = []string{"quote", "cli_token"}
 // the executor share it, so the rule is held once at plan time and again
 // when the task renders.
 func TemplateProblems(tmpl render.Template, format collection.ParamFormat) []string {
+	return TaskTemplateProblems(tmpl, format, nil)
+}
+
+// TaskTemplateProblems is TemplateProblems for a parameter of task, which may
+// also read the roots its own loop gives it (item or the loop_var, loop and
+// the index_var). The loop's values are held to the same rules as vars are:
+// in command text they must be quoted, and they never name a project path.
+func TaskTemplateProblems(tmpl render.Template, format collection.ParamFormat, task *Task) []string {
+	roots := TemplateRoots()
+	if task != nil {
+		roots = append(roots, task.loopRoots()...)
+	}
 	var problems []string
 	for _, expr := range tmpl.Expressions() {
 		root := expr.Path[0]
-		if !slices.Contains(TemplateRoots(), root) {
-			problems = append(problems, fmt.Sprintf("an expression reads %q, and a parameter may read only %s", root, strings.Join(TemplateRoots(), ", ")))
+		if !slices.Contains(roots, root) {
+			problems = append(problems, fmt.Sprintf("an expression reads %q, and a parameter may read only %s", root, strings.Join(roots, ", ")))
 			continue
 		}
-		if format == collection.ParamFormatCommand && (len(expr.Filters) == 0 || !slices.Contains(commandSafeFilters, expr.Filters[len(expr.Filters)-1])) {
+		// Only an output expression's value is written into the text. A
+		// statement's condition, loop list or set value reaches it only
+		// through a name it binds, and each read of that name is reported
+		// as an output expression of its own (render's scope analysis).
+		if format == collection.ParamFormatCommand && expr.Kind == render.ExpressionOutput && (len(expr.Filters) == 0 || !slices.Contains(commandSafeFilters, expr.Filters[len(expr.Filters)-1])) {
 			problems = append(problems, "this parameter is command text, so each expression must end with | quote (a shell) or | cli_token (a network CLI)")
 		}
 		// A project path the run writes may take only what the person
 		// running the work supplied: nodes, result and error hold what a
 		// device returned, which must not choose the file replaced.
-		if format == collection.ParamFormatProjectPath && root != TemplateRootVars {
-			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, so an expression may read only vars, never %s, which holds what a device returned", root))
+		if format == collection.ParamFormatProjectPath && root != TemplateRootVars && !(task != nil && task.authoredLoopRoot(root)) {
+			why := "so an expression may read only vars, never %s, which holds what a device returned"
+			if task != nil && len(task.loopRoots()) > 0 {
+				why = "so an expression may read only vars, or the item of a loop written in the runbook or read from vars, never %s, which holds what a device returned"
+			}
+			problems = append(problems, fmt.Sprintf("this parameter is a path in the project that the run writes, "+why, root))
 		}
 	}
-	if format == collection.ParamFormatURL && !URLPrefixFixed(tmpl.Source()) {
-		problems = append(problems, "this parameter is a URL, so the text before its first {{ must name the scheme and host and end the host with /, ? or #, or begin with / for a path on the device's API")
+	// The compiled template's own leading text is judged, never the source:
+	// a comment renders as nothing, so a "#" or "/" inside one fixes no
+	// host, and a raw block or a trim marker changes what the text is.
+	if format == collection.ParamFormatURL && !URLTextFixed(tmpl.LeadingText()) {
+		problems = append(problems, "this parameter is a URL, so the text before its first {{ or {% must name the scheme and host and end the host with /, ? or #, or begin with / for a path on the device's API")
 	}
 	return problems
 }
 
-// URLPrefixFixed reports whether the text of source before its first
-// expression fixes where the request goes: it begins with "/" (a path on
-// the target device's own API), or it holds a scheme, "://", a host, and
-// one of "/", "?" or "#" ending the host, so an expression can neither
-// choose the host nor extend it ("api.example.com{{ x }}" could become
-// "api.example.com.attacker.net").
+// URLPrefixFixed reports whether the text of source before its first tag
+// fixes where the request goes, judged by URLTextFixed. It reads the source
+// alone, so it ends the prefix at the first tag of any kind: an expression
+// "{{", a statement "{%" (an if or a for before the host could choose or
+// repeat it) and a comment "{#" (which renders as nothing, so a "/" or "#"
+// inside one ends no host). A caller holding the compiled template judges
+// its LeadingText instead, which is exact where this is only safe.
 func URLPrefixFixed(source string) bool {
-	prefix, _, _ := strings.Cut(source, "{{")
+	prefix := source
+	for _, open := range []string{"{{", "{%", "{#"} {
+		prefix, _, _ = strings.Cut(prefix, open)
+	}
+	return URLTextFixed(prefix)
+}
+
+// URLTextFixed reports whether prefix, the literal text a URL begins with,
+// fixes where the request goes: it begins with "/" (a path on the target
+// device's own API), or it holds a scheme, "://", a host, and one of "/",
+// "?" or "#" ending the host, so what follows can neither choose the host
+// nor extend it ("api.example.com{{ x }}" could become
+// "api.example.com.attacker.net").
+func URLTextFixed(prefix string) bool {
 	if strings.HasPrefix(prefix, "/") {
 		return true
 	}
@@ -475,12 +562,23 @@ func ParamTypes(fqcn string) map[string]string {
 	return fragment.Types(desc)
 }
 
+// paramDecls returns each declared parameter of fqcn, its own and its
+// fragments' (fragment.ByName), or an empty map for a name that is not a
+// registered method.
+func paramDecls(fqcn string) map[string]collection.Param {
+	desc, ok := collection.Lookup(fqcn)
+	if !ok {
+		return map[string]collection.Param{}
+	}
+	return fragment.ByName(desc)
+}
+
 // TemplateStrings returns every string in v, at any depth, that holds a
 // template action, in a stable order.
 func TemplateStrings(v any) []string {
 	switch t := v.(type) {
 	case string:
-		if strings.Contains(t, "{{") {
+		if IsTemplate(t) {
 			return []string{t}
 		}
 	case map[string]any:
@@ -518,6 +616,9 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 	sort.Strings(keys)
 	for _, key := range keys {
 		for _, source := range TemplateStrings(task.Params[key]) {
+			// A string holding a reference is passed to the method as written,
+			// so a statement beside one would reach the device as its source:
+			// secretref.Problems refuses it. A statement alone renders.
 			if isRef, problems := SecretRefProblems(source, secretRefs[key]); isRef {
 				if len(problems) > 0 {
 					return fmt.Errorf("parameter %s: %s", key, problems[0])
@@ -528,9 +629,9 @@ func checkTaskTemplates(eng render.Engine, task *Task) error {
 			if err != nil {
 				return fmt.Errorf("parameter %s: %w", key, err)
 			}
-			problems := TemplateProblems(tmpl, formats[key])
+			problems := TaskTemplateProblems(tmpl, formats[key], task)
 			if key == collection.TargetParam {
-				problems = append(problems, TargetTemplateProblems(tmpl)...)
+				problems = append(problems, TargetTemplateProblems(tmpl, task)...)
 			}
 			if len(problems) > 0 {
 				return fmt.Errorf("parameter %s: %s", key, problems[0])

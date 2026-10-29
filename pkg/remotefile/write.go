@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -42,7 +43,7 @@ func Checksum(ctx context.Context, conn *remoteexec.Conn, filePath string) (stri
 		return "", false, nil
 	}
 	if result.ExitCode != 0 {
-		return "", false, fmt.Errorf("checksum %s: exited %d: %s", filePath, result.ExitCode, firstLine(result.Stderr))
+		return "", false, fmt.Errorf("checksum %s: exited %d: %s", filePath, result.ExitCode, farside.Output(result.Stderr))
 	}
 
 	sum := strings.TrimSpace(result.Stdout)
@@ -102,7 +103,7 @@ func Write(ctx context.Context, conn *remoteexec.Conn, filePath string, content 
 		return fmt.Errorf("write %s: %w", filePath, err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("write %s: exited %d: %s", filePath, result.ExitCode, firstLine(result.Stderr))
+		return fmt.Errorf("write %s: exited %d: %s", filePath, result.ExitCode, farside.Output(result.Stderr))
 	}
 	return nil
 }
@@ -124,7 +125,7 @@ func Read(ctx context.Context, conn *remoteexec.Conn, filePath string) (string, 
 		return "", false, nil
 	}
 	if result.ExitCode != 0 {
-		return "", false, fmt.Errorf("read %s: exited %d: %s", filePath, result.ExitCode, firstLine(result.Stderr))
+		return "", false, fmt.Errorf("read %s: exited %d: %s", filePath, result.ExitCode, farside.Output(result.Stderr))
 	}
 	return result.Stdout, true, nil
 }
@@ -278,7 +279,7 @@ func run(ctx context.Context, conn *remoteexec.Conn, cmd, what string) error {
 		return fmt.Errorf("%s: %w", what, err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("%s: exited %d: %s", what, result.ExitCode, firstLine(result.Stderr))
+		return fmt.Errorf("%s: exited %d: %s", what, result.ExitCode, farside.Output(result.Stderr))
 	}
 	return nil
 }

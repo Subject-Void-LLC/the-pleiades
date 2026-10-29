@@ -1,1 +1,0 @@
-A cluster's bearer token, client key, and the AWS secret key and session token an EKS token is minted from are now masked by value in client-go's log on every tier, as soon as a session holds them, along with each EKS token as it is minted. Before, only a value shaped like a known secret (a bearer header, a JWT) was masked there, so a token quoted bare could reach a terminal.

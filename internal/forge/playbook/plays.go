@@ -14,6 +14,7 @@ type playOut struct {
 	index           int
 	name            string
 	tags            []string
+	vars            map[string]any
 	pre, main, post []*outTask
 	at              Position
 }
@@ -78,7 +79,14 @@ func (t *translator) translatePlay(play *yaml.Node, index int, runbook string) *
 			continue
 		}
 		rule, ok := taskKeywords[e.key]
+		var playCites []string
 		switch {
+		case e.key == "vars":
+			var blocked string
+			if out.vars, blocked = t.nativeVarsMap(e.value, scopePlay, ""); blocked != "" {
+				ctx.blockers = append(ctx.blockers, blocked)
+			}
+		case t.scopeKey(e.key, e.value, at, "", "the play", &ctx, &playCites):
 		case e.key == "name":
 			if v != nil {
 				out.name = v.Value
@@ -149,9 +157,10 @@ func (t *translator) translatePlays(root *yaml.Node, stem string) []*runbookOut 
 		}
 	}
 	t.indexPlaybook(plays)
+	t.flagPrecedence()
 	for _, dir := range []string{"group_vars", "host_vars"} {
 		if _, err := fs.Stat(t.fsys, dir); err == nil {
-			t.raise("vars.inventory", Position{File: dir}, "", dir+" is not read")
+			t.raise("vars.inventory", Position{File: dir}, "", dir+" is not read by this conversion; the static inventory reads it")
 		}
 	}
 	var runbooks []*runbookOut

@@ -68,12 +68,19 @@ func deviceRoot(d inventory.InventoryItem) map[string]any {
 // its condition (its syntax tree, never its text, so a string holding the
 // word does not count) or in a parameter's template.
 func (r *run) readsDevice(nodeID string, task *Task) bool {
+	// A loop or a retry runs on each device on its own (loop.go).
+	if task.iterates() {
+		return true
+	}
 	if r.dag.Conditions[nodeID] != nil {
 		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootDevice); err == nil && uses {
 			return true
 		}
 	}
-	return r.x.renderer != nil && ParamsReadRoot(r.x.renderer, task.Params, TemplateRootDevice)
+	if r.x.renderer != nil && ParamsReadRoot(r.x.renderer, task.Params, TemplateRootDevice) {
+		return true
+	}
+	return r.varsNeedDevice(nodeID, task)
 }
 
 // ParamsReadRoot reports whether any template in params reads root, for the
@@ -113,12 +120,23 @@ func readsRoot(tmpl render.Template, root string) bool {
 }
 
 // TargetTemplateProblems is what a rendered target may not read: the device
-// root, since the target is what chooses the device.
-func TargetTemplateProblems(tmpl render.Template) []string {
+// root, since the target is what chooses the device, and a loop's item or
+// position, since a target is resolved once for the task, before any item
+// exists. task is the task the target belongs to, nil for none.
+func TargetTemplateProblems(tmpl render.Template, task *Task) []string {
+	var problems []string
 	if readsRoot(tmpl, TemplateRootDevice) {
-		return []string{"a target cannot read device: the target is what chooses the device"}
+		problems = append(problems, "a target cannot read device: the target is what chooses the device")
 	}
-	return nil
+	if task != nil {
+		for _, root := range task.loopRoots() {
+			if readsRoot(tmpl, root) {
+				problems = append(problems, fmt.Sprintf("a target cannot read %s: it is resolved once for the whole loop, before any item exists; loop over the devices of hosts: instead, or write one task per target", root))
+				break
+			}
+		}
+	}
+	return problems
 }
 
 // runPerDevice runs task nodeID once on each device its target resolves to,
@@ -154,15 +172,11 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 		if d != nil {
 			key, one = string(d.ID()), []inventory.InventoryItem{d}
 		}
-		roots := map[string]any{TemplateRootDevice: deviceRoot(d)}
+		roots := map[string]any{TemplateRootDevice: deviceRoot(d), hostVarsRoot: deviceVars(d)}
 		if errorRoot != nil {
 			roots[TemplateRootError] = errorRoot
 		}
-		prepared, early := r.prepare(nodeID, task, started, key, roots)
-		if early != nil {
-			return []NodeResult{*early}
-		}
-		return r.dispatch(ctx, nodeID, prepared, one, started)
+		return r.runTask(ctx, nodeID, task, started, key, one, roots)
 	}
 	if len(devices) == 0 {
 		return on(nil)

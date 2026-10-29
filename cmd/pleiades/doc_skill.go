@@ -273,11 +273,20 @@ const skillGuide = "## Starting in a project\n\n" +
 	"- The file opens with a comment saying what it does, its blast radius, what it changes, and how to undo it.\n" +
 	"- `register: <name>` keeps a task's result; a later `when:` reads it as `result.<name>`.\n" +
 	"- A condition (`when:`, `when_or:`, `when_cel:`) is a CEL expression such as `result.kernel.rc == 0`; a parameter\n" +
-	"  holding `{{ }}` is a template, rendered from `vars`, `nodes`, `result` and `device` when the task runs.\n" +
+	"  holding `{{`, `{%` or `{#` is a template, rendered from `vars`, `nodes`, `result` and `device` when the task runs.\n" +
 	"  `pleiades doc filters` lists every template filter (there is no `replace` or `split`) and\n" +
 	"  `pleiades doc conditions` every function a condition may call. `device` is the device the task runs on\n" +
 	"  (`{{ device.name }}`, `'hq' in device.tags`); a task reading it is decided on each device. Its properties are\n" +
 	"  only the ones its device type reads (such as `host`): group devices of your own with tags.\n" +
+	"- A template may write `{% if %}`, `{% elif %}` and `{% else %}`, `{% for x in list %}` (with `loop.index`,\n" +
+	"  `loop.first`, `loop.last` and the rest of `loop.*`), `{% set n = x %}`, `{# comments #}`, literals, the\n" +
+	"  comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and`, `or`, `not`, `~` to join text, and the tests\n" +
+	"  `is defined` and `is none`. Arithmetic, an inline `a if c else b`, a computed subscript `a[b]` (a literal key or\n" +
+	"  index is fine), `macro` and `include` are refused. In command text a comparison, `in`, `not` or test inside\n" +
+	"  `{{ }}` writes only `true` or `false` and needs no `| quote`; anything joined with `~` (or handed back by `and`\n" +
+	"  or `or`) still does: `{{ (vars.name ~ '.conf') | quote }}`. Wrap text meant for the device, such as\n" +
+	"  `printf '{%s}'`, in `{% raw %}...{% endraw %}`. `file.template` reads its template with `trim_blocks` on and\n" +
+	"  `lstrip_blocks` off, as Ansible's template module does; set either on the task.\n" +
 	"- `target: <device>` inside a task's parameters, beside the others, runs that task on one device other than the\n" +
 	"  runbook's `hosts:`; a runbook may leave out `hosts:` and give each task its own target.\n" +
 	"- `timeout:` on a task is seconds (`300`) or a duration (`150s`, `5m`). YAML anchors and aliases work in a task\n" +
@@ -287,7 +296,33 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  is an integer, so a condition reads `vars.clear == true`, never `vars.clear == \"true\"`.\n" +
 	"- `block:` runs its tasks in order, `rescue:` runs where one of them failed, and `always:` runs either way;\n" +
 	"  `rollback_on_failure: true` on a block undoes what it completed before its rescue. A key a runbook may not\n" +
-	"  hold, such as `retries` or `until`, is refused naming it: a wait is a method (`pleiades doc --list wait`).\n" +
+	"  hold is refused naming it. To wait for something, `until:` below works on any read-only method, and a\n" +
+	"  wait is also a method (`pleiades doc --list wait`).\n" +
+	"- Variables: `vars:` at the runbook, a block or a task, read as `{{ vars.name }}` in a parameter and `vars.name` in a\n" +
+	"  condition. The narrower scope wins: task, then block, then the device's own (`group_vars/`, `host_vars/`\n" +
+	"  beside `inventory.yaml`, a tag is a group), then the runbook; `-e name=value` overrides all of them. This is not\n" +
+	"  Ansible's order. A variable nobody gives is an error unless read with `| default(...)`. Never put a secret in one.\n" +
+	"- `set_fact:` sets variables while the run goes: for the device the task ran on, or for every device with\n" +
+	"  `global: true`; `no_override: true` keeps a value a name already has. A fact lasts for the run, never longer.\n" +
+	"- Repeated work is a loop, never the same task written out several times: `loop:` (or `with_items:`) takes a\n" +
+	"  list, or `\"{{ vars.names }}\"`, runs the task once per item in order (at most 1000), and reads the item as\n" +
+	"  `{{ item }}`, `{{ item.field }}`, `{{ loop.index }}`. An item put in command text is quoted with `| quote`.\n" +
+	"  `loop_control:` renames the item (`loop_var`), names the position (`index_var`) and labels each result\n" +
+	"  (`label`). A failed item does not stop the others, and each item is its own journal entry. Every expression in\n" +
+	"  a network config line or a ping target, an item or a variable from `host_vars` alike, needs `| cli_token` (in a\n" +
+	"  shell command, `| quote`); `validate` says which. An item may name a project file (`dest: captures/{{ item }}.pcap`) only when the loop's list is\n" +
+	"  written in the runbook or read from `vars`, never when it came from a device's output.\n" +
+	"- A target chosen from data (`target: \"{{ result.ticket.json.ci }}\"`) needs `within:` naming the device or tag\n" +
+	"  it must stay inside, written out; without it the runbook is refused. A loop's item cannot choose the target (it\n" +
+	"  is resolved once, before any item): to do one thing on each device, put the devices in `hosts:`.\n" +
+	"- `until:` (conditions over the task's own `register`), `retries:` (default 3, at most 100) and `delay:`\n" +
+	"  (seconds) run a task again until it holds. In `until:`, `changed_when:` and `failed_when:`, `result.<register>`\n" +
+	"  is always this run's own result, for this device and this item, even when other devices registered the same\n" +
+	"  name; a result of another device is `nodes.<register>[<device id>]`. Use `until:` only over a method that\n" +
+	"  only reads; `validate` warns otherwise. A check runs the task once.\n" +
+	"- `failed_when:` and `changed_when:` (conditions over the task's own `register`) decide what counts as a\n" +
+	"  failure or a change; `ignore_errors: true` goes on past a failure; `assert: {that: [...], fail_msg: ...}` and\n" +
+	"  `fail: {msg: ...}` are tasks that fail the run on purpose. `rescue:` answers any of them.\n" +
 	"- A list of one item is still written as a list.\n" +
 	"- `pleiades validate` warns of a `hosts:` or target that names no device yet; the run fails there unless the\n" +
 	"  device is added first.\n" +
@@ -379,8 +414,10 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  `net.ios.config` accepts; any other `% ` line fails the task. `accept:` lists the notices a task also accepts,\n" +
 	"  each a pattern you write after reading the device's own words; never accept a rejection to make a task pass.\n" +
 	"- `net.ios.config` keeps a checkpoint of the running configuration on the device and records an exact undo\n" +
-	"  (`net.ios.replace`), so `pleiades rollback` and a block's `rollback_on_failure` work with no `rollback:` list,\n" +
-	"  and a second run of the same lines reports unchanged. When its result warns that no undo was recorded (a\n" +
+	"  (`net.ios.replace`), so `pleiades rollback` and a block's `rollback_on_failure` work with no `rollback:` list\n" +
+	"  (the example below), and a second run of the same lines reports unchanged. A `crypto key` line, or\n" +
+	"  `checkpoint: false`, records no exact undo, and `validate` refuses `rollback_on_failure` over it: keep that\n" +
+	"  task out of such a block. When its result warns that no undo was recorded (a\n" +
 	"  device with no writable file system), and for `net.cli.config` or a configuring `net.ios.command`, give the\n" +
 	"  task a `rollback:` list: `undo_lines` in the result has the lines, masked; put each masked secret back. Read a\n" +
 	"  device's state before and after with `net.ios.parse` (structured) or a `show` through `net.ios.command`, both\n" +
@@ -390,14 +427,61 @@ const skillNetwork = "## Changing a network\n\n" +
 	"  `virt.cml.capture.stop` (with `dest:`) capture a link's packets into the project, where `net.pcap.summary`\n" +
 	"  counts them as encrypted, key exchange or cleartext per address pair: the proof that traffic crossed encrypted.\n" +
 	"  An IOL node's interfaces start shut down, so an unconfigured link carries and captures nothing.\n" +
+	"- Test a failure by stopping links, never nodes: a stopped node loses its running configuration, and a shared\n" +
+	"  controller can refuse to start it again (HTTP 400 while other labs use its capacity). Put the links' restart in the\n" +
+	"  block's `always:`, so a failed proof still hands back a whole lab. `virt.cml.lab.info` shows every node's state and\n" +
+	"  link before you change one. An IOL node's ports are `Ethernet0/0` to `Ethernet0/3`, never `GigabitEthernet`; read\n" +
+	"  them with `net.ios.facts` before configuring one.\n" +
+	"- A router `virt.cml.node.create` seeds with `device:` takes SSH only on its vty lines: to reach it over Telnet,\n" +
+	"  put `line vty 0 4` and under it `transport input ssh telnet` in its `configuration:` before its first start. An\n" +
+	"  external connector has one interface, `port`, and an unmanaged switch has `port0` to `port7`.\n" +
+	"- `virt.cml.lab.start` reports `controller_nodes_running` and `controller_nodes_needed`, in a check too. A\n" +
+	"  controller at its license's node limit refuses a start, and the error says so: free capacity before running it\n" +
+	"  again, and remember that a lab you tear down mid-task gives its capacity to whoever starts next.\n" +
+	"- `when:` goes on the tasks inside a block, never on the block itself, which is refused.\n" +
 	"- `wait.routes` waits for a Cisco IOS router's routes too (`show ip route`, the global table), as for FRR.\n" +
+	"  With `state: absent` it waits for the prefixes' routes to go (a withdrawn network, a failed link); with\n" +
+	"  `next_hops` too, until each named prefix's route uses none of those next hops: a failover off them.\n" +
+	"- `net.batfish.check`'s `network:` begins the name of the Batfish network the task makes (default `pleiades`,\n" +
+	"  then a random suffix; the task deletes only its own), and the whole name comes back as the `network` stat. On a\n" +
+	"  Batfish several labs share, give each lab its own (`network: pleiades-<lab>`).\n" +
 	"- In `net.batfish.check`, `route` and `no_route` take `vrf:` (without it every VRF counts, a front door's default\n" +
 	"  route included), and `reach.from: <node>[<interface>]` is the node sending from that interface. Batfish does not\n" +
 	"  model DMVPN (NHRP, mGRE): accept those by name with that reason and prove the overlay on the live network.\n" +
 	"- Batfish runs as a container (`container.run` with `memory`, its port on 127.0.0.1 only): the runbook is in\n" +
 	"  `docs/16-network-verification.md`, under Running Batfish. It takes a minute or two to answer.\n" +
 	"- The account `net.frr.config` logs in as needs the `frrvty` group and write access to `/var/run/frr`; the method\n" +
-	"  checks that before any change, and says so when it is missing.\n\n"
+	"  checks that before any change, and says so when it is missing.\n\n" +
+	"A change to a Cisco router that undoes itself when the proof after it fails:\n\n" +
+	"```yaml\n" +
+	skillRollbackRunbook +
+	"```\n\n"
+
+// skillRollbackRunbook is the network section's example of a block with
+// rollback_on_failure over net.ios.config and no rollback: list.
+// TestCLI_DocCreateSkillsRollbackExampleValidates validates it as written,
+// since a skill that teaches a runbook validate refuses teaches the agent
+// the mistake.
+const skillRollbackRunbook = `# What this does: adds Loopback0 on core1 and pings it from core1, undoing the
+# change inside the run when the ping fails.
+# Blast radius: core1 only.
+# Changes: core1's running configuration (one loopback interface).
+# Undo: pleiades rollback <run-id>; a failed ping undoes it before the run ends.
+id: loopback_change
+hosts: core1
+tasks:
+  - name: Add a loopback and prove it answers, undone if it does not
+    rollback_on_failure: true
+    block:
+      - name: Add Loopback0
+        net.ios.config:
+          lines:
+            - interface Loopback0
+            - ip address 192.0.2.1 255.255.255.255
+      - name: Ping it from the router
+        net.ios.ping:
+          dest: 192.0.2.1
+`
 
 // skillRunbook is the runbook the skill teaches by. It reads only, so a
 // reader who runs it as written changes nothing.

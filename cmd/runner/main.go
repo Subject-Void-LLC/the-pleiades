@@ -134,6 +134,9 @@ func main() {
 		os.Exit(runHealthcheck(os.Args[1:]))
 	case routeVersion:
 		fmt.Println("runner " + buildinfo.Version())
+		if name := buildinfo.Codename(); name != "" {
+			fmt.Println(name)
+		}
 		os.Exit(0)
 	case routeAgent:
 		// Fall through into the body below, which is the Agent.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/distribution/reference"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -17,6 +18,9 @@ import (
 func init() {
 	register(fqcnResolve, containerengine.MethodManifest(readOnly, resolveDoc()), resolve)
 }
+
+// statExists is whether the registry holds the tag resolve was asked for.
+const statExists = "exists"
 
 // resolve is container.image.resolve's body: what a reference names now,
 // asked of its registry through the engine, with the registry credential
@@ -44,6 +48,14 @@ func resolve(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	defer s.Close()
 	got, err := s.ResolveDigest(ctx, ref, auth)
+	// A tag the registry answers "not found" for is an answer, exists
+	// false, so a plan can branch on whether a release is published. Every
+	// other refusal (no route, a credential refused, a registry that hides
+	// a private repository behind "unauthorized") stays a failure, since it
+	// does not say the tag is absent.
+	if cerrdefs.IsNotFound(err) {
+		return collection.Result{}, recordStats(rc, map[string]any{statExists: false, statImage: ref})
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -52,7 +64,7 @@ func resolve(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return fail(fmt.Errorf("pinning %s to %s: %w", ref, got.Digest, err))
 	}
 	return collection.Result{}, recordStats(rc, map[string]any{
-		statImage: reference.FamiliarString(pinned), statDigest: got.Digest,
+		statExists: true, statImage: reference.FamiliarString(pinned), statDigest: got.Digest,
 		statMediaType: got.MediaType, statPlatform: nonNil(got.Platforms),
 	})
 }

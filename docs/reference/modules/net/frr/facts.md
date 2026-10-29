@@ -6,7 +6,7 @@ status: beta
 
 Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.
 
-Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.
+Asks vtysh for each in JSON and returns it as data, and by default also the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.
 
 ## Attributes
 
@@ -23,7 +23,7 @@ Asks vtysh for each in JSON and returns it as data. With include_config, it also
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `include_config` | `bool` | no | `false` | Also return the running configuration, its secrets replaced. |
+| `include_config` | `bool` | no | `true` | Return the running configuration, its secrets replaced, the default; false leaves it out (config_sha256 is returned either way). |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns
@@ -37,7 +37,7 @@ Asks vtysh for each in JSON and returns it as data. With include_config, it also
 | `routes` | `dict` | always | show ip route json: every route by prefix. |
 | `bgp_summary` | `dict` | always | show bgp summary json, empty when BGP is not running. |
 | `config_sha256` | `string` | always | The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file. |
-| `running_config` | `string` | with include_config | The running configuration with its secrets replaced. |
+| `running_config` | `string` | unless include_config is false | The running configuration with its secrets replaced. |
 
 ## Undoing this
 
@@ -59,7 +59,6 @@ Read a router for a model:
 ```yaml
 - name: Read r1
   net.frr.facts:
-    include_config: true
   register: r1
 ```
 

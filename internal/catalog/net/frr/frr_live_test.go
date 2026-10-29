@@ -124,15 +124,16 @@ func inverseParams(t *testing.T, rc *runContext) (map[string]any, bool) {
 }
 
 // testFacts: version, hostname, the link's interface and
-// a connected route come from the router, and include_config masks a
-// secret the configuration holds.
+// a connected route come from the router, the configuration comes back by
+// default with its secret masked, and include_config false leaves it out.
 func testFacts(t *testing.T, l *lab) {
 	l.Nodes["r1"].Exec(t, "vtysh", "-c", "configure terminal", "-c", "interface "+l.link["r1"], "-c", "ip ospf authentication-key facts-secret")
 	t.Cleanup(func() {
 		l.Nodes["r1"].Exec(t, "vtysh", "-c", "configure terminal", "-c", "interface "+l.link["r1"], "-c", "no ip ospf authentication-key")
 	})
 	rc := l.rc()
-	if _, err := frr.Facts(context.Background(), rc, l.device("r1"), map[string]any{"include_config": true}); err != nil {
+	// No include_config: the masked configuration is the default (R5).
+	if _, err := frr.Facts(context.Background(), rc, l.device("r1"), map[string]any{}); err != nil {
 		t.Fatal(err)
 	}
 	if v, _ := rc.stats["version"].(string); !strings.HasPrefix(v, "10.1.1") {
@@ -156,6 +157,13 @@ func testFacts(t *testing.T, l *lab) {
 	config, _ := rc.stats["running_config"].(string)
 	if strings.Contains(config, "facts-secret") || !strings.Contains(config, "ip ospf authentication-key pleiades-masked-") {
 		t.Errorf("running_config does not mask the key:\n%s", config)
+	}
+	narrowed := l.rc()
+	if _, err := frr.Facts(context.Background(), narrowed, l.device("r1"), map[string]any{"include_config": false}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := narrowed.stats["running_config"]; ok || narrowed.stats["config_sha256"] != rc.stats["config_sha256"] {
+		t.Errorf("include_config false: running_config present %v, digest %v", ok, narrowed.stats["config_sha256"])
 	}
 }
 

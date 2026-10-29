@@ -31,6 +31,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -46,6 +47,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -324,8 +326,8 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 
 	if !spec.accepts(resp.StatusCode) {
-		return collection.Result{}, fmt.Errorf("%s: %s %s returned %d, wanted %s",
-			fqcn, spec.method, spec.url, resp.StatusCode, spec.wanted())
+		return collection.Result{}, fmt.Errorf("%s: %s %s returned %d, wanted %s%s",
+			fqcn, spec.method, spec.url, resp.StatusCode, spec.wanted(), requestRefusal(resp.StatusCode, content))
 	}
 
 	return collection.Result{Changed: !requestIsSafe(spec.method)}, nil
@@ -686,6 +688,18 @@ func requestIsSafe(method string) bool {
 	default:
 		return false
 	}
+}
+
+// requestRefusal is the server's own reason for a refusal (a 4xx or 5xx),
+// for the error: its JSON error field or its words, bounded and quoted
+// through pkg/farside. A 2xx or 3xx the task did not accept is not a
+// refusal, and its body (a login's token, a document) stays in the content
+// stat alone rather than being copied into the error.
+func requestRefusal(status int, content []byte) string {
+	if status < 400 || len(bytes.TrimSpace(content)) == 0 {
+		return ""
+	}
+	return ": the server said " + farside.Text(string(content))
 }
 
 // requestRecord writes the stats this method returns.

@@ -54,7 +54,14 @@ func TestVarsRule(t *testing.T) {
 		{name: "variables not known", world: validate.WorldView{DAG: dag}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			findings := validate.VarsRule(tc.world)
+			// Only the first task's parameters are in question here; the
+			// condition on the last task is read by its own test below.
+			var findings []validate.Finding
+			for _, f := range validate.VarsRule(tc.world) {
+				if f.Node == "tasks[0]" {
+					findings = append(findings, f)
+				}
+			}
 			if len(findings) != len(tc.want) {
 				t.Fatalf("findings = %+v, want %d", findings, len(tc.want))
 			}
@@ -75,8 +82,8 @@ func TestVarsRule(t *testing.T) {
 }
 
 // varsRollbackRunbook undoes a change with a step reading vars.undo_to, and
-// a conditional task with one reading vars.never, which is left to the
-// engine with its task.
+// a conditional task (testing for vars.flag) with one reading vars.never, which
+// is left to the engine with its task.
 const varsRollbackRunbook = `id: vars-rollback
 tasks:
   - name: change
@@ -86,7 +93,7 @@ tasks:
       - noop:
           to: "{{ vars.undo_to }}"
   - name: maybe
-    when: vars.flag == 'x'
+    when: has(vars.flag) && vars.flag == 'x'
     noop:
       msg: plain
     rollback:
@@ -123,5 +130,24 @@ func TestVarsRule_ReadsRollbackStepsAndAdvisesOnlyAFlagTheCommandHas(t *testing.
 	}
 	if len(adhoc) == 0 {
 		t.Error("no finding for a command with no variables")
+	}
+}
+
+// TestVarsRule_ReadsAConditionOfItsOwn: a task's when: reading a name nobody
+// supplies is found on the task, though its parameters are left to the
+// engine, and is quiet once the name is supplied.
+func TestVarsRule_ReadsAConditionOfItsOwn(t *testing.T) {
+	dag := yamlDAG(t, varsRunbook)
+	var onCondition []validate.Finding
+	for _, f := range validate.VarsRule(validate.WorldView{DAG: dag, VariablesKnown: true}) {
+		if f.Node == "tasks[3]" {
+			onCondition = append(onCondition, f)
+		}
+	}
+	if len(onCondition) != 1 || !strings.Contains(onCondition[0].Message, "condition: no value is supplied for vars.candidate") {
+		t.Fatalf("findings on the conditional task = %+v", onCondition)
+	}
+	if got := validate.VarsRule(validate.WorldView{DAG: dag, VariablesKnown: true, Variables: map[string]any{"candidate": "c", "other": 1}}); len(got) != 0 {
+		t.Errorf("findings with everything supplied: %+v", got)
 	}
 }

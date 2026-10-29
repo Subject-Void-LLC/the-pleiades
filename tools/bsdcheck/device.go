@@ -21,8 +21,12 @@ type freebsd struct {
 	posix oscheck.POSIX
 }
 
-// newLeg is device in project.
-func newLeg(project, device string) (oscheck.Leg, error) {
+// newLeg is device in project, its variable data under data when one is
+// named (the lab's bsd-check mounts its second disk at /data).
+func newLeg(project, device, data string) (oscheck.Leg, error) {
+	if err := oscheck.CheckPOSIXDataDir(check.DataKey, data); err != nil {
+		return nil, err
+	}
 	lab, err := oscheck.NewLab("bsdcheck", project, device)
 	if err != nil {
 		return nil, err
@@ -36,6 +40,7 @@ func newLeg(project, device string) (oscheck.Leg, error) {
 		// Written in the project, which file.copy reads from, and deleted
 		// once sent.
 		Files: ".bsdcheck",
+		Data:  data,
 	}}, nil
 }
 

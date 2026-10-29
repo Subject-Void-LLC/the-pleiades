@@ -212,10 +212,6 @@ func (l *Lookup) Resolve(ctx context.Context, reference string) (string, error) 
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := checkStatus(resp.StatusCode, ref); err != nil {
-		return "", err
-	}
-
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("%w: the response for %s could not be read", credtype.ErrLookupReference, ref)
@@ -223,6 +219,10 @@ func (l *Lookup) Resolve(ctx context.Context, reference string) (string, error) 
 	if len(body) > maxResponseBytes {
 		return "", fmt.Errorf("%w: the response for %s is larger than %d bytes",
 			credtype.ErrLookupReference, ref, maxResponseBytes)
+	}
+
+	if err := checkStatus(resp.StatusCode, ref, l.said(resp.StatusCode, body)); err != nil {
+		return "", err
 	}
 
 	return l.valueFrom(body, ref)

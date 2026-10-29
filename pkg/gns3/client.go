@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // maxResponse bounds a response body read: a project of a few hundred
@@ -81,7 +83,7 @@ func (c *Client) Connect(ctx context.Context) (Version, error) {
 			continue
 		}
 		if status/100 != 2 {
-			return Version{}, fmt.Errorf("gns3: GET /%s/version: %d: %s", api, status, firstLine(string(out)))
+			return Version{}, fmt.Errorf("gns3: GET /%s/version: %d: %s", api, status, farside.Text(string(out)))
 		}
 		var v struct {
 			Version string `json:"version"`
@@ -178,7 +180,7 @@ func (c *Client) get(ctx context.Context, path string, into any) error {
 		return err
 	}
 	if status/100 != 2 {
-		return fmt.Errorf("gns3: GET %s: %d: %s", full, status, firstLine(string(out)))
+		return fmt.Errorf("gns3: GET %s: %d: %s", full, status, farside.Text(string(out)))
 	}
 	if err := json.Unmarshal(out, into); err != nil {
 		return fmt.Errorf("gns3: GET %s: the answer is not what this client reads: %w", full, err)
@@ -217,17 +219,4 @@ func (c *Client) raw(ctx context.Context, method, path string, body io.Reader, c
 		return 0, nil, fmt.Errorf("gns3: %s %s: the answer is over %d bytes", method, path, maxResponse)
 	}
 	return res.StatusCode, out, nil
-}
-
-// firstLine is a server's words fit for an error: the first line, at most
-// 300 bytes, quoted so a control character is shown rather than acted on.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	if len(s) > 300 {
-		s = s[:300] + "..."
-	}
-	return fmt.Sprintf("%q", s)
 }

@@ -207,27 +207,37 @@ func TestAuthenticate_UnknownAccountIsNotFasterThanAKnownOne(t *testing.T) {
 	// stretch on both sides. Averages of five calls in a row failed on a
 	// busy Windows ARM VM (unknown 35 ms, known 146 ms), a stall on the known
 	// side rather than a shortcut, which would be well under a millisecond.
-	// The lockout is raised past rounds so every known attempt derives; at the
-	// default the account would lock partway and measure a different path.
-	const rounds = 15
-	store, client := newStore(t, localauth.LockoutPolicy{MaxAttempts: 10 * rounds, Duration: localauth.DefaultLockoutPolicy.Duration})
+	// The lockout is raised past every known attempt so each one derives; at
+	// the default the account would lock partway and measure a different path.
+	//
+	// Each sample times a batch of calls, not one. Go's clock on Windows
+	// advances only on the timer interrupt (about 15.6 ms on an idle VM), so a
+	// single decoy derivation shorter than one tick read as 0 s, and the
+	// fastest of 15 such readings was 0 s against a known side of two ticks
+	// (win-check, 2026-10-28: "unknown 0s, known 31.7805ms"). A batch spans
+	// many ticks, so the clock's step is a small part of it, while the minimum
+	// over rounds still discards a stall.
+	const rounds, batch = 5, 8
+	store, client := newStore(t, localauth.LockoutPolicy{MaxAttempts: 10 * rounds * batch, Duration: localauth.DefaultLockoutPolicy.Duration})
 	ctx := context.Background()
 	seedUser(t, client, "known@example.test")
 	if err := store.SetPassword(ctx, "known@example.test", testPassword, false); err != nil {
 		t.Fatalf("SetPassword() error = %v", err)
 	}
 
-	once := func(email string) time.Duration {
+	timed := func(email string) time.Duration {
 		start := time.Now()
-		_, _ = store.Authenticate(ctx, email, "a-wrong-password-here")
+		for range batch {
+			_, _ = store.Authenticate(ctx, email, "a-wrong-password-here")
+		}
 		return time.Since(start)
 	}
 	known, unknown := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
 	for range rounds {
-		known = min(known, once("known@example.test"))
-		unknown = min(unknown, once("nobody@example.test"))
+		known = min(known, timed("known@example.test"))
+		unknown = min(unknown, timed("nobody@example.test"))
 	}
-	t.Logf("fastest of %d: known %v, unknown %v", rounds, known, unknown)
+	t.Logf("fastest of %d batches of %d: known %v, unknown %v", rounds, batch, known, unknown)
 
 	if unknown < known/4 {
 		t.Errorf("an unknown account took %v and a known one took %v; the unknown path is short circuiting "+

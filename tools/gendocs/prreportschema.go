@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/jsonschema"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/oscheck"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/prreport"
@@ -17,6 +18,7 @@ var prReportModelFiles = []string{
 	"tools/internal/prreport/report.go",
 	"tools/internal/flakegate/run.go",
 	"tools/internal/flakegate/report.go",
+	"tools/internal/flakegate/headroom.go",
 	"tools/internal/oscheck/report.go",
 }
 
@@ -36,18 +38,16 @@ func generatePRReportSchema(outDir string) error {
 // a field's known values are examples, not an enum, since a newer producer
 // of the same major version may add either.
 func prReportSchema(root string) (map[string]any, error) {
-	docs := map[string]string{}
+	files := make([]string, 0, len(prReportModelFiles))
 	for _, file := range prReportModelFiles {
-		d, err := fieldDocs(filepath.Join(root, file))
-		if err != nil {
-			return nil, err
-		}
-		for k, v := range d {
-			docs[k] = v
-		}
+		files = append(files, filepath.Join(root, file))
 	}
-	s := &schemaBuilder{docs: docs, defs: map[string]any{}, source: "the pr-check report's model files", open: true, absentNotNull: true,
-		known: map[string][]string{
+	docs, err := jsonschema.FilesDocs(files...)
+	if err != nil {
+		return nil, err
+	}
+	s := &jsonschema.Builder{Docs: docs, Defs: map[string]any{}, Source: "the pr-check report's model files", Open: true, AbsentNotNull: true,
+		Known: map[string][]string{
 			"Report.Kind":        {prreport.ReportKind},
 			"Report.Verdict":     prreport.KnownReportVerdicts,
 			"Problem.Code":       prreport.KnownProblemCodes,
@@ -61,12 +61,5 @@ func prReportSchema(root string) (map[string]any, error) {
 			"LegRecord.Verdict":  prreport.KnownRunVerdicts,
 			"LegRecord.Step":     prreport.KnownLegSteps,
 		}}
-	root2, err := s.object(reflect.TypeFor[prreport.Report]())
-	if err != nil {
-		return nil, err
-	}
-	root2["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-	root2["title"] = "Pleiades pr-check report"
-	root2["$defs"] = s.defs
-	return root2, nil
+	return s.Root(reflect.TypeFor[prreport.Report](), "Pleiades pr-check report")
 }

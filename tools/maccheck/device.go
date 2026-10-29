@@ -41,9 +41,6 @@ func (r pleiadesRemote) Ready() error {
 		{Command: "git", Why: "the tests that make a throwaway repository need it: install the Command Line Tools with `xcode-select --install`"},
 		{Command: "caffeinate", Why: "it keeps the Mac awake through the run"},
 	}
-	if r.posix.Containers != nil {
-		needs = append(needs, oscheck.ContainerNeeds...)
-	}
 	return r.posix.Ready(r.mac, "Darwin", "Mac", needs...)
 }
 
@@ -56,39 +53,9 @@ func (r pleiadesRemote) Test(ctx context.Context, sha string, parallel int, pack
 	return r.posix.Test(ctx, r.mac, sha, parallel, packages, stdout)
 }
 
-// The Mac runs pr-check's govulncheck when it is ready; without this, a
-// leg that lost Vuln would send every scan back to this machine unnoticed.
-var _ oscheck.Scanner = pleiadesRemote{}
-
-// Vuln runs govulncheck on sha's tree, under caffeinate, as a scan on this
-// machine would (oscheck.POSIX.Vuln).
-func (r pleiadesRemote) Vuln(ctx context.Context, sha, version string, stdout io.Writer) (bool, error) {
-	return r.posix.Vuln(ctx, sha, version, stdout)
-}
-
 // Records reads back the tests' records (oscheck.POSIX.Records).
 func (r pleiadesRemote) Records(ctx context.Context, sha string) ([]flakegate.Run, error) {
 	return r.posix.Records(ctx, sha)
-}
-
-// Coverage reads back the container pass's coverage measurement
-// (oscheck.POSIX.ContainerCoverage), which only a container run writes.
-func (r pleiadesRemote) Coverage(ctx context.Context, sha string) (string, error) {
-	if r.posix.Containers == nil {
-		return "", nil
-	}
-	return r.posix.ContainerCoverage(ctx, sha)
-}
-
-// podmanSocket is where, under the Mac's home, a link to the Podman machine's
-// socket is kept: its name holds "podman.sock", which testcontainers needs.
-const podmanSocket = ".pleiades-podman/podman.sock"
-
-// forContainers is this Mac as a container run uses it: its tests run
-// against the Mac's Podman, and it must have podman and docker as well.
-func (r pleiadesRemote) forContainers() pleiadesRemote {
-	r.posix.Containers = &oscheck.Containers{Socket: podmanSocket}
-	return r
 }
 
 // ensureDevice (re)creates the private project for t unless it already

@@ -21,6 +21,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -147,7 +148,7 @@ func pathExists(ctx context.Context, conn *remoteexec.Conn, dir, path string) (b
 		return false, err
 	}
 	if result.ExitCode == cdFailedExitCode {
-		return false, fmt.Errorf("cannot enter directory %q: %s", dir, strings.TrimSpace(result.Stderr))
+		return false, fmt.Errorf("cannot enter directory %q: %s", dir, farside.Output(result.Stderr))
 	}
 	return result.ExitCode == 0, nil
 }

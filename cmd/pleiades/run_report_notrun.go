@@ -6,6 +6,8 @@ package main
 
 import (
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // The reasons a planned task was never run.
@@ -28,10 +30,12 @@ const (
 // in rep's plan that has no result in rep.Tasks, in the plan's order. A
 // group (block or parallel) is not a task of its own, so only its tasks
 // are listed; a task --tags left out was never planned, and is not listed.
-func (rep *runReport) addNotRun(reason string) {
+func addNotRun(rep *runReport, reason string) {
 	ran := make(map[string]bool, len(rep.Tasks))
 	for _, t := range rep.Tasks {
-		ran[t.ID] = true
+		// A task that ran more than once has one entry per run, its id with
+		// the item or try appended; the plan names the task itself.
+		ran[engine.BaseNodeID(t.ID)] = true
 	}
 	var walk func(tasks []planTask)
 	walk = func(tasks []planTask) {
@@ -62,7 +66,8 @@ func (rep *runReport) addNotRun(reason string) {
 func stoppedReason(tasks []taskReport) string {
 	var stopped []string
 	for _, t := range tasks {
-		if (t.Status == statusFailed || t.Status == statusHeld) && t.RescuedBy == "" {
+		// A failure tried again or ignored did not end the run.
+		if (t.Status == statusFailed || t.Status == statusHeld) && t.RescuedBy == "" && !t.Retried && !t.Ignored {
 			stopped = append(stopped, taskLabel(t)+" "+string(t.Status))
 		}
 	}

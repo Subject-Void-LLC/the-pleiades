@@ -17,7 +17,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `edge` | 3 | 3 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
-| `file` | 14 | 13 |
+| `file` | 14 | 14 |
 | `fs` | 2 | 2 |
 | `fw` | 3 | 3 |
 | `gate` | 2 | 2 |
@@ -28,10 +28,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
-| `virt` | 36 | 36 |
+| `virt` | 38 | 38 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **210** | **207** |
+| **total** | **212** | **210** |
 
 ## All methods
 
@@ -118,7 +118,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [file.remove](file/remove.md) | implemented | Removes a file or directory from the target. |
 | [file.stat](file/stat.md) | implemented | Reports what is at a path on the target, and changes nothing. |
 | [file.symlink](file/symlink.md) | implemented | Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory. |
-| [file.template](file/template.md) | declared | Renders a template and writes the result to the target. |
+| [file.template](file/template.md) | implemented | Renders a template with the run's variables and results and writes the result to a file on the target, only when the bytes there differ. |
 | [file.touch](file/touch.md) | implemented | Creates an empty file on the target, or updates its modification time. |
 | [file.yaml](file/yaml.md) | implemented | Sets, or removes, the value at a key path in a YAML file on the device, keeping its comments and the rest of the file. |
 | [fs.mount](fs/mount.md) | implemented | Mounts a filesystem on the target, and optionally persists it to fstab. |
@@ -199,7 +199,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.cml.capture.stop](virt/cml/capture/stop.md) | implemented | Stops a packet capture on a link of a CML lab and writes its file into the project. |
 | [virt.cml.lab.create](virt/cml/lab/create.md) | implemented | Creates an empty CML lab with a title. |
 | [virt.cml.lab.delete](virt/cml/lab/delete.md) | implemented | Stops, wipes and deletes a CML lab. |
-| [virt.cml.lab.info](virt/cml/lab/info.md) | implemented | Reports one CML lab: its nodes, their interfaces and its links. |
+| [virt.cml.lab.info](virt/cml/lab/info.md) | implemented | Reports one CML lab: its nodes, their interfaces and links, and how many nodes the controller runs. |
 | [virt.cml.lab.list](virt/cml/lab/list.md) | implemented | Lists the labs on a CML controller. |
 | [virt.cml.lab.start](virt/cml/lab/start.md) | implemented | Starts a CML lab's nodes and waits until they boot. |
 | [virt.cml.lab.stop](virt/cml/lab/stop.md) | implemented | Stops a CML lab's nodes. |
@@ -216,8 +216,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |
 | [virt.vbox.vm.addresses](virt/vbox/vm/addresses.md) | implemented | Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone. |
+| [virt.vbox.vm.attach_disk](virt/vbox/vm/attach_disk.md) | implemented | Gives a stopped VirtualBox VM a second disk, made new on the host when it is not there yet. |
 | [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file. |
 | [virt.vbox.vm.delete](virt/vbox/vm/delete.md) | implemented | Deletes a stopped VirtualBox VM and its disks. |
+| [virt.vbox.vm.detach_disk](virt/vbox/vm/detach_disk.md) | implemented | Takes a disk off a stopped VirtualBox VM, deleting it from the host when asked. |
 | [virt.vbox.vm.eject_seed](virt/vbox/vm/eject_seed.md) | implemented | Takes a VM's seed out of its DVD drive and deletes it, once its first boot has read it. |
 | [virt.vbox.vm.host_keys](virt/vbox/vm/host_keys.md) | implemented | Reads a VM's SSH host keys from what cloud-init printed on its serial console. |
 | [virt.vbox.vm.import_disk](virt/vbox/vm/import_disk.md) | implemented | Makes a VirtualBox VM from a disk image on the host, such as Microsoft's Windows Server evaluation VHDX. |
@@ -233,7 +235,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
-| [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given and its routing table has stopped changing. |
+| [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing. |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.archive.extract](win/archive/extract.md) | implemented | Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM. |
 | [win.capability.install](win/capability/install.md) | implemented | Installs a Windows capability (a feature on demand) with DISM, run as SYSTEM so Windows Update will serve it. |

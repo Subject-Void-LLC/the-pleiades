@@ -252,16 +252,16 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 210 registered methods across 23 namespaces; 207 are
-implemented and 3 are declared but not implemented.** Every FQCN is registered and
+**The module catalog has 212 registered methods across 23 namespaces; 210 are
+implemented and 2 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
-that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
+that is NOT implemented, both of them: `net.junos.config` and
 `net.eos.config`. Calling one of those produces an explicit
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `container` 37, `virt` 36, `ai` 11, `svc` 16, `net` 25,
-`file` 13, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4,
+is ever entered. By namespace, implemented: `container` 37, `virt` 38, `ai` 11, `svc` 16, `net` 25,
+`file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4,
 `archive` 2, `fs` 2, `gate` 2, `http` 3, `pleiades` 3, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
 over any hand-written tally including this one. `exec.command` is the first method
@@ -370,25 +370,25 @@ specifics. To watch a job today, call the API with `curl`, or use the CLI.
 Things a real Ansible user will look for and not currently find:
 
 - Task parameters render a strict subset of Jinja2 and nothing more. A string holding
-  `{{ }}` renders when its task runs, reading the run's variables (`vars`), earlier
+  `{{ }}` renders when its task runs, reading the run's variables (`vars`, from `vars:`,
+  `set_fact`, the inventory's `group_vars` and `host_vars`, and extra variables), earlier
   registered results (`nodes`, and `result.<register>` for a result one device wrote),
-  through a closed set of filters; there is no `{% %}`, no arithmetic, no authored
-  `vars:` and no `set_fact`. A target chosen from data needs a `within:` bounding it. On
+  through a closed set of filters; there is no `{% %}` and no arithmetic. A target chosen
+  from data needs a `within:` bounding it. On
   the Controller, a runbook still runs once per device, so a task on another device or on
   no device runs against the dispatched device there until segmented dispatch lands.
-- No `loop` / `with_items`. A task runs once per its target device, never once per
-  list item.
-- No `handlers` / `notify`, no `become`, no `serial`, no `roles`, no
-  `ignore_errors`, no `changed_when` / `failed_when`.
+  [Writing runbooks](04-writing-runbooks.md) covers variables, `set_fact`, `loop`,
+  `until`, `failed_when`, `changed_when`, `ignore_errors`, `assert` and `fail`.
+- Loops are `loop` / `with_items` only, at most 1000 items; no other `with_*` form
+  (`with_dict`, `with_fileglob`, ...) is supported.
+- No `handlers` / `notify`, no `become`, no `serial`, no `roles`.
 - `tags:` works on a runbook, a block or a task, with `pleiades run --tags` and
   `--skip-tags` selecting by them exactly as Ansible does, `always` and `never`
   included. The Controller and Runner do not take a tag filter yet: a dispatched
   runbook runs every task except those tagged `never`.
-- No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
 - A playbook converts with `pleiades forge migrate-playbook`, which writes native
   runbooks and a report of everything a person must finish. It works around the gaps
-  above only where the playbook fixes the answer: a loop over a written list is
-  unrolled and a variable with one literal value is written in. Everything else it
+  above only where the playbook fixes the answer. Everything else it
   cannot express is reported, and a runbook with anything blocked cannot run until a
   person resolves it. See
   [Migrating from Ansible](03-migrating-from-ansible.md#converting-a-playbook-pleiades-forge-migrate-playbook).
@@ -415,8 +415,8 @@ and useful for scripted, single-operator automation today. The distributed,
 multi-user control plane does dispatch real jobs to real devices, both native runbooks
 and unconverted Ansible playbooks; see [Implementation status](#implementation-status)
 above. What still stands between it and AWX is mostly the list under
-[Limitations](#limitations): a runbook has no loops, handlers, privilege escalation,
-roles or authored variables yet, a runbook dispatched to a Runner runs every task against
+[Limitations](#limitations): a runbook has no handlers, privilege escalation,
+roles or `serial` yet, a runbook dispatched to a Runner runs every task against
 the one device it was dispatched to, and an unconverted playbook runs against one device
 per dispatch rather than across a whole play.
 

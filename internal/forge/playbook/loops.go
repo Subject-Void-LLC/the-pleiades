@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // loopSpec is a task's loop, resolved to its items.
@@ -13,6 +15,29 @@ type loopSpec struct {
 	present           bool
 	items             []any
 	loopVar, indexVar string
+	// native is set when the loop becomes the runbook's own loop: the task
+	// runs once per item at run time instead of being unrolled.
+	native *nativeLoop
+}
+
+// nativeLoop is a task's loop key as the runbook writes it.
+type nativeLoop struct {
+	// source is the list written out, or one {{ }} expression rendering to one.
+	source any
+	// withItems keeps Ansible's older key name.
+	withItems bool
+	control   *engine.LoopControl
+}
+
+// names are the roots a native loop's templates and conditions may read.
+func (l loopSpec) names() []string {
+	names := []string{"item", "loop"}
+	for _, n := range []string{l.loopVar, l.indexVar} {
+		if n != "" && n != "item" && n != "loop" {
+			names = append(names, n)
+		}
+	}
+	return names
 }
 
 // loopOf resolves a task's loop to its items, when the list is written in
@@ -38,10 +63,8 @@ func (t *translator) loopOf(entries []entry, spec leafSpec, ctx taskCtx) (loopSp
 	default:
 		return block("loop.runtime", key.key+" is a lookup this converter does not evaluate")
 	}
-	if spec.register != "" {
-		return block("loop.register", "a looped task registers its result")
-	}
 	loop := loopSpec{present: true, loopVar: "item"}
+	var label string
 	if lc := deref(lookup(nodeOfEntries(entries), "loop_control")); lc != nil {
 		lcEntries, _ := mapEntries(lc)
 		for _, e := range lcEntries {
@@ -52,24 +75,97 @@ func (t *translator) loopOf(entries []entry, spec leafSpec, ctx taskCtx) (loopSp
 			case "index_var":
 				loop.indexVar = v.Value
 			case "label":
+				label = v.Value
 			default:
 				return block("loop.control", "loop_control: "+e.key+" is not reproduced")
 			}
 		}
 	}
-	v, rerr := t.goValue(key.value, nil, at)
+	// A loop whose items are known here is unrolled, unless its task reads
+	// its own result (a register, until, changed_when, failed_when), which
+	// is one result for the whole loop only in the native loop.
+	needsResult := spec.register != "" || spec.nk.needsResult()
+	if key.key == "with_dict" && needsResult {
+		return block("loop.register", "a looped with_dict cannot take a register or a condition over its result")
+	}
+	if !needsResult {
+		v, rerr := t.goValue(key.value, nil, at)
+		if rerr == nil {
+			items, ok := loopItems(key.key, v, t.dictOrder(key.value))
+			switch {
+			case !ok:
+				return block("loop.runtime", "the loop's value is not a list known here")
+			case len(items) > maxLoopItems:
+				return block("loop.too_long", fmt.Sprintf("the loop has %d items", len(items)))
+			}
+			loop.items = items
+			return loop, nil, []string{t.raise("loop.unrolled", at, spec.name, fmt.Sprintf("the loop became %d tasks", len(items)))}
+		}
+		if rerr.code != "template.unresolved" || key.key == "with_dict" {
+			return block("loop.runtime", rerr.why)
+		}
+	}
+	if key.key == "with_dict" {
+		return block("loop.runtime", "a with_dict over a dictionary known only at run time")
+	}
+	source, rerr := t.nativeLoopSource(key, at)
 	if rerr != nil {
 		return block("loop.runtime", rerr.why)
 	}
-	items, ok := loopItems(key.key, v, t.dictOrder(key.value))
-	switch {
-	case !ok:
-		return block("loop.runtime", "the loop's value is not a list known here")
-	case len(items) > maxLoopItems:
-		return block("loop.too_long", fmt.Sprintf("the loop has %d items", len(items)))
+	control := &engine.LoopControl{}
+	if loop.loopVar != "item" {
+		control.LoopVar = loop.loopVar
 	}
-	loop.items = items
-	return loop, nil, []string{t.raise("loop.unrolled", at, spec.name, fmt.Sprintf("the loop became %d tasks", len(items)))}
+	control.IndexVar = loop.indexVar
+	if label != "" {
+		l, lerr := t.rewriteTemplate(label, loop.names(), "", at)
+		if lerr != nil {
+			return block("loop.control", "loop_control label: "+lerr.why)
+		}
+		control.Label = l
+	}
+	if *control == (engine.LoopControl{}) {
+		control = nil
+	}
+	loop.native = &nativeLoop{source: source, withItems: key.key == "with_items" && !isList(source), control: control}
+	return loop, nil, []string{t.raise("loop.native", at, spec.name, "the loop became the runbook's loop, run once per item at run time")}
+}
+
+// nativeLoopSource writes a loop's list the runbook's way: the list itself,
+// with with_items' one level of nesting flattened, or one expression.
+func (t *translator) nativeLoopSource(key entry, at Position) (any, *resolveError) {
+	n := deref(key.value)
+	if n == nil {
+		return nil, &resolveError{"loop.runtime", "the loop has no list"}
+	}
+	switch n.Kind {
+	case yaml.SequenceNode:
+		v, rerr := t.foldOrNative(n, nil, "", at)
+		if rerr != nil {
+			return nil, rerr
+		}
+		list, ok := v.([]any)
+		if !ok {
+			return nil, &resolveError{"loop.runtime", "the loop's value is not a list"}
+		}
+		if key.key == "with_items" {
+			list, _ = loopItems("with_items", list, nil)
+		}
+		if len(list) > maxLoopItems {
+			return nil, &resolveError{"loop.too_long", fmt.Sprintf("the loop has %d items", len(list))}
+		}
+		return list, t.checkRewritten(list, "", "")
+	case yaml.ScalarNode:
+		if !hasTemplate(n.Value) || !wholeExpr(n.Value) {
+			return nil, &resolveError{"loop.runtime", "the loop's value is not a list, or one expression that renders to one"}
+		}
+		s, rerr := t.rewriteTemplate(n.Value, nil, "", at)
+		if rerr != nil {
+			return nil, rerr
+		}
+		return s, t.checkRewritten(s, "", "")
+	}
+	return nil, &resolveError{"loop.runtime", "the loop's value is not a list"}
 }
 
 // loopItems turns a loop's resolved value into its items as Ansible

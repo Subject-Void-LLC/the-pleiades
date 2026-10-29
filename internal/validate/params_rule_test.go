@@ -53,7 +53,7 @@ func TestParamsRule(t *testing.T) {
 		{"engine for gate.run", "gate.run", map[string]any{"manifest": "gate.yaml", "engine": "podman"}, nil},
 		{"engine action", "noop", map[string]any{"anything": 1}, nil},
 		{"unregistered method", "totally.fake.name", map[string]any{"x": 1}, nil},
-		{"declared-only method", "file.template", map[string]any{"x": 1}, nil},
+		{"declared-only method", "net.junos.config", map[string]any{"x": 1}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			findings := validate.ParamsRule(validate.WorldView{DAG: dagWithParams(tc.fqcn, tc.params)})

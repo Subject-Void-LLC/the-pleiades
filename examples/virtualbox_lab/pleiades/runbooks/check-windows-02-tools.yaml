@@ -6,6 +6,24 @@
 # naming the program that shows it is there.
 id: vbox-lab-check-windows-tools
 hosts: win-check
+# What to unpack, once each: the archive, where it goes, and what shows it is
+# already there. The loop below reads this list, so a fourth tool is one more
+# entry. The downloads stay one task each: a URL's host must be written out in
+# the runbook, never taken from data, so a list cannot choose it.
+vars:
+  archives:
+    - name: Go
+      src: C:\Windows\Temp\go1.26.9.windows-amd64.zip
+      dest: C:\
+      creates: C:\go\bin\go.exe
+    - name: MinGit
+      src: C:\Windows\Temp\MinGit-2.56.0.2-64-bit.zip
+      dest: C:\mingit
+      creates: C:\mingit\cmd\git.exe
+    - name: GCC
+      src: C:\Windows\Temp\winlibs-gcc-16.2.0-r2.zip
+      dest: C:\
+      creates: C:\mingw64\bin\gcc.exe
 tasks:
   - name: fetch Go 1.26.9 for Windows
     win.file.download:
@@ -23,19 +41,13 @@ tasks:
       path: C:\Windows\Temp\winlibs-gcc-16.2.0-r2.zip
       sha256: d5dbafc4a170e762ca6143151ec918fb9e2c72736fb14cd704abebc6bdd5276a
       timeout: 1800
-  - name: unpack Go into C:\go, once
+  # The GCC archive is the slow one, so the loop's bound is its.
+  - name: unpack each archive, once
     win.archive.extract:
-      src: C:\Windows\Temp\go1.26.9.windows-amd64.zip
-      dest: C:\
-      creates: C:\go\bin\go.exe
-  - name: unpack MinGit into C:\mingit, once
-    win.archive.extract:
-      src: C:\Windows\Temp\MinGit-2.56.0.2-64-bit.zip
-      dest: C:\mingit
-      creates: C:\mingit\cmd\git.exe
-  - name: unpack GCC into C:\mingw64, once
-    win.archive.extract:
-      src: C:\Windows\Temp\winlibs-gcc-16.2.0-r2.zip
-      dest: C:\
-      creates: C:\mingw64\bin\gcc.exe
-      timeout: 1800
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+      creates: "{{ item.creates }}"
+    loop: "{{ vars.archives }}"
+    loop_control:
+      label: "{{ item.name }}"
+    timeout: 1800

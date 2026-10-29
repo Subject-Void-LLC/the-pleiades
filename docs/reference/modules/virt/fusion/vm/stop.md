@@ -24,7 +24,7 @@ Makes sure a VM is no longer running. Mode soft asks the guest to shut down, and
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `vmx` | `string` | yes | - | The absolute path of the VM's .vmx file on the Mac, such as /Users/me/pleiades-vms/win11-arm/win11-arm.vmx. Spaces are allowed; a path that is not absolute, does not end in .vmx, or holds a control character is refused. |
-| `mode` | `string` | no | `soft` | How to stop it: soft (the guest shuts down), hard (powered off at once) or suspend (its memory written to disk). |
+| `mode` | `string` | no | `soft` | How to stop it: soft (the guest shuts down), hard (powered off at once) or suspend (its memory written to disk). **Choices:** `soft`, `hard`, `suspend`. |
 
 ## Returns
 

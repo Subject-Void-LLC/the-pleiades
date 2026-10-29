@@ -1,1 +1,0 @@
-`net.ios.replace` deletes only the checkpoint files `net.ios.config` made (`pleiades-<id>.cfg`): returning a device to `nvram:startup-config` or a configuration kept on `flash:` replaces from it and leaves it there. Its errors quote at most ten difference lines.

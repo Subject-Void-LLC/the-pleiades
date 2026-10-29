@@ -3,6 +3,7 @@
 package oscheck
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
 // Pleiades is this branch's pleiades binary and the device it drives, in
@@ -54,27 +57,76 @@ type adhocReport struct {
 // Adhoc runs one method against the device, its pleiades ended when ctx
 // ends, and returns the task's stdout return, or its error.
 func (p Pleiades) Adhoc(ctx context.Context, method string, params ...string) (string, error) {
-	out := p.adhocJSON(ctx, method, params...)
+	out, why := p.adhocJSON(ctx, method, params...)
+	if err := reportless(method, out, why); err != nil {
+		return "", err
+	}
 	return adhocStdout(method, out)
 }
 
 // AdhocStats runs one method against the device, its pleiades ended when
 // ctx ends, and returns the task's stats, or its error.
 func (p Pleiades) AdhocStats(ctx context.Context, method string, params ...string) (map[string]any, error) {
-	out := p.adhocJSON(ctx, method, params...)
+	out, why := p.adhocJSON(ctx, method, params...)
+	if err := reportless(method, out, why); err != nil {
+		return nil, err
+	}
 	return adhocTaskStats(method, out)
 }
 
 // adhocJSON runs one method against the device with adhoc --json, its
 // pleiades ended when ctx ends, and returns the report it printed: again,
-// while the report says the device never answered (retryUnreached).
-func (p Pleiades) adhocJSON(ctx context.Context, method string, params ...string) []byte {
+// while the report says the device never answered (retryUnreached). why is
+// how the last try ended when it did not end cleanly (its exit status and
+// the end of what it wrote to stderr), "" when it did.
+func (p Pleiades) adhocJSON(ctx context.Context, method string, params ...string) (out []byte, why string) {
 	args := append([]string{"adhoc", p.Device, method}, params...)
 	args = append(args, "--json", "--dir", p.Project)
-	return retryUnreached(ctx, UnreachedRetryFor, waitFor, func() []byte {
-		out, _ := exec.CommandContext(ctx, p.Binary, args...).Output() // #nosec G204 -- the binary this check built, with arguments it wrote
-		return out
+	out = retryUnreached(ctx, UnreachedRetryFor, waitFor, func() []byte {
+		var stderr bytes.Buffer
+		cmd := exec.CommandContext(ctx, p.Binary, args...) // #nosec G204 -- the binary this check built, with arguments it wrote
+		cmd.Stderr = &stderr
+		// Its own process group: a signal to the check's group (the gate's
+		// stop) does not end it mid-call, so a put-back's shutdown, on a
+		// context of its own, finishes; ctx still ends every other call
+		// (FAILURE_PATTERNS 733, 735).
+		flakegate.OwnGroup(cmd)
+		got, err := cmd.Output()
+		why = endedWith(err, stderr.String())
+		return got
 	})
+	return out, why
+}
+
+// stderrTail is how much of a run's stderr a report-less failure carries.
+const stderrTail = 5
+
+// endedWith says how a run ended when it did not end cleanly: err (its exit
+// status, or the signal that killed it) and the last stderrTail lines of
+// stderr; "" for a run that exited 0.
+func endedWith(err error, stderr string) string {
+	if err == nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	if len(lines) > stderrTail {
+		lines = lines[len(lines)-stderrTail:]
+	}
+	if tail := strings.TrimSpace(strings.Join(lines, "\n")); tail != "" {
+		return fmt.Sprintf("%v: %s", err, tail)
+	}
+	return err.Error()
+}
+
+// reportless is the error for a run that printed no report at all and ended
+// as why says: a crash, a kill or a refusal before any task ran, which the
+// report's own parse error would hide. A run that printed something, or
+// ended cleanly, is left to the report's reader.
+func reportless(method string, out []byte, why string) error {
+	if len(bytes.TrimSpace(out)) > 0 || why == "" {
+		return nil
+	}
+	return fmt.Errorf("pleiades adhoc %s printed no report and ended with %s", method, why)
 }
 
 // UnreachedRetryFor bounds how long a call whose device never answered is
@@ -203,7 +255,10 @@ type Outcome struct {
 // command that ran and failed is an answer, and only one that did not run
 // is an error.
 func (p Pleiades) AdhocOutcome(ctx context.Context, method string, params ...string) (Outcome, error) {
-	out := p.adhocJSON(ctx, method, params...)
+	out, why := p.adhocJSON(ctx, method, params...)
+	if err := reportless(method, out, why); err != nil {
+		return Outcome{}, err
+	}
 	return adhocOutcome(method, out)
 }
 

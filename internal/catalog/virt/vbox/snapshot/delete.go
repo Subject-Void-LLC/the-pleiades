@@ -42,7 +42,7 @@ func init() {
 				Params: []collection.Param{
 					{Name: "vm", Type: "string", Required: true, Description: "The VM whose snapshot this is, named as for virt.vbox.vm.start."},
 					{Name: "name", Type: "string", Required: true, Description: "The snapshot's name, under the same rule as a VM's. VirtualBox lets two snapshots share a name; virt.vbox.snapshot.take never makes a second, and the methods that find a snapshot by name refuse one that matches more than one unless uuid says which."},
-					{Name: "uuid", Type: "string", Description: "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be one of them."},
+					{Name: "uuid", Type: "string", Description: "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be the UUID of a snapshot of that name."},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "uuid", Type: "string", Returned: "when a snapshot was deleted", Description: "The snapshot deleted."},

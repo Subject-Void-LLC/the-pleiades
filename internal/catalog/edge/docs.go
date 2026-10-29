@@ -43,7 +43,10 @@ func accessDoc() collection.Doc {
 		},
 		Returns: []collection.ReturnField{
 			{Name: "id", Type: "string", Returned: "success or difference", Description: "The application's id."},
+			{Name: "name", Type: "string", Returned: "success or difference", Description: "The application's name."},
 			{Name: "domain", Type: "string", Returned: "success or difference", Description: "Its domain."},
+			{Name: "type", Type: "string", Returned: "success or difference", Description: "Its type as Cloudflare names it (self_hosted, saas, ...)."},
+			{Name: "session_duration", Type: "string", Returned: "success or difference", Description: "How long a session it grants lasts, as Cloudflare writes it (24h)."},
 			{Name: "audience", Type: "string", Returned: "success or difference", Description: "Its audience tag (aud), which an origin validating Access tokens must expect."},
 			{Name: "issuer", Type: "string", Returned: "success or difference", Description: "The issuer of its tokens."},
 			{Name: "policies", Type: "list of dict", Returned: "success or difference", Description: "Each policy's name, decision and precedence."},
@@ -66,6 +69,9 @@ func dnsDoc() collection.Doc {
 		},
 		Returns: []collection.ReturnField{
 			{Name: "zone", Type: "string", Returned: "success or difference", Description: "The zone's name."},
+			{Name: "zone_id", Type: "string", Returned: "success or difference", Description: "The zone's id."},
+			{Name: "name", Type: "string", Returned: "success or difference", Description: "The record name read, as the task gave it."},
+			{Name: "type", Type: "string", Returned: "success or difference", Description: "The record type read."},
 			{Name: "records", Type: "list of dict", Returned: "success or difference", Description: "Each record's content, proxied and ttl."},
 			differencesReturn,
 		},

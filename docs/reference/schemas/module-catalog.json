@@ -31,7 +31,7 @@
           "name": "prompts",
           "type": "list of dict",
           "required": true,
-          "description": "The prompt set, up to 200: each {id, text or messages, expect}, where expect is one of exact (the answer, trimmed, equals it), contains, regex (RE2) and json_field ({path, equals}: the answer read as JSON holds equals at path, a dotted list of keys)."
+          "description": "The prompt set, up to 200: each {id, text or messages, expect}, where expect is exact (the answer, trimmed, equals it), contains, regex (RE2) or json_field ({path, equals}: the answer read as JSON holds equals at path, a dotted list of keys)."
         },
         {
           "name": "save_as",
@@ -121,6 +121,18 @@
           "description": "passed divided by count."
         },
         {
+          "name": "provider",
+          "type": "string",
+          "returned": "success",
+          "description": "The provider device the set was asked of."
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "returned": "success",
+          "description": "The model that answered, as the task named it."
+        },
+        {
           "name": "cost",
           "type": "float",
           "returned": "when every call is priced",
@@ -188,12 +200,12 @@
         {
           "name": "messages",
           "type": "list of dict",
-          "description": "The conversation: a list of {role, content}, role system, user or assistant, with at least one user message. One of messages, prompt and prompt_file."
+          "description": "The conversation: a list of {role, content}, role system, user or assistant, with at least one user message. Give exactly one: messages, prompt or prompt_file."
         },
         {
           "name": "prompt",
           "type": "dict",
-          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file."
+          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. Give exactly one: messages, prompt or prompt_file."
         },
         {
           "name": "prompt_file",
@@ -233,7 +245,7 @@
         {
           "name": "review",
           "type": "list of dict",
-          "description": "Review rules (human in the loop): thresholds on the answer, any one of which holds it for a person's decision before a later task can read it. Each is one of cost_over (a number in the price table's currency; an unpriced call holds), output_tokens_over, answer_matches (RE2), field (a dotted path in a JSON answer, with below, above, equals, in or not_in; a missing field holds), stop_reason (a list), fallback (ai.route), unsigned and always. A person at the terminal is asked; with nobody there the answer is written to the project's ai/review and the task fails as held until `pleiades ai review approve` or `deny`, and running again reuses the decision with no second call. With nobody to ask at all (the Walk tier), a held answer fails closed."
+          "description": "Review rules (human in the loop): thresholds on the answer, any of which holds it for a person's decision before a later task can read it. Each names a single threshold: cost_over (a number in the price table's currency; an unpriced call holds), output_tokens_over, answer_matches (RE2), field (a dotted path in a JSON answer, with below, above, equals, in or not_in; a missing field holds), stop_reason (a list), fallback (ai.route), unsigned and always. A person at the terminal is asked; with nobody there the answer is written to the project's ai/review and the task fails as held until `pleiades ai review approve` or `deny`, and running again reuses the decision with no second call. With nobody to ask at all (the Walk tier), a held answer fails closed."
         },
         {
           "name": "temperature",
@@ -728,7 +740,7 @@
         {
           "name": "prompt",
           "type": "dict",
-          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file."
+          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. Give exactly one: messages, prompt or prompt_file."
         },
         {
           "name": "prompt_file",
@@ -999,17 +1011,17 @@
         {
           "name": "review",
           "type": "list of dict",
-          "description": "Review rules (human in the loop): thresholds on the answer, any one of which holds it for a person's decision before a later task can read it. Each is one of cost_over (a number in the price table's currency; an unpriced call holds), output_tokens_over, answer_matches (RE2), field (a dotted path in a JSON answer, with below, above, equals, in or not_in; a missing field holds), stop_reason (a list), fallback (ai.route), unsigned and always. A person at the terminal is asked; with nobody there the answer is written to the project's ai/review and the task fails as held until `pleiades ai review approve` or `deny`, and running again reuses the decision with no second call. With nobody to ask at all (the Walk tier), a held answer fails closed."
+          "description": "Review rules (human in the loop): thresholds on the answer, any of which holds it for a person's decision before a later task can read it. Each names a single threshold: cost_over (a number in the price table's currency; an unpriced call holds), output_tokens_over, answer_matches (RE2), field (a dotted path in a JSON answer, with below, above, equals, in or not_in; a missing field holds), stop_reason (a list), fallback (ai.route), unsigned and always. A person at the terminal is asked; with nobody there the answer is written to the project's ai/review and the task fails as held until `pleiades ai review approve` or `deny`, and running again reuses the decision with no second call. With nobody to ask at all (the Walk tier), a held answer fails closed."
         },
         {
           "name": "messages",
           "type": "list of dict",
-          "description": "The conversation: a list of {role, content}, role system, user or assistant, with at least one user message. One of messages, prompt and prompt_file."
+          "description": "The conversation: a list of {role, content}, role system, user or assistant, with at least one user message. Give exactly one: messages, prompt or prompt_file."
         },
         {
           "name": "prompt",
           "type": "dict",
-          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file."
+          "description": "A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. Give exactly one: messages, prompt or prompt_file."
         },
         {
           "name": "prompt_file",
@@ -1543,6 +1555,10 @@
         {
           "name": "format",
           "type": "string",
+          "choices": [
+            "npm",
+            "cargo"
+          ],
           "description": "The lockfile's format, npm or cargo, when its name does not say."
         },
         {
@@ -1949,7 +1965,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reads one text file out of a container.",
-      "description": "Returns the text of the file at src inside the container named name, running or stopped, with its size and SHA-256. A file over max_bytes, or one that is not valid UTF-8 text, is refused rather than cut or mangled. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Returns the text of the file at src inside the container named name, running or stopped, with its size and SHA-256. A file over max_bytes, or one that is not valid UTF-8 text, is refused rather than cut or mangled. A file that is not there, in a container or because the container is not there, is not a failure: exists is false and no text is reported, so a later task can decide what to do (container.info says which). It changes nothing, so a check is the same read, an absent file included. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "name",
@@ -1987,21 +2003,33 @@
           "description": "The container's name."
         },
         {
-          "name": "content",
+          "name": "src",
           "type": "string",
           "returned": "always",
+          "description": "The path read, as src gave it."
+        },
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the file is there to read."
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "returned": "when exists",
           "description": "The file's text."
         },
         {
           "name": "size",
           "type": "int",
-          "returned": "always",
+          "returned": "when exists",
           "description": "Its size in bytes."
         },
         {
           "name": "checksum",
           "type": "string",
-          "returned": "always",
+          "returned": "when exists",
           "description": "Its SHA-256."
         }
       ],
@@ -2505,7 +2533,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reports images on the engine.",
-      "description": "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image its OS and architecture. A named image that is absent is listed under missing rather than failing the task. An image's environment is never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image also its OS, architecture and variant and what a container made from it runs: entrypoint and command (each as its program and how many arguments follow it, never an argument, since one baked into an image can be a secret), user, working directory, exposed ports, volumes and environment variable names. A named image that is absent is listed under missing rather than failing the task. An image's environment values are never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "images",
@@ -2527,7 +2555,7 @@
           "name": "images",
           "type": "list of dict",
           "returned": "always",
-          "description": "One entry per image: id, tags, digests, created, size, labels, and os and architecture for an image named."
+          "description": "One entry per image: id, tags, digests, created, size and labels; for every image listed (none named) also containers, how many containers use it; for an image named also os, architecture, variant, entrypoint and command (each a dict of program and arg_count, never an argument), user, working_dir, exposed_ports, volumes and env_names (names only, never a value)."
         },
         {
           "name": "missing",
@@ -3003,7 +3031,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Resolves a tag to the digest it names in its registry.",
-      "description": "Asks the registry a reference names, through the engine (so through the device's own network, proxy and mirrors), which digest its tag names now: a multi-platform image's index, as `docker buildx imagetools inspect` reports it, so it means the same on any machine. The registry credential bound for that registry is used when there is one. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Asks the registry a reference names, through the engine (so through the device's own network, proxy and mirrors), which digest its tag names now: a multi-platform image's index, as `docker buildx imagetools inspect` reports it, so it means the same on any machine. The registry credential bound for that registry is used when there is one. A tag the registry answers not found for is not a failure: exists is false and image is the reference asked for, so a later task can decide what to do. Any other refusal fails the task, a registry that answers unauthorized for a repository it does not show included, since that does not say the tag is absent. It changes nothing; a check is the same read, an absent tag included. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "image",
@@ -3023,27 +3051,33 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the registry holds the tag."
+        },
+        {
           "name": "image",
           "type": "string",
           "returned": "always",
-          "description": "The image by digest."
+          "description": "The image by digest, or the reference asked for when the tag does not exist."
         },
         {
           "name": "digest",
           "type": "string",
-          "returned": "always",
+          "returned": "when exists",
           "description": "The digest the tag names."
         },
         {
           "name": "media_type",
           "type": "string",
-          "returned": "always",
+          "returned": "when exists",
           "description": "Whether the digest is an index or a single image's manifest, as its media type."
         },
         {
           "name": "platforms",
           "type": "list of string",
-          "returned": "always",
+          "returned": "when exists",
           "description": "The platforms the image is built for, os/arch[/variant]."
         }
       ],
@@ -3344,7 +3378,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reports one container as the engine sees it.",
-      "description": "Reports the container named name: whether it exists, and if so its ID, state, image, command, labels, network, restart policy, privilege, mounts, last exit code and start time, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as not existing, not as a failure. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Reports the container named name: whether it exists, and if so everything the engine's inspect answer says that a runbook decides on: its ID, state, image, command and entrypoint (each as its program and how many arguments follow it, never an argument, since a command line often carries a secret such as a --password flag), user, working directory, hostname, labels, network mode and each attached network with its address, published ports, restart policy and count, privilege, read-only root, added capabilities, memory limit, mounts, last exit code, start and finish times, whether it was killed for memory, process ID, health and the engine's last start error, and its environment variables by name only, since a value may be a credential (anyone with access to the engine can still read them by inspecting the container). An absent container is reported as exists false, not as a failure, so a runbook can branch on it. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "name",
@@ -3370,6 +3404,12 @@
           "description": "Whether a container by that name exists."
         },
         {
+          "name": "name",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The container's name."
+        },
+        {
           "name": "id",
           "type": "string",
           "returned": "when it exists",
@@ -3379,13 +3419,175 @@
           "name": "state",
           "type": "string",
           "returned": "when it exists",
-          "description": "Its state as the engine names it."
+          "description": "Its state as the engine names it (created, running, paused, restarting, exited, dead)."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The engine's ID for the image it runs."
+        },
+        {
+          "name": "image",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The image reference a container.* method recorded on it, or empty for a container something else made."
+        },
+        {
+          "name": "created",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "When it was created, as the engine writes the time."
+        },
+        {
+          "name": "platform",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The platform the engine reports for it, such as linux."
+        },
+        {
+          "name": "restart_count",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "How many times the engine has restarted it."
+        },
+        {
+          "name": "labels",
+          "type": "dict",
+          "returned": "when it exists",
+          "description": "Its labels."
+        },
+        {
+          "name": "command",
+          "type": "dict",
+          "returned": "when it exists",
+          "description": "Its command as program (the first word) and arg_count (how many arguments follow). The arguments are withheld: a command line often carries a secret, such as a --password flag."
+        },
+        {
+          "name": "entrypoint",
+          "type": "dict",
+          "returned": "when it exists",
+          "description": "Its entrypoint as program and arg_count, the arguments withheld as the command's are."
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "The user it runs as, or empty for the image's."
+        },
+        {
+          "name": "working_dir",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "Its working directory, or empty for the image's."
+        },
+        {
+          "name": "hostname",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "Its hostname."
         },
         {
           "name": "env_names",
           "type": "list of string",
           "returned": "when it exists",
           "description": "Its environment variables, by name only."
+        },
+        {
+          "name": "network",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "Its network mode: none, bridge, host, or a network's name."
+        },
+        {
+          "name": "networks",
+          "type": "list of dict",
+          "returned": "when it exists",
+          "description": "Each network it is attached to, sorted by name: name and network_id, and ip_address, gateway, mac_address and aliases when the engine gives them (a stopped container has no address)."
+        },
+        {
+          "name": "ports",
+          "type": "list of string",
+          "returned": "when it exists",
+          "description": "Each port it publishes, as docker run writes one (127.0.0.1:8080:80/tcp, the host address left out when it is every address), sorted."
+        },
+        {
+          "name": "restart_policy",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "Its restart policy, or empty for none."
+        },
+        {
+          "name": "privileged",
+          "type": "bool",
+          "returned": "when it exists",
+          "description": "Whether it runs privileged."
+        },
+        {
+          "name": "read_only",
+          "type": "bool",
+          "returned": "when it exists",
+          "description": "Whether its root filesystem is read-only."
+        },
+        {
+          "name": "cap_add",
+          "type": "list of string",
+          "returned": "when it exists",
+          "description": "The capabilities added beyond the engine's default set."
+        },
+        {
+          "name": "memory",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "Its memory limit in bytes, 0 for none."
+        },
+        {
+          "name": "volumes",
+          "type": "list of string",
+          "returned": "when it exists",
+          "description": "Each mount as source:destination:mode, a volume by its name and a bind by its host path."
+        },
+        {
+          "name": "exit_code",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "Its last exit status, 0 when it has never exited."
+        },
+        {
+          "name": "started_at",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "When it last started, as the engine writes the time."
+        },
+        {
+          "name": "finished_at",
+          "type": "string",
+          "returned": "when it exists",
+          "description": "When it last exited, as the engine writes the time."
+        },
+        {
+          "name": "oom_killed",
+          "type": "bool",
+          "returned": "when it exists",
+          "description": "Whether the kernel killed it for running out of memory."
+        },
+        {
+          "name": "pid",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "Its main process's ID on the engine's host, 0 when it is not running."
+        },
+        {
+          "name": "health",
+          "type": "string",
+          "returned": "when the container has a health check",
+          "description": "Its health as the engine names it: starting, healthy or unhealthy."
+        },
+        {
+          "name": "state_error",
+          "type": "string",
+          "returned": "when the engine recorded why it last failed to start",
+          "description": "The engine's own words for it, cut to 1 KiB."
         }
       ],
       "examples": [
@@ -3424,13 +3626,13 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Lists the engine's containers.",
-      "description": "Lists the engine's running containers, or every container with all, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Lists every container on the engine, stopped ones included, or only the running ones with all false, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, the engine's status line, creation time, command (its program and how many arguments follow it, never an argument: the list includes containers no runbook made, and a command line often carries a secret such as a --password flag), ports, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "all",
           "type": "bool",
-          "default": "false",
-          "description": "List stopped containers too."
+          "default": "true",
+          "description": "List stopped containers too, the default; false lists only the running ones."
         },
         {
           "name": "match",
@@ -3452,13 +3654,13 @@
           "name": "containers",
           "type": "list of dict",
           "returned": "always",
-          "description": "The containers, each with name, id, state, image_id, image and labels."
+          "description": "The containers, each with name, id, state, status (the engine's own line, such as Up 3 minutes), created (Unix seconds), command (a dict of program and arg_count, the words after the program in the engine's one-line command; the arguments are withheld, since one can be a secret), ports (127.0.0.1:8080->80/tcp, or 80/tcp when not published), image_id, image and labels."
         }
       ],
       "examples": [
         {
           "name": "Every web container, stopped ones too",
-          "runbookYaml": "- name: Web containers\n  container.list:\n    all: true\n    match: web-*\n  register: webs\n"
+          "runbookYaml": "- name: Web containers\n  container.list:\n    match: web-*\n  register: webs\n"
         }
       ],
       "seeAlso": [
@@ -3490,7 +3692,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Returns a container's last lines of output.",
-      "description": "Returns the last tail lines the container named name wrote to standard output and standard error, optionally only since a timestamp or a duration (10m). More than 1 MiB together is refused rather than cut; ask for fewer lines. A container run with a terminal has one stream, returned as stdout. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
+      "description": "Returns the last tail lines the container named name wrote to standard output and standard error, optionally only since a timestamp or a duration (10m). More than 1 MiB together is refused rather than cut; ask for fewer lines. A container run with a terminal has one stream, returned as stdout. A container that does not exist is not a failure: exists is false and no output is reported, so a later task can decide what to do. It changes nothing, so a check is the same read, an absent container included. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
       "params": [
         {
           "name": "name",
@@ -3527,6 +3729,12 @@
           "description": "The container's name."
         },
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a container by that name exists."
+        },
+        {
           "name": "id",
           "type": "string",
           "returned": "when the container exists",
@@ -3535,13 +3743,13 @@
         {
           "name": "stdout",
           "type": "string",
-          "returned": "always",
+          "returned": "when the container exists",
           "description": "What it wrote to standard output."
         },
         {
           "name": "stderr",
           "type": "string",
-          "returned": "always",
+          "returned": "when the container exists",
           "description": "What it wrote to standard error."
         }
       ],
@@ -4198,7 +4406,7 @@
         {
           "name": "labels",
           "type": "list",
-          "description": "Only objects carrying every one of these labels, key or key=value."
+          "description": "Only objects carrying all of these labels, key or key=value."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -5544,7 +5752,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Compares the privileges granted to a role with a declared set, and fails naming each extra and each missing one.",
-      "description": "Reads, in one snapshot, every privilege granted to role itself in the database (on the database, schemas, tables, views, sequences, functions and columns, outside the system schemas, each with whether it carries the grant option), the roles it is a member of, and the objects it owns, and compares them with expect. A pattern schema.* stands for every object of its kind in the schema that exists; an exact object that does not exist is missing. Privileges reached through PUBLIC or through another role's membership are that grant's to answer for and are not compared; an owner holds everything on what it owns, so ownership is compared as its own entry, extra unless owns declares it. A column grant is its own entry, never folded into its table's. A grant option held but not declared is extra, and one declared but not held is missing. Default privileges are not compared. It only reads, so a check of it is the task itself. The connection is made from the device, through its SSH session (a direct-tcpip channel, or direct-streamlocal to a socket), so the database sees the connection its own network and pg_hba.conf already allow; TLS, when the connection asks for it, is negotiated and verified by this platform against the connection's pinned CA or the system's roots, and nothing of the machine running pleiades (a .pgpass, a certificate, a PG variable) is read.",
+      "description": "Reads, in one snapshot, every privilege granted to role itself in the database (on the database, schemas, tables, views, sequences, functions and columns, outside the system schemas, each with whether it carries the grant option), the roles it is a member of, and the objects it owns, and compares them with expect. A pattern schema.* stands for every object of its kind in the schema that exists; an exact object that does not exist is missing. Privileges reached through PUBLIC or through another role's membership are that grant's to answer for and are not compared; an owner holds everything on what it owns, so ownership is compared as its own entry, extra unless owns declares it. A column grant is its own entry, never folded into its table's. A grant option held but not declared is extra, and one declared but not held is missing. Default privileges are not compared. A role or a database that does not exist holds nothing and is reported as exists false, in a run and in a check: the declared set then lacks the role itself, which missing names first with everything else it declares, so the task fails naming them rather than passing a set nothing could hold. It only reads, so a check of it is the task itself. The connection is made from the device, through its SSH session (a direct-tcpip channel, or direct-streamlocal to a socket), so the database sees the connection its own network and pg_hba.conf already allow; TLS, when the connection asks for it, is negotiated and verified by this platform against the connection's pinned CA or the system's roots, and nothing of the machine running pleiades (a .pgpass, a certificate, a PG variable) is read.",
       "params": [
         {
           "name": "connection",
@@ -5595,6 +5803,12 @@
           "type": "list of string",
           "returned": "on success",
           "description": "Every one the set declares that the role lacks, which is empty for a task that succeeded."
+        },
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the role and the database exist; false when either does not, which missing names."
         },
         {
           "name": "warnings",
@@ -6046,7 +6260,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Counts every table's rows exactly, and with compare fails naming each table whose counts differ from a second database's.",
-      "description": "Counts the rows of every table outside the system schemas with count(*), in a REPEATABLE READ READ ONLY transaction per database, so each side's counts are one moment; partitions are counted through their parent, once. With compare, a second database (on the same connection, or another named one, reached through the same device) is counted the same way and the two are compared table by table: a different count, or a table only one side has, fails the task. Comparing a live database with a copy of it differs by whatever was written since; the comparison is for copies at rest, such as a restore checked against the dump's source taken at the same time. Planner estimates are never used. It only reads, so a check of it is the task itself. The connection is made from the device, through its SSH session (a direct-tcpip channel, or direct-streamlocal to a socket), so the database sees the connection its own network and pg_hba.conf already allow; TLS, when the connection asks for it, is negotiated and verified by this platform against the connection's pinned CA or the system's roots, and nothing of the machine running pleiades (a .pgpass, a certificate, a PG variable) is read.",
+      "description": "Counts the rows of every table outside the system schemas with count(*), in a REPEATABLE READ READ ONLY transaction per database, so each side's counts are one moment; partitions are counted through their parent, once. With compare, a second database (on the same connection, or another named one, reached through the same device) is counted the same way and the two are compared table by table: a different count, or a table only one side has, fails the task. Comparing a live database with a copy of it differs by whatever was written since; the comparison is for copies at rest, such as a restore checked against the dump's source taken at the same time. Planner estimates are never used. A database that does not exist holds no tables and is reported as exists false, in a run and in a check; with compare, a side that does not exist is a difference that fails the task, so two that do not exist never agree. It only reads, so a check of it is the task itself. The connection is made from the device, through its SSH session (a direct-tcpip channel, or direct-streamlocal to a socket), so the database sees the connection its own network and pg_hba.conf already allow; TLS, when the connection asks for it, is negotiated and verified by this platform against the connection's pinned CA or the system's roots, and nothing of the machine running pleiades (a .pgpass, a certificate, a PG variable) is read.",
       "params": [
         {
           "name": "connection",
@@ -6120,6 +6334,18 @@
           "description": "Tables only the compared database has."
         },
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the database exists; one that does not is counted as holding no tables."
+        },
+        {
+          "name": "compare_exists",
+          "type": "bool",
+          "returned": "with compare",
+          "description": "Whether the compared database exists; one that does not is a difference."
+        },
+        {
           "name": "warnings",
           "type": "list of string",
           "returned": "when there is one",
@@ -6187,10 +6413,28 @@
           "description": "The application's id."
         },
         {
+          "name": "name",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The application's name."
+        },
+        {
           "name": "domain",
           "type": "string",
           "returned": "success or difference",
           "description": "Its domain."
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "Its type as Cloudflare names it (self_hosted, saas, ...)."
+        },
+        {
+          "name": "session_duration",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "How long a session it grants lasts, as Cloudflare writes it (24h)."
         },
         {
           "name": "audience",
@@ -6295,6 +6539,24 @@
           "type": "string",
           "returned": "success or difference",
           "description": "The zone's name."
+        },
+        {
+          "name": "zone_id",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The zone's id."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The record name read, as the task gave it."
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "returned": "success or difference",
+          "description": "The record type read."
         },
         {
           "name": "records",
@@ -6695,6 +6957,12 @@
           "name": "shell",
           "type": "string",
           "required": true,
+          "choices": [
+            "powershell",
+            "cmd",
+            "none"
+          ],
+          "choicesIgnoreCase": true,
           "description": "How the command runs: powershell, cmd or none. powershell and cmd name the interpreter that reads a script, and none runs a command line directly with no interpreter. Required rather than defaulted silently, because the three read the same text three different ways and a command written for one is not safe in another. Which programs run is the device's own setting (cmd_path, powershell_path)."
         },
         {
@@ -6792,7 +7060,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Gathers baseline system facts from the target (OS, kernel, distribution).",
-      "description": "Reads a small, fixed set of system facts over SSH and emits each one as a fact, so it is kept as drift data rather than as a value that expires at the end of the run. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+      "description": "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
       "params": [
         {
           "name": "filter",
@@ -6854,6 +7122,48 @@
           "type": "int",
           "returned": "when /proc/uptime reports it",
           "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime."
+        },
+        {
+          "name": "ansible_nodename",
+          "type": "string",
+          "returned": "when the device reports one",
+          "description": "The full node name uname -n reports, before ansible_hostname cuts it at the first dot."
+        },
+        {
+          "name": "ansible_system",
+          "type": "string",
+          "returned": "when the device reports one",
+          "description": "The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin."
+        },
+        {
+          "name": "ansible_distribution_major_version",
+          "type": "string",
+          "returned": "when /etc/os-release names a version",
+          "description": "VERSION_ID up to its first dot, such as 24 for 24.04."
+        },
+        {
+          "name": "ansible_distribution_release",
+          "type": "string",
+          "returned": "when /etc/os-release names a codename",
+          "description": "VERSION_CODENAME from /etc/os-release, such as noble."
+        },
+        {
+          "name": "ansible_swaptotal_mb",
+          "type": "int",
+          "returned": "when /proc/meminfo reports it",
+          "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."
+        },
+        {
+          "name": "ansible_processor_vcpus",
+          "type": "int",
+          "returned": "when /proc/cpuinfo lists processors",
+          "description": "The number of logical processors, counted as the processor entries in /proc/cpuinfo."
+        },
+        {
+          "name": "ansible_processor_cores",
+          "type": "int",
+          "returned": "when /proc/cpuinfo reports cpu cores",
+          "description": "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."
         }
       ],
       "examples": [
@@ -7553,12 +7863,12 @@
         {
           "name": "regexp",
           "type": "string",
-          "description": "Remove every line this pattern matches. Matched anywhere in a line unless anchored with ^ or $. Cannot be combined with line, and one of the two is required."
+          "description": "Remove every line this pattern matches. Matched anywhere in a line unless anchored with ^ or $. Cannot be combined with line, and either it or line is required."
         },
         {
           "name": "line",
           "type": "string",
-          "description": "Remove every line whose text is exactly this. It may not contain a newline, since a line is matched whole. Cannot be combined with regexp, and one of the two is required."
+          "description": "Remove every line whose text is exactly this. It may not contain a newline, since a line is matched whole. Cannot be combined with regexp, and either it or regexp is required."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8117,13 +8427,159 @@
       "device": "required"
     },
     "engineVersion": ">=0.2.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that created the file emits a file.remove that deletes it again, which is a complete undo. A run that OVERWROTE an existing file emits a file.permissions restoring the mode, owner and group it found, and the previous CONTENT is not restored by it: those bytes are not read before the write and are not journaled anywhere, so once the new content lands the old content is gone. The emitted instruction says so in its own description rather than leaving a rollback to discover it. A run that changed nothing emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "file.remove",
+          "record": [
+            "path"
+          ],
+          "mayKeepOnFailure": true
+        },
+        {
+          "fqcn": "file.permissions",
+          "record": [
+            "path",
+            "mode",
+            "owner",
+            "group"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
     },
-    "supportsCheck": false,
+    "supportsCheck": true,
     "doc": {
-      "summary": "Renders a template and writes the result to the target."
+      "summary": "Renders a template with the run's variables and results and writes the result to a file on the target, only when the bytes there differ.",
+      "description": "Renders a template and writes the result to a path on the device exactly as file.copy writes content: a SHA-256 of the rendered bytes is compared with one the device computes of what is already there, so a run that finds the same bytes sends no write and reports no change; a write goes to a temporary file in the destination's directory with the final mode, owner and group and is renamed over it; an existing file keeps its mode, owner and group unless the task names them; a new file without a mode gets 0600; anything at dest that is not a regular file is refused. The template is rendered by the platform's one template engine on the machine running the work, never on the device, with the same syntax as every other parameter: {{ vars.x }} reads a run variable, {{ result.name }} and {{ nodes.name }} read earlier tasks' registered results, and {{ device.name }} the device the task runs on. A variable or result that does not exist is an error, not an empty string, so a misspelled name never writes a half-filled file. The template is either content, written in the runbook, or src, a file in the project directory (relative, inside it, through no symbolic link, never .pleiades, a regular file of at most 64 MiB) that the command line reads; a Walk-tier Runner holds no project, so there src is refused and content is the way. The rendered text can hold a value a bound credential or a variable carried: it is sent to the device and is never written to the journal, the diff or the result, which hold the file's checksum and size only. In check mode it makes the same reads and refusals and predicts the write and its diff without sending one. Writing a file this way is undone like file.copy's: a created file is removed, and an overwritten file gets its former mode, owner and group back, while its former content is not restored.",
+      "params": [
+        {
+          "name": "dest",
+          "type": "string",
+          "required": true,
+          "description": "The path to write on the device. Its parent directory must already exist: this method writes a file and never creates the directories above it, which is file.directory's job."
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "description": "The template, written in the runbook (set content or src, not both). It renders like any parameter holding {{, {% or {#, under trim_blocks and lstrip_blocks as a template file does; text without any is written verbatim. Nothing is appended, so a file that should end in a newline needs one in the value."
+        },
+        {
+          "name": "src",
+          "type": "string",
+          "description": "A template file in the project directory, as a path relative to it that is written out in the runbook, not computed: it must stay inside the project, pass through no symbolic link, not be in .pleiades, and be a regular file of at most 64 MiB. The command line reads and renders it; a Walk-tier Runner cannot see the project, so use content there. Set content or src, not both.",
+          "format": "template_file"
+        },
+        {
+          "name": "trim_blocks",
+          "type": "bool",
+          "default": "true",
+          "description": "Remove the first newline after each {% %} statement and {# #} comment, as Ansible's template module does by default, so a line holding only a tag leaves no blank line behind. A tag ending +%} keeps its newline. Written out as true or false, never a template."
+        },
+        {
+          "name": "lstrip_blocks",
+          "type": "bool",
+          "default": "false",
+          "description": "Strip the spaces and tabs before a {% %} statement or {# #} comment that begins its line, so a tag can be indented with the text around it; {%+ keeps them. Ansible's template module's option of the same name and default. Written out as true or false, never a template."
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "description": "The permission bits as one to four octal digits, quoted, for example \"0644\". A symbolic mode such as u+x is refused. Left unset, an existing file keeps its mode and a newly created one gets 0600."
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "description": "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."
+        },
+        {
+          "name": "group",
+          "type": "string",
+          "description": "The group name to give the file, refused as a numeric id for the same reason owner is."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "dest",
+          "type": "string",
+          "returned": "always",
+          "description": "The path this task wrote."
+        },
+        {
+          "name": "checksum",
+          "type": "string",
+          "returned": "always",
+          "description": "The SHA-256 of the file's contents in hex, read back from the device after any write."
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "returned": "always",
+          "description": "The permission bits the file carries now, as four octal digits."
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "returned": "always",
+          "description": "The user name owning the file now."
+        },
+        {
+          "name": "group",
+          "type": "string",
+          "returned": "always",
+          "description": "The group owning the file now."
+        },
+        {
+          "name": "size",
+          "type": "int",
+          "returned": "always",
+          "description": "The file's size in bytes now."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The before and after state of the path, each holding its kind, mode, owner, group, size, modification time and the checksum of its contents, never the content itself."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "when the write was not atomic",
+          "description": "Says the new bytes were copied into the existing file rather than renamed over it, because a new file could not be given its owner and group."
+        },
+        {
+          "name": "inverse",
+          "type": "dict",
+          "returned": "when something changed",
+          "description": "The concrete task that undoes this run: a file.remove when this run created the file, or a file.permissions restoring the attributes it found when the file already existed. Absent from a run that changed nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Render a configuration file from a template in the project",
+          "runbookYaml": "- name: Install the NTP configuration\n  file.template:\n    src: templates/chrony.conf\n    dest: /etc/chrony/chrony.conf\n    mode: \"0644\"\n"
+        },
+        {
+          "name": "Render a short template written in the runbook",
+          "runbookYaml": "- name: Write the node label\n  file.template:\n    dest: /etc/node-label\n    content: \"role={{ vars.role }}\\nhost={{ device.name }}\\n\"\n    mode: \"0644\"\n"
+        }
+      ],
+      "seeAlso": [
+        "file.copy",
+        "file.touch",
+        "file.permissions",
+        "file.remove"
+      ]
     }
   },
   "file.touch": {
@@ -8590,18 +9046,24 @@
         {
           "name": "port",
           "type": "int",
-          "description": "The port to allow. Exactly one of port or service is required."
+          "description": "The port to allow. Give port or service: exactly one is required."
         },
         {
           "name": "protocol",
           "type": "string",
           "default": "tcp",
-          "description": "The protocol for port (tcp or udp). Ignored when service is given."
+          "choices": [
+            "tcp",
+            "udp",
+            "sctp",
+            "dccp"
+          ],
+          "description": "The protocol for port: tcp, udp, sctp or dccp, as firewalld takes them. Ignored when service is given."
         },
         {
           "name": "service",
           "type": "string",
-          "description": "The firewalld service name to allow, e.g. http. Exactly one of port or service is required."
+          "description": "The firewalld service name to allow, e.g. http. Give port or service: exactly one is required."
         },
         {
           "name": "zone",
@@ -8697,18 +9159,24 @@
         {
           "name": "port",
           "type": "int",
-          "description": "The port to deny. Exactly one of port or service is required."
+          "description": "The port to deny. Give port or service: exactly one is required."
         },
         {
           "name": "protocol",
           "type": "string",
           "default": "tcp",
-          "description": "The protocol for port (tcp or udp). Ignored when service is given."
+          "choices": [
+            "tcp",
+            "udp",
+            "sctp",
+            "dccp"
+          ],
+          "description": "The protocol for port: tcp, udp, sctp or dccp, as firewalld takes them. Ignored when service is given."
         },
         {
           "name": "service",
           "type": "string",
-          "description": "The firewalld service name to deny, e.g. http. Exactly one of port or service is required."
+          "description": "The firewalld service name to deny, e.g. http. Give port or service: exactly one is required."
         },
         {
           "name": "zone",
@@ -8846,6 +9314,11 @@
           "name": "heavy",
           "type": "string",
           "default": "include",
+          "choices": [
+            "include",
+            "exclude",
+            "only"
+          ],
           "description": "include, exclude or only, as for gate.run."
         },
         {
@@ -8928,6 +9401,11 @@
           "name": "heavy",
           "type": "string",
           "default": "include",
+          "choices": [
+            "include",
+            "exclude",
+            "only"
+          ],
           "description": "include runs heavy checks with the rest, exclude leaves them out, only runs nothing else. A selection that runs no check at all is refused, since it would read as a pass."
         },
         {
@@ -9042,7 +9520,7 @@
         {
           "name": "body_matches",
           "type": "string",
-          "description": "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."
+          "description": "A regular expression (RE2, at most 1024 bytes) the body must match. Give body_contains or body_matches, not both."
         },
         {
           "name": "method",
@@ -9052,6 +9530,7 @@
             "GET",
             "HEAD"
           ],
+          "choicesIgnoreCase": true,
           "description": "GET, or HEAD for the status alone."
         },
         {
@@ -9295,7 +9774,7 @@
         {
           "name": "body_matches",
           "type": "string",
-          "description": "A regular expression (RE2, at most 1024 bytes) the body must match. One of body_contains and body_matches."
+          "description": "A regular expression (RE2, at most 1024 bytes) the body must match. Give body_contains or body_matches, not both."
         },
         {
           "name": "method",
@@ -9305,6 +9784,7 @@
             "GET",
             "HEAD"
           ],
+          "choicesIgnoreCase": true,
           "description": "GET, or HEAD for the status alone."
         },
         {
@@ -9984,12 +10464,18 @@
         {
           "name": "assertions",
           "type": "list of dict",
-          "description": "What must hold of the configurations as given, each one of: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}; no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node[\"Ethernet0/1\"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."
+          "description": "What must hold of the configurations as given, each a map with a single key: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}, where protocol is bgp, connected, eigrp, isis, kernel, local, ospf, rip or static (Batfish's own ibgp, aggregate, ospfIA, ospfE1, ospfE2, isisL1, isisL2 and eigrpEX are read as their family, so ibgp is written bgp); no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node[\"Ethernet0/1\"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."
         },
         {
           "name": "scenarios",
           "type": "list of dict",
           "description": "Each a name, down_interfaces (node[interface], e.g. r1[eth2]) and down_nodes, and its own assertions, checked on the snapshot with those down."
+        },
+        {
+          "name": "network",
+          "type": "string",
+          "default": "pleiades",
+          "description": "What the name of the Batfish network this task makes begins with, followed by a hyphen and 16 random hexadecimal digits (a lab's name, such as pleiades-cvd-opus, makes pleiades-cvd-opus-1f3a...), so the networks each lab makes on one shared Batfish service read as that lab's. 1 to 64 letters, digits, dots, hyphens and underscores, beginning with a letter or digit. The random part keeps two runs given the same name apart, and each task deletes only the network it made, when it ends. The whole name is returned as network."
         },
         {
           "name": "accept_unrecognized",
@@ -9998,6 +10484,12 @@
         }
       ],
       "returns": [
+        {
+          "name": "network",
+          "type": "string",
+          "returned": "once the network is made",
+          "description": "The Batfish network the task made and removed when it ended, its name beginning with the network parameter."
+        },
         {
           "name": "passed",
           "type": "bool",
@@ -10080,7 +10572,7 @@
           "name": "devices",
           "type": "list of map",
           "returned": "always",
-          "description": "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status."
+          "description": "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."
         },
         {
           "name": "device_count",
@@ -10129,7 +10621,7 @@
       ],
       "returns": [
         {
-          "name": "devices",
+          "name": "reachability",
           "type": "list of map",
           "returned": "always",
           "description": "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."
@@ -10151,6 +10643,12 @@
           "type": "int",
           "returned": "always",
           "description": "Count of devices with collection_status Managed."
+        },
+        {
+          "name": "total_device_count",
+          "type": "int",
+          "returned": "always",
+          "description": "How many devices the controller listed, reachable or not."
         }
       ],
       "examples": [
@@ -10641,13 +11139,13 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
-      "description": "Asks vtysh for each in JSON and returns it as data. With include_config, it also returns the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
+      "description": "Asks vtysh for each in JSON and returns it as data, and by default also the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
       "params": [
         {
           "name": "include_config",
           "type": "bool",
-          "default": "false",
-          "description": "Also return the running configuration, its secrets replaced."
+          "default": "true",
+          "description": "Return the running configuration, its secrets replaced, the default; false leaves it out (config_sha256 is returned either way)."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -10702,14 +11200,14 @@
         {
           "name": "running_config",
           "type": "string",
-          "returned": "with include_config",
+          "returned": "unless include_config is false",
           "description": "The running configuration with its secrets replaced."
         }
       ],
       "examples": [
         {
           "name": "Read a router for a model",
-          "runbookYaml": "- name: Read r1\n  net.frr.facts:\n    include_config: true\n  register: r1\n"
+          "runbookYaml": "- name: Read r1\n  net.frr.facts:\n  register: r1\n"
         }
       ],
       "seeAlso": [
@@ -11015,11 +11513,10 @@
         }
       ]
     },
-    "supportsCheck": false,
-    "noCheckReason": "what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS offers no way to ask without applying it",
+    "supportsCheck": true,
     "doc": {
       "summary": "Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly.",
-      "description": "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, a key pair being made or replaced, and what removing one says first; accept adds the task's own. A line that changes key material (crypto key generate, zeroize, import, move, decrypt, encrypt) changes what the configuration does not hold, so its run reports changed whatever the configuration shows, and no checkpoint returns it: such a call's undo is never exact. A line that asks a question (removing a key pair asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers (a line left ending in ?, [confirm], [yes/no] or asking for a password) fails the line at once, naming it, rather than waiting; anything else a device waits on, such as a banner's text, still waits until the read limit. Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
+      "description": "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, a key pair being made or replaced, and what removing one says first; accept adds the task's own. A line that changes key material (crypto key generate, zeroize, import, move, decrypt, encrypt) changes what the configuration does not hold, so its run reports changed whatever the configuration shows, and no checkpoint returns it: such a call's undo is never exact. A line that asks a question (removing a key pair asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers (a line left ending in ?, [confirm], [yes/no] or asking for a password) fails the line at once, naming it, rather than waiting; anything else a device waits on, such as a banner's text, still waits until the read limit. Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate. A check reads the running configuration over the same session and sends no line: each line is looked for, as written, in the block the lines before it entered and only there (a line that opens a block, such as interface or address-family, also where IOS would open it), so a line found only in an enclosing block, such as a neighbor under the router and not in the address family entered, is predicted to change; write exit before a top-level line. The lines not found are reported under differences as IOS reports a change (+ added, - what a no line removes, each under the block it sits in), masked as the backup is, with changed when there is one. A line IOS prints differently (an abbreviation such as int, or a default it does not print, such as no shutdown) is predicted to change. A call with a secret reference, prompts or ask, a crypto key line, a banner, end or a do line is reported unchecked, since only applying it tells what it changes.",
       "params": [
         {
           "name": "lines",
@@ -11080,8 +11577,8 @@
         {
           "name": "differences",
           "type": "list of string",
-          "returned": "when a checkpoint was kept",
-          "description": "The device's own contextual differences the change made (+ added, - removed), masked."
+          "returned": "when a checkpoint was kept, and in a check",
+          "description": "The device's own contextual differences the change made (+ added, - removed), masked; in a check, the differences the lines are predicted to make."
         },
         {
           "name": "undo_lines",
@@ -11093,7 +11590,7 @@
           "name": "backup",
           "type": "string",
           "returned": "when backup is true",
-          "description": "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."
+          "description": "The device's full running-config, captured immediately before this task's own lines were applied, with every secret masked: each password, secret, key, community and pre-shared key, in whatever encoding the device applies (IOS's own \"type 7\" is trivially reversible, so it is masked too), is replaced by a placeholder, and a clear-text one is masked to the end of its line. A configuration the masker cannot vouch for fails the task before any line is applied. It is a record of the configuration, not a file to restore the secrets from."
         },
         {
           "name": "notices",
@@ -11149,13 +11646,20 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Gathers structured facts from a Cisco IOS device over its CLI.",
-      "description": "Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco device type declares, so before this method a Cisco device could be commanded and configured but never described. Opens an interactive PTY session over SSH using netcli.IOS's own paging and prompt conventions, runs the read-only show commands the requested subsets need, and emits what it parses through EmitFact rather than SetStat, the same choice facts.gather and net.catalyst.device_facts both make: a fact is long-lived drift data worth comparing across weeks, and a software version recorded as a stat answers nothing next month. Every parser in this method was written against output captured from a real Cisco IOS XE device rather than from documentation or memory. A field the device does not report is left out entirely rather than emitted as an empty string, so a condition can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed, so this always reports no change. Two of cisco.ios.ios_facts's own subsets are deliberately absent rather than accepted and ignored: config, because net.ios.config's own backup parameter already captures a running-config and doing it twice invites two answers, and hardware, because the memory and flash figures IOS reports vary enough by platform that parsing them generically would be a guess.",
+      "description": "Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco device type declares, so before this method a Cisco device could be commanded and configured but never described. Opens an interactive session in netcli.IOS's own paging and prompt conventions and sends only show commands: by default every subset, so one call hands back what the device is, each interface with its VRF and state, and the running configuration with every secret masked. Each value is recorded twice under one name: as a fact (EmitFact, long-lived drift data) and as a stat (SetStat), so register, until and when read it as result.<register>.<name>. The configuration is a stat only, since its placeholders are keyed per run and would read as a change on every run. Every parser was written against output captured from real devices (a Catalyst 8000V on IOS XE 17.15.04c and an IOL XE router on 17.15.1), not from documentation or memory. A field the device does not report is left out rather than set to an empty string, so a condition can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed, so this always reports no change, and a check runs it for real. The config subset needs privileged mode: an account that lands in user mode needs its enable secret stored (pleiades add-credential --enable-password-stdin). When config came from all, the default, and the device refuses show running-config, it is left out with a warning and the rest is returned; asked for by name, that refusal fails the task. cisco.ios.ios_facts's hardware subset is absent on purpose: the memory and flash figures IOS reports vary enough by platform that parsing them generically would be a guess.",
       "params": [
         {
           "name": "gather_subset",
           "type": "list of string",
-          "default": "[\"min\"]",
-          "description": "Which subsets to gather: \"min\" (hostname, version, model, serial number, image, uptime, from \"show version\" and \"show inventory\"), \"interfaces\" (from \"show ip interface brief\"), or \"all\" for both. An unrecognized subset is refused rather than skipped."
+          "default": "all",
+          "choices": [
+            "min",
+            "interfaces",
+            "config",
+            "all"
+          ],
+          "choicesIgnoreCase": true,
+          "description": "Which subsets to gather: \"min\" (hostname, version, model, serial number, image, uptime, from \"show version\" and \"show inventory\"), \"interfaces\" (from \"show ip interface brief\", \"show interfaces\" and \"show vrf\", or \"show ip vrf brief\" where show vrf is refused), \"config\" (the running configuration, masked), or \"all\" for every one, the default. An unrecognized subset is refused rather than skipped."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -11181,13 +11685,13 @@
           "name": "ansible_net_version",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
-          "description": "The IOS XE version string, e.g. \"17.15.04c\"."
+          "description": "The software version: the \"Cisco IOS XE Software, Version\" line's on IOS XE, e.g. \"17.15.04c\", and on a device that prints no such line (an IOL XE router) the \"Cisco IOS Software ..., Version\" line's, e.g. \"17.15.1\"."
         },
         {
           "name": "ansible_net_model",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
-          "description": "The platform model, e.g. \"C8000V\"."
+          "description": "The platform model, e.g. \"C8000V\". An IOL router reports none."
         },
         {
           "name": "ansible_net_serialnum",
@@ -11211,29 +11715,46 @@
           "name": "ansible_net_interfaces",
           "type": "list of map",
           "returned": "when the interfaces subset is gathered",
-          "description": "One entry per interface: name, ip_address (omitted when the device says \"unassigned\"), status, and protocol. Status is taken whole, so \"administratively down\" is reported as written rather than truncated at the first space."
+          "description": "One map per interface, in the order \"show ip interface brief\" lists them. From that command: name, ip_address (left out when the device says \"unassigned\"), status and protocol, the status taken whole so \"administratively down\" is not cut at its space. From \"show interfaces\": description (when one is set), mtu (a number), admin_state (\"down\" when the interface is shut down, else \"up\") and line_protocol (as written, e.g. \"up\" or \"down (notconnect)\"). And vrf, the VRF's name, only when the interface is in one: an interface with no vrf key is in the global table. A list, not the map keyed by name cisco.ios.ios_facts returns, because this method has returned a list since it was written, a list keeps the device's own order, and a condition finds one interface with exists(i, i.name == \"Ethernet0/0\")."
+        },
+        {
+          "name": "ansible_net_config",
+          "type": "string",
+          "returned": "when the config subset is gathered",
+          "description": "The running configuration as \"show running-config\" prints it, with every secret masked by pkg/netcfg, the masking net.batfish.check applies. A masked value reads pleiades-masked- and sixteen hexadecimal digits: equal secrets mask alike within one run, so two devices' keys still compare, and differently in the next. Output that does not end in \"end\", or a line that would still hold a second secret after masking, fails the subset rather than returning any of the text. net.ios.config refuses a line holding a placeholder, so this text cannot be applied back as it is."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "when something was left out",
+          "description": "What was left out and why: the config subset, when all asked for it and the device refused show running-config; a VRF member the device did not list as an interface; a device that answers neither VRF command."
         },
         {
           "name": "ansible_net_gather_subset",
           "type": "list of string",
           "returned": "always",
-          "description": "The subsets actually gathered, after \"all\" is expanded."
+          "description": "The subsets actually gathered, after \"all\" is expanded; config is absent when it was left out."
         }
       ],
       "examples": [
         {
-          "name": "Gather a device's identity before deciding anything",
+          "name": "Learn the whole device before deciding anything",
           "runbookYaml": "- name: Learn what this router is\n  net.ios.facts:\n  register: device\n"
         },
         {
-          "name": "Gather interfaces as well",
-          "runbookYaml": "- name: Learn the interface list too\n  net.ios.facts:\n    gather_subset:\n      - all\n"
+          "name": "Wait until an interface's line protocol is up",
+          "runbookYaml": "- name: Wait for Ethernet0/1\n  net.ios.facts:\n    gather_subset:\n      - interfaces\n  register: r1\n  until: 'result.r1.ansible_net_interfaces.exists(i, i.name == \"Ethernet0/1\" && i.line_protocol == \"up\")'\n  retries: 10\n  delay: 6\n"
+        },
+        {
+          "name": "Only the identity, without the configuration",
+          "runbookYaml": "- name: Read the version\n  net.ios.facts:\n    gather_subset:\n      - min\n"
         }
       ],
       "seeAlso": [
         "facts.gather",
         "net.catalyst.device_facts",
-        "net.ios.config"
+        "net.ios.config",
+        "net.batfish.check"
       ]
     }
   },
@@ -11266,7 +11787,7 @@
           "name": "command",
           "type": "string",
           "required": true,
-          "description": "The show command to run and parse, one of the commands a parser covers (pleiades doc net.ios.parse lists them), for example \"show ip interface brief\" or \"show ip route\". IOS's abbreviations are not accepted: write the command in full."
+          "description": "The show command to run and parse, in one of the forms a parser covers, each {argument} standing for a value of your own: show archive config differences, show archive config differences {fileA}, show archive config differences {fileA} {fileB}, show bgp summary, show bgp {address_family} summary, show bgp {address_family} vrf {vrf} summary, show cdp neighbors, show cdp neighbors {interface}, show interfaces, show interfaces {interface}, show interfaces | include {include}, show inventory, show ip bgp summary, show ip bgp {address_family} summary, show ip bgp {address_family} vrf {vrf} summary, show ip interface brief, show ip interface brief {interface}, show ip ospf neighbor, show ip ospf neighbor {interface}, show ip ospf {process_id} neighbor, show ip ospf {process_id} neighbor {interface}, show ip route, show ip route vrf {vrf}, show ip route vrf {vrf} {protocol}, show ip route {protocol}, show lldp neighbors, show version, show vlan. For example \"show ip interface brief\" or \"show ip route vrf MGMT\". IOS's abbreviations are not accepted: write the command in full."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -11374,6 +11895,11 @@
           "name": "state",
           "type": "string",
           "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "choicesIgnoreCase": true,
           "description": "\"present\" fails the task if the destination is unreachable (0 percent success); \"absent\" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead."
         },
         {
@@ -11622,24 +12148,45 @@
           "name": "datastore",
           "type": "string",
           "default": "running",
+          "choices": [
+            "running",
+            "candidate",
+            "startup"
+          ],
+          "choicesIgnoreCase": true,
           "description": "The datastore to configure: running, candidate or startup. A datastore the device does not advertise support for is refused before anything is applied. Cisco IOS XE offers only running."
         },
         {
           "name": "default_operation",
           "type": "string",
           "default": "merge",
+          "choices": [
+            "merge",
+            "replace",
+            "none"
+          ],
           "description": "What the device does with elements carrying no explicit operation attribute: merge, replace or none. RFC 6241 defines no \"delete\" here; express a delete with an nc:operation attribute in content."
         },
         {
           "name": "error_option",
           "type": "string",
-          "default": "rollback-on-error when the device supports it, otherwise the device's own stop-on-error default",
-          "description": "How the device handles a rejected element: stop-on-error, continue-on-error or rollback-on-error. Left unset this method asks for rollback-on-error whenever the device advertises the capability, because stop-on-error leaves a rejected document half applied."
+          "choices": [
+            "stop-on-error",
+            "continue-on-error",
+            "rollback-on-error"
+          ],
+          "description": "How the device handles a rejected element: stop-on-error, continue-on-error or rollback-on-error. Left unset this method asks for rollback-on-error whenever the device advertises the capability, and otherwise leaves the device its own default, stop-on-error, because stop-on-error leaves a rejected document half applied."
         },
         {
           "name": "lock",
           "type": "string",
           "default": "never",
+          "choices": [
+            "never",
+            "always",
+            "if_supported"
+          ],
+          "choicesIgnoreCase": true,
           "description": "Whether to lock the datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."
         },
         {
@@ -11652,7 +12199,7 @@
           "name": "backup",
           "type": "bool",
           "default": "false",
-          "description": "Capture the datastore's full contents with get-config before applying anything, recorded under the backup stat."
+          "description": "Capture the datastore's full contents with get-config before applying anything, recorded under the backup stat with every secret masked. A configuration masking cannot vouch for fails the task before anything is applied."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -11666,7 +12213,7 @@
           "name": "backup",
           "type": "string",
           "returned": "when backup is true",
-          "description": "The datastore's full contents as XML, captured immediately before this task's own document was applied. Not sanitized: a device's configuration genuinely contains its enable secret, local user password hashes, and any TACACS+/RADIUS shared key, in whatever strength of encoding the device applies. Mask it with \"register_mask: backup\" on this task."
+          "description": "The datastore's full contents as XML, captured immediately before this task's own document was applied, with every secret masked: the text of each leaf whose name holds a secret (password, secret, a key such as auth-key or pre-shared-key, encrypted-password, RFC 8177's key-string, keystring and hexadecimal-string, OpenConfig's key-clear-text, an SNMP community), of every other leaf inside such an element at any depth but its encryption type, id, algorithm or lifetime (and, two or more levels down outside SNMP, a name or address), and of each crypt-shaped value ($1$, $6$, $9$) is replaced by pleiades-masked- and sixteen hexadecimal digits, equal secrets alike within one run; the run's own credential is masked wherever it appears, other leaves are read by the configuration text masker net.ios.config's backup uses, and comments are withheld. Every element, name, address and encryption type stays where it was. A document that is not well-formed XML, holds a DOCTYPE, nests past 256 elements, has an attribute that may hold a secret, or has a line the text masker cannot vouch for fails the task before anything is applied, and none of it is recorded. net.netconf.config refuses content holding a placeholder, so this text cannot be applied back as it is."
         }
       ],
       "examples": [
@@ -11731,11 +12278,19 @@
           "name": "state",
           "type": "string",
           "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
           "description": "present or absent."
         },
         {
           "name": "datapath_type",
           "type": "string",
+          "choices": [
+            "system",
+            "netdev"
+          ],
           "description": "system (the kernel datapath) or netdev (userspace). Left unset, an existing bridge keeps its own and a new one gets Open vSwitch's default."
         },
         {
@@ -11828,6 +12383,10 @@
           "name": "state",
           "type": "string",
           "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
           "description": "present or absent."
         },
         {
@@ -12085,6 +12644,10 @@
         {
           "name": "engine",
           "type": "string",
+          "choices": [
+            "docker",
+            "podman"
+          ],
           "description": "With container, the engine on a device that runs both Docker and Podman: docker or podman. Never inferred."
         },
         {
@@ -13124,7 +13687,7 @@
         {
           "name": "dir",
           "type": "string",
-          "description": "A directory on the device to describe. One of dir and image_archive."
+          "description": "A directory on the device to describe. Give dir or image_archive, not both."
         },
         {
           "name": "image_archive",
@@ -13366,7 +13929,7 @@
         {
           "name": "dir",
           "type": "string",
-          "description": "A directory on the device to scan, recursively, whatever its .gitignore files list (see respect_gitignore). One of dir, image_archive and lockfiles."
+          "description": "A directory on the device to scan, recursively, whatever its .gitignore files list (see respect_gitignore). Give dir, image_archive or lockfiles, never two."
         },
         {
           "name": "image_archive",
@@ -13382,6 +13945,13 @@
           "name": "fail_on",
           "type": "string",
           "default": "high",
+          "choices": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "any"
+          ],
           "description": "The least severity that fails the task: critical, high, medium, low, or any (every finding, scored or not)."
         },
         {
@@ -14919,8 +15489,8 @@
     },
     "supportsCheck": true,
     "doc": {
-      "summary": "Reports one CML lab: its nodes, their interfaces and its links.",
-      "description": "Reads one lab and changes nothing. A lab that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read.",
+      "summary": "Reports one CML lab: its nodes, their interfaces and links, and how many nodes the controller runs.",
+      "description": "Reads one lab and changes nothing: each node's label, definition and state, each of its interfaces with the link it is on (the link's state, and the node and interface at its other end), every link, and how many nodes run on the controller, so a plan can see how full a shared controller is before it stops or starts a node. A lab that does not exist is not a failure: exists is false and only the controller's count is reported, so a later task can decide what to do. The count is of what this login can see (every lab GET /labs?show_all=true lists it), which may be fewer nodes than the controller runs, and it is not the controller's limit, which CML does not show an ordinary user. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read, a missing lab included.",
       "params": [
         {
           "name": "lab",
@@ -14958,13 +15528,25 @@
           "name": "nodes",
           "type": "list",
           "returned": "when exists",
-          "description": "Each node as id, label, definition, state and interfaces (each as label and connected)."
+          "description": "Each node as id, label, definition, state (DEFINED_ON_CORE, STOPPED, QUEUED, STARTED or BOOTED) and interfaces. Each interface is label and connected and, when it is on a link, link (the link's id), link_state, peer and peer_interface (the node and interface at the link's other end, by label)."
         },
         {
           "name": "links",
           "type": "list",
           "returned": "when exists",
-          "description": "Each link as id, a, a_interface, b and b_interface, by node label and interface label."
+          "description": "Each link as id, a, a_interface, b, b_interface (by node label and interface label) and state: STARTED carries traffic, STOPPED is cut as if unplugged, DEFINED_ON_CORE has never run."
+        },
+        {
+          "name": "controller_nodes_running",
+          "type": "int",
+          "returned": "always",
+          "description": "How many nodes are queued, started or booted across every lab this login can see, this one's included. It may be fewer than the controller runs, and it is not the controller's limit."
+        },
+        {
+          "name": "controller_labs",
+          "type": "int",
+          "returned": "always",
+          "description": "How many labs controller_nodes_running counts."
         }
       ],
       "examples": [
@@ -15050,7 +15632,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Starts a CML lab's nodes and waits until they boot.",
-      "description": "Starts each of the lab's nodes (or those nodes names) that is not running, then waits until every one of them reports BOOTED, up to timeout. A node already running is left alone, and a lab whose nodes all run is unchanged. Its undo is virt.cml.lab.stop of exactly the nodes this task started, so a rollback never stops a node someone else started. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads which nodes it would start and changes nothing.",
+      "description": "Starts each of the lab's nodes (or those nodes names) that is not running, then waits until every one of them reports BOOTED, up to timeout. A node already running is left alone, and a lab whose nodes all run is unchanged. Its undo is virt.cml.lab.stop of exactly the nodes this task started, so a rollback never stops a node someone else started. It counts the nodes running on the controller, across every lab this login can see as virt.cml.lab.info does, before it starts any, and reports that count and the count with this task's nodes added, in a check too, so a plan sees a shared controller filling up. A controller already running as many nodes as its license allows refuses a start (CML answers 400, \"Licensing issue: Maximum node count exceeded.\"): the task then fails saying so, with the count, how many nodes it needed and how many it started, and keeps the undo of those; running it again is refused the same way until nodes stop, so free capacity first. The limit itself is not read: CML's licensing endpoint answers 403 to an ordinary user. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads which nodes it would start and changes nothing.",
       "params": [
         {
           "name": "lab",
@@ -15075,13 +15657,31 @@
           "name": "started",
           "type": "list",
           "returned": "always",
-          "description": "The labels of the nodes this task started."
+          "description": "The labels of the nodes this task moved from stopped to started, exactly the nodes its undo stops. A start the controller refused partway lists only the nodes it started before the refusal. A check lists the nodes a run would start."
+        },
+        {
+          "name": "already_running",
+          "type": "list",
+          "returned": "always",
+          "description": "The labels of the chosen nodes already queued, started or booted, which the task left alone and its undo never stops."
         },
         {
           "name": "lab_id",
           "type": "string",
           "returned": "always",
           "description": "The lab's id."
+        },
+        {
+          "name": "controller_nodes_running",
+          "type": "int",
+          "returned": "always",
+          "description": "How many nodes were queued, started or booted across every lab this login can see before this task started any, counted as virt.cml.lab.info counts them. It may be fewer than the controller runs, and it is not the controller's limit."
+        },
+        {
+          "name": "controller_nodes_needed",
+          "type": "int",
+          "returned": "always",
+          "description": "controller_nodes_running plus the nodes this task starts (in a check, the nodes a run would start): how many would run once they all do. A controller whose license allows fewer refuses the start partway."
         }
       ],
       "examples": [
@@ -15545,7 +16145,7 @@
     "seedsLoginIOSSecret": true,
     "doc": {
       "summary": "Creates a node in a CML lab, optionally seeded with an inventory device's login and address.",
-      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. configuration adds lines after those. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
+      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. The vty lines (line vty 0 4) take SSH only (transport input ssh), so a seeded node refuses Telnet. configuration adds lines after those, so \"line vty 0 4\" then \" transport input ssh telnet\" there lets Telnet in as well. A node's interfaces are named as its definition names them, as CML 2.7.2 makes them: iol-xe has Loopback0 and Ethernet0/0 to Ethernet0/3 (and Ethernet1/0 on with interfaces), an unmanaged_switch has port0 to port7, and an external_connector has one interface, port, so it takes one link: join several nodes to it through an unmanaged switch. interfaces in the result lists them. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
       "params": [
         {
           "name": "lab",
@@ -15590,12 +16190,12 @@
         {
           "name": "configuration",
           "type": "string",
-          "description": "Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device."
+          "description": "Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device. For an external_connector node it is the connector to join, by its label: System Bridge (the controller's bridge to its own network) or NAT on a controller as installed, or a bridge its administrator added. With device, the seeded vty lines take SSH only: add \"line vty 0 4\" then \" transport input ssh telnet\" here to allow Telnet as well."
         },
         {
           "name": "interfaces",
           "type": "int",
-          "description": "The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). Up to 128, and no more than the definition allows, which the controller enforces when the node is made, so a check, which makes nothing, cannot see that limit."
+          "description": "The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). An external_connector has exactly one, port, and refuses more. Up to 128, and no more than the definition allows, which the controller enforces when the node is made, so a check, which makes nothing, cannot see that limit."
         },
         {
           "name": "x",
@@ -15634,6 +16234,10 @@
         {
           "name": "A core router standing for an inventory device",
           "runbookYaml": "- name: Make CORE1\n  virt.cml.node.create:\n    lab: cvd\n    label: CORE1\n    definition: iol-xe\n    device: CORE1\n    management_gateway: 10.10.20.254\n    x: 0\n    y: 0\n"
+        },
+        {
+          "name": "A bridge to the controller's network, a management switch, and a router reachable over SSH and Telnet",
+          "runbookYaml": "- name: Make the bridge to the controller's network (one interface, port)\n  virt.cml.node.create:\n    lab: cvd\n    label: EXT\n    definition: external_connector\n    configuration: System Bridge\n\n- name: Make the management switch (port0 to port7)\n  virt.cml.node.create:\n    lab: cvd\n    label: MGMT-SW\n    definition: unmanaged_switch\n\n- name: Make CORE1, taking Telnet as well as SSH\n  virt.cml.node.create:\n    lab: cvd\n    label: CORE1\n    definition: iol-xe\n    device: CORE1\n    management_gateway: 10.10.20.254\n    configuration: |\n      line vty 0 4\n       transport input ssh telnet\n\n- name: Join the switch to the bridge\n  virt.cml.link.create:\n    lab: cvd\n    a: EXT\n    a_interface: port\n    b: MGMT-SW\n    b_interface: port0\n\n- name: Join CORE1's management interface to the switch\n  virt.cml.link.create:\n    lab: cvd\n    a: CORE1\n    a_interface: Ethernet0/0\n    b: MGMT-SW\n    b_interface: port1\n"
         }
       ],
       "seeAlso": [
@@ -15712,13 +16316,13 @@
     "status": "implemented",
     "reversibility": {
       "reversible": false,
-      "notes": "Reading is not changing: this runs vmcli's power query and vmrun's getGuestIPAddress and alters nothing, so there is nothing an undo could restore.",
+      "notes": "Reading is not changing: this runs vmcli's power and configuration queries and vmrun's listSnapshots, checkToolsState and getGuestIPAddress and alters nothing, so there is nothing an undo could restore.",
       "readOnly": true
     },
     "supportsCheck": true,
     "doc": {
       "summary": "Reports a VMware Fusion VM's power state and its guest's address.",
-      "description": "Reads a VM on a Mac running VMware Fusion, through vmcli's power query and vmrun's getGuestIPAddress, and changes nothing. A VM whose vmx file is not there is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check is the same read.",
+      "description": "Reads a VM on a Mac running VMware Fusion and changes nothing: its power state (vmcli's power query), the identifiers and hardware its vmx keys name (vmcli's ConfigParams query, an allowlist, never a key's raw value, since a vmx can carry a secret), its snapshots (vmrun listSnapshots), and when it is on VMware Tools' state and the guest's address (vmrun getGuestIPAddress). A read past the power state that fails is named under warnings and the rest is returned. A VM whose vmx file is not there is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the Mac (a device onboarding found VMware Fusion answering on), not the VM, which is a resource on it, named by the path of its vmx file. A check is the same read.",
       "params": [
         {
           "name": "vmx",
@@ -15745,6 +16349,72 @@
           "type": "string",
           "returned": "when the VM is on and VMware Tools in its guest answers",
           "description": "The guest's IP address, as VMware Tools reports it."
+        },
+        {
+          "name": "display_name",
+          "type": "string",
+          "returned": "when exists and the vmx sets it",
+          "description": "The name Fusion shows for the VM (displayName)."
+        },
+        {
+          "name": "guest_os",
+          "type": "string",
+          "returned": "when exists and the vmx sets it",
+          "description": "The guest type the vmx declares (guestOS), such as arm-windows11-64."
+        },
+        {
+          "name": "memory_mb",
+          "type": "int",
+          "returned": "when exists and the vmx sets it",
+          "description": "Its memory in megabytes (memsize)."
+        },
+        {
+          "name": "cpus",
+          "type": "int",
+          "returned": "when exists and the vmx sets it",
+          "description": "Its virtual CPU count (numvcpus); a vmx that leaves it out runs one."
+        },
+        {
+          "name": "firmware",
+          "type": "string",
+          "returned": "when exists and the vmx sets it",
+          "description": "What it boots with: efi or bios."
+        },
+        {
+          "name": "hardware_version",
+          "type": "int",
+          "returned": "when exists and the vmx sets it",
+          "description": "Its virtual hardware version (virtualHW.version)."
+        },
+        {
+          "name": "nics",
+          "type": "list of dict",
+          "returned": "when exists and the configuration was read",
+          "description": "Each Ethernet adapter the vmx names and does not mark absent, up to 10: number, and connection_type, virtual_dev, address_type and mac when the vmx sets them."
+        },
+        {
+          "name": "disks",
+          "type": "list of dict",
+          "returned": "when exists and the configuration was read",
+          "description": "Each disk or drive file the vmx names, up to 32, sorted by slot: slot (nvme0:0), file, and device_type when set."
+        },
+        {
+          "name": "snapshots",
+          "type": "list of string",
+          "returned": "when exists and the snapshots were read",
+          "description": "The VM's snapshot names, oldest first."
+        },
+        {
+          "name": "tools_state",
+          "type": "string",
+          "returned": "when the VM is on",
+          "description": "VMware Tools in the guest as vmrun names it: running, installed or unknown."
+        },
+        {
+          "name": "warnings",
+          "type": "list of string",
+          "returned": "when a read beyond the power state failed",
+          "description": "Which read failed (the configuration, the snapshots or VMware Tools' state) and the tool's words; the rest is still returned."
         }
       ],
       "examples": [
@@ -15952,7 +16622,7 @@
         {
           "name": "uuid",
           "type": "string",
-          "description": "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be one of them."
+          "description": "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be the UUID of a snapshot of that name."
         }
       ],
       "returns": [
@@ -16017,7 +16687,7 @@
         {
           "name": "uuid",
           "type": "string",
-          "description": "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be one of them."
+          "description": "The snapshot's UUID, needed only when more than one snapshot of the VM has this name (which only VirtualBox itself, or a tool other than this one, makes). It must be the UUID of a snapshot of that name."
         }
       ],
       "returns": [
@@ -16137,7 +16807,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone.",
-      "description": "Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the same as a run.",
+      "description": "Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the same as a run, a missing VM included.",
       "params": [
         {
           "name": "name",
@@ -16148,9 +16818,15 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a VM with this name is registered on the host."
+        },
+        {
           "name": "addresses",
           "type": "list",
-          "returned": "always",
+          "returned": "when exists",
           "description": "Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires."
         },
         {
@@ -16169,6 +16845,101 @@
       "seeAlso": [
         "virt.vbox.vm.clone",
         "virt.vbox.vm.list"
+      ]
+    }
+  },
+  "virt.vbox.vm.attach_disk": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that attached the disk emits virt.vbox.vm.detach_disk, deleting the disk from the host only when this task made it; one that found it attached emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.detach_disk",
+          "record": [
+            "name",
+            "path",
+            "delete"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Gives a stopped VirtualBox VM a second disk, made new on the host when it is not there yet.",
+      "description": "Makes sure a VM has the disk at path attached, as a hard disk in its first free SATA port (or, with none free, the port holding an empty DVD drive, which a Windows clone keeps once its seed is ejected; the drive is removed for the disk): one already attached reports no change; one the host has registered but not attached is attached; otherwise a new, empty VDI of size_gb is made at path (the VM's own folder and <name>-data.vdi when path is not given), growing on the host as the guest writes to it, and attached. The guest sees a blank disk it must partition and format itself; nothing here touches the guest. VirtualBox attaches a disk only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A run that attached the disk emits virt.vbox.vm.detach_disk, deleting the disk only when this task made it. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and the host's disks, and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "The disk's path on the host, an absolute drive path such as G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi; when not given, the VM's own folder and <name>-data.vdi."
+        },
+        {
+          "name": "size_gb",
+          "type": "int",
+          "description": "How big a disk to make, in gigabytes, when the host has none at path; a disk already there keeps its size. Required unless the disk exists."
+        }
+      ],
+      "returns": [
+        {
+          "name": "path",
+          "type": "string",
+          "returned": "always",
+          "description": "The disk's path on the host."
+        },
+        {
+          "name": "port",
+          "type": "int",
+          "returned": "always",
+          "description": "The SATA port the disk is attached at (predicted, in a check)."
+        },
+        {
+          "name": "created",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task made the disk (predicted, in a check)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether the disk was attached before this task and after it."
+        },
+        {
+          "name": "warnings",
+          "type": "list",
+          "returned": "when the VM could not be read back after the disk was attached",
+          "description": "What the task could not confirm: the disk is attached, and the port is the one it was put in rather than the one read back."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Give a lab VM a data disk",
+          "runbookYaml": "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Give it a 40 GB data disk\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n\n- name: Start it again\n  virt.vbox.vm.start:\n    name: bsd-check\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.detach_disk",
+        "virt.vbox.vm.stop",
+        "virt.vbox.vm.info"
       ]
     }
   },
@@ -16221,7 +16992,7 @@
           "name": "snapshot",
           "type": "string",
           "required": true,
-          "description": "The snapshot of from to clone. Exactly one of from's snapshots may have this name."
+          "description": "The snapshot of from to clone. from must have exactly one snapshot of this name."
         },
         {
           "name": "login",
@@ -16404,6 +17175,96 @@
       ]
     }
   },
+  "virt.vbox.vm.detach_disk": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that detached a disk it kept emits virt.vbox.vm.attach_disk back; one that deleted the disk emits nothing, since what it held is gone; one that found it detached emits nothing.",
+      "inverses": [
+        {
+          "fqcn": "virt.vbox.vm.attach_disk",
+          "record": [
+            "name",
+            "path"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Takes a disk off a stopped VirtualBox VM, deleting it from the host when asked.",
+      "description": "Makes sure the disk at path is not attached to a VM: one attached is taken out of its slot, and with delete true forgotten and deleted from the host too, with everything the guest wrote on it; one not attached reports no change, except that with delete true a disk the host still holds, attached to nothing, is deleted. VirtualBox detaches a disk only while a VM is powered off, so a running, paused or saved VM is refused: stop it first with virt.vbox.vm.stop. A run that detached a disk it kept emits virt.vbox.vm.attach_disk back; one that deleted it emits nothing, since what the disk held is gone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and the host's disks, and sends nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "The disk's path on the host, as virt.vbox.vm.attach_disk reported it."
+        },
+        {
+          "name": "delete",
+          "type": "bool",
+          "default": "false",
+          "description": "Whether to forget the disk and delete its file from the host once it is off the VM, losing what the guest wrote on it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "detached",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task took the disk off the VM (predicted, in a check)."
+        },
+        {
+          "name": "deleted",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task deleted the disk from the host (predicted, in a check)."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether the disk was attached before this task and after it."
+        },
+        {
+          "name": "warnings",
+          "type": "list",
+          "returned": "when the VM could not be read back after the disk was taken off",
+          "description": "What the task could not confirm: the disk is off the VM, which the task could not read again."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Throw a lab VM's data disk away and start over",
+          "runbookYaml": "- name: Shut the check VM down\n  virt.vbox.vm.stop:\n    name: bsd-check\n\n- name: Delete its data disk\n  virt.vbox.vm.detach_disk:\n    name: bsd-check\n    path: G:\\PleiadesLab\\bsd-check\\bsd-check-data.vdi\n    delete: true\n\n- name: Give it a fresh one\n  virt.vbox.vm.attach_disk:\n    name: bsd-check\n    size_gb: 40\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.attach_disk",
+        "virt.vbox.vm.stop",
+        "virt.vbox.vm.info"
+      ]
+    }
+  },
   "virt.vbox.vm.eject_seed": {
     "supportedTransports": [
       "winrm"
@@ -16487,7 +17348,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reads a VM's SSH host keys from what cloud-init printed on its serial console.",
-      "description": "Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the console once, without waiting.",
+      "description": "Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing is waited for, so a later task can decide what to do. A check reads the console once, without waiting, and answers a missing VM the same way.",
       "params": [
         {
           "name": "name",
@@ -16504,9 +17365,15 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a VM with this name is registered on the host."
+        },
+        {
           "name": "ssh_host_keys",
           "type": "list",
-          "returned": "always",
+          "returned": "when exists",
           "description": "Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet."
         }
       ],
@@ -16714,7 +17581,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reports a VirtualBox VM's state, hardware and snapshots.",
-      "description": "Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.",
+      "description": "Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing: its state, shape, snapshots, guest type, firmware, network adapters and storage, from one call. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.",
       "params": [
         {
           "name": "name",
@@ -16777,6 +17644,54 @@
           "type": "string",
           "returned": "when exists",
           "description": "The snapshot the VM's state descends from, or empty when it has none."
+        },
+        {
+          "name": "os_type",
+          "type": "string",
+          "returned": "when exists",
+          "description": "The guest OS type as showvminfo describes it, such as Ubuntu (64-bit)."
+        },
+        {
+          "name": "firmware",
+          "type": "string",
+          "returned": "when exists",
+          "description": "What it boots with: BIOS or EFI."
+        },
+        {
+          "name": "config_file",
+          "type": "string",
+          "returned": "when exists and VirtualBox names it",
+          "description": "The path of its settings file on the host."
+        },
+        {
+          "name": "nics",
+          "type": "list",
+          "returned": "when exists",
+          "description": "Each network adapter that is on, by number from 1: number, kind (nat, hostonly, bridged, ...), mac, and host_only_adapter for a hostonly one."
+        },
+        {
+          "name": "storage",
+          "type": "list",
+          "returned": "when exists",
+          "description": "Each storage slot as controller, controller_type, port, device and medium (a file's path, emptydrive, or none)."
+        },
+        {
+          "name": "console_log",
+          "type": "string",
+          "returned": "when exists and its first serial port writes to a file",
+          "description": "The host file its first serial port writes to."
+        },
+        {
+          "name": "state_changed_at",
+          "type": "string",
+          "returned": "when exists and VirtualBox reports it",
+          "description": "When it last changed state, as VirtualBox writes the time."
+        },
+        {
+          "name": "guest_additions_version",
+          "type": "string",
+          "returned": "when exists and a running guest's additions report one",
+          "description": "The VirtualBox Guest Additions version the guest reports."
         }
       ],
       "examples": [
@@ -16952,7 +17867,7 @@
           "name": "vms",
           "type": "list",
           "returned": "always",
-          "description": "Each VM as name, uuid, state, memory_mb, cpus, autostart_enabled, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them."
+          "description": "Each VM as name and uuid, and, for a VM whose name Pleiades can send, state, memory_mb, cpus, autostart_enabled, os_type and firmware, size when its CPUs and memory are one T-shirt size's, and address and device when Pleiades made it, in the order VirtualBox lists them. virt.vbox.vm.info names its adapters, storage and snapshots."
         }
       ],
       "examples": [
@@ -16988,7 +17903,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern.",
-      "description": "Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the log as a run does.",
+      "description": "Reads the end of the log VirtualBox writes for a VM's current or last run (VBox.log in its folder's Logs), and reports its last lines, or its last lines matching pattern. The log says what the VM's firmware and VirtualBox did: where a boot stopped, which hypervisor interface the guest used, and why a VM aborted. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the log as a run does, a missing VM included.",
       "params": [
         {
           "name": "name",
@@ -17010,15 +17925,21 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether a VM with this name is registered on the host."
+        },
+        {
           "name": "lines",
           "type": "list",
-          "returned": "always",
+          "returned": "when exists",
           "description": "The log's last lines, or its last lines matching pattern, oldest first. Empty when the VM has never run."
         },
         {
           "name": "path",
           "type": "string",
-          "returned": "always",
+          "returned": "when exists",
           "description": "The log file's path on the host."
         }
       ],
@@ -17468,6 +18389,10 @@
           "name": "backoff",
           "type": "string",
           "default": "fixed",
+          "choices": [
+            "fixed",
+            "exponential"
+          ],
           "description": "How the gap between failed tries grows: fixed keeps it at sleep, as wait_for_connection does; exponential doubles it after each failed try, up to max_sleep, each gap a random point in its upper half."
         },
         {
@@ -17681,19 +18606,30 @@
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
     "doc": {
-      "summary": "Waits until a router has a route to every prefix given and its routing table has stopped changing.",
-      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. At timeout it fails naming each route still missing, or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
+      "summary": "Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing.",
+      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. With state absent it waits for the opposite, such as a withdrawn network or a failed link: no selected route to any prefix given (or, for a prefix next_hops names, a route through none of those next hops, so a failover away from one neighbour can be waited for), with the same stable_for. A table read with no selected route at all (not even a connected one, as a cut or refused read or output the parser does not recognize leaves it) is never taken as every route gone: the wait goes on. At timeout it fails naming each route still missing (or, with state absent, still there, or that the table read held no route), or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
       "params": [
         {
           "name": "prefixes",
           "type": "list of string",
           "required": true,
-          "description": "The IPv4 prefixes that must each have a selected route, e.g. 10.3.3.0/24; the IPv4 routing table is the one read."
+          "description": "The IPv4 prefixes that must each have a selected route (with state absent, none), e.g. 10.3.3.0/24; the IPv4 routing table is the one read."
         },
         {
           "name": "next_hops",
           "type": "dict",
-          "description": "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}."
+          "description": "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}; with state absent, the next hops its route must no longer use."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "choicesIgnoreCase": true,
+          "description": "present waits for a selected route to every prefix given; absent waits until none of them has one (or, for a prefix next_hops names, until its route uses none of those next hops). Case is ignored."
         },
         {
           "name": "stable_for",
@@ -17731,13 +18667,17 @@
           "name": "routes",
           "type": "dict",
           "returned": "always",
-          "description": "Each prefix given, with the next hops its route used."
+          "description": "Each prefix given, with the next hops its route used; with state absent, an empty list for a prefix with no route left."
         }
       ],
       "examples": [
         {
           "name": "Wait for OSPF to settle",
           "runbookYaml": "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"
+        },
+        {
+          "name": "Wait for a withdrawn network to leave the table",
+          "runbookYaml": "- name: R1 no longer routes the retired LAN\n  wait.routes:\n    target: R1\n    prefixes: [10.9.9.0/24]\n    state: absent\n"
         },
         {
           "name": "Wait for a branch to learn the data center over its tunnel",
@@ -18559,6 +19499,7 @@
             "private",
             "public"
           ],
+          "choicesIgnoreCase": true,
           "description": "The profile. One per task, so its undo is exact."
         },
         {
@@ -18573,6 +19514,7 @@
             "allow",
             "block"
           ],
+          "choicesIgnoreCase": true,
           "description": "What it does with inbound traffic no rule matches. Windows' default is block."
         },
         {
@@ -18582,6 +19524,7 @@
             "allow",
             "block"
           ],
+          "choicesIgnoreCase": true,
           "description": "What it does with outbound traffic no rule matches. Windows' default is allow."
         },
         {
@@ -18737,6 +19680,7 @@
             "inbound",
             "outbound"
           ],
+          "choicesIgnoreCase": true,
           "description": "Which traffic it matches. A new rule's is inbound."
         },
         {
@@ -18746,6 +19690,7 @@
             "allow",
             "block"
           ],
+          "choicesIgnoreCase": true,
           "description": "What it does with that traffic. A new rule allows it."
         },
         {

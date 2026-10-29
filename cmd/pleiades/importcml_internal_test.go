@@ -293,3 +293,21 @@ func TestImportCML_ViaConsole(t *testing.T) {
 		t.Errorf("R1 over the console after Telnet = %v", p)
 	}
 }
+
+// TestCmlSelect_AConnectorsLabelMayHoldSpaces: an external connector or an
+// unmanaged switch is never imported, so a label such as "System Bridge CORE1"
+// does not refuse the lab, while a router's label still must be a device name.
+func TestCmlSelect_AConnectorsLabelMayHoldSpaces(t *testing.T) {
+	nodes := []cml.Node{
+		{Label: "CORE1", NodeDefinition: "iol-xe"},
+		{Label: "System Bridge CORE1", NodeDefinition: "external_connector"},
+		{Label: "MGMT SW", NodeDefinition: "unmanaged_switch"},
+	}
+	if got, err := cmlSelect(nodes, "lab", "", addressFlags{}); err != nil || len(got) != 3 {
+		t.Fatalf("cmlSelect = %d nodes, %v", len(got), err)
+	}
+	nodes = append(nodes, cml.Node{Label: "BR 1", NodeDefinition: "iol-xe"})
+	if _, err := cmlSelect(nodes, "lab", "", addressFlags{}); err == nil {
+		t.Error("a router labelled with a space was accepted")
+	}
+}

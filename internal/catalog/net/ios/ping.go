@@ -9,7 +9,9 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -57,7 +59,7 @@ func init() {
 					{Name: "count", Type: "int", Default: "5", Description: "How many echoes to send, passed to IOS as \"repeat\"."},
 					{Name: "source", Type: "string", Description: "Source address or interface for the ping, passed to IOS as \"source\".", Format: collection.ParamFormatCommand},
 					{Name: "vrf", Type: "string", Description: "VRF to ping from, passed to IOS as \"vrf\".", Format: collection.ParamFormatCommand},
-					{Name: "state", Type: "string", Default: "present", Description: "\"present\" fails the task if the destination is unreachable (0 percent success); \"absent\" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead."},
+					{Name: "state", Type: "string", Default: "present", Choices: []string{statePresent, stateAbsent}, ChoicesIgnoreCase: true, Description: "\"present\" fails the task if the destination is unreachable (0 percent success); \"absent\" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead."},
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 					{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
 				},
@@ -168,7 +170,7 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	// so this method checks it rather than reporting a parse failure for
 	// what is really a refused command.
 	if netcli.IOS.ErrorPattern.MatchString(out) {
-		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, line, strings.TrimSpace(firstErrorLine(out)))
+		return collection.Result{}, fmt.Errorf("%s: device rejected %q: %s", fqcn, line, deviceRefusal(out))
 	}
 
 	m := rePingResult.FindStringSubmatch(out)
@@ -263,4 +265,12 @@ func firstErrorLine(out string) string {
 		}
 	}
 	return out
+}
+
+// deviceRefusal is the device's own error line (or its whole reply when it
+// marked none) fit for an error: masked as configuration is, since a
+// rejected line can echo a secret, then bounded and quoted through
+// pkg/farside so a long reply or a control byte cannot reach the error raw.
+func deviceRefusal(out string) string {
+	return farside.MaskedOutput(firstErrorLine(out), netcfg.Mask)
 }

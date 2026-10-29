@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Output is what one VBoxManage run produced.
@@ -78,20 +80,21 @@ func (e *Error) Unwrap() error { return e.kind }
 // errorLine is how VBoxManage starts each line of an error report.
 var errorLine = regexp.MustCompile(`(?m)^VBoxManage(?:\.exe)?: error: (.*?)\r?$`)
 
-// firstErrorLine returns VBoxManage's first error sentence, or the
-// output's first non-empty line when there is none.
+// firstErrorLine returns VBoxManage's first error sentence or, when it
+// wrote none, its whole stderr (else its whole stdout) on one line, never
+// only a first line, which can be a banner. Either is the far side's text,
+// so it is quoted and bounded through pkg/farside; an answer of nothing is
+// farside.NoOutput.
 func firstErrorLine(out Output) string {
 	if m := errorLine.FindStringSubmatch(out.Stderr); m != nil {
-		return m[1]
+		return farside.Text(m[1])
 	}
 	for _, text := range []string{out.Stderr, out.Stdout} {
-		for _, line := range strings.Split(text, "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				return line
-			}
+		if strings.TrimSpace(text) != "" {
+			return farside.Output(text)
 		}
 	}
-	return "no output"
+	return farside.NoOutput
 }
 
 // classify returns the kind of a failed run, from the codes and sentences

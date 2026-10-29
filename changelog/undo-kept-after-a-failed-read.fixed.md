@@ -1,1 +1,0 @@
-`pkg.apt.install`, `pkg.apt.remove` and `identity.user.create` no longer fail a task whose change completed when a read after it fails (a connection dropped after `apt-get` or `useradd` succeeded). The task succeeds with a warning and keeps its undo, which a failed task never journals, so the change can still be rolled back.

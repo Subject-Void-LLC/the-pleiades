@@ -56,6 +56,24 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// TestPieces_WithoutAShardEveryPackageRunsWhole is pr-check's container pass:
+// no shard is passed, and every package runs whole, here.
+func TestPieces_WithoutAShardEveryPackageRunsWhole(t *testing.T) {
+	packages := []string{modulePrefix + "tests/e2e", modulePrefix + "internal/event", modulePrefix + "cmd/pleiades"}
+	pieces, err := options{full: true, packages: packages}.pieces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pieces) != len(packages) {
+		t.Fatalf("got %d pieces for %d packages: %+v", len(pieces), len(packages), pieces)
+	}
+	for _, p := range pieces {
+		if p.filter() != nil {
+			t.Errorf("%s is narrowed with no shard named: %v", p.pkg, p.filter())
+		}
+	}
+}
+
 // TestShardOf proves the shards partition the list: every package lands in
 // exactly one shard whatever order the list arrived in, and a malformed or
 // empty shard is refused rather than run as an empty success.

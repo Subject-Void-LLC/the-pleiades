@@ -38,6 +38,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -142,7 +143,7 @@ func queryMount(ctx context.Context, conn *remoteexec.Conn, path string) (mountF
 	}
 	fields := strings.Fields(strings.TrimRight(result.Stdout, "\n"))
 	if len(fields) < 3 {
-		return mountFacts{}, fmt.Errorf("findmnt --mountpoint %s: unexpected output %q", path, result.Stdout)
+		return mountFacts{}, fmt.Errorf("findmnt --mountpoint %s: unexpected output %s", path, farside.Output(result.Stdout))
 	}
 	return mountFacts{mounted: true, source: fields[0], fstype: fields[1], options: fields[2]}, nil
 }

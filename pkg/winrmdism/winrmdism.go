@@ -51,6 +51,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
@@ -210,14 +211,16 @@ func parseStateLine(stdout string) (string, bool) {
 // dismOutput renders a failed dism.exe call's output for an error
 // message. DISM writes most of what it has to say, including its own
 // error text, to stdout rather than stderr, so stdout is included even
-// though stderr is checked too.
+// though stderr is checked too. Each stream is bounded and quoted through
+// pkg/farside, keeping its end, since DISM prints its banner first and its
+// reason last.
 func dismOutput(result winrmexec.Result) string {
 	var parts []string
-	if s := strings.TrimSpace(result.Stdout); s != "" {
-		parts = append(parts, "stdout: "+s)
+	if strings.TrimSpace(result.Stdout) != "" {
+		parts = append(parts, "stdout: "+farside.OutputTail(result.Stdout))
 	}
-	if s := strings.TrimSpace(result.Stderr); s != "" {
-		parts = append(parts, "stderr: "+s)
+	if strings.TrimSpace(result.Stderr) != "" {
+		parts = append(parts, "stderr: "+farside.OutputTail(result.Stderr))
 	}
 	if len(parts) == 0 {
 		return "no output"

@@ -23,7 +23,7 @@ Points tag at the image source names (a reference or an image ID). A tag already
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `source` | `string` | yes | - | The image to name: a reference or an image ID. |
 | `tag` | `string` | yes | - | The tag to point at it, repository:tag; a missing tag is latest. A reference by digest is refused. |
 | `id` | `string` | no | - | The image the tag must name now, by ID; when it names another, or none, the task is refused and nothing is tagged. The undo of a run that moved the tag sets it, so a rollback never moves a tag someone has moved again since. |

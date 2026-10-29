@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Running returns the vmx path of every VM the product is running.
@@ -29,7 +31,7 @@ func (h Host) PowerState(ctx context.Context, vmx string) (string, error) {
 	}
 	state := parseKeyValues(out.Stdout)["PowerState"]
 	if state == "" {
-		return "", fmt.Errorf("vmcli power query printed no PowerState: %q", firstLine(out.Stdout, ""))
+		return "", fmt.Errorf("vmcli power query printed no PowerState: %s", farside.Output(out.Stdout))
 	}
 	return state, nil
 }
@@ -192,7 +194,7 @@ func (h Host) ToolsState(ctx context.Context, vmx string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return firstLine(out.Stdout, ""), nil
+	return lineStarting(out.Stdout, ""), nil
 }
 
 // Network is one of the host's virtual networks.
@@ -286,7 +288,7 @@ func (h Host) CreateVM(ctx context.Context, name, dir, guest string) (string, er
 	}
 	vmx := parseCreated(out.Stdout)
 	if vmx == "" {
-		return "", fmt.Errorf("vmcli created a VM and did not say where: %q", firstLine(out.Stdout, ""))
+		return "", fmt.Errorf("vmcli created a VM and did not say where: %s", farside.Output(out.Stdout))
 	}
 	return vmx, nil
 }
@@ -364,7 +366,7 @@ func (h Host) KeepAwake(ctx context.Context, vmx string) (int, error) {
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(out.Stdout))
 	if err != nil || pid <= 0 {
-		return 0, fmt.Errorf("keeping the host awake named %q as the VM's process", strings.TrimSpace(out.Stdout))
+		return 0, fmt.Errorf("keeping the host awake named %s as the VM's process", farside.Output(out.Stdout))
 	}
 	return pid, nil
 }

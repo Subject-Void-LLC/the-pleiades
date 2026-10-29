@@ -19,8 +19,9 @@
 //     kubernetes_bearer_token and terraform. Their injector document is
 //     empty. AWX's API serializes it as {}.
 //   - Two have a data document that uses Jinja control flow ({% if %}):
-//     insights and rhv. internal/render refuses control-flow blocks by
-//     design, loudly rather than by passing them through as text.
+//     insights and rhv. internal/render renders if, for and set since it
+//     gained statements, so what keeps these two out now is that nobody has
+//     ported their documents and proven them against AWX's own output.
 //   - One has a data document this platform expresses exactly: controller.
 //   - Twelve declare no injectors at all. Their values are consumed
 //     structurally by a subsystem rather than injected: project sync,
@@ -199,10 +200,10 @@ const (
 	ReasonPythonInjectors Reason = "awx builds this type's environment in python rather than in its injector document"
 
 	// ReasonControlFlow is a data document that uses Jinja control flow.
-	// internal/render refuses {% %} blocks deliberately, because passing an
-	// unsupported block through as literal text is how an author comes to
-	// believe a conditional ran.
-	ReasonControlFlow Reason = "awx's injector document for this type uses jinja control flow, which this platform's renderer refuses rather than passing through as text"
+	// internal/render renders if, for and set, so such a document can now
+	// be expressed; each of these types still needs its document ported and
+	// its output proven equal to AWX's before it ships.
+	ReasonControlFlow Reason = "awx's injector document for this type uses jinja control flow; the renderer supports it now, and the document has not yet been ported and proven against awx's output"
 
 	// ReasonNoSubsystem is a type AWX injects nothing for because something
 	// else consumes it: project sync, a webhook, an execution-environment

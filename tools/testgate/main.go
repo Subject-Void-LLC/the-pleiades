@@ -33,6 +33,13 @@
 // (mask.go). -race=false leaves the race detector out, for a machine that
 // cannot build with it (tools/wincheck's Windows box).
 //
+// Every run is bounded by what the machine has (tools/internal/headroom,
+// wired in headroom.go): -p is lowered to what the free memory fits, the
+// run refuses to start on a disk under the space it needs, a sampler
+// records the memory each package took, and the run is stopped before the
+// machine runs out. The same policy runs here, on each OS check's machine
+// and on a CI runner, since each of them runs this command.
+//
 // -report-out writes the run's record (flakegate.Run) for tools/prreport, and
 // -commit with -clean stamps it with the commit pr-check began at and whether
 // its tree was clean then, so a merge can tell this run's records from an
@@ -83,7 +90,12 @@ func main() {
 	flag.StringVar(&o.clean, "clean", "", "yes or no: stamp the record with whether the working tree was clean as pr-check began (needs -commit)")
 	list := flag.Bool("list", false, "print the packages this run would test, one per line, and test nothing")
 	packagesFile := flag.String("packages-file", "", "read the packages to test from this file as well, separated by spaces or lines: how a caller passes a list longer than a command line holds (cmd.exe stops at 8191 characters)")
+	engineClock := flag.Bool("engine-time", false, "print the container engine's own clock (docker info), the time a later -clean-containers -since names; test nothing")
+	cleanAfter := flag.Bool("clean-containers", false, "remove the test containers, networks and anonymous volumes created since -since, and print what was removed; test nothing")
+	since := flag.String("since", "", "with -clean-containers, the engine time (RFC 3339) the container pass began at, from -engine-time")
 	checkDurations := flag.Bool("durations-check", false, "hold the -coverage-out measurements named as arguments to durations.json: fail on a measured package it has no time for, warn on one whose time moved a lot")
+	recordResources := flag.Bool("resources-record", false, "fold the -coverage-out measurements named as arguments into tools/testgate/resources.json (each unit's seconds, memory and disk, least and most) for this host today, and say what changed; test nothing")
+	checkResources := flag.Bool("resources-check", false, "hold the -coverage-out measurements named as arguments to tools/testgate/resources.json: name a unit it does not know (a failure once the manifest says it is complete) and one that needed far more than it records; test nothing")
 	flag.Parse()
 	o.packages = flag.Args()
 	if *packagesFile != "" {
@@ -101,6 +113,50 @@ func main() {
 	// the median, whatever it really takes.
 	if *checkDurations {
 		if err := durationsCheck(os.Stdout, flag.Args(), durations()); err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// -resources-record and -resources-check keep resources.json true to
+	// what the units need (resources.go), as -durations-check does for time.
+	if *recordResources {
+		if err := resourcesRecord(os.Stdout, resourcesPath, flag.Args(), runtime.GOOS+"/"+runtime.GOARCH, time.Now()); err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *checkResources {
+		if err := resourcesCheck(os.Stdout, flag.Args(), resources()); err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// -engine-time and -clean-containers bracket pr-check's container pass,
+	// so what its tests left in the engine is removed, pass or fail
+	// (clean.go).
+	if *engineClock {
+		t, err := engineTime(dockerCLI)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(1)
+		}
+		fmt.Println(t.Format(time.RFC3339Nano))
+		return
+	}
+	if *cleanAfter {
+		from, err := time.Parse(time.RFC3339Nano, *since)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testgate: -clean-containers needs -since naming the engine time the pass began at (-engine-time): %v\n", err)
+			os.Exit(2)
+		}
+		res, err := cleanContainers(dockerCLI, from)
+		printClean(os.Stdout, res, from)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "testgate:", err)
 			os.Exit(1)
 		}
@@ -139,6 +195,19 @@ func run(o options) (err error) {
 	stamp, _ := o.stamp()
 	rec.Commit, rec.Clean = stamp.Commit, stamp.Clean
 	maskEnvironment()
+	// The policy, before anything builds (headroom.go): it refuses a disk
+	// short of space, lowers -p to what the memory fits, and follows the run
+	// from here; the record and the log get its account however the run
+	// ends. This defer runs before finishRecord's, which was deferred first.
+	g, err := newGuard(o.parallel, o.packages, divided(o.packages))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		rec.Headroom = g.finish()
+		fmt.Println(account(rec.Headroom))
+	}()
+	o.parallel = g.ran
 	pieces, err := o.pieces()
 	if err != nil {
 		return err
@@ -162,9 +231,16 @@ func run(o options) (err error) {
 	// Every raw JSON line is echoed to this process's own stdout as it is
 	// read, so a slow package's progress is visible live rather than
 	// silent until the whole run finishes.
-	events, waitErr, err := runPieces(args, pieces)
+	events, waitErr, err := runPieces(args, pieces, g)
 	if err != nil {
 		return err
+	}
+	// A run stopped for the machine's sake, or by a signal, reached no
+	// verdict: its failures are the stop's, so none is re-run alone and none
+	// is counted, and the record says why it stopped.
+	if reason := g.Stopped(); reason != "" {
+		rec.Skips = scrubSkips(flakegate.Skips(events))
+		return fmt.Errorf("the run was stopped: %s", reason)
 	}
 	argsFor := piecewise(args, pieces)
 	// Built with cgo off (Windows with no C compiler), a test that opens a
@@ -186,7 +262,8 @@ func run(o options) (err error) {
 	}
 	measurement := func() flakegate.Measurement {
 		return flakegate.Measurement{Coverage: coverage, Missing: missing, Seconds: flakegate.Elapsed(events),
-			TestSeconds: flakegate.TestElapsed(events, divided(o.packages))}
+			TestSeconds: flakegate.TestElapsed(events, divided(o.packages)),
+			MemoryMB:    g.peaks(), DiskMB: g.diskPeaks(), TestMemoryMB: g.testPeaks(), TestDiskMB: g.testDiskPeaks()}
 	}
 	if o.coverageOut != "" {
 		if err := writeCoverage(o.coverageOut, measurement()); err != nil {

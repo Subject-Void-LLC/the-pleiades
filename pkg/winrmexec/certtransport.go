@@ -70,6 +70,8 @@ import (
 
 	"github.com/masterzen/winrm"
 	"github.com/masterzen/winrm/soap"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // maxCertificateTLSVersion caps the certificate path at TLS 1.2.
@@ -84,13 +86,6 @@ import (
 // The cap is deliberately NOT applied to the password paths, which are
 // untouched by this and negotiate whatever both ends agree on.
 const maxCertificateTLSVersion = tls.VersionTLS12
-
-// maxErrorBodyBytes bounds how much of a non-SOAP response an error quotes.
-//
-// Enough to carry an HTML error page's title or a SOAP fault's reason, and
-// little enough that a server answering with a megabyte of nonsense cannot
-// put a megabyte into a job record.
-const maxErrorBodyBytes = 512
 
 // certificateTransport is a winrm.Transporter that authenticates with a
 // client certificate.
@@ -214,7 +209,7 @@ type httpFault struct {
 // it has one, or the start of the body when it has none.
 func (f *httpFault) Error() string {
 	if m := faultText.FindStringSubmatch(f.body); m != nil {
-		return fmt.Sprintf("winrm: %s answered %d: %s", f.url, f.status, strings.TrimSpace(m[1]))
+		return fmt.Sprintf("winrm: %s answered %d: %s", f.url, f.status, farside.Text(m[1]))
 	}
 	return fmt.Sprintf("winrm: %s answered %d: %s", f.url, f.status, snippet([]byte(f.body)))
 }
@@ -249,13 +244,12 @@ func describeBody(body []byte, status int) string {
 	return ": " + snippet(body)
 }
 
-// snippet renders a bounded, single-line extract of a response body.
+// snippet renders a response body on one line, bounded and quoted through
+// pkg/farside: enough to carry an HTML error page's title or a SOAP fault's
+// reason, and little enough that a server answering with a megabyte of
+// nonsense cannot put a megabyte, or a control byte, into a job record.
 func snippet(body []byte) string {
-	text := strings.TrimSpace(string(body))
-	if len(text) > maxErrorBodyBytes {
-		text = text[:maxErrorBodyBytes] + "..."
-	}
-	return strings.Join(strings.Fields(text), " ")
+	return farside.Text(string(body))
 }
 
 // endpointURL builds the WS-Man URL for an endpoint.

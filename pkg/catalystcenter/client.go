@@ -32,6 +32,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // DefaultTimeout bounds a single HTTP request. Catalyst Center's inventory
@@ -232,13 +234,15 @@ func (c *Client) doGet(ctx context.Context, path string, query url.Values) ([]by
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, &authExpiredError{path: path}
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("catalystcenter: %s returned %s", path, resp.Status)
-	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("catalystcenter: reading %s response: %w", path, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// The controller's own reason (its response.detail or message) is
+		// what says why, so it rides the error, bounded and quoted.
+		return nil, fmt.Errorf("catalystcenter: %s returned %s: %s", path, resp.Status, farside.Text(string(body)))
 	}
 	return body, nil
 }

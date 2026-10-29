@@ -3,6 +3,8 @@ package netconf
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // RPCError is one <rpc-error> element from a server's reply, decoded
@@ -74,7 +76,12 @@ func (e RPCError) Error() string {
 		b.WriteString("unspecified error")
 	}
 	if e.Message != "" {
-		fmt.Fprintf(&b, ": %s", e.Message)
+		// The message is the device's own text, so it goes through
+		// pkg/farside like every other far side's answer: quoted, so a
+		// control character is shown rather than acted on by a terminal
+		// or a log reader, and bounded to farside.MaxBytes, so a device
+		// that answers with pages of text cannot fill an error.
+		fmt.Fprintf(&b, ": %s", farside.Text(e.Message))
 	}
 
 	var detail []string

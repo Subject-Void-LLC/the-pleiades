@@ -18,6 +18,7 @@ package ios
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +123,45 @@ func TestOpenSession_ReadsARealReplyBack(t *testing.T) {
 	}
 	if got := rc.facts[factSerialNum]; got != "FCW2140L0GF" {
 		t.Errorf("serial fact = %v, want the chassis serial", got)
+	}
+}
+
+// TestOpenSession_GathersTheWholeDevice runs net.ios.facts's default, every
+// subset, over a real session to a scripted device answering with R1's
+// captured replies, twice: once with show running-config answered, its
+// secrets masked before they are recorded, and once refused as a user-mode
+// account is (the scripted device's unknown-command reply), where the rest
+// is still returned and the warning names the enable secret.
+func TestOpenSession_GathersTheWholeDevice(t *testing.T) {
+	replies := map[string]string{}
+	for command, out := range iolSession(t).outputs {
+		replies[command] = strings.TrimRight(out, "\n")
+	}
+	replies[showRunningConfig] = "Building configuration...\n\nhostname R1\nenable secret 9 $9$ScriptedSecret01\nsnmp-server community ScriptedComm02 RO\nend"
+
+	_, device, rc := iosDevice(t, replies)
+	if _, err := Facts(context.Background(), rc, device, sessionParams(nil)); err != nil {
+		t.Fatalf("facts over a real session: %v", err)
+	}
+	ifaces, _ := rc.stats[factInterfaces].([]map[string]any)
+	if len(ifaces) != 4 || ifaces[2][ifVRF] != "Mgmt-intf" || ifaces[2][ifDescription] != "to port1.sandbox-backend" {
+		t.Errorf("interfaces over a real session = %v", ifaces)
+	}
+	config, _ := rc.stats[factConfig].(string)
+	if !strings.Contains(config, "hostname R1") || strings.Contains(config, "ScriptedSecret01") || strings.Contains(config, "ScriptedComm02") {
+		t.Errorf("the configuration over a real session is not the device's, masked: %d bytes", len(config))
+	}
+
+	delete(replies, showRunningConfig)
+	_, device, rc = iosDevice(t, replies)
+	if _, err := Facts(context.Background(), rc, device, sessionParams(nil)); err != nil {
+		t.Fatalf("facts in user mode over a real session: %v", err)
+	}
+	if _, set := rc.stats[factConfig]; set || !strings.Contains(fmt.Sprint(rc.stats["warnings"]), "--enable-password-stdin") {
+		t.Errorf("a refused configuration: config set %v, warnings %v", set, rc.stats["warnings"])
+	}
+	if rc.stats[factHostname] != "R1" {
+		t.Errorf("hostname = %v, want R1 read with the configuration refused", rc.stats[factHostname])
 	}
 }
 

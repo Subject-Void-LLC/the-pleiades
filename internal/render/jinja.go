@@ -3,7 +3,6 @@ package render
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -19,7 +18,15 @@ import (
 // and a credential type's injectors do not change between renders.
 type jinjaEngine struct {
 	mu    sync.Mutex
-	cache map[string]Template
+	cache map[cacheKey]Template
+}
+
+// cacheKey is what decides a compiled template: its source and the options
+// it was compiled with, since the same text compiles to different output
+// under trim_blocks.
+type cacheKey struct {
+	source string
+	opts   Options
 }
 
 // New returns the renderer.
@@ -30,7 +37,7 @@ type jinjaEngine struct {
 // rather than a convention: a second renderer cannot appear because someone
 // forgot to pass one in.
 func New() Engine {
-	return &jinjaEngine{cache: make(map[string]Template)}
+	return &jinjaEngine{cache: make(map[cacheKey]Template)}
 }
 
 // compiled is one parsed template, safe to share across goroutines because
@@ -39,6 +46,10 @@ type compiled struct {
 	source string
 	nodes  []node
 	names  []string
+
+	// plain reports a template with no statement and no comment, the only
+	// kind Value evaluates as one typed expression.
+	plain bool
 }
 
 // Compile parses source and returns a shared, cached Template.
@@ -49,22 +60,35 @@ type compiled struct {
 // Concurrent first-time compiles of the same source therefore converge on
 // one shared winner instead of each keeping a separate copy.
 func (e *jinjaEngine) Compile(source string) (Template, error) {
+	return e.CompileWith(source, Options{})
+}
+
+// CompileWith implements Engine: Compile under opts, cached per source and
+// options together.
+func (e *jinjaEngine) CompileWith(source string, opts Options) (Template, error) {
+	key := cacheKey{source: source, opts: opts}
 	e.mu.Lock()
-	if cached, ok := e.cache[source]; ok {
+	if cached, ok := e.cache[key]; ok {
 		e.mu.Unlock()
 		return cached, nil
 	}
 	e.mu.Unlock()
 
-	nodes, err := parse(source)
+	nodes, plain, err := parse(source, opts)
 	if err != nil {
 		return nil, err
 	}
-	tmpl := &compiled{source: source, nodes: nodes, names: collectNames(nodes)}
+	// The scope analysis runs once here, both to refuse a template whose
+	// names it cannot bound and to fix Names, which callers read often.
+	exprs, err := analyze(nodes)
+	if err != nil {
+		return nil, err
+	}
+	tmpl := &compiled{source: source, nodes: nodes, names: collectNames(exprs), plain: plain}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if cached, ok := e.cache[source]; ok {
+	if cached, ok := e.cache[key]; ok {
 		// Another goroutine won the race for this exact source while we
 		// were parsing. Share theirs so every caller of this source
 		// converges on one instance.
@@ -74,7 +98,7 @@ func (e *jinjaEngine) Compile(source string) (Template, error) {
 	// evicting something. See maxCachedTemplates in limits.go for why a
 	// slowdown is the right degradation here and an eviction policy is not.
 	if len(e.cache) < maxCachedTemplates {
-		e.cache[source] = tmpl
+		e.cache[key] = tmpl
 	}
 	return tmpl, nil
 }
@@ -86,28 +110,11 @@ func (e *jinjaEngine) Compile(source string) (Template, error) {
 // value at the call site, and this package's call sites inject what they
 // are given.
 func (t *compiled) Render(vars map[string]any) (string, error) {
-	var b strings.Builder
-
-	for _, n := range t.nodes {
-		if n.expr == nil {
-			b.WriteString(n.text)
-		} else {
-			out, err := n.expr.eval(vars)
-			if err != nil {
-				return "", err
-			}
-			b.WriteString(out)
-		}
-
-		// Checked per node rather than once at the end so a filter chain
-		// that amplifies its input cannot build a value far past the limit
-		// before anybody notices.
-		if b.Len() > maxOutputBytes {
-			return "", fmt.Errorf("%w: output passed %d bytes", ErrTooLarge, maxOutputBytes)
-		}
+	st := &renderState{vars: vars}
+	if err := st.run(t.nodes); err != nil {
+		return "", err
 	}
-
-	return b.String(), nil
+	return st.out.String(), nil
 }
 
 // Names returns the top-level variable names this template references.
@@ -127,10 +134,10 @@ func (t *compiled) Source() string { return t.source }
 // Value implements Template: a template that is one expression and nothing
 // else evaluates to that expression's value, typed.
 func (t *compiled) Value(vars map[string]any) (any, bool, error) {
-	if len(t.nodes) != 1 || t.nodes[0].expr == nil {
+	if !t.plain || len(t.nodes) != 1 || t.nodes[0].kind != nodeOutput {
 		return nil, false, nil
 	}
-	value, err := t.nodes[0].expr.evalValue(vars)
+	value, err := t.nodes[0].expr.evalValue(&renderState{vars: vars})
 	if err != nil {
 		return nil, true, err
 	}
@@ -140,38 +147,36 @@ func (t *compiled) Value(vars map[string]any) (any, bool, error) {
 	return value, true, nil
 }
 
-// Expressions implements Template.
+// Expressions implements Template. The analysis is run again on each call
+// rather than kept, since most compiled templates are never asked, and its
+// output is bounded by maxBindingOrigins per expression. It cannot fail
+// here: Compile ran it already and refused the template it fails on.
 func (t *compiled) Expressions() []ExpressionInfo {
-	var out []ExpressionInfo
-	for _, n := range t.nodes {
-		if n.expr == nil {
-			continue
-		}
-		info := ExpressionInfo{Path: []string{n.expr.root}}
-		for _, s := range n.expr.steps {
-			if s.kind == stepIndex {
-				info.Path = append(info.Path, strconv.Itoa(s.index))
-			} else {
-				info.Path = append(info.Path, s.key)
-			}
-		}
-		for _, f := range n.expr.filters {
-			info.Filters = append(info.Filters, f.name)
-		}
-		out = append(out, info)
-	}
+	out, _ := analyze(t.nodes)
 	return out
 }
 
-// collectNames gathers the sorted, deduplicated set of root names the
-// nodes reference. Computed once at compile time because callers use it to
-// validate on a write path where it is read repeatedly.
-func collectNames(nodes []node) []string {
-	seen := make(map[string]struct{})
-	for _, n := range nodes {
-		if n.expr != nil {
-			seen[n.expr.root] = struct{}{}
+// LeadingText implements Template: the text nodes at the root of the tree
+// before its first other node, joined. A comment leaves no node, so the
+// text on either side of one joins as it renders.
+func (t *compiled) LeadingText() string {
+	var b strings.Builder
+	for _, n := range t.nodes {
+		if n.kind != nodeText {
+			break
 		}
+		b.WriteString(n.text)
+	}
+	return b.String()
+}
+
+// collectNames gathers the sorted, deduplicated set of root names the
+// expressions read from the caller. A name a statement bound is never one:
+// analysis reports a read through it as a read of what it was bound from.
+func collectNames(exprs []ExpressionInfo) []string {
+	seen := make(map[string]struct{})
+	for _, e := range exprs {
+		seen[e.Path[0]] = struct{}{}
 	}
 
 	names := make([]string, 0, len(seen))

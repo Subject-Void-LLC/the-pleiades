@@ -48,3 +48,29 @@ func TestDispatched_OnlyTheDeclaredKeys(t *testing.T) {
 		t.Errorf("declared keys %v", keys)
 	}
 }
+
+// TestDispatched_VarsTravelForEveryTypeWithoutSecrets: the vars property is
+// sent for a type that declared nothing about it, minus any variable named or
+// shaped like a secret; a non-mapping or an all-secret one is not sent.
+func TestDispatched_VarsTravelForEveryTypeWithoutSecrets(t *testing.T) {
+	t.Cleanup(record.SnapshotForTest())
+	record.RegisterDispatchProperties("dispatchtest_vars", "host")
+	build := func(vars any) map[string]any {
+		item := dispatchItem{record.NewBase(record.Record{Name: "v", Type: "dispatchtest_vars", Properties: map[string]inventory.PropertyValue{
+			"host":                 "h",
+			inventory.VarsProperty: vars,
+		}}, nil)}
+		_, props := record.Dispatched(item)
+		return props
+	}
+	got := build(map[string]any{"site": "lab", "db_password": "x", "token_text": "AKIAIOSFODNN7EXAMPLE", "n": 3})
+	want := map[string]any{"host": "h", inventory.VarsProperty: map[string]any{"site": "lab", "n": 3}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("dispatched %v, want %v", got, want)
+	}
+	for _, none := range []any{"text", map[string]any{"db_password": "x"}, map[string]any{}} {
+		if _, sent := build(none)[inventory.VarsProperty]; sent {
+			t.Errorf("vars %v were sent", none)
+		}
+	}
+}

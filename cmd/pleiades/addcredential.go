@@ -61,7 +61,7 @@ func runAddCredential(args []string) error {
 	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true, "token-stdin": true, "enable-password": true, "enable-password-stdin": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]: %w", err)
+			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)

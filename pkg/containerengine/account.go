@@ -12,6 +12,7 @@ import (
 	"github.com/moby/moby/client/pkg/versions"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -80,7 +81,7 @@ func remoteUser(ctx context.Context, conn *remoteexec.Conn) (string, error) {
 	}
 	who := strings.TrimSpace(res.Stdout)
 	if res.ExitCode != 0 || who == "" {
-		return "", fmt.Errorf("asking which account this login is: `id -un` exited %d (%s)", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return "", fmt.Errorf("asking which account this login is: `id -un` exited %d: %s", res.ExitCode, farside.Output(res.Stderr))
 	}
 	return who, nil
 }

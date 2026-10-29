@@ -6,7 +6,7 @@ status: beta
 
 Creates a node in a CML lab, optionally seeded with an inventory device's login and address.
 
-Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as "username <user> privilege 15 secret 9 <hash>" (and "enable secret 9" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. configuration adds lines after those. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.
+Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as "username <user> privilege 15 secret 9 <hash>" (and "enable secret 9" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. The vty lines (line vty 0 4) take SSH only (transport input ssh), so a seeded node refuses Telnet. configuration adds lines after those, so "line vty 0 4" then " transport input ssh telnet" there lets Telnet in as well. A node's interfaces are named as its definition names them, as CML 2.7.2 makes them: iol-xe has Loopback0 and Ethernet0/0 to Ethernet0/3 (and Ethernet1/0 on with interfaces), an unmanaged_switch has port0 to port7, and an external_connector has one interface, port, so it takes one link: join several nodes to it through an unmanaged switch. interfaces in the result lists them. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.
 
 ## Attributes
 
@@ -30,8 +30,8 @@ Makes a node from a node definition, with the definition's interfaces, stopped. 
 | `management_interface` | `string` | no | `Ethernet0/0` | The interface that carries the management address. |
 | `management_prefix` | `int` | no | `24` | The management address's prefix length. |
 | `management_gateway` | `string` | no | - | The management network's gateway, the Mgmt-intf VRF's default route. Required with device. |
-| `configuration` | `string` | no | - | Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device. |
-| `interfaces` | `int` | no | - | The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). Up to 128, and no more than the definition allows, which the controller enforces when the node is made, so a check, which makes nothing, cannot see that limit. |
+| `configuration` | `string` | no | - | Day-0 configuration lines added after the seeded ones, or the whole day-0 configuration without device. Never put a password here: use device. For an external_connector node it is the connector to join, by its label: System Bridge (the controller's bridge to its own network) or NAT on a controller as installed, or a bridge its administrator added. With device, the seeded vty lines take SSH only: add "line vty 0 4" then " transport input ssh telnet" here to allow Telnet as well. |
+| `interfaces` | `int` | no | - | The least number of physical interfaces the node has. A definition gives a few (iol-xe four, Ethernet0/0 to Ethernet0/3); more are added slot by slot, named as the definition names them (iol-xe's fifth is Ethernet1/0). An external_connector has exactly one, port, and refuses more. Up to 128, and no more than the definition allows, which the controller enforces when the node is made, so a check, which makes nothing, cannot see that limit. |
 | `x` | `int` | no | `0` | The node's place on the lab's canvas, left to right. |
 | `y` | `int` | no | `0` | The node's place on the lab's canvas, top to bottom. |
 
@@ -71,5 +71,49 @@ A core router standing for an inventory device:
     management_gateway: 10.10.20.254
     x: 0
     y: 0
+```
+
+A bridge to the controller's network, a management switch, and a router reachable over SSH and Telnet:
+
+```yaml
+- name: Make the bridge to the controller's network (one interface, port)
+  virt.cml.node.create:
+    lab: cvd
+    label: EXT
+    definition: external_connector
+    configuration: System Bridge
+
+- name: Make the management switch (port0 to port7)
+  virt.cml.node.create:
+    lab: cvd
+    label: MGMT-SW
+    definition: unmanaged_switch
+
+- name: Make CORE1, taking Telnet as well as SSH
+  virt.cml.node.create:
+    lab: cvd
+    label: CORE1
+    definition: iol-xe
+    device: CORE1
+    management_gateway: 10.10.20.254
+    configuration: |
+      line vty 0 4
+       transport input ssh telnet
+
+- name: Join the switch to the bridge
+  virt.cml.link.create:
+    lab: cvd
+    a: EXT
+    a_interface: port
+    b: MGMT-SW
+    b_interface: port0
+
+- name: Join CORE1's management interface to the switch
+  virt.cml.link.create:
+    lab: cvd
+    a: CORE1
+    a_interface: Ethernet0/0
+    b: MGMT-SW
+    b_interface: port1
 ```
 

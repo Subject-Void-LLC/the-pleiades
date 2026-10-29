@@ -30,7 +30,7 @@ Pages through the Catalyst Center's device inventory and emits one fact entry pe
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `devices` | `list of map` | always | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status. |
+| `devices` | `list of map` | always | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset. |
 | `device_count` | `int` | always | The number of devices in the devices fact. |
 
 ## Undoing this

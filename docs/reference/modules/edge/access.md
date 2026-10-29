@@ -32,7 +32,10 @@ Reads an Access application by id, or by its domain (one two applications share 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | success or difference | The application's id. |
+| `name` | `string` | success or difference | The application's name. |
 | `domain` | `string` | success or difference | Its domain. |
+| `type` | `string` | success or difference | Its type as Cloudflare names it (self_hosted, saas, ...). |
+| `session_duration` | `string` | success or difference | How long a session it grants lasts, as Cloudflare writes it (24h). |
 | `audience` | `string` | success or difference | Its audience tag (aud), which an origin validating Access tokens must expect. |
 | `issuer` | `string` | success or difference | The issuer of its tokens. |
 | `policies` | `list of dict` | success or difference | Each policy's name, decision and precedence. |

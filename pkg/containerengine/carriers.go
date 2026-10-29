@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -172,7 +173,7 @@ func (c *stdioCarrier) startService(ctx context.Context) (capability.SocketAddre
 	if res, err := c.conn.Run(ctx, wait); err != nil || res.ExitCode != 0 {
 		stopService(c.conn, dir)
 		_ = service.Close()
-		return "", fmt.Errorf("containerengine: the Podman API service did not listen (%s): %v", strings.TrimSpace(service.Stderr()), err)
+		return "", fmt.Errorf("containerengine: the Podman API service did not listen: %s: %v", farside.Output(service.Stderr()), err)
 	}
 	c.service, c.dir = service, dir
 	return capability.SocketAddress(socket), nil

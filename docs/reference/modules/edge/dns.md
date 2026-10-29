@@ -25,7 +25,7 @@ Reads a zone by id, or by name within the account (a zone of another account is 
 | --- | --- | --- | --- | --- |
 | `zone` | `string` | yes | - | The zone's id, or its name. |
 | `name` | `string` | yes | - | The record's full name (www.example.com). |
-| `type` | `string` | yes | - | The record type. |
+| `type` | `string` | yes | - | The record type. **Choices:** `A`, `AAAA`, `CNAME`, `TXT`, `MX`, `NS`, `SRV`, `CAA`, `HTTPS`, `SVCB`, `PTR`. |
 | `expect` | `dict` | no | - | What the records must be: content (one value or a list, compared as a set), proxied, ttl (1 is automatic), or absent: true. |
 
 ## Returns
@@ -33,6 +33,9 @@ Reads a zone by id, or by name within the account (a zone of another account is 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
 | `zone` | `string` | success or difference | The zone's name. |
+| `zone_id` | `string` | success or difference | The zone's id. |
+| `name` | `string` | success or difference | The record name read, as the task gave it. |
+| `type` | `string` | success or difference | The record type read. |
 | `records` | `list of dict` | success or difference | Each record's content, proxied and ttl. |
 | `differences` | `list of string` | when the reads succeed | Every difference from what was expected; the task fails when there is one. A read that fails (a refused token, a name that resolves to nothing) fails the task before there are differences to list. |
 

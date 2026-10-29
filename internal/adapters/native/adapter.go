@@ -383,7 +383,7 @@ func summarize(result engine.RunResult, changed bool, secrets []string) (status,
 	if result.HasErrors() {
 		var errs []string
 		for _, node := range result.Nodes {
-			if node.Err != nil {
+			if node.Err != nil && !node.Ignored && !node.Retried {
 				errs = append(errs, redact.Text(secrets, node.Err.Error()))
 			}
 		}

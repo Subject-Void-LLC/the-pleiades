@@ -4,7 +4,6 @@ package engine
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -20,11 +19,11 @@ import (
 func validateTarget(task *Task, id string) error {
 	raw, present := task.Params[collection.TargetParam]
 	target, isText := raw.(string)
-	templated := isText && strings.Contains(target, "{{")
+	templated := isText && IsTemplate(target)
 	switch {
 	case templated && task.Within == "":
 		return fmt.Errorf("task %s renders params.target from data, so it needs a within: naming the device or tag the rendered target must stay inside", taskLabel(id, task))
-	case task.Within != "" && strings.Contains(task.Within, "{{"):
+	case task.Within != "" && IsTemplate(task.Within):
 		return fmt.Errorf("task %s renders within:, which is the bound on a rendered target and must be written literally", taskLabel(id, task))
 	case task.Within != "" && !templated:
 		return fmt.Errorf("task %s sets within: without a rendered params.target: within: bounds a target chosen from data, and nothing here is chosen from data", taskLabel(id, task))

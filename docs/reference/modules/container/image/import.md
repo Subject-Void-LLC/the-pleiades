@@ -23,7 +23,7 @@ Imports the filesystem archive at path (a tar of a root filesystem, as container
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `path` | `string` | yes | - | The archive's path on the machine the engine runs on: absolute and clean. |
 | `image` | `string` | yes | - | The tag the new image gets, repository:tag; a missing tag is latest. |
 | `digest` | `string` | no | - | The archive's digest, sha256:<hex>, as container.image.save returned it. An archive with any other digest is refused before the engine reads a byte of it. |

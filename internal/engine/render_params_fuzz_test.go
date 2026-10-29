@@ -18,6 +18,7 @@ func FuzzURLPrefixFixed(f *testing.F) {
 	for _, seed := range []string{
 		"https://itsm.example.com/api/{{ x }}", "/api/{{ x }}", "https://{{ x }}/api", "https://itsm.example.com{{ x }}",
 		"{{ x }}", "https://a/{{ x }}?q={{ y }}", "http://h?{{ x }}", "http://h#{{ x }}", "://{{ x }}/", "", "no template",
+		"https://api.example.com{# x #}{{ vars.h }}/p", "{# https://x/ #}{{ vars.url }}", "https://h{% if a %}/{% endif %}",
 	} {
 		f.Add(seed)
 	}
@@ -25,7 +26,12 @@ func FuzzURLPrefixFixed(f *testing.F) {
 		if !URLPrefixFixed(source) {
 			return
 		}
-		prefix, _, _ := strings.Cut(source, "{{")
+		// The prefix ends at the first tag of any kind: a comment's own "/"
+		// or "#" must never count as ending the host.
+		prefix := source
+		for _, open := range []string{"{{", "{%", "{#"} {
+			prefix, _, _ = strings.Cut(prefix, open)
+		}
 		if strings.HasPrefix(prefix, "/") {
 			return
 		}
@@ -34,7 +40,7 @@ func FuzzURLPrefixFixed(f *testing.F) {
 			t.Fatalf("URLPrefixFixed(%q) accepted a prefix with no scheme", source)
 		}
 		end := strings.IndexAny(rest, "/?#")
-		if end <= 0 || strings.Contains(rest[:end], "{{") {
+		if end <= 0 || strings.Contains(rest[:end], "{{") || strings.Contains(rest[:end], "{%") || strings.Contains(rest[:end], "{#") {
 			t.Fatalf("URLPrefixFixed(%q) accepted a host an expression could reach", source)
 		}
 	})

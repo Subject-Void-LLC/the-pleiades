@@ -47,13 +47,14 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Reads a VM's SSH host keys from what cloud-init printed on its serial console.",
-				Description: "Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the console once, without waiting.",
+				Description: "Waits for cloud-init to print the VM's SSH host keys on its serial console, which virt.vbox.vm.clone logs to a file on the host, and reports them. They are read over the host's own authenticated connection, not from the network the VM answers SSH on, so they are what a known_hosts file can trust before the first SSH connection: pleiades trust-host <device> --from-console <host> writes them there. The newest complete block is the one read. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing is waited for, so a later task can decide what to do. A check reads the console once, without waiting, and answers a missing VM the same way.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "timeout", Type: "int", Default: "300", Description: "How many seconds to wait for the keys."},
 				},
 				Returns: []collection.ReturnField{
-					{Name: "ssh_host_keys", Type: "list", Returned: "always", Description: "Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet."},
+					{Name: "exists", Type: "bool", Returned: "always", Description: "Whether a VM with this name is registered on the host."},
+					{Name: "ssh_host_keys", Type: "list", Returned: "when exists", Description: "Each key as algorithm and base64, the form a known_hosts line holds after its host names. Empty in a check that found none yet."},
 				},
 				Examples: []collection.Example{
 					{Name: "Wait for a new VM's host keys", RunbookYAML: "- name: Wait for the lab VM's first boot\n  virt.vbox.vm.host_keys:\n    name: ubuntu-lab\n  register: keys\n"},
@@ -101,9 +102,17 @@ func runHostKeys(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	if err != nil {
 		return collection.Result{}, err
 	}
-	m, err := mustReadFor(ctx, h, name, device, fqcn, mode)
+	m, exists, err := read(ctx, h, name)
 	if err != nil {
-		return collection.Result{}, err
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// A VM the host does not have is an answer, exists false, in a run and
+	// in a check alike, so a plan can branch on it; nothing is waited for.
+	if !exists {
+		return collection.Result{}, setExistsFalse(rc, fqcn)
+	}
+	if err := rc.SetStat(statExists, true); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if m.ConsoleLog == "" {
 		return collection.Result{}, fmt.Errorf("%s: %q writes its serial console to no file; virt.vbox.vm.clone sets one up", fqcn, name)
@@ -116,6 +125,16 @@ func runHostKeys(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return collection.Result{}, nil
+}
+
+// setExistsFalse records that the VM a read-only method was asked about is
+// not on the host: exists false and nothing else, the answer
+// virt.vbox.vm.info gives.
+func setExistsFalse(rc sdk.RunbookContext, fqcn string) error {
+	if err := rc.SetStat(statExists, false); err != nil {
+		return fmt.Errorf("%s: %w", fqcn, err)
+	}
+	return nil
 }
 
 // waitForKeys reads the console log until it holds a complete block of

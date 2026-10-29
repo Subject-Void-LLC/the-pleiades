@@ -24,8 +24,8 @@ Makes sure no line matching a pattern remains in a text file, which is ansible.b
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `path` | `string` | yes | - | The text file to edit. A file that is not there is reported as no change rather than as an error, since it holds no lines to remove. A symbolic link is refused rather than followed, because writing replaces the path and would leave a regular file where the link was. |
-| `regexp` | `string` | no | - | Remove every line this pattern matches. Matched anywhere in a line unless anchored with ^ or $. Cannot be combined with line, and one of the two is required. |
-| `line` | `string` | no | - | Remove every line whose text is exactly this. It may not contain a newline, since a line is matched whole. Cannot be combined with regexp, and one of the two is required. |
+| `regexp` | `string` | no | - | Remove every line this pattern matches. Matched anywhere in a line unless anchored with ^ or $. Cannot be combined with line, and either it or line is required. |
+| `line` | `string` | no | - | Remove every line whose text is exactly this. It may not contain a newline, since a line is matched whole. Cannot be combined with regexp, and either it or regexp is required. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

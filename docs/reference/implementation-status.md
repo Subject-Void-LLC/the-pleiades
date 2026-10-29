@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**207 of 210 methods are implemented.**
+**210 of 212 methods are implemented.**
 
 ## Implemented
 
@@ -46,6 +46,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [identity.group.remove](modules/identity/group/remove.md)
 - [file.copy](modules/file/copy.md)
 - [file.stat](modules/file/stat.md)
+- [file.template](modules/file/template.md)
 - [file.directory](modules/file/directory.md)
 - [file.symlink](modules/file/symlink.md)
 - [file.remove](modules/file/remove.md)
@@ -167,6 +168,8 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.vbox.vm.start](modules/virt/vbox/vm/start.md)
 - [virt.vbox.vm.stop](modules/virt/vbox/vm/stop.md)
 - [virt.vbox.vm.resize](modules/virt/vbox/vm/resize.md)
+- [virt.vbox.vm.attach_disk](modules/virt/vbox/vm/attach_disk.md)
+- [virt.vbox.vm.detach_disk](modules/virt/vbox/vm/detach_disk.md)
 - [virt.vbox.snapshot.take](modules/virt/vbox/snapshot/take.md)
 - [virt.vbox.snapshot.restore](modules/virt/vbox/snapshot/restore.md)
 - [virt.vbox.snapshot.delete](modules/virt/vbox/snapshot/delete.md)
@@ -222,7 +225,6 @@ The full declared-versus-implemented matrix for every registered Collection meth
 
 Registered and reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
 
-- `file.template`
 - `net.junos.config`
 - `net.eos.config`
 

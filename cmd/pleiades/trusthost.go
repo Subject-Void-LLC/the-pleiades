@@ -152,7 +152,18 @@ func consoleKeys(ctx context.Context, dir string, repo inv.Repository, host, vm 
 	if !ok {
 		return nil, fmt.Errorf("%s's answer could not be read", hostKeysMethod)
 	}
-	lines, _ := facts.Facts()["ssh_host_keys"].([]string)
+	return consoleAnswer(facts.Facts(), host, vm)
+}
+
+// consoleAnswer reads virt.vbox.vm.host_keys's answer for vm on host: the
+// keys it reported, or a refusal saying why there are none. A VM the host
+// does not have is answered exists false rather than as a failure, and is
+// named as missing here, not reported as a VM that printed no keys.
+func consoleAnswer(facts map[string]any, host, vm string) ([]ssh.PublicKey, error) {
+	if exists, ok := facts["exists"].(bool); ok && !exists {
+		return nil, fmt.Errorf("the VirtualBox host %q has no VM named %q, so it has no host keys to read", host, vm)
+	}
+	lines, _ := facts["ssh_host_keys"].([]string)
 	var keys []ssh.PublicKey
 	for _, line := range lines {
 		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))

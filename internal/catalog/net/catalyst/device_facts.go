@@ -69,7 +69,7 @@ func init() {
 				Description: "Pages through the Catalyst Center's device inventory and emits one fact entry per device: identity, platform, software, role, and reachability/collection status. Never reports changed: reading an inventory does not alter it.",
 				Fragments:   []string{"catalyst_connection", "catalyst_pagination"},
 				Returns: []collection.ReturnField{
-					{Name: "devices", Type: "list of map", Returned: "always", Description: "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status."},
+					{Name: "devices", Type: "list of map", Returned: "always", Description: "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."},
 					{Name: "device_count", Type: "int", Returned: "always", Description: "The number of devices in the devices fact."},
 				},
 				Examples: []collection.Example{
@@ -118,6 +118,12 @@ func DeviceFacts(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 			"serial_number":       d.SerialNumber,
 			"reachability_status": d.ReachabilityStatus,
 			"collection_status":   d.CollectionStatus,
+			// The rest of what the controller's device record holds, so one
+			// call describes each device whole (Phase 131's R5).
+			"mac_address": d.MACAddress,
+			"type":        d.Type,
+			"up_time":     d.UpTime,
+			"description": d.Description,
 		})
 		return nil
 	})

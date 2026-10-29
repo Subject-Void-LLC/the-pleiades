@@ -107,8 +107,11 @@ var filters = map[string]filterSpec{
 
 // FilterDoc is one filter as `pleiades doc filters` shows it.
 type FilterDoc struct {
-	Name        string `json:"name"`
-	Usage       string `json:"usage"`
+	// Name is the filter's name, as a template writes it after |.
+	Name string `json:"name"`
+	// Usage is how a template calls it.
+	Usage string `json:"usage"`
+	// Description says what it returns.
 	Description string `json:"description"`
 }
 
@@ -125,8 +128,10 @@ func Filters() []FilterDoc {
 // ExcludedFilter is a Jinja2 filter this renderer refuses on purpose, and
 // why: the list this file's opening comment gives.
 type ExcludedFilter struct {
+	// Name is the Jinja2 name left out.
 	Name string `json:"name"`
-	Why  string `json:"why"`
+	// Why says why it is left out.
+	Why string `json:"why"`
 }
 
 // ExcludedFilters returns the filters left out on purpose, each with why.
@@ -147,13 +152,13 @@ func isKnownFilter(name string) bool {
 }
 
 // checkFilterArgs validates one filter call's arity at compile time.
-func checkFilterArgs(f filterCall) error {
-	spec := filters[f.name]
-	if len(f.args) < spec.minArgs {
-		return fmt.Errorf("%w: filter %q needs %d argument(s), got %d", ErrSyntax, f.name, spec.minArgs, len(f.args))
+func checkFilterArgs(name string, n int) error {
+	spec := filters[name]
+	if n < spec.minArgs {
+		return fmt.Errorf("%w: filter %q needs %d argument(s), got %d", ErrSyntax, name, spec.minArgs, n)
 	}
-	if len(f.args) > spec.maxArgs {
-		return fmt.Errorf("%w: filter %q takes at most %d argument(s), got %d", ErrSyntax, f.name, spec.maxArgs, len(f.args))
+	if n > spec.maxArgs {
+		return fmt.Errorf("%w: filter %q takes at most %d argument(s), got %d", ErrSyntax, name, spec.maxArgs, n)
 	}
 	return nil
 }

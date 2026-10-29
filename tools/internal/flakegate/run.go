@@ -91,6 +91,9 @@ type Run struct {
 	Missing map[string][]string `json:"missing,omitempty"`
 	// PackageSeconds is how long each package's tests took.
 	PackageSeconds map[string]float64 `json:"package_seconds,omitempty"`
+	// Headroom is what the machine had while the run ran and how the run was
+	// bounded by it; absent on a record written before testgate measured it.
+	Headroom *Headroom `json:"headroom,omitempty"`
 }
 
 // RunFailure is one failure, as go test reported it and as the run judged

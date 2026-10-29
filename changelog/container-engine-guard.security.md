@@ -1,1 +1,0 @@
-Every request a container method sends is checked against the operations that method declares before it reaches the engine, an engine's answers are bounded in size, and a task is refused when the engine is not the one onboarding found, when it logs in as a different account than onboarding used, or when the engine serves an API older than 1.41.

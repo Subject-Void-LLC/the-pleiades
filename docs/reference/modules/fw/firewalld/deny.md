@@ -23,9 +23,9 @@ Makes sure a port or service is not allowed through firewalld in the given zone.
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `port` | `int` | no | - | The port to deny. Exactly one of port or service is required. |
-| `protocol` | `string` | no | `tcp` | The protocol for port (tcp or udp). Ignored when service is given. |
-| `service` | `string` | no | - | The firewalld service name to deny, e.g. http. Exactly one of port or service is required. |
+| `port` | `int` | no | - | The port to deny. Give port or service: exactly one is required. |
+| `protocol` | `string` | no | `tcp` | The protocol for port: tcp, udp, sctp or dccp, as firewalld takes them. Ignored when service is given. **Choices:** `tcp`, `udp`, `sctp`, `dccp`. |
+| `service` | `string` | no | - | The firewalld service name to deny, e.g. http. Give port or service: exactly one is required. |
 | `zone` | `string` | no | `public` | The firewalld zone to remove the rule from. |
 | `permanent` | `bool` | no | `true` | Also remove the rule from the permanent configuration. |
 | `immediate` | `bool` | no | `true` | Also remove the rule from the runtime configuration, so it takes effect now. |

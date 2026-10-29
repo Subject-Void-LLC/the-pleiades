@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // The lowest layer of the expression parser: byte-level cursor primitives.
@@ -87,15 +88,18 @@ func (s *scanner) integer() (int, error) {
 
 // quoted reads a single- or double-quoted string literal.
 //
-// The escape set is closed: \\ \' \" \n \t. An unrecognized escape is a
-// syntax error rather than a literal backslash, because the two readings
-// differ and guessing wrong silently changes an injected value.
+// The escapes are Python's, which Jinja2 decodes its literals with:
+// backslash, both quotes, a b f n r t v, an octal \ooo of one to three
+// digits, \xhh, \u with four hex digits and \U with eight, each naming a
+// code point, and a backslash before a newline, which joins the lines. An
+// unrecognized escape is a syntax error rather than a literal backslash,
+// where Python keeps it, because the two readings differ and guessing wrong
+// silently changes an injected value. \N{name} is refused for the same
+// reason: it needs Unicode's name table.
 //
 // There is deliberately no length check here. A literal is a substring of
 // the source that contains it, and parse already refuses a source past
-// maxSourceBytes before any of this runs, so a per-literal bound could
-// never fire. An earlier version had one, and its only real effect was to
-// suggest a protection that was not doing anything.
+// maxSourceBytes before any of this runs.
 func (s *scanner) quoted() (string, error) {
 	quote := s.peek()
 	s.pos++
@@ -105,39 +109,74 @@ func (s *scanner) quoted() (string, error) {
 		if s.done() {
 			return "", fmt.Errorf("%w: unterminated string literal", ErrSyntax)
 		}
-
 		c := s.peek()
 		s.pos++
-
 		switch c {
 		case quote:
 			return b.String(), nil
-
 		case '\\':
-			if s.done() {
-				return "", fmt.Errorf("%w: unterminated escape sequence", ErrSyntax)
+			if err := s.escape(&b); err != nil {
+				return "", err
 			}
-			esc := s.peek()
-			s.pos++
-			switch esc {
-			case '\\':
-				b.WriteByte('\\')
-			case '\'':
-				b.WriteByte('\'')
-			case '"':
-				b.WriteByte('"')
-			case 'n':
-				b.WriteByte('\n')
-			case 't':
-				b.WriteByte('\t')
-			default:
-				return "", fmt.Errorf("%w: unsupported escape sequence %q", ErrSyntax, "\\"+string(esc))
-			}
-
 		default:
 			b.WriteByte(c)
 		}
 	}
+}
+
+// simpleEscapes are the one-character escapes and what each stands for.
+var simpleEscapes = map[byte]string{
+	'\\': "\\", '\'': "'", '"': "\"", 'a': "\a", 'b': "\b", 'f': "\f",
+	'n': "\n", 'r': "\r", 't': "\t", 'v': "\v", '\n': "",
+}
+
+// escape decodes one escape sequence, with its backslash consumed.
+func (s *scanner) escape(b *strings.Builder) error {
+	if s.done() {
+		return fmt.Errorf("%w: unterminated escape sequence", ErrSyntax)
+	}
+	esc := s.peek()
+	s.pos++
+	if out, ok := simpleEscapes[esc]; ok {
+		b.WriteString(out)
+		return nil
+	}
+	digits, base := 0, 16
+	switch {
+	case esc >= '0' && esc <= '7':
+		// Up to three octal digits, the first already read.
+		s.pos--
+		digits, base = 3, 8
+	case esc == 'x':
+		digits = 2
+	case esc == 'u':
+		digits = 4
+	case esc == 'U':
+		digits = 8
+	default:
+		return fmt.Errorf("%w: unsupported escape sequence %q", ErrSyntax, "\\"+string(esc))
+	}
+	start := s.pos
+	for s.pos-start < digits && !s.done() && isDigitIn(s.peek(), base) {
+		s.pos++
+	}
+	if base == 16 && s.pos-start != digits {
+		return fmt.Errorf("%w: escape \\%c needs %d hex digits", ErrSyntax, esc, digits)
+	}
+	code, err := strconv.ParseUint(s.src[start:s.pos], base, 32)
+	if err != nil || code > unicode.MaxRune || (code >= 0xD800 && code <= 0xDFFF) {
+		return fmt.Errorf("%w: escape %q is not a character", ErrSyntax, s.src[start-1:s.pos])
+	}
+	b.WriteRune(rune(code))
+	return nil
+}
+
+// isDigitIn reports whether c is a digit in base 8 or 16.
+func isDigitIn(c byte, base int) bool {
+	if base == 8 {
+		return c >= '0' && c <= '7'
+	}
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 
 // isIdentStart reports whether c may begin an identifier.

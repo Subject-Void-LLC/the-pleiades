@@ -155,11 +155,7 @@ func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d invento
 			roots[TemplateRootError] = e
 		}
 	}
-	prepared, early := r.prepare(nodeID, task, started, key, roots)
-	if early != nil {
-		return []NodeResult{*early}
-	}
-	return r.dispatch(ctx, nodeID, prepared, devices, started)
+	return r.runTask(ctx, nodeID, task, started, key, devices, roots)
 }
 
 // handlerSkip is nodeID's result on d (nil for no device) when the device's

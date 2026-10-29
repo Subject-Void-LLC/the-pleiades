@@ -6,16 +6,28 @@ import (
 	"strings"
 )
 
-// The expression grammar, in the order the parser reads it:
+// The expression grammar, in Jinja2's precedence, loosest first:
 //
-//	expr    := path ("|" filter)*
+//	expr    := and ("or" and)*
+//	and     := not ("and" not)*
+//	not     := "not" not | compare
+//	compare := concat (cmpop concat)*        cmpop: == != < <= > >= in, not in
+//	concat  := unary ("~" unary)*
+//	unary   := "-" number | primary postfix*
+//	postfix := "|" filter | "is" ["not"] test [arg]
+//	primary := literal | path [".items()" | ".keys()" | ".values()"]
+//	         | "(" expr ")" | "(" expr "," ... ")" | "[" ... "]" | "{" string ":" expr ... "}"
 //	path    := ident (("." ident) | ("[" string "]") | ("[" integer "]"))*
-//	filter  := ident ("(" literal ("," literal)* ")")?
-//	literal := string | integer
+//	literal := string | integer | float | true | false | none
 //
-// Literals appear only as filter arguments. There is no arithmetic, no
-// comparison, no function call, and no way to name anything the caller did
-// not put in the variable map. That is the whole language.
+// As in Jinja2, a filter or a test binds tighter than every operator, so
+// "a ~ b | upper" uppercases b alone, and and/or return one of their
+// operands rather than a boolean, short-circuiting so a branch not taken
+// reads nothing. There is no arithmetic (Jinja2's + - * / // % **): "*"
+// and "**" alone turn a short template into an unbounded amount of text or
+// a number of unbounded size, and a template that computes is better a
+// task. A path's subscripts are literal, so every path is known at compile
+// time, which is what lets a caller check what a template reads.
 
 // stepKind distinguishes the two ways a path descends into a value.
 type stepKind int
@@ -37,37 +49,76 @@ type step struct {
 	index int
 }
 
-// expression is one compiled {{ ... }} action.
-type expression struct {
-	// source is the original text between the delimiters, kept so an error
-	// can quote what the author wrote rather than a reconstruction of it.
-	source string
+// exprKind says what one node of an expression tree is.
+type exprKind int
 
-	// root is the top-level variable name this expression reads. It is
-	// what Template.Names reports.
-	root string
+const (
+	exprRef     exprKind = iota // a path: root and steps
+	exprLiteral                 // a constant: value
+	exprList                    // a list or tuple literal: args
+	exprMap                     // a mapping literal: keys and args
+	exprMethod                  // .items(), .keys() or .values() on operand
+	exprNot                     // not operand
+	exprAnd                     // args joined by and
+	exprOr                      // args joined by or
+	exprCompare                 // args[0] ops[0] args[1] ops[1] args[2] ...
+	exprConcat                  // args joined by ~
+	exprFilter                  // operand | name(args)
+	exprTest                    // operand is [not] name args
+)
 
-	// steps descend from root, in order.
+// exprNode is one node of an expression tree. kind decides which fields
+// are meaningful.
+type exprNode struct {
+	kind exprKind
+
+	// root and steps are an exprRef's path.
+	root  string
 	steps []step
 
-	// filters apply left to right to whatever the path resolved to.
-	filters []filterCall
-}
+	// value is an exprLiteral's constant: a string, int64, float64, bool
+	// or nil.
+	value any
 
-// filterCall is one filter and its literal arguments.
-type filterCall struct {
+	// keys are an exprMap's keys, one per args entry.
+	keys []string
+
+	// args are a list's items, a mapping's values, the operands of and,
+	// or, a comparison and ~, and a filter's or a test's arguments.
+	args []*exprNode
+
+	// ops are an exprCompare's operators, one between each two args.
+	ops []string
+
+	// operand is what a method, not, filter or test applies to.
+	operand *exprNode
+
+	// name is a method's, filter's or test's name.
 	name string
-	args []any
+
+	// negate is "is not".
+	negate bool
 }
 
-// reference renders the path back into the spelling an author would
+// expression is one compiled expression: the text of an action or of a
+// statement's expression, and its tree.
+type expression struct {
+	// source is the original text, kept so an error can quote what the
+	// author wrote rather than a reconstruction of it.
+	source string
+
+	// body is the tree.
+	body *exprNode
+}
+
+// reference renders a path back into the spelling an author would
 // recognize, for error messages. It is built from the parsed form rather
 // than sliced out of the source so that it stays correct regardless of the
 // whitespace the author used.
-func (e *expression) reference() string {
+func (n *exprNode) reference() string {
 	var b strings.Builder
-	b.WriteString(e.root)
-	for _, s := range e.steps {
+	b.WriteString(n.root)
+	for _, s := range n.steps {
 		switch s.kind {
 		case stepKey:
 			b.WriteString(".")
@@ -81,196 +132,81 @@ func (e *expression) reference() string {
 	return b.String()
 }
 
+// path is an exprRef's reference as ExpressionInfo spells it: root, then
+// each key or index.
+func (n *exprNode) path() []string {
+	path := []string{n.root}
+	for _, s := range n.steps {
+		if s.kind == stepIndex {
+			path = append(path, strconv.Itoa(s.index))
+		} else {
+			path = append(path, s.key)
+		}
+	}
+	return path
+}
+
 // scanner is a cursor over one expression's text.
 type scanner struct {
 	src string
 	pos int
+
+	// depth counts nested sub-expressions (parentheses, literals, filter
+	// and test arguments, nots) toward maxExprDepth.
+	depth int
 }
 
-// parseExpression compiles the text between one pair of action delimiters.
+// parseExpression compiles the text of one expression.
 func parseExpression(body string) (*expression, error) {
 	s := &scanner{src: body}
 	expr := &expression{source: strings.TrimSpace(body)}
 
 	s.skipSpace()
-	root, err := s.ident()
+	node, err := s.parseOr()
 	if err != nil {
 		return nil, expr.wrap(err)
 	}
-	expr.root = root
-
-	steps, err := s.path()
-	if err != nil {
-		return nil, expr.wrap(err)
+	s.skipSpace()
+	if !s.done() {
+		return nil, expr.wrap(s.unexpected())
 	}
-	expr.steps = steps
+	expr.body = node
+	return expr, nil
+}
 
-	for {
-		s.skipSpace()
-		if s.done() {
-			return expr, nil
-		}
-		if s.peek() != '|' {
-			return nil, expr.wrap(fmt.Errorf("%w: unexpected %q", ErrSyntax, s.peek()))
-		}
-		s.pos++
-
-		f, err := s.filter()
-		if err != nil {
-			return nil, expr.wrap(err)
-		}
-		if !isKnownFilter(f.name) {
-			return nil, expr.wrap(fmt.Errorf("%w: %q", ErrUnknownFilter, f.name))
-		}
-		if err := checkFilterArgs(f); err != nil {
-			return nil, expr.wrap(err)
-		}
-
-		expr.filters = append(expr.filters, f)
-		if len(expr.filters) > maxFilterChain {
-			return nil, expr.wrap(fmt.Errorf("%w: more than %d chained filters", ErrTooLarge, maxFilterChain))
-		}
+// unexpected describes what stopped the parser, naming the unsupported
+// Jinja2 forms an author is likely to have meant.
+func (s *scanner) unexpected() error {
+	c := s.peek()
+	switch {
+	case strings.IndexByte("+-*/%", c) >= 0:
+		return fmt.Errorf("%w: arithmetic (%q) is not supported; compute the value in a task", ErrSyntax, c)
+	case s.peekWord() == "if":
+		return fmt.Errorf("%w: an inline if expression is not supported; use an if statement", ErrSyntax)
 	}
+	return fmt.Errorf("%w: unexpected %q", ErrSyntax, c)
 }
 
 // wrap adds the offending expression's own text to an error while leaving
 // the sentinel underneath reachable by errors.Is.
 //
-// Every helper below returns an error that already wraps the right
-// sentinel, so this must not introduce one of its own. An earlier version
-// wrapped everything in ErrSyntax here, which turned a path-depth refusal
-// (a size limit) into a syntax error and made ErrTooLarge unreachable for
-// the two limits enforced during parsing.
+// Every helper returns an error that already wraps the right sentinel, so
+// this must not introduce one of its own. An earlier version wrapped
+// everything in ErrSyntax here, which turned a path-depth refusal (a size
+// limit) into a syntax error and made ErrTooLarge unreachable for the
+// limits enforced during parsing.
 func (e *expression) wrap(err error) error {
 	return fmt.Errorf("%w (in %q)", err, e.source)
 }
 
-// path reads the descent steps that follow a root identifier.
-func (s *scanner) path() ([]step, error) {
-	var steps []step
-
-	for {
-		if s.done() {
-			return steps, nil
-		}
-
-		switch s.peek() {
-		case '.':
-			s.pos++
-			name, err := s.ident()
-			if err != nil {
-				return nil, err
-			}
-			steps = append(steps, step{kind: stepKey, key: name})
-
-		case '[':
-			s.pos++
-			st, err := s.subscript()
-			if err != nil {
-				return nil, err
-			}
-			steps = append(steps, st)
-
-		default:
-			return steps, nil
-		}
-
-		if len(steps) > maxPathDepth {
-			return nil, fmt.Errorf("%w: a path deeper than %d steps", ErrTooLarge, maxPathDepth)
-		}
+// enter counts one level of nesting and refuses past maxExprDepth.
+func (s *scanner) enter() error {
+	s.depth++
+	if s.depth > maxExprDepth {
+		return fmt.Errorf("%w: an expression nested deeper than %d", ErrTooLarge, maxExprDepth)
 	}
+	return nil
 }
 
-// subscript reads one bracketed key or index, with the opening bracket
-// already consumed.
-func (s *scanner) subscript() (step, error) {
-	s.skipSpace()
-
-	var st step
-	switch {
-	case s.done():
-		return st, fmt.Errorf("%w: unterminated %q", ErrSyntax, "[")
-
-	case s.peek() == '\'' || s.peek() == '"':
-		key, err := s.quoted()
-		if err != nil {
-			return st, err
-		}
-		st = step{kind: stepKey, key: key}
-
-	default:
-		n, err := s.integer()
-		if err != nil {
-			return st, err
-		}
-		st = step{kind: stepIndex, index: n}
-	}
-
-	s.skipSpace()
-	if s.done() || s.peek() != ']' {
-		return st, fmt.Errorf("%w: unterminated %q", ErrSyntax, "[")
-	}
-	s.pos++
-	return st, nil
-}
-
-// filter reads one filter name and its optional argument list, with the
-// pipe already consumed.
-func (s *scanner) filter() (filterCall, error) {
-	s.skipSpace()
-
-	name, err := s.ident()
-	if err != nil {
-		return filterCall{}, err
-	}
-	f := filterCall{name: name}
-
-	s.skipSpace()
-	if s.done() || s.peek() != '(' {
-		return f, nil
-	}
-	s.pos++
-
-	// An empty argument list, "default()", is written as an explicit empty
-	// pair and is legal: the filter's own arity check decides whether it
-	// is acceptable, not the parser.
-	s.skipSpace()
-	if !s.done() && s.peek() == ')' {
-		s.pos++
-		return f, nil
-	}
-
-	for {
-		s.skipSpace()
-		arg, err := s.literal()
-		if err != nil {
-			return filterCall{}, err
-		}
-		f.args = append(f.args, arg)
-
-		s.skipSpace()
-		if s.done() {
-			return filterCall{}, fmt.Errorf("%w: unterminated argument list for filter %q", ErrSyntax, name)
-		}
-		switch s.peek() {
-		case ',':
-			s.pos++
-		case ')':
-			s.pos++
-			return f, nil
-		default:
-			return filterCall{}, fmt.Errorf("%w: unexpected %q in the argument list for filter %q", ErrSyntax, s.peek(), name)
-		}
-	}
-}
-
-// literal reads one string or integer filter argument.
-func (s *scanner) literal() (any, error) {
-	if s.done() {
-		return nil, fmt.Errorf("%w: expected a value", ErrSyntax)
-	}
-	if s.peek() == '\'' || s.peek() == '"' {
-		return s.quoted()
-	}
-	return s.integer()
-}
+// leave ends one level of nesting.
+func (s *scanner) leave() { s.depth-- }

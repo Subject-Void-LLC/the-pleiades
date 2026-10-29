@@ -23,7 +23,7 @@ Stops the container named name when it is running, restarting or paused: SIGTERM
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The container's name. |
 | `id` | `string` | no | - | The container's ID, which the container named must still have: an undo recorded against one container never acts on another that took its name since. |
 | `timeout` | `int` | no | `10` | Seconds the container's process has to stop after SIGTERM before it is killed, up to 3600. |

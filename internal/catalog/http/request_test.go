@@ -362,6 +362,30 @@ func TestRequest_UnexpectedStatusFailsAfterRecording(t *testing.T) {
 	}
 }
 
+// TestRequest_ARefusalSaysWhatTheServerSaid: a 4xx's body reaches the error
+// as the server's own reason (GitHub's documented error JSON gives its
+// message), and an accepted-looking 2xx the task did not want keeps its
+// body out of the error.
+func TestRequest_ARefusalSaysWhatTheServerSaid(t *testing.T) {
+	server := requestServer(t, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/token" {
+			_, _ = io.WriteString(w, `{"token":"ghs_not-for-an-error"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(nethttp.StatusNotFound)
+		_, _ = io.WriteString(w, `{"message":"Not Found","documentation_url":"https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name","status":"404"}`)
+	})
+	_, err := requestRun(newRequestContext(), map[string]any{"url": server.URL + "/repos/o/r/releases/tags/v9"})
+	if err == nil || !strings.Contains(err.Error(), `returned 404, wanted 200: the server said "Not Found"`) {
+		t.Errorf("error = %v, want the server's own message", err)
+	}
+	_, err = requestRun(newRequestContext(), map[string]any{"url": server.URL + "/token", "status_code": 201})
+	if err == nil || strings.Contains(err.Error(), "ghs_") {
+		t.Errorf("error = %v, want a refused 200 without its body", err)
+	}
+}
+
 // TestRequest_UnexpectedStatusNamesEveryAcceptedCode proves the failure
 // message lists the whole accepted set, not just the first of it.
 func TestRequest_UnexpectedStatusNamesEveryAcceptedCode(t *testing.T) {

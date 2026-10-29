@@ -16821,3 +16821,887 @@ the failure, before it is rerun.
 
 **Lesson.** A build failure with no words is unexplained, not real and not contention: record what the machine had
 free when it happened, and build the package alone on the same tree before naming a cause.
+
+## 691. Select copied the DAG field by field and dropped Vars and UsesSetFact, so a runbook run with a tag filter lost its runbook variables (fixed before push)
+
+**Symptom.** 2026-10-27, the first `vars:` tests: a task read `{{ vars.name }}` as undefined although the runbook set it. In the first run the cause was elsewhere, but `engine.Select` builds a new `DAG` by naming fields, and it had no line for the two fields `vars:` added.
+
+**Root cause.** A struct copied by naming its fields drops every field added later, and nothing fails: the copy compiles and the field reads as its zero value.
+
+**Fix.** `Select` copies `Vars` and `UsesSetFact` (select.go). Found by reading, before a tag-filtered run lost them.
+
+**Lesson.** A new field on a type that something rebuilds by naming fields is added to the rebuild in the same change (grep the type's literal).
+
+## 692. The Controller's rollback planning looked a journal entry's node id up in the DAG as it was, so the first rollback of a looped task was refused with 'runbook has no node tasks[1].item[2]' (fixed before push)
+
+**Symptom.** 2026-10-27, the Walk-tier loop release gate: the forward job ran and journaled one entry per item, and `Dispatcher.Rollback` refused with `runbook loop-walk has no node tasks[1].item[2]`.
+
+**Root cause.** Entries for a task that ran more than once carry the node id with `.item[k]` or `.attempt[k]` appended. `cmd/pleiades/rollback.go` and `internal/rollback/verify.go` had been taught to strip it; `internal/api/dispatcher_rollback.go` also did `dag.Nodes[node]` and had not.
+
+**Fix.** One method, `DAG.NodeFor`, strips the suffix, and all three lookups call it. The gate (cmd/runner/loop_release_gate_test.go) now proves a rollback undoes the items newest first on a real Controller, Runner and sshd.
+
+**Lesson.** When an id gains a suffix, find every lookup by the old id (go_symbol_references on the map), not the ones in the package you are in; a Controller-side copy of a CLI-side rule is the one that is missed.
+
+## 693. The Walk release-gate harness built its adapter without the template renderer cmd/runner passes, so the gate's first loop runbook failed to render only in the test (fixed before push)
+
+**Symptom.** 2026-10-27, `TestLoopReleaseGate`: the job completed with 'this run has no template renderer, so a parameter holding {{ cannot be rendered' and the files were never made.
+
+**Root cause.** `newReleaseGateHarnessFor` called `native.NewAdapter(bus, runbooks, nil)`; `cmd/runner/main.go` passes `native.WithRenderer(render.New())`. Every gate before this one used a runbook with no template, so the missing option showed nothing.
+
+**Fix.** The harness passes the same option, with a comment naming main.go.
+
+**Lesson.** A harness that wires a production object by hand copies every option the composition root passes, or it tests a different Runner (RULE 0).
+
+## 694. An until task retried every kind of failure, so a refused login or a changed host key would be tried again up to a hundred times (fixed before push)
+
+**Symptom.** Found by the failure-pattern review, 2026-10-27, before any run: retry.go cleared the error of every non-final try whatever its stage.
+
+**Root cause.** The retry loop asked 'did it fail' and not 'did the method fail'. Credential, host-key, lock and render failures are the same each time; trying a login again and again is how a device locks an account (class j).
+
+**Fix.** Only a failure at the action stage is tried again; any other ends the task at once (retry.go hasNonActionFailure). A retried failure now stays an error marked `Retried`, so the journal records it as a failure.
+
+**Lesson.** A retry names what it retries; the default is nothing.
+
+## 695. A run canceled while an until task waited to try again returned success, because the failed try had been cleared and the walk checked its context only at the top of a level (fixed before push)
+
+**Symptom.** Found by review, 2026-10-27: a Walk job cancel or Runner shutdown during the delay on the last level gave `HasErrors() == false` and no error.
+
+**Root cause.** The retry cleared the earlier error, the cancel path returned only the cleared results, and `Run` ends without a context check after the last level.
+
+**Fix.** A stopped wait marks the pending try as the task's failure, and `Run` returns the context's error if it is set when it ends. Tests: TestUntil_AStoppedRunIsNotASuccess.
+
+**Lesson.** Every wait in an engine has a cancel path that is a failure, and a walk checks its context after the last step too.
+
+## 696. The device vars filter dropped only top-level secret-named keys and secret-shaped strings, so a nested password in group_vars reached the dispatch payload (a repeat of 'allowlist, never a strip list') (fixed before push)
+
+**Symptom.** Found by review, 2026-10-27: `group_vars/all.yml` holding `db: {password: plain}` passed the loader and rode the NATS payload to a Runner and into rendered parameters.
+
+**Root cause.** Three tiers (the loader, `record.Dispatched`, `engine.deviceVars`) each filtered a little differently and none looked inside a map or list.
+
+**Fix.** One function, `redact.CleanVars`, drops secret-named keys and secret-shaped strings at any depth, and the engine and the dispatch both call it; the loader refuses a nested secret key outright, naming it. Tests in internal/redact and internal/inventory.
+
+**Why earlier rules did not hold.** The rule says a template root is an allowlist; vars are free-form, so the next best is one shared recursive filter, which three tiers copying each other was not.
+
+**Lesson.** A filter that three tiers must agree on is one function they all call.
+
+## 697. The vars loader followed symbolic links and read every file of a directory, so a link in a synced project pulled any readable YAML into every device's vars (fixed before push)
+
+**Symptom.** Found by review, 2026-10-27: `group_vars/all.yml -> /anywhere` was read, with no cap on the number of files in a directory form.
+
+**Root cause.** `os.Stat` and `WalkDir` entries were used without asking whether they were links.
+
+**Fix.** `Lstat` and the walk refuse a symbolic link naming it, and a directory holds at most 64 files (group_vars.go). Test: TestFoldedVars_RefusesALinkAndANestedSecretKey.
+
+**Lesson.** A file read whose path an operator or a repository supplies refuses links; the cap on bytes is per read and the cap on files is per source.
+
+## 698. My own scripted edits silently did nothing three times because the text they replaced did not match the file's indentation, and the next step assumed they had applied (fixed before push)
+
+**Symptom.** 2026-10-27: the ignore_errors check in Run, the nested secret-key check and the vars wiring in render_params.go each failed to take effect after a `str.replace` that matched nothing; the first showed as a test that failed for a reason two steps away, and the third as another agent's edit overwriting mine in a shared file.
+
+**Root cause.** `str.replace` returns the string unchanged when its pattern is not found, so a mismatch is a silent no-op, the same shape as a schema edit without regeneration. Two agents editing one file is the same risk from the other side.
+
+**Fix.** Assert the pattern is present before replacing (`assert old in s`), and re-read after another agent has worked in the same file. Process only; no code.
+
+**Lesson.** An edit that can match nothing must fail when it does (a repeat in kind of the generated-code no-op in CLAUDE.md).
+
+## 699. An until task stopped after its first refused try, because the method had recorded a field before failing and the condition read it as holding (fixed before push)
+
+**Symptom.** Run 6, Sonnet: `virt.cml.lab.start` under `until: ["has(result.started.lab_id)"]`, `retries: 30` ran once, was refused with HTTP 400, and the run stopped after `tasks[0].attempt[0]`.
+
+**Root cause.** A failed run keeps the stats its method recorded before failing (the lab it found), so `has(result.started.lab_id)` was true on the failed try, `until` counted as held, and the task ended with the failure.
+
+**Fix.** A failed try never satisfies `until` (retry.go). Test: TestUntil_TheAgentsNodeStartShape, which fails without the fix.
+
+**Lesson.** A condition about a result is asked only of a run that produced one; a failure's partial stats are evidence, not a result.
+
+## 700. The CLI listed a looped or retried task as not run after it had run, because report entries gained the item or try suffix and the not-run check compared whole ids (fixed before push)
+
+**Symptom.** Run 6: `tasks[0]: not run (the run ended before reaching this task)` printed under nine successful tries of the same task.
+
+**Root cause.** The report's task id became the journal id (`tasks[0].attempt[2]`), and `addNotRun` looked the plan's `tasks[0]` up in that set. A repeat in kind of 692: an id gained a suffix and one lookup by the old id was missed.
+
+**Fix.** `addNotRun` compares `engine.BaseNodeID`, and `stoppedReason` does not name a retried or ignored failure. Test: TestAddNotRun_ATaskThatRanAsTriesIsNotListed.
+
+**Why 692 did not prevent it.** 692's fix found the lookups of journal entries; the report's own ids were changed in the same branch and their reader was not searched.
+
+**Lesson.** LESSONS 348 again: list every reader of an id when its shape changes, the report's included.
+
+## 701. Every CML error read `400: "{"` because the client kept the first line of the controller's indented JSON error (fixed before push)
+
+**Symptom.** Runs 5 and 6: three agents saw only `400: "{"` for a refused node start and had to guess the cause (a capacity limit) from timing across labs.
+
+**Root cause.** `pkg/cml`'s `firstLine` kept the first line of the body, and CML answers with indented JSON.
+
+**Fix.** The error shows the JSON `description`, `detail`, `message` or `error`, else the body on one line, bounded and quoted. Test: TestStatusError_SaysWhatTheControllerSaid.
+
+**Lesson.** An error built from another system's answer is checked against a real answer of that system, not a one-line sample.
+
+## 702. The skill's example of a rendered target was `target: "{{ item }}"`, which validate refuses since the same branch (fixed before push)
+
+**Symptom.** Run 6, Sonnet's review: SKILL.md showed `target: "{{ item }}"` with `within:` while `validate` refuses a loop item in a target.
+
+**Root cause.** The skill line was written for the run 5 friction item, before the refusal was added for the next one, and nothing tests the skill's examples against `validate`.
+
+**Fix.** The skill and `docs/04` use `{{ result.ticket.json.ci }}` and say a loop item cannot choose the target.
+
+**Lesson.** Advice text and a rule changed in one branch are read together before the branch ends.
+
+## 703. net.ios.config failed a second, unchanged run on '% Policy already has the same matching fvrf statement' in three lab runs before the notice was added (fixed before push)
+
+**Symptom.** Runs 4, 5 and 6: every second configuration run reported a failure or a change on `match fvrf` under an IKEv2 policy; each agent added an `accept:` for it.
+
+**Root cause.** The notice was not in `pkg/netcli`'s list of lines IOS prints for a line it already has.
+
+**Fix.** Added to `iosNotices`, with the count measured in run 5's stream (30). Test: config_dialog_test.go.
+
+**Lesson.** A friction item seen twice in lab reviews is fixed before the third run, not listed again.
+
+## 704. net.ios.config's backup stat was the running configuration masked only by value, so a secret shorter than eight characters reached every report, and net.netconf.config's backup was raw XML documented as not sanitized (a repeat of 653) (fixed before push)
+
+**Symptom.** 2026-10-28, on `feat/authoring-parity-v0-3-0` (`2dbfa586`). With `backup: true`, `net.ios.config` recorded
+the device's running configuration as read. A run masks by value only the values it knows, of eight characters or more
+(`netcfg.MinLearnedLength`, the engine's own minimum), so a line such as `enable password cisco` kept `cisco` in the
+`backup` stat and in every report, output and register built from it. `net.netconf.config`'s `backup` was the
+datastore's raw XML. Both Returns entries said "Not sanitized" and told the author to add `register_mask: backup`.
+
+**Security.** A secret exposure, reasoned from the code and not measured on a device. Anyone who could read the report,
+the output or a register of a run with `backup: true` could read each IOS secret shorter than eight characters, and any
+secret in a NETCONF device's datastore that the run did not already know. A secret that went through such a run before
+this fix should be treated as exposed and rotated.
+
+**Root cause.** 653's fix had `net.ios.config` learn the secrets it found in the backup (`learnSecrets`), so the run
+masks them by value wherever else they show, and recorded the backup itself as the device had it. Masking by value has
+an eight-character floor, so that a short common value does not blank out ordinary text; a short secret was never
+learned and passed through. The NETCONF backup had no masking at all, and its doc handed the job to the author.
+
+**Fix.** `2dbfa586`. The IOS backup goes through `netcfg.MaskChecked` (`pkg/netcfg/checked.go`), which masks
+structurally and fails closed: a configuration the masker cannot vouch for fails the task before any line is applied.
+The NETCONF backup goes through the new `netcfg.MaskXML` (`pkg/netcfg/xml.go`, `xml_walk.go`), a bounded, strict walk
+that masks secret-named leaves, crypt-shaped values and SNMP communities in place, and refuses a DOCTYPE, a secret in an
+attribute or malformed XML before `edit-config`. Both Returns entries now say the backup is masked. Tests:
+`TestConfig_BackupMasksShortAndClearTextSecrets`, `TestConfig_ABackupMaskingCannotVouchForFailsBeforeAnyLine`
+(`internal/catalog/net/ios`), `TestConfig_BackupIsMasked`, `TestConfig_AnUnvouchedBackupStopsBeforeApplying`
+(`internal/catalog/net/netconf`), `TestMaskXML_FailsClosed`, `TestMaskChecked_RefusesALineWithASecondSecret`.
+
+**Why 653 did not prevent it.** 653's lesson was that a method returning device text masks it, with a test that reads a
+secret back through that method, and that masking only the values a run resolved is not enough. Its fix gave
+`net.ios.command` the first half and the backup only learning, which is masking by value with the same eight-character
+floor. No test read a short secret back through the backup stat, and the "Not sanitized" text beside it was not reread.
+
+**Lesson.** A stat that carries device text is masked structurally where it is recorded; learning values is a second
+layer, never the only one. A doc that tells the author to mask a stat describes a defect.
+
+**Follow-up, 2026-10-28.** This fix's `MaskXML` masked a leaf only by its own or its parent's name, so a key deeper inside a secret-named element passed; the branch review found it, and 718 (`718a6eae`) records it.
+
+## 705. IOS masking hid one word of a clear-text secret that runs to the end of its line, and missed wpa-psk, set-key, SNMPv3 auth and priv keys, OSPFv3 IPsec keys and manual IPsec session keys (a repeat of 640) (fixed before push)
+
+**Symptom.** 2026-10-28, in the same change as 704 (`2dbfa586`). `username admin password 0 two words` came back with
+`two` masked and `words` in the clear: on IOS a type 0 or untyped secret runs to the end of its line, and Mask replaced
+one word. These forms kept their key whole: `wpa-psk`, `set-key`, SNMPv3 `auth` and `priv` passwords, OSPFv3 IPsec SPI
+keys (`ipv6 ospf authentication ipsec spi 500 md5 0 k`), and an ipsec-manual crypto map's `set session-key` keys.
+
+**Root cause.** `pkg/netcfg.Mask` is a denylist that masks the word after each secret word it knows (577). A secret of
+several words, and a secret word not in its table, pass through.
+
+**Fix.** `2dbfa586`, `pkg/netcfg/rest.go`: a clear-text or untyped secret is masked to the end of its line, and the five
+forms above are known, each keeping its words that are not keys (an SPI, `inbound`, `esp`, the hash name).
+`MaskChecked` refuses a line that still holds a second secret after masking, so a form the table misses fails a backup
+rather than leaking through it. Tests: `TestMask_ClearTextRunsToTheEndOfTheLine`,
+`TestMask_OneWordSecretsKeepWhatFollows`, `TestMask_SessionKeysKeepTheirSPIAndKeywords`,
+`TestMaskChecked_RefusesALineWithASecondSecret`.
+
+**Why 640 did not prevent it.** 640 added `pre-shared-key` and repeated what 577 said: Mask is a denylist, and a form
+not in its table passes. Each fix added the forms in front of it. Nothing failed closed until `MaskChecked`, and `Mask`
+itself still fails open for the callers that do not go through it.
+
+**Lesson.** A masker that fails open is checked by one that fails closed: after masking, refuse what still looks like a
+secret.
+
+## 706. A stat, a rendered param or an extra var crossed JSON on the Walk tier and came back as float64, so `result.r.count + 1 == 4` failed on a Runner while the CLI passed, and an integer above 2^53 lost digits (a repeat of 71) (fixed before push)
+
+**Symptom.** 2026-10-28 (`1cb9929c`). A method's stats from the Runner's per-task child, the params rendered for it,
+and a dispatch's `extra_vars` all crossed JSON as open maps, so every number came back as a `float64`; on the Crawl tier
+the same values stay Go `int`s. A condition such as `result.r.count + 1 == 4` held on the CLI and failed on a Runner
+with CEL's "no such overload", and an integer above 2^53 lost its low digits on the way into a device command.
+
+**Root cause.** `encoding/json` decodes every number into `float64` when the target is `interface{}`. The wire types
+decoded these fields that way, and no test compared a value's type across the two tiers.
+
+**Fix.** `1cb9929c`, `pkg/wire/numbers.go`: those fields decode with `UseNumber`; a whole number becomes an `int`, any
+other number a `float64`, and a number past `float64`'s range is an error. On the child pipe a whole float is written as
+`4.0`, so it stays a float. Every other field decodes as before. Tests: `TestChildResponse_FactsKeepTheirNumberTypes`,
+`TestChildRequest_ParamsKeepTheirNumberTypes`, `TestChildResponse_RefusesANumberNoFloatHolds`,
+`TestDispatchPayload_ExtraVarsKeepTheirNumberTypes` (`pkg/wire`), `TestTypedStats_MeanTheSameOnBothTiers`
+(`internal/adapters/native`), `TestExtraVars_AnIntegerStaysAnIntegerOnTheRunner` (`cmd/runner`).
+
+**Why 71 did not prevent it.** 71 found the same loss in the API's response middleware and fixed it there by never
+decoding a typed value into a map. Its lesson, that decoding what you will re-encode is a lossy round trip, was applied
+to that one layer. `pkg/wire` cannot use a typed struct, since stats and params are open maps, and nothing carried 71 to
+it. The Crawl tier never serializes these values, so every Crawl test passed.
+
+**Lesson.** A value that crosses a process boundary inside an open map is decoded with `UseNumber`, and a test holds one
+runbook's conditions to the same answer on both tiers.
+
+## 707. validate refused rollback_on_failure over every net.ios.config task from 2026-10-24, while the skill and docs/16 taught it, and nothing validated the skill's example (a repeat of 604 and 702) (fixed before push)
+
+**Symptom.** Blind lab run 7, 2026-10-28 (Opus, `out-a.txt:268`; `~/pleiades-cvd/runs/AAR-run7-comparison.md`, ranked
+item 4). The agent wrote a block with `rollback_on_failure: true` over `net.ios.config` and no `rollback:` list, as
+SKILL.md teaches, and `pleiades validate` refused it. `docs/16-network-verification.md` teaches the same block.
+
+**Root cause.** `15271a27` (2026-10-24) set `MayBePartial: true` on `net.ios.config`'s undo spec, since a crypto key
+line cannot be put back. The `rollback_on_failure` rule (`whyNotUndoable` in `internal/validate/rollback_rule.go`)
+refused any method whose undo may be partial before asking the method's `UndoCall`, which already names the few calls
+whose undo is partial. So every call was refused.
+
+**Fix.** `db9465d0`: a method with an `UndoCall` decides per call; a crypto key line and `checkpoint: false` are still
+refused. Tests: `TestRollbackOnFailureRule_APartialUndoIsAskedOfTheCall`, and
+`TestCLI_DocCreateSkillsRollbackExampleValidates`, which writes SKILL.md through the binary, takes its
+`rollback_on_failure` runbook out of the file and validates it, warnings counted as failures.
+
+**Why 604 and 702 did not prevent it.** 604 is the same refusal, caused by an earlier change to the same spec, and its
+lesson says to check what an `InverseSpec` change does to validate for every call of the method. `15271a27` changed one
+field of that spec without the check. The CML gate that runs such a block (`cmlLinesUndoInRun` in
+`TestCLI_ImportCMLReachesIOSOverTelnet`) needs a CML controller (`testsupport.Require`), so pr-check and CI skip it. 702
+found that nothing tests the skill's examples against `validate`, one lab run earlier, and fixed only the line in front
+of it.
+
+**Lesson.** A change to a method's undo spec is followed by validating a `rollback_on_failure` block over that method in
+a test that runs everywhere, and a runbook the skill teaches is validated by a test (LESSONS 301 and 353).
+
+**Follow-up, 2026-10-28.** This fix let any method with an `UndoCall` decide which calls' undo is partial; 721 (`614be11a`) makes that the method's own declared field, `Descriptor.UndoCallDecidesPartial`.
+
+## 708. pkg/remotefile told a reader that this login may not write a directory that did not exist, which sent the reader after permissions (a sibling of 126) (fixed before push)
+
+**Symptom.** 2026-10-28, proving `file.template` on macOS through pleiades: in a check run, after a `file.directory`
+task that was only predicted, the template's write reported "this login (...) may not write" its directory. The
+directory was missing, not closed to the login. A real run into a missing directory failed on `mktemp`'s own text, which
+did not say so either.
+
+**Root cause.** `PredictPut` read "may not write" from a test that is also false for a directory that does not exist,
+and `Put` passed on the error of its first write.
+
+**Fix.** `fb323b4a`, `pkg/remotefile/put.go`: both ask whether the directory exists (`missingDir`) and then say "its
+directory ... does not exist, so nothing was written". Test: `TestPut_AMissingDirectoryIsNamedAsMissing`.
+
+**Lesson.** An error that names a cause rules out the others first: a failed write asks whether the directory exists
+before it blames permissions.
+
+**Follow-up, 2026-10-28.** This fix changed the message and kept the check's answer a failure, where a check after a predicted `file.directory` should answer that it cannot check; 722 (`614be11a`) records it.
+
+## 709. pkg/vmrun's parseKeyValues split a quoted vmx key at its own colon, so every disk key such as `'nvme0:0.fileName'` was misread (fixed before push)
+
+**Symptom.** 2026-10-28, in Phase 131's R5 work on the VMware Fusion VM info (`b617af7f`). vmcli lists
+`'nvme0:0.fileName': disk.vmdk`, and the reader cut the line at its first colon, so the key and value of every disk and
+device-slot entry were wrong.
+
+**Root cause.** `strings.Cut(line, ":")` took the first colon, a vmx key holds colons of its own, and the quotes vmcli
+puts around such a key were removed only after the cut.
+
+**Fix.** `cutKey` (`pkg/vmrun/parse.go`) reads a quoted key to its closing quote first. Test:
+`TestParseKeyValues_AQuotedKeyHoldingAColon`.
+
+**Lesson.** A `key: value` reader honors the quoting its writer used before it splits, and its tests include a key that
+holds the separator.
+
+## 710. Six methods recorded stats their Doc.Returns did not declare, one under another name than the documented one (a sibling of 228) (fixed before push)
+
+**Symptom.** 2026-10-28, Phase 131's R3 (`b617af7f`). `ai.bench.run`, `edge.access`, `edge.dns`,
+`net.catalyst.reachability`, `container.info` and `container.copy_out` recorded stats their reference pages did not
+list: `net.catalyst.reachability` documented `devices` and recorded `reachability`, `container.info` recorded twelve
+undeclared keys, and `container.copy_out` recorded `src`. An agent reading `pleiades doc` could not know the names it
+could register and read.
+
+**Root cause.** Doc.Returns is written by hand beside the code that records stats, and nothing compared the two.
+
+**Fix.** Each Returns lists what the code records. `internal/archtest`'s `TestEveryRecordedKeyIsDeclared` scans every
+catalog package for `SetStat` and `EmitFact` keys and fails on one that no method of the package declares (per file
+where it can); `TestEveryReturnSaysWhenItIsReturned` requires each entry's `Returned`; `TestStatKeyScan_Control` proves
+the scan sees what it looks for.
+
+**Lesson.** A reference written by hand beside code is held to the code by a scan, or it drifts.
+
+## 711. Read-only lookups answered a missing object with an error, so an agent could not branch on absence (a sibling of 451 and 581) (fixed before push)
+
+**Symptom.** 2026-10-28, Phase 131's R4 (`b617af7f`). `db.pg.grants` on an absent role or database, `db.pg.rowcounts`
+on an absent database, `container.logs`, `container.image.resolve`, `container.copy_out` and three VirtualBox VM reads
+failed when the thing they read did not exist, so a runbook asking "is it there?" had to read a failure.
+`virt.cml.lab.info` had promised `exists: false` while its check answered "cannot be checked" (lab runs 4 and 6, fixed
+in `083d266f`).
+
+**Root cause.** Each method passed its tool's "not found" through as the task's error. 451 and 581 are the opposite
+mistake, a failed read taken as absence; both come from not telling the tool's "no such thing" apart from its other
+failures.
+
+**Fix.** Each answers `exists: false` (or an empty list) in a run and in a check. `internal/archtest`'s
+`TestALookupAnswersAbsenceAsData` holds every implemented read-only method that declares or promises `exists` to the
+whole convention: the return, a Description that says so, check support, and a test named for the absent case that runs
+it in both modes; `TestAbsenceRule_Control` proves the rule fires. `internal/catalog/db/pg/absent_test.go` runs the
+database cases against real Postgres.
+
+**Lesson.** A lookup tells "not there", which is data, from "could not ask", which is an error. Both directions have
+failed here.
+
+## 712. win.file.copy and win.file.download quoted unbounded host output in errors and carried an unchecked digest into the diff (a repeat of 627) (fixed before push)
+
+**Symptom.** 2026-10-28, Phase 131's R1 (`b617af7f`). Both methods put the host script's whole stdout or stderr into an
+error, and took whatever the script printed under `before`, `got` and `after` as a SHA-256, so any text the host
+printed there reached an error, a stat or the diff.
+
+**Root cause.** 431's class (LESSONS 266): text a remote system wrote reached an error unbounded, and a value the far
+side reported was trusted to have the shape the script meant to print.
+
+**Fix.** Output reaches an error through `pkg/farside.Output`, bounded and quoted; `reportedDigest` refuses a reported
+digest that is not 64 hex characters, quoting what was reported, bounded. Tests:
+`TestCopy_StdoutReachesAnErrorBounded`, `TestDownload_StdoutReachesAnErrorBounded`,
+`TestCopy_AFailedScriptSaysWhatPowerShellSaid`, `TestDownload_AFailedFetchSaysWhatCurlSaid`.
+
+**Why 627 did not prevent it.** 627 said each new error that quotes a device's output needs its own bound, and that
+nothing finds one that lacks it. Phase 131's archtest (`TestNoClientCutsTheFarSideToAFirstLine`) finds a first-line
+cut, not an unbounded quote, so that is still true.
+
+**Lesson.** Remote text enters an error through `pkg/farside`, and a value the far side reports is checked against the
+shape it should have before it is used.
+
+## 713. validate counted `| default` anywhere in a filter chain as a guard, and one guarded read excused every read of the same name in the task (fixed before push)
+
+**Symptom.** 2026-10-28, adding template statements (Phase 87, `d554c7d7`). `{{ vars.x | upper | default('d') }}` passed
+`VarsRule` and `HandlersRule` and failed at render, since the renderer fails on `upper` over an undefined value before
+`default` can supply one. A guarded read of a name also excused an unguarded read of it elsewhere in the same task.
+
+**Root cause.** The rules decided a guard by finding `default` anywhere in a read's filters, and recorded guarded names
+per task rather than per read. A guard belongs to one read, in the order the renderer evaluates it.
+
+**Fix.** `internal/render`'s `Expressions()` reports every read, inside statements too, with a `Guarded` flag, and the
+rules judge each read: a `default` after another filter is a plain read, an `is defined` guards only the reads in its
+branch, and a binding made from a guarded read is guarded. Tests: `TestHandlersRule_GuardedReads`,
+`TestVarsRule_GuardedReads` (its cases "a default after another filter" and "is defined in an if, the read outside it"),
+`TestGuardedReads_KeepTheRootRules` (`internal/validate/guarded_reads_test.go`).
+
+**Lesson.** A guard is decided per read, in the order the renderer meets it.
+
+## 714. The playbook converter put a value it had already resolved, holding Jinja delimiters, into a runbook parameter that renders again (fixed before push)
+
+**Symptom.** 2026-10-28, adding statements to task params (`d554c7d7`). Ansible renders a module argument once, so a
+resolved value such as `printf '{%s}' x` reaches the module as written. From this change a runbook renders any
+parameter holding `{{`, `{%` or `{#`, so the converted runbook would read `{%s}` as a statement and fail, or render text
+Ansible never ran.
+
+**Root cause.** The converter wrote resolved text into params with no mark that it is literal, and the same change grew
+the set of strings that render.
+
+**Fix.** `keepLiteral` (`internal/forge/playbook/apply_params.go`) wraps such a string in `{% raw %}...{% endraw %}`;
+text that holds an `endraw` of its own leaves the task for a person (`template.unsupported`). Test:
+`TestTranslate_StatementsRenderAsAnsibleWould` (its case "raw stays as written").
+
+**Lesson.** When the set of strings that render grows, every writer into that field is checked for text it meant
+literally.
+
+## 715. TestStopService_IsBounded took five seconds against a 300 ms bound because the test harness waited at close for the fake rm's sleep, not because the stop was unbounded (fixed before push)
+
+**Symptom.** 2026-10-28: `pkg/containerengine`'s `TestStopService_IsBounded` ran for the whole five seconds of its
+hanging fake `rm`, which reads as an unbounded stop, or as contention.
+
+**Root cause.** Measured: `stopService` returned within its 300 ms bound. The scripted SSH server's close waited for
+the hanging `rm`, which outlived the bound as a process on a real host would, so the test's time was the harness's
+wait.
+
+**Fix.** `b617af7f`, `pkg/containerengine/carriers_stop_test.go`: the fake `rm` writes its pid and `exec`s `sleep`, and
+the test kills it before the harness closes.
+
+**Lesson.** A slow test is timed part by part before it is called contention or a defect: the code under test, the
+harness's teardown, and anything the test left running.
+
+## 716. The blind lab's grader failed every parallel teardown on another instance's lab, and the CML controller's node cap decided one instance's grade each run (fixed in the harness, `~/pleiades-cvd`)
+
+**Symptom.** Runs 5 to 7. Turn B's check that the controller's labs match the baseline failed whenever another
+instance's `pleiades-cvd-*` lab came or went (run 7: Opus saw `pleiades-cvd-haiku STOPPED 8`, Sonnet saw that and
+`pleiades-cvd-opus STARTED 8`); regraded, every such failure was another instance's lab. In turn A, three 8-node labs
+and `default-lab`'s 10 nodes make 34 against a refusal at 30 running, so one instance per run was refused a start: in
+run 6 it cost Sonnet six checks and Opus about 10.5 minutes, in run 7 it cost Haiku eleven checks (26-12).
+
+**Root cause.** The grader compared every lab on a shared controller. `cmlqueue.sh` serialized CML changes across
+instances but reserved no capacity, so whoever started last met the cap. Neither is in The Pleiades.
+
+**Fix.** In `~/pleiades-cvd`: `grade.sh` leaves other instances' `pleiades-cvd-*` labs out of both lists and keeps this
+instance's own lab (the old one is `grade.sh.before-instance-filter`); `run5-instance.sh` holds a capacity slot, one
+`flock` per slot, the count derived from `CML_NODE_CAP`, the nodes in other labs and `LAB_NODES`, from setup through
+teardown, so a further instance waits instead of racing (the old one is `run5-instance.sh.before-slots`). Neither has
+run in a lab turn yet. On the product side, `virt.cml.lab.start` reports `controller_nodes_running` and names a
+node-limit refusal (`db9465d0`).
+
+**Lesson.** A grade taken on a shared resource measures only what that instance owns, and a queue that orders changes
+still needs a reservation when the resource has a cap. Related: LESSONS 197.
+
+## 717. The fixed-host URL rule ended a template's literal text at `{{` and `{%` but not at a comment `{#`, so launch or device data could choose a request's host (a repeat of LESSONS 244; a sibling of 714) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28, on `feat/authoring-parity-v0-3-0`. A parameter with `Format: url` must fix
+its scheme and host before any expression (`collection.ParamFormatURL`). `URLPrefixFixed` in
+`internal/engine/render_params.go` cut the source at the first `{{` and the first `{%` and judged the text before them.
+After `d554c7d7` (Phase 87) made comments render, `https://api.example.com{# x #}{{ vars.h }}/p` passed: the `#` inside
+the comment read as the end of the host, the comment renders as nothing, and `vars.h` (launch or device data) then
+extended the host, for example to `api.example.com.attacker.net`. The rule runs in `validate`'s `TemplateRule` and again
+at render, and both read the same source, so neither refused it.
+
+**Security.** Reasoned from the code, not measured. Whoever could set the data a URL parameter read could choose where
+the request went. `d554c7d7` is on this branch only, so no release carried it.
+
+**Root cause.** `d554c7d7` added `{#` to `engine.IsTemplate`, the one test of whether a string renders, but the URL rule
+kept its own list of delimiters and judged the source's spelling. A rule about what text a rendering begins with read
+the source instead of the parsed template, so a comment, a `raw` block or a trim marker changed what the text was
+without the rule seeing it (the class of 327: a check made before parsing has to be as precise as the parser).
+
+**Fix.** `614be11a`. `TaskTemplateProblems` judges the compiled template's `LeadingText()` (new on
+`render.Template`, `internal/render/jinja.go`): the literal text up to the first expression or statement, with comments
+gone, raw blocks as text and whitespace control applied, through `URLTextFixed`. `URLPrefixFixed`, for a caller with
+only the source, cuts at all three tags. `collection.IsTemplate` (`pkg/collection/template.go`) is now the one rule for
+what renders, and `engine.IsTemplate` calls it. Tests: `TestTemplateProblems_StatementsAreHeldToTheSameRules`
+(`internal/engine/render_statements_test.go`; its cases "a comment's own # does not end the host", "a comment's own URL
+fixes nothing", "a trimmed comment joins the host to data", "a set before the host"), the new seeds of
+`FuzzURLPrefixFixed`, `TestIsTemplate`.
+
+**Why LESSONS 244 and 714 did not prevent it.** 244 says to check the sibling of a guarded path and to put the guard in
+one helper both call. The delimiter list lived in two places, and `d554c7d7` changed one. 714, in the same commit, asked
+the same question of the writers into a rendering field (the playbook converter) and not of the rules that read one.
+
+**Lesson.** When the set of strings that render grows, every rule that reads a template's text is checked too, and a
+rule about rendered text judges the parsed template, never the source's spelling.
+
+## 718. pkg/netcfg.MaskXML masked a leaf only by its own or its parent's name, so RFC 8177 keystring and hexadecimal-string, OpenConfig key-clear-text and a deep SNMP community name reached net.netconf.config's backup (a repeat of 577, 640 and 655) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `MaskXML` (`pkg/netcfg/xml.go`, new in `2dbfa586` as 704's fix) masked a
+leaf when its own name was secret-shaped or its parent's was. An RFC 8177 `ietf-key-chain` key sits two levels under a
+secret-named element (`key/key-string/keystring`, or `hexadecimal-string`), OpenConfig MACsec keeps its key in
+`mka-key/config/key-clear-text`, and an SNMP community keyed by name can sit a level deeper
+(`snmp/community/config/name`). Each passed into `net.netconf.config`'s `backup` stat in the clear. The test fixture hid
+it: its key chain held the secret in a leaf named `key` under `key-string`, which the leaf's own name caught.
+
+**Security.** Reasoned from the code, with fixtures written by hand from RFC 8177 and the OpenConfig models, not captured
+from a device. A run of a branch build between `2dbfa586` and `718a6eae` with `backup: true` on a NETCONF device holding
+such a key showed it in the report. Before `2dbfa586` that backup was not masked at all (704), so the rotation advice of
+704 covers older runs.
+
+**Root cause.** Masking was decided by a list of names with one level of inheritance. 704's fix introduced it: a new
+masker was written as name rules, and its only fixture was shaped so the name rule matched.
+
+**Fix.** `718a6eae`. Secrecy passes down through every descendant of a secret-named element (`inSecret`), stopping only
+at metadata (`metadataNames`: algorithms, lifetimes, encryption types); an identifier (`name`, `address`, `mask`, `vrf`)
+stays readable when the secret-named element is further up than its parent, except inside an SNMP subtree, where a name
+is the community. `secretExactNames` adds `key-string`, `keystring`, `hexadecimal-string` and `key-clear-text`. Tests:
+`TestMaskXML_MasksKeyChainKeysAtAnyDepth`, `TestMaskXML_SNMPCommunityNameStaysMaskedDeep`, and `FuzzMaskXML`, which now
+requires every `alwaysSecretLeaves` element to come out a placeholder wherever it sits. `iosXENative`'s fixture says it
+is hand-written.
+
+**Why 577, 640, 655 and LESSONS 337 did not prevent them.** Each said a name list misses the next form, and 337 made the
+rule: what may be read is an allowlist of what each value is. `MaskXML` was new code and was written as a name list
+anyway, and no fixture came from a model's own example or a device. Where secrecy starts is still decided by names
+after this fix, so a model whose secret element has a name on no list is still missed; the fix closes the forms found.
+
+**Lesson.** A new masker is tested against each model's own published shapes, not a fixture written to its rules, and a
+secret inside a secret-named element is masked at any depth.
+
+## 719. container.list, container.info and container.image.info reported each container's full command and entrypoint argv, which often carries a secret (a repeat in kind of 455) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `container.list` reported every container on the engine, including ones no
+runbook made, with its command line; `container.info` reported `command` and `entrypoint`, and `container.image.info`
+an image's `entrypoint` and `command`. A program's arguments often hold a secret (`redis-server --requirepass X`, a
+`--password=` flag, a token), and each reached stats, reports and registers.
+
+**Security.** Reasoned from the code. `container.info`'s `command` is also on `main`, so a secret passed as a container
+argument and read by `container.info` in any run was readable in its report; rotate such a secret where it matters.
+The list and the entrypoint and image fields came in `b617af7f` on this branch.
+
+**Root cause.** Phase 131's R5 (`b617af7f`) made the describe results whole and, for the environment beside them,
+reported names only, because a value may be a secret. The command line in the same result is the same kind of value and
+was reported whole.
+
+**Fix.** `718a6eae`. `containerengine.ArgvSummary` and `CommandLineSummary` (`pkg/containerengine/argv.go`) report the
+program and an argument count, never an argument; all three methods use them and their docs say so. Tests:
+`TestArgvSummary_KeepsTheProgramAndCountsTheRest`, `TestDescribeAndList_WithholdCommandArguments`.
+
+**Why 455 did not prevent it.** 455 found that every way a secret reaches a method is a way into the mask. A container's
+own argv is not a secret the run knows, so no mask can cover it; the only answer is not to report it, and the
+withholding rule was applied to one field of the result and not the field beside it (LESSONS 244).
+
+**Lesson.** A describe result is read field by field for what each value can hold; a field that can carry a secret the
+run does not know is withheld, not masked.
+
+## 720. net.ios.config's check looked for a line in the current block and then outward, so a line IOS adds in a submode was predicted unchanged when an enclosing block held it (a sibling of 564 and 579) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. The check added in `2dbfa586` predicts each line against the running
+configuration. `predictLines` searched the block the lines had entered and then each enclosing block, so
+`router bgp 1`, `address-family ipv4 vrf RED`, `neighbor 10.0.0.2 remote-as 2` was predicted unchanged when `router bgp
+1` already held that neighbor at its top level. IOS takes the line in the address family, so the real run changes the
+device and the check said it would not.
+
+**Root cause.** IOS takes a line in the current submode first and passes to a parent only a line the submode refuses,
+which a check cannot know. Searching outward chose the answer "unchanged" where the truth was unknown.
+
+**Fix.** `614be11a`, `internal/catalog/net/ios/config_check.go`. A line is looked for in the current block only
+(`predictor.scope`); a line IOS always opens at the top level (`blockOpeners`) is looked for there, and an address family
+or class (`nestedOpeners`) in the current block and then outward. `exit-` commands leave a block. A `do` line is
+answered unchecked (`configCheckCall`). Tests: `TestPredictLines_ANeighborInAVRFIsNotTheRoutersNeighbor`, the new cases
+of `TestCheckConfig_PredictsFromTheRunningConfigAndSendsNothing` ("a line found only in the enclosing block is a
+change") and `TestCheckConfig_ACallItCannotPredictIsUncheckedBeforeContact` ("a do line").
+
+**Related, not a repeat.** 564 and 579 err the same way (a check reported a better outcome than the run gives) with
+other causes: 564 predicted through state an earlier task could change, 579 asked a narrower question than the change.
+Here the check guessed where the device's own rule decides.
+
+**Lesson.** Where a check cannot know which way the device decides, it predicts a change, never "unchanged".
+
+## 721. validate's rollback_on_failure rule passed a templated crypto key line, and let any method with an UndoCall decide which calls' undo is partial (a repeat in kind of 614) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `net.ios.config`'s `configUndoCall` tested each line of `lines` as written,
+so `"{{ vars.keyline }}"` or `"{% if vars.k %}crypto key generate rsa{% endif %}"` passed `rollback_on_failure` as an
+ordinary line, though it may render into a crypto key line whose undo is partial. Separately, `whyNotUndoable`
+(`internal/validate/rollback_rule.go`) let any method that carried an `UndoCall` decide partiality per call, so an
+`UndoCall` added for another reason (calls that record no undo) would have lifted the refusal for a method whose
+partial calls it never names.
+
+**Root cause.** A per-call answer read parameters before the run as if their text were final, and 707's fix
+(`db9465d0`, this branch) read "the method has an `UndoCall`" as "the method's `UndoCall` names its partial calls".
+
+**Fix.** `614be11a`. `configUndoCall` answers "not known before the run" for a line `collection.IsTemplate` reports, and
+for a secret reference standing where a key line's words could be (`refMayMakeKeyLine`). A new field,
+`Descriptor.UndoCallDecidesPartial`, is the method's own statement; `Register` refuses it with no `UndoCall` or no
+`MayBePartial` inverse (`checkUndoCallDecidesPartial`), and `net.ios.config` sets it. Tests:
+`TestRollbackOnFailureRule_APartialUndoIsAskedOfTheCall` (cases "an UndoCall that does not decide partiality",
+"net.ios.config's line rendered from data", "net.ios.config's line from a statement", "net.ios.config's reference first
+on a line"), `TestRegister_UndoCallDecidesPartialMustDecideSomething`.
+
+**Why 614 did not prevent it.** 614 added the per-call answer and tested it against literal parameters. Nothing asked
+what the answer is for a parameter that renders, and 707's fix widened who may give the answer without a declaration.
+
+**Lesson.** A per-call answer given before the run treats a value that renders as unknown, and a method's permission to
+decide a refusal is its own declared field, never inferred from another field being set.
+
+## 722. A check after a predicted file.directory failed file.copy and file.template with "directory does not exist" where the run succeeds (a repeat of 564 and 708) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. In a check, `file.directory` only predicts, so the directory is still missing
+when the next task's check runs. `file.copy` and `file.template` then failed the check with
+`put ...: its directory ... does not exist`, though the real run, after `file.directory` made it, succeeds.
+
+**Root cause.** LESSONS 255 and 307: a check reads the device as it is now and answers "could not check" for state an
+earlier task may change. The write's check refused instead.
+
+**Fix.** `614be11a`. `pkg/remotefile` returns a typed `*MissingDirError`, and `file.copy`'s check (which `file.template`
+shares) answers it with `collection.CannotCheck` naming the directory; a real run still fails on it. Test:
+`TestCheck_AMissingDirectoryCannotBeCheckedAndARunStillFails` (both methods).
+
+**Why 564 and 708 did not prevent it.** 564 fixed one method's check and left the rule to LESSONS 307, which nothing
+tests across every check. 708, on this branch, met this very case (a check after a predicted `file.directory`) and fixed
+the message, from "may not write" to "does not exist", but not the answer, which stayed a failure.
+
+**Lesson.** When a check meets state an earlier task may make, fixing the message is not the fix; the answer is "could
+not check".
+
+## 723. wait.routes with state: absent read an empty or unparsed routing table as every route gone, and its own test used an empty table for "withdrawn" (a repeat of 13 and 451) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `state: absent` (`internal/catalog/wait/routes_absent.go`, new in
+`b617af7f`) passed as soon as the prefixes named were missing from the table read. A read that came back empty (a cut
+or refused read, or output the parser skips) passed the wait without the table ever being seen.
+`TestRoutes_StateAbsentWaitsForTheRouteToGo` passed because its fake router answered `{}` once the route was
+"withdrawn", so the test stood on the defect.
+
+**Root cause.** "I could not read it" collapsed into "it is not there" (LESSONS 138), and the test's fixture was the
+empty case itself.
+
+**Fix.** `614be11a`. A table with no selected route at all (a router that routes anything has its connected routes)
+proves nothing gone; `gone` reports `tableUnread` as what remains and the wait goes on, failing at its timeout with that
+reason. The test's "withdrawn" table now holds a connected route, and an empty table is its own case. Tests:
+`TestRoutes_GoneNeedsATableItCanRead`, `TestRoutes_StateAbsentWaitsForTheRouteToGo`.
+
+**Why 13 and 451 did not prevent it.** 13 said a tool that can return nothing needs a positive control; 451 fixed one
+predicate that read a failed look as absence. Both are lessons about a reader, and nothing applies them to a new wait's
+absent state. LESSONS 319 (an empty parse is a state to compare) is about comparison; a wait for absence needs the
+opposite care.
+
+**Lesson.** A wait for something to be gone needs evidence that the read saw the thing it looks in; an empty read is
+not absence.
+
+## 724. pkg/farside.Output kept the first 300 bytes of a failed container.exec command's stderr, where the old code had kept the last 2048 bytes, so the reason was cut off (a repeat of 651 and 701) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. Phase 131's R1 (`b617af7f`) moved `container.exec`'s failure text to
+`farside.Output`, which keeps the start. The code it replaced kept the last 2048 bytes of stderr, because a failing
+program writes its reason last, after progress and warnings. The same holds for curl in `win.file.download` and tar
+in `win.archive.extract`, which took `farside.Output` in the same commit (712).
+
+**Root cause.** One bounding helper replaced a bound chosen for its end, and nothing tested the failing command's last
+line.
+
+**Fix.** `718a6eae`. `farside.OutputTail` keeps the end, marking a cut with `...` at the front, and `container.exec`,
+`win.file.download` and `win.archive.extract` use it. Test: `TestOutputTail_KeepsTheEnd`.
+
+**Why 651 and 701 did not prevent it.** 651 (a timeout dropped the last output) and 701 (the first line of an indented
+error) each lost a reason by keeping the wrong part, and each fixed one reader. Neither leaves a check that a
+replacement keeps the part its predecessor kept.
+
+**Lesson.** When a bound is replaced, the new one keeps the same end; a command's reason for failing is usually last.
+
+## 725. net.batfish.check registered its network's cleanup after a SetStat that could fail, so a failure there left the network on a shared Batfish (a repeat of 193) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-28. `Check` (`internal/catalog/net/batfish/check.go`, since `68c54499`, on
+`main`) created a network, recorded its name with `rc.SetStat`, and only then deferred `DeleteNetwork`. A `SetStat`
+error returned with the network still on the Batfish service, for good. Latent: no failure was seen.
+
+**Root cause.** The cleanup was registered after a fallible step that followed the acquisition, the shape of 193.
+
+**Fix.** `614be11a`. The deferred delete is registered right after `CreateNetwork` succeeds, before the stat. Test:
+`TestCheck_DeletesItsNetworkWhenRecordingItFails`.
+
+**Why 193 did not prevent it.** 193 was fixed in two constructors and stated no rule a reviewer or a test applies to new
+code, so the order was written again in a new method.
+
+**Lesson.** A cleanup is registered on the line after the acquisition succeeds, before anything else can return.
+
+## 726. virt.vbox.vm.start through the autostart service, run right after an ACPI shutdown and a storage change, ran the service and left the VM powered off; the same start 30 s later worked (open: cause not proven)
+
+**Symptom.** 2026-10-29, `~/pleiades-lab/runbooks/bsd/check-06-data-disk.yaml` against vengeance: `virt.vbox.vm.start`
+(bsd-check resumed from its saved state), `virt.vbox.vm.stop mode: acpi` (the guest shut down, 14:21:40 UTC),
+`virt.vbox.vm.attach_disk size_gb: 40` (attached on SATA port 1) all changed, then `virt.vbox.vm.start` failed:
+"VBoxAutostartSvcvengeancepleiades-gate ran and bsd-check is poweroff; its log is VBoxAutostart.log in the account's
+.VirtualBox folder". `pleiades adhoc vengeance virt.vbox.vm.start name=bsd-check` at 14:22:30 started it in 30 s. The
+service's log by then held only the second run (it is opened fresh each run): "Setting up ... Shutting down" 3.6 s
+apart, the VM running.
+
+**Root cause.** Not proven. The start came within seconds of a guest shutdown and a `storageattach`, each of which
+holds the machine's session and the account's VBoxSVC for a moment after it returns; `WindowsAutostart.Start` waits
+for VBoxSVC to exit before starting the service, so the likeliest gap is the machine's session still closing when the
+service read it. The first run's log was overwritten before it was read.
+
+**Fix.** None yet. The lab runbooks that stop, attach and start keep the order; a start that fails this way is run
+again by hand. The next instance should read `VBoxAutostart.log` before anything else runs the service, and
+`WindowsAutostart.Start` can then decide whether one more service run after a short wait is the right answer.
+
+**Lesson.** A log a service rewrites on every run is evidence only until the next run: read it first, then retry.
+
+## 727. wincheck's test script looked for the tree in the login's profile while its prepare script had put it on the data disk, because Test() built the script's parameters without the env the data directory rides in (fixed before push)
+
+**Symptom.** 2026-10-29, the first live run of `go run ./tools/wincheck -p 1 ...` with `PLEIADES_WINRM_DATA=D:\pleiades`:
+"no tree at C:\Users\Administrator\.pleiades-wincheck\<sha>; run -phase prepare first", after the prepare phase had
+unpacked that tree under `D:\pleiades\.pleiades-wincheck`. The readiness, prepare, unpack, records and stop scripts all
+saw the data directory; the test script alone did not.
+
+**Root cause.** The data directory reaches a script as `$env:PLEIADES_DATA`, added to the env map by `windows.shell`.
+`Test()` called `shellParams` directly (it needs `AdhocOutcome`, not `Adhoc`), so its env never held `DATA`, and the
+script's `$root` fell back to the profile. Every unit test checked the scripts' text, which was right; none ran the one
+path that bypassed the env.
+
+**Fix.** `windows.params` builds every script's parameters, `shell` and `Test` both through it;
+`TestParams_EveryScriptGetsTheDataDirectory` holds the test script's params to it. The live run that found it is the
+first proof of the Windows data disk.
+
+**Lesson.** A value every script needs is added where the parameters are built, once, not in one of two callers; and a
+change to where a machine keeps its work is proven by the live leg before it is called done.
+
+## 728. virt.vbox.vm.attach_disk and detach_disk recorded their undo after reads and writes that could fail, so a failed attach orphaned the disk it made and a failed read-back dropped the undo (a repeat of 452, 563 and 638) (fixed before push)
+
+**Symptom.** The branch review, 2026-10-29, of the two methods written that morning: `createmedium` then a refused
+`storageattach` (the class of 726, a VBoxSVC still busy) left a 40 GB VDI registered on the host with nothing
+journaling it, and a rerun found it registered and attached it without `size_gb`; an attach that succeeded and a
+`showvminfo` that failed afterwards (a dropped WinRM session) left the disk attached and the task failed with no undo in
+the journal. detach_disk had the same order. Latent: no failure was seen live.
+
+**Root cause.** `sdk.RecordInverse` came last, after the read-back and the stats, with no `KeepOnFailure`, and nothing
+undid a disk the task had made when a later step failed. 638's lesson asks exactly this of every method that creates
+something; 563's second half says a read that fails after the change is a warning, not a failure. The sibling in the
+same package, `clone.go`, does both (`TestClone_EachStepFailing`), and the new tests asserted the inverse only on the
+happy path.
+
+**Fix.** attach_disk deletes the disk it made when a later step fails before the attach, records its undo (kept through
+a failure) the moment the attach succeeds, and reads back under a warning; detach_disk records the attach that puts the
+disk back as soon as the detach succeeds unless the delete that follows removes it, and a delete that fails records it.
+`TestDiskMethods_EachStepFailing` walks each path on the model host; both manifests declare `MayKeepOnFailure` and the
+`warnings` return.
+
+**Why 638 did not prevent it.** 638's lesson was written about VM creation and read before writing that method; the
+disk methods were written a week later from resize.go's shape, which changes nothing it has to clean up.
+
+**Lesson.** A method that makes something journals the undo the line after the step that made it, kept through what
+follows, and undoes its own making when a later step fails; its test walks each step failing, as clone's does.
+
+## 729. A headroom stop on Windows ended the go command alone and left its test binaries running, while the file's comment said they end with it (fixed before push)
+
+**Symptom.** The branch review, 2026-10-29: `flakegate.SignalGroup` on Windows called `cmd.Process.Kill()`, which is
+TerminateProcess on one process, and its comment claimed the test binaries end "when their output pipe does", which a
+process blocked on a wait never notices. On win-check (4 GB) a memory-floor stop would have freed the least memory on
+the machine that most needed it, and the next readiness step would have found the leftovers. Latent: no stop fired.
+
+**Root cause.** Windows has no process group a signal reaches, and the first version reached for the one call that
+exists on every platform. The fix already lived in the same diff: wincheck's own stop script ends a run with
+`taskkill /T /F`.
+
+**Fix.** `SignalGroup` on Windows runs `taskkill /T /F /PID` on the go command, which ends every process under it, and
+kills the go command alone only if taskkill cannot run; headroom's `StopGrace` comment no longer claims a stopped go
+test tears its containers down (pr-check's `-clean-containers` does that after the pass).
+
+**Lesson.** A comment that claims what another process will do when this one ends is a claim to test or to drop; and
+when the same diff already solves the problem for one caller (`taskkill /T`), the second caller uses it.
+
+## 730. gosec's G703 followed a file's content into the cgroup reads and the manifest's own bytes into its write, and only the gate's gosec had run over the new packages (a repeat of 475) (fixed before push)
+
+**Symptom.** The fourth gate on the pipeline branch, 2026-10-29, failed its gosec stage with three G703 findings:
+`headroom.cgroupMemory`'s reads of `memory.max` and `memory.current` under the cgroup `/proc/self/cgroup` names, and
+`testgate.writeResources`'s `os.WriteFile` of the manifest. Each line carried a `#nosec G304` comment, which answers
+the pattern rule and not the taint one.
+
+**Root cause.** Two flows. The cgroup path is a file's content joined under `/sys/fs/cgroup` and read: 475's flow
+with a file for the argument. The kernel writes that file, but nothing in the code held the path to the root. The
+manifest write was flagged for its content: the measurement files named on the command line are read, folded into
+the manifest and marshalled, and gosec treats the bytes `os.WriteFile` writes as a path to traverse with. Replacing
+the path with the repository constant still reported it, which one gosec run over the package proved. Each new
+package had been vetted and tested alone before the gate and never scanned alone, so the first gosec run over them
+was the gate's, ten minutes in.
+
+**Fix.** `cgroupMemory` opens the cgroup root with `os.OpenRoot` and reads both files through it, so a path that
+climbs out of the root is refused by construction, as 475's fix did; `writeResources` writes through a handle
+(`os.Create`, `Write`, `Close`, then the rename), which no path sink reads the content of, with a comment saying why
+it is not `os.WriteFile`. No waiver.
+
+**Why 475 did not prevent it.** 475 was written about a command's argument, and this path came from a file the
+kernel writes, which read as a fixed system file; the `#nosec G304` beside it looked like the scanner had been
+answered.
+
+**Lesson.** A `#nosec G304` comment answers the pattern rule only; the taint rule needs the flow held, and the
+content an `os.WriteFile` writes counts as tainted along with its path. Before a gate, a branch that adds a package
+scans it with `gosec -fmt=json ./the/package/` alone, twenty seconds, as it vets and tests it alone.
+
+## 731. The review fixes added failure branches to the disk methods and two helpers to pkg/vboxmanage with no test measured against a floor, and the gate's coverage-fast stage found both packages under (fixed before push)
+
+**Symptom.** The fifth gate on the pipeline branch, 2026-10-29, failed `coverage-fast` sixteen minutes in:
+`internal/catalog/virt/vbox/vm` at 95.8% against a 97.2% floor and `pkg/vboxmanage` at 96.0% against 97.0%. Every
+stage after it was skipped, and the FreeBSD leg was stopped.
+
+**Root cause.** The review fixes for 728 added failure branches to attach_disk and detach_disk: the made disk deleted
+again, the undo recorded early, warnings on a failed read-back, and every `SetStat` and `RecordDiff` error return.
+`HasDisk` and `AttachDiskAt` were added to `pkg/vboxmanage` and tested only through the VM package, and coverage is
+counted per package. Each package's tests were run and passed after the fixes, and none was measured against its
+floor.
+
+**Fix.** `disk_failures_test.go` drives each refusal the host or the context can make, through the recorder's
+`failOn` and the model host's `Fail` and `Skip`. `hasdisk_test.go` tests `HasDisk` (case, absence, a failed list)
+and `AttachDiskAt` (the reported free port, an unknown controller refused before anything runs) in their own
+package. Now 97.5% and 97.2%.
+
+**Lesson.** A review fix is new code: after the last fix, measure each touched package against
+`coverage-floor.json` before the gate, not only after the first draft. A helper added to a `pkg/` package gets its
+test in that package, since another package's tests do not count toward its floor.
+
+## 732. The resources manifest read only this machine's passes, so a 4 GB lab VM ran two packages at once into tools/release's cold 2 GB link and the memory floor stopped the FreeBSD leg (fixed before push)
+
+**Symptom.** The sixth gate on the pipeline branch, 2026-10-29: the FreeBSD leg stopped after 25 minutes with
+"memory available 423 MB, under the 700 MB floor". Its record charged `tools/release` 3111 MB of memory and 2876 MB
+of disk; nine other packages were charged past the 1200 MB budget. No test failed.
+
+**Root cause.** `TestReleaseBuildReportsItsVersion` builds the real runner. A lab VM clears its Go caches before each
+run, so the build is cold, and the runner's link alone peaks near 2 GB (measured here: 2042 MB at four compiles,
+2030 MB at one; the release flags already strip symbols). The VM's testgate packed two packages at once because the
+manifest knew nothing about them there: `make resources-record` read only this machine's passes, where the warm cache
+measured `tools/release` at 670 MB. The policy did what it was built to do; the numbers it packs by never included
+the smallest machines.
+
+**Fix.** `-resources-record` folds a lab leg's record in too, each run's per-package memory and disk under the VM's
+own GOOS/GOARCH (`resources_legs.go`), and `make resources-record` passes the legs' records. The manifest now holds
+the FreeBSD run, so a 3.5 GB lab pass packs to one package at a time beside a 3111 MB one. A leg's numbers err high,
+since packages that ran together are each charged the whole fall, which packs tighter, never looser. The seventh
+gate showed that one package at a time is not enough: alone, `tools/release` took the VM from 3449 MB free to 663 MB.
+`TestReleaseBuildReportsItsVersion` now skips, as `needs memory:` in the skip ledger, where the memory free less the
+build's measured 2800 MB would fall under the gate's floor, so it runs here, on CI and on the Mac and skips on a 4 GB
+lab VM. Giving the lab VM more memory would run it there; that is the lab's owner's call.
+
+**Lesson.** A measurement that sizes a machine has to come from that machine: a cache, a core count and a memory size
+all change what a test costs. When a policy that stops a run is added, feed it the numbers of the smallest machine it
+governs before the first gate, not after the first stop.
+
+## 733. A lab VM's ACPI put-back printed no report in every gate and fell back to cutting the power, while the same stop by hand worked, and the check had thrown away the evidence (open: cause not proven)
+
+**Symptom.** Gates five, six and seven on the pipeline branch, 2026-10-29: each FreeBSD leg ended with "the VM bsd-check
+on vengeance did not shut down on its own (pleiades adhoc virt.vbox.vm.stop printed no report: unexpected end of JSON
+input); cutting its power". The VM ended powered off each time. The lab project's journal holds no run of the ACPI stop,
+only the power cut ten seconds later, so the first pleiades exited before any task ran.
+
+**What was ruled out.** The binary (`.git/pleiades-bsdcheck/pleiades`) was built at the start of the leg and not
+replaced. The same binary, with the same parameters, straight after an `exec.command` on the VM as the leg runs it,
+shut the VM down through ACPI in 28 s and printed its report, twice. A run in the same project does not refuse another
+(runs only warn). The kernel log shows no out-of-memory kill, but the gate's own memory scope, where every gate command
+runs under a 4500 MB cap beside the container pass, was gone before it could be read.
+
+**Root cause (proven by the eighth gate).** With the fix below, the leg said "printed no report and ended with signal:
+terminated". The gate's rule is to stop at the first failure, so the gate was stopped the moment a leg reported its
+tests failed, which is while the leg was still putting its VM back; the stop's SIGTERM reached the put-back's pleiades
+with the rest of the gate. That is why the stop never failed by hand. `adhocJSON` had discarded the command's exit status
+and stderr, so a run that was killed left only the JSON reader's error. The power cut that follows leaves the VM off,
+not saved, which is what disk compaction needs, so the outcome is acceptable; a put-back that survives the gate's own
+stop would need its pleiades in a process group of its own.
+
+**Fix (the evidence, not the cause).** `adhocJSON` keeps the last run's exit status and the last five lines of its
+stderr, and `Adhoc`, `AdhocStats` and `AdhocOutcome` report a run with no report as "printed no report and ended with
+<status>: <stderr>" (`TestAdhoc_ARunWithNoReportSaysHowItEnded`, through a stand-in binary), which is what named the
+cause.
+
+**Lesson.** A wrapper that runs a command and reads only its stdout must keep the exit status and stderr for the
+failure it cannot parse: "printed no report" is a symptom, and three gates' worth of the same symptom bought nothing.
+
+## 734. The FreeBSD lab VM reset itself through ACPI two minutes into a test run, with nothing in its syslog, and the next start emptied the console log that held the reason (open: cause not proven)
+
+**Symptom.** The eighth gate on the pipeline branch, 2026-10-29: the FreeBSD leg failed after 1m42s with
+"remoteexec: ... wait: remote command exited without exit status or exit signal". `last` on the VM showed a boot at
+17:45 (the leg's start) and another at 17:47 with no shutdown between; `/var/log/messages` has nothing before the second
+`---<<BOOT>>---`. VirtualBox's log for that run has "ACPI: Reset initiated by ACPI" at 2:14, so the guest asked for the
+reset itself, as a kernel that panics with no dump device does. Gates six and seven ran 25 and 22 minutes on the same VM
+and commit family without it.
+
+**Root cause.** Not proven. The kernel's message went to the serial console, which the VM writes to `console.log` in its
+folder on the host, and VirtualBox truncates that file when the VM starts; starting the VM to investigate emptied it.
+The VM has no dump device (`dumpon -l` reports /dev/null), so no crash dump was written either. Its swap is 820 MB on
+ada0s1b plus 2 GB on md99.
+
+**Next time.** Read `console.log` on the host before starting the VM again, and consider a dump device on the VM
+(`dumpdev`), set through pleiades, so a panic leaves its own record.
+
+**Lesson.** A machine's last words go where it writes them as it dies: on a VM with a serial console that is a file the
+next start truncates, so read it first.
+
+## 735. Stopping each gate at its first failure terminated a lab VM's ACPI put-back, the power cuts that followed damaged its new data disk, and the VM would not boot (a repeat of 733's cause) (fixed before push)
+
+**Symptom.** The ninth gate on the pipeline branch, 2026-10-29: "FreeBSD: stopped at box: the VM bsd-check started, and
+bsd-check did not answer logins steadily within 10m0s ... circuit open for 192.168.56.42:22". The VM's console log on
+the host, read before anything restarted it, ended with "/dev/ada1p1: UNEXPECTED SOFT UPDATE INCONSISTENCY; RUN fsck
+MANUALLY ... Automatic file system check failed; help! ... going to single user mode". The damaged inodes' times
+(17:31 to 17:45) are the times of the earlier gates' power cuts.
+
+**Root cause.** Three things together. The gate was stopped the instant a leg reported a failure, during its put-back,
+and the stop terminated the put-back's pleiades, which shared the check's process group (733). The check's fallback then
+cut the VM's power, under a message saying that loses nothing, written before the VM had a data disk. And the data disk
+was mounted from fstab with no `failok`, on a VM without `fsck_y_enable`, so one dirty file system stopped the boot at a
+prompt on a serial line nobody can type into. The kernel panic two minutes into the eighth gate (734) was most likely the
+same damage.
+
+**Fix.** Every pleiades a check runs starts in a process group of its own (`flakegate.OwnGroup`, now exported), so the
+gate's stop does not end a put-back's shutdown, while the check's context still ends every other call
+(`TestAdhoc_RunsInAProcessGroupOfItsOwn`). The fallback's message says a power cut can leave the data disk's file system
+for the next boot to repair. The damaged disk was replaced through `virt.vbox.vm.detach_disk` and `attach_disk`, and the
+VM's mount gets `failok` and `fsck_y_enable="YES"`.
+
+**Lesson.** LESSONS 356.
+
+## 736. testimages -served asked the registry for a container test's Image: "sha256:img", a short stand-in for an image ID the scanner's 64-digit rule let through (a repeat of 465 and 416) (fixed before push)
+
+**Symptom.** The tenth gate on the pipeline branch, 2026-10-29: the `images` step failed after three tries with
+"testimages: could not find sha256:img" and "denied: requested access to the resource is denied". The FreeBSD leg (all
+181 packages, 1h10m) and the container pass had passed.
+
+**Root cause.** `internal/catalog/container/describe_internal_test.go`, written on this branch, builds a fake
+`moby.InspectResponse` with `Image: "sha256:img"`. The scanner keeps an `Image` field's value when it has name:tag's
+shape, and 465's fix refused an image ID only in its real form, sha256 followed by 64 hex digits. A three-letter
+stand-in has name:tag's shape with a repository called sha256, so it passed, and CI's container jobs would have tried
+to pull it too.
+
+**Why 465 did not prevent it.** 465 matched the value the failing test held rather than what makes it not an image:
+the repository name. Any tag after sha256 is the same mistake.
+
+**Fix.** `pullable` refuses a reference whose repository is sha256 or sha512, whatever the tag (`isContentAddress`),
+and the scanner's test names both short stand-ins.
+
+**Lesson.** When a filter refuses a false positive, refuse it by the property that makes it false (no registry serves a
+repository called sha256), not by the exact value that tripped it last time.

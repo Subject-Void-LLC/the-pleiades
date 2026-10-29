@@ -120,10 +120,17 @@ posttasks:
       delay: 60
       timeout: 900
 
+  # A switch can answer a login before it reports the new image, so this asks
+  # again until it does, up to ten more times 30 seconds apart. If it never
+  # does, the last answer is still registered and the notes below say so.
   - name: Re-check the running version
     net.ios.command:
       command: "show version | include Version"
     register: post_facts
+    until: ['result.post_facts.stdout.matches("17\\.03\\.04")']
+    retries: 10
+    delay: 30
+    ignore_errors: true
 
   - name: Record that the upgrade landed
     pleiades.builtin.set_metadata:

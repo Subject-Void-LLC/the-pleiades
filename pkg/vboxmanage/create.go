@@ -186,14 +186,38 @@ func (h Host) CopyDisk(ctx context.Context, from, to string) error {
 
 // AttachDisk puts the disk at path in vm's first SATA port.
 func (h Host) AttachDisk(ctx context.Context, vm, path string) error {
+	return h.AttachDiskAt(ctx, vm, Slot{Controller: ControllerSATA}, path)
+}
+
+// AttachDiskAt puts the disk at path in vm's slot, as a hard disk: a
+// machine's second disk goes in the first free SATA port (Machine.FreeSATASlot).
+func (h Host) AttachDiskAt(ctx context.Context, vm string, slot Slot, path string) error {
 	if err := CheckName("VM", vm); err != nil {
 		return err
+	}
+	if err := CheckAdapter(slot.Controller); err != nil {
+		return fmt.Errorf("vboxmanage: storage controller: %w", err)
 	}
 	if err := CheckPath("disk", path); err != nil {
 		return err
 	}
-	_, err := h.run(ctx, "storageattach", vm, "--storagectl", ControllerSATA, "--port", "0", "--device", "0", "--type", "hdd", "--medium", path)
+	_, err := h.run(ctx, "storageattach", vm, "--storagectl", slot.Controller, "--port", strconv.Itoa(slot.Port), "--device", strconv.Itoa(slot.Device), "--type", "hdd", "--medium", path)
 	return err
+}
+
+// HasDisk reports whether VirtualBox has the disk at path registered,
+// compared without regard to case, as Windows compares paths.
+func (h Host) HasDisk(ctx context.Context, path string) (bool, error) {
+	disks, err := h.Disks(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, d := range disks {
+		if strings.EqualFold(d, path) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // DeleteDisk forgets the disk at path and deletes its file. A disk a

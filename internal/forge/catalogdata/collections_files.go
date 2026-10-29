@@ -95,7 +95,41 @@ var filesCollections = []collectionscaffold.Config{
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
-			Summary: "Renders a template and writes the result to the target.",
+			Summary:     "Renders a template with the run's variables and results and writes the result to a file on the target, only when the bytes there differ.",
+			Description: "Renders a template and writes the result to a path on the device exactly as file.copy writes content: a SHA-256 of the rendered bytes is compared with one the device computes of what is already there, so a run that finds the same bytes sends no write and reports no change; a write goes to a temporary file in the destination's directory with the final mode, owner and group and is renamed over it; an existing file keeps its mode, owner and group unless the task names them; a new file without a mode gets 0600; anything at dest that is not a regular file is refused. The template is rendered by the platform's one template engine on the machine running the work, never on the device, with the same syntax as every other parameter: {{ vars.x }} reads a run variable, {{ result.name }} and {{ nodes.name }} read earlier tasks' registered results, and {{ device.name }} the device the task runs on. A variable or result that does not exist is an error, not an empty string, so a misspelled name never writes a half-filled file. The template is either content, written in the runbook, or src, a file in the project directory (relative, inside it, through no symbolic link, never .pleiades, a regular file of at most 64 MiB) that the command line reads; a Walk-tier Runner holds no project, so there src is refused and content is the way. The rendered text can hold a value a bound credential or a variable carried: it is sent to the device and is never written to the journal, the diff or the result, which hold the file's checksum and size only. In check mode it makes the same reads and refusals and predicts the write and its diff without sending one. Writing a file this way is undone like file.copy's: a created file is removed, and an overwritten file gets its former mode, owner and group back, while its former content is not restored.",
+			Params: []collection.Param{
+				{Name: "dest", Type: "string", Required: true, Description: "The path to write on the device. Its parent directory must already exist: this method writes a file and never creates the directories above it, which is file.directory's job."},
+				{Name: "content", Type: "string", Description: "The template, written in the runbook (set content or src, not both). It renders like any parameter holding {{, {% or {#, under trim_blocks and lstrip_blocks as a template file does; text without any is written verbatim. Nothing is appended, so a file that should end in a newline needs one in the value."},
+				{Name: "src", Type: "string", Description: "A template file in the project directory, as a path relative to it that is written out in the runbook, not computed: it must stay inside the project, pass through no symbolic link, not be in .pleiades, and be a regular file of at most 64 MiB. The command line reads and renders it; a Walk-tier Runner cannot see the project, so use content there. Set content or src, not both.", Format: collection.ParamFormatTemplateFile},
+				{Name: "trim_blocks", Type: "bool", Default: "true", Description: "Remove the first newline after each {% %} statement and {# #} comment, as Ansible's template module does by default, so a line holding only a tag leaves no blank line behind. A tag ending +%} keeps its newline. Written out as true or false, never a template."},
+				{Name: "lstrip_blocks", Type: "bool", Default: "false", Description: "Strip the spaces and tabs before a {% %} statement or {# #} comment that begins its line, so a tag can be indented with the text around it; {%+ keeps them. Ansible's template module's option of the same name and default. Written out as true or false, never a template."},
+				{Name: "mode", Type: "string", Description: "The permission bits as one to four octal digits, quoted, for example \"0644\". A symbolic mode such as u+x is refused. Left unset, an existing file keeps its mode and a newly created one gets 0600."},
+				{Name: "owner", Type: "string", Description: "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."},
+				{Name: "group", Type: "string", Description: "The group name to give the file, refused as a numeric id for the same reason owner is."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "dest", Type: "string", Returned: "always", Description: "The path this task wrote."},
+				{Name: "checksum", Type: "string", Returned: "always", Description: "The SHA-256 of the file's contents in hex, read back from the device after any write."},
+				{Name: "mode", Type: "string", Returned: "always", Description: "The permission bits the file carries now, as four octal digits."},
+				{Name: "owner", Type: "string", Returned: "always", Description: "The user name owning the file now."},
+				{Name: "group", Type: "string", Returned: "always", Description: "The group owning the file now."},
+				{Name: "size", Type: "int", Returned: "always", Description: "The file's size in bytes now."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "The before and after state of the path, each holding its kind, mode, owner, group, size, modification time and the checksum of its contents, never the content itself."},
+				{Name: "warnings", Type: "list of string", Returned: "when the write was not atomic", Description: "Says the new bytes were copied into the existing file rather than renamed over it, because a new file could not be given its owner and group."},
+				{Name: "inverse", Type: "dict", Returned: "when something changed", Description: "The concrete task that undoes this run: a file.remove when this run created the file, or a file.permissions restoring the attributes it found when the file already existed. Absent from a run that changed nothing."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Render a configuration file from a template in the project",
+					RunbookYAML: "- name: Install the NTP configuration\n  file.template:\n    src: templates/chrony.conf\n    dest: /etc/chrony/chrony.conf\n    mode: \"0644\"\n",
+				},
+				{
+					Name:        "Render a short template written in the runbook",
+					RunbookYAML: "- name: Write the node label\n  file.template:\n    dest: /etc/node-label\n    content: \"role={{ vars.role }}\\nhost={{ device.name }}\\n\"\n    mode: \"0644\"\n",
+				},
+			},
+			SeeAlso: []string{"file.copy", "file.touch", "file.permissions", "file.remove"},
 		},
 	},
 	{
@@ -325,8 +359,8 @@ var filesCollections = []collectionscaffold.Config{
 			Description: "Makes sure no line matching a pattern remains in a text file, which is ansible.builtin.lineinfile with state: absent. The whole file is read, the surviving lines are worked out locally, and the file is written back only when the bytes really differ, so a run that finds nothing to remove sends no write at all. Every matching line goes, not only the first. A file that is not there is already in the wanted state, so the task reports no change instead of failing, which is what lets one runbook strip a setting from a fleet where not every host has the file. Three differences from Ansible are deliberate: setting both regexp and line is refused rather than silently preferring regexp, insertafter and insertbefore are refused rather than accepted and ignored, and a file that ends without a newline keeps ending without one. Patterns are Go's RE2, which has no backreferences and no lookaround; search_string, backup and validate are not implemented. Lines are split on the newline byte alone, so a file with Windows endings carries its carriage return as part of each line's text and a pattern meant to match one has to say so.",
 			Params: []collection.Param{
 				{Name: "path", Type: "string", Required: true, Description: "The text file to edit. A file that is not there is reported as no change rather than as an error, since it holds no lines to remove. A symbolic link is refused rather than followed, because writing replaces the path and would leave a regular file where the link was."},
-				{Name: "regexp", Type: "string", Description: "Remove every line this pattern matches. Matched anywhere in a line unless anchored with ^ or $. Cannot be combined with line, and one of the two is required."},
-				{Name: "line", Type: "string", Description: "Remove every line whose text is exactly this. It may not contain a newline, since a line is matched whole. Cannot be combined with regexp, and one of the two is required."},
+				{Name: "regexp", Type: "string", Description: "Remove every line this pattern matches. Matched anywhere in a line unless anchored with ^ or $. Cannot be combined with line, and either it or line is required."},
+				{Name: "line", Type: "string", Description: "Remove every line whose text is exactly this. It may not contain a newline, since a line is matched whole. Cannot be combined with regexp, and either it or regexp is required."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{

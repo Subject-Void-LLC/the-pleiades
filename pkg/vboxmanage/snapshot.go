@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Snapshot is one snapshot of a machine.
@@ -95,7 +97,7 @@ func (h Host) TakeSnapshot(ctx context.Context, vm, name, description string) (s
 	}
 	m := takenUUID.FindStringSubmatch(out.Stdout)
 	if m == nil {
-		return "", fmt.Errorf("vboxmanage: snapshot take did not report the UUID it made: %q", strings.TrimSpace(out.Stdout))
+		return "", fmt.Errorf("vboxmanage: snapshot take did not report the UUID it made: %s", farside.Output(out.Stdout))
 	}
 	return m[1], nil
 }

@@ -6,7 +6,7 @@ status: beta
 
 Reads one text file out of a container.
 
-Returns the text of the file at src inside the container named name, running or stopped, with its size and SHA-256. A file over max_bytes, or one that is not valid UTF-8 text, is refused rather than cut or mangled. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
+Returns the text of the file at src inside the container named name, running or stopped, with its size and SHA-256. A file over max_bytes, or one that is not valid UTF-8 text, is refused rather than cut or mangled. A file that is not there, in a container or because the container is not there, is not a failure: exists is false and no text is reported, so a later task can decide what to do (container.info says which). It changes nothing, so a check is the same read, an absent file included. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
 
 ## Attributes
 
@@ -23,7 +23,7 @@ Returns the text of the file at src inside the container named name, running or 
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `name` | `string` | yes | - | The container's name. |
 | `src` | `string` | yes | - | The file's absolute path inside the container. |
 | `max_bytes` | `int` | no | `1048576` | The largest file read, in bytes, up to 16 MiB. |
@@ -34,9 +34,11 @@ Returns the text of the file at src inside the container named name, running or 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | always | The container's name. |
-| `content` | `string` | always | The file's text. |
-| `size` | `int` | always | Its size in bytes. |
-| `checksum` | `string` | always | Its SHA-256. |
+| `src` | `string` | always | The path read, as src gave it. |
+| `exists` | `bool` | always | Whether the file is there to read. |
+| `content` | `string` | when exists | The file's text. |
+| `size` | `int` | when exists | Its size in bytes. |
+| `checksum` | `string` | when exists | Its SHA-256. |
 
 ## Undoing this
 

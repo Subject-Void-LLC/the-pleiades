@@ -23,7 +23,7 @@ Disconnects the container named container from the network named network. A cont
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. |
+| `engine` | `string` | no | - | Which container engine to use on a device that runs more than one. Needed only there: on a device with one engine, that engine is used. An engine the device does not run is refused. **Choices:** `docker`, `podman`. |
 | `network` | `string` | yes | - | The network's name. |
 | `container` | `string` | yes | - | The container's name. |
 | `network_id` | `string` | no | - | The network's ID, which the network named must still have: an undo recorded against one network never acts on another that took its name since. |

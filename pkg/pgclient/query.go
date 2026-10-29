@@ -266,6 +266,10 @@ func (t *Table) CSV() string {
 // UniqueViolation is the SQLSTATE of a duplicate key.
 const UniqueViolation = "23505"
 
+// InvalidCatalogName is the SQLSTATE a server answers a connection to a
+// database that does not exist with, once the login is accepted.
+const InvalidCatalogName = "3D000"
+
 // ErrorCode is the SQLSTATE the server answered err with, or "" when err
 // is not the server's.
 func ErrorCode(err error) string {

@@ -123,7 +123,7 @@ func init() {
 func gatherDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Gathers baseline system facts from the target (OS, kernel, distribution).",
-		Description: "Reads a small, fixed set of system facts over SSH and emits each one as a fact, so it is kept as drift data rather than as a value that expires at the end of the run. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+		Description: "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
 		Params: []collection.Param{
 			{Name: gatherParamFilter, Type: "list of string", Description: "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -137,6 +137,13 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactMemTotalMB, Type: "int", Returned: "when /proc/meminfo reports it", Description: "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it."},
 			{Name: gatherFactProcessorCount, Type: "int", Returned: "when /proc/cpuinfo reports it", Description: "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo. An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."},
 			{Name: gatherFactUptimeSeconds, Type: "int", Returned: "when /proc/uptime reports it", Description: "How long the device has been up, in whole seconds, from the first field of /proc/uptime."},
+			{Name: gatherFactNodename, Type: "string", Returned: "when the device reports one", Description: "The full node name uname -n reports, before ansible_hostname cuts it at the first dot."},
+			{Name: gatherFactSystem, Type: "string", Returned: "when the device reports one", Description: "The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin."},
+			{Name: gatherFactDistributionMajor, Type: "string", Returned: "when /etc/os-release names a version", Description: "VERSION_ID up to its first dot, such as 24 for 24.04."},
+			{Name: gatherFactDistributionRelease, Type: "string", Returned: "when /etc/os-release names a codename", Description: "VERSION_CODENAME from /etc/os-release, such as noble."},
+			{Name: gatherFactSwapTotalMB, Type: "int", Returned: "when /proc/meminfo reports it", Description: "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."},
+			{Name: gatherFactProcessorVCPUs, Type: "int", Returned: "when /proc/cpuinfo lists processors", Description: "The number of logical processors, counted as the processor entries in /proc/cpuinfo."},
+			{Name: gatherFactProcessorCores, Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
 		},
 		Examples: []collection.Example{
 			{
@@ -200,7 +207,7 @@ type gatherProbe struct {
 func gatherProbes() []gatherProbe {
 	return []gatherProbe{
 		{
-			keys:    []string{gatherFactHostname},
+			keys:    []string{gatherFactHostname, gatherFactNodename},
 			command: "uname -n",
 			// uname reports the node name, which on a machine with a domain
 			// is the full name. ansible_hostname is the short one and
@@ -209,27 +216,32 @@ func gatherProbes() []gatherProbe {
 			// not gathered under a second key: it would need a separate
 			// resolver-dependent lookup, and a fact that sometimes resolves
 			// and sometimes does not is worse than an absent one.
-			parse: gatherSingle(gatherFactHostname, gatherShortName),
+			parse: gatherNodeNames,
+		},
+		{
+			keys:    []string{gatherFactSystem},
+			command: "uname -s",
+			parse:   gatherSingle(gatherFactSystem),
 		},
 		{
 			keys:    []string{gatherFactKernel},
 			command: "uname -r",
-			parse:   gatherSingle(gatherFactKernel, nil),
+			parse:   gatherSingle(gatherFactKernel),
 		},
 		{
 			keys:    []string{gatherFactArchitecture},
 			command: "uname -m",
-			parse:   gatherSingle(gatherFactArchitecture, nil),
+			parse:   gatherSingle(gatherFactArchitecture),
 		},
 		{
-			keys:    []string{gatherFactDistribution, gatherFactDistributionVersion},
+			keys:    []string{gatherFactDistribution, gatherFactDistributionVersion, gatherFactDistributionMajor, gatherFactDistributionRelease},
 			command: "cat /etc/os-release",
 			parse:   gatherOSRelease,
 		},
 		{
-			keys:    []string{gatherFactMemTotalMB},
+			keys:    []string{gatherFactMemTotalMB, gatherFactSwapTotalMB},
 			command: "cat /proc/meminfo",
-			parse:   gatherMemTotalMB,
+			parse:   gatherMemory,
 		},
 		{
 			// The whole file rather than a grep for one field, because
@@ -237,9 +249,9 @@ func gatherProbes() []gatherProbe {
 			// the field's absence. It is the largest read here, growing
 			// with the core count, and it is still a few tens of kilobytes
 			// on a machine nobody would call small.
-			keys:    []string{gatherFactProcessorCount},
+			keys:    []string{gatherFactProcessorCount, gatherFactProcessorVCPUs, gatherFactProcessorCores},
 			command: "cat /proc/cpuinfo",
-			parse:   gatherProcessorCount,
+			parse:   gatherProcessors,
 		},
 		{
 			keys:    []string{gatherFactUptimeSeconds},
@@ -398,18 +410,15 @@ func gatherAllKeys() []string {
 }
 
 // gatherSingle builds the parser for a probe whose whole output is one
-// fact's value, optionally refined first.
+// fact's value.
 //
 // Empty output produces no fact rather than a fact whose value is the
 // empty string. That distinction is the contract: a condition reading
 // ansible_kernel must be able to tell a device that did not answer from
 // one that answered with nothing.
-func gatherSingle(key string, refine func(string) string) func(string) []gatherFact {
+func gatherSingle(key string) func(string) []gatherFact {
 	return func(stdout string) []gatherFact {
 		value := strings.TrimSpace(stdout)
-		if refine != nil {
-			value = refine(value)
-		}
 		if value == "" {
 			return nil
 		}
@@ -440,6 +449,11 @@ func gatherOSRelease(stdout string) []gatherFact {
 	}
 	if version := values["VERSION_ID"]; version != "" {
 		facts = append(facts, gatherFact{key: gatherFactDistributionVersion, value: version})
+		major, _, _ := strings.Cut(version, ".")
+		facts = append(facts, gatherFact{key: gatherFactDistributionMajor, value: major})
+	}
+	if release := values["VERSION_CODENAME"]; release != "" {
+		facts = append(facts, gatherFact{key: gatherFactDistributionRelease, value: release})
 	}
 	return facts
 }

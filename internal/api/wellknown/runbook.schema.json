@@ -15,6 +15,20 @@
           },
           "type": "array"
         },
+        "changed_when": {
+          "description": "Conditions deciding whether a finished run counts as changed.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
         "check_mode": {
           "description": "Run this task (and, on a block, its block, rescue and always tasks) in check mode, even in a real run. Only true; false is refused.",
           "oneOf": [
@@ -27,9 +41,33 @@
             }
           ]
         },
+        "delay": {
+          "description": "Seconds between an until task's runs.",
+          "maximum": 3600,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed_when": {
+          "description": "Conditions that fail the task when they hold.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
         "fqcn": {
           "description": "The action this task performs: an engine keyword or a namespaced Collection method.",
           "type": "string"
+        },
+        "ignore_errors": {
+          "description": "Go on past a failure of this task; it is still recorded as one.",
+          "type": "boolean"
         },
         "lock_acquisition": {
           "description": "When this task's device locks are acquired.",
@@ -38,6 +76,25 @@
             "all_at_plan_time"
           ],
           "type": "string"
+        },
+        "loop": {
+          "description": "Run the task once per item: a list, or one {{ }} expression rendering to a list. Read each as {{ item }}."
+        },
+        "loop_control": {
+          "additionalProperties": false,
+          "description": "loop_var, index_var and label for a loop.",
+          "properties": {
+            "index_var": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "loop_var": {
+              "type": "string"
+            }
+          },
+          "type": "object"
         },
         "name": {
           "description": "Free-form label.",
@@ -76,6 +133,12 @@
             "$ref": "#/$defs/task"
           },
           "type": "array"
+        },
+        "retries": {
+          "description": "How many more runs an until task gets.",
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
         },
         "rollback": {
           "description": "This task's authored undo: plain method calls a rollback runs on each device the task changed, in place of the undo its method recorded. An empty list says undoing the task means doing nothing. Only on a method call; each step is a method and its params, with no target, register, conditions or tags.",
@@ -154,6 +217,24 @@
             }
           ]
         },
+        "until": {
+          "description": "Run the task again until these conditions hold, over its own result under its register.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "vars": {
+          "description": "Variables for this task (or every task in a block), read as {{ vars.name }}. The narrower scope wins.",
+          "type": "object"
+        },
         "when": {
           "description": "Ansible-compatible conditional, ANDed if a list.",
           "oneOf": [
@@ -185,6 +266,9 @@
               "type": "array"
             }
           ]
+        },
+        "with_items": {
+          "description": "Ansible's older name for loop."
         },
         "within": {
           "description": "The device name or tag a target rendered from data must stay inside. Required beside a params.target holding {{ }}, refused anywhere else, and written literally.",
@@ -312,6 +396,10 @@
         ""
       ],
       "type": "string"
+    },
+    "vars": {
+      "description": "The runbook's own variables, the widest scope; a block's or task's vars of the same name win.",
+      "type": "object"
     }
   },
   "required": [

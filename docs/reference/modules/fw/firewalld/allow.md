@@ -23,9 +23,9 @@ Makes sure a port or service is allowed through firewalld in the given zone. Thi
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `port` | `int` | no | - | The port to allow. Exactly one of port or service is required. |
-| `protocol` | `string` | no | `tcp` | The protocol for port (tcp or udp). Ignored when service is given. |
-| `service` | `string` | no | - | The firewalld service name to allow, e.g. http. Exactly one of port or service is required. |
+| `port` | `int` | no | - | The port to allow. Give port or service: exactly one is required. |
+| `protocol` | `string` | no | `tcp` | The protocol for port: tcp, udp, sctp or dccp, as firewalld takes them. Ignored when service is given. **Choices:** `tcp`, `udp`, `sctp`, `dccp`. |
+| `service` | `string` | no | - | The firewalld service name to allow, e.g. http. Give port or service: exactly one is required. |
 | `zone` | `string` | no | `public` | The firewalld zone to allow the rule in. |
 | `permanent` | `bool` | no | `true` | Also add the rule to the permanent configuration, so it survives a reload. |
 | `immediate` | `bool` | no | `true` | Also add the rule to the runtime configuration, so it takes effect now. |

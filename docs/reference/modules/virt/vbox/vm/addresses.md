@@ -6,7 +6,7 @@ status: beta
 
 Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone.
 
-Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the same as a run.
+Reports each address a VM's host-only adapters have: the leases VirtualBox's own DHCP server handed them (read from the leases file it keeps for the host's account), and the fixed address virt.vbox.vm.clone gave the VM (the extradata pleiades/address). A VM whose first boot did not apply its fixed address shows the address DHCP gave it too, which is how to reach it anyway. A NAT adapter's address is private to the VM and is not reported. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. A check reads the same as a run, a missing VM included.
 
 ## Attributes
 
@@ -29,7 +29,8 @@ Reports each address a VM's host-only adapters have: the leases VirtualBox's own
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `addresses` | `list` | always | Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires. |
+| `exists` | `bool` | always | Whether a VM with this name is registered on the host. |
+| `addresses` | `list` | when exists | Each address as nic (the adapter's number), mac, adapter (the host's), address, source (dhcp or fixed), and for a DHCP lease its state (acked while held, expired after), issued and expires. |
 | `address` | `string` | when there is one | The address to reach the VM at: the fixed one, or else a held DHCP lease's. A first boot that applied its fixed address leaves the lease it took before then marked held for a while, so a VM whose fixed address was never applied is known by that lease being the only one it answers at. |
 
 ## Undoing this

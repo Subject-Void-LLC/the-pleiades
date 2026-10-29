@@ -80,7 +80,7 @@ func (c *CheckModeFlag) set(raw string) error {
 		return nil
 	case slices.Contains(checkModeFalse, value):
 		return fmt.Errorf("%s", checkModeFalseRefusal)
-	case strings.Contains(raw, "{{") || strings.Contains(raw, "{%"):
+	case IsTemplate(raw):
 		return fmt.Errorf("check_mode must be a literal true, not a template (%q): a template could resolve to false when the run starts", raw)
 	default:
 		return fmt.Errorf("check_mode must be true (or Ansible's yes, on, y or t), got %q", raw)
@@ -155,6 +155,12 @@ var builtinCheckable = map[string]bool{
 	"noop":                          true,
 	"set_metadata":                  true,
 	"pleiades.builtin.set_metadata": true,
+	"set_fact":                      true,
+	"pleiades.builtin.set_fact":     true,
+	"assert":                        true,
+	"pleiades.builtin.assert":       true,
+	"fail":                          true,
+	"pleiades.builtin.fail":         true,
 }
 
 // Checkable reports whether a task calling fqcn with params can run in
@@ -218,6 +224,7 @@ var RunbookKeys = map[string]bool{
 	"tasks":      true,
 	"posttasks":  true,
 	"reversible": true,
+	"vars":       true,
 }
 
 // checkRunbookKeys refuses any top-level key not in RunbookKeys, naming

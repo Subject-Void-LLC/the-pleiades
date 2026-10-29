@@ -59,6 +59,9 @@ func TestHandlersRule(t *testing.T) {
 		{"the rescue registers it too", guardedRunbook("      - name: note it\n        noop: {}\n        register: probe\n", "    noop:\n      saw: \"{{ result.probe.ok }}\"\n"), ""},
 		{"read with default", guardedRunbook(plainRescue, "    noop:\n      saw: \"{{ result.probe.ok | default(false) }}\"\n"), ""},
 		{"tested with has", guardedRunbook(plainRescue, "    noop: {}\n    when_cel: \"has(result.probe) && result.probe.ok\"\n"), ""},
+		// A template that does not compile is TemplateRule's finding, so this
+		// rule says nothing of it rather than guessing what it reads.
+		{"a broken template read after it", guardedRunbook(plainRescue, "    noop:\n      saw: \"{{ result.probe.ok \"\n"), ""},
 		{"read after a block that also has always", guardedRunbook(plainRescue+"    always:\n      - name: clean\n        noop: {}\n", "    noop:\n      saw: \"{{ result.probe.ok }}\"\n"), `reads the register "probe"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

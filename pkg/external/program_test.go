@@ -266,7 +266,9 @@ func TestProgram_RealChildProcess(t *testing.T) {
 			if resp.Changed != tc.wantChanged {
 				t.Errorf("Changed = %v, want %v", resp.Changed, tc.wantChanged)
 			}
-			// JSON numbers decode as float64 on this side of the boundary.
+			// A whole number the program recorded reads back as an int on
+			// this side of the boundary, as the Crawl tier's in-process
+			// call hands it over (pkg/wire's numbers.go), not as float64.
 			want := map[string]any{
 				"ran":              tc.wantRan,
 				"echoed":           "hello",
@@ -274,7 +276,7 @@ func TestProgram_RealChildProcess(t *testing.T) {
 				"device_name":      "router1",
 				"ssh_capable":      true,
 				"device_host":      "10.0.0.1",
-				"device_port":      float64(2222),
+				"device_port":      2222,
 			}
 			if !reflect.DeepEqual(resp.Facts, want) {
 				t.Errorf("Facts = %v, want %v", resp.Facts, want)

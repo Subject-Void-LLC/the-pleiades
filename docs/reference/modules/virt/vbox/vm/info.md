@@ -6,7 +6,7 @@ status: beta
 
 Reports a VirtualBox VM's state, hardware and snapshots.
 
-Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.
+Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing: its state, shape, snapshots, guest type, firmware, network adapters and storage, from one call. A VM that does not exist is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.
 
 ## Attributes
 
@@ -38,6 +38,14 @@ Reads a VM on a VirtualBox host with VBoxManage showvminfo and changes nothing. 
 | `autostart_enabled` | `bool` | when exists | Whether it is marked to start with the host account's autostart service. virt.vbox.vm.start sets this on a Windows host and virt.vbox.vm.stop clears it. |
 | `snapshots` | `list` | when exists | Each snapshot as name, uuid and description, a parent before its children. |
 | `current_snapshot_uuid` | `string` | when exists | The snapshot the VM's state descends from, or empty when it has none. |
+| `os_type` | `string` | when exists | The guest OS type as showvminfo describes it, such as Ubuntu (64-bit). |
+| `firmware` | `string` | when exists | What it boots with: BIOS or EFI. |
+| `config_file` | `string` | when exists and VirtualBox names it | The path of its settings file on the host. |
+| `nics` | `list` | when exists | Each network adapter that is on, by number from 1: number, kind (nat, hostonly, bridged, ...), mac, and host_only_adapter for a hostonly one. |
+| `storage` | `list` | when exists | Each storage slot as controller, controller_type, port, device and medium (a file's path, emptydrive, or none). |
+| `console_log` | `string` | when exists and its first serial port writes to a file | The host file its first serial port writes to. |
+| `state_changed_at` | `string` | when exists and VirtualBox reports it | When it last changed state, as VirtualBox writes the time. |
+| `guest_additions_version` | `string` | when exists and a running guest's additions report one | The VirtualBox Guest Additions version the guest reports. |
 
 ## Undoing this
 

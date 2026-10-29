@@ -23,10 +23,10 @@ Reads a document (inline as prompt with signature, or from the project as prompt
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `prompt` | `dict` | no | - | A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. One of messages, prompt and prompt_file. |
+| `prompt` | `dict` | no | - | A prompt bundle given inline: {kind: prompt, name, version, use, text, variants, parameters, expires}, exactly the document its signature covers. Give exactly one: messages, prompt or prompt_file. |
 | `prompt_file` | `string` | no | - | A prompt bundle in the project by name: ai/prompts/<name>.json, with its signature, if any, in <name>.json.sig beside it. Crawl tier only. |
 | `signature` | `dict` | no | - | An inline prompt's detached signature, {key, sig}, as pleiades ai prompt sign writes it. |
-| `signing` | `string` | no | `required` | The use's signing policy. off checks nothing; optional checks a signature when there is one and records an unsigned bundle as unsigned, never as verified; required refuses an unsigned, invalid, expired, unknown-key, wrong-role or rolled-back bundle before any call. |
+| `signing` | `string` | no | `required` | The use's signing policy. off checks nothing; optional checks a signature when there is one and records an unsigned bundle as unsigned, never as verified; required refuses an unsigned, invalid, expired, unknown-key, wrong-role or rolled-back bundle before any call. **Choices:** `off`, `optional`, `required`. |
 | `use` | `string` | no | - | The use the document must be for; any when absent. |
 
 ## Returns

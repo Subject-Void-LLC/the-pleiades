@@ -40,7 +40,7 @@ const maxLineBytes = 1 << 20
 
 // nodeIDPattern is the graph ids the DAG builder synthesizes, and a step of
 // a block's rollback_on_failure undoing one of them (.undo[k]).
-var nodeIDPattern = regexp.MustCompile(`^(pre|post)?tasks\[\d+\](\.(block|rescue|always|parallel)\[\d+\])*(\.undo\[\d+\])?$`)
+var nodeIDPattern = regexp.MustCompile(`^(pre|post)?tasks\[\d+\](\.(block|rescue|always|parallel)\[\d+\])*(\.(item|attempt)\[\d+\]){0,2}(\.undo\[\d+\])?$`)
 
 // digestPattern is DAG.Version's shape.
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -186,6 +186,9 @@ var (
 		engine.FailureStageSecretMask: true, engine.FailureStageRender: true, engine.FailureStageResolveTarget: true, engine.FailureStageLockAll: true,
 		engine.FailureStageLockDevice: true, engine.FailureStageAction: true, engine.FailureStageRegisterMask: true,
 		engine.FailureStageRecord: true,
+		// Added for Phase 88's failed_when and changed_when. Older journals
+		// never hold them and read as before.
+		engine.FailureStageFailedWhen: true, engine.FailureStageChangedWhen: true,
 	}
 	knownSkip = map[engine.SkipKind]bool{
 		engine.SkipKindNone: true, engine.SkipKindWhen: true, engine.SkipKindWhenOr: true,

@@ -30,10 +30,11 @@ Answers a different question than device_facts: device_facts describes what the 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `devices` | `list of map` | always | One entry per device: hostname, management_ip, reachability_status, collection_status, reachable. |
+| `reachability` | `list of map` | always | One entry per device: hostname, management_ip, reachability_status, collection_status, reachable. |
 | `unreachable` | `list of string` | always | Hostnames (or management IPs, if hostname is unset) of every unreachable device. |
 | `reachable_count` | `int` | always | Count of devices with reachability_status Reachable. |
 | `managed_count` | `int` | always | Count of devices with collection_status Managed. |
+| `total_device_count` | `int` | always | How many devices the controller listed, reachable or not. |
 
 ## Undoing this
 

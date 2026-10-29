@@ -24,7 +24,7 @@ Reads a tunnel by id, or by name among the account's tunnels not deleted (a name
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `tunnel` | `string` | yes | - | The tunnel's id, or its name. |
-| `expect_status` | `string` | no | `healthy` | The status the tunnel must have; any accepts every status. |
+| `expect_status` | `string` | no | `healthy` | The status the tunnel must have; any accepts every status. **Choices:** `healthy`, `degraded`, `down`, `inactive`, `any`. |
 | `min_connectors` | `int` | no | `1` | The fewest connectors that must have a connection to Cloudflare's edge, 0 to 1000. |
 
 ## Returns

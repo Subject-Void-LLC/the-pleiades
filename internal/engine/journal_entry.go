@@ -103,6 +103,12 @@ var engineActionStatKeys = map[string][]string{
 	"noop":                          nil,
 	"set_metadata":                  nil,
 	"pleiades.builtin.set_metadata": nil,
+	"set_fact":                      nil,
+	"pleiades.builtin.set_fact":     nil,
+	"assert":                        nil,
+	"pleiades.builtin.assert":       nil,
+	"fail":                          nil,
+	"pleiades.builtin.fail":         nil,
 	"ssh_exec":                      transportExecStatKeys,
 	"serial_exec":                   transportExecStatKeys,
 	"serialtcp_exec":                transportExecStatKeys,
@@ -322,11 +328,11 @@ func skipKindFor(cp *ConditionProgram) SkipKind {
 	}
 }
 
-// validFailureStage reports whether stage is one of the ten stages a
+// validFailureStage reports whether stage is one of the twelve stages a
 // failed node may record.
 //
 // Every one is listed rather than range-checked, because the point is
-// that adding an eleventh constant is not enough: a stage this function has
+// that adding a thirteenth constant is not enough: a stage this function has
 // never heard of is refused, and the entry that would have carried it is
 // not written. See projectLevel on what that costs whoever adds one.
 func validFailureStage(stage FailureStage) bool {
@@ -339,6 +345,8 @@ func validFailureStage(stage FailureStage) bool {
 		FailureStageLockAll,
 		FailureStageLockDevice,
 		FailureStageAction,
+		FailureStageFailedWhen,
+		FailureStageChangedWhen,
 		FailureStageRegisterMask,
 		FailureStageRecord:
 		return true
@@ -380,6 +388,9 @@ func validSkipKind(kind SkipKind) bool {
 // nobody can vouch for is worse than a missing one that was logged and
 // counted, because the first is read as fact.
 func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
+	// A task that ran more than once on a device is one entry per run, under
+	// the node id with the run appended (NodeResult.Iteration); the task is
+	// the node's.
 	task := r.taskFor(n.NodeID)
 	if task == nil {
 		// Unreachable through runNode, which looks the task up by this
@@ -396,7 +407,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	// guess about someone else's identifier.
 	entry := JournalEntry{
 		RunID:      r.runID,
-		NodeID:     n.NodeID,
+		NodeID:     n.NodeID + n.Iteration,
 		DAGID:      r.dag.ID,
 		DAGVersion: r.dag.Version,
 		TaskName:   task.Name,
@@ -474,7 +485,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	case n.Err != nil:
 		if !validFailureStage(n.failureStage) {
 			return JournalEntry{}, fmt.Errorf(
-				"node %q (device %q) failed at stage %q, which is not one of the ten this journal records",
+				"node %q (device %q) failed at stage %q, which is not one of the twelve this journal records",
 				n.NodeID, n.Device, n.failureStage)
 		}
 		entry.Outcome = OutcomeFailed

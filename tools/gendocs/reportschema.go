@@ -5,18 +5,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
-	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/jsonschema"
 )
 
 // reportModelFile is the Go file whose doc comments describe the report,
@@ -56,191 +51,34 @@ func writeDocsSchema(outDir, name string, schema map[string]any) error {
 // migrationReportSchema builds the report's schema, its descriptions read
 // from modelFile.
 func migrationReportSchema(modelFile string) (map[string]any, error) {
-	docs, err := fieldDocs(modelFile)
+	docs, err := jsonschema.FieldDocs(modelFile)
 	if err != nil {
 		return nil, err
 	}
-	s := &schemaBuilder{docs: docs, defs: map[string]any{}, source: reportModelFile}
-	root, err := s.object(reflect.TypeFor[playbook.Report]())
-	if err != nil {
-		return nil, err
-	}
-	root["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-	root["title"] = "Pleiades migration report"
-	root["$defs"] = s.defs
-	return root, nil
+	s := &jsonschema.Builder{Docs: docs, Defs: map[string]any{}, Source: reportModelFile, Fixed: playbookSchemas()}
+	return s.Root(reflect.TypeFor[playbook.Report](), "Pleiades migration report")
 }
 
-// fieldDocs reads every struct type's doc comment and each field's, from
-// file, keyed "Type" and "Type.Field".
-func fieldDocs(file string) (map[string]string, error) {
-	f, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.ParseComments)
-	if err != nil {
-		return nil, err
+// playbookSchemas are the report's enums, each written as its names rather
+// than the integer reflection sees.
+func playbookSchemas() map[reflect.Type]map[string]any {
+	// An undecided class is null, so it cannot read as a decided one.
+	var classes []any
+	for c := playbook.ClassAsserted; c <= playbook.ClassObserve; c++ {
+		classes = append(classes, c.String())
 	}
-	docs := map[string]string{}
-	for _, decl := range f.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			ts, ok := spec.(*ast.TypeSpec)
-			if !ok {
-				continue
-			}
-			docs[ts.Name.Name] = oneLine(gen.Doc.Text())
-			st, ok := ts.Type.(*ast.StructType)
-			if !ok {
-				continue
-			}
-			for _, field := range st.Fields.List {
-				for _, name := range field.Names {
-					docs[ts.Name.Name+"."+name.Name] = oneLine(field.Doc.Text())
-				}
-			}
-		}
+	var outcomes []any
+	for o := playbook.OutcomeConverted; o <= playbook.OutcomeBlocked; o++ {
+		outcomes = append(outcomes, o.String())
 	}
-	return docs, nil
-}
-
-// oneLine joins a doc comment's lines into one paragraph.
-func oneLine(doc string) string {
-	return strings.Join(strings.Fields(doc), " ")
-}
-
-// schemaBuilder turns a report's Go types into JSON Schema, each struct
-// once under $defs. Its zero options are the migration report's: closed
-// objects, a nil pointer as null.
-type schemaBuilder struct {
-	docs map[string]string
-	defs map[string]any
-	// source names where the docs come from, for an error about a field
-	// with none.
-	source string
-	// known lists, by "Type.Field", the values a field holds today, which
-	// the schema publishes as examples and describes as an open set.
-	known map[string][]string
-	// open leaves an object open to properties it does not declare, for a
-	// contract whose producer may add fields within a major version.
-	open bool
-	// absentNotNull writes an omitempty pointer as its value's schema, since
-	// a nil one is absent, never null.
-	absentNotNull bool
-}
-
-// of returns t's schema.
-func (s *schemaBuilder) of(t reflect.Type) (map[string]any, error) {
-	switch t {
-	case reflect.TypeFor[time.Time]():
-		return map[string]any{"type": "string", "format": "date-time"}, nil
-	case reflect.TypeFor[playbook.Class]():
-		// An undecided class is null, so it cannot read as a decided one.
-		var names []any
-		for c := playbook.ClassAsserted; c <= playbook.ClassObserve; c++ {
-			names = append(names, c.String())
-		}
-		return map[string]any{"enum": append(names, nil)}, nil
-	case reflect.TypeFor[playbook.Outcome]():
-		var names []any
-		for o := playbook.OutcomeConverted; o <= playbook.OutcomeBlocked; o++ {
-			names = append(names, o.String())
-		}
-		return map[string]any{"enum": names}, nil
-	case reflect.TypeFor[playbook.Code]():
-		var codes []string
-		for c := range playbook.Codes() {
-			codes = append(codes, string(c))
-		}
-		slices.Sort(codes)
-		return map[string]any{"enum": codes}, nil
+	var codes []string
+	for c := range playbook.Codes() {
+		codes = append(codes, string(c))
 	}
-	switch t.Kind() {
-	case reflect.Pointer:
-		elem, err := s.of(t.Elem())
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"oneOf": []any{elem, map[string]any{"type": "null"}}}, nil
-	case reflect.Struct:
-		if _, done := s.defs[t.Name()]; !done {
-			s.defs[t.Name()] = nil // taken, so a type that holds itself stops here
-			obj, err := s.object(t)
-			if err != nil {
-				return nil, err
-			}
-			s.defs[t.Name()] = obj
-		}
-		return map[string]any{"$ref": "#/$defs/" + t.Name()}, nil
-	case reflect.Slice:
-		items, err := s.of(t.Elem())
-		if err != nil {
-			return nil, err
-		}
-		// A nil slice encodes as null.
-		return map[string]any{"type": []any{"array", "null"}, "items": items}, nil
-	case reflect.Map:
-		if t.Key().Kind() != reflect.String {
-			break
-		}
-		values, err := s.of(t.Elem())
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"type": "object", "additionalProperties": values}, nil
-	case reflect.String:
-		return map[string]any{"type": "string"}, nil
-	case reflect.Int:
-		return map[string]any{"type": "integer"}, nil
-	case reflect.Float64:
-		return map[string]any{"type": "number"}, nil
-	case reflect.Bool:
-		return map[string]any{"type": "boolean"}, nil
+	slices.Sort(codes)
+	return map[reflect.Type]map[string]any{
+		reflect.TypeFor[playbook.Class]():   {"enum": append(classes, nil)},
+		reflect.TypeFor[playbook.Outcome](): {"enum": outcomes},
+		reflect.TypeFor[playbook.Code]():    {"enum": codes},
 	}
-	return nil, fmt.Errorf("the report holds a %s, which this schema does not describe", t)
-}
-
-// object returns t's object schema: each serialized field a property,
-// described by its doc comment, required unless omitempty.
-func (s *schemaBuilder) object(t reflect.Type) (map[string]any, error) {
-	props := map[string]any{}
-	var required []string
-	for i := range t.NumField() {
-		f := t.Field(i)
-		name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if !f.IsExported() || name == "-" {
-			continue
-		}
-		doc := s.docs[t.Name()+"."+f.Name]
-		if doc == "" {
-			return nil, fmt.Errorf("%s.%s has no doc comment in %s, so the schema cannot describe it", t.Name(), f.Name, s.source)
-		}
-		ft := f.Type
-		if s.absentNotNull && ft.Kind() == reflect.Pointer && strings.Contains(opts, "omitempty") {
-			ft = ft.Elem()
-		}
-		prop, err := s.of(ft)
-		if err != nil {
-			return nil, err
-		}
-		if values, ok := s.known[t.Name()+"."+f.Name]; ok {
-			prop["examples"] = values
-			doc += " Known values: " + strings.Join(values, ", ") + ". A newer producer may add others, and a reader treats one it does not know as not a pass."
-		}
-		prop["description"] = doc
-		props[name] = prop
-		if !strings.Contains(opts, "omitempty") {
-			required = append(required, name)
-		}
-	}
-	obj := map[string]any{
-		"type":        "object",
-		"description": s.docs[t.Name()],
-		"properties":  props,
-		"required":    required,
-	}
-	if !s.open {
-		obj["additionalProperties"] = false
-	}
-	return obj, nil
 }

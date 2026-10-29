@@ -21,12 +21,14 @@ const cleanPlaybook = `- hosts: web
       ansible.builtin.file: {path: /srv/app, state: directory, mode: "0755"}
 `
 
-// blockedPlaybook holds a task that cannot convert.
+// blockedPlaybook holds a task that cannot convert. It used to be
+// ansible.builtin.template, which converts to file.template since the
+// template language landed; pause has no native form yet.
 const blockedPlaybook = `- hosts: web
   gather_facts: false
   tasks:
-    - name: render the config
-      ansible.builtin.template: {src: app.j2, dest: /etc/app.conf}
+    - name: wait for the operator
+      ansible.builtin.pause: {prompt: "continue?"}
 `
 
 // runMigrate runs migrate-playbook in dir and returns stdout, stderr and
@@ -153,7 +155,7 @@ func TestCLI_MigratePlaybook_RefusesSymlinks(t *testing.T) {
 // escapes playbook text the text view would send to a terminal.
 func TestCLI_MigratePlaybook_JSON(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "site.yml", strings.Replace(blockedPlaybook, "name: render the config", `name: "render\e[2J the config"`, 1))
+	writeFile(t, dir, "site.yml", strings.Replace(blockedPlaybook, "name: wait for the operator", `name: "wait\e[2J for the operator"`, 1))
 	stdout, stderr, code := runMigrate(t, dir, "site.yml", "--json")
 	if code != 3 {
 		t.Fatalf("exit %d, want 3: %s", code, stderr)

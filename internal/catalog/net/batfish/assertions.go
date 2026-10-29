@@ -44,6 +44,13 @@ func reachFrom(from string, nodes map[string]bool) (string, error) {
 	return "", fmt.Errorf("reach.from must be a device given, node[interface] (the device sending from it) or @enter(node[interface]) (a packet arriving on it), got %q", from)
 }
 
+// routeProtocols are the names a route assertion's protocol may take: the
+// families protocolFamily folds Batfish's RoutingProtocol values for IPv4
+// routes into, which are the names FRR uses (ospfIA, ospfE1 and ospfE2
+// read as ospf; ibgp and aggregate as bgp; isisL1, isisL2, isisEL1 and
+// isisEL2 as isis; eigrpEX as eigrp).
+var routeProtocols = []string{"bgp", "connected", "eigrp", "isis", "kernel", "local", "ospf", "rip", "static"}
+
 // quotedInterface is an interface written in quotes, as Batfish writes one.
 var quotedInterface = regexp.MustCompile(`\["([^"\]]+)"\]$`)
 
@@ -127,6 +134,12 @@ func readAssertion(kind string, v any, nodes map[string]bool) (assertion, error)
 		}
 		a.prefix = pfx.Masked().String()
 		a.protocol, _ = m["protocol"].(string)
+		// A protocol is compared by family (protocolFamily), so a name
+		// outside the families, such as Batfish's own ibgp, could never
+		// match: refuse it naming the set rather than fail the assertion.
+		if _, present := m["protocol"]; present && !slices.Contains(routeProtocols, a.protocol) {
+			return a, fmt.Errorf("%s.protocol must be one of %s, got %q", kind, strings.Join(routeProtocols, ", "), a.protocol)
+		}
 		hops, _, err := sdk.StringSlice(m, "next_hops")
 		if err != nil {
 			return a, err

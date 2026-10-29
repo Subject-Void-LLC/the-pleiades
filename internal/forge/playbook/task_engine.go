@@ -33,12 +33,11 @@ func (t *translator) engineModule(spec leafSpec, ctx taskCtx) ([]*outTask, bool)
 		t.raise("debug.dropped", spec.modAt, name, "a debug task only prints")
 		return nil, true
 	case "set_fact":
-		if spec.modNode != nil && deref(spec.modNode).Kind == yaml.MappingNode && len(spec.whens) == 0 && !spec.hasLoop {
-			t.raise("set_fact.resolved", spec.modAt, name, "its variables are read from the playbook where they are used")
-			return nil, true
-		}
-		id := t.raise("set_fact.runtime", spec.modAt, name, "set_fact runs conditionally or in a loop, so its values exist only at run time")
-		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(spec.cites, id)...)}, true
+		return t.setFact(spec, ctx), true
+	case "assert":
+		return t.assertTask(spec, ctx), true
+	case "fail":
+		return t.failTask(spec, ctx), true
 	case "include_vars":
 		id := t.raise("set_fact.runtime", spec.modAt, name, "include_vars sets variables only at run time")
 		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(spec.cites, id)...)}, true

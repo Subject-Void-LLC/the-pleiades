@@ -5,6 +5,8 @@ package image
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/moby/moby/client"
 
@@ -80,17 +82,25 @@ func info(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 			missing = append(missing, ref)
 			continue
 		}
-		var labels map[string]string
-		if img.Config != nil {
-			labels = img.Config.Labels
-		}
-		// The image's environment is left out on purpose: a value baked
-		// into an image can be a secret, and an image's labels and names
-		// say what it is.
-		images = append(images, map[string]any{
+		entry := map[string]any{
 			"id": img.ID, "tags": nonNil(img.RepoTags), "digests": nonNil(img.RepoDigests), "created": img.Created,
-			"size": img.Size, "os": img.Os, "architecture": img.Architecture, "labels": labels,
-		})
+			"size": img.Size, "os": img.Os, "architecture": img.Architecture, "variant": img.Variant, "labels": map[string]string(nil),
+		}
+		// What a container made from it runs, as the image declares it
+		// (Phase 131's R5). The environment is reported by name only, and
+		// the entrypoint and command by program and argument count only: a
+		// value or an argument baked into an image can be a secret.
+		if c := img.Config; c != nil {
+			entry["labels"] = c.Labels
+			entry["entrypoint"] = containerengine.ArgvSummary(c.Entrypoint)
+			entry["command"] = containerengine.ArgvSummary(c.Cmd)
+			entry["user"] = c.User
+			entry["working_dir"] = c.WorkingDir
+			entry["exposed_ports"] = sortedKeys(c.ExposedPorts)
+			entry["volumes"] = sortedKeys(c.Volumes)
+			entry["env_names"] = envNames(c.Env)
+		}
+		images = append(images, entry)
 	}
 	return collection.Result{}, recordStats(rc, map[string]any{statImages: images, statMissing: missing})
 }
@@ -102,4 +112,25 @@ func nonNil(list []string) []string {
 		return []string{}
 	}
 	return list
+}
+
+// sortedKeys is a set's members, sorted, and an empty list for none.
+func sortedKeys(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// envNames is an environment's variable names, sorted, never a value.
+func envNames(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
 }

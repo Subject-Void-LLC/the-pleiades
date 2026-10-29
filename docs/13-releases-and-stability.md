@@ -6,17 +6,16 @@ status: beta
 
 ## Changelog
 
-[`CHANGELOG.md`](../CHANGELOG.md) at the repository root is the real, current
-record. This project has not cut a tagged release yet, so everything lives under an
-`Unreleased` heading, grouped by date once a first release exists. Entries are
-assembled from `changelog/*.md` fragments (see
-[`changelog/README.md`](../changelog/README.md) for the naming convention and the
-five change types); a generator to automate that assembly is planned but not built,
-so assembly is manual today.
+[`CHANGELOG.md`](../CHANGELOG.md) at the repository root records what changed from one
+release to the next. 0.3.0 is the first release, so its entry points to the release notes
+below; the history kept under it is the development before any release, not a list of
+changes to one. From 0.3.0 on, each change is a `changelog/*.md` fragment (see
+[`changelog/README.md`](../changelog/README.md) for the naming convention and the change
+types), assembled into `CHANGELOG.md` when a release is cut, by hand for now.
 
 ## Release notes
 
-None yet. There is no tagged release to write notes for.
+- [0.3.0 "Paranoid Porpoise"](releases/v0.3.0.md), the first release.
 
 ## Breaking changes and deprecations
 
@@ -28,12 +27,14 @@ types exist and are ready to record one the first time it happens.
 
 Releases are numbered `MAJOR.MINOR.PATCH`. Every binary reports its own
 (`pleiades version`, `runner version`, `controller version`): a release build's
-version, or `0.0.0-dev+<commit>` for anything else, since no release process stamps
-one at build time yet.
+version, stamped by `make release`, or `0.0.0-dev+<commit>` for any other build.
 
 **Before 1.0.0, a minor release may break compatibility**, and each one is a step
 along a planned ladder rather than a point on a support calendar. A patch release
-never breaks anything. What that means in practice:
+never breaks anything, and it may add: a new method, parameter, runbook keyword or
+template feature (more of Jinja, for example) that nothing already written depends on
+behaving otherwise. A runbook that ran on 0.3.0 runs the same on every 0.3.x. What
+that means in practice:
 
 - Anything documented as `status: beta` or narrower may change shape in the next
   minor release. Check the badge at the top of a page before depending on what it

@@ -18,8 +18,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 )
 
 // Product is which VMware product a host runs. It is the value of vmrun's -T
@@ -97,9 +100,10 @@ type Error struct {
 	kind     error
 }
 
-// Error implements error.
+// Error implements error, with the tool's words bounded and quoted
+// (pkg/farside), so a control character in them is shown, never sent.
 func (e *Error) Error() string {
-	return fmt.Sprintf("vmware %s failed (exit %d): %s", e.Op, e.ExitCode, e.Message)
+	return fmt.Sprintf("vmware %s failed (exit %d): %s", e.Op, e.ExitCode, farside.Output(e.Message))
 }
 
 // Unwrap lets errors.Is find the sentinel the message mapped to.
@@ -123,20 +127,53 @@ func classify(msg string) error {
 	return nil
 }
 
-// failure builds the *Error for a command that exited non-zero: the tool's
-// first line saying Error, or else its first non-empty line.
+// failure builds the *Error for a command that exited non-zero: the line
+// the tool marks "Error:" (vmrun's whole message is that one line), or else
+// everything it printed on one line (pkg/farside), never only its first
+// line, which for vmcli can be a heading.
+//
+// The untagged form withholds the value of every line shaped as a vmx entry
+// (withholdValues): a ConfigParams query that fails partway can print the
+// vmx's keys and values, and a value can be a secret (a VNC password, a
+// guestinfo value), which info would otherwise carry into its warnings. The
+// sentinel is classified from the words before that, so no meaning is lost.
 func failure(op string, out Output) *Error {
-	msg := firstLine(out.Stdout+"\n"+out.Stderr, "Error:")
-	if msg == "" {
-		msg = firstLine(out.Stdout+"\n"+out.Stderr, "")
+	all := out.Stdout + "\n" + out.Stderr
+	if msg := lineStarting(all, "Error:"); msg != "" {
+		msg = strings.TrimSpace(strings.TrimPrefix(msg, "Error:"))
+		return &Error{Op: op, Message: msg, ExitCode: out.ExitCode, kind: classify(msg)}
 	}
-	msg = strings.TrimSpace(strings.TrimPrefix(msg, "Error:"))
-	return &Error{Op: op, Message: msg, ExitCode: out.ExitCode, kind: classify(msg)}
+	msg := strings.TrimSpace(farside.Words(withholdValues(all)))
+	return &Error{Op: op, Message: msg, ExitCode: out.ExitCode, kind: classify(farside.Words(all))}
 }
 
-// firstLine is the first line of s that starts with prefix after trimming
-// ("" matches any non-empty line), or "" when there is none.
-func firstLine(s, prefix string) string {
+// vmxEntry matches the start of a line shaped as a vmx entry, as vmcli's
+// ConfigParams query or a vmx file writes one: a key with no space in it
+// (quoted, and then it may hold a colon, as 'sata0:1.present' does), then a
+// colon or an equals sign.
+var vmxEntry = regexp.MustCompile(`^\s*('[^']*'|"[^"]*"|[A-Za-z0-9_.\-\[\]]+)\s*[:=]`)
+
+// withheldValue replaces a vmx entry's value in a failure's message.
+const withheldValue = " (value withheld)"
+
+// withholdValues is s with the value of every vmx-entry-shaped line
+// replaced by withheldValue, the key kept so the reader still sees which
+// entry the tool printed. Every other line is kept as it is.
+func withholdValues(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if m := vmxEntry.FindStringIndex(line); m != nil && strings.TrimSpace(line[m[1]:]) != "" {
+			lines[i] = line[:m[1]] + withheldValue
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// lineStarting is the first line of s that starts with prefix after
+// trimming ("" matches any non-empty line), or "" when there is none. It
+// finds a line to read; an error quoting the tool's output goes through
+// pkg/farside.
+func lineStarting(s, prefix string) string {
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && strings.HasPrefix(line, prefix) {

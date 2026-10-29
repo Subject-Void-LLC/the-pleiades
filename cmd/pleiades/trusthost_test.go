@@ -5,6 +5,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
+	"golang.org/x/crypto/ssh"
 )
 
 // trustProject is a project holding a Linux host at the in-process SSH
@@ -90,5 +93,37 @@ func TestTrustHost_Refusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: %v, want one mentioning %q", why, err, tt.want)
 		}
+	}
+}
+
+// TestTrustHost_ConsoleAnswer: virt.vbox.vm.host_keys answers a VM the host
+// does not have with exists false, which trust-host names as a missing VM
+// rather than as one that printed no keys; a VM that exists and printed
+// none, and a key that does not parse, keep their own refusals.
+func TestTrustHost_ConsoleAnswer(t *testing.T) {
+	pub, _, genErr := ed25519.GenerateKey(rand.Reader)
+	if genErr != nil {
+		t.Fatal(genErr)
+	}
+	sshPub, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
+	for why, tt := range map[string]struct {
+		facts map[string]any
+		want  string
+	}{
+		"a VM that is not there": {map[string]any{"exists": false}, `has no VM named "web1"`},
+		"a VM with no keys":      {map[string]any{"exists": true, "ssh_host_keys": []string{}}, "found no host keys for web1"},
+		"a key that is not one":  {map[string]any{"exists": true, "ssh_host_keys": []string{"not a key"}}, "does not parse"},
+	} {
+		if _, err := consoleAnswer(tt.facts, "vengeance", "web1"); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: %v, want one mentioning %q", why, err, tt.want)
+		}
+	}
+	keys, err := consoleAnswer(map[string]any{"exists": true, "ssh_host_keys": []string{key}}, "vengeance", "web1")
+	if err != nil || len(keys) != 1 {
+		t.Errorf("one key: %v, %v", keys, err)
 	}
 }

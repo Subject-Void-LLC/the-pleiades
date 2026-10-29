@@ -24,6 +24,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 )
 
 // Dialect describes one vendor's CLI conventions: how to recognize its
@@ -151,6 +154,10 @@ var (
 	iosNotices = []*regexp.Regexp{
 		regexp.MustCompile(`^% Duplicate (?:permit|deny) statement ignored\b`),
 		regexp.MustCompile(`^% Policy already has same proposal set\b`),
+		// match fvrf <vrf> under an IKEv2 policy that already has it: seen 30
+		// times in one second configuration run in the blind CVD lab (runs 5
+		// and 6, 2026-10-27), and in runs 4 and 5 before that.
+		regexp.MustCompile(`^% Policy already has the same matching fvrf statement\b`),
 		regexp.MustCompile(`^% Already found same '[^']*' statement in this profile\b`),
 		regexp.MustCompile(`^% Key pair was generated at: `),
 		// crypto key generate rsa ... modulus <n>, made and made again
@@ -423,9 +430,9 @@ func (s *Session) ConfigWith(ctx context.Context, lines []string, opts ConfigOpt
 		res.Notices = append(res.Notices, notices...)
 		if rejected {
 			if _, exitErr := s.command(ctx, s.dialect.ExitConfigMode, false); exitErr != nil {
-				return res, fmt.Errorf("netcli: device rejected %q: %s (and leaving configuration mode afterward failed too: %w)", line, strings.TrimSpace(out.Output), exitErr)
+				return res, fmt.Errorf("netcli: device rejected %q: %s (and leaving configuration mode afterward failed too: %w)", line, rejection(out.Output), exitErr)
 			}
-			return res, fmt.Errorf("netcli: device rejected %q: %s", line, strings.TrimSpace(out.Output))
+			return res, fmt.Errorf("netcli: device rejected %q: %s", line, rejection(out.Output))
 		}
 	}
 
@@ -433,6 +440,15 @@ func (s *Session) ConfigWith(ctx context.Context, lines []string, opts ConfigOpt
 		return res, fmt.Errorf("netcli: exiting configuration mode: %w", err)
 	}
 	return res, nil
+}
+
+// rejection is a device's answer to a line it rejected, fit for an error:
+// masked as configuration is first (the device can echo the line, and a
+// configuration line can hold a secret), then bounded and quoted through
+// pkg/farside, so a long answer or a control byte never reaches the error
+// raw.
+func rejection(out string) string {
+	return farside.MaskedOutput(out, netcfg.Mask)
 }
 
 // judge reads one line's output: each line the Dialect's ErrorPattern

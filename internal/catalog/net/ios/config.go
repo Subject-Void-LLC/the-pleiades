@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 )
 
 // paramLines and paramBackup match cisco.ios.ios_config's own parameter
@@ -89,12 +90,16 @@ func init() {
 					{FQCN: replaceFQCN, Record: []string{"checkpoint", "expect", sdk.ParamInsecureTelnet}, MayKeepOnFailure: true, MayBePartial: true},
 				},
 			},
-			NoCheckReason: "what a configuration line changes is decided by IOS's own parser as it applies the line, and IOS " +
-				"offers no way to ask without applying it",
-			Doc: configDoc(),
+			SupportsCheck: true,
+			Doc:           configDoc(),
 		},
-		Invoke:   Config,
-		UndoCall: configUndoCall,
+		Invoke:    Config,
+		Check:     CheckConfig,
+		CheckCall: configCheckCall,
+		UndoCall:  configUndoCall,
+		// configUndoCall names every call whose undo is partial (a crypto
+		// key line, or a line not known before the run).
+		UndoCallDecidesPartial: true,
 	})
 }
 
@@ -104,7 +109,8 @@ func configDoc() collection.Doc {
 		Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, a key pair being made or replaced, and what removing one says first; accept adds the task's own. A line that changes key material (crypto key generate, zeroize, import, move, decrypt, encrypt) changes what the configuration does not hold, so its run reports changed whatever the configuration shows, and no checkpoint returns it: such a call's undo is never exact. " +
 			"A line that asks a question (removing a key pair asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers (a line left ending in ?, [confirm], [yes/no] or asking for a password) fails the line at once, naming it, rather than waiting; anything else a device waits on, such as a banner's text, still waits until the read limit. " +
 			"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
-			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate.",
+			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate. " +
+			"A check reads the running configuration over the same session and sends no line: each line is looked for, as written, in the block the lines before it entered and only there (a line that opens a block, such as interface or address-family, also where IOS would open it), so a line found only in an enclosing block, such as a neighbor under the router and not in the address family entered, is predicted to change; write exit before a top-level line. The lines not found are reported under differences as IOS reports a change (+ added, - what a no line removes, each under the block it sits in), masked as the backup is, with changed when there is one. A line IOS prints differently (an abbreviation such as int, or a default it does not print, such as no shutdown) is predicted to change. A call with a secret reference, prompts or ask, a crypto key line, a banner, end or a do line is reported unchecked, since only applying it tells what it changes.",
 		Params: append(append([]collection.Param{
 			{Name: paramLines, Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself. A line may name a stored secret, such as a pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the line is sent, and masked in everything the run reports. A line holding one holds no other template expression, and a value with whitespace, a control character or ? is refused.", Format: collection.ParamFormatCommand, SecretRefs: true},
 			{Name: paramCheckpoint, Type: "bool", Default: "true", Description: "Keep a checkpoint of the running configuration on the device before the change, which its undo returns to exactly. false records no undo, and reports the lines that would undo the change for the task's rollback: list."},
@@ -116,9 +122,9 @@ func configDoc() collection.Doc {
 		),
 		Returns: append([]collection.ReturnField{
 			{Name: statCheckpoint, Type: "string", Returned: "when a checkpoint was kept and the lines changed the configuration", Description: "The checkpoint file on the device holding the configuration before the change, which the undo returns to."},
-			{Name: statDifferences, Type: "list of string", Returned: "when a checkpoint was kept", Description: "The device's own contextual differences the change made (+ added, - removed), masked."},
+			{Name: statDifferences, Type: "list of string", Returned: "when a checkpoint was kept, and in a check", Description: "The device's own contextual differences the change made (+ added, - removed), masked; in a check, the differences the lines are predicted to make."},
 			{Name: statUndoLines, Type: "list of string", Returned: "when no checkpoint was kept and the lines changed the configuration", Description: "The configuration lines that would undo the change, masked; copy them into the task's rollback: list, putting each masked secret back."},
-			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
+			{Name: statBackup, Type: "string", Returned: "when backup is true", Description: "The device's full running-config, captured immediately before this task's own lines were applied, with every secret masked: each password, secret, key, community and pre-shared key, in whatever encoding the device applies (IOS's own \"type 7\" is trivially reversible, so it is masked too), is replaced by a placeholder, and a clear-text one is masked to the end of its line. A configuration the masker cannot vouch for fails the task before any line is applied. It is a record of the configuration, not a file to restore the secrets from."},
 			{Name: statNotices, Type: "list of string", Returned: "when the device printed one", Description: "The \"% \" lines the device printed that were taken as notices rather than rejections, masked."},
 		}, clidialog.ConfigReturns()...),
 		Examples: []collection.Example{
@@ -137,24 +143,79 @@ func configDoc() collection.Doc {
 
 // configUndoCall is net.ios.config's answer, from a call alone, to whether
 // it records an undo: a call with checkpoint anything but true (false, or a
-// template whose value is not known before the run) records none. A device
-// with nowhere to keep a checkpoint records none either, which only the
-// run can find; the undo then stops naming the task.
+// template whose value is not known before the run) records none, and one
+// with a crypto key line records a partial one, the only call whose undo is
+// (recordReplace), so validation asks this rather than refusing every call
+// for its MayBePartial declaration (Descriptor.UndoCallDecidesPartial). A
+// line whose text is not known before the run (a template the engine
+// renders, or a secret reference standing where a key line's words are)
+// is answered as not known, the way a templated checkpoint is, since
+// either could turn out to be a crypto key line. A device with nowhere to
+// keep a checkpoint records none either, which only the run can find; the
+// undo then stops naming the task.
 func configUndoCall(params map[string]any) string {
 	if v, present := params[paramCheckpoint]; present && v != true {
 		return "checkpoint is not true, so no checkpoint is kept and the undo is lines only shown, never recorded"
 	}
-	if lines, _, err := sdk.StringSlice(params, paramLines); err == nil && changesKeys(lines) {
-		return "a crypto key line changes key material the configuration does not hold, so no checkpoint returns it"
+	lines, _, err := sdk.StringSlice(params, paramLines)
+	if err != nil {
+		// A lines that is not a list of text is the body's refusal.
+		return ""
+	}
+	for i, l := range lines {
+		switch {
+		case secretref.Has(l):
+			// A reference is passed to the method as written and resolved to
+			// one word: only where it stands can it make a key line.
+			if refMayMakeKeyLine(l) {
+				return fmt.Sprintf("%s[%d] holds a secret reference where a crypto key line's words would be, so whether it changes key material, which no checkpoint returns, is not known before the run", paramLines, i)
+			}
+		case collection.IsTemplate(l):
+			return fmt.Sprintf("%s[%d] is a template, so whether it is a crypto key line, whose key material no checkpoint returns, is not known before the run", paramLines, i)
+		case keyMaterial.MatchString(l):
+			return "a crypto key line changes key material the configuration does not hold, so no checkpoint returns it"
+		}
 	}
 	return ""
 }
+
+// keyVerbs are the crypto key commands that change a key pair.
+var keyVerbs = []string{"generate", "zeroize", "import", "move", "decrypt", "encrypt"}
 
 // keyMaterial is a line that changes a key pair, which IOS keeps outside
 // the configuration: no difference shows it and no configure replace
 // returns it (measured on IOL XE 17.15: a key pair made again under its
 // label is replaced, and the configuration reads the same).
-var keyMaterial = regexp.MustCompile(`^\s*crypto\s+key\s+(?:generate|zeroize|import|move|decrypt|encrypt)\b`)
+var keyMaterial = regexp.MustCompile(`^\s*crypto\s+key\s+(?:` + strings.Join(keyVerbs, "|") + `)\b`)
+
+// refMayMakeKeyLine reports whether a line holding secret references could
+// be a key material line once each is resolved. A resolved value is one
+// word with no whitespace (secretref.CheckValue), so the line can become
+// one only when it already is one, or when its text before the first
+// reference could still begin "crypto key <verb>": a reference first on
+// the line, or after "crypto", say. A pre-shared-key line cannot.
+func refMayMakeKeyLine(line string) bool {
+	if keyMaterial.MatchString(line) {
+		return true
+	}
+	// Problems refuses any other template beside a reference, so the first
+	// "{{" is the first reference.
+	before, _, found := strings.Cut(line, "{{")
+	if !found {
+		return false
+	}
+	start := strings.Join(strings.Fields(before), " ")
+	if start != "" && strings.TrimRight(before, " \t") != before {
+		// The text ends a word, so the reference begins the next one.
+		start += " "
+	}
+	for _, verb := range keyVerbs {
+		if strings.HasPrefix("crypto key "+verb, start) {
+			return true
+		}
+	}
+	return false
+}
 
 // keysWarning is what a run that changed key material says.
 const keysWarning = "a crypto key line changed key material, which the configuration does not hold: the run reports changed whatever its differences show, and no undo returns the key pair"
@@ -234,6 +295,13 @@ func (m *masked) Unwrap() error { return m.cause }
 
 // Config implements the "net.ios.config" collection method.
 func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return config(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// config is both modes' one body: a check makes the same reads and
+// refusals a run makes, the backup included, and then predicts from the
+// running configuration (checkConfig) where a run applies the lines.
+func config(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = configFQCN
 
 	lines, present, err := sdk.StringSlice(params, paramLines)
@@ -281,12 +349,29 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if running, err = session.Command(ctx, "show running-config"); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: capturing backup: %w", fqcn, err)
 		}
-		// The backup is recorded as the device has it, and its secrets are
-		// learned, so a report masks them wherever they show.
-		_ = learnSecrets(rc, running)
-		if err := rc.SetStat(statBackup, running); err != nil {
+		// The backup is recorded masked through the configuration masker,
+		// never as the device has it: masking by value alone (the run's
+		// masking set) skips a short secret such as "cisco", which would then
+		// reach the stat and every report built from it.
+		masked, err := maskedBackup(rc, running)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: capturing backup: %w", fqcn, err)
+		}
+		if err := rc.SetStat(statBackup, masked); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
+	}
+
+	if mode == collection.ModeCheck {
+		// A check reads the configuration the lines would meet and sends
+		// none of them: no checkpoint is written and configuration mode is
+		// never entered.
+		if running == "" {
+			if running, err = session.Command(ctx, "show running-config"); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: reading the configuration: %w", fqcn, err)
+			}
+		}
+		return checkConfig(rc, running, lines)
 	}
 
 	var warnings []string

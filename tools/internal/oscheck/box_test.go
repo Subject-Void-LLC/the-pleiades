@@ -39,13 +39,15 @@ func TestLabBox(t *testing.T) {
 }
 
 // fakeHost answers the box's pleiades calls: the VM's state, each method
-// failing when fail names it, and wait.connection answering waits in turn
-// (nil once they run out).
+// failing when fail names it (or failCalls names the method with its
+// parameters), and wait.connection answering waits in turn (nil once they
+// run out).
 type fakeHost struct {
-	state string
-	fail  map[string]error
-	waits []error
-	calls []string
+	state     string
+	fail      map[string]error
+	failCalls map[string]error
+	waits     []error
+	calls     []string
 }
 
 // install answers through h.
@@ -56,6 +58,9 @@ func (h *fakeHost) install(t *testing.T) {
 	adhocStats = func(_ context.Context, p Pleiades, method string, params ...string) (map[string]any, error) {
 		h.calls = append(h.calls, p.Device+" "+method+" "+strings.Join(params, " "))
 		if err := h.fail[method]; err != nil {
+			return nil, err
+		}
+		if err := h.failCalls[method+" "+strings.Join(params, " ")]; err != nil {
 			return nil, err
 		}
 		if method == "wait.connection" && len(h.waits) > 0 {
@@ -71,7 +76,7 @@ func (h *fakeHost) install(t *testing.T) {
 		case "virt.vbox.vm.start":
 			h.state = "running"
 		case "virt.vbox.vm.stop":
-			h.state = "saved"
+			h.state = "poweroff"
 		case "virt.fusion.vm.start":
 			h.state = "on"
 		case "virt.fusion.vm.stop":
@@ -81,6 +86,10 @@ func (h *fakeHost) install(t *testing.T) {
 	}
 }
 
+// shutdownCall is how the box is put back, as it reaches pleiades: the
+// guest's power button, with five minutes to shut down.
+const shutdownCall = "vengeance virt.vbox.vm.stop name=box-vm mode=acpi timeout=300"
+
 var testBox = Box{Host: Pleiades{Device: "vengeance"}, Device: Pleiades{Device: "box-1"}, VM: "box-vm"}
 
 // bootWaitCall is the box's wait after a start, as it reaches pleiades:
@@ -89,12 +98,12 @@ var testBox = Box{Host: Pleiades{Device: "vengeance"}, Device: Pleiades{Device: 
 const bootWaitCall = "box-1 wait.connection timeout=600 backoff=exponential sleep=2 max_sleep=30 steady=3 steady_interval=10 connect_timeout=10"
 
 // TestRunWithBox_StartsAnOffBoxAndPutsItBack: a box that is not running is
-// started and waited for before the flow, and saved after it, whatever the
-// tests did; one already running is left as it was.
+// started and waited for before the flow, and shut down after it, whatever
+// the tests did; one already running is left as it was.
 func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 	inRepo(t)
 	for _, passed := range []bool{true, false} {
-		h := &fakeHost{state: "saved"}
+		h := &fakeHost{state: "poweroff"}
 		h.install(t)
 		leg := &fakeLeg{passed: passed}
 		var out, errOut bytes.Buffer
@@ -103,18 +112,32 @@ func TestRunWithBox_StartsAnOffBoxAndPutsItBack(t *testing.T) {
 			"vengeance virt.vbox.vm.info name=box-vm",
 			"vengeance virt.vbox.vm.start name=box-vm",
 			bootWaitCall,
-			"vengeance virt.vbox.vm.stop name=box-vm mode=save",
+			shutdownCall,
 		}
-		if strings.Join(h.calls, "\n") != strings.Join(want, "\n") || h.state != "saved" {
+		if strings.Join(h.calls, "\n") != strings.Join(want, "\n") || h.state != "poweroff" {
 			t.Errorf("passed %v: calls %q, state %s", passed, h.calls, h.state)
 		}
-		if (code == 0) != passed || !strings.Contains(out.String(), "starting the VM box-vm on vengeance (it was saved)") ||
-			!strings.Contains(out.String(), "put the VM box-vm back on vengeance") || strings.Join(leg.steps, " ") != "reachable ready ship test" {
+		if (code == 0) != passed || !strings.Contains(out.String(), "starting the VM box-vm on vengeance (it was poweroff); it is put back, shut down, when the run ends") ||
+			!strings.Contains(out.String(), "put the VM box-vm back on vengeance, shut down") || strings.Join(leg.steps, " ") != "reachable ready ship test" {
 			t.Errorf("passed %v: code %d, steps %v\n%s%s", passed, code, leg.steps, out.String(), errOut.String())
 		}
 	}
 
-	h := &fakeHost{state: "running"}
+	// A guest that does not shut down on its power button has its power cut.
+	h := &fakeHost{state: "poweroff", failCalls: map[string]error{"virt.vbox.vm.stop name=box-vm mode=acpi timeout=300": errors.New("still running after 300s")}}
+	h.install(t)
+	var out bytes.Buffer
+	if code := runWithBox(context.Background(), options(t, "a/b"), flow, &fakeLeg{passed: true}, testBox, &out, &bytes.Buffer{}); code != 0 || h.state != "poweroff" {
+		t.Errorf("a stubborn guest: code %d, state %s, calls %q", code, h.state, h.calls)
+	}
+	if got := h.calls[3:]; len(got) != 2 || got[0] != shutdownCall || got[1] != "vengeance virt.vbox.vm.stop name=box-vm mode=poweroff" {
+		t.Errorf("calls after the wait: %q", got)
+	}
+	if !strings.Contains(out.String(), "did not shut down on its own (still running after 300s); cutting its power") {
+		t.Errorf("the power cut was not said:\n%s", out.String())
+	}
+
+	h = &fakeHost{state: "running"}
 	h.install(t)
 	if code := runWithBox(context.Background(), options(t, "a/b"), flow, &fakeLeg{passed: true}, testBox, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 ||
 		len(h.calls) != 1 || h.state != "running" {
@@ -162,8 +185,8 @@ func TestBoxUp_WaitsForASteadyStreak(t *testing.T) {
 	}
 }
 
-// TestRunWithBox_AnInterruptedRunStillPutsItBack: the box is saved after
-// an interrupt too, with a context of its own.
+// TestRunWithBox_AnInterruptedRunStillPutsItBack: the box is shut down
+// after an interrupt too, with a context of its own.
 func TestRunWithBox_AnInterruptedRunStillPutsItBack(t *testing.T) {
 	inRepo(t)
 	h := &fakeHost{state: "poweroff"}
@@ -172,7 +195,7 @@ func TestRunWithBox_AnInterruptedRunStillPutsItBack(t *testing.T) {
 	cancel()
 	leg := &fakeLeg{testErr: errors.New("interrupted; the tests on box-1 were stopped")}
 	code := runWithBox(ctx, options(t, "a/b"), flow, leg, testBox, &bytes.Buffer{}, &bytes.Buffer{})
-	if code != 2 || h.state != "saved" {
+	if code != 2 || h.state != "poweroff" || h.calls[len(h.calls)-1] != shutdownCall {
 		t.Errorf("code %d, state %s, calls %q", code, h.state, h.calls)
 	}
 }
@@ -226,7 +249,7 @@ func TestRunWithBox_PrepareHandsTheBoxToTest(t *testing.T) {
 	if code := runWithBox(context.Background(), options(t, "-phase", "test", "-ready-file", ready, "a/b"), flow, &fakeLeg{passed: true}, testBox, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("test: %d", code)
 	}
-	if h.state != "saved" || len(h.calls) != 2 {
+	if h.state != "poweroff" || len(h.calls) != 2 {
 		t.Errorf("after test the box is %s, calls %q", h.state, h.calls)
 	}
 	if startedByPrepare("") || startedByPrepare(filepath.Join(t.TempDir(), "absent")) {

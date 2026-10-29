@@ -380,6 +380,15 @@ story, per `.AGENTS/AGENTS.md`.
 345. **A dashboard's stage state comes from an explicit marker the producer prints, not from inferring order from other lines (2026-10-27).**
 346. **A machine kept only for checks cleans before every run instead of refusing with advice (2026-10-27).**
 347. **A repeat in kind of 342: each new leg or configuration's first full run finds a different first failure, so run it end to end early and expect it to fail (2026-10-27).**
+348. **A new field on a type that something copies by naming its fields is added to the copy in the same change; and an id that gains a suffix gets every lookup by the old id changed, in every tier (2026-10-27).**
+349. **A retry, an ignore and a cancel each name what they cover: only the method's own failure is retried, an ignored or retried failure stays a failure in the record, and a stopped wait is the task's failure (2026-10-27).**
+350. **A filter that several tiers must agree on is one function they all call, and it looks inside nested values; the loader refuses what the runtime would drop (2026-10-27).**
+351. **A test harness that wires a production object by hand copies every option the composition root passes, and a scripted edit asserts its target is present (2026-10-27).**
+352. **Read a release row's recorded reasoning before proposing to move work into it (2026-10-28).**
+353. **The skill and the docs are claims: each runbook they teach is validated by a test that runs everywhere (a repeat of 301) (2026-10-28).**
+354. **An audit that finds nothing in part of its scope says why: nothing there, or nothing wrong (a repeat of 211) (2026-10-28).**
+355. **A resource policy lives in the one tool every environment already runs (testgate, with tools/internal/headroom), with numbers measured there and moved from its records; what is cut to make room is removed, not flagged off (2026-10-29).**
+356. **Stopping a run is itself an action with side effects: let a machine that is shutting down finish, because a power cut is never free once the machine keeps data of its own.**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

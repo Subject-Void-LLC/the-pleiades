@@ -104,6 +104,13 @@ type LabCheck struct {
 	BoxWait []string
 	// Box is the hypervisor the VM is on: VirtualBoxBox when unset.
 	Box BoxMethods
+	// DataKey, optional, names the setting for the directory on the machine
+	// every run's variable data goes under: its trees, its Go build and
+	// module caches and its temporary files. On a lab VM it is a second disk
+	// mounted there (virt.vbox.vm.attach_disk), apart from the system's, so
+	// the check wipes it before each run, and, with the VM shut down, it can
+	// be compacted or made again. Unset, or set to nothing, the login's home.
+	DataKey string
 }
 
 // boxMethods is c's hypervisor, VirtualBox's when unset.
@@ -120,13 +127,17 @@ func (c LabCheck) keys() []string {
 	if c.VMHostKey != "" {
 		keys = append(keys, c.VMHostKey, c.VMKey)
 	}
+	if c.DataKey != "" {
+		keys = append(keys, c.DataKey)
+	}
 	return keys
 }
 
 // Run is a lab check's main, with its arguments, its output and the
-// machine given (leg makes it from the project and device the settings
-// name), so tests drive every step but the real device.
-func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writer, leg func(project, device string) (Leg, error)) int {
+// machine given (leg makes it from the project, the device and the data
+// directory the settings name, the last "" when none is set), so tests
+// drive every step but the real device.
+func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writer, leg func(project, device, data string) (Leg, error)) int {
 	fs := flag.NewFlagSet(c.Tool, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	o := Flags(fs, "the "+c.Kind)
@@ -162,9 +173,13 @@ func (c LabCheck) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "%s: %v\n%s\n", c.Tool, err, advice)
 		return 2
 	}
-	l, err := leg(project, device)
+	data := ""
+	if c.DataKey != "" {
+		data = s.Values[c.DataKey]
+	}
+	l, err := leg(project, device, data)
 	if err != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", c.Tool, err)
+		fmt.Fprintf(stderr, "%s: %v\n%s\n", c.Tool, err, advice)
 		return 2
 	}
 	flow := Flow{Tool: c.Tool, Machine: "the " + c.Kind, OS: c.OS, Target: device, Advice: advice}

@@ -14,44 +14,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
-// The kinds of run warning.
+// The kinds of run warning, clireport's (it publishes them as the schema's
+// known values).
 const (
-	// warnConcurrentRun is another live run on some of this run's devices
-	// when it started, or still running when it ended.
-	warnConcurrentRun = "concurrent_run"
-	// warnConcurrentChange is another run's journaled change to some of
-	// this run's devices while this run worked.
-	warnConcurrentChange = "concurrent_change"
-	// warnConcurrentUnknown is a part of that question this run could not
-	// answer: a record it could not write, or a journal it could not read.
-	warnConcurrentUnknown = "concurrent_unknown"
+	warnConcurrentRun     = clireport.WarnConcurrentRun
+	warnConcurrentChange  = clireport.WarnConcurrentChange
+	warnConcurrentUnknown = clireport.WarnConcurrentUnknown
 )
 
 // runWarning is something about the run as a whole that the person running
-// it has to know, shown in the text view and kept in --json.
-type runWarning struct {
-	// Kind is concurrent_run, concurrent_change or concurrent_unknown.
-	Kind string `json:"kind"`
-	// When is "start" for what the run found as it began, "end" for what
-	// it found as it ended.
-	When string `json:"when"`
-	// Message is the line the text view prints.
-	Message string `json:"message"`
-	// RunID names the other run, for a concurrent_change: what `pleiades
-	// journal show` takes.
-	RunID string `json:"run_id,omitempty"`
-	// Runbook is what the other run runs.
-	Runbook string `json:"runbook,omitempty"`
-	// PID is the other run's process, for a concurrent_run.
-	PID int `json:"pid,omitempty"`
-	// Devices names the devices the two runs share.
-	Devices []string `json:"devices,omitempty"`
-}
+// it has to know (clireport.RunWarning).
+type runWarning = clireport.RunWarning
 
 // concurrency is a changing run's record and what it needs at its end.
 type concurrency struct {

@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -230,18 +231,25 @@ func runDownload(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	case exitNoFolder:
 		return collection.Result{}, fmt.Errorf("%s: the folder %s does not exist on %s", fqcn, d.path[:strings.LastIndex(d.path, `\`)+1], device.Name())
 	case exitFetch:
-		return collection.Result{}, fmt.Errorf("%s: curl could not fetch %s (exit %s): %s", fqcn, d.url, out["curl"], strings.TrimSpace(res.Stderr))
+		// curl writes its reason last, after any progress, so the end is kept.
+		return collection.Result{}, fmt.Errorf("%s: curl could not fetch %s (exit %s): %s", fqcn, d.url, shown(out["curl"], exitPattern), farside.OutputTail(res.Stderr))
 	case exitMismatch:
-		return collection.Result{}, fmt.Errorf("%s: %s has SHA-256 %s, not %s; nothing was written to %s", fqcn, d.url, out["got"], d.sha256, d.path)
+		return collection.Result{}, fmt.Errorf("%s: %s has SHA-256 %s, not %s; nothing was written to %s", fqcn, d.url, shown(out["got"], digestPattern), d.sha256, d.path)
 	default:
-		return collection.Result{}, fmt.Errorf("%s: the host's script exited %d: %s", fqcn, res.ExitCode, strings.TrimSpace(res.Stderr+" "+res.Stdout))
+		return collection.Result{}, fmt.Errorf("%s: the host's script exited %d: %s", fqcn, res.ExitCode, farside.Output(res.Stderr+"\n"+res.Stdout))
 	}
-	before, ok := out["before"]
+	before, ok, err := reportedDigest(out, "before")
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	if !ok {
-		return collection.Result{}, fmt.Errorf("%s: the host did not report the file's digest: %q", fqcn, res.Stdout)
+		return collection.Result{}, fmt.Errorf("%s: the host did not report the file's digest: %s", fqcn, farside.Output(res.Stdout))
 	}
 	changed := before != d.sha256
-	after := out["after"]
+	after, _, err := reportedDigest(out, "after")
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	if mode == collection.ModeCheck && changed {
 		after = d.sha256
 	}
@@ -260,6 +268,35 @@ func runDownload(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return collection.Result{Changed: changed}, nil
+}
+
+// reportedDigest returns the SHA-256 the host's script reported under key,
+// and whether it reported one. The script prints a digest in hex, or
+// nothing for a file that is not there; any other value is not the
+// script's answer, so it is refused with its text bounded and quoted
+// (pkg/farside) rather than carried whole into an error, a stat or a diff.
+func reportedDigest(out map[string]string, key string) (string, bool, error) {
+	value, ok := out[key]
+	if !ok {
+		return "", false, nil
+	}
+	if value != "" && !digestPattern.MatchString(value) {
+		return "", true, fmt.Errorf("the host reported %s=%s, which is not a SHA-256", key, farside.Text(value))
+	}
+	return value, true, nil
+}
+
+// exitPattern is an exit status as the script prints one.
+var exitPattern = regexp.MustCompile(`^-?[0-9]{1,10}$`)
+
+// shown is a value the host's script reported, for an error: as it is when
+// it is what the script prints (well matches it), and otherwise bounded and
+// quoted (pkg/farside), since then it is not the script's answer.
+func shown(value string, well *regexp.Regexp) string {
+	if well.MatchString(value) {
+		return value
+	}
+	return farside.Text(value)
 }
 
 // answers reads the script's key=value lines.

@@ -8,13 +8,14 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
 
-// runPieces runs every piece: the whole ones together in one go test, as a
-// run without pieces always did, then each part of a package alone, since a
-// -run or -skip applies to every package of the invocation it is on. The
-// events come back together, with the first exit error (waitErr), which a
-// failing test also causes. A go test that produced nothing at all, which no
-// later step can read anything from, is err.
-func runPieces(args []string, pieces []piece) (events []flakegate.Event, waitErr, err error) {
+// runPieces runs every piece under obs: the whole ones together in one go
+// test, as a run without pieces always did, then each part of a package
+// alone, since a -run or -skip applies to every package of the invocation
+// it is on. The events come back together, with the first exit error
+// (waitErr), which a failing test also causes. A go test that produced
+// nothing at all, which no later step can read anything from, is err. A
+// run obs stopped ends after the go test it stopped.
+func runPieces(args []string, pieces []piece, obs *guard) (events []flakegate.Event, waitErr, err error) {
 	var whole []string
 	for _, p := range pieces {
 		if p.filter() == nil {
@@ -22,7 +23,10 @@ func runPieces(args []string, pieces []piece) (events []flakegate.Event, waitErr
 		}
 	}
 	run := func(args, packages []string) error {
-		got, err := flakegate.RunGoTestJSONPackages(args, packages, testOutput)
+		if obs.Stopped() != "" {
+			return nil
+		}
+		got, err := flakegate.RunGoTestJSONObserved(args, packages, testOutput, obs)
 		if err != nil && len(got) == 0 {
 			return fmt.Errorf("go test produced no output at all for %v: %w", packages, err)
 		}

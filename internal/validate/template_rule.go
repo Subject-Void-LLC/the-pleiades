@@ -34,7 +34,9 @@ import (
 //     project file is replaced;
 //   - a secret reference, {{ secret.<name>.<field> }}, appears only in a
 //     parameter its method resolves itself (collection.Param.SecretRefs),
-//     written exactly so and standing apart from any other expression.
+//     written exactly so and standing apart from any other expression,
+//     statement or comment, since a string holding one is passed to the
+//     method as written.
 //
 // A rendered target is held to the same rules, and to within: besides,
 // which the runbook builder requires beside it. A task's rollback: steps
@@ -58,6 +60,17 @@ func TemplateRule(world WorldView) []Finding {
 		if task.LockAcquisition == engine.AcquisitionAllAtPlanTime && (engine.ParamsReadRoot(eng, task.Params, engine.TemplateRootDevice) || conditionReadsDevice(task)) {
 			findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s: %s", taskName(id, task), engine.ErrDeviceRootLockAll)})
 		}
+		// A loop written as one expression is rendered before any item exists,
+		// so it may read what a parameter may, except the item.
+		if src, ok := loopExpression(task); ok {
+			if tmpl, err := eng.Compile(src); err != nil {
+				findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s, loop: %v", taskName(id, task), err)})
+			} else {
+				for _, problem := range engine.TemplateProblems(tmpl, "") {
+					findings = append(findings, Finding{RuleName: "template", Node: id, Message: fmt.Sprintf("task %s, loop: %s", taskName(id, task), problem)})
+				}
+			}
+		}
 		if !engine.HasTemplate(task.Params) {
 			continue
 		}
@@ -70,10 +83,10 @@ func TemplateRule(world WorldView) []Finding {
 		sort.Strings(keys)
 		for _, key := range keys {
 			for _, source := range engine.TemplateStrings(task.Params[key]) {
-				problems := checkTemplate(eng, source, formats[key], registered, task.Register)
+				problems := checkTemplate(eng, source, formats[key], registered, task)
 				if key == collection.TargetParam {
 					if tmpl, err := eng.Compile(source); err == nil {
-						problems = append(problems, engine.TargetTemplateProblems(tmpl)...)
+						problems = append(problems, engine.TargetTemplateProblems(tmpl, task)...)
 					}
 				}
 				// A secret reference is the method's to resolve, never the
@@ -97,12 +110,13 @@ func TemplateRule(world WorldView) []Finding {
 // checkTemplate returns what is wrong with one template string, or nothing:
 // the executor's own rules (engine.TemplateProblems) plus the one only the
 // whole runbook can answer, whether a register it reads exists.
-func checkTemplate(eng render.Engine, source string, format collection.ParamFormat, registered map[string]bool, own string) []string {
+func checkTemplate(eng render.Engine, source string, format collection.ParamFormat, registered map[string]bool, task *engine.Task) []string {
+	own := task.Register
 	tmpl, err := eng.Compile(source)
 	if err != nil {
 		return []string{err.Error()}
 	}
-	problems := engine.TemplateProblems(tmpl, format)
+	problems := engine.TaskTemplateProblems(tmpl, format, task)
 	for _, expr := range tmpl.Expressions() {
 		root := expr.Path[0]
 		if (root != engine.TemplateRootNodes && root != engine.TemplateRootResult) || len(expr.Path) < 2 {
@@ -116,6 +130,17 @@ func checkTemplate(eng render.Engine, source string, format collection.ParamForm
 		}
 	}
 	return problems
+}
+
+// loopExpression returns the task's loop when it is written as an
+// expression.
+func loopExpression(task *engine.Task) (string, bool) {
+	var src any = task.Loop
+	if src == nil {
+		src = task.WithItems
+	}
+	text, ok := src.(string)
+	return text, ok && text != ""
 }
 
 // conditionReadsDevice reports whether task's condition reads the device

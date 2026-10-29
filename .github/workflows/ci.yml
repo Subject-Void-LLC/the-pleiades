@@ -23,10 +23,19 @@ name: CI
 #               (make coverage-measured), not from a fourth run
 #   nightly     the whole suite with no tolerance at all (make test-full),
 #               so a flake rate is measured rather than forgiven
-#   winrm       the WinRM gates against the Windows runner's own WinRM
-#               service; experimental until it has passed here
 #   vulns       govulncheck on the schedule, since a new advisory needs no
 #               code change to land (make govulncheck)
+#
+# Every test job runs tools/testgate, which holds the runner to the one
+# memory and disk policy every other machine runs under
+# (tools/internal/headroom): -p lowered to what the free memory fits, the
+# run refused on a disk under 4 GB, and stopped before the runner runs
+# out, with each package's cost in the record.
+#
+# The experimental winrm job (the WinRM gates against the Windows runner's
+# own service) was cut on 2026-10-29: it had never passed and blocked
+# nothing, and the lab's win-check VM is the WinRM target the pre-push gate
+# tests. It can come back as its own change.
 #
 # The fast and container jobs apply push-gate's rule: a failure that passes
 # when re-run alone is contention, reported in the job summary, and a
@@ -378,33 +387,3 @@ jobs:
         run: make tools
       - name: make govulncheck
         run: make govulncheck
-
-  winrm:
-    # The WinRM gates against the Windows runner's own WinRM service, set up
-    # by the same script the lab uses (examples/windows_lab), connecting
-    # over loopback, which the listener's certificate covers. Experimental:
-    # it claims nothing until it has passed here, and its failure blocks
-    # nothing until then.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    continue-on-error: true
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: ./.github/actions/setup-go
-      # The runner image ships its own HTTPS listener, and WinRM allows one,
-      # so the script must replace it. It refuses to by default because its
-      # teardown cannot put a foreign listener back; this runner is thrown
-      # away after the job, so there is nothing to put back.
-      - name: Set up the WinRM certificate listener
-        shell: powershell
-        run: ./examples/windows_lab/winrm-cert-setup.ps1 -AllowedSubnet 127.0.0.0/8 -OutputDirectory "$env:RUNNER_TEMP\pleiades-gate" -ReplaceExistingListener
-      - name: WinRM gates
-        shell: bash
-        env:
-          PLEIADES_WINRM_HOST: 127.0.0.1
-          PLEIADES_WINRM_PORT: "5986"
-          PLEIADES_WINRM_PFX: ${{ runner.temp }}\pleiades-gate\client.pfx
-          PLEIADES_WINRM_PFX_PASSWORD_FILE: ${{ runner.temp }}\pleiades-gate\client.pfx.passphrase
-          PLEIADES_WINRM_CA: ${{ runner.temp }}\pleiades-gate\ca.pem
-        run: go test -count=1 -v -run 'ReleaseGate|Stress|Stranger|SilentPort' ./pkg/winrmexec/ ./internal/transport/winrm/

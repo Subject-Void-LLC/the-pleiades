@@ -257,6 +257,29 @@ type NodeResult struct {
 	skipKind     SkipKind
 	skipOrdinal  int
 	skipTotal    int
+
+	// Iteration says which run of a task this result is, when the task ran
+	// more than once on the device: ".item[2]" for the third item of a loop,
+	// ".attempt[1]" for the second try of an until, both for an item's retry.
+	// Empty for a task that ran once. The journal records the result under
+	// the node id with this appended, so each run is its own entry and a
+	// rollback undoes them one by one (journal_entry.go).
+	Iteration string
+
+	// Label is the loop_control label of this item, when the author wrote one.
+	// An item's own value is never printed by default, since it may be a
+	// secret.
+	Label string
+
+	// Ignored says the task sets ignore_errors, so this failure did not stop
+	// the run or fail it. Err still holds the failure and the journal records
+	// it as one.
+	Ignored bool
+
+	// Retried says this failure was tried again, so it did not fail the task;
+	// only the last try can. Err still holds the failure and the journal
+	// records it as one.
+	Retried bool
 }
 
 // fail records err as n's failure and tags it with the stage that
@@ -355,7 +378,7 @@ type RunResult struct {
 // rescue: answered aside.
 func (r RunResult) HasErrors() bool {
 	for _, n := range r.Nodes {
-		if n.Err != nil && n.RescuedBy == "" {
+		if n.Err != nil && n.RescuedBy == "" && !n.Ignored && !n.Retried {
 			return true
 		}
 	}
@@ -414,6 +437,10 @@ type Executor struct {
 	// renderer renders a task's params that hold a template (WithRenderer,
 	// render_params.go); nil refuses such a task.
 	renderer render.Engine
+
+	// templateFiles reads the project file a template-file parameter names
+	// (WithTemplateFiles, template_source.go); nil on a Runner.
+	templateFiles TemplateFileReader
 
 	// rollback, when its of is set, marks every entry this Executor
 	// journals as part of a rollback (WithRollback).
@@ -617,6 +644,9 @@ type run struct {
 	// a level's goroutines, so itemsMu guards it.
 	itemsMu sync.Mutex
 	items   map[string]inventory.InventoryItem
+
+	// facts holds what set_fact tasks have set, by device (vars.go).
+	facts *factStore
 }
 
 // modeFor is the mode task runs in (TaskMode): a check whenever the run
@@ -650,6 +680,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		undoTasks: map[string]*Task{},
 		undone:    map[resultKey]bool{},
 		items:     map[string]inventory.InventoryItem{},
+		facts:     newFactStore(),
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
@@ -705,6 +736,15 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		outs := runConcurrently(level, func(nodeID string) []NodeResult {
 			return r.runNode(ctx, nodeID)
 		})
+		// A failure of a task that sets ignore_errors is recorded as the failure
+		// it is, and the run carries on past it.
+		for _, out := range outs {
+			for i := range out {
+				if t := r.dag.Nodes[out[i].NodeID]; t != nil && t.IgnoreErrors && out[i].Err != nil && out[i].failureStage.judgesTheRun() {
+					out[i].Ignored = true
+				}
+			}
+		}
 
 		// The journal is written here, before the failure scan below can
 		// break out of the loop, because the level that failed is the one
@@ -721,7 +761,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		for _, out := range outs {
 			result.Nodes = append(result.Nodes, out...)
 			for _, nr := range out {
-				if nr.Err != nil && (nr.Checked || !r.handlers.failed(nr)) {
+				if nr.Err != nil && !nr.Ignored && !nr.Retried && (nr.Checked || !r.handlers.failed(nr)) {
 					failed = true
 				}
 			}
@@ -751,6 +791,10 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 	if it.Err() != nil {
 		err = it.Err()
 		return
+	}
+	// A run stopped part way, on its last level too, is not a complete one.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = ctxErr
 	}
 	return
 }
@@ -879,13 +923,18 @@ func (r *run) prepare(nodeID string, task *Task, started time.Time, device strin
 		// to an empty map so a condition can reference vars.foo on an
 		// Executor no caller supplied one for. "error" is the failure a
 		// rescue task answers, and is there only for one.
-		extraVars := r.x.extraVars
-		if extraVars == nil {
-			extraVars = map[string]interface{}{}
+		vars, err := r.mergedVars(task, roots)
+		if err != nil {
+			failed := failedNode(nodeID, started, FailureStageConditionEval,
+				fmt.Errorf("failed to resolve the variables for %s: %w", taskLabel(nodeID, task), err))
+			failed.Device = device
+			return nil, &failed
 		}
-		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars, "result": singleWriters(tree)}
+		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": vars, "result": singleWriters(tree)}
 		for k, v := range roots {
-			condVars[k] = v
+			if k != hostVarsRoot {
+				condVars[k] = v
+			}
 		}
 		var res ConditionResult
 		if r.modeFor(task) == collection.ModeCheck {
@@ -1141,44 +1190,49 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	var err error
 	mode := r.modeFor(cmd.Task)
 	result.Checked = mode == collection.ModeCheck
-	switch mode {
-	case collection.ModeExecute:
-		actionResult, err = r.x.actions.Execute(execCtx, cmd.Task, cmd.Device)
-		r.recordActionSecrets(actionResult)
-		if err == nil {
-			err = refusePrediction(cmd.Task.FQCN, actionResult.Stats)
-		}
-	case collection.ModeCheck:
-		actionResult, err = r.checkAction(execCtx, cmd)
-		r.recordActionSecrets(actionResult)
-		// An action that cannot be checked is reported by name and the
-		// walk carries on (check.go's second rule). It is not a failure,
-		// so it gets no failure stage, and nothing is registered for it:
-		// a later condition reading its result is handled in runNode.
-		var unchecked *UncheckedError
-		if errors.As(err, &unchecked) {
-			r.markUnchecked(cmd.Task, result.Device, false)
-			result.Skipped = true
-			result.Unchecked = true
-			result.SkipReason = unchecked.Error()
-			r.publish(cmd.NodeID, cmd.Task, host, "skipped", "could not check: "+unchecked.Reason)
-			return finish(result)
-		}
-		// A provisional check that failed says nothing about the step: what
-		// it was checked against is not what the step will meet.
-		if reason, ok := r.x.provisional[cmd.NodeID]; ok && err != nil && ctx.Err() == nil {
-			if _, held := HoldOf(err); !held {
+	if isAssert(cmd.Task.FQCN) && cmd.Task.progs != nil && cmd.Task.progs.assert != nil {
+		// An assert reads the run's state, which only the engine holds.
+		actionResult, err = r.runAssert(cmd, result.Device)
+	} else {
+		switch mode {
+		case collection.ModeExecute:
+			actionResult, err = r.x.actions.Execute(execCtx, cmd.Task, cmd.Device)
+			r.recordActionSecrets(actionResult)
+			if err == nil {
+				err = refusePrediction(cmd.Task.FQCN, actionResult.Stats)
+			}
+		case collection.ModeCheck:
+			actionResult, err = r.checkAction(execCtx, cmd)
+			r.recordActionSecrets(actionResult)
+			// An action that cannot be checked is reported by name and the
+			// walk carries on (check.go's second rule). It is not a failure,
+			// so it gets no failure stage, and nothing is registered for it:
+			// a later condition reading its result is handled in runNode.
+			var unchecked *UncheckedError
+			if errors.As(err, &unchecked) {
 				r.markUnchecked(cmd.Task, result.Device, false)
 				result.Skipped = true
 				result.Unchecked = true
-				result.SkipReason = "provisional: " + reason + "; checked against the device as it is now, it failed: " + err.Error()
-				r.publish(cmd.NodeID, cmd.Task, host, "skipped", "could not check: provisional: "+reason)
+				result.SkipReason = unchecked.Error()
+				r.publish(cmd.NodeID, cmd.Task, host, "skipped", "could not check: "+unchecked.Reason)
 				return finish(result)
 			}
+			// A provisional check that failed says nothing about the step: what
+			// it was checked against is not what the step will meet.
+			if reason, ok := r.x.provisional[cmd.NodeID]; ok && err != nil && ctx.Err() == nil {
+				if _, held := HoldOf(err); !held {
+					r.markUnchecked(cmd.Task, result.Device, false)
+					result.Skipped = true
+					result.Unchecked = true
+					result.SkipReason = "provisional: " + reason + "; checked against the device as it is now, it failed: " + err.Error()
+					r.publish(cmd.NodeID, cmd.Task, host, "skipped", "could not check: provisional: "+reason)
+					return finish(result)
+				}
+			}
+		default:
+			// Never treated as execute: see WithMode.
+			err = fmt.Errorf("unknown execution mode %q, so nothing was run", mode)
 		}
-	default:
-		// Never treated as execute: see WithMode.
-		err = fmt.Errorf("unknown execution mode %q, so nothing was run", mode)
 	}
 	if err != nil && limit > 0 && errors.Is(execCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 		// Said in so many words, since the method's own error describes only
@@ -1229,6 +1283,39 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	result.journalStats = actionResult.Stats
 	result.journalChanged = actionResult.Changed
 
+	// changed_when and failed_when classify the finished run from its own
+	// result. They change what is reported, never what the journal records of
+	// the action: a change the method made is still one a rollback undoes.
+	if p := cmd.Task.progs; p != nil && (p.failed != nil || p.changed != nil) {
+		own := actionResult.Stats
+		if own == nil {
+			own = map[string]interface{}{}
+		}
+		if p.failed != nil {
+			bad, ferr := r.holds(p.failed, cmd.Task, result.Device, ownRoots(cmd), own)
+			if ferr != nil || bad {
+				cause := fmt.Errorf("failed_when held")
+				if ferr != nil {
+					cause = fmt.Errorf("failed to evaluate failed_when: %w", ferr)
+				}
+				// Its own stage, so the journal tells a run the author's
+				// failed_when failed from one the method itself failed.
+				result.fail(FailureStageFailedWhen, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), cause))
+				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
+				return finish(result)
+			}
+		}
+		if p.changed != nil {
+			changed, cerr := r.holds(p.changed, cmd.Task, result.Device, ownRoots(cmd), own)
+			if cerr != nil {
+				result.fail(FailureStageChangedWhen, fmt.Errorf("task %s failed: failed to evaluate changed_when: %w", taskLabel(cmd.NodeID, cmd.Task), cerr))
+				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
+				return finish(result)
+			}
+			actionResult.Changed = changed
+		}
+	}
+
 	// register_mask marks fields of this task's own just-computed result as
 	// secret, before Register/Merge below records it anywhere: this way a
 	// masked value is unmasked in WorkflowContext (when_cel must always see
@@ -1239,7 +1326,21 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		return finish(result)
 	}
 
-	if cmd.Task.Register != "" {
+	// A set_fact's facts belong to the device it ran for, from here on.
+	if isSetFact(cmd.Task.FQCN) {
+		opts := optionsOf(cmd.Task)
+		if opts.global {
+			if err := r.facts.setGlobal(cmd.NodeID, result.Device, actionResult.Stats, opts.noOverride); err != nil {
+				result.fail(FailureStageRecord, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
+				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
+				return finish(result)
+			}
+		} else {
+			r.facts.set(result.Device, actionResult.Stats, opts.noOverride)
+		}
+	}
+
+	if cmd.Task.Register != "" && !cmd.Task.noMerge {
 		if err := r.x.workflow.Merge(cmd.Task.Register, result.Device, actionResult.Stats); err != nil {
 			result.fail(FailureStageRecord, fmt.Errorf("failed to record result of task %s: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 			r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())

@@ -24,9 +24,9 @@ Asks the target provider's model each prompt of the set in turn, as ai.chat asks
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `model` | `string` | yes | - | The model to ask for, as the provider names it. |
-| `prompts` | `list of dict` | yes | - | The prompt set, up to 200: each {id, text or messages, expect}, where expect is one of exact (the answer, trimmed, equals it), contains, regex (RE2) and json_field ({path, equals}: the answer read as JSON holds equals at path, a dotted list of keys). |
+| `prompts` | `list of dict` | yes | - | The prompt set, up to 200: each {id, text or messages, expect}, where expect is exact (the answer, trimmed, equals it), contains, regex (RE2) or json_field ({path, equals}: the answer read as JSON holds equals at path, a dotted list of keys). |
 | `save_as` | `string` | no | - | A file name under the project's ai/bench (run1.json) the results are saved to, with each answer cut to 4 KiB; never written over. Crawl tier only. |
-| `residency` | `string` | no | - | The use's residency. local refuses a provider whose record says hosted, before contact and at validate; hosted admits either. |
+| `residency` | `string` | no | - | The use's residency. local refuses a provider whose record says hosted, before contact and at validate; hosted admits either. **Choices:** `local`, `hosted`. |
 | `temperature` | `float` | no | - | Sampling temperature, 0 to 2. A kind that does not accept a parameter reports it ignored and does not send it. |
 | `top_p` | `float` | no | - | Nucleus sampling, 0 to 1. |
 | `max_tokens` | `int` | no | - | The most tokens the answer may take, 1 to 1000000. A check prices the answer at this many; without it the answer's cost is unbounded. |
@@ -45,6 +45,8 @@ Asks the target provider's model each prompt of the set in turn, as ai.chat asks
 | `passed` | `int` | success | How many prompts passed. |
 | `count` | `int` | always | How many prompts the set holds. |
 | `score` | `float` | success | passed divided by count. |
+| `provider` | `string` | success | The provider device the set was asked of. |
+| `model` | `string` | success | The model that answered, as the task named it. |
 | `cost` | `float` | when every call is priced | What the set cost, in currency. |
 | `currency` | `string` | when every call is priced | The price table's currency. |
 | `saved` | `string` | with save_as | The results file, relative to the project. |

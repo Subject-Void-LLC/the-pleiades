@@ -24,7 +24,7 @@ Makes sure a VM is not running. A VM that is already off, saved or aborted repor
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted. |
-| `mode` | `string` | no | `acpi` | acpi asks the guest to shut down; poweroff cuts its power; save keeps its state for virt.vbox.vm.start to resume. |
+| `mode` | `string` | no | `acpi` | acpi asks the guest to shut down; poweroff cuts its power; save keeps its state for virt.vbox.vm.start to resume. **Choices:** `acpi`, `poweroff`, `save`. |
 | `timeout` | `int` | no | `120` | With mode acpi, how many seconds to wait for the guest to shut down before failing. |
 
 ## Returns

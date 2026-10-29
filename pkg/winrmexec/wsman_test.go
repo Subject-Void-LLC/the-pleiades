@@ -312,7 +312,8 @@ func TestExchange_ARefusedCommandReadsAsItsFault(t *testing.T) {
 		"Command": {{err: fmt.Errorf(faultReplyF, "The system cannot find the file specified. ")}},
 	})
 	_, err := x.run(context.Background(), "nosuch.exe", "", shellSpec{})
-	if err == nil || err.Error() != "winrm: starting the command: The system cannot find the file specified." {
+	// The fault's sentence is the host's own text, quoted through pkg/farside.
+	if err == nil || err.Error() != `winrm: starting the command: "The system cannot find the file specified."` {
 		t.Errorf("err = %v", err)
 	}
 	var notStarted *NotStartedError

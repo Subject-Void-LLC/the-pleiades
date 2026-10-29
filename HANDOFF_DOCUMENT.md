@@ -4,78 +4,89 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-27. Branch `feat/phase-129-blind-lab-fixes`, off `origin/main` at `21ecd314`, 32 commits: Phases 129a to 129d
-as handed off on 2026-10-26, then 16 this session on top of `e3560066` (oldest first `8d868e52`, newest `e522586d`):
-review fixes, the run record fix, the Mac's container half, `pkg/vmrun` and `virt.fusion.vm.*`, the drive-root fix for
-`win.archive.extract`, and the Windows 11 ARM leg. Everything is committed through `e522586d` except these records. Not
-pushed; no pull request yet.**
+**2026-10-29. Branch `feat/authoring-parity-v0-3-0`, off `main` at `122b8c92`, through `7ff4ddab` plus this
+session's uncommitted tree. Not pushed, no pull request, `make pr-check` has not run on this tree, no tag cut.**
 
-### What works
+This session cut the test pipeline down to the Crawl and Walk tiers and gave it one memory and disk policy, at the
+owner's direction ("cut all fat that does not align with the current crawl walk tier"; "the same rigor of memory and
+disk space management across local, remote, and container environments"), then, at the owner's second direction,
+made the lab VMs shut down after a check and keep every run's variable data on a second disk.
 
-- Review fixes: `remove-host` reads the state file before it removes anything (`8d868e52`, `TestRemoveHost`); the engine
-  refuses `all_at_plan_time` on a rescue task reading `device` (`33e1e945`, `ErrRescueLockAll`, rescue case in
-  `TestDeviceRoot_EveryPathAndItsLimits`); the scaffold keeps an unknown `Format` and the module reference marks
-  SecretRefs parameters (`e7eb6ec2`).
-- testgate's run record keeps 400 lines of a failure (`2053f832`, `TestRecordFailureLines_KeepTheCauseBehindALoggedTeardown`).
-- Mac container half: `maccheck -containers` (`5d7391d7`) and pr-check's split (`0a555bab`,
-  `TestEveryContainerPackageIsClassified`). 18 packages passed on the Mac's Podman in 17m46s; `internal/ent` lost one
-  race and passed alone.
-- VMware Fusion: `pkg/vmrun` (`f4d292b4`, readers held to captures from a real Fusion 26.0.1), detached start and reset
-  (`eaace13a`, `TestDetachScript_*`), `virt.fusion.vm.info`, `start` (with `keep_awake`) and `stop` plus
-  `VMwareFusionCapable` and its probe (`14747aae`), the guest address asked again with `-wait` (`2846c008`, proven on the
-  Mac after a resume).
-- `win.archive.extract` into a drive root (`6465e007`, `TestScript_MakesADriveRootsTopFoldersFirst`), proven on the
-  Windows 11 ARM guest with Go 1.26.10 arm64 and MinGit.
-- `wincheck -arm64` (`b609aa03`) and the winarm leg chained on the Mac in pr-check (`4ba08943`): `winarmcheck` on 2
-  packages passed in 59 s on 2026-10-27, after the fix to the binary it ran.
-- Records: FAILURE_PATTERNS 668 to 679; LESSONS 338 to 342; CI_LESSONS 13 to 15; the e2e ledger entry annotated with
-  668; five changelog fragments (`win-archive-extract-drive-root.fixed`, `pr-check-mac-containers.added`,
-  `wincheck-arm64.added`, `testgate-record-lines.changed`, `reference-secret-refs.added`).
+### What works (unit-tested; the lab proofs are listed under Open)
 
-### Blocker
-
-- None. `make pr-check` with the new split recipe has not run end to end yet.
+- **Cut from pr-check, code removed:** the Mac's Podman share of the container packages (`testgate -host`,
+  `hosts.json`, `maccheck -containers`, `oscheck.Containers`), the Windows ARM leg (`wincheck -arm64` stays for a
+  hand run), and govulncheck (it runs in `make ci` and CI's `ci` job). The CI `winrm` job is gone. The Makefile's
+  pr-check recipe, the monitor (`tools/monitor`), prreport's part order, CLAUDE.md and `docs/design/os-checks.md`
+  say so. `PR_CHECK_PARTS` is now fast, coverage-fast, repeat, containers, durations, mac, bsd, win, images,
+  coverage, sizes.
+- **One policy, `tools/internal/headroom`, applied inside `tools/testgate`** (headroom.go there): the disk check
+  before anything builds (4 GB where the run builds and in TMPDIR), `-p` lowered to what the free memory fits
+  (1200 MB a package after 1 GB kept; a cgroup limit such as `capped`'s is read on Linux), `GOMEMLIMIT` at the
+  budget unless set, a sampler every 5 s charging each running package, a stop (SIGTERM to go test's own process
+  group, SIGKILL 30 s later) under 700 MB or 3 GB of swap growth, an interrupt forwarded the same way, and a
+  `headroom` field in every record (`flakegate.Headroom`; schema regenerated). Readers for Linux, macOS, FreeBSD and
+  Windows. Tests: `tools/internal/headroom` (89%), `tools/internal/flakegate` (93.6%, observed run and process group
+  proven against the real toolchain), `tools/testgate` (80.9%), archtest green.
+- **Lab VMs shut down, not saved:** `oscheck.Box.PutBack` is `virt.vbox.vm.stop mode=acpi timeout=300`, then
+  `mode=poweroff` if the guest did not shut down (`PutBackGrace` 8 min). Tests in `tools/internal/oscheck`.
+- **Data disk:** two new methods, `virt.vbox.vm.attach_disk` and `virt.vbox.vm.detach_disk` (catalog 212), with
+  `pkg/vboxmanage.AttachDiskAt`/`HasDisk`, tested against the model host; `PLEIADES_BSD_DATA`,
+  `PLEIADES_WINRM_DATA`, `PLEIADES_WINARM_DATA` name the directory, and every POSIX and Windows check script puts
+  the trees, GOCACHE, GOMODCACHE and TMPDIR/TEMP there and wipes leftovers before a run (`tools/internal/oscheck`,
+  `tools/bsdcheck`, `tools/wincheck` tests). Lab runbooks: `~/pleiades-lab/runbooks/bsd/check-06-data-disk.yaml`,
+  `check-07-data-mount.yaml`, `win/check-08-data-disk.yaml`, `check-09-data-mount.yaml` (all validate).
+- **The resources manifest (owner's ask, 2026-10-29: "min/max resources needed per test ... in a json manifest for
+  faster rebalancing", "disk usage should be known too"):** `tools/testgate/resources.json` holds, per unit (a package,
+  or a test of `tests/e2e`), the seconds, memory and disk ever recorded, least and most, with the run count, the last
+  date and the hosts. `testgate -resources-record` folds a run's measurements in (`make resources-record`), and
+  `testgate -resources-check` holds a run to it (pr-check's new `resources` step; `make coverage-measured`): an unknown
+  unit is named while `complete` is false and fails once it is true, and one far past its recorded most is named. A
+  local pass now packs its `-p` by the manifest's recorded memory for its packages (`packedParallelism`). The guard
+  samples disk too (`headroom.DiskWatch`): the record carries `package_disk_mb` and `min_disk_free_gb`, and the
+  measurement `disk_mb`, `test_memory_mb` and `test_disk_mb` for the divided packages' tests. The manifest is seeded
+  with seconds from `durations.json` and the last fast pass (269 units, `complete: false`); memory and disk fill as
+  gates and CI runs are folded in. Sharding still reads `durations.json`.
+- Lab: bsd-check's data disk (40 GB, `/dev/ada1p1` on `/data`) and win-check's (60 GB, `D:`) exist, made and
+  formatted through pleiades; `tests/bsd/.env` and `tests/win/.env` name them. FAILURE_PATTERNS 726 (a restart right
+  after a shutdown left the VM off once; the start by hand worked).
+- Records: LESSONS 355, FAILURE_PATTERNS 726 to 734 (727: the first Windows proof found the test script bypassing
+  the data directory's env; 728 and 729: the branch review found the disk methods' undo recorded after fallible steps
+  and the Windows stop ending go.exe alone; 730: the gate's gosec found G703 on the cgroup reads and the manifest
+  write, fixed with an os.Root and a handle write; 731: the gate's coverage-fast found the disk methods and
+  pkg/vboxmanage under their floors, fixed with failure-path tests; 732: the memory floor stopped the FreeBSD leg on
+  tools/release's cold link, fixed by folding lab legs' records into resources.json and skipping the release
+  build test where its link cannot fit; 733: the ACPI put-back's pleiades was terminated by the gate's own stop, now
+  reported with its exit status and stderr; 734, open: the FreeBSD VM reset itself mid-run once, cause lost with its
+  console log; the rest fixed). Memory notes `pipeline-cut-and-headroom`,
+  `lab-vms-shutdown-data-disk`.
 
 ### Open
 
-- `tests/e2e`'s `TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed twice at `e3560066` and passed alone twice
-  since; its cause is unknown (FAILURE_PATTERNS 668). The next failure's record should hold it.
-- `go generate ./internal/forge/catalogdata` writes eight duplicate CML link and capture scaffolds on every run
-  (FAILURE_PATTERNS 677). Check `git status` after any generate until it is fixed.
-- Not built: `virt.fusion` install and create methods, and `pkg/winunattend` for arm64 and UEFI. Stale Fusion lock
-  handling stays manual (674). No test holds wincheck's leg tool name (676).
-- The VM `win11-arm` has 4 GB; raise it to 8 GB at its next clean shutdown.
-- The Windows setup rename flake (`internal/setup`, Defender) has not recurred.
-- Carried: F7, F8, F9 from the 129 review; FAILURE_PATTERNS 562, 647, 648, 649, 652 unchanged; the earlier list in the
-  archive's 2026-10-26 entry.
+- **Lab proofs passed** (`.IGNORE/timings.md`, 2026-10-29): `go run ./tools/bsdcheck -p 1 tools/internal/prreport`
+  booted bsd-check cold from power-off, built and tested on `/data` (`.pleiades-bsdcheck/{.gocache,<sha>}`, `gomod`,
+  `tmp`; 601 MB used of 39 GB), passed both passes in 2m38s and shut the VM down through ACPI; `wincheck` did the same
+  on `D:\pleiades` in 6m10s with cgo and the race detector on. A leg tests the committed tree, so the policy's own
+  FreeBSD and Windows readers (`headroom.Read`) run on the legs once this tree is committed; their unit tests ran here.
+  Both VMs are powered off.
+- The manifest's memory and disk numbers come from runs made after this change; `make resources-record` after the
+  next gate, and after CI's artifacts are downloaded, fills them. Set `complete: true` once every package is in it.
+- Compaction itself (`VBoxManage modifymedium --compact`) is not a method yet; the shutdown makes it possible.
+- The branch's earlier open items (Phase 131 R4, Phase 87 to 89 gates, run 7 items, the Mac leg for the full gate)
+  are unchanged from the archived status.
 
 ### Next, in order
 
-1. Commit these records.
-2. `make pr-check` through `.venv/bin/python tools/monitor/monitor.py run --cap 4500M`: the first end-to-end run of the
-   split recipe, with the `containers-mac` and `winarm` legs.
-3. Push once and open one pull request for Phases 129a to 129d plus the Mac and Fusion work; tick each Release Gate
-   with its evidence when Actions passes.
-4. Then the open list above, and the order the owner set (release tooling, Phase 117b part 3, Phase 126).
+1. Finish the lab proofs above and record their timings in `.IGNORE/timings.md`.
+2. Commit this session's work (the owner asked for no commit; the tree is dirty), then `make pr-check` through the
+   monitor, push, one pull request.
 
-### Files changed
+### Files changed this session
 
-- `8d868e52`: `internal/inventory/file_repository_remove*.go`. `33e1e945`: `internal/engine/` (`device_root.go`,
-  `handlers_run.go`, tests). `e7eb6ec2`: `internal/forge/collectionscaffold/docrender.go`, `tools/gendocs/modules.go`,
-  three reference pages. `2053f832`: `tools/testgate/`.
-- `5d7391d7`, `0a555bab`, `b609aa03`, `4ba08943`: `tools/internal/oscheck/`, `tools/maccheck/`, `tools/wincheck/`,
-  `tools/internal/flakegate/maccontainers_test.go`, `tools/internal/prreport/report.go`, `tools/monitor/`, `Makefile`,
-  `tests/winarm/.env.example`, `.gitignore`.
-- `f4d292b4`, `eaace13a`, `14747aae`, `2846c008`, `e522586d`: `pkg/vmrun/`, `internal/catalog/virt/fusion/vm/`,
-  `pkg/capability/capabilities_vmware.go`, `internal/inventory/devices/generic/`, `internal/inventory/onboard/probe_ssh.go`,
-  catalogdata, generated docs, `CLAUDE.md`, `README.md` (`4a975a97`), `docs/01-start-here.md`.
-- `6465e007`: `internal/catalog/win/archive/extract*.go`.
-- Records (uncommitted): `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`,
-  `LESSONS_LEARNED_ARCHIVE.md`, `CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, five new files in
-  `changelog/`; git-ignored, the pr-check failure ledger and `.IGNORE/timings.md`.
-
-### Lab state
-
-Changed: the Mac is awake, its Podman machine stopped. The Windows 11 ARM VM `win11-arm` runs on the Mac's Fusion at
-10.0.0.155, with Go 1.26.10 arm64 and MinGit installed; its lab project is `~/pleiades-fusion-lab` (hosts `mac`,
-`win11-arm`), and `tests/winarm/.env` is set. Unchanged: `win-check` and `bsd-check` are saved on VENGEANCE.
+`tools/internal/headroom/*` (new), `tools/testgate/{headroom.go,resources.go,resources.json,main.go,options.go,pieces.go}`
+(hosts.go, hosts.json removed), `tools/internal/flakegate/{observe.go,procgroup_*.go,headroom.go,run.go,report.go,flakegate.go}`,
+`tools/internal/oscheck/{box.go,lab.go,posix.go,flow.go}` (containers.go removed), `tools/maccheck`, `tools/bsdcheck`,
+`tools/wincheck`, `tools/internal/prreport/report.go`, `tools/gendocs/prreportschema*.go`, `tools/monitor/*.py`,
+`Makefile`, `.github/workflows/ci.yml`, `internal/catalog/virt/vbox/vm/{attach_disk,detach_disk}.go`,
+`pkg/vboxmanage/create.go`, `internal/forge/catalogdata/collections_virt.go`, `docs/reference` (regenerated),
+`CLAUDE.md`, `docs/design/os-checks.md`, `tests/{bsd,win}/.env.example`, `.claude/agents/ci-triager.md`.
