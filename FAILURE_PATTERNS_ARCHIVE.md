@@ -17626,13 +17626,38 @@ shut the VM down through ACPI in 28 s and printed its report, twice. A run in th
 (runs only warn). The kernel log shows no out-of-memory kill, but the gate's own memory scope, where every gate command
 runs under a 4500 MB cap beside the container pass, was gone before it could be read.
 
-**Root cause.** Not proven. `Pleiades.adhocJSON` discarded the command's exit status and stderr, so a run that died,
-was killed or refused before its report left only the JSON reader's error.
+**Root cause (proven by the eighth gate).** With the fix below, the leg said "printed no report and ended with signal:
+terminated". The gate's rule is to stop at the first failure, so the gate was stopped the moment a leg reported its
+tests failed, which is while the leg was still putting its VM back; the stop's SIGTERM reached the put-back's pleiades
+with the rest of the gate. That is why the stop never failed by hand. `adhocJSON` had discarded the command's exit status
+and stderr, so a run that was killed left only the JSON reader's error. The power cut that follows leaves the VM off,
+not saved, which is what disk compaction needs, so the outcome is acceptable; a put-back that survives the gate's own
+stop would need its pleiades in a process group of its own.
 
 **Fix (the evidence, not the cause).** `adhocJSON` keeps the last run's exit status and the last five lines of its
 stderr, and `Adhoc`, `AdhocStats` and `AdhocOutcome` report a run with no report as "printed no report and ended with
-<status>: <stderr>" (`TestAdhoc_ARunWithNoReportSaysHowItEnded`, through a stand-in binary). The next gate's leg names
-the cause; close this entry then.
+<status>: <stderr>" (`TestAdhoc_ARunWithNoReportSaysHowItEnded`, through a stand-in binary), which is what named the
+cause.
 
 **Lesson.** A wrapper that runs a command and reads only its stdout must keep the exit status and stderr for the
 failure it cannot parse: "printed no report" is a symptom, and three gates' worth of the same symptom bought nothing.
+
+## 734. The FreeBSD lab VM reset itself through ACPI two minutes into a test run, with nothing in its syslog, and the next start emptied the console log that held the reason (open: cause not proven)
+
+**Symptom.** The eighth gate on the pipeline branch, 2026-10-29: the FreeBSD leg failed after 1m42s with
+"remoteexec: ... wait: remote command exited without exit status or exit signal". `last` on the VM showed a boot at
+17:45 (the leg's start) and another at 17:47 with no shutdown between; `/var/log/messages` has nothing before the second
+`---<<BOOT>>---`. VirtualBox's log for that run has "ACPI: Reset initiated by ACPI" at 2:14, so the guest asked for the
+reset itself, as a kernel that panics with no dump device does. Gates six and seven ran 25 and 22 minutes on the same VM
+and commit family without it.
+
+**Root cause.** Not proven. The kernel's message went to the serial console, which the VM writes to `console.log` in its
+folder on the host, and VirtualBox truncates that file when the VM starts; starting the VM to investigate emptied it.
+The VM has no dump device (`dumpon -l` reports /dev/null), so no crash dump was written either. Its swap is 820 MB on
+ada0s1b plus 2 GB on md99.
+
+**Next time.** Read `console.log` on the host before starting the VM again, and consider a dump device on the VM
+(`dumpdev`), set through pleiades, so a panic leaves its own record.
+
+**Lesson.** A machine's last words go where it writes them as it dies: on a VM with a serial console that is a file the
+next start truncates, so read it first.
