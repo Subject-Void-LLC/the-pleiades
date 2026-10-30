@@ -6602,3 +6602,27 @@ put-back runs in its own process group on its own context. A machine that keeps 
 without help: UFS gets `fsck_y_enable="YES"` and `failok` on a data mount, or the file system journals. When a
 machine's role changes (it gains a disk, a database, a cache), re-read every comment and message that says what losing
 it costs.
+
+## 357. A flaky test whose cause is unproven is instrumented to name the cause on its next sighting, not fixed by guess and not re-run until green (2026-10-30).
+
+**Why.** `TestPrune_RemovesWhatItsCheckListed` failed in CI on 2026-10-22 (FAILURE_PATTERNS 560) and again in the
+nightly run on 2026-10-30, with the same words, eight days apart. After the first, the record said the cause was
+unproven and the next step was to reproduce it. The second sighting arrived with the same assertion and nothing more:
+the message printed only what the test had already decided to print. Three moves were open. A fix by guess (make
+`container.prune` wait for its list to agree, or loosen the test) would have rested on one theory about the daemon and
+could have hidden a real defect. A re-run until green would have turned an unexplained failure into silence. A claim of
+contention or a daemon lag would have been a cause nobody had seen. Three hundred runs on this host (`-count=300`, 310 s)
+all passed, so the host could not supply the evidence either.
+
+The fourth move was the one taken: change the failing assertion so that its message carries what is missing. It now
+prints the engine's list as prune asks it, the list by label alone, inspect's state, and both lists again a second
+later. Whichever way the next failure goes, that output separates a list that lagged, a list that never held the
+container, and an engine that answered once and not twice. This is the working side of 144 (an unexplained observation
+is a fact to report) and of 110 ("flaky" never authorizes pushing past a red gate): neither says what to do with a
+failure that cannot be reproduced, and this does.
+
+**Rule in practice.** When a failure recurs and the cause is not proven, first try to reproduce it where you are, and
+record the count and the settings that did not. If it does not reproduce, make no fix and rule nothing in or out. Change
+the assertion that failed so its message prints the state the diagnosis needs, on failure only, so a passing run costs
+nothing. Keep the entry open, say in it what the next sighting will show, and decide the fix from that output. Do not
+write "contention" or "daemon lag" into a record without it.

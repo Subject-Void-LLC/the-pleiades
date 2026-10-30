@@ -13946,7 +13946,7 @@ declared capabilities, shift the same fixtures; a manifest shares its files with
 separates them. `examples/` is there because no package sits above an example, so changing one selected nothing at
 all. `TestEveryDocumentedExampleValidates` is in `internal/archtest`, which pr-check always runs.
 
-## 560. A check of container.prune listed no stopped container while inspect said it had exited (open)
+## 560. A check of container.prune listed no stopped container while inspect said it had exited (open; seen again on 2026-10-30, a repeat of 560)
 
 **Symptom.** Pull request #84's run 39697697589, attempt 1, `containers (5)`, 2026-10-22:
 `TestPrune_RemovesWhatItsCheckListed` (`internal/catalog/container/read_test.go`) failed with "a check of prune =
@@ -13972,6 +13972,30 @@ to agree, or the test should.
 
 **Lesson.** Pending the cause. A method that decides by a listing reads a view that can lag the object it describes;
 whether that is true of this daemon is the open question.
+
+**Second sighting, 2026-10-30 (a repeat of 560).** The nightly run 41058796153 (schedule, `main` at `7e40c5e1`, job
+124072978969, strict, 1h25m): `make test-full` failed on exactly one test, `internal/catalog/container`
+`TestPrune_RemovesWhatItsCheckListed`, `read_test.go:222`, with the first sighting's words: "a check of prune =
+{Changed:false}, <nil>; state "exited"" (0.26s). Two sightings in eight days (PR #84's run 39697697589 on 2026-10-22,
+then this one). Neither pull request merged since (#92, #93) touched the package, and the run showed nothing else
+failing but skips. The nightly job does not re-run a failure alone, so no isolation result exists for this sighting.
+
+**What was tried, and what was not proven.** On this WSL host, 300 consecutive runs of the test
+(`go test -race -tags integration -run 'TestPrune_RemovesWhatItsCheckListed$' -count=300`, Docker 29.8.0, 310 s) all
+passed. So the list lagging inspect did not reproduce here, and the cause stays unproven: it could be a lagging list,
+a list that never held the container, or a daemon or runner condition this host does not have. No fix was made,
+because a fix without the cause would be a guess (it would change `container.prune` or the test on the strength of one
+theory). Contention was not claimed either: nothing in either sighting shows it.
+
+**What changed.** `internal/catalog/container/harness_test.go` gained `harness.listed`, and the failing assertion in
+`read_test.go` now prints the engine's list as prune asks it (the label and the statuses created, exited, dead), the
+list with the label only, inspect's state, and both lists again one second later. The next sighting therefore shows
+which of three things happened: the list lagged the container (the one-second-later list has it), the list never
+had it (neither list does, though inspect says exited), or the engine answered once and not twice (the two lists
+differ in a way a lag would not explain). The read happens only on a failure, so a passing run costs nothing.
+
+**Status.** Still open. Decide the fix, in `container.prune` or in the test, only from that output. See
+LESSONS_LEARNED 357 for why the test was instrumented rather than fixed or re-run until green.
 
 ## 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (fixed)
 
@@ -17705,3 +17729,31 @@ and the scanner's test names both short stand-ins.
 
 **Lesson.** When a filter refuses a false positive, refuse it by the property that makes it false (no registry serves a
 repository called sha256), not by the exact value that tripped it last time.
+
+## 737. The v0.3.0 release page's links all 404ed, because the workflow published the notes file verbatim and its relative links resolve against the repository root on a release page (fixed before push)
+
+**Symptom.** Found 2026-10-29, after v0.3.0 was published: every link in the release page's body
+(`](../01-start-here.md)` and its siblings) led to a GitHub 404. The notes file, `docs/releases/v0.3.0.md`, read
+correctly in the repository, and nothing in CI looked at the page it became. The page body was patched by hand to
+absolute links into the tag (`.../blob/v0.3.0/docs/...`).
+
+**Root cause.** `.github/workflows/release.yml` passed `docs/releases/<tag>.md` to the release as its body, unchanged.
+A relative link in a file view resolves against the file's own directory, so `../01-start-here.md` reaches
+`docs/01-start-here.md`. On a release page it resolves against the repository's root URL, where `../` goes nowhere.
+The same text is a different document in the two places, and only the file had ever been looked at.
+
+**Fix.** `tools/release/notes.go`: `rewriteLinks` resolves each relative inline link against the notes file's
+directory and pins it to the tag. It leaves a URL with a scheme, an anchor and anything in fenced code alone, and it
+refuses a link that leaves the repository. `release -notes docs/releases/vX.md -repo OWNER/NAME -out dist` writes
+`dist/RELEASE_NOTES.md` and builds nothing; `make release-notes VERSION= REPO=` runs it. `release.yml`'s build job
+runs it as its first tag-only step, so a tag with no notes file now stops the run before the build, and the publish
+step uses `dist/RELEASE_NOTES.md`.
+
+**Proof, and what is not proven.** The `tools/release` tests, including `TestRewriteLinks_TheRealV030Notes` (it runs the
+real shipped file, requires that no `](../` survives and that every link names the tag) and `TestRunNotes`. Running
+`make release-notes VERSION=v0.3.0 REPO=Subject-Void-LLC/the-pleiades` reproduces the live, hand-patched body exactly,
+but for two trailing blank lines. `actionlint` is clean. Not proven: the workflow's own tag path. It runs only on a
+tag, so only the next real release exercises it.
+
+**Lesson.** A release artifact built from a file in the repository is checked as the page that shows it, not as the
+file. Test the real shipped file, and say plainly what only the next real release can prove.

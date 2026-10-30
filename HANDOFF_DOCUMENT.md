@@ -4,89 +4,61 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-29. Branch `feat/authoring-parity-v0-3-0`, off `main` at `122b8c92`, through `7ff4ddab` plus this
-session's uncommitted tree. Not pushed, no pull request, `make pr-check` has not run on this tree, no tag cut.**
+**2026-10-30. Branch `fix/release-notes-links-and-prune-flake`, off `origin/main` at `7e40c5e1`. Uncommitted, not
+pushed, no pull request; `make pr-check` has not run on it.**
 
-This session cut the test pipeline down to the Crawl and Walk tiers and gave it one memory and disk policy, at the
-owner's direction ("cut all fat that does not align with the current crawl walk tier"; "the same rigor of memory and
-disk space management across local, remote, and container environments"), then, at the owner's second direction,
-made the lab VMs shut down after a check and keep every run's variable data on a second disk.
+v0.3.0 (PR #93) was merged and tagged on 2026-10-29: the tag is on `7e40c5e1`, with six archives and `SHA256SUMS`. The
+previous status (the pipeline cut, the headroom policy, the lab data disks, the resources manifest) shipped inside it;
+its detail is in `HANDOFF_ARCHIVE.md`. Only what is still open is carried below.
 
-### What works (unit-tested; the lab proofs are listed under Open)
+### What works (this branch)
 
-- **Cut from pr-check, code removed:** the Mac's Podman share of the container packages (`testgate -host`,
-  `hosts.json`, `maccheck -containers`, `oscheck.Containers`), the Windows ARM leg (`wincheck -arm64` stays for a
-  hand run), and govulncheck (it runs in `make ci` and CI's `ci` job). The CI `winrm` job is gone. The Makefile's
-  pr-check recipe, the monitor (`tools/monitor`), prreport's part order, CLAUDE.md and `docs/design/os-checks.md`
-  say so. `PR_CHECK_PARTS` is now fast, coverage-fast, repeat, containers, durations, mac, bsd, win, images,
-  coverage, sizes.
-- **One policy, `tools/internal/headroom`, applied inside `tools/testgate`** (headroom.go there): the disk check
-  before anything builds (4 GB where the run builds and in TMPDIR), `-p` lowered to what the free memory fits
-  (1200 MB a package after 1 GB kept; a cgroup limit such as `capped`'s is read on Linux), `GOMEMLIMIT` at the
-  budget unless set, a sampler every 5 s charging each running package, a stop (SIGTERM to go test's own process
-  group, SIGKILL 30 s later) under 700 MB or 3 GB of swap growth, an interrupt forwarded the same way, and a
-  `headroom` field in every record (`flakegate.Headroom`; schema regenerated). Readers for Linux, macOS, FreeBSD and
-  Windows. Tests: `tools/internal/headroom` (89%), `tools/internal/flakegate` (93.6%, observed run and process group
-  proven against the real toolchain), `tools/testgate` (80.9%), archtest green.
-- **Lab VMs shut down, not saved:** `oscheck.Box.PutBack` is `virt.vbox.vm.stop mode=acpi timeout=300`, then
-  `mode=poweroff` if the guest did not shut down (`PutBackGrace` 8 min). Tests in `tools/internal/oscheck`.
-- **Data disk:** two new methods, `virt.vbox.vm.attach_disk` and `virt.vbox.vm.detach_disk` (catalog 212), with
-  `pkg/vboxmanage.AttachDiskAt`/`HasDisk`, tested against the model host; `PLEIADES_BSD_DATA`,
-  `PLEIADES_WINRM_DATA`, `PLEIADES_WINARM_DATA` name the directory, and every POSIX and Windows check script puts
-  the trees, GOCACHE, GOMODCACHE and TMPDIR/TEMP there and wipes leftovers before a run (`tools/internal/oscheck`,
-  `tools/bsdcheck`, `tools/wincheck` tests). Lab runbooks: `~/pleiades-lab/runbooks/bsd/check-06-data-disk.yaml`,
-  `check-07-data-mount.yaml`, `win/check-08-data-disk.yaml`, `check-09-data-mount.yaml` (all validate).
-- **The resources manifest (owner's ask, 2026-10-29: "min/max resources needed per test ... in a json manifest for
-  faster rebalancing", "disk usage should be known too"):** `tools/testgate/resources.json` holds, per unit (a package,
-  or a test of `tests/e2e`), the seconds, memory and disk ever recorded, least and most, with the run count, the last
-  date and the hosts. `testgate -resources-record` folds a run's measurements in (`make resources-record`), and
-  `testgate -resources-check` holds a run to it (pr-check's new `resources` step; `make coverage-measured`): an unknown
-  unit is named while `complete` is false and fails once it is true, and one far past its recorded most is named. A
-  local pass now packs its `-p` by the manifest's recorded memory for its packages (`packedParallelism`). The guard
-  samples disk too (`headroom.DiskWatch`): the record carries `package_disk_mb` and `min_disk_free_gb`, and the
-  measurement `disk_mb`, `test_memory_mb` and `test_disk_mb` for the divided packages' tests. The manifest is seeded
-  with seconds from `durations.json` and the last fast pass (269 units, `complete: false`); memory and disk fill as
-  gates and CI runs are folded in. Sharding still reads `durations.json`.
-- Lab: bsd-check's data disk (40 GB, `/dev/ada1p1` on `/data`) and win-check's (60 GB, `D:`) exist, made and
-  formatted through pleiades; `tests/bsd/.env` and `tests/win/.env` name them. FAILURE_PATTERNS 726 (a restart right
-  after a shutdown left the VM off once; the start by hand worked).
-- Records: LESSONS 355, FAILURE_PATTERNS 726 to 734 (727: the first Windows proof found the test script bypassing
-  the data directory's env; 728 and 729: the branch review found the disk methods' undo recorded after fallible steps
-  and the Windows stop ending go.exe alone; 730: the gate's gosec found G703 on the cgroup reads and the manifest
-  write, fixed with an os.Root and a handle write; 731: the gate's coverage-fast found the disk methods and
-  pkg/vboxmanage under their floors, fixed with failure-path tests; 732: the memory floor stopped the FreeBSD leg on
-  tools/release's cold link, fixed by folding lab legs' records into resources.json and skipping the release
-  build test where its link cannot fit; 733: the ACPI put-back's pleiades was terminated by the gate's own stop, now
-  reported with its exit status and stderr; 734, open: the FreeBSD VM reset itself mid-run once, cause lost with its
-  console log; the rest fixed). Memory notes `pipeline-cut-and-headroom`,
-  `lab-vms-shutdown-data-disk`.
+- **Release notes links (FAILURE_PATTERNS 737).** The v0.3.0 release page's links all 404ed, because the workflow
+  published `docs/releases/<tag>.md` verbatim and a release page resolves a relative link against the repository
+  root. `tools/release/notes.go` (`rewriteLinks`) pins each relative link to the tag; `release -notes ... -repo ...
+  -out dist` writes `dist/RELEASE_NOTES.md`; `make release-notes VERSION= REPO=`; `release.yml`'s build job runs it
+  as its first tag-only step and publish uses its output. Proof: the `tools/release` tests, including
+  `TestRewriteLinks_TheRealV030Notes` and `TestRunNotes`; `make release-notes VERSION=v0.3.0
+  REPO=Subject-Void-LLC/the-pleiades` reproduces the live, hand-patched body but for two trailing blank lines;
+  actionlint is clean. **Not proven:** the workflow's own tag path, which only the next tag exercises.
+- **FAILURE_PATTERNS 560 seen a second time, instrumented, not fixed.** Nightly run 41058796153 (schedule, `main` at
+  `7e40c5e1`, job 124072978969, strict) failed on only `internal/catalog/container`
+  `TestPrune_RemovesWhatItsCheckListed` (`read_test.go:222`), the same words as PR #84's sighting on 2026-10-22.
+  300 consecutive local runs (`-race -tags integration -count=300`, Docker 29.8.0) all passed, so the cause is still
+  unproven and no fix was made. `harness.listed` (`harness_test.go`) and the failing assertion now print the
+  engine's list as prune asks it, the list by label alone, inspect's state, and both again a second later. The
+  next sighting shows whether the list lagged, never held the container, or answered once and not twice. LESSONS 357.
+  Nothing else in that nightly failed (skips only).
+- No changelog fragment: this branch is CI plumbing and a test.
 
 ### Open
 
-- **Lab proofs passed** (`.IGNORE/timings.md`, 2026-10-29): `go run ./tools/bsdcheck -p 1 tools/internal/prreport`
-  booted bsd-check cold from power-off, built and tested on `/data` (`.pleiades-bsdcheck/{.gocache,<sha>}`, `gomod`,
-  `tmp`; 601 MB used of 39 GB), passed both passes in 2m38s and shut the VM down through ACPI; `wincheck` did the same
-  on `D:\pleiades` in 6m10s with cgo and the race detector on. A leg tests the committed tree, so the policy's own
-  FreeBSD and Windows readers (`headroom.Read`) run on the legs once this tree is committed; their unit tests ran here.
-  Both VMs are powered off.
-- The manifest's memory and disk numbers come from runs made after this change; `make resources-record` after the
-  next gate, and after CI's artifacts are downloaded, fills them. Set `complete: true` once every package is in it.
-- Compaction itself (`VBoxManage modifymedium --compact`) is not a method yet; the shutdown makes it possible.
-- The branch's earlier open items (Phase 131 R4, Phase 87 to 89 gates, run 7 items, the Mac leg for the full gate)
-  are unchanged from the archived status.
+- FAILURE_PATTERNS 560 (above), open until a sighting prints the engine's list.
+- FAILURE_PATTERNS 734: the FreeBSD lab VM reset itself mid-run and the next start emptied the console log, so the
+  cause is lost (most likely 735's damage; not proven).
+- `make resources-record` after the next gate, and after CI's artifacts are downloaded; then set `complete: true`
+  in `tools/testgate/resources.json` once every package is in it.
+- Compaction (`VBoxManage modifymedium --compact`) is not a method yet.
+- The older items are unchanged: Phase 131 R4 waits on Phases 87, 88, 89 and 127d; the Phase 87 to 89 gates; the run 7
+  items.
+- `.SPECIFICATION/IMPLEMENTATION.md` holds a new proposed Phase 132 (exposure and hardening guidance, a design note
+  from CISA's Installed Base Program; six unticked items; not approved). That file is gitignored, so it is not in
+  the branch.
 
 ### Next, in order
 
-1. Finish the lab proofs above and record their timings in `.IGNORE/timings.md`.
-2. Commit this session's work (the owner asked for no commit; the tree is dirty), then `make pr-check` through the
-   monitor, push, one pull request.
+1. Commit this branch, run `make pr-check` through the monitor, push, one pull request. Name the failure-pattern
+   classes in the PR body.
+2. After it, the queue the notes give: 117b part 3; Phase 126 (the owner chose option A, device to object storage);
+   the patch compatibility contract follow-up (define "breaking" per area, enforce 0.3.x against the v0.3.0 tag's
+   generated schemas); release tooling's remaining gaps.
+3. A 0.3.x release may add, never break.
 
 ### Files changed this session
 
-`tools/internal/headroom/*` (new), `tools/testgate/{headroom.go,resources.go,resources.json,main.go,options.go,pieces.go}`
-(hosts.go, hosts.json removed), `tools/internal/flakegate/{observe.go,procgroup_*.go,headroom.go,run.go,report.go,flakegate.go}`,
-`tools/internal/oscheck/{box.go,lab.go,posix.go,flow.go}` (containers.go removed), `tools/maccheck`, `tools/bsdcheck`,
-`tools/wincheck`, `tools/internal/prreport/report.go`, `tools/gendocs/prreportschema*.go`, `tools/monitor/*.py`,
-`Makefile`, `.github/workflows/ci.yml`, `internal/catalog/virt/vbox/vm/{attach_disk,detach_disk}.go`,
-`pkg/vboxmanage/create.go`, `internal/forge/catalogdata/collections_virt.go`, `docs/reference` (regenerated),
-`CLAUDE.md`, `docs/design/os-checks.md`, `tests/{bsd,win}/.env.example`, `.claude/agents/ci-triager.md`.
+`tools/release/notes.go` and `tools/release/notes_test.go` (new), `tools/release/main.go`, `Makefile`,
+`.github/workflows/release.yml`, `internal/catalog/container/harness_test.go`, `internal/catalog/container/read_test.go`;
+records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md` (560 updated, 737 added), `LESSONS_LEARNED.md`,
+`LESSONS_LEARNED_ARCHIVE.md` (357), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+
+Lab: not touched this session and not rechecked. The last session left bsd-check and win-check powered off (shut down through ACPI, not saved).
