@@ -9,6 +9,21 @@
           },
           "type": "array"
         },
+        "become": {
+          "description": "Run this task's SSH commands as become_user through sudo -n. A block's covers its tasks; the narrowest key wins; false turns off one set above.",
+          "type": "boolean"
+        },
+        "become_method": {
+          "description": "Only sudo, run without a password.",
+          "enum": [
+            "sudo"
+          ],
+          "type": "string"
+        },
+        "become_user": {
+          "description": "The account become runs commands as: root when not given.",
+          "type": "string"
+        },
         "block": {
           "items": {
             "$ref": "#/$defs/task"
@@ -283,6 +298,21 @@
   "additionalProperties": false,
   "description": "The native Pleiades automation format. Not an Ansible playbook: a top-level YAML list is rejected.",
   "properties": {
+    "become": {
+      "description": "Run every task's SSH commands as become_user through sudo -n, unless a block or task says otherwise.",
+      "type": "boolean"
+    },
+    "become_method": {
+      "description": "Only sudo, run without a password.",
+      "enum": [
+        "sudo"
+      ],
+      "type": "string"
+    },
+    "become_user": {
+      "description": "The account become runs commands as: root when not given.",
+      "type": "string"
+    },
     "check_mode": {
       "description": "Make the whole run a check. Only true; false is refused.",
       "oneOf": [

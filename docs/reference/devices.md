@@ -13,7 +13,7 @@ Every registered inventory device type, its vendor package, and the capabilities
 | `batfish` | `batfish` | `NetworkAddressableCapable`, `BatfishAPICapable` | hand-written, a service the network model runs in |
 | `cml_controller` | `cml` | `NetworkAddressableCapable`, `CMLAPICapable` | hand-written, the API account labs are built through |
 | `generic_grpc` | `generic` | `NetworkAddressableCapable`; discovered: `GRPCCapable` | discovered at onboarding |
-| `generic_http` | `generic` | `NetworkAddressableCapable`; discovered: `HTTPAPICapable` | discovered at onboarding |
+| `generic_http` | `generic` | `NetworkAddressableCapable`; discovered: `HTTPAPICapable`, `ContainerlabAPICapable` | discovered at onboarding |
 | `generic_netconf` | `generic` | `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `NetconfCapable` | discovered at onboarding |
 | `generic_ssh` | `generic` | `CommandExecCapable`, `NetworkAddressableCapable`, `SSHTransportCapable`; discovered: `ShellExecCapable`, `LinuxCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable`, `FirewalldCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable`, `ContainerEngineCapable`, `DockerCapable`, `PodmanCapable`, `EngineSocketCapable`, `EngineStdioCapable`, `FRRCapable`, `VMwareFusionCapable`, `OpenVSwitchCapable` | discovered at onboarding |
 | `kubernetes_cluster` | `kubernetes` | -; discovered: `KubernetesCapable` | discovered at onboarding |

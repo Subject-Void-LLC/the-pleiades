@@ -581,6 +581,55 @@ caller's value and the caller could not change it. The imported file runs
 with its caller's scope: it sees the runbook's `vars:`, the device's own
 variables and any fact set so far.
 
+## Running as another account (`become`)
+
+A method that reaches its device over SSH runs its commands as the account that logs
+in. When a change needs more than that account may do, say so with `become`, as in
+Ansible:
+
+```yaml
+# Reloads the web tier's configuration as root.
+# Changes: asks systemd on each web host to reload nginx.
+# Undo: none needed; a reload of an unchanged configuration is harmless.
+id: reload-web
+hosts: web
+become: true            # every task below runs as root, through sudo
+tasks:
+  - name: read the unit's state as the login, not as root
+    exec.command:
+      cmd: systemctl is-active nginx
+    become: false       # the narrowest key wins
+    ignore_errors: true
+  - name: reload nginx as root
+    exec.command:
+      cmd: systemctl reload nginx
+  - name: ask the web account what it is called
+    exec.command:
+      cmd: id -un
+    become_user: www-data
+```
+
+`become` goes on a runbook, a block or a task, and a block's or a task's own key
+replaces the one above it. `become_user` is the account (root when it is not given), and
+`become_method`, if written, must be `sudo`.
+
+What it is, and is not:
+
+- It is `sudo -n`: the login needs a sudo rule that does not ask for a password
+  (`NOPASSWD`). There is no sudo password to store, so none can reach a journal, a
+  report or a command line. If sudo would ask for one, the task fails before any command
+  runs, with sudo's own words and the account to give the rule to.
+- Every command the method sends over its connection is elevated, including the reads
+  and file writes the method makes to decide what to change, so a check sees what the
+  real run will see.
+- It applies to a method that uses SSH. `validate` refuses it on a built-in action, on a
+  method that reaches its device another way (an API, a container engine, a terminal), and
+  on `net.ssh.ping` and `wait.connection`, whose question is the login itself.
+- The journal records the account, and `pleiades rollback` runs the undo as the same
+  account. A method that keeps something under the login's home (`net.frr.config`'s
+  backups) records which account made it, and refuses an undo run as another.
+- A Controller and Runner refuse a task with `become` for now. It runs from the CLI.
+
 ## What is not supported
 
 `with_*` loops other than `with_items`, `handlers` and `notify`, and `serial`

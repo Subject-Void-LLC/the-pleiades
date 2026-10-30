@@ -1,0 +1,1 @@
+Added `expect_devices` to `net.batfish.check`: a device the lab holds that the task gave no configuration for is listed in `not_modelled`, so a passing check is not read as covering a switch it never saw.

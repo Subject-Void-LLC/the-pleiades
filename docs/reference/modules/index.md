@@ -28,10 +28,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
-| `virt` | 38 | 38 |
+| `virt` | 82 | 82 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **212** | **210** |
+| **total** | **256** | **254** |
 
 ## All methods
 
@@ -195,6 +195,50 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [svc.windows.restart](svc/windows/restart.md) | implemented | Restarts a Windows service, starting it if it was not running. |
 | [svc.windows.start](svc/windows/start.md) | implemented | Starts a Windows service now, without changing its start type. |
 | [svc.windows.stop](svc/windows/stop.md) | implemented | Stops a Windows service now, without changing its start type. |
+| [virt.clab.capture.packetflix](virt/clab/capture/packetflix.md) | implemented | Builds Packetflix capture links for a lab's interfaces. |
+| [virt.clab.edgeshark.install](virt/clab/edgeshark/install.md) | implemented | Installs Edgeshark on the server's host, unless it runs already. |
+| [virt.clab.edgeshark.status](virt/clab/edgeshark/status.md) | implemented | Reads whether Edgeshark, the packet-capture service, runs on the server. |
+| [virt.clab.edgeshark.uninstall](virt/clab/edgeshark/uninstall.md) | implemented | Uninstalls Edgeshark from the server's host, if it is installed. |
+| [virt.clab.image.list](virt/clab/image/list.md) | implemented | Lists the container images the server's runtime holds. |
+| [virt.clab.image.pull](virt/clab/image/pull.md) | implemented | Pulls an image onto the server, unless it is already there. |
+| [virt.clab.image.remove](virt/clab/image/remove.md) | implemented | Removes an image from the server, if it is there. |
+| [virt.clab.lab.apply](virt/clab/lab/apply.md) | implemented | Changes a running lab to match its on-disk topology, by the difference. |
+| [virt.clab.lab.deploy](virt/clab/lab/deploy.md) | implemented | Deploys a lab from a topology, unless it is already deployed. |
+| [virt.clab.lab.destroy](virt/clab/lab/destroy.md) | implemented | Destroys a lab, unless it is not deployed. |
+| [virt.clab.lab.info](virt/clab/lab/info.md) | implemented | Inspects one lab: whether it exists and its nodes. |
+| [virt.clab.lab.interfaces](virt/clab/lab/interfaces.md) | implemented | Lists the interfaces of a lab's nodes. |
+| [virt.clab.lab.links](virt/clab/lab/links.md) | implemented | Lists a lab's links with each end's interface, address and state. |
+| [virt.clab.lab.list](virt/clab/lab/list.md) | implemented | Lists the labs the containerlab server has deployed. |
+| [virt.clab.lab.redeploy](virt/clab/lab/redeploy.md) | implemented | Destroys and deploys a lab again from a topology. |
+| [virt.clab.lab.restart](virt/clab/lab/restart.md) | implemented | Makes a lab's nodes restarted. |
+| [virt.clab.lab.save](virt/clab/lab/save.md) | implemented | Saves each node's running configuration to its startup configuration. |
+| [virt.clab.lab.start](virt/clab/lab/start.md) | implemented | Makes a lab's nodes started. |
+| [virt.clab.lab.stop](virt/clab/lab/stop.md) | implemented | Makes a lab's nodes stopped. |
+| [virt.clab.lab.topology](virt/clab/lab/topology.md) | implemented | Reads a deployed lab's topology as YAML. |
+| [virt.clab.lab.validate](virt/clab/lab/validate.md) | implemented | Validates a lab's on-disk topology without deploying it. |
+| [virt.clab.netem.reset](virt/clab/netem/reset.md) | implemented | Clears the netem impairments on a lab node's interface, if it has any. |
+| [virt.clab.netem.set](virt/clab/netem/set.md) | implemented | Sets delay, jitter, loss or rate on a lab node's interface, unless it is already so. |
+| [virt.clab.netem.show](virt/clab/netem/show.md) | implemented | Shows the netem impairments on a lab node's interfaces. |
+| [virt.clab.node.disable_tx_offload](virt/clab/node/disable_tx_offload.md) | implemented | Disables TX checksum offload on a lab node's interfaces. |
+| [virt.clab.node.exec](virt/clab/node/exec.md) | implemented | Runs one command in a lab node, with no SSH to the node. |
+| [virt.clab.node.logs](virt/clab/node/logs.md) | implemented | Reads the last lines of a lab node's output. |
+| [virt.clab.node.pause](virt/clab/node/pause.md) | implemented | Makes one lab node paused, if it is not already. |
+| [virt.clab.node.ports](virt/clab/node/ports.md) | implemented | Lists the browser-reachable ports a lab node publishes. |
+| [virt.clab.node.restart](virt/clab/node/restart.md) | implemented | Restarts one lab node. |
+| [virt.clab.node.ssh_access](virt/clab/node/ssh_access.md) | implemented | Opens a temporary SSH door to a lab node through the server. |
+| [virt.clab.node.start](virt/clab/node/start.md) | implemented | Makes one lab node started, if it is not already. |
+| [virt.clab.node.stop](virt/clab/node/stop.md) | implemented | Makes one lab node stopped, if it is not already. |
+| [virt.clab.node.unpause](virt/clab/node/unpause.md) | implemented | Makes one lab node unpaused, if it is not already. |
+| [virt.clab.server.health](virt/clab/server/health.md) | implemented | Reads the API server's health. |
+| [virt.clab.server.metrics](virt/clab/server/metrics.md) | implemented | Reads the host's CPU, memory and disk figures the API server reports. |
+| [virt.clab.server.version](virt/clab/server/version.md) | implemented | Reads the containerlab version the server runs. |
+| [virt.clab.server.version_check](virt/clab/server/version_check.md) | implemented | Asks whether a newer containerlab exists. |
+| [virt.clab.ssh_session.list](virt/clab/ssh_session/list.md) | implemented | Lists the temporary SSH sessions the server holds. |
+| [virt.clab.ssh_session.terminate](virt/clab/ssh_session/terminate.md) | implemented | Closes a temporary SSH session on the server, if it is open. |
+| [virt.clab.topology.generate](virt/clab/topology/generate.md) | implemented | Generates a containerlab topology from a description of its tiers. |
+| [virt.clab.veth.create](virt/clab/veth/create.md) | implemented | Creates a vEth pair between two endpoints. |
+| [virt.clab.vxlan.create](virt/clab/vxlan/create.md) | implemented | Creates a VxLAN tunnel between a host interface and a remote VTEP. |
+| [virt.clab.vxlan.delete](virt/clab/vxlan/delete.md) | implemented | Deletes the VxLAN interfaces containerlab made with a prefix. |
 | [virt.cml.capture.start](virt/cml/capture/start.md) | implemented | Starts a packet capture on a link of a CML lab. |
 | [virt.cml.capture.stop](virt/cml/capture/stop.md) | implemented | Stops a packet capture on a link of a CML lab and writes its file into the project. |
 | [virt.cml.lab.create](virt/cml/lab/create.md) | implemented | Creates an empty CML lab with a title. |
