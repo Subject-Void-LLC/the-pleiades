@@ -6,8 +6,9 @@
 // Every binary is built the way binsize measures one (static, stripped,
 // trimmed paths) and stamped through internal/buildinfo's -ldflags, so the
 // version it reports is the release it was cut for. The command builds and
-// writes files; it never publishes anything. Signing, an SBOM and
-// provenance are Phase 106c's.
+// writes files; it never publishes anything. With -notes it builds nothing and
+// instead prepares the release page's body from the tag's notes file (see
+// notes.go). Signing, an SBOM and provenance are Phase 106c's.
 package main
 
 import (
@@ -264,6 +265,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	binaries := fs.String("binaries", DefaultBinaries, "comma-separated programs under ./cmd to build")
 	out := fs.String("out", "dist", "the directory the archives and "+ChecksumFile+" are written to")
 	revision := fs.String("revision", "", "the commit stamped into the build (default: HEAD, read with git)")
+	notes := fs.String("notes", "", "write this release notes file, links made absolute for the release page, as "+NotesFile+" in -out, and build nothing (needs -repo)")
+	repo := fs.String("repo", "", "the GitHub repository OWNER/NAME the notes' links point into (with -notes)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -275,6 +278,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if _, ok := buildinfo.Release(v); !ok {
 		fmt.Fprintf(stderr, "release: -version %q is not a release such as 0.3.0\n", *version)
 		return 2
+	}
+	// Notes mode prepares the release page's body and builds nothing.
+	if *notes != "" {
+		return runNotes(*notes, *repo, v, *out, stdout, stderr)
 	}
 	plats, err := parsePlatforms(*platforms)
 	if err != nil {

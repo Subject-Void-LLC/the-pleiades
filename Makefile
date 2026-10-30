@@ -1,4 +1,4 @@
-.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images workflow-lint doctor test-clean-room release release-dry-run
+.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images workflow-lint doctor test-clean-room release release-notes release-dry-run
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -1060,6 +1060,16 @@ RELEASE_DIR ?= dist
 release:
 	@test -n "$$VERSION" || { echo "make release: set VERSION, such as make release VERSION=0.3.0" >&2; exit 2; }
 	go run ./tools/release -version "$$VERSION" -out "$(RELEASE_DIR)"
+
+# release-notes writes a release's notes, docs/releases/v$VERSION.md, as
+# RELEASE_NOTES.md in RELEASE_DIR with every relative link made absolute and
+# pinned to the tag, since a release page is not a file view and a relative
+# link there points nowhere. REPO is OWNER/NAME. The tag workflow calls it and
+# publishes the result as the release body. make release-notes VERSION=0.3.0
+# REPO=Subject-Void-LLC/the-pleiades.
+release-notes:
+	@test -n "$$VERSION" -a -n "$$REPO" || { echo "make release-notes: set VERSION and REPO, such as make release-notes VERSION=0.3.0 REPO=owner/name" >&2; exit 2; }
+	v="$${VERSION#v}"; go run ./tools/release -version "$$v" -notes "docs/releases/v$$v.md" -repo "$$REPO" -out "$(RELEASE_DIR)"
 
 # release-dry-run is release for a throwaway version into a throwaway
 # directory under .IGNORE, then checks the list with sha256sum: the whole

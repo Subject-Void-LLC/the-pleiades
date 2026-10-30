@@ -32,6 +32,17 @@ jobs:
       - name: The tagged commit is on main
         if: github.ref_type == 'tag'
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      # The release body is the tag's own notes (docs/releases/<tag>.md), written
+      # and reviewed with the change that prepares the release. Its links are
+      # relative to that file, which a release page cannot follow, so they are
+      # made absolute and pinned to the tag here, before anything is built; a
+      # tag with no notes file stops the run now rather than after the build.
+      - name: Prepare the release notes
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: make release-notes
       - name: Build every archive
         # The version reaches make as an environment variable, never inside
         # the command line, so nothing in a tag name or an input is expanded.
@@ -64,9 +75,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-        # The release body is the tag's own notes (docs/releases/<tag>.md),
-        # written and reviewed with the change that prepares the release.
+        # The release body is the notes the build job prepared, with their links
+        # made absolute (make release-notes); the archive globs below do not
+        # match RELEASE_NOTES.md, so it is the body and not an asset.
         run: |
-          notes="docs/releases/${TAG}.md"
+          notes="dist/RELEASE_NOTES.md"
           if [ ! -f "$notes" ]; then echo "no release notes at $notes" >&2; exit 1; fi
           gh release create "$TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS --repo "$REPO" --title "$(cat dist/RELEASE_TITLE)" --notes-file "$notes"
