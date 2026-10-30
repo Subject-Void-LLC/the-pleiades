@@ -31,7 +31,13 @@ func Runbook(id string, levels [][]Step, targets bool) ([]byte, map[string]engin
 			params[collection.TargetParam] = s.DeviceName
 			name += " on " + s.DeviceName
 		}
-		return map[string]any{"name": name, s.FQCN: params}
+		task := map[string]any{"name": name, s.FQCN: params}
+		if s.Become != "" {
+			// The undo runs as the account the change ran as.
+			task["become"] = true
+			task["become_user"] = s.Become
+		}
+		return task
 	}
 	var tasks []map[string]any
 	for i, level := range levels {

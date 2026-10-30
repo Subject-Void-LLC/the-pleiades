@@ -299,7 +299,8 @@ func (r *run) varsNeedDevice(nodeID string, task *Task) bool {
 	if target == "" || HasTemplate(target) {
 		return false
 	}
-	for _, d := range r.x.resolver.Resolve(target) {
+	devices, _ := ResolveTargets(r.x.resolver, target)
+	for _, d := range devices {
 		if len(deviceVars(d)) > 0 {
 			return true
 		}

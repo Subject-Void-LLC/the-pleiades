@@ -80,7 +80,7 @@ func (c *Conn) Start(ctx context.Context, command string) (*Process, error) {
 		c.lease.started()
 	}
 	s, err := c.openStream(ctx, "remote command", func(session *ssh.Session) error {
-		return session.Start(command)
+		return session.Start(c.elevate(command))
 	})
 	if err != nil {
 		// Whether the command began on the far side is unknown.

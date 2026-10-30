@@ -31,6 +31,9 @@ var ReservedTaskKeys = map[string]bool{
 	"register":            true,
 	"within":              true,
 	"check_mode":          true,
+	"become":              true,
+	"become_user":         true,
+	"become_method":       true,
 	"when":                true,
 	"when_or":             true,
 	"when_cel":            true,
@@ -94,6 +97,19 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 			return fmt.Errorf("%w; %q is there only to hold an anchor, which a runbook's top level has no place for: write the anchor where its value is first used instead (net.ios.command: &common ...)", err, key)
 		}
 		return err
+	}
+	// hosts: is a name or tag, or a list of them (joined into the one string
+	// the DAG holds, hosts_list.go); any other shape says what it takes, with
+	// its line, where the decode below would say only what it could not read.
+	if hosts := findMappingValue(root, "hosts"); hosts != nil {
+		switch hosts.Kind {
+		case yaml.SequenceNode:
+			if err := joinHostsList(hosts); err != nil {
+				return err
+			}
+		case yaml.MappingNode:
+			return fmt.Errorf("line %d: hosts: takes a device or tag name, or a list of them, not a mapping", hosts.Line)
+		}
 	}
 	for _, key := range []string{"pretasks", "tasks", "posttasks"} {
 		if seq := findMappingValue(root, key); seq != nil {

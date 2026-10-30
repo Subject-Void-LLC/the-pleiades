@@ -191,8 +191,8 @@ func TestRunbookKeys_UnknownTopLevelKeyRefused(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `"chek_mode" (did you mean "check_mode"?)`) {
 		t.Errorf("a misspelled check_mode = %v, want it refused with a suggestion", err)
 	}
-	_, err = buildYAML(t, "id: ansible\nbecome: true\ntasks:\n  - name: a\n    fqcn: noop\n")
-	if err == nil || !strings.Contains(err.Error(), `unknown top-level runbook key "become"`) {
+	_, err = buildYAML(t, "id: ansible\ngather_facts: true\ntasks:\n  - name: a\n    fqcn: noop\n")
+	if err == nil || !strings.Contains(err.Error(), `unknown top-level runbook key "gather_facts"`) {
 		t.Errorf("an unsupported Ansible key = %v, want it refused by name", err)
 	}
 	eval, _ := engine.NewCELEvaluator()

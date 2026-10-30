@@ -25,6 +25,9 @@ import (
 // channel (AllowTcpForwarding no, DisableForwarding yes, a key restricted
 // with no-port-forwarding), so the error names both rather than guessing.
 func (c *Conn) DialTCP(ctx context.Context, address string) (net.Conn, error) {
+	if err := c.refuseBecome("a forwarded TCP connection"); err != nil {
+		return nil, err
+	}
 	if err := c.usable(); err != nil {
 		return nil, err
 	}

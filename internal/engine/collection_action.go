@@ -193,6 +193,19 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		}
 	}
 
+	// A task that becomes another account has every command its method sends
+	// run as that account (sdk.Connect reads it from the context). The
+	// Runner's per-task child gets the context's values by neither route, so a
+	// dispatch that would run elevated work unelevated is refused here rather
+	// than carried out as the login.
+	becomeUser, becomes := BecomeFor(task)
+	if becomes {
+		if e.invoke != nil {
+			return ActionResult{}, fmt.Errorf("collection method %q: become is not carried to a Runner yet, so this task would run as the login instead of %s: run it from the CLI, or remove become", task.FQCN, becomeUser)
+		}
+		ctx = sdk.WithBecome(ctx, becomeUser)
+	}
+
 	if e.invoke != nil {
 		result, stats, err := e.invoke(ctx, desc, device, task.Params, mode)
 		if err != nil {
@@ -272,6 +285,11 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	stats := map[string]interface{}{}
 	if collector, isCollector := rc.(FactCollector); isCollector {
 		stats = collector.Facts()
+	}
+	if becomes {
+		// Said in the result, so a report, an event and a journal entry show
+		// that this task ran as another account, and which.
+		stats[StatBecome] = becomeUser
 	}
 	if err != nil {
 		return ActionResult{Stats: failedStats(task.FQCN, mode, stats), Secrets: secrets}, methodError(task.FQCN, mode, err)

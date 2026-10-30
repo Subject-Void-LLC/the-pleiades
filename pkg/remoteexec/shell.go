@@ -79,6 +79,9 @@ type Shell struct {
 // request, so there is nothing here for a second implementation to earn
 // its cost against.
 func (c *Conn) Shell(ctx context.Context, opts ShellOptions) (*Shell, error) {
+	if err := c.refuseBecome("an interactive shell"); err != nil {
+		return nil, err
+	}
 	// A terminal carries device state a later task must not inherit (a
 	// configuration mode, a changed prompt), and some network devices
 	// end the whole connection when their one terminal closes, so a

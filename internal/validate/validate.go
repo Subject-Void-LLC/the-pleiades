@@ -119,7 +119,15 @@ func (w WorldView) taskDevices(task *engine.Task) (string, []inventory.Inventory
 	if target == "" && w.Resolver == nil {
 		return "", nil
 	}
-	return target, w.Resolve(target)
+	devices, _ := w.ResolveAll(target)
+	return target, devices
+}
+
+// ResolveAll is Resolve for a target that may be a hosts: list (a
+// comma-separated string, engine.ResolveTargets): the devices it names, and
+// the names in it that match nothing.
+func (w WorldView) ResolveAll(target string) (devices []inventory.InventoryItem, missing []string) {
+	return engine.ResolveTargets(engine.TargetResolverFunc(w.Resolve), target)
 }
 
 // Rule inspects a WorldView and returns the Findings it detects. A Rule

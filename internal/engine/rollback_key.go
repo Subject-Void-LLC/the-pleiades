@@ -60,6 +60,7 @@ func validateRollbackStep(step *Task, label string) error {
 		"when_or":          len(step.WhenOr) > 0,
 		"when_cel":         step.WhenCEL != "",
 		"check_mode":       bool(step.CheckMode),
+		"become":           step.Become != nil || step.BecomeUser != "" || step.BecomeMethod != "",
 		"tags":             len(step.Tags) > 0,
 		"register_mask":    len(step.RegisterMask) > 0,
 		"secret_mask":      step.SecretMask != nil,

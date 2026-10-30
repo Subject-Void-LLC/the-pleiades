@@ -57,6 +57,7 @@ func init() {
 				Notes:      "This method waits for a device to answer and changes nothing on it, so there is nothing to undo.",
 				ReadOnly:   true,
 			},
+			NoBecomeReason: "its question is whether this login gets in, and a sudo in front of it would answer whether the login may become another account",
 			// Only reads, and still not checkable: see NoCheckReason.
 			NoCheckReason: "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out " +
 				"its timeout and fail where the real run succeeds",
