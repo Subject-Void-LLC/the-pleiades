@@ -219,7 +219,9 @@ func TestPrune_RemovesWhatItsCheckListed(t *testing.T) {
 	params := map[string]any{"what": "containers", "labels": []any{label}}
 	rc := fresh()
 	if res, err := call(t, h, rc, "container.prune", true, params); err != nil || !res.Changed || h.state(t, stopped) != "exited" {
-		t.Fatalf("a check of prune = %+v, %v; state %q", res, err, h.state(t, stopped))
+		// The listing is read again here, only on a failure, so a repeat of
+		// FAILURE_PATTERNS 560 names what the engine said and when.
+		t.Fatalf("a check of prune = %+v, %v; state %q; the engine's list: %s", res, err, h.state(t, stopped), h.listed(t, stopped, label))
 	}
 	if pruned, _ := rc.stats["pruned"].([]string); len(pruned) != 1 || pruned[0] != stopped {
 		t.Errorf("the check listed %v", rc.stats["pruned"])
