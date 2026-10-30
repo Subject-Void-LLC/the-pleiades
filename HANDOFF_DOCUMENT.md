@@ -27,7 +27,7 @@ its detail is in `HANDOFF_ARCHIVE.md`. Only what is still open is carried below.
   300 consecutive local runs (`-race -tags integration -count=300`, Docker 29.8.0) all passed, so the cause is still
   unproven and no fix was made. `harness.listed` (`harness_test.go`) and the failing assertion now print the
   engine's list as prune asks it, the list by label alone, inspect's state, and both again a second later. The
-  next sighting shows whether the list lagged, never held the container, or answered once and not twice. LESSONS 357.
+  next sighting shows whether the status filter hid the container and whether a list a second later holds it (not what the check itself saw). LESSONS 357.
   Nothing else in that nightly failed (skips only).
 - No changelog fragment: this branch is CI plumbing and a test.
 

@@ -6616,8 +6616,10 @@ all passed, so the host could not supply the evidence either.
 
 The fourth move was the one taken: change the failing assertion so that its message carries what is missing. It now
 prints the engine's list as prune asks it, the list by label alone, inspect's state, and both lists again a second
-later. Whichever way the next failure goes, that output separates a list that lagged, a list that never held the
-container, and an engine that answered once and not twice. This is the working side of 144 (an unexplained observation
+later. Whichever way the next failure goes, that output shows whether the status filter hid the container and whether
+a later list holds it, though not what the check itself saw. An instrument is a check too: the first version built its
+label-only query on the same filters as the other, so the two could never differ, and only a probe with a case that must
+differ (a running container) proved the final one does. This is the working side of 144 (an unexplained observation
 is a fact to report) and of 110 ("flaky" never authorizes pushing past a red gate): neither says what to do with a
 failure that cannot be reproduced, and this does.
 

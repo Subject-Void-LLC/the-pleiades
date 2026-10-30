@@ -13977,8 +13977,11 @@ whether that is true of this daemon is the open question.
 124072978969, strict, 1h25m): `make test-full` failed on exactly one test, `internal/catalog/container`
 `TestPrune_RemovesWhatItsCheckListed`, `read_test.go:222`, with the first sighting's words: "a check of prune =
 {Changed:false}, <nil>; state "exited"" (0.26s). Two sightings in eight days (PR #84's run 39697697589 on 2026-10-22,
-then this one). Neither pull request merged since (#92, #93) touched the package, and the run showed nothing else
-failing but skips. The nightly job does not re-run a failure alone, so no isolation result exists for this sighting.
+then this one). The two pull requests merged just before it (#92, #93) did not touch the package, but the code
+between the sightings is not the same code: `internal/catalog/container` and `pkg/containerengine` changed on
+2026-10-28 (b617af7f, 718a6eae, 0e4c5767, the first of which edited `read_test.go`). So "the same defect" rests on the
+two failures' identical words, not on identical code. The run showed nothing else failing but skips. The nightly job
+does not re-run a failure alone, so no isolation result exists for this sighting.
 
 **What was tried, and what was not proven.** On this WSL host, 300 consecutive runs of the test
 (`go test -race -tags integration -run 'TestPrune_RemovesWhatItsCheckListed$' -count=300`, Docker 29.8.0, 310 s) all
@@ -13989,10 +13992,17 @@ theory). Contention was not claimed either: nothing in either sighting shows it.
 
 **What changed.** `internal/catalog/container/harness_test.go` gained `harness.listed`, and the failing assertion in
 `read_test.go` now prints the engine's list as prune asks it (the label and the statuses created, exited, dead), the
-list with the label only, inspect's state, and both lists again one second later. The next sighting therefore shows
-which of three things happened: the list lagged the container (the one-second-later list has it), the list never
-had it (neither list does, though inspect says exited), or the engine answered once and not twice (the two lists
-differ in a way a lag would not explain). The read happens only on a failure, so a passing run costs nothing.
+list with the label only, inspect's state, and both lists again one second later, with the time since the check began.
+The next sighting therefore shows whether the status filter hid a container the label alone finds, and whether a list
+a second later holds the container the check's list did not. It does not show what the check itself saw: the
+diagnostic reads through the harness's own client, after the check returned. The read happens only on a failure, so a
+passing run costs nothing.
+
+The first version of the diagnostic was wrong: it built the label-only query by chaining onto the filters it had just
+used, and `client.Filters.Add` changes the receiver, so both queries carried the status filter and the "label only"
+line could never differ. The branch review found it (a check that cannot discriminate). It is built from a clone
+now, and a probe with a running container, which the status filter must hide, printed `as prune asks []` and
+`label only [pleiades-test-... running]`, proving the two queries differ.
 
 **Status.** Still open. Decide the fix, in `container.prune` or in the test, only from that output. See
 LESSONS_LEARNED 357 for why the test was instrumented rather than fixed or re-run until green.
