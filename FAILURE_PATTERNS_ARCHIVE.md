@@ -17767,3 +17767,34 @@ tag, so only the next real release exercises it.
 
 **Lesson.** A release artifact built from a file in the repository is checked as the page that shows it, not as the
 file. Test the real shipped file, and say plainly what only the next real release can prove.
+
+## 738. gosec's G703 flagged the release-notes write of tools/release/notes.go, a repeat of 730 (and 475), because the new package was never scanned alone before the gate (fixed before push)
+
+**Symptom.** The first `make pr-check` on `fix/release-notes-links-and-prune-flake` (monitor run
+20261030T154850Z-62240568ca6e, commit 62240568), 2026-10-30, failed its gosec stage, 14 stages in, with
+`gosec-check: 1 finding(s) not in gosec-waivers.json: tools/release/notes.go:239 [G703] Path traversal via taint
+analysis`. The line was `os.WriteFile(filepath.Join(out, NotesFile), []byte(body), 0o644)` in `writeNotes`, with a
+`// #nosec G306` comment beside it.
+
+**Root cause.** The flow 730 described. `out` is the `-out` command-line flag and `body` is the content of the notes
+file named by `-notes`. gosec's taint rule follows both into the write: the path, and the file's content, which counts
+as tainted along with it. The `#nosec G306` comment answers only the permissions rule. The branch added
+`tools/release/notes.go` and did not scan it alone: vet, tests and actionlint were run on it alone before the gate,
+gosec was not. A second review (the fp-reviewer agent) did not run it either, since that agent is read-only.
+
+**Fix.** `writeNotes` writes through a handle (`os.OpenFile` with O_WRONLY|O_CREATE|O_TRUNC, `io.WriteString`,
+`Close`), which no path sink reads the content of, with a comment naming 730 and `#nosec G302 G304` with a reason. No
+waiver entry. Proof: `gosec ./tools/release/` alone reports Issues 0 and exits 0, and `go test -short -race
+./tools/release/` passes.
+
+**Why 730 did not prevent it.** Its lesson was written as a sentence to remember, not as a step anything runs. This
+branch's own pre-gate checklist had vet, test and workflow-lint and no per-package gosec, so nothing asked for the
+scan and the first gosec run over the new file was the gate's, 14 stages in.
+
+**Open question: a mechanism.** Nothing is built. A suggestion for the owner, not a claim: have `tools/prscope` or
+`make pr-check` run gosec over each changed package early, ahead of the long stages. gosec on one package takes
+seconds, so the finding would arrive before the test passes instead of after them.
+
+**Lesson.** A rule that says "scan the new package alone" holds only if something runs the scan. Until a mechanism
+exists, a branch that adds or changes a Go file under `tools/` or `internal/` runs `gosec ./the/package/` alone, as it
+runs vet and tests, and puts it on the branch's pre-gate list.

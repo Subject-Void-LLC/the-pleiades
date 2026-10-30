@@ -741,6 +741,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 735. Stopping each gate at its first failure terminated a lab VM's ACPI put-back, the power cuts that followed damaged its new data disk, and the VM would not boot (a repeat of 733's cause) (fixed before push)
 736. testimages -served asked the registry for a container test's Image: "sha256:img", a short stand-in for an image ID the scanner's 64-digit rule let through (a repeat of 465 and 416) (fixed before push)
 737. The v0.3.0 release page's links all 404ed, because the workflow published the notes file verbatim and its relative links resolve against the repository root on a release page (fixed before push)
+738. gosec's G703 flagged the release-notes write of tools/release/notes.go, a repeat of 730 (and 475), because the new package was never scanned alone before the gate (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
