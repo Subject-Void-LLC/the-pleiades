@@ -35,7 +35,8 @@ func trustProject(t *testing.T) (dir, knownHosts string, srv *remoteexectest.Ser
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{
-		{"lab", "--type", "linux_server", "--set", "host=" + srv.Host, "--set", "port=" + strconv.Itoa(srv.Port), "--dir", dir},
+		{"lab", "--type", "linux_server", "--set", "host=" + srv.Host, "--set", "port=" + strconv.Itoa(srv.Port), "--set", "ephemeral=true", "--dir", dir},
+		{"plain", "--type", "linux_server", "--set", "host=" + srv.Host, "--set", "port=" + strconv.Itoa(srv.Port), "--dir", dir},
 		{"win", "--type", "windows_server", "--set", "host=192.0.2.1", "--dir", dir},
 	} {
 		captureStdout(t, func() {
@@ -71,6 +72,47 @@ func TestTrustHost_FirstConnect(t *testing.T) {
 	}
 	if info, _ := os.Stat(knownHosts); info.Mode().Perm() != 0o600 {
 		t.Errorf("known_hosts mode %v", info.Mode().Perm())
+	}
+}
+
+// TestTrustHost_FirstConnectNeedsAnEphemeralDeviceOrAReason: a device not
+// flagged ephemeral is refused until --reason says why, the reason and the
+// time are recorded on the device, and --reason has no use without
+// --first-connect.
+func TestTrustHost_FirstConnectNeedsAnEphemeralDeviceOrAReason(t *testing.T) {
+	dir, knownHosts, _ := trustProject(t)
+	err := runTrustHost([]string{"plain", "--first-connect", "--dir", dir})
+	if err == nil || !strings.Contains(err.Error(), "not flagged ephemeral") || !strings.Contains(err.Error(), "--reason") {
+		t.Fatalf("an unflagged device: %v", err)
+	}
+	if _, statErr := os.Stat(knownHosts); statErr == nil {
+		t.Error("a refused trust wrote known_hosts")
+	}
+	if got := loadHost(t, dir, "plain").Properties().Raw()[firstConnectReasonProperty]; got != nil {
+		t.Errorf("a refused trust recorded a reason: %v", got)
+	}
+
+	captureStdout(t, func() {
+		err = runTrustHost([]string{"plain", "--first-connect", "--reason", "lab switch, console not reachable", "--dir", dir})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded, _ := loadHost(t, dir, "plain").Properties().Raw()[firstConnectReasonProperty].(string)
+	if !strings.Contains(recorded, "lab switch, console not reachable") || !strings.Contains(recorded, "T") {
+		t.Errorf("recorded reason %q holds no reason and time", recorded)
+	}
+
+	// A flagged device needs none, and records none.
+	captureStdout(t, func() { err = runTrustHost([]string{"lab", "--first-connect", "--dir", dir}) })
+	if err != nil {
+		t.Errorf("an ephemeral device was refused: %v", err)
+	}
+	if got := loadHost(t, dir, "lab").Properties().Raw()[firstConnectReasonProperty]; got != nil {
+		t.Errorf("an ephemeral device recorded a reason: %v", got)
+	}
+	if err := runTrustHost([]string{"lab", "--from-console", "win", "--reason", "x", "--dir", dir}); err == nil || !strings.Contains(err.Error(), "--reason only applies") {
+		t.Errorf("--reason without --first-connect: %v", err)
 	}
 }
 

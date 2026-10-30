@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -29,21 +30,45 @@ import (
 // hostKeysMethod is the method --from-console runs on the VM's host.
 const hostKeysMethod = "virt.vbox.vm.host_keys"
 
+// ephemeralProperty is the device property that says a device is made again
+// (a lab node) and so has new host keys on every deploy. An import of a lab
+// sets it; it is what lets --first-connect run without a reason.
+const ephemeralProperty = "ephemeral"
+
+// firstConnectReasonProperty is where a --first-connect trust of a device not
+// flagged ephemeral records when and why, as a revision of the device.
+const firstConnectReasonProperty = "first_connect_reason"
+
+// isEphemeral reports whether device is flagged ephemeral: the property is
+// true, as a bool or as the word an operator typed.
+func isEphemeral(device inventory.InventoryItem) bool {
+	switch v := device.Properties().Raw()[ephemeralProperty].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true")
+	}
+	return false
+}
+
 // runTrustHost trusts a device's SSH host keys, taken one of two ways.
 // --from-console reads the keys a VM printed on its serial console, over
 // the authenticated connection to the VirtualBox host that runs it, so
 // they are the VM's own. --first-connect takes whatever answers at the
-// device's address, which proves nothing, and says so every time.
+// device's address, which proves nothing, and says so every time. It is
+// refused for a device not flagged ephemeral unless --reason says why, which
+// is recorded on the device.
 func runTrustHost(args []string) error {
 	name, rest, err := splitPositional(args, map[string]bool{"first-connect": true, "replace": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades trust-host <device> (--from-console <virtualbox host> [--vm <name>] | --first-connect) [--replace]: %w", err)
+		return fmt.Errorf("usage: pleiades trust-host <device> (--from-console <virtualbox host> [--vm <name>] | --first-connect [--reason <why>]) [--replace]: %w", err)
 	}
 	fs := flag.NewFlagSet("trust-host", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	fromConsole := fs.String("from-console", "", "the VirtualBox host running the device's VM, whose console log holds its host keys")
 	vm := fs.String("vm", "", "with --from-console, the VM's name on the host, when it is not the device's")
 	firstConnect := fs.Bool("first-connect", false, "trust whatever host keys answer at the device's address, unverified")
+	reason := fs.String("reason", "", "with --first-connect on a device not flagged ephemeral (a lab node an import flags), why its keys are trusted unverified; recorded on the device")
 	replace := fs.Bool("replace", false, "drop keys already trusted for the device's address that differ, as after a VM is made again")
 	timeout := fs.Duration("timeout", 5*time.Minute, "how long to wait for the keys")
 	if err := fs.Parse(rest); err != nil {
@@ -51,6 +76,9 @@ func runTrustHost(args []string) error {
 	}
 	if (*fromConsole == "") == !*firstConnect {
 		return errors.New("name one source of keys: --from-console <virtualbox host>, or --first-connect")
+	}
+	if *reason != "" && !*firstConnect {
+		return errors.New("--reason only applies to --first-connect")
 	}
 	if *vm != "" && *fromConsole == "" {
 		return errors.New("--vm only applies to --from-console")
@@ -72,6 +100,9 @@ func runTrustHost(args []string) error {
 	}
 	var keys []ssh.PublicKey
 	if *firstConnect {
+		if err := requireFirstConnectReason(ctx, repo, device, *reason); err != nil {
+			return err
+		}
 		fmt.Fprintf(os.Stderr, "WARNING: trusting whatever answered at %s without verifying it: anything on that network could have answered as %s\n", address, name)
 		keys, err = hosttrust.Scan(ctx, address, 10*time.Second)
 	} else {
@@ -96,6 +127,29 @@ func runTrustHost(args []string) error {
 		fmt.Printf("%s %s SHA256:%s\n", address, key.Type(), base64.RawStdEncoding.EncodeToString(sum[:]))
 	}
 	fmt.Printf("%s: %d key(s) added, %d already trusted, %d replaced\n", path, out.Added, out.Known, out.Removed)
+	return nil
+}
+
+// requireFirstConnectReason holds --first-connect to the devices it is for. A
+// device flagged ephemeral is made again with new keys, so there is nothing
+// older to check them against. Any other device has keys that mean something,
+// and trusting whatever answers for it is a decision: it needs a reason, and
+// the reason (with the time) is recorded on the device, in its history.
+func requireFirstConnectReason(ctx context.Context, repo inv.Repository, device inventory.InventoryItem, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if isEphemeral(device) && reason == "" {
+		return nil
+	}
+	if reason == "" {
+		return fmt.Errorf("device %q is not flagged ephemeral, so --first-connect would trust whatever answers for a machine whose keys should mean something: trust its keys from a source you can check (--from-console), or pass --reason \"why\" to trust it anyway, which is recorded on the device. A lab node an import-containerlab or import-cml made is flagged already; flag another with: pleiades set-host %s --set %s=true", device.Name(), device.Name(), ephemeralProperty)
+	}
+	entry := time.Now().UTC().Format(time.RFC3339) + ": " + reason
+	if err := device.AddInfo(firstConnectReasonProperty, entry, true); err != nil {
+		return fmt.Errorf("recording the reason on %s: %w", device.Name(), err)
+	}
+	if err := repo.Save(ctx, device); err != nil {
+		return fmt.Errorf("recording the reason on %s: %w", device.Name(), err)
+	}
 	return nil
 }
 

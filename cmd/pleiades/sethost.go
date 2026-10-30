@@ -58,7 +58,7 @@ func (t *tagList) Set(s string) error {
 }
 
 // setHostUsage is set-host's synopsis, printed with a positional error.
-const setHostUsage = "usage: pleiades set-host <name> [--set key=value ...] [--unset key ...] [--tag tag ...] [--untag tag ...]"
+const setHostUsage = "usage: pleiades set-host <name> [--set key=value ...] [--unset key ...] [--tag tag ...] [--untag tag ...]  (--tags is --tag)"
 
 // runSetHost changes an existing host's properties and tags: --set adds
 // or replaces a property, --unset removes one, --tag adds a tag and
@@ -84,6 +84,8 @@ func runSetHost(args []string) error {
 	fs.Var(unset, "unset", "device property to remove (repeatable)")
 	tag := &tagList{flag: "tag"}
 	fs.Var(tag, "tag", "tag to add, or several separated by commas (repeatable)")
+	// add-host spells the same flag --tags, so either word works on both.
+	fs.Var(tag, "tags", "same as --tag")
 	untag := &tagList{flag: "untag"}
 	fs.Var(untag, "untag", "tag to remove, or several separated by commas (repeatable)")
 	if err := fs.Parse(rest); err != nil {

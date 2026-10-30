@@ -160,14 +160,25 @@ var errMissingPositional = errors.New("missing positional argument")
 func runAddHost(args []string) error {
 	name, rest, err := splitPositional(args, nil)
 	if err != nil {
-		return fmt.Errorf("usage: pleiades add-host <name> (--type <type> | --classify a,b,c) [--set key=value ...] [--tags a,b]: %w", err)
+		return fmt.Errorf("usage: pleiades add-host <name> (--type <type> | --classify a,b,c) [--set key=value ...] [--tags a,b | --tag a ...]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-host", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	deviceType := fs.String("type", "", "device type (e.g. linux_server, cisco_router)")
 	classifyFlag := fs.String("classify", "", "comma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type")
-	tagsFlag := fs.String("tags", "", "comma-separated tags")
+	// --tags and --tag are one flag under two names (set-host spells it --tag),
+	// each repeatable and each taking one tag or several separated by commas.
+	// An empty value adds nothing, as --tags "" always did.
+	addTags := &tagList{flag: "tags"}
+	addTag := func(s string) error {
+		if s == "" {
+			return nil
+		}
+		return addTags.Set(s)
+	}
+	fs.Func("tags", "comma-separated tags (repeatable); --tag is the same flag", addTag)
+	fs.Func("tag", "a tag, or several separated by commas (repeatable); --tags is the same flag", addTag)
 	props := &keyValueList{}
 	fs.Var(props, "set", "device property as key=value (repeatable)")
 
@@ -208,10 +219,7 @@ func runAddHost(args []string) error {
 		}
 	}
 
-	var tags []string
-	if *tagsFlag != "" {
-		tags = strings.Split(*tagsFlag, ",")
-	}
+	tags := addTags.tags
 
 	spec := inventory.HostSpec{
 		ID:         uuid.New().String(),

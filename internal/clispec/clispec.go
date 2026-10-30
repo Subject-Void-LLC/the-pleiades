@@ -96,7 +96,8 @@ var Root = Command{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "type", Type: "string", Default: "", Doc: "device type (e.g. linux_server, cisco_router)"},
 				{Name: "classify", Type: "string", Default: "", Doc: "comma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type"},
-				{Name: "tags", Type: "string", Default: "", Doc: "comma-separated tags"},
+				{Name: "tags", Type: "string", Default: "", Doc: "comma-separated tags (repeatable); --tag is the same flag"},
+				{Name: "tag", Type: "string", Default: "", Doc: "a tag, or several separated by commas (repeatable); --tags is the same flag"},
 				{Name: "set", Type: "key=value", Default: "", Doc: "device property as key=value (repeatable)"},
 			},
 			Examples: []string{"pleiades add-host web01 --type linux_server --tags prod,web"},
@@ -110,6 +111,7 @@ var Root = Command{
 				{Name: "set", Type: "key=value", Default: "", Doc: "device property to add or replace, as key=value (repeatable)"},
 				{Name: "unset", Type: "string", Default: "", Doc: "device property to remove (repeatable)"},
 				{Name: "tag", Type: "string", Default: "", Doc: "tag to add, or several separated by commas (repeatable)"},
+				{Name: "tags", Type: "string", Default: "", Doc: "same as --tag"},
 				{Name: "untag", Type: "string", Default: "", Doc: "tag to remove, or several separated by commas (repeatable)"},
 			},
 			Examples: []string{
@@ -148,7 +150,8 @@ var Root = Command{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "from-console", Type: "string", Default: "", Doc: "the VirtualBox host running the device's VM, whose console log holds its host keys"},
 				{Name: "vm", Type: "string", Default: "", Doc: "with --from-console, the VM's name on the host, when it is not the device's"},
-				{Name: "first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at the device's address, unverified"},
+				{Name: "first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at the device's address, unverified; refused for a device not flagged ephemeral unless --reason says why"},
+				{Name: "reason", Type: "string", Default: "", Doc: "with --first-connect on a device not flagged ephemeral (a lab node an import flags), why its keys are trusted unverified; recorded on the device"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "drop keys already trusted for the device's address that differ, as after a VM is made again"},
 				{Name: "timeout", Type: "duration", Default: "5m0s", Doc: "how long to wait for the keys"},
 			},
@@ -348,6 +351,7 @@ var Root = Command{
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "topology", Type: "string", Default: "", Doc: "containerlab's topology-data.json for the lab, written on deploy"},
+				{Name: "api", Type: "string", Default: "", Doc: "instead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read"},
 				{Name: "lab", Type: "string", Default: "", Doc: "the lab's name, which the file must be for"},
 				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
 				{Name: "username", Type: "string", Default: "", Doc: "with --key, the account every node is reached as"},
@@ -360,6 +364,7 @@ var Root = Command{
 			Examples: []string{
 				"pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --username netops --key keys/id_ed25519 --trust-first-connect --onboard",
 				"pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --nodes r1,r2 --replace --json",
+				"pleiades import-containerlab --api clab-api --lab routing-lab --username netops --key keys/id_ed25519 --onboard",
 			},
 		},
 		{

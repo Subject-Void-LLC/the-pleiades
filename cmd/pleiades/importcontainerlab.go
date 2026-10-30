@@ -80,6 +80,7 @@ func runImportContainerlab(args []string) error {
 	fs := flag.NewFlagSet("import-containerlab", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	path := fs.String("topology", "", "containerlab's topology-data.json for the lab, written on deploy")
+	api := fs.String("api", "", "instead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read")
 	lab := fs.String("lab", "", "the lab's name, which the file must be for")
 	only := fs.String("nodes", "", "comma-separated nodes to import; every node when empty")
 	username := fs.String("username", "", "with --key, the account every node is reached as")
@@ -92,10 +93,10 @@ func runImportContainerlab(args []string) error {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("usage: pleiades import-containerlab --topology <topology-data.json> --lab <name> [--nodes a,b] [--username <user> --key <path>] [--trust-first-connect] [--onboard] [--replace] [--json]")
+		return fmt.Errorf("usage: pleiades import-containerlab (--topology <topology-data.json> | --api <device>) --lab <name> [--nodes a,b] [--username <user> --key <path>] [--trust-first-connect] [--onboard] [--replace] [--json]")
 	}
-	if *path == "" || *lab == "" {
-		return errors.New("--topology and --lab are both required: the import reads the file it is given, for the lab it names")
+	if (*path == "") == (*api == "") || *lab == "" {
+		return errors.New("--lab and exactly one of --topology and --api are required: the import reads the file or the server it is given, for the lab it names")
 	}
 	if (*username == "") != (*keyPath == "") {
 		return errors.New("--username and --key go together")
@@ -106,7 +107,13 @@ func runImportContainerlab(args []string) error {
 		// in the user's (the clean-slate lab's G7).
 		return fmt.Errorf("--trust-first-connect needs %s set to a known_hosts file of the lab's own, e.g. export %s=$PWD/known_hosts: a lab makes new host keys on every deploy, so they must not go in your own ~/.ssh/known_hosts", remoteexec.KnownHostsEnv, remoteexec.KnownHostsEnv)
 	}
-	topo, err := readTopology(*path)
+	var topo clabTopology
+	var err error
+	if *api != "" {
+		topo, err = readInspect(context.Background(), *dir, *api, *lab)
+	} else {
+		topo, err = readTopology(*path)
+	}
 	if err != nil {
 		return err
 	}
@@ -130,7 +137,9 @@ func runImportContainerlab(args []string) error {
 		if err != nil {
 			return fmt.Errorf("node %s: %w", n, err)
 		}
-		props := map[string]pkginventory.PropertyValue{"host": host, "port": port}
+		// ephemeral: the lab is deployed again with new host keys, which is what
+		// lets trust-host --first-connect run on it without a reason.
+		props := map[string]pkginventory.PropertyValue{"host": host, "port": port, ephemeralProperty: true}
 		spec := inventory.HostSpec{ID: uuid.New().String(), Name: n, Type: generic.TypeSSH, Tags: []string{"containerlab", "lab-" + *lab}, Properties: props}
 		if hosts, err = labPlace(hosts, spec, *replace); err != nil {
 			return err
