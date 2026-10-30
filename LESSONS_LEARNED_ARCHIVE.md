@@ -6628,3 +6628,45 @@ record the count and the settings that did not. If it does not reproduce, make n
 the assertion that failed so its message prints the state the diagnosis needs, on failure only, so a passing run costs
 nothing. Keep the entry open, say in it what the next sighting will show, and decide the fix from that output. Do not
 write "contention" or "daemon lag" into a record without it.
+
+## 358. A privilege mechanism fails closed: elevation is proven once, and every path that cannot elevate is refused rather than run as the login (2026-10-30).
+
+**Why.** `become` runs a task's commands as another account (FRR's `vtysh` as `frr`, a file under `/etc` as root). The
+dangerous failure is a task that was meant to run elevated and silently runs as the login, because the change then
+lands under the wrong owner, or fails after a first step has changed the device (FAILURE_PATTERNS 739 is that shape).
+Three places could let it happen, and each is closed. `remoteexec.Conn.WithBecome` proves `sudo -n true` once, before
+any task command, and returns an error when it fails. On the elevated view, `Shell`, `Subsystem`, `DialTCP` and
+`DialUnix` are refused, since they send no command that could be wrapped in `sudo`, so nothing on that view runs as the
+login by accident. At plan time, `validate`'s `BecomeRule` refuses `become` on a method that has no SSH or that
+carries a `NoBecomeReason` (`net.ssh.ping`, `wait.connection`, whose question is the login itself). A Controller or
+Runner refuses `become` until a dispatch carries it (`internal/engine/collection_action.go`), so the Walk tier cannot run
+a runbook as the login when it was written to run as another account. The account name is held to
+`^[a-z_][a-z0-9_-]{0,31}$` by `remoteexec.ValidBecomeUser`, so it cannot carry shell text, and the journal
+records it as `JournalEntry.Become` (FAILURE_PATTERNS 742).
+
+**Rule in practice.** A mechanism that changes who a command runs as is never a best effort. Prove it before the first
+command, refuse every path that cannot honor it by name, and refuse it at plan time where the plan can tell. It is
+LESSONS 25's rule (a security default fails closed on every branch) applied to privilege.
+
+## 359. Where a server reports success whether or not it changed anything, read the state first, so `changed` is honest and the undo exact (2026-10-30).
+
+**Why.** The containerlab API server answers a node start or stop with success whether or not the node was already in
+that state, and its exec reports `return-code` 0 for a command that exited 3 (FAILURE_PATTERNS 740). A method that
+passed the server's answer through would report `changed` on every call and record an undo for a change that never
+happened. A rollback would then stop a node the run never started. The `virt.clab` node methods read the node's state
+first through inspect, report `changed` only when it moves, and record an undo only for a move they made. A write whose
+reply cannot be trusted is judged by a read of the state, before and after.
+
+**Rule in practice.** For a method on a service that cannot say whether it changed anything, read first, act only on a
+difference, and record the undo from what the read showed. Never let the service's own success word decide `changed`.
+
+## 360. A privileged test container is root-equivalent: it asks for the Docker socket first, labels what it makes, and runs only on the owner's word (2026-10-30).
+
+**Why.** The real containerlab API server only works run privileged, with the Docker socket, the host's process
+namespace and `/var/run/netns`. A container with those can start and stop any container on the machine and reach the
+host as root. `testsupport.StartClabServer` therefore calls `Require` for the Docker socket first, so a machine without
+one skips by its stated reason. `CleanClabLab` removes what a run made, by the label `containerlab=<lab>` and by the
+lab's `clab` network, and nothing else. The owner authorised running it on 2026-10-30. A machine without the socket skips with the stated reason rather than failing.
+
+**Rule in practice.** Before a test starts a container that holds the Docker socket or host namespaces, say so, ask the
+owner, label everything it creates and remove it by that label. Never prune by a broad filter to clean up after it.

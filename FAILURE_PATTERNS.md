@@ -742,6 +742,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 736. testimages -served asked the registry for a container test's Image: "sha256:img", a short stand-in for an image ID the scanner's 64-digit rule let through (a repeat of 465 and 416) (fixed before push)
 737. The v0.3.0 release page's links all 404ed, because the workflow published the notes file verbatim and its relative links resolve against the repository root on a release page (fixed before push)
 738. gosec's G703 flagged the release-notes write of tools/release/notes.go, a repeat of 730 (and 475), because the new package was never scanned alone before the gate (fixed before push)
+739. net.frr.config's check passed where the real apply failed, because canSave probed the file and the save writes a new file beside it (a repeat of 564 and 722) (fixed before push)
+740. container.clab.exec and the containerlab client were first built and tested against a stub of shapes assumed, and the real server disagreed in four places (a repeat of 642 and 90) (fixed before push)
+741. An onboarding test recorded only the last request's Authorization header, so a probe that added a credential-less request made it read an empty string (fixed before push)
+742. The journal archtest refused the new JournalEntry.Become until it was classified, and the classification is a design decision the owner has not confirmed (open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

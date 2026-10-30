@@ -17798,3 +17798,96 @@ seconds, so the finding would arrive before the test passes instead of after the
 **Lesson.** A rule that says "scan the new package alone" holds only if something runs the scan. Until a mechanism
 exists, a branch that adds or changes a Go file under `tools/` or `internal/` runs `gosec ./the/package/` alone, as it
 runs vet and tests, and puts it on the branch's pre-gate list.
+
+## 739. net.frr.config's check passed where the real apply failed, because canSave probed the file and the save writes a new file beside it (a repeat of 564 and 722) (fixed before push)
+
+**Symptom.** Blind lab run 1, on the branch before this one (reported 2026-10-30). A `net.frr.config` check passed
+twice. The real run then reloaded the router and changed it, and the save that follows failed with `mktemp: Permission
+denied`. The router was left changed with its saved file unchanged, which is the state a check exists to rule out. The
+same run reported a second failure ("file would belong to netops:frr"). That one was **not reproduced** here: no test
+or live run on this branch produced it, so nothing is claimed about its cause or fix.
+
+**Root cause.** `canSave` in `internal/catalog/net/frr/config.go` asked only `test -w` of `frr.conf`. The real save
+goes through `remotefile.Replace`, which writes a new file beside `frr.conf` and renames it into place, so it needs the
+directory writable as well as the file. The check asked a narrower question than the write does. A login that could
+write the file but not its directory passed the check and failed the apply.
+
+**Fix.** `canSave` also asks `remotefile.PredictPut`, the prediction of the write the real save makes, and the
+refusal names the owner to connect as. Proof: `TestConfig_ASaveNeedsTheDirectoryToo` (live, against a real FRR
+container, in `frr_dirperm_live_test.go`). The check now fails where the run would.
+
+**Why 564's fix did not prevent it.** 564 and 722 state the rule that a check must not pass where the run fails, and
+LESSONS 255 says a check that cannot know says so. Here the check did not lack state; it probed a stand-in (the file's
+mode) for the operation (a replace of the file). Nothing compared what a check probes with what the write does, so each
+check is only as honest as the person who chose its probe.
+
+**Lesson.** A check of a write asks the write's own prediction function, not a hand-written probe of what the write
+seems to need. When a method's save, put or replace has a shared helper, the check calls that helper's predictor.
+
+## 740. container.clab.exec and the containerlab client were first built and tested against a stub of shapes assumed, and the real server disagreed in four places (a repeat of 642 and 90) (fixed before push)
+
+**Symptom.** The `virt.clab` collection (reported 2026-10-30) was first written against a stub of containerlab's API
+server whose request and response shapes were assumed. Run privileged, the real server (`testsupport.StartClabServer`)
+showed four differences the stub could not have shown:
+
+1. `nodeFilter` and the logs route want the container name `clab-<lab>-<node>`, not the node name.
+2. Exec returns `"return-code": 0` for a command that exited 3. Its stdout and stderr are right; only the status lies.
+3. The first token issued after the server starts is refused with 401 "Invalid or expired token". A token issued a
+   moment later works.
+4. Inspect of an absent lab is a 404 with `{"error":"lab 'x' not found"}`.
+
+**Root cause.** The stub encoded what its author believed the server does. A fake passes its own test, so the
+disagreements stayed invisible until the real service ran. This is 642's class (a fake written from memory) and 90's
+(designing against a description without running the real tool).
+
+**Fix.** Node lookup goes through inspect, which gives the container name. Exec is wrapped so the command prints its
+real exit status after a random per-call marker on stderr, and the client reads that instead of the dropped
+`return-code`: `TestNodeExec_ReadsTheExitStatusTheServerDrops`, and live `TestLive_ARealLabEndToEnd`. A 401 from login
+renews once, after a 1.5 second wait: `TestClab_ALoginTheServerRefusesIsRenewedOnce`. The live test runs a real lab, a ping across the link, netem loss stopping it, the exit-status fix and
+the undos.
+
+**Why 642's fix did not prevent it.** 642's lesson (and LESSONS 109, 317, 322) says to measure a device's wording on a
+real device. It was written about device wording, and this was an API server, so it did not read as applying. The
+class is wider: any fake of a service whose behavior is not read from the service.
+
+**Lesson.** Before writing a stub of a service you can run, run it and read its answers, including its errors and its
+first-use behavior. A stub is a record of what you saw, never of what you believe; cite the run beside it.
+
+## 741. An onboarding test recorded only the last request's Authorization header, so a probe that added a credential-less request made it read an empty string (fixed before push)
+
+**Symptom.** `TestHTTPProbe_PlaintextCredentialOnlyWhenAllowed` (`internal/inventory/onboard/downgrade_test.go`) began
+reading `""` for the Authorization header once the HTTP prober made one more request.
+
+**Root cause.** The prober gained a credential-less `GET /health`, to recognise a containerlab API server (its status,
+uptime, start time and version grant `ContainerlabAPICapable`). The test's handler stored the Authorization header of
+whichever request came last. The new request came after the credentialed one and carried none, so the test read the
+wrong request. The prober was right: the credential is still sent only when allowed, and `/health` never carries one.
+I found no earlier entry for this class (a test that records "the last" request); the search looked for last-request,
+most-recent-request and overwritten-capture wording and for HTTP probe tests.
+
+**Fix.** The test ignores `/health` when it records the header, so it still checks the one request that may carry the
+credential. A better shape, not applied: record every request's path and header and assert on the credentialed one by
+path.
+
+**Lesson.** A test that records "the last" request breaks when a probe adds a request. Record each request with its
+path and assert on the one you mean.
+
+## 742. The journal archtest refused the new JournalEntry.Become until it was classified, and the classification is a design decision the owner has not confirmed (open)
+
+**Symptom.** `TestEveryJournalStringFieldIsConstructed` (`internal/archtest/journal_test.go`) failed once
+`JournalEntry` gained a `Become` field (the account a task ran as, for `become`), because every journal string field
+must be classified as one of the test's kinds.
+
+**Root cause.** Not a defect: the test is the guard that makes each new journal string a stated choice, since the
+journal is read back and shown. `Become` had no classification.
+
+**Fix.** `Become` is classified kind 5, an author label, with a stated reason: it is constrained to
+`^[a-z_][a-z0-9_-]{0,31}$` by `remoteexec.ValidBecomeUser` before any command runs, so it cannot carry free text or a
+secret. It is added to `journalAuthorLabelFields`, which the test itself calls a design decision.
+
+**Open.** **For the owner to confirm:** that an author label is the right kind for `Become`, and that adding to
+`journalAuthorLabelFields` is acceptable. The entry stays open until the owner decides. If the owner prefers a stricter
+kind, the field's value must be reshaped, not the test relaxed.
+
+**Lesson.** When a guard test makes a new field a classified choice, record the choice and its reason in the same
+change and name it for the owner, since adding to the list is the one move the guard cannot check.
