@@ -105,7 +105,11 @@ func TestHTTPProbe_NoDowngradeUnlessAllowed(t *testing.T) {
 func TestHTTPProbe_PlaintextCredentialOnlyWhenAllowed(t *testing.T) {
 	var sent string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sent = r.Header.Get("Authorization")
+		// /health is asked with no credential, to see whether this is a
+		// containerlab API server, and is not the request under test.
+		if r.URL.Path != "/health" {
+			sent = r.Header.Get("Authorization")
+		}
 	}))
 	defer srv.Close()
 	ctor, _ := record.LookupType(generic.TypeHTTP)

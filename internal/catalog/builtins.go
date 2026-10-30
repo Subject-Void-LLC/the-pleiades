@@ -60,6 +60,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/systemd"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/windows"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/clab"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/capture"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/lab"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/link"
