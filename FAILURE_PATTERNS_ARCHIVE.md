@@ -13946,7 +13946,7 @@ declared capabilities, shift the same fixtures; a manifest shares its files with
 separates them. `examples/` is there because no package sits above an example, so changing one selected nothing at
 all. `TestEveryDocumentedExampleValidates` is in `internal/archtest`, which pr-check always runs.
 
-## 560. A check of container.prune listed no stopped container while inspect said it had exited (open)
+## 560. A check of container.prune listed no stopped container while inspect said it had exited (open; seen again on 2026-10-30, a repeat of 560)
 
 **Symptom.** Pull request #84's run 39697697589, attempt 1, `containers (5)`, 2026-10-22:
 `TestPrune_RemovesWhatItsCheckListed` (`internal/catalog/container/read_test.go`) failed with "a check of prune =
@@ -13972,6 +13972,40 @@ to agree, or the test should.
 
 **Lesson.** Pending the cause. A method that decides by a listing reads a view that can lag the object it describes;
 whether that is true of this daemon is the open question.
+
+**Second sighting, 2026-10-30 (a repeat of 560).** The nightly run 41058796153 (schedule, `main` at `7e40c5e1`, job
+124072978969, strict, 1h25m): `make test-full` failed on exactly one test, `internal/catalog/container`
+`TestPrune_RemovesWhatItsCheckListed`, `read_test.go:222`, with the first sighting's words: "a check of prune =
+{Changed:false}, <nil>; state "exited"" (0.26s). Two sightings in eight days (PR #84's run 39697697589 on 2026-10-22,
+then this one). The two pull requests merged just before it (#92, #93) did not touch the package, but the code
+between the sightings is not the same code: `internal/catalog/container` and `pkg/containerengine` changed on
+2026-10-28 (b617af7f, 718a6eae, 0e4c5767, the first of which edited `read_test.go`). So "the same defect" rests on the
+two failures' identical words, not on identical code. The run showed nothing else failing but skips. The nightly job
+does not re-run a failure alone, so no isolation result exists for this sighting.
+
+**What was tried, and what was not proven.** On this WSL host, 300 consecutive runs of the test
+(`go test -race -tags integration -run 'TestPrune_RemovesWhatItsCheckListed$' -count=300`, Docker 29.8.0, 310 s) all
+passed. So the list lagging inspect did not reproduce here, and the cause stays unproven: it could be a lagging list,
+a list that never held the container, or a daemon or runner condition this host does not have. No fix was made,
+because a fix without the cause would be a guess (it would change `container.prune` or the test on the strength of one
+theory). Contention was not claimed either: nothing in either sighting shows it.
+
+**What changed.** `internal/catalog/container/harness_test.go` gained `harness.listed`, and the failing assertion in
+`read_test.go` now prints the engine's list as prune asks it (the label and the statuses created, exited, dead), the
+list with the label only, inspect's state, and both lists again one second later, with the time since the check began.
+The next sighting therefore shows whether the status filter hid a container the label alone finds, and whether a list
+a second later holds the container the check's list did not. It does not show what the check itself saw: the
+diagnostic reads through the harness's own client, after the check returned. The read happens only on a failure, so a
+passing run costs nothing.
+
+The first version of the diagnostic was wrong: it built the label-only query by chaining onto the filters it had just
+used, and `client.Filters.Add` changes the receiver, so both queries carried the status filter and the "label only"
+line could never differ. The branch review found it (a check that cannot discriminate). It is built from a clone
+now, and a probe with a running container, which the status filter must hide, printed `as prune asks []` and
+`label only [pleiades-test-... running]`, proving the two queries differ.
+
+**Status.** Still open. Decide the fix, in `container.prune` or in the test, only from that output. See
+LESSONS_LEARNED 357 for why the test was instrumented rather than fixed or re-run until green.
 
 ## 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (fixed)
 
@@ -17705,3 +17739,62 @@ and the scanner's test names both short stand-ins.
 
 **Lesson.** When a filter refuses a false positive, refuse it by the property that makes it false (no registry serves a
 repository called sha256), not by the exact value that tripped it last time.
+
+## 737. The v0.3.0 release page's links all 404ed, because the workflow published the notes file verbatim and its relative links resolve against the repository root on a release page (fixed before push)
+
+**Symptom.** Found 2026-10-29, after v0.3.0 was published: every link in the release page's body
+(`](../01-start-here.md)` and its siblings) led to a GitHub 404. The notes file, `docs/releases/v0.3.0.md`, read
+correctly in the repository, and nothing in CI looked at the page it became. The page body was patched by hand to
+absolute links into the tag (`.../blob/v0.3.0/docs/...`).
+
+**Root cause.** `.github/workflows/release.yml` passed `docs/releases/<tag>.md` to the release as its body, unchanged.
+A relative link in a file view resolves against the file's own directory, so `../01-start-here.md` reaches
+`docs/01-start-here.md`. On a release page it resolves against the repository's root URL, where `../` goes nowhere.
+The same text is a different document in the two places, and only the file had ever been looked at.
+
+**Fix.** `tools/release/notes.go`: `rewriteLinks` resolves each relative inline link against the notes file's
+directory and pins it to the tag. It leaves a URL with a scheme, an anchor and anything in fenced code alone, and it
+refuses a link that leaves the repository. `release -notes docs/releases/vX.md -repo OWNER/NAME -out dist` writes
+`dist/RELEASE_NOTES.md` and builds nothing; `make release-notes VERSION= REPO=` runs it. `release.yml`'s build job
+runs it as its first tag-only step, so a tag with no notes file now stops the run before the build, and the publish
+step uses `dist/RELEASE_NOTES.md`.
+
+**Proof, and what is not proven.** The `tools/release` tests, including `TestRewriteLinks_TheRealV030Notes` (it runs the
+real shipped file, requires that no `](../` survives and that every link names the tag) and `TestRunNotes`. Running
+`make release-notes VERSION=v0.3.0 REPO=Subject-Void-LLC/the-pleiades` reproduces the live, hand-patched body exactly,
+but for two trailing blank lines. `actionlint` is clean. Not proven: the workflow's own tag path. It runs only on a
+tag, so only the next real release exercises it.
+
+**Lesson.** A release artifact built from a file in the repository is checked as the page that shows it, not as the
+file. Test the real shipped file, and say plainly what only the next real release can prove.
+
+## 738. gosec's G703 flagged the release-notes write of tools/release/notes.go, a repeat of 730 (and 475), because the new package was never scanned alone before the gate (fixed before push)
+
+**Symptom.** The first `make pr-check` on `fix/release-notes-links-and-prune-flake` (monitor run
+20261030T154850Z-62240568ca6e, commit 62240568), 2026-10-30, failed its gosec stage, 14 stages in, with
+`gosec-check: 1 finding(s) not in gosec-waivers.json: tools/release/notes.go:239 [G703] Path traversal via taint
+analysis`. The line was `os.WriteFile(filepath.Join(out, NotesFile), []byte(body), 0o644)` in `writeNotes`, with a
+`// #nosec G306` comment beside it.
+
+**Root cause.** The flow 730 described. `out` is the `-out` command-line flag and `body` is the content of the notes
+file named by `-notes`. gosec's taint rule follows both into the write: the path, and the file's content, which counts
+as tainted along with it. The `#nosec G306` comment answers only the permissions rule. The branch added
+`tools/release/notes.go` and did not scan it alone: vet, tests and actionlint were run on it alone before the gate,
+gosec was not. A second review (the fp-reviewer agent) did not run it either, since that agent is read-only.
+
+**Fix.** `writeNotes` writes through a handle (`os.OpenFile` with O_WRONLY|O_CREATE|O_TRUNC, `io.WriteString`,
+`Close`), which no path sink reads the content of, with a comment naming 730 and `#nosec G302 G304` with a reason. No
+waiver entry. Proof: `gosec ./tools/release/` alone reports Issues 0 and exits 0, and `go test -short -race
+./tools/release/` passes.
+
+**Why 730 did not prevent it.** Its lesson was written as a sentence to remember, not as a step anything runs. This
+branch's own pre-gate checklist had vet, test and workflow-lint and no per-package gosec, so nothing asked for the
+scan and the first gosec run over the new file was the gate's, 14 stages in.
+
+**Open question: a mechanism.** Nothing is built. A suggestion for the owner, not a claim: have `tools/prscope` or
+`make pr-check` run gosec over each changed package early, ahead of the long stages. gosec on one package takes
+seconds, so the finding would arrive before the test passes instead of after them.
+
+**Lesson.** A rule that says "scan the new package alone" holds only if something runs the scan. Until a mechanism
+exists, a branch that adds or changes a Go file under `tools/` or `internal/` runs `gosec ./the/package/` alone, as it
+runs vet and tests, and puts it on the branch's pre-gate list.

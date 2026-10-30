@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -159,4 +160,45 @@ func (h *harness) state(t *testing.T, name string) string {
 		return ""
 	}
 	return string(res.Container.State.Status)
+}
+
+// listed says what the engine's container list reports for label, asked the
+// way container.prune asks (the label and the stopped statuses) and without
+// the status filter, then again after a pause, and what an inspect of name
+// says. A check that found nothing while inspect said "exited" prints it, so
+// the next sighting of FAILURE_PATTERNS 560 shows whether the status filter
+// hid a container the label alone finds, and whether a later list holds the
+// container the check's list did not. It reads through the harness's own client
+// and after the check returned, so it shows what the engine says by then, not
+// what the check saw; since is when the check began, printed as an elapsed time
+// so a reader can tell how late "by then" was.
+func (h *harness) listed(t *testing.T, name, label string, since time.Time) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ask := func(f client.Filters) string {
+		res, err := h.api.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: f})
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		parts := make([]string, 0, len(res.Items))
+		for _, c := range res.Items {
+			n := c.ID
+			if len(c.Names) > 0 {
+				n = strings.TrimPrefix(c.Names[0], "/")
+			}
+			parts = append(parts, fmt.Sprintf("%s %v (%s)", n, c.State, c.Status))
+		}
+		return "[" + strings.Join(parts, "; ") + "]"
+	}
+	// Filters.Add changes the filters it is called on and returns them, so the
+	// label-only query is built on its own: chaining the status onto it would
+	// make both queries the same one.
+	labelOnly := client.Filters{}.Add("label", label)
+	asPruneAsks := labelOnly.Clone().Add("status", "created", "exited", "dead")
+	elapsed := time.Since(since).Round(time.Millisecond)
+	now := fmt.Sprintf("%v after the check began: as prune asks %s, label only %s", elapsed, ask(asPruneAsks), ask(labelOnly))
+	time.Sleep(time.Second)
+	return fmt.Sprintf("%s; inspect says %q; one second later: as prune asks %s, label only %s",
+		now, h.state(t, name), ask(asPruneAsks), ask(labelOnly))
 }

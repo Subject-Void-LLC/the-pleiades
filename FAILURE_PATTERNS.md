@@ -562,7 +562,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 557. validate and a Controller's admission checked no Collection method's required capabilities, only the engine did (a repeat of 151) (fixed)
 558. The reaper's leadership test gave the leader a fixed 60 ms, and a slow machine spent it on the first query (fixed)
 559. The capability check reached validate with no census of what already validates, and two cmd/pleiades gates failed in CI (a repeat of 550) (fixed)
-560. A check of container.prune listed no stopped container while inspect said it had exited (open)
+560. A check of container.prune listed no stopped container while inspect said it had exited (open; seen again on 2026-10-30, a repeat of 560; the test now prints the engine's list)
 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (fixed)
 562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (fixed in 129d)
 563. Four methods recorded their undo only after reads that can fail, and a failed task's undo never reaches the journal (a repeat of 452 and 487) (fixed)
@@ -740,6 +740,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 734. The FreeBSD lab VM reset itself through ACPI two minutes into a test run, with nothing in its syslog, and the next start emptied the console log that held the reason (most likely 735's damage; not proven)
 735. Stopping each gate at its first failure terminated a lab VM's ACPI put-back, the power cuts that followed damaged its new data disk, and the VM would not boot (a repeat of 733's cause) (fixed before push)
 736. testimages -served asked the registry for a container test's Image: "sha256:img", a short stand-in for an image ID the scanner's 64-digit rule let through (a repeat of 465 and 416) (fixed before push)
+737. The v0.3.0 release page's links all 404ed, because the workflow published the notes file verbatim and its relative links resolve against the repository root on a release page (fixed before push)
+738. gosec's G703 flagged the release-notes write of tools/release/notes.go, a repeat of 730 (and 475), because the new package was never scanned alone before the gate (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
