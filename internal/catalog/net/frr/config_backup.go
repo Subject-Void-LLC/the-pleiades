@@ -77,7 +77,7 @@ func (s *session) writePrivate(ctx context.Context, p, content string) error {
 // frr.conf as it was, when the change saved one.
 func (s *session) readBackup(ctx context.Context, dir, backup string, force bool) (text, saved string, hasSaved bool, err error) {
 	if path.Dir(backup) != dir || !backupName.MatchString(path.Base(backup)) {
-		return "", "", false, fmt.Errorf("%s: restore must name a backup this method made, in %s, got %q", configFQCN, dir, backup)
+		return "", "", false, fmt.Errorf("%s: restore must name a backup this method made, in %s (the connecting account's own directory), got %q: a backup made by another account is in that account's home, so connect as it", configFQCN, dir, backup)
 	}
 	read := func(p string, need bool) (string, bool, error) {
 		info, err := remotefile.Stat(ctx, s.conn, p)
