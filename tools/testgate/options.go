@@ -37,6 +37,12 @@ type options struct {
 	// parallel is go test's -p, how many packages run at once; zero leaves
 	// go test's default.
 	parallel int
+	// budgetMB is the memory one package's tests are charged for when -p is
+	// lowered to what the machine fits (-budget-mb); zero keeps the policy's
+	// own (headroom.BudgetMB, packed by resources.json). The container pass
+	// sets it low: its test processes are light and its containers are the
+	// engine's.
+	budgetMB int
 	// shard is "k/n": this run owns the k-th of n shards, balanced by how
 	// long each package's tests take (shardOf). Empty means every package.
 	shard string
@@ -95,6 +101,9 @@ func (o options) goTestArgs() []string {
 func (o options) validate() error {
 	if o.full && o.integration {
 		return fmt.Errorf("-full already runs the integration tag; pass one of -full and -integration")
+	}
+	if o.budgetMB < 0 {
+		return fmt.Errorf("-budget-mb must be zero (the policy's own) or a number of megabytes")
 	}
 	if o.repeat < 0 || (o.repeat > 0 && (o.full || o.integration)) {
 		return fmt.Errorf("-repeat is its own pass, untagged and without -race; pass it alone, with a count of at least 1")

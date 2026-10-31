@@ -58,19 +58,20 @@ func init() {
 				Reversible: true,
 				Notes:      "Its undo restores the running configuration saved on the router before the change (and frr.conf, when the change saved), named by the backup's path alone, and refuses when the router has been changed since unless forced.",
 				Inverses: []sdk.InverseSpec{
-					{FQCN: configFQCN, Record: []string{"restore", "save"}, MayKeepOnFailure: true},
+					{FQCN: configFQCN, Record: []string{"restore", "save", "login"}, MayKeepOnFailure: true},
 				},
 			},
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Makes an FRRouting router run exactly the configuration given, and saves what it ran before so the change can be undone.",
-				Description: "Takes the whole intended configuration (config, or src: a file in the project) and applies only what differs, through FRR's own frr-reload.py. The candidate is first checked with vtysh -m -f, and a line vtysh refuses fails the task before anything reaches the router: frr-reload reads a file vtysh cannot parse as an empty configuration and would delete everything. The difference comes from frr-reload.py --test; an empty one is no change, and a check returns it as the prediction. A real run saves the running configuration to a file on the router (0600, under the connecting account's ~/.pleiades-frr), reloads, confirms the running configuration now matches the candidate, and saves the result beside the backup. Its undo names only that backup, so no configuration text, and no secret in one, reaches the journal; the undo restores exactly the configuration that was running, and refuses when the router no longer runs what this change left, unless its step names force. The undo is recorded before the reload and kept if the reload then fails, since restoring a backup when nothing changed is itself no change. With save, the running configuration is also written to frr.conf, keeping that file's owner and mode, so it survives a restart; the backup then keeps frr.conf as it was too, and the undo puts it back (where there was none, the undo writes the configuration it restores). expect_sha256 refuses a candidate whose bytes are not the ones a model check analysed.",
+				Description: "Takes the whole intended configuration (config, or src: a file in the project) and applies only what differs, through FRR's own frr-reload.py. The candidate is first checked with vtysh -m -f, and a line vtysh refuses fails the task before anything reaches the router: frr-reload reads a file vtysh cannot parse as an empty configuration and would delete everything. The difference comes from frr-reload.py --test; an empty one is no change, and a check returns it as the prediction. A real run saves the running configuration to a file on the router (0600, under the connecting account's ~/.pleiades-frr), reloads, confirms the running configuration now matches the candidate, and saves the result beside the backup. Its undo names only that backup, so no configuration text, and no secret in one, reaches the journal; the undo restores exactly the configuration that was running, and refuses when the router no longer runs what this change left, unless its step names force. The undo is recorded before the reload and kept if the reload then fails, since restoring a backup when nothing changed is itself no change. With save, the running configuration is also written to frr.conf, keeping that file's owner and mode, so it survives a restart; the backup then keeps frr.conf as it was too, and the undo puts it back (where there was none, the undo writes the configuration it restores). expect_sha256 refuses a candidate whose bytes are not the ones a model check analysed. Three facts about FRR decide whether this works on the first try. FRR rewrites a configuration in its own form (it adds lines such as frr version and frr defaults, drops comments and reorders), so a hand-written candidate that differs from that form fails after the reload with the difference shown as - and + lines; start from net.frr.facts's running_config, which is FRR's own form, and edit that. The account that saves must be able to replace frr.conf: it needs write access to the file and to its directory (/etc/frr), since the save writes a new file beside it, and a check refuses a save the account cannot make before anything is reloaded, naming the account that owns the file. Rollback restores from a backup under the connecting account's home, so undo with the same account that made the change.",
 				Params: []collection.Param{
 					{Name: "config", Type: "string", Description: "The whole intended configuration, as frr.conf text. Set config or src, not both. Lines not in it are removed from the running configuration."},
 					{Name: "src", Type: "string", Description: "A file in the project directory holding the whole intended configuration, read by the command line; refused on a Walk-tier Runner, where config is the way. Set config or src, not both."},
 					{Name: "save", Type: "bool", Default: "false", Description: "Also write the configuration to frr.conf (keeping that file's owner and mode), so it survives a restart. The undo puts frr.conf back as it was, or, where there was none, writes the configuration it restores."},
 					{Name: "expect_sha256", Type: "string", Description: "Refuse unless the candidate's SHA-256 is this, in hex: the digest net.batfish.check returned for the bytes it analysed, so the change applied is the change checked."},
 					{Name: "restore", Type: "string", Description: "Restore the configuration this method saved before an earlier change, by the path its undo recorded. Set by an undo; with restore, config and src are not given."},
+					{Name: "login", Type: "string", Description: "With restore, the account that made the backup, as its undo recorded it. A backup lives under that account's home, so an undo run as another account is refused before it reads anything, naming the account to connect as. Set by an undo."},
 					{Name: "force", Type: "bool", Default: "false", Description: "With restore, restore even though the router no longer runs what the earlier change left (someone changed it since)."},
 					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 				},
@@ -135,6 +136,13 @@ func config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if restore != "" && expect != "" {
 		return collection.Result{}, fmt.Errorf("%s: expect_sha256 checks a candidate, and a restore has none", configFQCN)
 	}
+	login, err := sdk.OptionalStringParam(params, "login")
+	if err != nil {
+		return collection.Result{}, err
+	}
+	if login != "" && restore == "" {
+		return collection.Result{}, fmt.Errorf("%s: login names the account that made a backup, and only a restore reads one", configFQCN)
+	}
 	if restore == "" && sdk.BoolParam(params, "force") {
 		return collection.Result{}, fmt.Errorf("%s: force applies only to a restore", configFQCN)
 	}
@@ -177,12 +185,44 @@ func config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	var saved string
 	var hasSaved bool
 	if restore != "" {
+		if err := s.sameLogin(ctx, login, restore); err != nil {
+			return collection.Result{}, err
+		}
 		text, saved, hasSaved, err = s.readBackup(ctx, dir, restore, sdk.BoolParam(params, "force"))
 		if err != nil {
 			return collection.Result{}, err
 		}
 	}
 	return s.apply(ctx, rc, dir, text, sdk.BoolParam(params, "save"), saved, hasSaved, mode)
+}
+
+// login returns the account this session runs commands as.
+func (s *session) login(ctx context.Context) (string, error) {
+	out, err := s.run(ctx, "id", "-un")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// sameLogin refuses a restore run as an account other than the one that made
+// the backup, before anything is read. A backup is under its maker's home, so
+// another account would only find "restore must name a backup this method
+// made" and no word of whose it is; this names the account to connect as.
+// recorded is the login the undo recorded, empty for an undo recorded before
+// logins were (which still meets the directory check in readBackup).
+func (s *session) sameLogin(ctx context.Context, recorded, backup string) error {
+	if recorded == "" {
+		return nil
+	}
+	now, err := s.login(ctx)
+	if err != nil {
+		return err
+	}
+	if now != recorded {
+		return fmt.Errorf("%s: the backup %s was made by the account %s and lives in its home, but this task connects as %s: run the undo as %s (give the device that account's credential), or restore by hand; nothing was changed", configFQCN, backup, recorded, now, recorded)
+	}
+	return nil
 }
 
 // apply makes the running configuration text, and with save writes it to
@@ -260,6 +300,10 @@ func (s *session) apply(ctx context.Context, rc sdk.RunbookContext, dir, text st
 	if err != nil {
 		return collection.Result{}, err
 	}
+	login, err := s.login(ctx)
+	if err != nil {
+		return collection.Result{}, err
+	}
 	if err := rc.SetStat("backup", backup); err != nil {
 		return collection.Result{}, err
 	}
@@ -267,8 +311,8 @@ func (s *session) apply(ctx context.Context, rc sdk.RunbookContext, dir, text st
 	// backup when nothing changed is itself no change.
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:          configFQCN,
-		Params:        map[string]any{"restore": backup, "save": save},
-		Description:   fmt.Sprintf("Restores the configuration the router ran before this change, saved at %s.", backup),
+		Params:        map[string]any{"restore": backup, "save": save, "login": login},
+		Description:   fmt.Sprintf("Restores the configuration the router ran before this change, saved at %s by the account %s (the undo must connect as it).", backup, login),
 		KeepOnFailure: true,
 	}); err != nil {
 		return collection.Result{}, err
@@ -298,7 +342,7 @@ func (s *session) reloadAndSave(ctx context.Context, candidate, backup string, s
 		return collection.Result{}, err
 	}
 	if len(deleted)+len(added) > 0 {
-		return collection.Result{}, fmt.Errorf("%s: after the reload the router does not run the candidate as written (FRR changed or refused part of it): to delete %q, to add %q; its undo is kept", configFQCN, maskLines(deleted), maskLines(added))
+		return collection.Result{}, fmt.Errorf("%s: after the reload the router does not run the candidate as written (FRR changed or refused part of it). A - line is one the router runs that the candidate lacks, a + line one the candidate has that the router lacks:\n%s\nWrite the candidate in FRR's own form: start from net.frr.facts's running_config. The undo is kept", configFQCN, diffText(deleted, added))
 	}
 	now, err := s.runningConfig(ctx)
 	if err != nil {
@@ -321,18 +365,41 @@ func (s *session) reloadAndSave(ctx context.Context, candidate, backup string, s
 	return collection.Result{Changed: true}, nil
 }
 
+// diffText renders frr-reload's difference as - and + lines, each secret
+// masked as net.frr.facts masks one: the router's lines the candidate lacks,
+// then the candidate's lines the router lacks.
+func diffText(deleted, added []string) string {
+	var b strings.Builder
+	for _, l := range maskLines(deleted) {
+		b.WriteString("- " + l + "\n")
+	}
+	for _, l := range maskLines(added) {
+		b.WriteString("+ " + l + "\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
 // canSave refuses a save this login cannot make: an existing frr.conf it
-// may not write, or a new one Put would refuse.
+// may not write, or a save that remotefile's Put or Replace would refuse.
+//
+// Replace writes a new file beside frr.conf before it renames or copies it
+// over, so the login needs the directory as well as the file: a file the login
+// may write in a directory it may not was passed by a check and refused by the
+// real save, after the reload had already changed the router.
 func (s *session) canSave(ctx context.Context, before remotefile.Info) error {
-	if !before.Exists() {
-		return remotefile.PredictPut(ctx, s.conn, frrConf, before, remotefile.Attributes{})
+	if before.Exists() {
+		res, err := s.conn.Run(ctx, remoteexec.QuoteCommand([]string{"test", "-w", frrConf}))
+		if err != nil {
+			return fmt.Errorf("%s: checking %s: %w", configFQCN, frrConf, err)
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("%s: the connecting account cannot write %s (it belongs to %s:%s), so save cannot keep the change: connect as %s, or give this account write access; nothing was changed", configFQCN, frrConf, before.Owner, before.Group, before.Owner)
+		}
 	}
-	res, err := s.conn.Run(ctx, remoteexec.QuoteCommand([]string{"test", "-w", frrConf}))
-	if err != nil {
-		return fmt.Errorf("%s: checking %s: %w", configFQCN, frrConf, err)
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("%s: the connecting account cannot write %s, so save cannot keep the change; nothing was changed", configFQCN, frrConf)
+	// The same prediction Replace's own refusals come from (Put's, for a
+	// file that is not there yet).
+	if err := remotefile.PredictPut(ctx, s.conn, frrConf, before, remotefile.Attributes{}); err != nil {
+		return fmt.Errorf("%s: the save would be refused (%w), so save cannot keep the change: connect as the account that owns %s and its directory, or give this account write access to both; nothing was changed", configFQCN, err, frrConf)
 	}
 	return nil
 }

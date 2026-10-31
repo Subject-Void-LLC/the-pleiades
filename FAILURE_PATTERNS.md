@@ -742,6 +742,22 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 736. testimages -served asked the registry for a container test's Image: "sha256:img", a short stand-in for an image ID the scanner's 64-digit rule let through (a repeat of 465 and 416) (fixed before push)
 737. The v0.3.0 release page's links all 404ed, because the workflow published the notes file verbatim and its relative links resolve against the repository root on a release page (fixed before push)
 738. gosec's G703 flagged the release-notes write of tools/release/notes.go, a repeat of 730 (and 475), because the new package was never scanned alone before the gate (fixed before push)
+739. net.frr.config's check passed where the real apply failed, because canSave probed the file and the save writes a new file beside it (a repeat of 564 and 722) (fixed before push)
+740. container.clab.exec and the containerlab client were first built and tested against a stub of shapes assumed, and the real server disagreed in four places (a repeat of 642 and 90) (fixed before push)
+741. An onboarding test recorded only the last request's Authorization header, so a probe that added a credential-less request made it read an empty string (fixed before push)
+742. The journal archtest refused the new JournalEntry.Become until it was classified, and the classification is a design decision the owner has not confirmed (open)
+743. A field added to a journaled type reached the Crawl-tier file but not the Walk-tier store, so the new `Become` was lost on a round trip until the gate's reflection test found it (fixed before push)
+744. become added code to pkg/sdk and internal/validate that only other packages' tests ran, and coverage-fast found both under their 100.0% floors (a repeat of 427 and 731) (fixed before push)
+745. pr-check's durations stage failed although every test passed, because a new package had no recorded time and another had grown from 41 to 142 seconds (fixed before push)
+746. A Go file named collections_linux.go was a GOOS build constraint, so the Linux-only name failed archtest (a repeat of 428 and 637) (fixed before push)
+747. Two process traps in a pr-check session: a finished run's monitor kept port 8765 and answered the next run's wait, and files were edited while the gate was still in its last stage (a repeat of 153 and of LESSONS 288) (open: the guard does not catch an edit made through a script)
+748. become on an external Collection's method was silently not applied: the call connected as the login while the stat and the journal said root (a repeat in kind of 578 and LESSONS 244, which LESSONS 358 did not reach) (fixed before push; two gaps open: the Walk tier refuses late, the playbook converter drops become)
+749. A block's rollback_on_failure undo ran as the login while a later `pleiades rollback` replayed the same undo as the recorded account, so two tiers disagreed on one undo (fixed before push)
+750. The clab client masked only the password, so under http_auth basic a server that echoed the login token put it into APIError.Message (a repeat of 626, 394 and 457) (fixed before push)
+751. `import-containerlab --api` mapped a port published on every address to this machine's loopback, wrong for a lab on another host, and its own test asserted the wrong mapping (a repeat of 740, 642 and 90 in its test half) (fixed before push)
+752. net.linux.route's undo was declared exact but recorded only destination, via, dev and metric, so an ECMP route would not be put back (a repeat of 582) (fixed before push)
+753. `trust-host --first-connect --reason` recorded the reason before the scan and the trust, so a failed trust left a recorded reason (fixed before push)
+754. net/linux's live test starts a container, so internal/catalog/net/linux was missing from DOCKER_DEPENDENT_PACKAGES and pr-check's devtools stage failed on TestEveryContainerPackageIsListed (a repeat of 239 and 447) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

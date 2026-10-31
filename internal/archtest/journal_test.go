@@ -529,6 +529,10 @@ var journalStringFields = map[string]journalStringField{
 		kind: journalKindAuthorLabel,
 		why:  "the task's author-written name:, unconstrained free text, so an author who pastes a secret into a task name puts it in the journal",
 	},
+	"Become": {
+		kind: journalKindAuthorLabel,
+		why:  "the account the task's author-written become_user: names (root when it names none), the mildest kind of author label like the runbook id: remoteexec.ValidBecomeUser constrains it to ^[a-z_][a-z0-9_-]{0,31}$ and buildFromDef refuses a runbook whose become_user: fails that check, so it cannot carry a secret; a rollback needs it to run an undo as the same account",
+	},
 	"Register": {
 		kind: journalKindAuthorLabel,
 		why:  "the task's author-written register: name, unconstrained free text; it is the key a later when_cel reads this node's result under, never the result",
@@ -549,6 +553,7 @@ var journalAuthorLabelFields = map[string]bool{
 	"DAGID":    true,
 	"TaskName": true,
 	"Register": true,
+	"Become":   true,
 }
 
 // journalStringFieldNames returns every field of typ whose values are

@@ -43,6 +43,8 @@ var Collections = concatCollections(
 	virtCollections,
 	fusionCollections,
 	cmlCollections,
+	clabCollections,
+	linuxCollections,
 	winFileCollections,
 	winCPUCollections,
 	winHostCollections,

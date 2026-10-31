@@ -127,6 +127,8 @@ func TestCheck_RealRoutersAgainstRealBatfish(t *testing.T) {
 			},
 		}},
 		"accept_unrecognized": accept,
+		// sw1 stands for a switch the lab holds and the model was never given.
+		"expect_devices": []any{"r1", "r2", "sw1"},
 	})
 	if err != nil {
 		t.Fatalf("the running network: %v\nassertions: %v\nunrecognized: %v", err, rc.stats["assertions"], rc.stats["unrecognized"])
@@ -143,6 +145,12 @@ func TestCheck_RealRoutersAgainstRealBatfish(t *testing.T) {
 	// (this machine's Docker Desktop does; GitHub's runners do not).
 	if nm := rc.stats["not_modelled"].([]string); len(nm) == 0 || !strings.Contains(strings.Join(nm, " "), "ip ospf authentication-key") {
 		t.Errorf("not_modelled = %v", nm)
+	}
+	// The device the model was never given is named as absent from it, and the
+	// two it was given are not.
+	joined := strings.Join(rc.stats["not_modelled"].([]string), "\n")
+	if !strings.Contains(joined, "sw1: no configuration was given for it") || strings.Contains(joined, "r1: no configuration") || strings.Contains(joined, "r2: no configuration") {
+		t.Errorf("expect_devices: not_modelled = %q", joined)
 	}
 
 	// A candidate in which r2 stops advertising its loopback is refused,

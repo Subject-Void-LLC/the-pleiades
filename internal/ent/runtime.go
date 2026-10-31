@@ -557,7 +557,7 @@ func init() {
 	// journalentry.DefaultAuthoredRollbackEmpty holds the default value on creation for the authored_rollback_empty field.
 	journalentry.DefaultAuthoredRollbackEmpty = journalentryDescAuthoredRollbackEmpty.Default.(bool)
 	// journalentryDescUndoesStep is the schema descriptor for undoes_step field.
-	journalentryDescUndoesStep := journalentryFields[38].Descriptor()
+	journalentryDescUndoesStep := journalentryFields[39].Descriptor()
 	// journalentry.DefaultUndoesStep holds the default value on creation for the undoes_step field.
 	journalentry.DefaultUndoesStep = journalentryDescUndoesStep.Default.(int)
 	// journalentry.UndoesStepValidator is a validator for the "undoes_step" field. It is called by the builders before save.

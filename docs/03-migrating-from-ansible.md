@@ -74,7 +74,7 @@ over all of them, as in Ansible. A playbook that sets one name in two places can
 different value after conversion, so `validate` warns when a name is set in more than one
 scope and says which setting is read.
 
-**Does not exist yet, and a runbook cannot express it:** `handlers:`/`notify:`, `become:`,
+**Does not exist yet, and a runbook cannot express it:** `handlers:`/`notify:`,
 `serial:`, `roles:`, and every `with_*` loop other than `with_items`. See the keyword map
 below for the complete, itemized list.
 
@@ -109,7 +109,7 @@ Each finding has an **outcome**:
 - **info**: dropped or resolved with no effect on a run (a `debug` task, a resolved
   variable).
 - **review**: converted or dropped with a bounded difference a person should read
-  (`notify` dropped, `become` dropped, a condition reading a registered result).
+  (`notify` dropped, `become` dropped by the converter until it maps it, a condition reading a registered result).
 - **blocked**: not converted. The task becomes an unrunnable placeholder and the runbook
   cannot run until a person resolves it.
 

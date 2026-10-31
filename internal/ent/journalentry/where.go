@@ -219,6 +219,11 @@ func AuthoredRollbackEmpty(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldAuthoredRollbackEmpty, v))
 }
 
+// Become applies equality check predicate on the "become" field. It's identical to BecomeEQ.
+func Become(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldBecome, v))
+}
+
 // RollbackOf applies equality check predicate on the "rollback_of" field. It's identical to RollbackOfEQ.
 func RollbackOf(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldRollbackOf, v))
@@ -1852,6 +1857,81 @@ func AuthoredRollbackEmptyEQ(v bool) predicate.JournalEntry {
 // AuthoredRollbackEmptyNEQ applies the NEQ predicate on the "authored_rollback_empty" field.
 func AuthoredRollbackEmptyNEQ(v bool) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldNEQ(FieldAuthoredRollbackEmpty, v))
+}
+
+// BecomeEQ applies the EQ predicate on the "become" field.
+func BecomeEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldBecome, v))
+}
+
+// BecomeNEQ applies the NEQ predicate on the "become" field.
+func BecomeNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldBecome, v))
+}
+
+// BecomeIn applies the In predicate on the "become" field.
+func BecomeIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldBecome, vs...))
+}
+
+// BecomeNotIn applies the NotIn predicate on the "become" field.
+func BecomeNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldBecome, vs...))
+}
+
+// BecomeGT applies the GT predicate on the "become" field.
+func BecomeGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldBecome, v))
+}
+
+// BecomeGTE applies the GTE predicate on the "become" field.
+func BecomeGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldBecome, v))
+}
+
+// BecomeLT applies the LT predicate on the "become" field.
+func BecomeLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldBecome, v))
+}
+
+// BecomeLTE applies the LTE predicate on the "become" field.
+func BecomeLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldBecome, v))
+}
+
+// BecomeContains applies the Contains predicate on the "become" field.
+func BecomeContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldBecome, v))
+}
+
+// BecomeHasPrefix applies the HasPrefix predicate on the "become" field.
+func BecomeHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldBecome, v))
+}
+
+// BecomeHasSuffix applies the HasSuffix predicate on the "become" field.
+func BecomeHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldBecome, v))
+}
+
+// BecomeIsNil applies the IsNil predicate on the "become" field.
+func BecomeIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldBecome))
+}
+
+// BecomeNotNil applies the NotNil predicate on the "become" field.
+func BecomeNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldBecome))
+}
+
+// BecomeEqualFold applies the EqualFold predicate on the "become" field.
+func BecomeEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldBecome, v))
+}
+
+// BecomeContainsFold applies the ContainsFold predicate on the "become" field.
+func BecomeContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldBecome, v))
 }
 
 // RollbackOfEQ applies the EQ predicate on the "rollback_of" field.

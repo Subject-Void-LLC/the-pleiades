@@ -285,7 +285,7 @@ test:
 # provisions real containers.
 #
 # `go test` defaults -p to GOMAXPROCS, which is 20 on this project's own
-# development host, and DOCKER_DEPENDENT_PACKAGES below names 49
+# development host, and DOCKER_DEPENDENT_PACKAGES below names 51
 # packages. So the default asks one Docker daemon to build, start, port
 # map and health check the containers of twenty packages simultaneously,
 # on top of a Ryuk reaper per package. Two consecutive full `make ci`
@@ -397,8 +397,10 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/batfish \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/linux \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ovs \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/clab \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait \
 	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
@@ -820,6 +822,21 @@ PR_BASE ?= origin/main
 # defined here because a prerequisite list is read when its rule is.
 CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 PR_CHECK_PARALLELISM ?= 0
+# PR_CHECK_CONTAINERS says whether pr-check runs the container pass. It does
+# not by default (owner, 2026-10-31): that pass took 104 minutes serial, and a
+# pull request's containers jobs on GitHub Actions run the same packages on
+# six shards, so a branch's container packages are left to CI and pr-check
+# says it did not run them, except PR_CHECK_ALWAYS's (internal/archtest is a
+# container package and runs every time). PR_CHECK_CONTAINERS=yes brings the pass back, with
+# PR_CHECK_DOCKER_PARALLELISM packages at once, each charged
+# PR_CHECK_DOCKER_BUDGET_MB (testgate -budget-mb). Ten at 300 MB was tried and
+# stopped at once: 2514 MB was free as the pass began, four ran, and the
+# machine fell under the 700 MB floor, because the containers these packages
+# start take the machine's memory too. Raise the parallelism only from a
+# run's headroom line.
+PR_CHECK_CONTAINERS ?= no
+PR_CHECK_DOCKER_PARALLELISM ?= 3
+PR_CHECK_DOCKER_BUDGET_MB ?= 500
 # SIZE_PLATFORMS are the GOOS/GOARCH pairs pr-check's sizes step builds
 # pleiades for (tools/binsize), recording each size in the gitignored
 # .IGNORE/ci/binsize.jsonl so its growth is tracked run after run.
@@ -874,6 +891,11 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		elif printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
+	if [ "$(PR_CHECK_CONTAINERS)" != yes ] && [ -n "$$mine_docker" ]; then \
+		kept=""; for pkg in $$mine_docker; do case " $(PR_CHECK_ALWAYS) " in *" $$pkg "*) kept="$$kept $$pkg";; esac; done; \
+		echo "pr-check: $$(echo $$mine_docker | wc -w) container package(s) are left to the containers jobs on GitHub Actions but the $$(echo $$kept | wc -w) pr-check always runs (PR_CHECK_CONTAINERS=yes runs them all here)"; \
+		mine_docker="$$kept"; \
+	fi; \
 	since=""; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
 	want() { [ -z "$(LEGS_RUN)" ] && return 0; case " $(LEGS_RUN) " in *" $$1 "*) return 0;; esac; return 1; }; \
@@ -951,7 +973,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	if [ -n "$$mine_docker" ] && want containers; then \
 		echo "pr-check: the containers pass begins"; \
 		since="$$(go run ./tools/testgate -engine-time)" || since=""; \
-		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$mine_docker || status=1; \
+		go run ./tools/testgate -full -p $(PR_CHECK_DOCKER_PARALLELISM) -budget-mb $(PR_CHECK_DOCKER_BUDGET_MB) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$mine_docker || status=1; \
 		if [ -n "$$since" ]; then go run ./tools/testgate -clean-containers -since "$$since" || true; since=""; fi; \
 	fi; \
 	if want images; then \

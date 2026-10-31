@@ -98,13 +98,26 @@ type Memory struct {
 // caller can say why; 0 when availableMB is unknown (0), which leaves want
 // alone.
 func Parallelism(availableMB float64, want, cpus int) (ran, fit int) {
+	return ParallelismFor(availableMB, want, cpus, BudgetMB)
+}
+
+// ParallelismFor is Parallelism with the memory one package may take given
+// (budgetMB), for a pass whose packages cost far less than BudgetMB: the
+// container packages' test processes are light, and their containers are the
+// Docker engine's. A budget of zero or less is BudgetMB. The sampler still
+// stops the run when the machine runs short, so a budget set too low ends a
+// run with a record of why rather than the machine.
+func ParallelismFor(availableMB float64, want, cpus, budgetMB int) (ran, fit int) {
+	if budgetMB <= 0 {
+		budgetMB = BudgetMB
+	}
 	if want <= 0 {
 		want = max(cpus, 1)
 	}
 	if availableMB <= 0 {
 		return want, 0
 	}
-	fit = int((availableMB - ReserveMB) / BudgetMB)
+	fit = int((availableMB - ReserveMB) / float64(budgetMB))
 	return max(1, min(want, fit)), fit
 }
 

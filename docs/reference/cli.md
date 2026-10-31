@@ -29,7 +29,8 @@ add a host to the static inventory
 | --dir | `string` | `.` | project directory |
 | --type | `string` | - | device type (e.g. linux_server, cisco_router) |
 | --classify | `string` | - | comma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type |
-| --tags | `string` | - | comma-separated tags |
+| --tags | `string` | - | comma-separated tags (repeatable); --tag is the same flag |
+| --tag | `string` | - | a tag, or several separated by commas (repeatable); --tags is the same flag |
 | --set | `key=value` | - | device property as key=value (repeatable) |
 
 `pleiades add-host web01 --type linux_server --tags prod,web`
@@ -46,6 +47,7 @@ change an existing host's properties and tags
 | --set | `key=value` | - | device property to add or replace, as key=value (repeatable) |
 | --unset | `string` | - | device property to remove (repeatable) |
 | --tag | `string` | - | tag to add, or several separated by commas (repeatable) |
+| --tags | `string` | - | same as --tag |
 | --untag | `string` | - | tag to remove, or several separated by commas (repeatable) |
 
 `pleiades set-host web01 --set port=2222`
@@ -91,7 +93,8 @@ trust a device's SSH host keys, read from its VM's console or taken on first con
 | --dir | `string` | `.` | project directory |
 | --from-console | `string` | - | the VirtualBox host running the device's VM, whose console log holds its host keys |
 | --vm | `string` | - | with --from-console, the VM's name on the host, when it is not the device's |
-| --first-connect | `bool` | `false` | trust whatever host keys answer at the device's address, unverified |
+| --first-connect | `bool` | `false` | trust whatever host keys answer at the device's address, unverified; refused for a device not flagged ephemeral unless --reason says why |
+| --reason | `string` | - | with --first-connect on a device not flagged ephemeral (a lab node an import flags), why its keys are trusted unverified; recorded on the device |
 | --replace | `bool` | `false` | drop keys already trusted for the device's address that differ, as after a VM is made again |
 | --timeout | `duration` | `5m0s` | how long to wait for the keys |
 
@@ -339,6 +342,7 @@ make a containerlab lab's nodes generic_ssh devices, from the topology-data.json
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
 | --topology | `string` | - | containerlab's topology-data.json for the lab, written on deploy |
+| --api | `string` | - | instead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read |
 | --lab | `string` | - | the lab's name, which the file must be for |
 | --nodes | `string` | - | comma-separated nodes to import; every node when empty |
 | --username | `string` | - | with --key, the account every node is reached as |
@@ -351,6 +355,8 @@ make a containerlab lab's nodes generic_ssh devices, from the topology-data.json
 `pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --username netops --key keys/id_ed25519 --trust-first-connect --onboard`
 
 `pleiades import-containerlab --topology clab-routing-lab/topology-data.json --lab routing-lab --nodes r1,r2 --replace --json`
+
+`pleiades import-containerlab --api clab-api --lab routing-lab --username netops --key keys/id_ed25519 --onboard`
 
 ## pleiades import-cml
 

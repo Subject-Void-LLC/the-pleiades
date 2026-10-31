@@ -1,0 +1,1 @@
+Changed `pleiades trust-host --first-connect` to refuse a device that is not flagged `ephemeral` unless `--reason "why"` is given, which is recorded on the device. `import-containerlab` and `import-cml` flag the nodes they import, so lab imports are unaffected; a script that runs `--first-connect` on another device now needs the flag or `set-host --set ephemeral=true`.

@@ -122,6 +122,10 @@ type Step struct {
 	FQCN   string         `json:"method"`
 	Params map[string]any `json:"params"`
 
+	// Become is the account the step runs its commands as, the account the
+	// node ran as: empty when it ran as its login.
+	Become string `json:"become,omitempty"`
+
 	// Name is the task's name in the rollback run.
 	Name string `json:"name"`
 

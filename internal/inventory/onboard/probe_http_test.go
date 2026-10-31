@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -190,5 +191,48 @@ func TestHTTPProbe_AnOpenAPIDocumentItCannotReadProvesNothing(t *testing.T) {
 	got, err := probe("/swagger.json")
 	if err != nil || got.Facts["openapi"] != "2.0" {
 		t.Errorf("a Swagger 2.0 document: %v, %v", got.Facts, err)
+	}
+}
+
+// TestHTTPProbe_RecognisesAContainerlabAPIServer: a server whose /health has
+// containerlab API server's own shape is granted ContainerlabAPICapable with
+// its version, /health is asked with no credential, and anything else
+// answering /health is an HTTP API and nothing more.
+func TestHTTPProbe_RecognisesAContainerlabAPIServer(t *testing.T) {
+	for name, tc := range map[string]struct {
+		health string
+		code   int
+		want   bool
+	}{
+		"the server's own answer": {`{"status":"healthy","uptime":"5s","startTime":"2026-10-30T22:56:52Z","version":"v0.9.0"}`, 200, true},
+		"another health check":    {`{"status":"ok"}`, 200, false},
+		"not json":                {`OK`, 200, false},
+		"a version, no uptime":    {`{"status":"healthy","version":"1"}`, 200, false},
+		"an unhealthy answer":     {`{"error":"down"}`, 503, false},
+	} {
+		var healthAuth atomic.Value
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/health" {
+				healthAuth.Store(r.Header.Get("Authorization"))
+				w.WriteHeader(tc.code)
+				_, _ = w.Write([]byte(tc.health))
+			}
+		}))
+		dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBearer})
+		got, err := httpProber{}.Probe(context.Background(), dev, map[string]string{"password": "tok"})
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		has := slices.Contains(got.Capabilities, capability.NameClabAPI)
+		if has != tc.want || !slices.Contains(got.Capabilities, capability.NameHTTPAPI) {
+			t.Errorf("%s: capabilities %v, want containerlab %v and an HTTP API", name, got.Capabilities, tc.want)
+		}
+		if tc.want && got.Facts["clab_api_version"] != "v0.9.0" {
+			t.Errorf("%s: facts %v", name, got.Facts)
+		}
+		if auth, _ := healthAuth.Load().(string); auth != "" {
+			t.Errorf("%s: /health was sent a credential: %q", name, auth)
+		}
 	}
 }

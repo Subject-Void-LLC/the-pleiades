@@ -39,6 +39,7 @@ func TestValidate(t *testing.T) {
 		"a shard of ./...":              {shard: "1/2"},
 		"-repeat with the one pass":     {repeat: 3, full: true},
 		"a negative repeat":             {repeat: -1},
+		"a negative budget":             {budgetMB: -1},
 		"a commit with no clean":        {commit: strings.Repeat("a", 40)},
 		"a clean with no commit":        {clean: "yes"},
 		"a short commit":                {commit: "abc123", clean: "yes"},

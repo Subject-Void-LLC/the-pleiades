@@ -214,6 +214,12 @@ func runImportCML(args []string) error {
 				res.Nodes = append(res.Nodes, out)
 				continue
 			}
+			// A lab node is made again with new host keys, so it is flagged
+			// ephemeral (trust-host --first-connect needs no reason for it).
+			if props == nil {
+				props = map[string]pkginventory.PropertyValue{}
+			}
+			props[ephemeralProperty] = true
 			spec := inventory.HostSpec{ID: uuid.New().String(), Name: n.Label, Type: deviceType, Tags: tags, Properties: props}
 			if hosts, err = labPlace(hosts, spec, *replace); err != nil {
 				return err
@@ -229,6 +235,12 @@ func runImportCML(args []string) error {
 			continue
 		}
 		deviceType, props := cmlSpec(n, addr, *via)
+		// A lab node is made again with new host keys, so it is flagged
+		// ephemeral (trust-host --first-connect needs no reason for it).
+		if props == nil {
+			props = map[string]pkginventory.PropertyValue{}
+		}
+		props[ephemeralProperty] = true
 		spec := inventory.HostSpec{ID: uuid.New().String(), Name: n.Label, Type: deviceType, Tags: tags, Properties: props}
 		if hosts, err = labPlace(hosts, spec, *replace); err != nil {
 			return err

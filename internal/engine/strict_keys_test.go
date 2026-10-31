@@ -274,7 +274,7 @@ func TestAnsibleKeywordMessage(t *testing.T) {
 	}{
 		{"run_once beside fqcn", "id: k\ntasks:\n  - name: a\n    fqcn: noop\n    run_once: true\n", false, `uses "run_once", an Ansible keyword`},
 		{"with_dict beside a module key", "id: k\ntasks:\n  - name: a\n    pkg.apt.install: {name: x}\n    with_dict: {a: b}\n", false, `uses "with_dict", an Ansible keyword`},
-		{"become alone", "id: k\ntasks:\n  - name: a\n    become: true\n", false, `uses "become", an Ansible keyword`},
+		{"become_exe alone", "id: k\ntasks:\n  - name: a\n    become_exe: /usr/bin/sudo\n", false, `uses "become_exe", an Ansible keyword`},
 		{"notify on a block", "id: k\ntasks:\n  - name: g\n    block:\n      - name: a\n        fqcn: noop\n    notify: h\n", false, `uses "notify", an Ansible keyword`},
 		{"play keyword at the top", "id: k\ngather_facts: false\ntasks:\n  - name: a\n    fqcn: noop\n", false, `"gather_facts" (an Ansible keyword`},
 		{"json task keyword", `{"id":"k","tasks":[{"name":"a","fqcn":"noop","throttle":2}]}`, true, `uses "throttle", an Ansible keyword`},

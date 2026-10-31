@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -1117,9 +1118,14 @@ func (r *run) resolveDevices(task *Task) ([]inventory.InventoryItem, error) {
 		return r.x.resolver.Resolve(""), nil
 	}
 
-	devices := r.x.resolver.Resolve(target)
-	if len(devices) == 0 {
+	devices, missing := ResolveTargets(r.x.resolver, target)
+	switch {
+	case len(devices) == 0:
 		return nil, fmt.Errorf("target %q matches no inventory host or tag", target)
+	case len(missing) > 0:
+		// A hosts: list naming a device that is not there is refused whole,
+		// not run against the rest: the runbook asked for every one.
+		return nil, fmt.Errorf("target %q: %s matches no inventory host or tag", target, strings.Join(missing, ", "))
 	}
 	return devices, nil
 }

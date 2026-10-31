@@ -252,7 +252,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 212 registered methods across 23 namespaces; 210 are
+**The module catalog has 259 registered methods across 23 namespaces; 257 are
 implemented and 2 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, both of them: `net.junos.config` and
@@ -260,7 +260,7 @@ that is NOT implemented, both of them: `net.junos.config` and
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `container` 37, `virt` 38, `ai` 11, `svc` 16, `net` 25,
+is ever entered. By namespace, implemented: `container` 37, `virt` 82, `ai` 11, `svc` 16, `net` 28,
 `file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4,
 `archive` 2, `fs` 2, `gate` 2, `http` 3, `pleiades` 3, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
@@ -381,7 +381,16 @@ Things a real Ansible user will look for and not currently find:
   `until`, `failed_when`, `changed_when`, `ignore_errors`, `assert` and `fail`.
 - Loops are `loop` / `with_items` only, at most 1000 items; no other `with_*` form
   (`with_dict`, `with_fileglob`, ...) is supported.
-- No `handlers` / `notify`, no `become`, no `serial`, no `roles`.
+- No `handlers` / `notify`, no `serial`, no `roles`.
+- `become:` works on the Crawl tier, for a method that reaches its device over SSH: `become: true`
+  and `become_user:` (root by default) on a runbook, a block or a task, the narrowest winning,
+  run every command the method sends as that account through `sudo -n`. There is no sudo
+  password: an account that would be asked for one is refused with sudo's own words. Only
+  `become_method: sudo` is accepted; `become_exe` and `become_flags` are refused. `validate`
+  refuses `become` on a method that does not use SSH, and a Controller and Runner refuse a
+  task with `become` until a dispatch carries it. The journal records the account, and a
+  rollback runs the undo as the same account. [Writing runbooks](04-writing-runbooks.md)
+  has an example.
 - `tags:` works on a runbook, a block or a task, with `pleiades run --tags` and
   `--skip-tags` selecting by them exactly as Ansible does, `always` and `never`
   included. The Controller and Runner do not take a tag filter yet: a dispatched

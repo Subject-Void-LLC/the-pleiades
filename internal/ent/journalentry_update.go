@@ -138,6 +138,9 @@ func (_u *JournalEntryUpdate) sqlSave(ctx context.Context) (_node int, err error
 	if _u.mutation.InverseParamsCleared() {
 		_spec.ClearField(journalentry.FieldInverseParams, field.TypeJSON)
 	}
+	if _u.mutation.BecomeCleared() {
+		_spec.ClearField(journalentry.FieldBecome, field.TypeString)
+	}
 	if _u.mutation.RollbackOfCleared() {
 		_spec.ClearField(journalentry.FieldRollbackOf, field.TypeString)
 	}
@@ -303,6 +306,9 @@ func (_u *JournalEntryUpdateOne) sqlSave(ctx context.Context) (_node *JournalEnt
 	}
 	if _u.mutation.InverseParamsCleared() {
 		_spec.ClearField(journalentry.FieldInverseParams, field.TypeJSON)
+	}
+	if _u.mutation.BecomeCleared() {
+		_spec.ClearField(journalentry.FieldBecome, field.TypeString)
 	}
 	if _u.mutation.RollbackOfCleared() {
 		_spec.ClearField(journalentry.FieldRollbackOf, field.TypeString)

@@ -96,11 +96,28 @@ func TestGuard_StopsOnceAndAccountsForIt(t *testing.T) {
 	}
 }
 
+// TestNewGuardBudget: a -budget-mb replaces the flat budget, so a light pass
+// is lowered to what its own budget fits, never above what was asked and never
+// under one.
+func TestNewGuardBudget(t *testing.T) {
+	g, err := newGuard(10, 1, []string{modulePrefix + "tools/internal/headroom"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := g.finish()
+	if h.ParallelAsked != 10 || h.ParallelRan < 1 || h.ParallelRan > 10 {
+		t.Errorf("asked 10 at 1 MB a package, ran %d", h.ParallelRan)
+	}
+	if h.AvailableMB > headroom.ReserveMB+10 && h.ParallelRan != 10 {
+		t.Errorf("%.0f MB free fits ten 1 MB packages, ran %d", h.AvailableMB, h.ParallelRan)
+	}
+}
+
 // TestNewGuard applies the policy here: the disk is read where the run
 // builds, the parallelism is at least 1 and at most what was asked, and
 // finish ends the watches with an account of this machine.
 func TestNewGuard(t *testing.T) {
-	g, err := newGuard(1, []string{modulePrefix + "tools/internal/headroom"}, nil)
+	g, err := newGuard(1, 0, []string{modulePrefix + "tools/internal/headroom"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

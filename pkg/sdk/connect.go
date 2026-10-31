@@ -109,7 +109,40 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}
+	// A task run with become has every command it sends run as that account.
+	// Proving the login can is done here, once per connection, so a sudo that
+	// asks for a password is one clear refusal and not an exit code a method
+	// might read as an answer.
+	if user, ok := BecomeFrom(ctx); ok {
+		elevated, err := conn.WithBecome(ctx, remoteexec.Become{User: user})
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
+		}
+		conn = elevated
+	}
 	return conn, nil
+}
+
+// becomeKey is the context key for the account a task becomes.
+type becomeKey struct{}
+
+// WithBecome returns ctx marked so that Connect and its kin hand a method a
+// connection whose commands run as user through sudo (root when user is
+// empty). The engine sets it from a task's become, so a method needs no
+// parameter and no change to take part.
+func WithBecome(ctx context.Context, user string) context.Context {
+	if user == "" {
+		user = "root"
+	}
+	return context.WithValue(ctx, becomeKey{}, user)
+}
+
+// BecomeFrom returns the account ctx asks a connection to become, and whether
+// it asks for one.
+func BecomeFrom(ctx context.Context) (string, bool) {
+	user, ok := ctx.Value(becomeKey{}).(string)
+	return user, ok
 }
 
 // ConnectionPooler is implemented by a RunbookContext whose run keeps SSH
