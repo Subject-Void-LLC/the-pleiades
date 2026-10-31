@@ -1,0 +1,1 @@
+Added collection coverage pages (`docs/reference/coverage`): each collection measured against its endpoint's own contract, with every operation mapped to a method or excluded with a reason, and each method's proof per OS. `virt.clab` and `pkg.apt` are the first two measured.
