@@ -439,7 +439,13 @@ and for the refs below that still need a receipt. The schedule-only jobs (`night
 `vulns`) never run on a pull request; dispatch the workflow on its branch when a change
 touches them.
 
-**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote`'s static
+**Before every push to a pull request, run `make pr-check`; before opening one, `make branch-containers`.**
+pr-check leaves container packages to GitHub Actions by default (`PR_CHECK_CONTAINERS=yes` brings them back; it
+still runs `PR_CHECK_ALWAYS`, `internal/archtest` among them), because this machine's Docker Desktop is a VM and
+the runners' engine is native: container tests that lean on the host passed here and failed first in a pull
+request (FAILURE_PATTERNS 755, LESSONS 365). After `git push`, `make branch-containers` (`tools/branchci`)
+dispatches `ci.yml`'s branch-containers job for the branch's changed container packages at the pushed commit,
+follows it, and writes `.git/pleiades-branch-ci.json`; open the pull request only when it passes. It runs `ci-remote`'s static
 checks but `govulncheck` (a scan that traces a vulnerable call builds the whole module's call
 graph, over 4 GB here and 7 GB on a Mac; `make ci` and CI's `ci` job run it on every pull
 request within minutes), vet for macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it

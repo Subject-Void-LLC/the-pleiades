@@ -18151,3 +18151,50 @@ the same shape (an archtest that held, after the commit).
 
 **Lesson.** After adding a test that starts a container, run `go test ./tools/internal/flakegate -run
 TestEveryContainerPackageIsListed` alone before committing.
+
+## 755. The containerlab live test passed under Docker Desktop and failed on CI's native engine, because a bridged server could not see the bridge its own deploy made (a repeat of 426 and 538) (fixed in the pull request)
+
+**Symptom.** Pull request #95's `containers (3)` shard failed `internal/catalog/virt/clab`
+`TestLive_ARealLabEndToEnd`, and it failed again when re-run alone (run 41214255854, 2026-10-31):
+`virt.clab.lab.deploy: /api/v1/labs returned 500: "... failed to lookup link \"br-064196c03705\": Link not found"`.
+The same test passed here every time, before and after.
+
+**Root cause.** `testsupport.StartClabServer` ran the containerlab API server in a bridged container with a
+published port. A deploy makes the lab's Docker bridge and then looks it up by name. On an engine running on the
+machine's own kernel (the runners' Docker Engine) that bridge is in the host's network namespace, which a bridged
+container does not share; containerlab documents the server on the host's network for this reason. Under Docker
+Desktop the engine is in a VM and the deploy succeeds from a bridged container, so nothing here could show it.
+
+**Fix.** Commit `fd6d331b`: on an engine that is not Docker Desktop the server runs on the host's network at a port
+it binds itself; Docker Desktop keeps the bridged, published port. Proven by `containers (3)` passing on the next run
+(41218659515).
+
+**Why 426's and 538's fixes did not prevent it.** Each fixed its own fixture. Neither left anything that runs a
+container test on a native engine before CI does, and that is the only place this class shows. Since 2026-10-31
+pr-check leaves container packages to CI by default (the owner's call, after a 104-minute serial pass), so a new
+container test's first run anywhere but Docker Desktop is the pull request's.
+
+**Lesson.** See LESSONS 365.
+
+## 756. pr-check's new container opt-out dropped internal/archtest with the rest, so a released port reached CI that the archtest refuses in a minute here (a repeat of 123 and 478; a sibling of 631) (fixed in the pull request)
+
+**Symptom.** The next run of pull request #95 failed `containers (6)` on `internal/archtest`
+`TestNoReleasedPortIsUsedAsAnAddress`: `internal/testsupport/clabapi.go (in freeLocalPort): line 123 returns the
+address of l, which this function closes` (run 41218659515). `make pr-check` had passed at that commit.
+
+**Root cause.** Two of my own changes on one branch. `388769f6` made pr-check skip container packages unless
+`PR_CHECK_CONTAINERS=yes`, by emptying the branch's container list. `internal/archtest` is a container package that
+pr-check adds to every run (`PR_CHECK_ALWAYS`), so the opt-out removed it too, and the gate's one check for this
+shape stopped running. Then `fd6d331b` wrote the shape: a listener closed and its port handed to the server. CI_LESSONS
+rule 5 says the same, and I did not read it before writing a test helper that opens a port.
+
+**Fix.** Commit `b8ad7774`: the opt-out keeps `PR_CHECK_ALWAYS`'s packages (the next pr-check ran archtest, 76 s), and
+`freeLocalPort` is listed in the archtest's allowlist with its reason, beside the two subprocess ports already there:
+the server binds the port itself, and if another process takes it first the server never logs that it started, so the
+test fails rather than talking to the wrong server.
+
+**Why 123's and 478's fixes did not prevent it.** 478 made the shape an archtest, and the archtest would have stopped
+it in a minute. My gate change stopped the archtest running, with no check that a narrowed gate still runs what it
+always runs.
+
+**Lesson.** See LESSONS 365.

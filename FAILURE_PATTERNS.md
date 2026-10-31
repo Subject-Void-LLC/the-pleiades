@@ -758,6 +758,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 752. net.linux.route's undo was declared exact but recorded only destination, via, dev and metric, so an ECMP route would not be put back (a repeat of 582) (fixed before push)
 753. `trust-host --first-connect --reason` recorded the reason before the scan and the trust, so a failed trust left a recorded reason (fixed before push)
 754. net/linux's live test starts a container, so internal/catalog/net/linux was missing from DOCKER_DEPENDENT_PACKAGES and pr-check's devtools stage failed on TestEveryContainerPackageIsListed (a repeat of 239 and 447) (fixed before push)
+755. The containerlab live test passed under Docker Desktop and failed on CI's native engine, because a bridged server could not see the bridge its own deploy made (a repeat of 426 and 538) (fixed in the pull request)
+756. pr-check's new container opt-out dropped internal/archtest with the rest, so a released port reached CI that the archtest refuses in a minute here (a repeat of 123 and 478; a sibling of 631) (fixed in the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
