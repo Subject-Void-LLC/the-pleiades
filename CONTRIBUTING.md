@@ -73,13 +73,22 @@ anything until you run it.
 
 The gate is this repository's GitHub Actions checks. A change reaches `main` only by
 merging a pull request, and the repository's rules require that pull request's checks to
-pass first. So the usual flow is a branch, `make pr-check`, a push and a pull request:
+pass first. So the usual flow is a branch, `make pr-check`, a push, `make branch-containers`
+and a pull request:
 
 ```bash
 make pr-check                  # what the pull request's required jobs run, for your branch's packages
 git push -u origin my-branch   # the hook reads pr-check's receipt back, in about a second
+make branch-containers         # your changed container packages, on GitHub's runners, at the pushed commit
 gh pr create                   # its checks are the gate; merge once they are green
 ```
+
+`make pr-check` leaves container packages to GitHub Actions, because a container test that
+leans on the host can pass under Docker Desktop and fail on a runner's native engine. `make
+branch-containers` dispatches the CI workflow's branch-containers job for the container packages
+your branch changes, follows that run, and writes `.git/pleiades-branch-ci.json`. It does not
+cover a container package that only imports a package you changed; the pull request's own
+`containers` jobs still run every one.
 
 `make pr-check` runs the static checks (`govulncheck` on your Mac when `tests/mac/.env` names
 one), `go vet` as macOS and Windows build, each package your
@@ -132,6 +141,8 @@ Every job calls a `make` target, so you can run exactly what a job ran:
 | `fast-macos` | `make ci-fast` | the same on macOS; advisory until it has passed once |
 | `containers` | `make ci-containers SHARD=k/6` | the container packages, in six shards, `tests/e2e` divided among them test by test |
 | `coverage` | `make coverage-measured` | the coverage ratchet, from the numbers the jobs above recorded; it fails, rather than being skipped, when any of them failed |
+| `branch-plan` | `make ci-branch-plan` | on a dispatch with `packages` only: those are container packages, and how many shards they fill |
+| `branch-containers` | `PACKAGES=... make ci-containers SHARD=k/n` | on a dispatch with `packages` only: those packages alone, before a pull request |
 | `nightly` | `make test-full` | the whole suite, strictly, with nothing re-run |
 | `vulns` | `make govulncheck` | no known vulnerability is reachable, re-asked on the schedule because an advisory lands without any code changing |
 

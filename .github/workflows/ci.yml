@@ -1,4 +1,9 @@
 name: CI
+# A dispatch from make branch-containers carries a nonce, and its run is
+# named by it, so tools/branchci follows the run its own dispatch made
+# rather than another dispatch's at the same commit. Every other run keeps
+# the name GitHub would give it.
+run-name: ${{ inputs.nonce && format('branch-containers {0}', inputs.nonce) || github.event.pull_request.title || github.event.head_commit.message || github.workflow }}
 
 # Phase 118: the tests run here again, split by what they need.
 #
@@ -19,6 +24,11 @@ name: CI
 #   fast-macos  the same on macOS, advisory until it has passed once
 #   containers  the container packages, in six shards (make ci-containers),
 #               tests/e2e divided among them test by test
+#   branch-plan, branch-containers  a branch's changed container packages
+#               alone, on a dispatch with packages (make branch-containers),
+#               before its pull request: the native engine this machine
+#               lacks; branch-plan checks the packages and sizes the shards
+#               (make ci-branch-plan)
 #   coverage    the floors, from the numbers those jobs recorded
 #               (make coverage-measured), not from a fourth run
 #   nightly     the whole suite with no tolerance at all (make test-full),
@@ -50,12 +60,28 @@ on:
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
+    inputs:
+      packages:
+        description: >-
+          Container packages to test alone (import paths, space-separated).
+          Empty runs what a dispatch always ran. make branch-containers sets
+          it to a branch's changed container packages before its pull request.
+        type: string
+        default: ""
+      nonce:
+        description: >-
+          Names the run (branch-containers <nonce>), so make branch-containers
+          follows the run its own dispatch made. Leave it empty by hand.
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+# A packages dispatch is a group of its own, so it neither waits behind a
+# full or nightly dispatch on the branch nor cancels another one waiting.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}${{ inputs.packages != '' && format('-branch-{0}', inputs.nonce) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -68,7 +94,7 @@ jobs:
     # silently constraining a file to one platform (FAILURE_PATTERNS 51):
     # compilation alone sees it. macOS is blocking and Windows advisory,
     # per PLAN.md's platform requirement.
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && inputs.packages == ''
     strategy:
       fail-fast: false
       matrix:
@@ -123,7 +149,7 @@ jobs:
     # Every package that starts no container, on Linux. The coverage job
     # needs this one, so it holds only required work: macOS is its own job
     # below, which nothing needs.
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && inputs.packages == ''
     # 24.04 by name, not ubuntu-latest, which becomes Ubuntu 26 on
     # 2026-10-19: the user namespace step below is 24.04's AppArmor
     # setting, and the job requires those tests, so a new release is a
@@ -171,7 +197,7 @@ jobs:
     # (Landlock, memfd) existed, so it is allowed to fail until it has
     # passed once, then made blocking. Its own job rather than a matrix leg
     # of fast, so a failure here cannot decide whether coverage runs.
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && inputs.packages == ''
     runs-on: macos-latest
     continue-on-error: true
     timeout-minutes: 60
@@ -189,7 +215,7 @@ jobs:
     # these jobs measured), since a pull request waits for the slowest.
     # tests/e2e, fourteen minutes on its own, is timed and dealt test by
     # test, or no number of shards could finish sooner than it does.
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && inputs.packages == ''
     strategy:
       fail-fast: false
       matrix:
@@ -298,6 +324,97 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # branch-containers runs a branch's changed container packages on the
+  # same runners and images as the containers shards, before its pull
+  # request exists (make branch-containers dispatches it), because this
+  # machine's Docker Desktop is a VM and a container test that leans on the
+  # host has passed here and failed on a runner's native engine (FAILURE_PATTERNS
+  # 426, 755). Only a dispatch with packages runs it, and such a dispatch runs
+  # nothing else.
+  branch-plan:
+    if: github.event_name == 'workflow_dispatch' && inputs.packages != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      packages: ${{ steps.plan.outputs.packages }}
+      shards: ${{ steps.plan.outputs.shards }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-go
+      - name: make ci-branch-plan
+        id: plan
+        env:
+          PACKAGES: ${{ inputs.packages }}
+        run: make -s ci-branch-plan >> "$GITHUB_OUTPUT"
+  branch-containers:
+    needs: branch-plan
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.branch-plan.outputs.shards) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # PACKAGES reaches make through the environment only: a variable on
+    # make's command line has its $(...) expanded before a recipe reads it.
+    env:
+      SHARD: ${{ matrix.shard }}/${{ needs.branch-plan.outputs.count }}
+      PACKAGES: ${{ needs.branch-plan.outputs.packages }}
+    steps:
+      - name: Free disk space, in the background
+        run: |
+          ( sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+            touch "$RUNNER_TEMP/disk-freed" ) > /dev/null 2>&1 &
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go
+      - name: Docker Hub token present?
+        id: hub
+        env:
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "present=$([ -n "$TOKEN" ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+      - name: Log in to Docker Hub
+        if: steps.hub.outputs.present == 'yes'
+        env:
+          USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login --username "$USERNAME" --password-stdin
+      - name: List this shard's images
+        run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt
+      - name: Wait for the disk to be freed
+        run: |
+          for _ in $(seq 600); do
+            if [ -f "$RUNNER_TEMP/disk-freed" ]; then df -h / | tail -1; exit 0; fi
+            sleep 1
+          done
+          echo "freeing the disk did not finish within ten minutes" >&2
+          exit 1
+      - name: Restore cached images
+        id: images
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci/images.tar
+          key: test-images-${{ hashFiles('.ci/images.txt') }}
+      - name: Load cached images
+        if: steps.images.outputs.cache-hit == 'true'
+        run: docker load --input .ci/images.tar
+      - name: Pull images
+        if: steps.images.outputs.cache-hit != 'true'
+        run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt PULL=-pull
+      - name: make ci-containers
+        env:
+          PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
+        run: make ci-containers SHARD="$SHARD"
+      - name: Keep the process logs of a failed test
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-logs-branch-containers-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
   coverage:
     # The ratchet, from the numbers the test jobs recorded. It checks
     # floors only when every test job passed: a failed job's numbers are not
@@ -306,7 +423,7 @@ jobs:
     # counts a skipped required check as passed, so a failed shard the
     # ruleset does not name by number would otherwise not block a merge.
     # Requiring this one job therefore requires every shard, however many.
-    if: always() && github.event_name != 'schedule'
+    if: always() && github.event_name != 'schedule' && inputs.packages == ''
     needs: [fast, containers]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -333,7 +450,7 @@ jobs:
   nightly:
     # The whole suite in one strict pass, with no tolerance, on the default
     # branch. What the pull-request jobs forgive as contention, this counts.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.packages == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
@@ -377,7 +494,7 @@ jobs:
     # 2026, and main's own checks failed for it. Its own job, so a new
     # advisory fails within minutes and under its own name rather than at
     # the end of nightly's hour.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.packages == '')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

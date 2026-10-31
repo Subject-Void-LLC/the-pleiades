@@ -6724,3 +6724,23 @@ that something occurred. If they are written first, a failure leaves a claim tha
 **Rule in practice.** Write the reason, the note or the marker after the act it describes has succeeded. Where it must come
 first for another reason, remove it on failure and test the failed path. The refusal text for a guard that anyone with
 write access can bypass says so: it guards a slip, not a determined operator.
+
+## 365. A feature's tests run first where CI runs them, not only where they pass: a container test on a native engine and every always-run guard, before the pull request (2026-10-31).
+
+The owner, on pull request #95: every time a new feature is added it has failed in GitHub Actions, and that must
+not be repeated. On this pull request both CI failures (FAILURE_PATTERNS 755, 756) passed every local check, for
+two reasons that are not about the features themselves:
+
+1. **The environment.** This machine's Docker is Docker Desktop, a VM. CI's runners run Docker Engine on the
+   machine's own kernel. A test that leans on the host (host networking, the Docker socket, network namespaces,
+   PAM, cgroups) can pass here and fail there; 426, 446, 538 and 755 are all that shape. pr-check cannot see it,
+   and since 2026-10-31 it does not run container packages at all by default.
+2. **The gate narrowed itself.** A change to what the gate selects removed a guard it always ran (756), and a
+   branch's tests do not include its consumers' (631).
+
+The rule: before pushing a feature, its new or changed container tests run once on a native Linux engine, and a
+change to pr-check's selection is checked by running the selection and reading which packages it named. The owner
+chose the runners themselves for the first (2026-10-31): `make branch-containers` dispatches CI's branch-containers
+job for the branch's changed container packages at the pushed commit, follows it, and writes
+`.git/pleiades-branch-ci.json`. The order is `make pr-check`, `git push`, `make branch-containers`, then the pull
+request. A failure there costs a branch run, never a pull request.

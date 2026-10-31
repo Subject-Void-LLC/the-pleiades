@@ -5,6 +5,7 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -418,6 +419,46 @@ func cutTests(tests []string, time func(string) float64, parts int) [][]string {
 		}
 	}
 	return kept
+}
+
+// shardsFor is the most shards, up to most, that each own a piece of the
+// packages as piecesOf deals them, so a workflow asks for exactly as many
+// as testgate can fill. Counting packages cannot answer it: a divided
+// package is cut into as few parts as its time needs, not one per shard,
+// and a shard left with nothing is refused.
+func shardsFor(packages []string, most int, seconds map[string]float64) (int, error) {
+	if len(packages) == 0 {
+		return 0, errors.New("no packages to divide")
+	}
+	if most < 1 {
+		return 0, fmt.Errorf("-shards-for %d: ask for at least one shard", most)
+	}
+	for n := min(most, maxUnits(packages, seconds)); n > 1; n-- {
+		filled := true
+		for k := 1; k <= n && filled; k++ {
+			_, err := piecesOf(packages, fmt.Sprintf("%d/%d", k, n), seconds)
+			filled = err == nil
+		}
+		if filled {
+			return n, nil
+		}
+	}
+	return 1, nil
+}
+
+// maxUnits bounds shardsFor's search: no count can be filled past one shard
+// per whole package plus one per test of a divided one.
+func maxUnits(packages []string, seconds map[string]float64) int {
+	split := splitTests(packages, seconds)
+	n := 0
+	for _, pkg := range packages {
+		if tests, divided := split[pkg]; divided {
+			n += len(tests)
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 // weights is each package's time: its own from seconds, or, for one seconds

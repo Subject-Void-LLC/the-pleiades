@@ -368,7 +368,10 @@ and a failed e2e test's full, masked Controller and Runner logs are uploaded as
 coverage-measured` over the numbers those jobs uploaded, which runs and fails rather than
 being skipped when one of them failed, since GitHub counts a skipped required check as
 passed), `nightly` (`make test-full`, strict, no tolerance), `vulns`
-(`make govulncheck` on the schedule, since an advisory lands without any code changing). The
+(`make govulncheck` on the schedule, since an advisory lands without any code changing), and
+`branch-plan` and `branch-containers`, which only a dispatch with `packages` runs (`make
+ci-branch-plan` checks the packages and sizes the shards with `testgate -shards-for`, then `make
+ci-containers` runs them; see `make branch-containers` below). The
 experimental `winrm` job was cut on 2026-10-29 (it had never passed and blocked nothing; the
 lab's win-check VM is the WinRM target the pre-push gate tests). Every job is a
 make target, so there is still no CI-only step. Every test job runs `tools/testgate`, which holds
@@ -439,7 +442,16 @@ and for the refs below that still need a receipt. The schedule-only jobs (`night
 `vulns`) never run on a pull request; dispatch the workflow on its branch when a change
 touches them.
 
-**Before every push to a pull request, run `make pr-check`.** It runs `ci-remote`'s static
+**Before every push to a pull request, run `make pr-check`; before opening one, `make branch-containers`.**
+pr-check leaves container packages to GitHub Actions by default (`PR_CHECK_CONTAINERS=yes` brings them back; it
+still runs `PR_CHECK_ALWAYS`, `internal/archtest` among them), because this machine's Docker Desktop is a VM and
+the runners' engine is native: container tests that lean on the host passed here and failed first in a pull
+request (FAILURE_PATTERNS 755, LESSONS 365). After `git push`, `make branch-containers` (`tools/branchci`)
+dispatches `ci.yml`'s branch-containers job for the branch's changed container packages at the pushed commit,
+follows the run its own dispatch named (a nonce in `run-name`), and writes `.git/pleiades-branch-ci.json`, removing
+the old receipt first; open the pull request only when it passes. Two limits: it covers the container packages the
+branch changes, not those that only import a changed package (FAILURE_PATTERNS 631), and no hook reads its receipt
+yet. pr-check runs `ci-remote`'s static
 checks but `govulncheck` (a scan that traces a vulnerable call builds the whole module's call
 graph, over 4 GB here and 7 GB on a Mac; `make ci` and CI's `ci` job run it on every pull
 request within minutes), vet for macOS and Windows, each package the branch changes (`tools/prscope`) in the tier CI gives it

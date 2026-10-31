@@ -1,4 +1,4 @@
-.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images workflow-lint doctor test-clean-room release release-notes release-dry-run
+.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -576,6 +576,26 @@ all="$$(go list -tags integration ./...)"; \
 	done
 endef
 
+# ONLY_PACKAGES narrows SPLIT_PACKAGES's container list to PACKAGES when it
+# is set (import paths, space-separated), once each, refusing one that is not
+# on the list: ci-containers, ci-images and ci-branch-plan take it for CI's
+# branch-containers job, which tests a branch's changed container packages
+# alone. The recipe reads PACKAGES from its environment with globbing off,
+# never as $(PACKAGES), and compares it, as fixed text, with go list's own
+# import paths. Set it in the environment (PACKAGES="..." make ci-containers),
+# as CI does: make expands $(...) in a variable given on its command line
+# before any recipe sees it, so a value there is not data.
+define ONLY_PACKAGES
+if [ -n "$$PACKAGES" ]; then \
+		set -f; only=""; \
+		for pkg in $$PACKAGES; do \
+			printf '%s\n' $$docker | grep -qxF -- "$$pkg" || { echo "PACKAGES names $$pkg, which is not a container package (DOCKER_DEPENDENT_PACKAGES)" >&2; exit 1; }; \
+			printf '%s\n' $$only | grep -qxF -- "$$pkg" || only="$$only $$pkg"; \
+		done; \
+		set +f; docker="$$only"; \
+	fi
+endef
+
 # FULL_PASS runs the one pass that replaced test-race, test-integration and
 # coverage's own run: -race, the integration tag, coverage and a fresh run
 # of every test, through tools/testgate, the container-free packages all at
@@ -658,6 +678,7 @@ ci-fast:
 SHARD ?= 1/1
 ci-containers:
 	@$(SPLIT_PACKAGES); \
+	$(ONLY_PACKAGES); \
 	mkdir -p $(COVERAGE_DIR); \
 	go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -shard $(SHARD) \
 		-coverage-out $(COVERAGE_DIR)/containers-$(subst /,-of-,$(SHARD)).json $$docker
@@ -887,13 +908,13 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
 	mine_fast=""; mine_docker=""; \
 	for pkg in $$(printf '%s\n' $$scope $(PR_CHECK_ALWAYS) | sort -u); do \
-		if printf '%s\n' $(PR_CHECK_LEAVE_TO_CI) | grep -qx "$$pkg"; then echo "pr-check: $$pkg is left to CI (PR_CHECK_LEAVE_TO_CI)"; \
-		elif printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
-		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
+		if printf '%s\n' $(PR_CHECK_LEAVE_TO_CI) | grep -qxF -- "$$pkg"; then echo "pr-check: $$pkg is left to CI (PR_CHECK_LEAVE_TO_CI)"; \
+		elif printf '%s\n' $$docker | grep -qxF -- "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
+		elif printf '%s\n' $$fast | grep -qxF -- "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
 	if [ "$(PR_CHECK_CONTAINERS)" != yes ] && [ -n "$$mine_docker" ]; then \
 		kept=""; for pkg in $$mine_docker; do case " $(PR_CHECK_ALWAYS) " in *" $$pkg "*) kept="$$kept $$pkg";; esac; done; \
-		echo "pr-check: $$(echo $$mine_docker | wc -w) container package(s) are left to the containers jobs on GitHub Actions but the $$(echo $$kept | wc -w) pr-check always runs (PR_CHECK_CONTAINERS=yes runs them all here)"; \
+		echo "pr-check: $$(echo $$mine_docker | wc -w) container package(s) are left to GitHub Actions but the $$(echo $$kept | wc -w) pr-check always runs: after git push, make branch-containers runs them on the runners before the pull request (PR_CHECK_CONTAINERS=yes runs them all here)"; \
 		mine_docker="$$kept"; \
 	fi; \
 	since=""; \
@@ -1042,7 +1063,7 @@ $(SPLIT_PACKAGES); \
 	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
 	mine_fast=""; \
 	for pkg in $$(printf '%s\n' $$scope $(PR_CHECK_ALWAYS) | sort -u); do \
-		if printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
+		if printf '%s\n' $$fast | grep -qxF -- "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
 	go run ./tools/$(1) -p $(2) $$mine_fast
 endef
@@ -1055,6 +1076,44 @@ pr-check-vet:
 	GOOS=darwin go vet -tags integration ./...
 	GOOS=windows go vet -tags integration ./...
 
+# branch-containers runs the branch's changed container packages (its scope
+# as pr-check reads it, narrowed to DOCKER_DEPENDENT_PACKAGES) on GitHub
+# Actions' runners before the pull request is opened: tools/branchci
+# dispatches CI's branch-containers job at the commit origin holds, follows
+# it to its end, and writes .git/pleiades-branch-ci.json. This machine's
+# Docker is Docker Desktop, a VM; the runners' is native, and container
+# tests that lean on the host passed here and failed first in a pull request
+# (FAILURE_PATTERNS 426, 755; LESSONS 365). Run it after make pr-check and
+# git push, and open the pull request only when it passes. It covers the
+# container packages the branch changes, not one that only imports a changed
+# package (FAILURE_PATTERNS 631), which the pull request's containers jobs
+# still run.
+branch-containers:
+	@$(SPLIT_PACKAGES); \
+	scope="$$(go run ./tools/prscope -base $(PR_BASE))" || exit 1; \
+	mine=""; \
+	for pkg in $$scope; do \
+		if printf '%s\n' $$docker | grep -qxF -- "$$pkg"; then mine="$$mine $$pkg"; fi; \
+	done; \
+	echo "branch-containers: $$(echo $$mine | wc -w) container package(s) against $(PR_BASE)"; \
+	go run ./tools/branchci -packages "$$mine"
+
+# ci-branch-plan sizes CI's branch-containers matrix: it checks PACKAGES as
+# ci-containers does and prints, as GitHub step outputs, the packages once
+# each, and the most shards (up to SHARDS_MOST) that each own part of them as
+# testgate -shard deals them (testgate -shards-for). Counting packages cannot
+# answer that: tests/e2e is cut into only as many parts as its time needs,
+# and a shard left with nothing fails.
+SHARDS_MOST ?= 6
+ci-branch-plan:
+	@[ -n "$$PACKAGES" ] || { echo "ci-branch-plan: PACKAGES names no package" >&2; exit 1; }; \
+	$(SPLIT_PACKAGES); \
+	$(ONLY_PACKAGES); \
+	n="$$(go run ./tools/testgate -shards-for $(SHARDS_MOST) $$docker)" || exit 1; \
+	echo "packages=$$(echo $$docker)"; \
+	echo "count=$$n"; \
+	echo "shards=[$$(seq -s, 1 "$$n")]"
+
 # ci-images lists, and with PULL=-pull pulls, the images one shard's
 # packages start, so a CI job can restore them from its cache instead of
 # pulling from Docker Hub every run. IMAGES names the list file.
@@ -1062,6 +1121,7 @@ IMAGES ?= .ci/images.txt
 PULL ?=
 ci-images:
 	@$(SPLIT_PACKAGES); \
+	$(ONLY_PACKAGES); \
 	mkdir -p "$$(dirname $(IMAGES))"; \
 	go run ./tools/testimages $(PULL) $$(go run ./tools/testgate -list -shard $(SHARD) $$docker) > $(IMAGES)
 
