@@ -5,6 +5,8 @@ package engine_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,5 +138,47 @@ func TestCollectionActionExecutor_BecomeIsRecordedOnlyWhenAConnectionRanAsIt(t *
 		if got, recorded := res.Stats[engine.StatBecome]; recorded {
 			t.Errorf("become %v: a method's own become stat %q was kept", task.Become != nil, got)
 		}
+	}
+}
+
+// TestCollectionActionExecutor_BecomeWarnsOnlyAfterWorkThatFinished: a method
+// that failed under become records neither the account nor a warning, its
+// error saying what happened; one that finished without an elevated
+// connection adds the warning to the warnings it recorded itself, whichever
+// list type it used; and an engine action is refused become outright.
+func TestCollectionActionExecutor_BecomeWarnsOnlyAfterWorkThatFinished(t *testing.T) {
+	newContext := func(context.Context, inventory.InventoryItem) (sdk.RunbookContext, error) {
+		return &becomeStatsContext{stats: map[string]interface{}{}}, nil
+	}
+	exec := engine.NewCollectionActionExecutor(&recordingFallback{}, newContext)
+	device := &inventorytest.Stub{StubName: "lab1"}
+	on := true
+
+	fails := registerTestMethod(t, "fails", collection.StatusImplemented,
+		func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+			return collection.Result{}, errors.New("refused before contact")
+		})
+	res, err := exec.Execute(context.Background(), &engine.Task{FQCN: fails, Become: &on}, device)
+	if err == nil || warns(res.Stats, "ran as the login") {
+		t.Errorf("a failed task: err %v, stats %v; want the error and no warning", err, res.Stats)
+	}
+
+	for name, own := range map[string]any{"strings": []string{"its own"}, "anys": []interface{}{"its own"}} {
+		warned := registerTestMethod(t, "warned-"+name, collection.StatusImplemented,
+			func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+				return collection.Result{}, rc.SetStat(sdk.StatWarnings, own)
+			})
+		res, err := exec.Execute(context.Background(), &engine.Task{FQCN: warned, Become: &on}, device)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := fmt.Sprint(res.Stats[sdk.StatWarnings])
+		if !strings.Contains(got, "its own") || !strings.Contains(got, "ran as the login") {
+			t.Errorf("%s: warnings %s, want the method's own and the become warning", name, got)
+		}
+	}
+
+	if _, err := exec.Execute(context.Background(), &engine.Task{FQCN: "ssh_exec", Become: &on}, device); err == nil || !strings.Contains(err.Error(), "engine action, which does not take become") {
+		t.Errorf("an engine action with become: %v", err)
 	}
 }

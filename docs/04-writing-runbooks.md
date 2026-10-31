@@ -633,7 +633,10 @@ What it is, and is not:
   WinRM (`svc.*` on Windows).
 - The result and the journal record the account only when a connection really ran as it.
   A task that asked and was not run that way says so as a warning, and records no account.
-  `pleiades rollback` runs an undo as the account the change ran as. A method that keeps something under the login's home (`net.frr.config`'s
+  `pleiades rollback`, and a block's `rollback_on_failure` inside the run, run an undo as the
+  account the change ran as. A task's `rollback:` steps run as its account too, so `validate`
+  holds each step to the same rule: a step that could not run as it (`ssh_exec`, a method
+  that does not use SSH) is refused before the run. A method that keeps something under the login's home (`net.frr.config`'s
   backups) records which account made it, and refuses an undo run as another.
 - A Controller and Runner refuse a task with `become` for now. It runs from the CLI.
 

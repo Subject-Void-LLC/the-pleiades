@@ -13767,6 +13767,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noBecomeReason": "it sends no command: it closes the connections the run keeps open, so there is nothing to run as another account",
     "endsLoginSession": true,
     "doc": {
       "summary": "Closes the SSH connection kept open to the device, so its next task logs in again.",

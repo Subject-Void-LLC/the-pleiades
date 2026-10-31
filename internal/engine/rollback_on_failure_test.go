@@ -61,6 +61,10 @@ type undoable struct {
 	// became is the account each call was asked to run as ("<call>@<device>"),
 	// absent for a call that runs as the login.
 	became map[string]string
+	// asLogin names changes asked to become an account that ran as the login
+	// anyway, so they record no become stat, as the real executor records one
+	// only when a connection ran as the account (recordBecome).
+	asLogin map[string]bool
 }
 
 func (u *undoable) Execute(_ context.Context, task *engine.Task, d inventory.InventoryItem) (engine.ActionResult, error) {
@@ -102,9 +106,14 @@ func (u *undoable) Execute(_ context.Context, task *engine.Task, d inventory.Inv
 		if task.FQCN == "rbtest.blob" {
 			params["content"] = "the prior content"
 		}
-		return engine.ActionResult{Changed: true, Stats: map[string]any{
+		stats := map[string]any{
 			sdk.StatInverse: map[string]any{sdk.InverseFQCNKey: "rbtest.unmake", sdk.InverseParamsKey: params},
-		}}, nil
+		}
+		// What the real executor records once a connection ran as the account.
+		if user, on := engine.BecomeFor(task); on && !u.asLogin[call+"@"+device] {
+			stats[engine.StatBecome] = user
+		}
+		return engine.ActionResult{Changed: true, Stats: stats}, nil
 	case "rbtest.unmake":
 		return engine.ActionResult{Changed: true}, nil
 	}
@@ -535,5 +544,31 @@ tasks:
 	// any become runs as the login.
 	if actions.became["r0@web1"] != "svc" {
 		t.Errorf("the rescue ran as %q", actions.became["r0@web1"])
+	}
+
+	// A change that asked for svc and ran as the login (no connection ran as
+	// svc) is undone as the login, as the journal records it and a later
+	// pleiades rollback replays it, never as an account the change did not use.
+	login := &undoable{fail: map[string]bool{"b2@web1": true}, asLogin: map[string]bool{"b0@web1": true}}
+	runUndoable(t, `id: rb
+hosts: web
+tasks:
+  - name: guarded
+    rollback_on_failure: true
+    become: true
+    become_user: svc
+    block:
+      - name: b0
+        rbtest.make: {name: zero}
+      - name: b2
+        rbtest.make: {name: two}
+    rescue:
+      - name: r0
+        noop: {}
+`, twoDevices(), login)
+	login.mu.Lock()
+	defer login.mu.Unlock()
+	if got, asked := login.became["unmake:zero@web1"]; asked {
+		t.Errorf("the undo of a change that ran as the login ran as %q", got)
 	}
 }

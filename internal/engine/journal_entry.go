@@ -474,11 +474,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	// own: a stat naming any other account is not believed, so no method's
 	// stats can make a rollback replay an undo as an account the task never
 	// asked for.
-	if user, on := BecomeFor(task); on {
-		if ran, _ := n.journalStats[StatBecome].(string); ran == user {
-			entry.Become = user
-		}
-	}
+	entry.Become = ranAs(task, n.journalStats)
 	switch {
 	case n.Undo != nil:
 		// A step of a block's rollback_on_failure: a rollback of this very

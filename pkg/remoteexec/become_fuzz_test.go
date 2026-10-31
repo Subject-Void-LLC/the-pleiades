@@ -10,8 +10,11 @@ import (
 
 // FuzzBecomeElevate holds the one property the sudo prefix must keep for any
 // account name and any command: either the name is refused before anything
-// is built, or the line a POSIX shell reads back is exactly sudo -n -u NAME
-// -- sh -c COMMAND, eight words, with the name never read as an option. The
+// is built, or the line reads back, through the single-quote splitter
+// FuzzQuoteCommand uses (quote_test.go: quotes, backslashes and spaces, not a
+// whole shell), as exactly sudo -n -u NAME -- sh -c COMMAND, eight words,
+// with the name never read as an option. Every word is single-quoted
+// (QuoteArg), which is what makes that splitter a fair model here. The
 // seeds are shell breakouts (CWE-78), the Unicode quotes some shells fold to
 // an ASCII quote, an option where a name goes, and a newline, which a
 // multi-line regular expression would let through.

@@ -163,7 +163,7 @@ func (r *run) undoSteps(n NodeResult) (steps []*Task, authored bool, err error) 
 			if step.Name == "" {
 				step.Name = fmt.Sprintf("undo %s, step %d", taskLabel(n.NodeID, task), i+1)
 			}
-			asAccountOf(&step, task)
+			asAccountOf(&step, task, n)
 			steps = append(steps, &step)
 		}
 		return steps, true, nil
@@ -191,16 +191,17 @@ func (r *run) undoSteps(n NodeResult) (steps []*Task, authored bool, err error) 
 		}
 	}
 	undo := &Task{Name: "undo " + taskLabel(n.NodeID, task), FQCN: entry.InverseFQCN, Params: params}
-	asAccountOf(undo, task)
+	asAccountOf(undo, task, n)
 	return []*Task{undo}, false, nil
 }
 
-// asAccountOf makes step run as the account task ran as, when it ran as one,
-// the way a later pleiades rollback replays the undo (rollback.Step.Become): an
-// undo of a change made as root that ran as the login would meet files and
-// state it has no right to, or fail.
-func asAccountOf(step, task *Task) {
-	if user, on := BecomeFor(task); on {
+// asAccountOf makes step run as the account task's change ran as (ranAs, from
+// n's recorded stats), the way a later pleiades rollback replays the undo from
+// the journal (rollback.Step.Become): an undo of a change made as root that ran
+// as the login would meet files and state it has no right to, and one made as
+// the login must not be undone as root.
+func asAccountOf(step, task *Task, n NodeResult) {
+	if user := ranAs(task, n.journalStats); user != "" {
 		yes := true
 		step.Become, step.BecomeUser, step.BecomeMethod = &yes, user, BecomeMethodSudo
 	}

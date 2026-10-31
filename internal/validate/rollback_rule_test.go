@@ -289,3 +289,41 @@ tasks:
 		t.Errorf("a block without the key was refused: %+v", findings)
 	}
 }
+
+// TestRollbackRule_HoldsAnElevatedTasksStepsToBecome: a step of a task that
+// runs as another account replays as that account, in the run's own
+// rollback_on_failure and in a later pleiades rollback alike, so a step that
+// could not run as it (an engine action, a method that does not reach its
+// device over SSH) is refused here, before the run, rather than run as the
+// login inside the run and refused by the later rollback. Without become the
+// same steps pass this check.
+func TestRollbackRule_HoldsAnElevatedTasksStepsToBecome(t *testing.T) {
+	registerUndoShapes(t)
+	runbook := `id: r
+hosts: web
+tasks:
+  - name: step
+    become: true
+    undo.never:
+      name: x
+    rollback:
+      - ssh_exec:
+          command: rm /root/x
+`
+	var messages []string
+	for _, f := range validate.RollbackRule(validate.WorldView{DAG: yamlDAG(t, runbook)}) {
+		messages = append(messages, f.Node+": "+f.Message)
+	}
+	joined := strings.Join(messages, "\n")
+	for _, want := range []string{"tasks[0].rollback[0]", "runs as root (become)", "ssh_exec is not a Collection method"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("findings do not mention %q:\n%s", want, joined)
+		}
+	}
+	plain := strings.Replace(runbook, "    become: true\n", "", 1)
+	for _, f := range validate.RollbackRule(validate.WorldView{DAG: yamlDAG(t, plain)}) {
+		if strings.Contains(f.Message, "become") {
+			t.Errorf("a step of a task without become was held to become: %+v", f)
+		}
+	}
+}

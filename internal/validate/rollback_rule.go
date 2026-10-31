@@ -15,7 +15,8 @@ import (
 // RollbackRule holds every task's rollback: steps to exactly what the
 // runbook's own tasks are held to: a method that is registered and
 // implemented (CollectionRule), only parameters it declares (ParamsRule),
-// and every parameter it requires (RequiredParamsRule). It runs those rules
+// every parameter it requires (RequiredParamsRule), and, for a task that runs
+// as another account, a step that can run as it (BecomeRule). It runs those rules
 // over a view whose tasks are the steps, rather than restating any, so a
 // step can never pass something a task would not. A step is found here, at validation, rather than at
 // the rollback that needs it, which may be long after the run and the one
@@ -23,8 +24,17 @@ import (
 func RollbackRule(world WorldView) []Finding {
 	steps := &engine.DAG{Nodes: map[string]*engine.Task{}}
 	for id, task := range world.DAG.Nodes {
+		user, becomes := engine.BecomeFor(task)
 		for i := range task.Rollback {
-			steps.Nodes[fmt.Sprintf("%s.rollback[%d]", id, i)] = &task.Rollback[i]
+			// A step replays as the account its task ran as, in the run's own
+			// rollback_on_failure and in a later rollback alike, so it is
+			// held to become as a task that asked for it would be.
+			step := task.Rollback[i]
+			if becomes {
+				yes := true
+				step.Become, step.BecomeUser = &yes, user
+			}
+			steps.Nodes[fmt.Sprintf("%s.rollback[%d]", id, i)] = &step
 		}
 	}
 	if len(steps.Nodes) == 0 {
@@ -32,7 +42,7 @@ func RollbackRule(world WorldView) []Finding {
 	}
 	view := WorldView{Items: world.Items, DAG: steps, Mode: world.Mode, Resolver: world.Resolver}
 	var findings []Finding
-	for _, rule := range []Rule{CollectionRule, ParamsRule, RequiredParamsRule} {
+	for _, rule := range []Rule{CollectionRule, ParamsRule, RequiredParamsRule, BecomeRule} {
 		for _, f := range rule(view) {
 			f.RuleName = "rollback"
 			findings = append(findings, f)

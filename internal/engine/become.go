@@ -50,13 +50,18 @@ func BecomeFor(task *Task) (user string, on bool) {
 // such way ran as the login, which is said as a warning every run shows. A
 // StatBecome the method set itself is dropped first: the engine is the only
 // one that says it.
-func recordBecome(ctx context.Context, fqcn, user string, becomes bool, stats map[string]interface{}) {
+func recordBecome(ctx context.Context, fqcn, user string, becomes, succeeded bool, stats map[string]interface{}) {
 	delete(stats, StatBecome)
 	if !becomes {
 		return
 	}
 	if sdk.BecomeApplied(ctx) {
 		stats[StatBecome] = user
+		return
+	}
+	// A task that failed or was refused says why itself; only work that
+	// finished is said to have run as the login.
+	if !succeeded {
 		return
 	}
 	warning := fmt.Sprintf("become: %s opened no SSH connection that ran as %s, so whatever it did ran as the login", fqcn, user)
@@ -68,6 +73,22 @@ func recordBecome(ctx context.Context, fqcn, user string, becomes bool, stats ma
 	default:
 		stats[sdk.StatWarnings] = []string{warning}
 	}
+}
+
+// ranAs returns the account task's commands ran as, from the stats its
+// executor recorded: the task's own account when a connection ran as it
+// (recordBecome), and "" otherwise, including a stat naming any other
+// account. The journal and a block's in-run undo both read it, so the two
+// replay an undo as the same account a later pleiades rollback does.
+func ranAs(task *Task, stats map[string]interface{}) string {
+	user, on := BecomeFor(task)
+	if !on {
+		return ""
+	}
+	if recorded, _ := stats[StatBecome].(string); recorded == user {
+		return user
+	}
+	return ""
 }
 
 // checkBecomeKeys refuses a become, become_user or become_method that cannot
