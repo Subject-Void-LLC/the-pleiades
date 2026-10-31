@@ -1,0 +1,407 @@
+{
+  "collection": "virt.clab",
+  "title": "containerlab API server",
+  "source": {
+    "kind": "openapi",
+    "url": "https://github.com/srl-labs/clab-api-server/blob/a70e099b481bb2be7c873cbad506bb40e234c43f/docs/swagger.json",
+    "version": "v0.9.0",
+    "revision": "a70e099b481bb2be7c873cbad506bb40e234c43f",
+    "sha256": "81ef3ecc951051010a4ec6941d6b02f862f84e3a4e98e064871fd38475a3ba20",
+    "file": "source/swagger.json",
+    "license": "Apache-2.0"
+  },
+  "ops": [
+    {
+      "id": "DELETE /api/v1/capture/wireshark-vnc-sessions",
+      "summary": "Delete all Wireshark VNC sessions"
+    },
+    {
+      "id": "DELETE /api/v1/capture/wireshark-vnc-sessions/{sessionId}",
+      "summary": "Delete Wireshark VNC session"
+    },
+    {
+      "id": "GET /api/v1/capture/wireshark-vnc-sessions/{sessionId}/ready",
+      "summary": "Get Wireshark VNC session readiness"
+    },
+    {
+      "id": "GET /api/v1/capture/wireshark-vnc-sessions/{sessionId}/vnc/{proxyPath}",
+      "summary": "Proxy Wireshark VNC assets"
+    },
+    {
+      "id": "GET /api/v1/events",
+      "summary": "Stream containerlab events"
+    },
+    {
+      "id": "POST /api/v1/generate",
+      "summary": "Generate containerlab topology"
+    },
+    {
+      "id": "GET /api/v1/health/metrics",
+      "summary": "Get system metrics"
+    },
+    {
+      "id": "GET /api/v1/images",
+      "summary": "List runtime images"
+    },
+    {
+      "id": "DELETE /api/v1/images",
+      "summary": "Remove a runtime image"
+    },
+    {
+      "id": "POST /api/v1/images/pull",
+      "summary": "Pull a runtime image"
+    },
+    {
+      "id": "GET /api/v1/labs",
+      "summary": "List labs"
+    },
+    {
+      "id": "POST /api/v1/labs",
+      "summary": "Deploy lab"
+    },
+    {
+      "id": "POST /api/v1/labs/archive",
+      "summary": "Deploy lab from archive"
+    },
+    {
+      "id": "GET /api/v1/labs/topology/files",
+      "summary": "List editable lab topology files"
+    },
+    {
+      "id": "POST /api/v1/labs/topology/import-from-url",
+      "summary": "Import topology repository as undeployed lab"
+    },
+    {
+      "id": "POST /api/v1/labs/workspace/directory",
+      "summary": "Create lab workspace directory"
+    },
+    {
+      "id": "GET /api/v1/labs/workspace/events",
+      "summary": "Stream lab workspace file events"
+    },
+    {
+      "id": "GET /api/v1/labs/workspace/file",
+      "summary": "Read lab workspace file"
+    },
+    {
+      "id": "PUT /api/v1/labs/workspace/file",
+      "summary": "Write lab workspace file"
+    },
+    {
+      "id": "DELETE /api/v1/labs/workspace/file",
+      "summary": "Delete lab workspace file"
+    },
+    {
+      "id": "POST /api/v1/labs/workspace/file/rename",
+      "summary": "Rename lab workspace file"
+    },
+    {
+      "id": "GET /api/v1/labs/workspace/tree",
+      "summary": "List lab workspace files"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}",
+      "summary": "Inspect lab"
+    },
+    {
+      "id": "PUT /api/v1/labs/{labName}",
+      "summary": "Redeploy lab"
+    },
+    {
+      "id": "DELETE /api/v1/labs/{labName}",
+      "summary": "Destroy lab"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/apply",
+      "summary": "Apply on-disk topology for lab"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/capture/packetflix",
+      "summary": "Build packetflix capture URI"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/capture/wireshark-vnc-sessions",
+      "summary": "Create Wireshark VNC capture session(s)"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/deploy",
+      "summary": "Deploy on-disk topology for lab"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/exec",
+      "summary": "Execute command in lab"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/fcli",
+      "summary": "Run fcli command"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/gotty/{action}",
+      "summary": "GoTTY share action"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/graph/drawio",
+      "summary": "Generate draw.io graph"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/interfaces",
+      "summary": "List lab interfaces"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/links",
+      "summary": "List lab links"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/nodes/{nodeName}/browser-ports",
+      "summary": "Get node browser ports"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/nodes/{nodeName}/logs",
+      "summary": "Get node logs"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/pause",
+      "summary": "Pause node"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/restart",
+      "summary": "Restart node"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/ssh",
+      "summary": "Request temporary SSH access details"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/start",
+      "summary": "Start node"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/stop",
+      "summary": "Stop node"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/terminal-sessions",
+      "summary": "Create browser terminal session"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/unpause",
+      "summary": "Unpause node"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/restart",
+      "summary": "Restart lab nodes"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/save",
+      "summary": "Save lab configuration"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/sshx/{action}",
+      "summary": "SSHX share action"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/start",
+      "summary": "Start lab nodes"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/stop",
+      "summary": "Stop lab nodes"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/tailscale",
+      "summary": "Get lab Tailscale status"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/topology/annotations",
+      "summary": "Get lab annotations"
+    },
+    {
+      "id": "PUT /api/v1/labs/{labName}/topology/annotations",
+      "summary": "Update lab annotations"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/topology/events",
+      "summary": "Stream topology document events"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/topology/file",
+      "summary": "Read lab topology file"
+    },
+    {
+      "id": "PUT /api/v1/labs/{labName}/topology/file",
+      "summary": "Write lab topology file"
+    },
+    {
+      "id": "DELETE /api/v1/labs/{labName}/topology/file",
+      "summary": "Delete lab topology file"
+    },
+    {
+      "id": "HEAD /api/v1/labs/{labName}/topology/file",
+      "summary": "Check lab topology file existence"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/topology/file/rename",
+      "summary": "Rename lab topology file"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/topology/yaml",
+      "summary": "Get lab topology YAML"
+    },
+    {
+      "id": "PUT /api/v1/labs/{labName}/topology/yaml",
+      "summary": "Update lab topology YAML"
+    },
+    {
+      "id": "GET /api/v1/labs/{labName}/ui/icons",
+      "summary": "List lab custom icons"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/ui/icons/reconcile",
+      "summary": "Reconcile lab custom icons"
+    },
+    {
+      "id": "POST /api/v1/labs/{labName}/validate",
+      "summary": "Validate on-disk topology for lab"
+    },
+    {
+      "id": "GET /api/v1/ssh/sessions",
+      "summary": "List SSH sessions"
+    },
+    {
+      "id": "DELETE /api/v1/ssh/sessions/{port}",
+      "summary": "Terminate SSH session"
+    },
+    {
+      "id": "GET /api/v1/terminal-sessions/{sessionId}",
+      "summary": "Get terminal session"
+    },
+    {
+      "id": "DELETE /api/v1/terminal-sessions/{sessionId}",
+      "summary": "Terminate terminal session"
+    },
+    {
+      "id": "GET /api/v1/terminal-sessions/{sessionId}/stream",
+      "summary": "Stream terminal session"
+    },
+    {
+      "id": "POST /api/v1/tools/certs/ca",
+      "summary": "Create certificate authority (CA)"
+    },
+    {
+      "id": "POST /api/v1/tools/certs/sign",
+      "summary": "Sign certificate"
+    },
+    {
+      "id": "POST /api/v1/tools/disable-tx-offload",
+      "summary": "Disable TX checksum offload"
+    },
+    {
+      "id": "POST /api/v1/tools/edgeshark/install",
+      "summary": "Install EdgeShark"
+    },
+    {
+      "id": "GET /api/v1/tools/edgeshark/status",
+      "summary": "Get EdgeShark status"
+    },
+    {
+      "id": "POST /api/v1/tools/edgeshark/uninstall",
+      "summary": "Uninstall EdgeShark"
+    },
+    {
+      "id": "POST /api/v1/tools/netem/reset",
+      "summary": "Reset link impairments (netem)"
+    },
+    {
+      "id": "POST /api/v1/tools/netem/set",
+      "summary": "Set link impairments (netem)"
+    },
+    {
+      "id": "GET /api/v1/tools/netem/show",
+      "summary": "Show link impairments (netem)"
+    },
+    {
+      "id": "POST /api/v1/tools/veth",
+      "summary": "Create vEth pair"
+    },
+    {
+      "id": "POST /api/v1/tools/vxlan",
+      "summary": "Create VxLAN tunnel"
+    },
+    {
+      "id": "DELETE /api/v1/tools/vxlan",
+      "summary": "Delete VxLAN tunnels by prefix"
+    },
+    {
+      "id": "GET /api/v1/ui/custom-nodes",
+      "summary": "List custom node templates"
+    },
+    {
+      "id": "PUT /api/v1/ui/custom-nodes",
+      "summary": "Replace custom node templates"
+    },
+    {
+      "id": "POST /api/v1/ui/custom-nodes",
+      "summary": "Save custom node template"
+    },
+    {
+      "id": "POST /api/v1/ui/custom-nodes/default",
+      "summary": "Set default custom node template"
+    },
+    {
+      "id": "DELETE /api/v1/ui/custom-nodes/{name}",
+      "summary": "Delete custom node template"
+    },
+    {
+      "id": "GET /api/v1/ui/icons",
+      "summary": "List global custom icons"
+    },
+    {
+      "id": "POST /api/v1/ui/icons",
+      "summary": "Upload global custom icon"
+    },
+    {
+      "id": "DELETE /api/v1/ui/icons/{iconName}",
+      "summary": "Delete global custom icon"
+    },
+    {
+      "id": "GET /api/v1/users",
+      "summary": "List users"
+    },
+    {
+      "id": "POST /api/v1/users",
+      "summary": "Create user"
+    },
+    {
+      "id": "GET /api/v1/users/{username}",
+      "summary": "Get user details"
+    },
+    {
+      "id": "PUT /api/v1/users/{username}",
+      "summary": "Update user"
+    },
+    {
+      "id": "DELETE /api/v1/users/{username}",
+      "summary": "Delete user"
+    },
+    {
+      "id": "PUT /api/v1/users/{username}/password",
+      "summary": "Change user password"
+    },
+    {
+      "id": "GET /api/v1/version",
+      "summary": "Get containerlab version"
+    },
+    {
+      "id": "GET /api/v1/version/check",
+      "summary": "Check containerlab updates"
+    },
+    {
+      "id": "GET /health",
+      "summary": "Get API server health"
+    },
+    {
+      "id": "POST /login",
+      "summary": "Log in"
+    }
+  ]
+}

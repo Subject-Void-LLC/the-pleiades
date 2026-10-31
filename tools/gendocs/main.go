@@ -77,6 +77,7 @@ func run() error {
 		{"pr-check report schema", generatePRReportSchema},
 		{"pleiades --json schemas", generateCLIReportSchemas},
 		{"openapi", generateOpenAPI},
+		{"collection coverage", generateCoverage},
 	}
 
 	for _, step := range steps {
@@ -116,6 +117,7 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Filter reference](filters/index.md)
 - [Runbook and task keys](task-keys.md)
 - [Implementation status](implementation-status.md)
+- [Collection coverage](coverage/index.md) (each collection against its endpoint's own contract)
 - [CLI reference](cli.md)
 - [Runbook JSON Schema](schemas/runbook.schema.json)
 - [Inventory JSON Schema](schemas/inventory.schema.json)
@@ -125,6 +127,7 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Run report JSON Schema](schemas/run-report.json) (` + "`pleiades run --json`, `adhoc --json` and `rollback --json`" + `)
 - [Template filters JSON Schema](schemas/doc-filters.json) (` + "`pleiades doc filters --json`" + `)
 - [Conditions JSON Schema](schemas/doc-conditions.json) (` + "`pleiades doc conditions --json`" + `)
+- [Collection coverage data](schemas/collection-coverage.json) (data, not a schema: the coverage pages as JSON)
 - [OpenAPI document](schemas/openapi.json) (also served live at ` + "`/api/v1/openapi.json`" + `)
 `
 	return os.WriteFile(filepath.Join(outputDir, "index.md"), []byte(content), 0o644) // #nosec G306 -- generated docs, not secret material

@@ -1,0 +1,7 @@
+{
+  "_comment": "The collection coverage ratchet. Each collection's mapped and live percentages (of its contract's operations in scope, from coverage/collections/<collection>) may not drop below these floors; internal/archtest's TestCoverageLedgers enforces it, and docs/reference/coverage shows the numbers. Raise a floor in the change that raises the percentage. Lowering one needs a written reason under _exceptions. A collection with no floor is reported, not failed.",
+  "floors": {
+    "pkg.apt": {"mapped": 14.3, "live": 14.3},
+    "virt.clab": {"mapped": 51.2, "live": 39.5}
+  }
+}

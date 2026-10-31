@@ -1,0 +1,33 @@
+{
+  "collection": "pkg.apt",
+  "title": "APT (apt-get)",
+  "source": {
+    "kind": "cli",
+    "url": "https://salsa.debian.org/apt-team/apt/-/raw/2.6.1/doc/apt-get.8.xml",
+    "version": "2.6.1",
+    "revision": "2.6.1",
+    "sha256": "0b6b74538cea46fa17dff8f90b0825101228e5849810f43848480b19c1eff219",
+    "license": "GPL-2.0-or-later"
+  },
+  "ops": [
+    {"id": "update", "summary": "Resynchronize the package index files from their sources."},
+    {"id": "upgrade", "summary": "Install the newest versions of all packages currently installed."},
+    {"id": "dist-upgrade", "summary": "Upgrade, handling changing dependencies with new package versions."},
+    {"id": "dselect-upgrade", "summary": "Follow the changes made by dselect to the Status field of available packages."},
+    {"id": "install", "summary": "Install one or more packages, optionally at a version or from a release."},
+    {"id": "reinstall", "summary": "Reinstall packages that are already installed and at the newest version."},
+    {"id": "remove", "summary": "Remove packages, leaving their configuration files."},
+    {"id": "purge", "summary": "Remove packages and delete their configuration files."},
+    {"id": "source", "summary": "Fetch source packages."},
+    {"id": "build-dep", "summary": "Install or remove packages to satisfy the build dependencies of source packages."},
+    {"id": "satisfy", "summary": "Satisfy dependency strings."},
+    {"id": "check", "summary": "Update the package cache and check for broken dependencies."},
+    {"id": "download", "summary": "Download the binary package into the current directory."},
+    {"id": "clean", "summary": "Clear out the local repository of retrieved package files."},
+    {"id": "autoclean", "summary": "Clear out retrieved package files that can no longer be downloaded."},
+    {"id": "autoremove", "summary": "Remove packages installed to satisfy dependencies that are no longer needed."},
+    {"id": "autopurge", "summary": "Autoremove, also deleting configuration files."},
+    {"id": "changelog", "summary": "Download a package changelog and display it."},
+    {"id": "indextargets", "summary": "Display the index files apt-get update would download."}
+  ]
+}
