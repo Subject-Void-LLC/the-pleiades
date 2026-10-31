@@ -55,7 +55,6 @@ var ansiblePlayKeywords = map[string]bool{
 	"post_tasks":          true,
 	"pre_tasks":           true,
 	"roles":               true,
-	"serial":              true,
 	"strategy":            true,
 	"vars_files":          true,
 	"vars_prompt":         true,

@@ -225,6 +225,7 @@ var RunbookKeys = map[string]bool{
 	"tags":          true,
 	"pretasks":      true,
 	"handlers":      true,
+	"serial":        true,
 	"tasks":         true,
 	"posttasks":     true,
 	"reversible":    true,

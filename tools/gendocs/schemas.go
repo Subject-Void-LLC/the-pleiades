@@ -176,6 +176,10 @@ func runbookProperties() map[string]any {
 		"tasks":         map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 		"posttasks":     map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 		"handlers":      map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+		"serial": map[string]any{"description": "Batch sizes the runbook's hosts run in: a number, a percentage string, or a list of them.", "oneOf": []any{
+			map[string]any{"type": "integer", "minimum": 1}, map[string]any{"type": "string", "pattern": "^[0-9]+%$"},
+			map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"oneOf": []any{map[string]any{"type": "integer", "minimum": 1}, map[string]any{"type": "string", "pattern": "^[0-9]+%$"}}}},
+		}},
 	}
 }
 

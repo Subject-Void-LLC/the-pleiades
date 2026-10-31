@@ -314,6 +314,12 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 	if err != nil {
 		return cacheEntry{}, fmt.Errorf("failed to compile runbook %q: %w", id, err)
 	}
+	// The Controller fans a runbook out to every device at once: it does not
+	// run serial: batches yet, so a runbook asking for them is refused here
+	// rather than dispatched to all its devices together.
+	if len(dag.Serial) > 0 {
+		return cacheEntry{}, fmt.Errorf("runbook %q uses serial:, which only the pleiades CLI runs so far; a Controller would dispatch every device at once: run it from the CLI, or remove serial:", id)
+	}
 
 	rb := &Runbook{
 		ID:            id,

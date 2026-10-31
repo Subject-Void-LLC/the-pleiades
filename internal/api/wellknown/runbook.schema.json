@@ -418,6 +418,35 @@
       "description": "Promise that a rollback can undo every task that changes a device; validation refuses the runbook otherwise, naming each task that would break the promise.",
       "type": "boolean"
     },
+    "serial": {
+      "description": "Batch sizes the runbook's hosts run in: a number, a percentage string, or a list of them.",
+      "oneOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "pattern": "^[0-9]+%$",
+          "type": "string"
+        },
+        {
+          "items": {
+            "oneOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "pattern": "^[0-9]+%$",
+                "type": "string"
+              }
+            ]
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      ]
+    },
     "tags": {
       "description": "Tags every task in the runbook carries, as a play's tags do in Ansible.",
       "oneOf": [

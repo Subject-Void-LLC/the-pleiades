@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
@@ -229,7 +230,11 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		printPlan(rep)
 	}
 
-	executor, closeExecutor, err := newRunExecutor(opts, world, sink, mode)
+	// A runbook with serial: runs its hosts a batch at a time (run_serial.go):
+	// the executor is built once over a resolver limited to the batch
+	// running, after validation has seen every device.
+	runWorld, serial := planSerial(world, dag)
+	executor, closeExecutor, err := newRunExecutor(opts, runWorld, sink, mode)
 	if err != nil {
 		return rep, err
 	}
@@ -239,7 +244,16 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// fresh background context is used here rather than threading one
 	// through every subcommand's flag parsing, mirroring loadWorld's own
 	// precedent (load.go).
-	result, err := executor.Run(context.Background(), dag)
+	var result engine.RunResult
+	if serial == nil {
+		result, err = executor.Run(context.Background(), dag)
+	} else {
+		var stopped *clireport.RunWarning
+		result, err, stopped = runBatches(context.Background(), executor, dag, serial, !opts.asJSON)
+		if stopped != nil {
+			rep.Warnings = append(rep.Warnings, *stopped)
+		}
+	}
 	sealRun(store, rep, result.RunID)
 	// What another run changed on these devices while this one worked, read
 	// from the journals once this run's own is complete.

@@ -393,3 +393,20 @@ tasks:
 		t.Errorf("Required = %v, want none: ios_backup is conditional", rb.Required)
 	}
 }
+
+// TestDirSource_Get_RefusesSerial: a Controller does not run serial: batches
+// yet, so a runbook asking for them is refused when it is read, naming why,
+// rather than dispatched to every device at once.
+func TestDirSource_Get_RefusesSerial(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rolling.yaml"), []byte("id: rolling\nhosts: web\nserial: 2\ntasks:\n  - name: a\n    noop: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatalf("NewDirSource: %v", err)
+	}
+	if _, err := src.Get(context.Background(), "rolling"); err == nil || !strings.Contains(err.Error(), "only the pleiades CLI runs so far") {
+		t.Errorf("Get: %v, want serial: refused", err)
+	}
+}

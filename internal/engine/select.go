@@ -101,6 +101,7 @@ func (s TagSelection) Select(dag *DAG) (*DAG, error) {
 		Tasks:       dag.Tasks,
 		PostTasks:   dag.PostTasks,
 		Handlers:    dag.Handlers,
+		Serial:      dag.Serial,
 		Nodes:       make(map[string]*Task),
 		Adjacency:   make(map[string][]EdgeConfig),
 		Conditions:  make(map[string]*ConditionProgram),

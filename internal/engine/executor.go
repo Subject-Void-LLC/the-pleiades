@@ -373,6 +373,39 @@ type RunResult struct {
 	// this nil. Populated once, after Run completes, from a single final
 	// WorkflowContext.Read call, not accumulated per task.
 	Metadata map[string]interface{}
+
+	// Sequence is the last JournalEntry.Sequence this run wrote, so a
+	// caller running one logical run as several Run calls (serial: batches,
+	// RunAs) continues the numbering a rollback orders undos by.
+	Sequence int
+}
+
+// Absorb adds next, a later batch of the same logical run (RunAs), to r: its
+// results after r's, every secret either discovered, its metadata over r's,
+// and its last sequence number.
+func (r *RunResult) Absorb(next RunResult) {
+	r.Nodes = append(r.Nodes, next.Nodes...)
+	seen := map[string]bool{}
+	for _, s := range r.Secrets {
+		seen[s] = true
+	}
+	for _, s := range next.Secrets {
+		if !seen[s] {
+			r.Secrets = append(r.Secrets, s)
+			seen[s] = true
+		}
+	}
+	for k, v := range next.Metadata {
+		if r.Metadata == nil {
+			r.Metadata = map[string]interface{}{}
+		}
+		r.Metadata[k] = v
+	}
+	if next.RunID != "" {
+		r.RunID = next.RunID
+	}
+	r.Mode = next.Mode
+	r.Sequence = next.Sequence
 }
 
 // HasErrors reports whether any NodeResult in this run failed, a failure a
@@ -671,10 +704,23 @@ func (r *run) modeFor(task *Task) collection.Mode {
 // completion: a secret discovered before an abort must still be in
 // result.Secrets so a caller can mask whatever partial output it produces.
 func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err error) {
+	return x.RunAs(ctx, dag, "", 0)
+}
+
+// RunAs is Run continuing a logical run: its journal entries carry runID (a
+// fresh one when empty) and are numbered after sequenceAfter, so a run split
+// into several calls, one per serial: batch, reads as one run to the journal,
+// a report and a rollback. Everything else about the run (facts, handlers,
+// secrets found) is the call's own, as Run's is.
+func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAfter int) (result RunResult, err error) {
+	if runID == "" {
+		runID = uuid.New().String()
+	}
 	r := &run{
 		x:                 x,
 		dag:               dag,
-		runID:             uuid.New().String(),
+		runID:             runID,
+		sequence:          sequenceAfter,
 		sem:               make(chan struct{}, x.maxConcurrency),
 		secrets:           newStringSet(),
 		metadataRegisters: newStringSet(),
@@ -696,6 +742,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 	}
 
 	defer func() {
+		result.Sequence = r.sequence
 		result.Secrets = r.secrets.Snapshot()
 		if names := r.metadataRegisters.Snapshot(); len(names) > 0 {
 			if stat, readErr := r.x.workflow.Read(); readErr == nil {

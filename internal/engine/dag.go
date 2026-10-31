@@ -215,6 +215,12 @@ type WorkflowDef struct {
 	// device, in this order (notify.go), mirroring an Ansible play's
 	// handlers:.
 	Handlers []Task `json:"handlers,omitempty" yaml:"handlers,omitempty"`
+
+	// Serial runs the runbook over its hosts that many (or that percentage)
+	// at a time, batch after batch, as an Ansible play's serial: does
+	// (serial.go). A batch with a failure stops the rollout there. Whatever
+	// fans the runbook out runs the batches; the Executor runs one.
+	Serial SerialList `json:"serial,omitempty" yaml:"serial,omitempty"`
 }
 
 // Task is a single step in a runbook, or a grouping of steps. Mirroring
@@ -510,6 +516,10 @@ type DAG struct {
 	Handlers      []Task
 	notifyTargets map[string][]int
 
+	// Serial is def.Serial: the batch sizes the runbook's hosts run in, for
+	// the caller that fans it out (Batches).
+	Serial SerialList
+
 	// Nodes is the flattened view of every task in the runbook, including
 	// every Block, Rescue, Always, and Parallel descendant at any nesting
 	// depth, plus each Parallel task's own synthetic fan-out/join marker
@@ -779,6 +789,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		Tasks:       def.Tasks,
 		PostTasks:   def.PostTasks,
 		Handlers:    def.Handlers,
+		Serial:      def.Serial,
 		Nodes:       make(map[string]*Task),
 		Adjacency:   make(map[string][]EdgeConfig),
 		Conditions:  make(map[string]*ConditionProgram),
