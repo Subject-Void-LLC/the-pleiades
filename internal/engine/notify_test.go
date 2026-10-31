@@ -344,3 +344,42 @@ func TestNotify_AreInTheRunbooksVersion(t *testing.T) {
 		t.Error("a section that notifies nothing got a handler")
 	}
 }
+
+// TestNotify_ChangedWhenDecidesWhatNotifies: changed_when overrides what the
+// method reported, so a method that changed but whose changed_when says not
+// notifies nothing, and one that changed nothing but whose changed_when says
+// it did notifies.
+func TestNotify_ChangedWhenDecidesWhatNotifies(t *testing.T) {
+	log := registerTouch(t)
+	result, err := runHandlers(t, `id: h
+hosts: all
+tasks:
+  - name: changed, said not
+    enginetest.touch:
+      id: a
+      change: true
+    register: a
+    changed_when: "false"
+    notify: first
+  - name: unchanged, said changed
+    enginetest.touch:
+      id: b
+      change: false
+    register: b
+    changed_when: "true"
+    notify: second
+handlers:
+  - name: first
+    enginetest.touch:
+      id: H-first
+  - name: second
+    enginetest.touch:
+      id: H-second
+`)
+	if err != nil || result.HasErrors() {
+		t.Fatalf("Run: %v, %+v", err, result.Nodes)
+	}
+	if got := strings.Join(log.of("d1"), ","); got != "a,b,H-second" {
+		t.Errorf("d1 ran %s, want a,b,H-second", got)
+	}
+}
