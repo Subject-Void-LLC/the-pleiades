@@ -321,3 +321,78 @@ func TestConnectFresh_NeverBorrows(t *testing.T) {
 		t.Errorf("a pooled Connect after three fresh ones: %d logins, want 4", got)
 	}
 }
+
+// fakeSudo puts a stand-in for sudo first on PATH: it checks it was called as
+// the engine's elevation calls it (-n -u USER --), refuses the account
+// "locked" as a sudo that needs a password does, and otherwise runs the
+// command with the account it was asked for named in FAKE_SUDO_USER. The
+// in-process SSH server runs commands locally, so the host's real sudo must
+// not be reachable from these tests.
+func fakeSudo(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"[ \"$1\" = \"-n\" ] || exit 64\nshift\n" +
+		"[ \"$1\" = \"-u\" ] || exit 64\nuser=$2\nshift 2\n" +
+		"[ \"$1\" = \"--\" ] || exit 64\nshift\n" +
+		"if [ \"$user\" = locked ]; then echo 'sudo: a password is required' >&2; exit 1; fi\n" +
+		"FAKE_SUDO_USER=$user exec \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte(script), 0o755); err != nil { // #nosec G306 -- a test's own stand-in, which must be executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestWithBecome_CarriesTheAccountInTheContext: the engine marks a context
+// and Connect reads it back; root is the account when none is named, and an
+// unmarked context asks for none.
+func TestWithBecome_CarriesTheAccountInTheContext(t *testing.T) {
+	if _, ok := sdk.BecomeFrom(context.Background()); ok {
+		t.Error("an unmarked context asks to become an account")
+	}
+	for in, want := range map[string]string{"": "root", "svc": "svc"} {
+		if got, ok := sdk.BecomeFrom(sdk.WithBecome(context.Background(), in)); !ok || got != want {
+			t.Errorf("WithBecome(%q) reads back %q, %v, want %q", in, got, ok, want)
+		}
+	}
+}
+
+// TestConnect_RunsAsTheAccountTheContextAsksFor: a connection from a context
+// marked with an account runs its commands as that account, one from an
+// unmarked context runs as the login, and an account sudo refuses is one
+// refusal at Connect, naming the account and the fix.
+func TestConnect_RunsAsTheAccountTheContextAsksFor(t *testing.T) {
+	fakeSudo(t)
+	srv := startServer(t)
+	device := &sshDevice{Stub: newStub(), host: srv.Host, port: srv.Port}
+	params := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}
+	rc := newSecretContext(srv.Secrets())
+
+	as := func(ctx context.Context) string {
+		t.Helper()
+		conn, err := sdk.Connect(ctx, rc, device, params, "test.become")
+		if err != nil {
+			t.Fatalf("Connect: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		res, err := conn.Run(ctx, "echo \"[$FAKE_SUDO_USER]\"")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(res.Stdout)
+	}
+	if got := as(sdk.WithBecome(context.Background(), "svc")); got != "[svc]" {
+		t.Errorf("as svc: %q", got)
+	}
+	if got := as(sdk.WithBecome(context.Background(), "")); got != "[root]" {
+		t.Errorf("as the default account: %q", got)
+	}
+	if got := as(context.Background()); got != "[]" {
+		t.Errorf("as the login: %q", got)
+	}
+
+	_, err := sdk.Connect(sdk.WithBecome(context.Background(), "locked"), rc, device, params, "test.become")
+	if err == nil || !strings.Contains(err.Error(), "NOPASSWD") || !strings.Contains(err.Error(), "a password is required") || !strings.Contains(err.Error(), "test.become") {
+		t.Errorf("an account sudo refuses: %v", err)
+	}
+}

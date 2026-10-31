@@ -28,10 +28,15 @@ func UnmatchedTargetWarnings(world WorldView) []Finding {
 		}
 		// A target rendered from data (within:) is not known until the run.
 		target := engine.TaskTarget(world.DAG, task)
-		if task.Within != "" || target == "" || len(world.Resolve(target)) > 0 {
+		if task.Within != "" || target == "" {
 			continue
 		}
-		unmatched[target] = append(unmatched[target], id)
+		// A hosts: list is warned of name by name, so one device missing
+		// from a list of three is the one the warning names.
+		_, missing := world.ResolveAll(target)
+		for _, name := range missing {
+			unmatched[name] = append(unmatched[name], id)
+		}
 	}
 	targets := make([]string, 0, len(unmatched))
 	for t := range unmatched {

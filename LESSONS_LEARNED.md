@@ -390,6 +390,13 @@ story, per `.AGENTS/AGENTS.md`.
 355. **A resource policy lives in the one tool every environment already runs (testgate, with tools/internal/headroom), with numbers measured there and moved from its records; what is cut to make room is removed, not flagged off (2026-10-29).**
 356. **Stopping a run is itself an action with side effects: let a machine that is shutting down finish, because a power cut is never free once the machine keeps data of its own.**
 357. **A flaky test whose cause is unproven is instrumented to name the cause on its next sighting, not fixed by guess and not re-run until green: and without that output, claim neither contention nor a daemon lag.**
+358. **A privilege mechanism fails closed: elevation is proven once, and every path that cannot elevate is refused rather than run as the login (2026-10-30).**
+359. **Where a server reports success whether or not it changed anything, read the state first, so `changed` is honest and the undo exact (2026-10-30).**
+360. **A privileged test container is root-equivalent: it asks for the Docker socket first, labels what it makes, and runs only on the owner's word (2026-10-30).**
+361. **A new field on a type the Walk-tier store round-trips needs its column, its migrations and its fixture value in the same change (2026-10-30).**
+362. **A wait on a monitor is bound to the run it was started for: stop a finished run's monitor by its exact PID, and confirm the new run id (2026-10-30).**
+363. **A rule for a mechanism is checked along every route a method can take to a device (tier, how it runs, each path that runs an undo), not only along the first one it was written for (2026-10-31).**
+364. **A record that justifies an act is written after the act succeeds (2026-10-31).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

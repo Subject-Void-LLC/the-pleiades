@@ -351,6 +351,12 @@ type JournalEntry struct {
 	// to undo from one that should be undone first.
 	AuthoredRollbackEmpty bool `json:"authored_rollback_empty"`
 
+	// Become is the account the task's commands ran as through sudo
+	// (kind 3), empty when it ran as its login. A rollback replays the undo
+	// as the same account, since what the task changed or saved may belong to
+	// that account alone (a backup under its home, a file only it may write).
+	Become string `json:"become,omitempty"`
+
 	// RollbackOf names the run this run undoes (kind 1): the run id on the
 	// Crawl tier, the job id on the Walk tier. Empty for a run that is not
 	// a rollback.

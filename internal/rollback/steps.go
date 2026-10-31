@@ -148,7 +148,7 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 		params[p.Key] = v
 	}
 	return []Step{{
-		Node: e.NodeID, Index: 0, Emitter: e.FQCN, FQCN: e.InverseFQCN, Params: params, Source: SourceRecorded,
+		Node: e.NodeID, Index: 0, Emitter: e.FQCN, FQCN: e.InverseFQCN, Params: params, Source: SourceRecorded, Become: e.Become,
 		Name: fmt.Sprintf("undo %s (%s)", e.NodeID, labelOf(e)), Partial: e.InversePartial,
 	}}, nil
 }
@@ -181,7 +181,7 @@ func authoredList(e engine.JournalEntry, tasks []engine.Task) []Step {
 			name = task.FQCN
 		}
 		steps = append(steps, Step{
-			Node: e.NodeID, Index: i, Emitter: e.FQCN, FQCN: task.FQCN, Params: maps.Clone(task.Params), Source: SourceAuthored,
+			Node: e.NodeID, Index: i, Emitter: e.FQCN, FQCN: task.FQCN, Params: maps.Clone(task.Params), Source: SourceAuthored, Become: e.Become,
 			Name: fmt.Sprintf("undo %s (%s), step %d: %s", e.NodeID, labelOf(e), i+1, name),
 		})
 	}

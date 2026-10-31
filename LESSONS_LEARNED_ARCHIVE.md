@@ -6628,3 +6628,99 @@ record the count and the settings that did not. If it does not reproduce, make n
 the assertion that failed so its message prints the state the diagnosis needs, on failure only, so a passing run costs
 nothing. Keep the entry open, say in it what the next sighting will show, and decide the fix from that output. Do not
 write "contention" or "daemon lag" into a record without it.
+
+## 358. A privilege mechanism fails closed: elevation is proven once, and every path that cannot elevate is refused rather than run as the login (2026-10-30).
+
+**Why.** `become` runs a task's commands as another account (FRR's `vtysh` as `frr`, a file under `/etc` as root). The
+dangerous failure is a task that was meant to run elevated and silently runs as the login, because the change then
+lands under the wrong owner, or fails after a first step has changed the device (FAILURE_PATTERNS 739 is that shape).
+Three places could let it happen, and each is closed. `remoteexec.Conn.WithBecome` proves `sudo -n true` once, before
+any task command, and returns an error when it fails. On the elevated view, `Shell`, `Subsystem`, `DialTCP` and
+`DialUnix` are refused, since they send no command that could be wrapped in `sudo`, so nothing on that view runs as the
+login by accident. At plan time, `validate`'s `BecomeRule` refuses `become` on a method that has no SSH or that
+carries a `NoBecomeReason` (`net.ssh.ping`, `wait.connection`, whose question is the login itself). A Controller or
+Runner refuses `become` until a dispatch carries it (`internal/engine/collection_action.go`), so the Walk tier cannot run
+a runbook as the login when it was written to run as another account. The account name is held to
+`^[a-z_][a-z0-9_-]{0,31}$` by `remoteexec.ValidBecomeUser`, so it cannot carry shell text, and the journal
+records it as `JournalEntry.Become` (FAILURE_PATTERNS 742).
+
+**Rule in practice.** A mechanism that changes who a command runs as is never a best effort. Prove it before the first
+command, refuse every path that cannot honor it by name, and refuse it at plan time where the plan can tell. It is
+LESSONS 25's rule (a security default fails closed on every branch) applied to privilege.
+
+## 359. Where a server reports success whether or not it changed anything, read the state first, so `changed` is honest and the undo exact (2026-10-30).
+
+**Why.** The containerlab API server answers a node start or stop with success whether or not the node was already in
+that state, and its exec reports `return-code` 0 for a command that exited 3 (FAILURE_PATTERNS 740). A method that
+passed the server's answer through would report `changed` on every call and record an undo for a change that never
+happened. A rollback would then stop a node the run never started. The `virt.clab` node methods read the node's state
+first through inspect, report `changed` only when it moves, and record an undo only for a move they made. A write whose
+reply cannot be trusted is judged by a read of the state, before and after.
+
+**Rule in practice.** For a method on a service that cannot say whether it changed anything, read first, act only on a
+difference, and record the undo from what the read showed. Never let the service's own success word decide `changed`.
+
+## 360. A privileged test container is root-equivalent: it asks for the Docker socket first, labels what it makes, and runs only on the owner's word (2026-10-30).
+
+**Why.** The real containerlab API server only works run privileged, with the Docker socket, the host's process
+namespace and `/var/run/netns`. A container with those can start and stop any container on the machine and reach the
+host as root. `testsupport.StartClabServer` therefore calls `Require` for the Docker socket first, so a machine without
+one skips by its stated reason. `CleanClabLab` removes what a run made, by the label `containerlab=<lab>` and by the
+lab's `clab` network, and nothing else. The owner authorised running it on 2026-10-30. A machine without the socket skips with the stated reason rather than failing.
+
+**Rule in practice.** Before a test starts a container that holds the Docker socket or host namespaces, say so, ask the
+owner, label everything it creates and remove it by that label. Never prune by a broad filter to clean up after it.
+
+## 361. A new field on a type the Walk-tier store round-trips needs its column, its migrations and its fixture value in the same change (2026-10-30).
+
+**Why.** `engine.JournalEntry` gained `Become`. The Crawl-tier file journal carried it with no further work, so every
+test on that path passed. The Walk-tier store keeps a column per field, and a field with no column is silently dropped
+on write and read back empty (FAILURE_PATTERNS 743). Nothing fails at build time or in the tests of the package that
+added the field. Two guards find it: `TestEntStoreRoundTripsEveryFieldByReflection` in `internal/journal` and
+`TestRunReportSchema_FitsAFullReport` in `internal/clireport`, and both run in a package the feature did not touch.
+**Rule in practice.** When a field joins a type that a store round-trips or a report schema describes, change the
+store in that commit: the ent schema, regenerated code, a migration per dialect, the store's mapping, and a value in
+every fixture that fills each field. Then run the packages that hold the reflection and schema tests alone, before the
+gate.
+
+## 362. A wait on a monitor is bound to the run it was started for: stop a finished run's monitor by its exact PID, and confirm the new run id (2026-10-30).
+
+**Why.** The monitor's dashboard process outlives the run that started it and keeps port 8765. The next
+`monitor.py run` then printed "Address already in use" and did not start, and a background wait on
+`/wait?for=fail,end` returned the previous run's failure at once (FAILURE_PATTERNS 747). A failure that arrives
+instantly, before any stage could have run, is the sign. Acting on it means stopping a gate that never started, or
+diagnosing a failure that belongs to another commit. `pkill -f` is not the remedy, since a pattern that is also in
+your own command line kills your own shell (FAILURE_PATTERNS 689).
+
+**Rule in practice.** Before a gate run, find the old monitor's PID and stop that one process. After starting, read the
+run id the monitor prints and check it names the new run. Treat a wait that returns at once as a stale answer until the
+run id says otherwise. LESSONS 288 still holds beside it: leave the tree alone until the verdict.
+
+## 363. A rule for a mechanism is checked along every route a method can take to a device, not only along the first one it was written for (2026-10-31).
+
+**Why.** LESSONS 358 made `become` fail closed, and it did so along one axis: the connection (`WithBecome`, the refused
+`Shell`, `Subsystem` and dials on the elevated view). A method also takes a route: in process, through a Runner, or in an
+external Collection's child process, and `become` reaches only the first. On an external method the call connected as the
+login while the result's stat and the journal said `root`, and a rollback replayed the undo as root (FAILURE_PATTERNS
+748). The same change left one more route: a block's `rollback_on_failure` undo ran as the login while `pleiades
+rollback` replayed it as the recorded account (FAILURE_PATTERNS 749). Both were found by the pre-PR review, not by a test
+of the feature. The Runner gap was already admitted in a comment, which is a sign the list of routes was known and not
+closed.
+
+**Rule in practice.** When a change adds a mechanism that alters how a call runs, write the list of routes first: each
+tier (Crawl, Walk), each way a method runs (built in, external child, Runner), and each path that runs an undo (the
+forward task, the in-run undo, the replayed rollback). For each route either apply the mechanism or refuse it by name, at
+plan time where the plan can tell and again at run time. A stat or a journal field is written from what was applied, never
+from what the task asked for. This is LESSONS 244 (one of two sibling paths carries the guard) and LESSONS 358 (privilege
+fails closed) read together.
+
+## 364. A record that justifies an act is written after the act succeeds (2026-10-31).
+
+**Why.** `trust-host --first-connect --reason` wrote the reason into the inventory before the host-key scan and the trust.
+When either failed, the inventory held a reason for a trust that never happened, and a reader would take it as the
+operator's account of a real trust (FAILURE_PATTERNS 753). A justification, an audit note and a "changed" flag all say
+that something occurred. If they are written first, a failure leaves a claim that is false.
+
+**Rule in practice.** Write the reason, the note or the marker after the act it describes has succeeded. Where it must come
+first for another reason, remove it on failure and test the failed path. The refusal text for a guard that anyone with
+write access can bypass says so: it guards a slip, not a determined operator.

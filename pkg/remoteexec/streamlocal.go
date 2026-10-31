@@ -42,6 +42,9 @@ import (
 // partway taints a borrowed connection, since whether the far side opened
 // it is then unknown, and so does a channel whose reads or writes failed.
 func (c *Conn) DialUnix(ctx context.Context, path string) (net.Conn, error) {
+	if err := c.refuseBecome("a forwarded Unix socket"); err != nil {
+		return nil, err
+	}
 	if err := c.usable(); err != nil {
 		return nil, err
 	}

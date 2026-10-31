@@ -14301,6 +14301,7 @@ type JournalEntryMutation struct {
 	action_changed                    *bool
 	authored_rollback                 *bool
 	authored_rollback_empty           *bool
+	become                            *string
 	rollback_of                       *string
 	undoes_node                       *string
 	undoes_step                       *int
@@ -16202,6 +16203,55 @@ func (m *JournalEntryMutation) ResetAuthoredRollbackEmpty() {
 	m.authored_rollback_empty = nil
 }
 
+// SetBecome sets the "become" field.
+func (m *JournalEntryMutation) SetBecome(s string) {
+	m.become = &s
+}
+
+// Become returns the value of the "become" field in the mutation.
+func (m *JournalEntryMutation) Become() (r string, exists bool) {
+	v := m.become
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBecome returns the old "become" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldBecome(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBecome is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBecome requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBecome: %w", err)
+	}
+	return oldValue.Become, nil
+}
+
+// ClearBecome clears the value of the "become" field.
+func (m *JournalEntryMutation) ClearBecome() {
+	m.become = nil
+	m.clearedFields[journalentry.FieldBecome] = struct{}{}
+}
+
+// BecomeCleared returns if the "become" field was cleared in this mutation.
+func (m *JournalEntryMutation) BecomeCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldBecome]
+	return ok
+}
+
+// ResetBecome resets all changes to the "become" field.
+func (m *JournalEntryMutation) ResetBecome() {
+	m.become = nil
+	delete(m.clearedFields, journalentry.FieldBecome)
+}
+
 // SetRollbackOf sets the "rollback_of" field.
 func (m *JournalEntryMutation) SetRollbackOf(s string) {
 	m.rollback_of = &s
@@ -16390,7 +16440,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 41)
+	fields := make([]string, 0, 42)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -16505,6 +16555,9 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.authored_rollback_empty != nil {
 		fields = append(fields, journalentry.FieldAuthoredRollbackEmpty)
 	}
+	if m.become != nil {
+		fields = append(fields, journalentry.FieldBecome)
+	}
 	if m.rollback_of != nil {
 		fields = append(fields, journalentry.FieldRollbackOf)
 	}
@@ -16598,6 +16651,8 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.AuthoredRollback()
 	case journalentry.FieldAuthoredRollbackEmpty:
 		return m.AuthoredRollbackEmpty()
+	case journalentry.FieldBecome:
+		return m.Become()
 	case journalentry.FieldRollbackOf:
 		return m.RollbackOf()
 	case journalentry.FieldUndoesNode:
@@ -16689,6 +16744,8 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldAuthoredRollback(ctx)
 	case journalentry.FieldAuthoredRollbackEmpty:
 		return m.OldAuthoredRollbackEmpty(ctx)
+	case journalentry.FieldBecome:
+		return m.OldBecome(ctx)
 	case journalentry.FieldRollbackOf:
 		return m.OldRollbackOf(ctx)
 	case journalentry.FieldUndoesNode:
@@ -16970,6 +17027,13 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetAuthoredRollbackEmpty(v)
 		return nil
+	case journalentry.FieldBecome:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBecome(v)
+		return nil
 	case journalentry.FieldRollbackOf:
 		v, ok := value.(string)
 		if !ok {
@@ -17171,6 +17235,9 @@ func (m *JournalEntryMutation) ClearedFields() []string {
 	if m.FieldCleared(journalentry.FieldInverseParams) {
 		fields = append(fields, journalentry.FieldInverseParams)
 	}
+	if m.FieldCleared(journalentry.FieldBecome) {
+		fields = append(fields, journalentry.FieldBecome)
+	}
 	if m.FieldCleared(journalentry.FieldRollbackOf) {
 		fields = append(fields, journalentry.FieldRollbackOf)
 	}
@@ -17241,6 +17308,9 @@ func (m *JournalEntryMutation) ClearField(name string) error {
 		return nil
 	case journalentry.FieldInverseParams:
 		m.ClearInverseParams()
+		return nil
+	case journalentry.FieldBecome:
+		m.ClearBecome()
 		return nil
 	case journalentry.FieldRollbackOf:
 		m.ClearRollbackOf()
@@ -17369,6 +17439,9 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldAuthoredRollbackEmpty:
 		m.ResetAuthoredRollbackEmpty()
+		return nil
+	case journalentry.FieldBecome:
+		m.ResetBecome()
 		return nil
 	case journalentry.FieldRollbackOf:
 		m.ResetRollbackOf()

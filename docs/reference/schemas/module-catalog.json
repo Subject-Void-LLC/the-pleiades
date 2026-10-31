@@ -10478,6 +10478,11 @@
           "description": "What the name of the Batfish network this task makes begins with, followed by a hyphen and 16 random hexadecimal digits (a lab's name, such as pleiades-cvd-opus, makes pleiades-cvd-opus-1f3a...), so the networks each lab makes on one shared Batfish service read as that lab's. 1 to 64 letters, digits, dots, hyphens and underscores, beginning with a letter or digit. The random part keeps two runs given the same name apart, and each task deletes only the network it made, when it ends. The whole name is returned as network."
         },
         {
+          "name": "expect_devices",
+          "type": "list of string",
+          "description": "Names of every device the lab holds that this check is meant to stand for. One with no entry in devices (a Linux bridge, a host) is listed in not_modelled as absent from the model, so a passing check is not read as covering a device it never saw. Reported only; it never fails the task."
+        },
+        {
           "name": "accept_unrecognized",
           "type": "list of dict",
           "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd, nhrp), and a reason (why the model may ignore it). Every other unrecognised line fails the task."
@@ -11021,7 +11026,8 @@
           "fqcn": "net.frr.config",
           "record": [
             "restore",
-            "save"
+            "save",
+            "login"
           ],
           "mayKeepOnFailure": true
         }
@@ -11030,7 +11036,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Makes an FRRouting router run exactly the configuration given, and saves what it ran before so the change can be undone.",
-      "description": "Takes the whole intended configuration (config, or src: a file in the project) and applies only what differs, through FRR's own frr-reload.py. The candidate is first checked with vtysh -m -f, and a line vtysh refuses fails the task before anything reaches the router: frr-reload reads a file vtysh cannot parse as an empty configuration and would delete everything. The difference comes from frr-reload.py --test; an empty one is no change, and a check returns it as the prediction. A real run saves the running configuration to a file on the router (0600, under the connecting account's ~/.pleiades-frr), reloads, confirms the running configuration now matches the candidate, and saves the result beside the backup. Its undo names only that backup, so no configuration text, and no secret in one, reaches the journal; the undo restores exactly the configuration that was running, and refuses when the router no longer runs what this change left, unless its step names force. The undo is recorded before the reload and kept if the reload then fails, since restoring a backup when nothing changed is itself no change. With save, the running configuration is also written to frr.conf, keeping that file's owner and mode, so it survives a restart; the backup then keeps frr.conf as it was too, and the undo puts it back (where there was none, the undo writes the configuration it restores). expect_sha256 refuses a candidate whose bytes are not the ones a model check analysed.",
+      "description": "Takes the whole intended configuration (config, or src: a file in the project) and applies only what differs, through FRR's own frr-reload.py. The candidate is first checked with vtysh -m -f, and a line vtysh refuses fails the task before anything reaches the router: frr-reload reads a file vtysh cannot parse as an empty configuration and would delete everything. The difference comes from frr-reload.py --test; an empty one is no change, and a check returns it as the prediction. A real run saves the running configuration to a file on the router (0600, under the connecting account's ~/.pleiades-frr), reloads, confirms the running configuration now matches the candidate, and saves the result beside the backup. Its undo names only that backup, so no configuration text, and no secret in one, reaches the journal; the undo restores exactly the configuration that was running, and refuses when the router no longer runs what this change left, unless its step names force. The undo is recorded before the reload and kept if the reload then fails, since restoring a backup when nothing changed is itself no change. With save, the running configuration is also written to frr.conf, keeping that file's owner and mode, so it survives a restart; the backup then keeps frr.conf as it was too, and the undo puts it back (where there was none, the undo writes the configuration it restores). expect_sha256 refuses a candidate whose bytes are not the ones a model check analysed. Three facts about FRR decide whether this works on the first try. FRR rewrites a configuration in its own form (it adds lines such as frr version and frr defaults, drops comments and reorders), so a hand-written candidate that differs from that form fails after the reload with the difference shown as - and + lines; start from net.frr.facts's running_config, which is FRR's own form, and edit that. The account that saves must be able to replace frr.conf: it needs write access to the file and to its directory (/etc/frr), since the save writes a new file beside it, and a check refuses a save the account cannot make before anything is reloaded, naming the account that owns the file. Rollback restores from a backup under the connecting account's home, so undo with the same account that made the change.",
       "params": [
         {
           "name": "config",
@@ -11057,6 +11063,11 @@
           "name": "restore",
           "type": "string",
           "description": "Restore the configuration this method saved before an earlier change, by the path its undo recorded. Set by an undo; with restore, config and src are not given."
+        },
+        {
+          "name": "login",
+          "type": "string",
+          "description": "With restore, the account that made the backup, as its undo recorded it. A backup lives under that account's home, so an undo run as another account is refused before it reads anything, naming the account to connect as. Set by an undo."
         },
         {
           "name": "force",
@@ -12114,6 +12125,304 @@
       "summary": "Applies configuration to a Juniper Junos device."
     }
   },
+  "net.linux.address": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "LinuxCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is the other state of the same address.",
+      "inverses": [
+        {
+          "fqcn": "net.linux.address",
+          "record": [
+            "interface",
+            "address",
+            "state"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes an address present on a Linux interface, or absent.",
+      "description": "Reads the interface's addresses (ip -o addr show) and adds or deletes only the one named, so a run that repeats it is unchanged. The interface must exist. Its undo is the other state of the same address. It runs ip as the account the task connects as, and changing the network needs root or CAP_NET_ADMIN: a task whose login lacks it fails with ip's own refusal, and become: true runs the task as root through sudo -n (see Writing runbooks). A check reads what a run reads and changes nothing.",
+      "params": [
+        {
+          "name": "interface",
+          "type": "string",
+          "required": true,
+          "description": "The interface (eth1, br0)."
+        },
+        {
+          "name": "address",
+          "type": "string",
+          "required": true,
+          "description": "The address with its prefix length, IPv4 or IPv6 (10.1.1.1/24)."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present or absent."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "present",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the address is on the interface now."
+        },
+        {
+          "name": "addresses",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The interface's addresses now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Give an interface an address",
+          "runbookYaml": "- name: br0 has its address\n  net.linux.address:\n    interface: br0\n    address: 10.1.1.1/24\n  become: true\n"
+        }
+      ],
+      "seeAlso": [
+        "net.linux.bridge",
+        "net.linux.route"
+      ]
+    }
+  },
+  "net.linux.bridge": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "LinuxCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo puts back what it found: a created bridge is removed, attached ports are detached, detached ports are attached again, and a removed bridge is made again with the ports it held, which is partial: a port's own addresses and settings are not recorded.",
+      "inverses": [
+        {
+          "fqcn": "net.linux.bridge",
+          "record": [
+            "name",
+            "state",
+            "ports",
+            "up",
+            "detach_ports"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a Linux bridge exist with the ports given, or not exist.",
+      "description": "Reads the bridge from /sys/class/net and changes only what differs: creates it, brings it up, and attaches each port in ports that is not on it. A device of that name that is not a bridge is refused, never replaced. Ports not listed are left alone unless remove_other_ports is set. Its undo puts back what it found: a bridge it created is removed, ports it attached are detached, and a bridge it removed is made again with the ports it held (partial: a port's own addresses and settings are not recorded). It runs ip as the account the task connects as, and changing the network needs root or CAP_NET_ADMIN: a task whose login lacks it fails with ip's own refusal, and become: true runs the task as root through sudo -n (see Writing runbooks). A check reads what a run reads and changes nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The bridge's interface name."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present or absent."
+        },
+        {
+          "name": "ports",
+          "type": "list of string",
+          "description": "Interfaces that must be attached to the bridge."
+        },
+        {
+          "name": "up",
+          "type": "bool",
+          "default": "true",
+          "description": "Whether the bridge is administratively up."
+        },
+        {
+          "name": "remove_other_ports",
+          "type": "bool",
+          "default": "false",
+          "description": "Detach interfaces attached to the bridge that ports does not name."
+        },
+        {
+          "name": "detach_ports",
+          "type": "list of string",
+          "description": "Interfaces to detach from the bridge. Set by an undo."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the bridge exists now."
+        },
+        {
+          "name": "ports",
+          "type": "list of string",
+          "returned": "when it exists",
+          "description": "Its ports now, sorted."
+        },
+        {
+          "name": "up",
+          "type": "bool",
+          "returned": "when it exists",
+          "description": "Whether it is up now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A switch of two ports",
+          "runbookYaml": "- name: br0 joins eth1 and eth2\n  net.linux.bridge:\n    name: br0\n    ports: [eth1, eth2]\n  become: true\n"
+        }
+      ],
+      "seeAlso": [
+        "net.linux.address",
+        "net.linux.route",
+        "net.ovs.bridge"
+      ]
+    }
+  },
+  "net.linux.route": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "LinuxCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo puts back what it found: a new route is removed, a replaced route is replaced by the old one, a removed route is added again.",
+      "inverses": [
+        {
+          "fqcn": "net.linux.route",
+          "record": [
+            "destination",
+            "via",
+            "dev",
+            "metric",
+            "state"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a route present in a Linux host's main routing table, or absent.",
+      "description": "Reads the routing table (ip route show) and acts only when the route differs: a route to the same destination and metric through another gateway or device is replaced, and its undo puts the old one back exactly; a new route's undo removes it. A route removed is made again by its undo. It runs ip as the account the task connects as, and changing the network needs root or CAP_NET_ADMIN: a task whose login lacks it fails with ip's own refusal, and become: true runs the task as root through sudo -n (see Writing runbooks). A check reads what a run reads and changes nothing.",
+      "params": [
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "The destination prefix (10.2.2.0/24), or default."
+        },
+        {
+          "name": "via",
+          "type": "string",
+          "description": "The gateway address. Set via, dev or both."
+        },
+        {
+          "name": "dev",
+          "type": "string",
+          "description": "The outgoing interface."
+        },
+        {
+          "name": "metric",
+          "type": "int",
+          "description": "The route's metric; the kernel's default when unset."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present or absent."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "present",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the route is in the table now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reach another LAN through the router",
+          "runbookYaml": "- name: h1 reaches LAN B through r1\n  net.linux.route:\n    destination: 10.2.2.0/24\n    via: 10.1.1.1\n  become: true\n"
+        }
+      ],
+      "seeAlso": [
+        "net.linux.address",
+        "net.frr.config"
+      ]
+    }
+  },
   "net.netconf.config": {
     "supportedTransports": [
       "netconf"
@@ -12561,6 +12870,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noBecomeReason": "its question is whether this login reaches the device, and a sudo in front of it would answer whether the login may become another account",
     "doc": {
       "summary": "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
       "description": "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
@@ -15150,6 +15460,2813 @@
         "svc.windows.start",
         "svc.windows.disable",
         "svc.stop"
+      ]
+    }
+  },
+  "virt.clab.capture.packetflix": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Builds Packetflix capture links for a lab's interfaces.",
+      "description": "Asks the server for the packetflix:// URI that opens a capture of each interface named, for Wireshark with the Edgeshark plugin. It starts no capture itself. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "targets",
+          "type": "list of dict",
+          "required": true,
+          "description": "What to capture: each a mapping of container_name (the node's container), interface_name, and node_namespace (true to capture in the node's namespace)."
+        },
+        {
+          "name": "remote_hostname",
+          "type": "string",
+          "description": "The server's name as the capturing machine reaches it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "captures",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each: container_name, interface_names and packetflix_uri."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Builds Packetflix capture links for a lab's interfaces.",
+          "runbookYaml": "- name: Capture links\n  virt.clab.capture.packetflix:\n    target: clab-api\n    lab: nclab\n    targets:\n      - {container_name: clab-nclab-r1, interface_name: eth1}\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.edgeshark.status"
+      ]
+    }
+  },
+  "virt.clab.edgeshark.install": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is virt.clab.edgeshark.uninstall, recorded when this task installed it.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.edgeshark.uninstall",
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Installs Edgeshark on the server's host, unless it runs already.",
+      "description": "Reads Edgeshark's status and installs it only when it is not installed. Its undo is virt.clab.edgeshark.uninstall, recorded when this task installed it. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "examples": [
+        {
+          "name": "Have capture ready",
+          "runbookYaml": "- name: Edgeshark is installed\n  virt.clab.edgeshark.install:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.edgeshark.uninstall",
+        "virt.clab.edgeshark.status"
+      ]
+    }
+  },
+  "virt.clab.edgeshark.status": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads whether Edgeshark, the packet-capture service, runs on the server.",
+      "description": "Returns the server's own status document for Edgeshark. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "returns": [
+        {
+          "name": "status",
+          "type": "dict",
+          "returned": "always",
+          "description": "Edgeshark's status as the server reports it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reads whether Edgeshark, the packet-capture service, runs on the server.",
+          "runbookYaml": "- name: Edgeshark status\n  virt.clab.edgeshark.status:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.edgeshark.install"
+      ]
+    }
+  },
+  "virt.clab.edgeshark.uninstall": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is virt.clab.edgeshark.install, recorded when this task removed it.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.edgeshark.install",
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Uninstalls Edgeshark from the server's host, if it is installed.",
+      "description": "Reads Edgeshark's status and removes it only when it is installed. Its undo is virt.clab.edgeshark.install, recorded when this task removed it. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "examples": [
+        {
+          "name": "Remove capture",
+          "runbookYaml": "- name: Edgeshark is gone\n  virt.clab.edgeshark.uninstall:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.edgeshark.install",
+        "virt.clab.edgeshark.status"
+      ]
+    }
+  },
+  "virt.clab.image.list": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the container images the server's runtime holds.",
+      "description": "Returns each image's id, tags and size. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "returns": [
+        {
+          "name": "runtime",
+          "type": "string",
+          "returned": "always",
+          "description": "The container runtime."
+        },
+        {
+          "name": "images",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each image: id, short_id, repo_tags, size, created_at."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lists the container images the server's runtime holds.",
+          "runbookYaml": "- name: Images on the server\n  virt.clab.image.list:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.image.pull"
+      ]
+    }
+  },
+  "virt.clab.image.pull": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo removes the image, recorded when this task pulled it.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.image.remove",
+          "record": [
+            "image"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Pulls an image onto the server, unless it is already there.",
+      "description": "Pulls the image the reference names into the server's runtime. An image already present under that reference is reported unchanged. Its undo is virt.clab.image.remove, recorded when this task pulled it. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The image reference, such as alpine:3.20.10."
+        }
+      ],
+      "returns": [
+        {
+          "name": "present",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the image is on the server now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Have the node image",
+          "runbookYaml": "- name: alpine is on the server\n  virt.clab.image.pull:\n    target: clab-api\n    image: alpine:3.20.10\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.image.remove",
+        "virt.clab.image.list"
+      ]
+    }
+  },
+  "virt.clab.image.remove": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo pulls the same reference, which is partial: the tag comes back, though the layers may be a newer build.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.image.pull",
+          "record": [
+            "image"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Removes an image from the server, if it is there.",
+      "description": "Removes the image the reference names. An image that is not there is reported unchanged. Its undo is a pull of the same reference, which is partial: the tag comes back but the layers may be a newer build. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "image",
+          "type": "string",
+          "required": true,
+          "description": "The image reference."
+        },
+        {
+          "name": "force",
+          "type": "bool",
+          "default": "false",
+          "description": "Remove it even when a container uses it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "present",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the image is on the server now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Drop an image",
+          "runbookYaml": "- name: No old image\n  virt.clab.image.remove:\n    target: clab-api\n    image: alpine:3.19\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.image.pull"
+      ]
+    }
+  },
+  "virt.clab.lab.apply": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Nodes it recreated are new containers, and a link it removed is not read first."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Changes a running lab to match its on-disk topology, by the difference.",
+      "description": "Asks the server to apply the topology file it holds for the lab: nodes and links added, removed, recreated or restarted, and the rest left alone. With dry_run it reports what it would do and changes nothing, which is also what a check does, so a check of this method is a real prediction. It cannot be undone: nodes it recreated are new containers. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "A topology file on the server, when it is not the lab's own."
+        },
+        {
+          "name": "dry_run",
+          "type": "bool",
+          "default": "false",
+          "description": "Report the difference and change nothing."
+        },
+        {
+          "name": "skip_post_deploy",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip the nodes' post-deploy steps."
+        }
+      ],
+      "returns": [
+        {
+          "name": "added_nodes",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Nodes the apply adds."
+        },
+        {
+          "name": "deleted_nodes",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Nodes it removes."
+        },
+        {
+          "name": "recreated_nodes",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Nodes it recreates."
+        },
+        {
+          "name": "started_nodes",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Nodes it starts."
+        },
+        {
+          "name": "restarted_nodes",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Nodes it restarts."
+        },
+        {
+          "name": "added_links",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Links it adds."
+        },
+        {
+          "name": "deleted_endpoints",
+          "type": "list of string",
+          "returned": "always",
+          "description": "Link ends it removes."
+        },
+        {
+          "name": "dry_run",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether nothing was changed."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Plan, then apply",
+          "runbookYaml": "- name: What would change\n  virt.clab.lab.apply:\n    target: clab-api\n    lab: nclab\n    dry_run: true\n- name: Apply it\n  virt.clab.lab.apply:\n    target: clab-api\n    lab: nclab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.validate",
+        "virt.clab.lab.redeploy"
+      ]
+    }
+  },
+  "virt.clab.lab.deploy": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo destroys the lab, and is recorded only when this task created it, before the deploy runs, since a deploy that fails partway leaves containers behind. A lab that was already deployed is left alone and records no undo.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.lab.destroy",
+          "record": [
+            "lab",
+            "cleanup"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Deploys a lab from a topology, unless it is already deployed.",
+      "description": "Deploys the topology (given as a mapping, a project file or a repository URL) through the server. A lab named lab that is already deployed is left as it is and reported unchanged, so a runbook that deploys first can run again; reconfigure true deploys it over the running one. The topology's own name must be lab: a topology that names another lab would deploy that one and leave this one absent. Its undo destroys the lab, and is recorded only when this task created it. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "topology",
+          "type": "dict",
+          "description": "The topology as a mapping, as containerlab's topology file is (name, topology: nodes, links). The three topology, topology_file and source_url are alternatives: give only one."
+        },
+        {
+          "name": "topology_file",
+          "type": "string",
+          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one."
+        },
+        {
+          "name": "source_url",
+          "type": "string",
+          "description": "A URL of a Git repository holding the topology, which the server fetches. The three topology, topology_file and source_url are alternatives: give only one."
+        },
+        {
+          "name": "max_workers",
+          "type": "int",
+          "description": "How many nodes the server starts at once; the server's own default when unset."
+        },
+        {
+          "name": "network",
+          "type": "string",
+          "description": "The management network's name, when it is not clab."
+        },
+        {
+          "name": "ipv4_subnet",
+          "type": "string",
+          "description": "The management network's IPv4 subnet."
+        },
+        {
+          "name": "ipv6_subnet",
+          "type": "string",
+          "description": "The management network's IPv6 subnet."
+        },
+        {
+          "name": "skip_post_deploy",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip the nodes' post-deploy steps."
+        },
+        {
+          "name": "reconfigure",
+          "type": "bool",
+          "default": "false",
+          "description": "Deploy over a lab that is already deployed, recreating it. Records no undo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed now."
+        },
+        {
+          "name": "nodes",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Its nodes, as lab.info reports them."
+        },
+        {
+          "name": "created",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether this task deployed it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Deploy a two-node lab",
+          "runbookYaml": "- name: The lab is up\n  virt.clab.lab.deploy:\n    target: clab-api\n    lab: nclab\n    topology_file: lab/nclab.clab.yml\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.destroy",
+        "virt.clab.lab.redeploy",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.lab.destroy": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A destroyed lab's containers and their state are gone; deploying its topology again makes a new lab, not this one."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Destroys a lab, unless it is not deployed.",
+      "description": "Removes the lab's containers and network through the server. A lab that is not deployed is not a failure and is reported unchanged. It cannot be undone: the containers' state is gone, and an undo that deployed the topology again would be a new lab, not this one. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "cleanup",
+          "type": "bool",
+          "default": "false",
+          "description": "Also remove the lab's directory and configuration state."
+        },
+        {
+          "name": "purge_lab_dir",
+          "type": "bool",
+          "default": "false",
+          "description": "Remove the lab's directory on the server."
+        },
+        {
+          "name": "graceful",
+          "type": "bool",
+          "default": "false",
+          "description": "Stop the nodes gracefully before removing them."
+        },
+        {
+          "name": "keep_mgmt_net",
+          "type": "bool",
+          "default": "false",
+          "description": "Keep the management network."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed now (false after a destroy)."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Tear a lab down",
+          "runbookYaml": "- name: The lab is gone\n  virt.clab.lab.destroy:\n    target: clab-api\n    lab: nclab\n    cleanup: true\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.deploy"
+      ]
+    }
+  },
+  "virt.clab.lab.info": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Inspects one lab: whether it exists and its nodes.",
+      "description": "A lab that is not deployed is not a failure: exists is false and no nodes are reported, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed."
+        },
+        {
+          "name": "nodes",
+          "type": "list of dict",
+          "returned": "when it exists",
+          "description": "Each node: name (container), node, kind, image, state (running, exited or paused), status, ipv4_address, ipv6_address, container_id, and ports (each host_ip, host_port, port and protocol it publishes)."
+        },
+        {
+          "name": "node_count",
+          "type": "int",
+          "returned": "when it exists",
+          "description": "How many nodes."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Inspects one lab: whether it exists and its nodes.",
+          "runbookYaml": "- name: Is the lab up\n  virt.clab.lab.info:\n    target: clab-api\n    lab: nclab\n  register: lab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.list",
+        "virt.clab.lab.deploy"
+      ]
+    }
+  },
+  "virt.clab.lab.interfaces": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the interfaces of a lab's nodes.",
+      "description": "Narrow it to one node with node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "description": "Only this node's interfaces."
+        }
+      ],
+      "returns": [
+        {
+          "name": "interfaces",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each node: name, and its interfaces with name, alias, mac, ifindex, mtu, type and state."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lists the interfaces of a lab's nodes.",
+          "runbookYaml": "- name: r1's interfaces\n  virt.clab.lab.interfaces:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.links"
+      ]
+    }
+  },
+  "virt.clab.lab.links": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists a lab's links with each end's interface, address and state.",
+      "description": "Narrow it to the links one node has with node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "description": "Only the links this node has."
+        }
+      ],
+      "returns": [
+        {
+          "name": "links",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each link: type, and its two ends (a and b) with node, container, interface, mac, mtu and state."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lists a lab's links with each end's interface, address and state.",
+          "runbookYaml": "- name: The lab's links\n  virt.clab.lab.links:\n    target: clab-api\n    lab: nclab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.interfaces"
+      ]
+    }
+  },
+  "virt.clab.lab.list": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the labs the containerlab server has deployed.",
+      "description": "Returns every deployed lab's name and its nodes as the server's inspect reports them. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "returns": [
+        {
+          "name": "labs",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The deployed labs' names, sorted."
+        },
+        {
+          "name": "nodes",
+          "type": "dict",
+          "returned": "always",
+          "description": "Each lab's nodes, by lab name: name, node, kind, image, state, status and management addresses."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lists the labs the containerlab server has deployed.",
+          "runbookYaml": "- name: What is deployed\n  virt.clab.lab.list:\n    target: clab-api\n  register: labs\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.lab.redeploy": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "Every node is recreated, so what was inside the containers is gone."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "it recreates every node, and whether the new lab comes up is known only once it has run",
+    "doc": {
+      "summary": "Destroys and deploys a lab again from a topology.",
+      "description": "Replaces the lab with a new one from the topology, through the server. Every node is recreated, so what was inside the containers is lost; it cannot be undone. Use virt.clab.lab.apply to change a running lab by the difference instead. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "topology",
+          "type": "dict",
+          "description": "The topology as a mapping, as containerlab's topology file is (name, topology: nodes, links). The three topology, topology_file and source_url are alternatives: give only one."
+        },
+        {
+          "name": "topology_file",
+          "type": "string",
+          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one."
+        },
+        {
+          "name": "source_url",
+          "type": "string",
+          "description": "A URL of a Git repository holding the topology, which the server fetches. The three topology, topology_file and source_url are alternatives: give only one."
+        },
+        {
+          "name": "max_workers",
+          "type": "int",
+          "description": "How many nodes the server starts at once; the server's own default when unset."
+        },
+        {
+          "name": "network",
+          "type": "string",
+          "description": "The management network's name, when it is not clab."
+        },
+        {
+          "name": "ipv4_subnet",
+          "type": "string",
+          "description": "The management network's IPv4 subnet."
+        },
+        {
+          "name": "ipv6_subnet",
+          "type": "string",
+          "description": "The management network's IPv6 subnet."
+        },
+        {
+          "name": "skip_post_deploy",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip the nodes' post-deploy steps."
+        },
+        {
+          "name": "cleanup",
+          "type": "bool",
+          "default": "false",
+          "description": "Also remove the old lab's directory and configuration state."
+        },
+        {
+          "name": "graceful",
+          "type": "bool",
+          "default": "false",
+          "description": "Stop the old nodes gracefully."
+        }
+      ],
+      "returns": [
+        {
+          "name": "nodes",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "The new lab's nodes, as lab.info reports them."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start over",
+          "runbookYaml": "- name: Fresh lab\n  virt.clab.lab.redeploy:\n    target: clab-api\n    lab: nclab\n    topology_file: lab/nclab.clab.yml\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.deploy",
+        "virt.clab.lab.apply"
+      ]
+    }
+  },
+  "virt.clab.lab.restart": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A restart cannot be put back."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "a restart always changes the lab, and how the nodes come back is known only once it has run",
+    "doc": {
+      "summary": "Makes a lab's nodes restarted.",
+      "description": "Restarts every node of the lab through the server. It always changes the lab. A lab-wide restart cannot say which nodes were in which state before, so it records no undo; virt.clab.node.restart records an exact one for one node. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "nodes",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "The nodes after, as lab.info reports them."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lab restart",
+          "runbookYaml": "- name: Lab restart\n  virt.clab.lab.restart:\n    target: clab-api\n    lab: nclab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.restart",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.lab.save": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It overwrites each node's saved configuration, which this method does not read first."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "saving overwrites configurations the server does not show beforehand",
+    "doc": {
+      "summary": "Saves each node's running configuration to its startup configuration.",
+      "description": "Runs containerlab's save for the lab, so a node that reads a startup configuration comes back with what it runs now. It overwrites those saved configurations, which this method does not read first, so it cannot be undone. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node_filter",
+          "type": "string",
+          "description": "Only this node, by its name in the lab or its container's name. Every node when empty."
+        }
+      ],
+      "returns": [
+        {
+          "name": "message",
+          "type": "string",
+          "returned": "always",
+          "description": "The server's message."
+        },
+        {
+          "name": "output",
+          "type": "string",
+          "returned": "always",
+          "description": "containerlab's own output."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep what the lab runs",
+          "runbookYaml": "- name: Save the configurations\n  virt.clab.lab.save:\n    target: clab-api\n    lab: nclab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.deploy"
+      ]
+    }
+  },
+  "virt.clab.lab.start": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A lab-wide start cannot say which nodes were in which state before; virt.clab.node.start records an exact undo for one node."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a lab's nodes started.",
+      "description": "Starts every stopped node of the lab through the server, and leaves the running ones. A lab whose nodes all run already is reported unchanged. A lab-wide start cannot say which nodes were in which state before, so it records no undo; virt.clab.node.start records an exact one for one node. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "nodes",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "The nodes after, as lab.info reports them."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lab start",
+          "runbookYaml": "- name: Lab start\n  virt.clab.lab.start:\n    target: clab-api\n    lab: nclab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.start",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.lab.stop": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A lab-wide stop cannot say which nodes were in which state before; virt.clab.node.stop records an exact undo for one node."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a lab's nodes stopped.",
+      "description": "Stops every running node of the lab through the server. A lab whose nodes are all stopped already is reported unchanged. A lab-wide stop cannot say which nodes were in which state before, so it records no undo; virt.clab.node.stop records an exact one for one node. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "nodes",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "The nodes after, as lab.info reports them."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lab stop",
+          "runbookYaml": "- name: Lab stop\n  virt.clab.lab.stop:\n    target: clab-api\n    lab: nclab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.stop",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.lab.topology": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads a deployed lab's topology as YAML.",
+      "description": "The text is the topology file the server holds for the lab. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "topology",
+          "type": "string",
+          "returned": "always",
+          "description": "The topology file's YAML text."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reads a deployed lab's topology as YAML.",
+          "runbookYaml": "- name: Read the topology\n  virt.clab.lab.topology:\n    target: clab-api\n    lab: nclab\n  register: topo\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.validate",
+        "virt.clab.lab.apply"
+      ]
+    }
+  },
+  "virt.clab.lab.validate": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Validates a lab's on-disk topology without deploying it.",
+      "description": "Asks containerlab to parse the topology file the server holds for the lab and reports whether it is valid. path names another file on the server. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "A topology file on the server, when it is not the lab's own."
+        }
+      ],
+      "returns": [
+        {
+          "name": "valid",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the topology is valid."
+        },
+        {
+          "name": "nodes",
+          "type": "int",
+          "returned": "always",
+          "description": "How many nodes."
+        },
+        {
+          "name": "links",
+          "type": "int",
+          "returned": "always",
+          "description": "How many links."
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "returned": "when invalid",
+          "description": "containerlab's validation error."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Validates a lab's on-disk topology without deploying it.",
+          "runbookYaml": "- name: Validate it first\n  virt.clab.lab.validate:\n    target: clab-api\n    lab: nclab\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.apply"
+      ]
+    }
+  },
+  "virt.clab.netem.reset": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is virt.clab.netem.set with the settings it found.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.netem.set",
+          "record": [
+            "lab",
+            "node",
+            "interface",
+            "delay",
+            "jitter",
+            "loss",
+            "rate"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Clears the netem impairments on a lab node's interface, if it has any.",
+      "description": "Reads the interface first and acts only when it has an impairment, so a clean interface is reported unchanged. Its undo is virt.clab.netem.set with the settings it found. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        },
+        {
+          "name": "interface",
+          "type": "string",
+          "required": true,
+          "description": "The interface (eth1), or its alias."
+        }
+      ],
+      "returns": [
+        {
+          "name": "interfaces",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "The node's impaired interfaces after."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Heal the link",
+          "runbookYaml": "- name: r1 eth1 is clean\n  virt.clab.netem.reset:\n    target: clab-api\n    lab: nclab\n    node: r1\n    interface: eth1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.netem.set"
+      ]
+    }
+  },
+  "virt.clab.netem.set": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo puts back what it found: the same settings, or a reset when the interface had none; partial when corruption was set, which the server does not show.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.netem.set",
+          "record": [
+            "lab",
+            "node",
+            "interface",
+            "delay",
+            "jitter",
+            "loss",
+            "rate"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        },
+        {
+          "fqcn": "virt.clab.netem.reset",
+          "record": [
+            "lab",
+            "node",
+            "interface"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Sets delay, jitter, loss or rate on a lab node's interface, unless it is already so.",
+      "description": "Reads the interface's impairments first and acts only when they differ from what is asked, so a run that repeats it is unchanged. What it sets replaces what was there: an impairment not named is cleared. Its undo puts back what it found: the same settings, or a reset when the interface had none. corruption is not shown by netem.show, so a call that sets it always acts and its undo is partial. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        },
+        {
+          "name": "interface",
+          "type": "string",
+          "required": true,
+          "description": "The interface (eth1), or its alias."
+        },
+        {
+          "name": "delay",
+          "type": "string",
+          "description": "A duration, such as 100ms."
+        },
+        {
+          "name": "jitter",
+          "type": "string",
+          "description": "A duration; needs delay."
+        },
+        {
+          "name": "loss",
+          "type": "float",
+          "description": "Packet loss, 0 to 100 percent."
+        },
+        {
+          "name": "rate",
+          "type": "int",
+          "description": "Rate limit in kbit/s."
+        },
+        {
+          "name": "corruption",
+          "type": "float",
+          "description": "Packet corruption, 0 to 100 percent."
+        }
+      ],
+      "returns": [
+        {
+          "name": "interfaces",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "The node's impaired interfaces after."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A slow, lossy link",
+          "runbookYaml": "- name: r1 eth1 is slow\n  virt.clab.netem.set:\n    target: clab-api\n    lab: nclab\n    node: r1\n    interface: eth1\n    delay: 50ms\n    loss: 1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.netem.reset",
+        "virt.clab.netem.show"
+      ]
+    }
+  },
+  "virt.clab.netem.show": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Shows the netem impairments on a lab node's interfaces.",
+      "description": "Returns each interface that has a delay, jitter, loss or rate set. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "interfaces",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each impaired interface: interface, delay, jitter, packet_loss and rate."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Shows the netem impairments on a lab node's interfaces.",
+          "runbookYaml": "- name: What is impaired\n  virt.clab.netem.show:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.netem.set",
+        "virt.clab.netem.reset"
+      ]
+    }
+  },
+  "virt.clab.node.disable_tx_offload": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "The offload setting it found is not read, so it cannot be put back."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "the offload setting is not read first, so what it changes is known only once it has run",
+    "doc": {
+      "summary": "Disables TX checksum offload on a lab node's interfaces.",
+      "description": "Runs containerlab's disable-tx-offload for the node's container, as some images need before their packets leave a veth correctly. It cannot be undone: the offload setting it found is not read. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Turn it off",
+          "runbookYaml": "- name: r1 offload off\n  virt.clab.node.disable_tx_offload:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.exec"
+      ]
+    }
+  },
+  "virt.clab.node.exec": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A command's effect inside a lab node is unknown to this platform, as exec.command's is on a host."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "a command run in a lab node can change anything the node can reach, and what it changes is known only once it has run",
+    "doc": {
+      "summary": "Runs one command in a lab node, with no SSH to the node.",
+      "description": "Runs the command inside the node's container through the server's exec endpoint, so a node that has no SSH, or no address, is reached. The server reports exit code 0 for a command that failed, so the method wraps the command in a small shell that prints its own exit status (marked with a random value no output can forge) and reads it back: a failing command fails the task, with its output recorded first, unless allow_nonzero is set. That needs a shell (sh) in the node; raw sends the command exactly as given, with the server's exit code, which is unreliable. A check is not possible: what a command changes is known only after it runs. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        },
+        {
+          "name": "command",
+          "type": "string",
+          "description": "The command line, split into words by the server as a shell would, so quote what must stay one word. Set command or argv, not both."
+        },
+        {
+          "name": "argv",
+          "type": "list of string",
+          "description": "The command as separate words, each quoted so the server cannot split or expand one. Set command or argv, not both."
+        },
+        {
+          "name": "allow_nonzero",
+          "type": "bool",
+          "default": "false",
+          "description": "Do not fail on a non-zero exit code; the code is still returned."
+        },
+        {
+          "name": "raw",
+          "type": "bool",
+          "default": "false",
+          "description": "Send the command as given, with no wrapper and no reliable exit code, for a node with no shell."
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "60",
+          "description": "Seconds the login and the command may take together."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exit_code",
+          "type": "int",
+          "returned": "always",
+          "description": "The command's exit code."
+        },
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "always",
+          "description": "Its standard output."
+        },
+        {
+          "name": "stderr",
+          "type": "string",
+          "returned": "always",
+          "description": "Its standard error."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Give a lab router an address with no SSH",
+          "runbookYaml": "- name: r1 eth1 gets its address\n  virt.clab.node.exec:\n    target: clab-api\n    lab: nclab\n    node: r1\n    argv: [ip, address, add, 10.1.1.1/24, dev, eth1]\n"
+        }
+      ],
+      "seeAlso": [
+        "container.exec",
+        "exec.command",
+        "net.frr.config"
+      ]
+    }
+  },
+  "virt.clab.node.logs": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads the last lines of a lab node's output.",
+      "description": "Returns the last tail lines the node's container wrote. The text is the node's own, and may hold anything the node printed. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        },
+        {
+          "name": "tail",
+          "type": "int",
+          "default": "100",
+          "description": "How many of the last lines."
+        }
+      ],
+      "returns": [
+        {
+          "name": "logs",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's output."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reads the last lines of a lab node's output.",
+          "runbookYaml": "- name: Why did r1 stop\n  virt.clab.node.logs:\n    target: clab-api\n    lab: nclab\n    node: r1\n    tail: 50\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.exec"
+      ]
+    }
+  },
+  "virt.clab.node.pause": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is virt.clab.node.unpause.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.node.unpause",
+          "record": [
+            "lab",
+            "node"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes one lab node paused, if it is not already.",
+      "description": "Reads the node's state first and acts only on a node that is running, so a node already paused is left alone and reported unchanged. Its undo is virt.clab.node.unpause, recorded for a node that was running. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's state after: running, exited or paused."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Node pause",
+          "runbookYaml": "- name: r1 pause\n  virt.clab.node.pause:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.unpause",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.node.ports": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the browser-reachable ports a lab node publishes.",
+      "description": "Returns the ports the server reports for the node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "ports",
+          "type": "list",
+          "returned": "always",
+          "description": "The node's published browser ports."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lists the browser-reachable ports a lab node publishes.",
+          "runbookYaml": "- name: r1's ports\n  virt.clab.node.ports:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.node.restart": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A restart cannot be put back."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "a restart always changes the node, and how it comes back is known only once it has run",
+    "doc": {
+      "summary": "Restarts one lab node.",
+      "description": "Restarts the node through the server. It always changes the node, and records no undo: a restart cannot be put back. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's state after."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restart a node",
+          "runbookYaml": "- name: Restart r1\n  virt.clab.node.restart:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.stop",
+        "virt.clab.node.start"
+      ]
+    }
+  },
+  "virt.clab.node.ssh_access": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo closes the session it opened, by its port.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.ssh_session.terminate",
+          "record": [
+            "port"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": false,
+    "noCheckReason": "it opens a session on the server, which a check must not",
+    "doc": {
+      "summary": "Opens a temporary SSH door to a lab node through the server.",
+      "description": "Asks the server for time-limited SSH access to the node: a port on the server that reaches it. The access is a session on the server, which this method's undo, virt.clab.ssh_session.terminate, closes; left alone it ends at its expiry. It returns the host, port, account and the command, never a password. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        },
+        {
+          "name": "duration",
+          "type": "string",
+          "default": "1h",
+          "description": "How long the access lasts, as a duration (30m, 1h)."
+        },
+        {
+          "name": "ssh_username",
+          "type": "string",
+          "description": "The node's SSH account, when it is not the server's default for its kind."
+        }
+      ],
+      "returns": [
+        {
+          "name": "host",
+          "type": "string",
+          "returned": "always",
+          "description": "The server's host."
+        },
+        {
+          "name": "port",
+          "type": "int",
+          "returned": "always",
+          "description": "The port on the server that reaches the node."
+        },
+        {
+          "name": "username",
+          "type": "string",
+          "returned": "always",
+          "description": "The account to log in as."
+        },
+        {
+          "name": "expiration",
+          "type": "string",
+          "returned": "always",
+          "description": "When the access ends."
+        },
+        {
+          "name": "command",
+          "type": "string",
+          "returned": "always",
+          "description": "The ssh command that uses it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A door for ten minutes",
+          "runbookYaml": "- name: Reach r1\n  virt.clab.node.ssh_access:\n    target: clab-api\n    lab: nclab\n    node: r1\n    duration: 10m\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.ssh_session.list",
+        "virt.clab.ssh_session.terminate"
+      ]
+    }
+  },
+  "virt.clab.node.start": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is virt.clab.node.stop, recorded for a node that was stopped.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.node.stop",
+          "record": [
+            "lab",
+            "node"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes one lab node started, if it is not already.",
+      "description": "Reads the node's state first and acts only on a node that is stopped, so a node already running is left alone and reported unchanged. Its undo is virt.clab.node.stop, recorded for a node that was stopped. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's state after: running, exited or paused."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Node start",
+          "runbookYaml": "- name: r1 start\n  virt.clab.node.start:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.stop",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.node.stop": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is virt.clab.node.start, recorded for a node that was running, and partial for one that was paused, which a start does not restore.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.node.start",
+          "record": [
+            "lab",
+            "node"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes one lab node stopped, if it is not already.",
+      "description": "Reads the node's state first and acts only on a node that is running or paused, so a node already stopped is left alone and reported unchanged. Its undo is virt.clab.node.start, recorded for a node that was running. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's state after: running, exited or paused."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Node stop",
+          "runbookYaml": "- name: r1 stop\n  virt.clab.node.stop:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.start",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.node.unpause": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is virt.clab.node.pause.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.node.pause",
+          "record": [
+            "lab",
+            "node"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes one lab node unpaused, if it is not already.",
+      "description": "Reads the node's state first and acts only on a node that is paused, so a node already running is left alone and reported unchanged. Its undo is virt.clab.node.pause, recorded for a node that was paused. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "lab",
+          "type": "string",
+          "required": true,
+          "description": "The lab's name, as containerlab deployed it."
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "required": true,
+          "description": "The node's name in the lab (n1), or its container's name (clab-<lab>-n1)."
+        }
+      ],
+      "returns": [
+        {
+          "name": "state",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's state after: running, exited or paused."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The node's container name."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Node unpause",
+          "runbookYaml": "- name: r1 unpause\n  virt.clab.node.unpause:\n    target: clab-api\n    lab: nclab\n    node: r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.pause",
+        "virt.clab.lab.info"
+      ]
+    }
+  },
+  "virt.clab.server.health": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads the API server's health.",
+      "description": "Asked with no login, as the server answers it. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "returns": [
+        {
+          "name": "status",
+          "type": "string",
+          "returned": "always",
+          "description": "The server's status."
+        },
+        {
+          "name": "uptime",
+          "type": "string",
+          "returned": "always",
+          "description": "How long it has run."
+        },
+        {
+          "name": "api_version",
+          "type": "string",
+          "returned": "always",
+          "description": "The API server's version."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reads the API server's health.",
+          "runbookYaml": "- name: API server health\n  virt.clab.server.health:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.server.version"
+      ]
+    }
+  },
+  "virt.clab.server.metrics": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads the host's CPU, memory and disk figures the API server reports.",
+      "description": "Returns the server's own metrics document. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "returns": [
+        {
+          "name": "metrics",
+          "type": "dict",
+          "returned": "always",
+          "description": "The server's metrics: cpu, mem and disk."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reads the host's CPU, memory and disk figures the API server reports.",
+          "runbookYaml": "- name: Host load\n  virt.clab.server.metrics:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.server.health"
+      ]
+    }
+  },
+  "virt.clab.server.version": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Reads the containerlab version the server runs.",
+      "description": "Returns containerlab's own version text. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "returns": [
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "containerlab's version output."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reads the containerlab version the server runs.",
+          "runbookYaml": "- name: containerlab version\n  virt.clab.server.version:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.server.version_check"
+      ]
+    }
+  },
+  "virt.clab.server.version_check": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Asks whether a newer containerlab exists.",
+      "description": "Returns containerlab's own answer, which reaches the internet from the server. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "returned": "always",
+          "description": "containerlab's answer."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Asks whether a newer containerlab exists.",
+          "runbookYaml": "- name: Is it current\n  virt.clab.server.version_check:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.server.version"
+      ]
+    }
+  },
+  "virt.clab.ssh_session.list": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Lists the temporary SSH sessions the server holds.",
+      "description": "Returns each session's port, lab, node, account and expiry. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "all",
+          "type": "bool",
+          "default": "false",
+          "description": "Every session, not only this login's."
+        }
+      ],
+      "returns": [
+        {
+          "name": "sessions",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each session: port, lab_name, node_name, username, expiration, created."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Lists the temporary SSH sessions the server holds.",
+          "runbookYaml": "- name: Open doors\n  virt.clab.ssh_session.list:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.ssh_access"
+      ]
+    }
+  },
+  "virt.clab.ssh_session.terminate": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A closed session is opened again by virt.clab.node.ssh_access, which makes a new one on another port."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Closes a temporary SSH session on the server, if it is open.",
+      "description": "Terminates the session on the port given. A session that is not open is reported unchanged. It cannot be undone: a closed door is opened again by virt.clab.node.ssh_access, which makes a new one. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "port",
+          "type": "int",
+          "required": true,
+          "description": "The session's port, as ssh_access returned it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Close a door",
+          "runbookYaml": "- name: Close it\n  virt.clab.ssh_session.terminate:\n    target: clab-api\n    port: 2223\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.node.ssh_access",
+        "virt.clab.ssh_session.list"
+      ]
+    }
+  },
+  "virt.clab.topology.generate": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It only reads the server, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Generates a containerlab topology from a description of its tiers.",
+      "description": "Asks the server to write a topology (a Clos fabric, say) from the tiers given, and returns its YAML. It never deploys: deploy is refused here, since virt.clab.lab.deploy is the call that changes anything. It changes nothing on the server, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The topology's name."
+        },
+        {
+          "name": "default_kind",
+          "type": "string",
+          "description": "The node kind used where a tier names none."
+        },
+        {
+          "name": "images",
+          "type": "dict",
+          "description": "Image by kind."
+        },
+        {
+          "name": "tiers",
+          "type": "list of dict",
+          "required": true,
+          "description": "The tiers, each a mapping of count, kind and type."
+        },
+        {
+          "name": "management_network",
+          "type": "string",
+          "description": "The management network's name."
+        },
+        {
+          "name": "ipv4_subnet",
+          "type": "string",
+          "description": "The management network's IPv4 subnet."
+        },
+        {
+          "name": "node_prefix",
+          "type": "string",
+          "description": "A prefix for node names."
+        },
+        {
+          "name": "group_prefix",
+          "type": "string",
+          "description": "A prefix for tier group names."
+        }
+      ],
+      "returns": [
+        {
+          "name": "topology",
+          "type": "string",
+          "returned": "always",
+          "description": "The generated topology's YAML."
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "returned": "always",
+          "description": "The server's message."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Two linux nodes",
+          "runbookYaml": "- name: Generate\n  virt.clab.topology.generate:\n    target: clab-api\n    name: g1\n    default_kind: linux\n    images: {linux: \"alpine:3.20.10\"}\n    tiers:\n      - {count: 2, kind: linux}\n  register: g\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.lab.deploy"
+      ]
+    }
+  },
+  "virt.clab.veth.create": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "The server has no call that removes a vEth pair."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "whether the endpoints can be joined is known only once the pair is made",
+    "doc": {
+      "summary": "Creates a vEth pair between two endpoints.",
+      "description": "Creates a virtual Ethernet pair whose ends are in the two endpoints, each written node:interface (for a node in a lab) or kind:name (a host or bridge interface). The server has no call that removes one, so it cannot be undone. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "a_endpoint",
+          "type": "string",
+          "required": true,
+          "description": "End A, as node:interface or kind:name."
+        },
+        {
+          "name": "b_endpoint",
+          "type": "string",
+          "required": true,
+          "description": "End B, as node:interface or kind:name."
+        },
+        {
+          "name": "mtu",
+          "type": "int",
+          "description": "The pair's MTU; 9500 when unset."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Wire a node to the host",
+          "runbookYaml": "- name: r1 to the bridge\n  virt.clab.veth.create:\n    target: clab-api\n    a_endpoint: clab-nclab-r1:eth9\n    b_endpoint: host:veth-r1\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.vxlan.create"
+      ]
+    }
+  },
+  "virt.clab.vxlan.create": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo removes the VxLAN interfaces named vx-*, which is partial when others carry that prefix.",
+      "inverses": [
+        {
+          "fqcn": "virt.clab.vxlan.delete",
+          "record": [
+            "prefix"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": false,
+    "noCheckReason": "whether the tunnel comes up is known only once it is made",
+    "doc": {
+      "summary": "Creates a VxLAN tunnel between a host interface and a remote VTEP.",
+      "description": "Creates a VxLAN interface on the server's host that carries the traffic of link to remote. Its undo is virt.clab.vxlan.delete with the prefix vx-, which removes every VxLAN interface containerlab made with that prefix, so it is partial when others exist. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "remote",
+          "type": "string",
+          "required": true,
+          "description": "The remote VTEP's IP address."
+        },
+        {
+          "name": "link",
+          "type": "string",
+          "required": true,
+          "description": "An existing interface on the host to bridge to the tunnel."
+        },
+        {
+          "name": "vni",
+          "type": "int",
+          "description": "The VxLAN network identifier; 10 when unset."
+        },
+        {
+          "name": "port",
+          "type": "int",
+          "description": "The UDP port; 14789 when unset."
+        },
+        {
+          "name": "dev",
+          "type": "string",
+          "description": "The device to source the tunnel from; found when unset."
+        },
+        {
+          "name": "mtu",
+          "type": "int",
+          "description": "The interface's MTU; worked out when unset."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Stretch a lab to another host",
+          "runbookYaml": "- name: VxLAN to host B\n  virt.clab.vxlan.create:\n    target: clab-api\n    remote: 10.0.0.2\n    link: veth-r1\n    vni: 100\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.vxlan.delete",
+        "virt.clab.veth.create"
+      ]
+    }
+  },
+  "virt.clab.vxlan.delete": {
+    "supportedTransports": [
+      "https"
+    ],
+    "requiredCapabilities": [
+      "ContainerlabAPICapable"
+    ],
+    "executionContext": {
+      "site": "controller",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "The tunnels' settings are not read first, so they cannot be put back."
+    },
+    "supportsCheck": false,
+    "noCheckReason": "which interfaces carry the prefix is not read first",
+    "doc": {
+      "summary": "Deletes the VxLAN interfaces containerlab made with a prefix.",
+      "description": "Removes every VxLAN interface on the server's host whose name starts with prefix. It cannot be undone: the tunnels' settings are not read first. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "params": [
+        {
+          "name": "prefix",
+          "type": "string",
+          "default": "vx-",
+          "description": "The interface-name prefix; vx- is what containerlab uses."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove the tunnels",
+          "runbookYaml": "- name: No more tunnels\n  virt.clab.vxlan.delete:\n    target: clab-api\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.clab.vxlan.create"
       ]
     }
   },
@@ -18363,6 +21480,7 @@
     },
     "supportsCheck": false,
     "noCheckReason": "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
+    "noBecomeReason": "its question is whether this login gets in, and a sudo in front of it would answer whether the login may become another account",
     "doc": {
       "summary": "Waits until the target answers a command over its own connection, SSH or WinRM.",
       "description": "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A network device's CLI is not a shell with a command that does nothing, so for one that declares CiscoIOSCapable, or a cli_prompt, a try opens its terminal and waits for its prompt instead. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",

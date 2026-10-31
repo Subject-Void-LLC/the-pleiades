@@ -97,7 +97,40 @@ func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 			facts[k] = v
 		}
 	}
-	return Probed{Capabilities: []capability.Name{capability.NameHTTPAPI}, Facts: facts, Warnings: warnings}, nil
+	caps := []capability.Name{capability.NameHTTPAPI}
+	// A containerlab API server answers /health, with no login, in a shape of
+	// its own. No credential is sent to find out, so a server that is
+	// something else learns nothing, and one that is not reached at /health is
+	// simply an HTTP API.
+	if version, ok := p.clabHealth(ctx, client, base); ok {
+		caps = append(caps, capability.NameClabAPI)
+		facts["clab_api_version"] = factText(version)
+	}
+	return Probed{Capabilities: caps, Facts: facts, Warnings: warnings}, nil
+}
+
+// clabHealth asks the base URL's /health, unauthenticated, and returns the
+// server's version when the answer is containerlab API server's own: JSON
+// with a status, an uptime, a start time and a version, all text.
+func (p httpProber) clabHealth(ctx context.Context, client *http.Client, base *url.URL) (string, bool) {
+	u, err := httpapi.Join(base, "/health")
+	if err != nil {
+		return "", false
+	}
+	resp, body, err := p.get(ctx, client, u, httpapi.AuthNone, nil, 4<<10)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	var h struct {
+		Status    string `json:"status"`
+		Uptime    string `json:"uptime"`
+		StartTime string `json:"startTime"`
+		Version   string `json:"version"`
+	}
+	if json.Unmarshal(body, &h) != nil || h.Status == "" || h.Uptime == "" || h.StartTime == "" || h.Version == "" {
+		return "", false
+	}
+	return h.Version, true
 }
 
 // httpClient returns the probe's client: the device's TLS configuration

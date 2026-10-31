@@ -58,6 +58,9 @@ type undoable struct {
 	keepAndFail map[string]bool
 	mu          sync.Mutex
 	ran         map[string][]string
+	// became is the account each call was asked to run as ("<call>@<device>"),
+	// absent for a call that runs as the login.
+	became map[string]string
 }
 
 func (u *undoable) Execute(_ context.Context, task *engine.Task, d inventory.InventoryItem) (engine.ActionResult, error) {
@@ -74,6 +77,12 @@ func (u *undoable) Execute(_ context.Context, task *engine.Task, d inventory.Inv
 		u.ran = map[string][]string{}
 	}
 	u.ran[device] = append(u.ran[device], call)
+	if user, on := engine.BecomeFor(task); on {
+		if u.became == nil {
+			u.became = map[string]string{}
+		}
+		u.became[call+"@"+device] = user
+	}
 	u.mu.Unlock()
 	if u.fail[call+"@"+device] {
 		return engine.ActionResult{}, errors.New("scripted failure of " + call + "@" + device)
@@ -482,5 +491,49 @@ tasks:
 `, twoDevices(), everywhere)
 	if failed, _ := resultOf(result, "tasks[0].block[0].undo[0]", "web2"); failed.Err == nil || !result.HasErrors() {
 		t.Errorf("web2's failed undo %+v, HasErrors %v", failed, result.HasErrors())
+	}
+}
+
+// TestRollbackOnFailure_AnUndoRunsAsTheAccountTheChangeRanAs: inside a block that
+// becomes an account, the undo of a completed change (the recorded one, and an
+// authored rollback: step) runs as that account, as a later pleiades rollback
+// replays it, not as the login.
+func TestRollbackOnFailure_AnUndoRunsAsTheAccountTheChangeRanAs(t *testing.T) {
+	registerRollbackFixtures(t)
+	actions := &undoable{fail: map[string]bool{"b2@web1": true}}
+	runUndoable(t, `id: rb
+hosts: web
+tasks:
+  - name: guarded
+    rollback_on_failure: true
+    become: true
+    become_user: svc
+    block:
+      - name: b0
+        rbtest.make: {name: zero}
+      - name: b1
+        rbtest.make: {name: one}
+        rollback:
+          - name: own1
+            rbtest.unmake: {name: one}
+      - name: b2
+        rbtest.make: {name: two}
+    rescue:
+      - name: r0
+        noop: {}
+`, twoDevices(), actions)
+	actions.mu.Lock()
+	defer actions.mu.Unlock()
+	// b0's undo is the recorded one, b1's is its authored rollback: step; the
+	// harness names both by what they unmake.
+	for _, call := range []string{"unmake:zero@web1", "unmake:one@web1"} {
+		if actions.became[call] != "svc" {
+			t.Errorf("%s ran as %q, want svc (all: %v)", call, actions.became[call], actions.became)
+		}
+	}
+	// The rescue is a task of the block too and inherits it; a call outside
+	// any become runs as the login.
+	if actions.became["r0@web1"] != "svc" {
+		t.Errorf("the rescue ran as %q", actions.became["r0@web1"])
 	}
 }

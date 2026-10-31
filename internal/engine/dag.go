@@ -173,6 +173,14 @@ type WorkflowDef struct {
 	// CheckModeFlag for what is accepted and why false is refused.
 	CheckMode CheckModeFlag `json:"check_mode,omitempty" yaml:"check_mode,omitempty"`
 
+	// Become, BecomeUser and BecomeMethod are Ansible's become keys: every
+	// task the runbook covers runs its commands as BecomeUser (root when
+	// empty) through sudo, run without a password. A block's or a task's own
+	// keys narrow or turn them off (become.go).
+	Become       *bool  `json:"become,omitempty" yaml:"become,omitempty"`
+	BecomeUser   string `json:"become_user,omitempty" yaml:"become_user,omitempty"`
+	BecomeMethod string `json:"become_method,omitempty" yaml:"become_method,omitempty"`
+
 	// Tags applies to every task in the runbook, as a play's tags do in
 	// Ansible: each task inherits them (propagateTags, tags.go).
 	Tags TagList `json:"tags,omitempty" yaml:"tags,omitempty"`
@@ -280,6 +288,15 @@ type Task struct {
 	// key down onto every task it covers (propagateCheckMode), so the
 	// executor reads only this field. See CheckModeFlag.
 	CheckMode CheckModeFlag `json:"check_mode,omitempty" yaml:"check_mode,omitempty"`
+
+	// Become, BecomeUser and BecomeMethod run this task's commands as another
+	// account through sudo, run without a password. The builder copies a
+	// runbook's or a block's keys down onto every task they cover
+	// (propagateBecome), so the executor reads only these fields, through
+	// BecomeFor.
+	Become       *bool  `json:"become,omitempty" yaml:"become,omitempty"`
+	BecomeUser   string `json:"become_user,omitempty" yaml:"become_user,omitempty"`
+	BecomeMethod string `json:"become_method,omitempty" yaml:"become_method,omitempty"`
 
 	// Tags are the names --tags and --skip-tags select this task by. A
 	// block's or parallel group's tags pass down to its children, and a
@@ -686,7 +703,11 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	}
 	// After imports, so an imported file's tasks inherit the check_mode and
 	// tags of the import_tasks task that pulled them in.
+	if err := validateBecomeKeys(&def); err != nil {
+		return nil, err
+	}
 	propagateCheckMode(&def)
+	propagateBecome(&def)
 	propagateTags(&def)
 	propagateVars(&def)
 

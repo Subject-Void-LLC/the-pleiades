@@ -422,6 +422,10 @@
     "Step": {
       "description": "Step is one task of a rollback run.",
       "properties": {
+        "become": {
+          "description": "Become is the account the step runs its commands as, the account the node ran as: empty when it ran as its login.",
+          "type": "string"
+        },
         "device": {
           "description": "DeviceID and DeviceName name the device the step runs on: the one the node changed.",
           "type": "string"

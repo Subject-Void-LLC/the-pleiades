@@ -35,6 +35,10 @@ type request struct {
 	scenarios     []scenario
 	accept        map[string]string
 	acceptFeature map[string]string
+	// expect names the devices the lab holds that the task means its answer
+	// to stand for (expect_devices); each one not in devices is reported as
+	// left out of the model.
+	expect []string
 	// networkPrefix begins the name of the Batfish network the task makes
 	// (bf.NewNetworkNameFor), bf.DefaultNetworkPrefix unless network names
 	// another.
@@ -88,6 +92,30 @@ type assertion struct {
 // paramNetwork names the parameter that begins the Batfish network's name.
 const paramNetwork = "network"
 
+// paramExpectDevices names the parameter listing the devices a check is
+// meant to cover, so one it was given no configuration for is said aloud.
+const paramExpectDevices = "expect_devices"
+
+// readExpectDevices reads expect_devices: node names, each once. Absent is
+// none, which keeps a task that never set it answering exactly as before.
+func readExpectDevices(params map[string]any) ([]string, error) {
+	names, _, err := sdk.StringSlice(params, paramExpectDevices)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s: %w", checkFQCN, paramExpectDevices, err)
+	}
+	seen := map[string]bool{}
+	for _, n := range names {
+		switch {
+		case !nodeName.MatchString(n):
+			return nil, fmt.Errorf("%s: %s: %q is not a node name", checkFQCN, paramExpectDevices, n)
+		case seen[strings.ToLower(n)]:
+			return nil, fmt.Errorf("%s: %s names %s twice", checkFQCN, paramExpectDevices, n)
+		}
+		seen[strings.ToLower(n)] = true
+	}
+	return names, nil
+}
+
 // readNetworkPrefix reads network: absent or empty is bf.DefaultNetworkPrefix,
 // and anything else must be a prefix bf.ValidNetworkPrefix takes, refused
 // before Batfish is reached.
@@ -115,7 +143,7 @@ func readParams(rc sdk.RunbookContext, params map[string]any) (request, error) {
 	var err error
 	for k := range params {
 		switch k {
-		case "devices", "assertions", "scenarios", "accept_unrecognized", paramNetwork, "target", "within":
+		case "devices", "assertions", "scenarios", "accept_unrecognized", paramNetwork, "target", "within", paramExpectDevices:
 		default:
 			return req, fmt.Errorf("%s: no parameter %q", checkFQCN, k)
 		}
@@ -141,6 +169,9 @@ func readParams(rc sdk.RunbookContext, params map[string]any) (request, error) {
 		}
 		seen[strings.ToLower(dc.name)] = true
 		req.devices = append(req.devices, dc)
+	}
+	if req.expect, err = readExpectDevices(params); err != nil {
+		return req, err
 	}
 	if req.assertions, err = readAssertions(params, "assertions", seen); err != nil {
 		return req, err

@@ -26,7 +26,7 @@ func FuzzClabTopology(f *testing.F) {
 			if topo.Nodes[n].Labels["containerlab"] != topo.Name || strings.ContainsAny(n, "/ ") {
 				t.Fatalf("selected %q", n)
 			}
-			_, _, _, _ = clabAddress(topo.Nodes[n])
+			_, _, _, _ = clabAddress(topo.Nodes[n], "")
 		}
 	})
 }

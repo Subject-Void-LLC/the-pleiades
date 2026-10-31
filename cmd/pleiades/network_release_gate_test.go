@@ -132,7 +132,7 @@ func TestCLI_NetworkChangeIsGatedAppliedAndUndone(t *testing.T) {
 		if host == "localhost" {
 			host = "127.0.0.1"
 		}
-		must("add-host", name, "--type", "generic_ssh", "--set", "host="+host, "--set", "port="+strconv.Itoa(n.Port))
+		must("add-host", name, "--type", "generic_ssh", "--set", "host="+host, "--set", "port="+strconv.Itoa(n.Port), "--set", "ephemeral=true")
 		must("add-credential", name, "--username", testsupport.NetLabUser, "--key", keyPath)
 		must("trust-host", name, "--first-connect")
 		must("onboard", name)

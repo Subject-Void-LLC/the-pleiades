@@ -83,6 +83,7 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
+			NoBecomeReason:  "its question is whether this login reaches the device, and a sudo in front of it would answer whether the login may become another account",
 			// Nothing to undo, which is the same fact that makes this
 			// method report changed: false.
 			Reversibility: collection.Reversibility{

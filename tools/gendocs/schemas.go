@@ -71,6 +71,9 @@ func taskSchema() map[string]any {
 			"ignore_errors": map[string]any{"type": "boolean", "description": "Go on past a failure of this task; it is still recorded as one."},
 			"vars":          map[string]any{"type": "object", "description": "Variables for this task (or every task in a block), read as {{ vars.name }}. The narrower scope wins."},
 			"within":        map[string]any{"type": "string", "description": "The device name or tag a target rendered from data must stay inside. Required beside a params.target holding {{ }}, refused anywhere else, and written literally."},
+			"become":        map[string]any{"type": "boolean", "description": "Run this task's SSH commands as become_user through sudo -n. A block's covers its tasks; the narrowest key wins; false turns off one set above."},
+			"become_user":   map[string]any{"type": "string", "description": "The account become runs commands as: root when not given."},
+			"become_method": map[string]any{"type": "string", "enum": []any{"sudo"}, "description": "Only sudo, run without a password."},
 			"check_mode":    checkModeSchema("Run this task (and, on a block, its block, rescue and always tasks) in check mode, even in a real run. Only true; false is refused."),
 			"when":          stringOrList("Ansible-compatible conditional, ANDed if a list."),
 			"when_or":       stringOrList("Conditional, ORed if a list. No Ansible equivalent."),
@@ -155,18 +158,21 @@ func generateRunbookSchema(outDir string) error {
 // refuses (the schema sets additionalProperties false).
 func runbookProperties() map[string]any {
 	return map[string]any{
-		"id":         map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]*$", "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set."},
-		"name":       map[string]any{"type": "string", "description": "The runbook's human title."},
-		"check_mode": checkModeSchema("Make the whole run a check. Only true; false is refused."),
-		"tags":       tagsSchema("Tags every task in the runbook carries, as a play's tags do in Ansible."),
-		"reversible": map[string]any{"type": "boolean", "description": "Promise that a rollback can undo every task that changes a device; validation refuses the runbook otherwise, naming each task that would break the promise."},
-		"vars":       map[string]any{"type": "object", "description": "The runbook's own variables, the widest scope; a block's or task's vars of the same name win."},
-		"hosts":      map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
-		"type":       map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
-		"metadata":   metadataSchema(),
-		"pretasks":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-		"tasks":      map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
-		"posttasks":  map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+		"id":            map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]*$", "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set."},
+		"name":          map[string]any{"type": "string", "description": "The runbook's human title."},
+		"become":        map[string]any{"type": "boolean", "description": "Run every task's SSH commands as become_user through sudo -n, unless a block or task says otherwise."},
+		"become_user":   map[string]any{"type": "string", "description": "The account become runs commands as: root when not given."},
+		"become_method": map[string]any{"type": "string", "enum": []any{"sudo"}, "description": "Only sudo, run without a password."},
+		"check_mode":    checkModeSchema("Make the whole run a check. Only true; false is refused."),
+		"tags":          tagsSchema("Tags every task in the runbook carries, as a play's tags do in Ansible."),
+		"reversible":    map[string]any{"type": "boolean", "description": "Promise that a rollback can undo every task that changes a device; validation refuses the runbook otherwise, naming each task that would break the promise."},
+		"vars":          map[string]any{"type": "object", "description": "The runbook's own variables, the widest scope; a block's or task's vars of the same name win."},
+		"hosts":         map[string]any{"type": "string", "description": "Default target for a task that does not set its own."},
+		"type":          map[string]any{"type": "string", "enum": []any{"native", "ansible", ""}, "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today."},
+		"metadata":      metadataSchema(),
+		"pretasks":      map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+		"tasks":         map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
+		"posttasks":     map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/task"}},
 	}
 }
 

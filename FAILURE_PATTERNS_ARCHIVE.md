@@ -17798,3 +17798,356 @@ seconds, so the finding would arrive before the test passes instead of after the
 **Lesson.** A rule that says "scan the new package alone" holds only if something runs the scan. Until a mechanism
 exists, a branch that adds or changes a Go file under `tools/` or `internal/` runs `gosec ./the/package/` alone, as it
 runs vet and tests, and puts it on the branch's pre-gate list.
+
+## 739. net.frr.config's check passed where the real apply failed, because canSave probed the file and the save writes a new file beside it (a repeat of 564 and 722) (fixed before push)
+
+**Symptom.** Blind lab run 1, on the branch before this one (reported 2026-10-30). A `net.frr.config` check passed
+twice. The real run then reloaded the router and changed it, and the save that follows failed with `mktemp: Permission
+denied`. The router was left changed with its saved file unchanged, which is the state a check exists to rule out. The
+same run reported a second failure ("file would belong to netops:frr"). That one was **not reproduced** here: no test
+or live run on this branch produced it, so nothing is claimed about its cause or fix.
+
+**Root cause.** `canSave` in `internal/catalog/net/frr/config.go` asked only `test -w` of `frr.conf`. The real save
+goes through `remotefile.Replace`, which writes a new file beside `frr.conf` and renames it into place, so it needs the
+directory writable as well as the file. The check asked a narrower question than the write does. A login that could
+write the file but not its directory passed the check and failed the apply.
+
+**Fix.** `canSave` also asks `remotefile.PredictPut`, the prediction of the write the real save makes, and the
+refusal names the owner to connect as. Proof: `TestConfig_ASaveNeedsTheDirectoryToo` (live, against a real FRR
+container, in `frr_dirperm_live_test.go`). The check now fails where the run would.
+
+**Why 564's fix did not prevent it.** 564 and 722 state the rule that a check must not pass where the run fails, and
+LESSONS 255 says a check that cannot know says so. Here the check did not lack state; it probed a stand-in (the file's
+mode) for the operation (a replace of the file). Nothing compared what a check probes with what the write does, so each
+check is only as honest as the person who chose its probe.
+
+**Lesson.** A check of a write asks the write's own prediction function, not a hand-written probe of what the write
+seems to need. When a method's save, put or replace has a shared helper, the check calls that helper's predictor.
+
+## 740. container.clab.exec and the containerlab client were first built and tested against a stub of shapes assumed, and the real server disagreed in four places (a repeat of 642 and 90) (fixed before push)
+
+**Symptom.** The `virt.clab` collection (reported 2026-10-30) was first written against a stub of containerlab's API
+server whose request and response shapes were assumed. Run privileged, the real server (`testsupport.StartClabServer`)
+showed four differences the stub could not have shown:
+
+1. `nodeFilter` and the logs route want the container name `clab-<lab>-<node>`, not the node name.
+2. Exec returns `"return-code": 0` for a command that exited 3. Its stdout and stderr are right; only the status lies.
+3. The first token issued after the server starts is refused with 401 "Invalid or expired token". A token issued a
+   moment later works.
+4. Inspect of an absent lab is a 404 with `{"error":"lab 'x' not found"}`.
+
+**Root cause.** The stub encoded what its author believed the server does. A fake passes its own test, so the
+disagreements stayed invisible until the real service ran. This is 642's class (a fake written from memory) and 90's
+(designing against a description without running the real tool).
+
+**Fix.** Node lookup goes through inspect, which gives the container name. Exec is wrapped so the command prints its
+real exit status after a random per-call marker on stderr, and the client reads that instead of the dropped
+`return-code`: `TestNodeExec_ReadsTheExitStatusTheServerDrops`, and live `TestLive_ARealLabEndToEnd`. A 401 from login
+renews once, after a 1.5 second wait: `TestClab_ALoginTheServerRefusesIsRenewedOnce`. The live test runs a real lab, a ping across the link, netem loss stopping it, the exit-status fix and
+the undos.
+
+**Why 642's fix did not prevent it.** 642's lesson (and LESSONS 109, 317, 322) says to measure a device's wording on a
+real device. It was written about device wording, and this was an API server, so it did not read as applying. The
+class is wider: any fake of a service whose behavior is not read from the service.
+
+**Lesson.** Before writing a stub of a service you can run, run it and read its answers, including its errors and its
+first-use behavior. A stub is a record of what you saw, never of what you believe; cite the run beside it.
+
+## 741. An onboarding test recorded only the last request's Authorization header, so a probe that added a credential-less request made it read an empty string (fixed before push)
+
+**Symptom.** `TestHTTPProbe_PlaintextCredentialOnlyWhenAllowed` (`internal/inventory/onboard/downgrade_test.go`) began
+reading `""` for the Authorization header once the HTTP prober made one more request.
+
+**Root cause.** The prober gained a credential-less `GET /health`, to recognise a containerlab API server (its status,
+uptime, start time and version grant `ContainerlabAPICapable`). The test's handler stored the Authorization header of
+whichever request came last. The new request came after the credentialed one and carried none, so the test read the
+wrong request. The prober was right: the credential is still sent only when allowed, and `/health` never carries one.
+I found no earlier entry for this class (a test that records "the last" request); the search looked for last-request,
+most-recent-request and overwritten-capture wording and for HTTP probe tests.
+
+**Fix.** The test ignores `/health` when it records the header, so it still checks the one request that may carry the
+credential. A better shape, not applied: record every request's path and header and assert on the credentialed one by
+path.
+
+**Lesson.** A test that records "the last" request breaks when a probe adds a request. Record each request with its
+path and assert on the one you mean.
+
+## 742. The journal archtest refused the new JournalEntry.Become until it was classified, and the classification is a design decision the owner has not confirmed (open)
+
+**Symptom.** `TestEveryJournalStringFieldIsConstructed` (`internal/archtest/journal_test.go`) failed once
+`JournalEntry` gained a `Become` field (the account a task ran as, for `become`), because every journal string field
+must be classified as one of the test's kinds.
+
+**Root cause.** Not a defect: the test is the guard that makes each new journal string a stated choice, since the
+journal is read back and shown. `Become` had no classification.
+
+**Fix.** `Become` is classified kind 5, an author label, with a stated reason: it is constrained to
+`^[a-z_][a-z0-9_-]{0,31}$` by `remoteexec.ValidBecomeUser` before any command runs, so it cannot carry free text or a
+secret. It is added to `journalAuthorLabelFields`, which the test itself calls a design decision.
+
+**Open.** **For the owner to confirm:** that an author label is the right kind for `Become`, and that adding to
+`journalAuthorLabelFields` is acceptable. The entry stays open until the owner decides. If the owner prefers a stricter
+kind, the field's value must be reshaped, not the test relaxed.
+
+**Lesson.** When a guard test makes a new field a classified choice, record the choice and its reason in the same
+change and name it for the owner, since adding to the list is the one move the guard cannot check.
+
+## 743. A field added to a journaled type reached the Crawl-tier file but not the Walk-tier store, so the new `Become` was lost on a round trip until the gate's reflection test found it (fixed before push)
+
+**Symptom.** The first `make pr-check` on this branch (2026-10-30) failed two tests that no one had run. In
+`internal/journal`, `TestEntStoreRoundTripsEveryFieldByReflection` reported `Become = '' after the round trip`. In
+`internal/clireport`, `TestRunReportSchema_FitsAFullReport` failed because its fixture never gave the report's
+`Step.become` a value, so the published schema was checked against a report that lacked the new key.
+
+**Root cause.** `engine.JournalEntry` gained `Become`, the account a task ran as (commit 61eaac28). The Crawl-tier
+journal is a file and carried the new key without any further change. The Walk-tier store keeps one ent column per
+field, so a field with no column is dropped when a row is written and read back as empty. The reflection test walks
+every field of `JournalEntry` and fails on the first one that does not survive, which is the only thing that notices.
+The report model's fixture fills each field by hand, so a new field stays unfilled until the schema test fails on it.
+I found no earlier entry for this class (a field added to a persisted type without its store column and migration);
+the search covered round trip, every field, column, migration, journal and store wording. Nearest are 30 (a consumer
+that bypassed the event envelope zeroed every field) and 273 (a round trip that was not one), which differ in cause.
+Neither tests for a new field. The tests of `internal/journal` and `internal/clireport` were not run before the gate.
+
+**Fix.** Commit 1aac2f9f: an ent column `become` in `internal/ent/schema/journal_entry.go`, ent regenerated, the
+migrations `internal/ent/migrate/migrations/sqlite/0039_add_journal_become.sql` and
+`internal/ent/migrate/migrations/postgres/0036_add_journal_become.sql`, the mapping in `internal/journal/ent_store.go`,
+and a `become` value in the fixture of `internal/clireport/schema_test.go`. Both named tests are the proof.
+
+**Lesson.** A new field on a type the Walk-tier store round-trips needs its ent column, both migrations, the store
+mapping and the report fixture value in the same change. After adding a field to a journaled or reported type, run
+`internal/journal` and `internal/clireport` alone, since the reflection test is what finds the omission.
+
+## 744. become added code to pkg/sdk and internal/validate that only other packages' tests ran, and coverage-fast found both under their 100.0% floors (a repeat of 427 and 731) (fixed before push)
+
+**Symptom.** `make pr-check`'s `coverage-fast` stage (2026-10-30) failed with `pkg/sdk` at 96.0% and
+`internal/validate` at 99.9%, each against a floor of 100.0%. Every test passed.
+
+**Root cause.** `become` added `Connect`'s elevation branch, `WithBecome` and `BecomeFrom` to `pkg/sdk`, and
+`BecomeRule` to `internal/validate`. Their behavior was exercised by tests in `pkg/remoteexec`, `internal/engine` and
+the command's release gates, none of which count toward either package's floor, since a floor counts only the
+package's own tests. In `BecomeRule`, the branch for an unnamed task had no test at all.
+
+**Fix.** Commit 90d204a0. In `pkg/sdk`: `TestConnect_RunsAsTheAccountTheContextAsksFor` and
+`TestWithBecome_CarriesTheAccountInTheContext`. The first needed care: the in-process SSH server runs commands on
+the host, so the test puts a fake `sudo` first on `PATH`, and the host's real `sudo` cannot be reached. In
+`internal/validate`: an unnamed task in `TestBecomeRule`.
+
+**Why 427's and 731's fixes did not prevent it.** 427 said code and its tests live in the same package, and 731 said
+to measure each touched package against its floor after the last change. LESSONS 263 and 270 hold both rules. Neither
+was applied to a feature whose natural tests sit in the packages that use it. The failing packages were
+`pkg/`-level primitives, and the check that would have caught them runs only inside the gate.
+
+**Lesson.** For each package a change touches, read its floor in `coverage-floor.json` before committing and run that
+package's own tests with `-cover`. A package with a 100.0% floor has no margin for a branch tested from elsewhere.
+
+## 745. pr-check's durations stage failed although every test passed, because a new package had no recorded time and another had grown from 41 to 142 seconds (fixed before push)
+
+**Symptom.** Run 3 of `make pr-check` (commit 90d204a0, 2026-10-30) passed every stage, including all 50
+container-test packages (4010 seconds), images, coverage and sizes, and failed only on `durations`.
+`tools/testgate/durations.json` had no time for the new package `internal/catalog/virt/clab`, and
+`internal/catalog/net/batfish` ran 142 seconds against 41 recorded, because its live checks grew.
+
+**Root cause.** `durations.json` is a table of measured times that shard dealing and a drift check read. A new
+package, or a package whose tests got heavier, has to be added by hand, and nothing in the commit that adds a package
+asks for it. This is not 503's or 546's class (a table seeded from a different source than the check reads); the
+table was right when written and fell behind this branch's own change. I found no earlier entry for a missing or
+drifted time caused by a package this branch added.
+
+**Fix.** Commit c6701288 added `"internal/catalog/virt/clab": 23` and set `internal/catalog/net/batfish` to 142.
+Verified with `go run ./tools/testgate -durations-check .coverage/pr/containers.json`.
+
+**Open.** The resources check is advisory and passed. Its fold-in, `make resources-record`, would rewrite about 1,665
+lines of `tools/testgate/resources.json` with machine-wide figures that look inflated (1.4 GB for `pkg/sdk`), so it was
+not committed. It needs its own look before anyone records it.
+
+**Lesson.** A branch that adds a container-tier package, or lengthens one's tests, adds its time to
+`tools/testgate/durations.json` in the same change, from a run that measured it.
+
+## 746. A Go file named collections_linux.go was a GOOS build constraint, so the Linux-only name failed archtest (a repeat of 428 and 637) (fixed before push)
+
+**Symptom.** `internal/forge/catalogdata/collections_linux.go`, new on this branch for the `net.linux.*` data, failed
+`internal/archtest`'s `TestFileNamesConstrainBuildsOnlyOnPurpose` under `make pr-check`.
+
+**Root cause.** Go reads a trailing `_linux` in a file name as a build constraint, so the file would have built on
+Linux only. The name was meant as "the Linux network collection", and the toolchain read it as where the file may
+build. 428 was this exact name and 637 was `_ios`; 374 and 303 are the same cause. The shared catalog data would have
+been missing on every other platform.
+
+**Fix.** Renamed `internal/forge/catalogdata/collections_linuxnet.go`, in commit 73bdf7ea, with no other change.
+
+**Why 428's and 637's fixes did not prevent it.** 428 added the archtest and LESSONS 264 states the rule. The archtest
+did hold: it refused the file in the gate. What does not hold is the habit, since the test runs only after the name is
+in a commit, as 637 already said.
+
+**Lesson.** Never end a Go file name with an OS or architecture word (`linux`, `windows`, `darwin`, `freebsd`, `ios`,
+`arm64`). A subject that is an operating system goes first in the name or gets a suffix after it, as in `linuxnet`.
+
+## 747. Two process traps in a pr-check session: a finished run's monitor kept port 8765 and answered the next run's wait, and files were edited while the gate was still in its last stage (a repeat of 153 and of LESSONS 288) (open: the guard does not catch an edit made through a script)
+
+**Symptom.** Two things in one session (2026-10-30).
+
+(a) A previous run's monitor dashboard process kept port 8765. The next `monitor.py run` printed "Address already in
+use" and did not start. A background wait on `/wait?for=fail,end` then returned the **previous** run's failure at
+once, which read as a failure of the run in progress.
+
+(b) While `make pr-check` was in its last stage, `tools/testgate/durations.json` was edited and `make
+resources-record` was run. Nothing broke: the gate had already read both files. It was luck of timing.
+
+**Root cause.** (a) The old monitor's server outlives its run, so the port is held by a process that still answers
+for a run that is over. A wait cannot tell the runs apart unless it checks the run id. This is 153's shape (a stale
+process from an earlier run looks like a live one). (b) LESSONS 288 says to change nothing in the tree while a gate
+runs. The `pleiades-guards.py` guard blocks an edit made through the editing tools during pr-check, and an edit made
+through a script goes by it, so the rule held only as long as it was remembered.
+
+**Fix.** None in code. In practice: before `monitor.py run`, stop the old monitor by its exact PID (never `pkill -f`)
+and confirm the new run id before trusting a wait; and leave the tree alone until the verdict, whatever the stage.
+
+**Open.** Neither trap has a guard. A wait that compares the run id it was started for, and a guard that notices a
+script write to the tree during a gate, would close them. Not built.
+
+**Lesson.** A background wait is bound to a run id, not to a port. And a gate is over at its verdict, not at its last
+stage.
+
+## 748. become on an external Collection's method was silently not applied: the call connected as the login while the stat and the journal said root (a repeat in kind of 578 and LESSONS 244, which LESSONS 358 did not reach) (fixed before push; two gaps open)
+
+**Symptom.** Found by the pre-PR review of branch `feat/agent-friendly-frr-and-hosts` (2026-10-31). A task with `become`
+on a method from an external Collection ran as the login account. The result's `stats["become"]` and the journal's
+`Become` both said `root`, so the record claimed an elevation that never happened, and a later `pleiades rollback`
+replayed the recorded undo as root.
+
+**Root cause.** An external Collection's method runs in a child process, and the context that carries `become` does not
+reach that process. The elevation was applied to the connection a built-in method borrows, and an external method does
+not borrow it. Nothing on that route refused, and the engine wrote the stat and the journal field from the task's
+settings rather than from what was applied. A Runner had the same gap and a comment already admitted it; the external
+route had it without a comment.
+
+**Fix.** Commit `3cdae87a`. `BecomeRule` (`internal/validate/become_rule.go`) refuses `become` on a method whose
+descriptor has a `Provider`, at plan time, and `internal/engine/collection_action.go` refuses it again at run time.
+`TestBecomeRule` (the external case) and `TestCollectionActionExecutor_BecomeIsRefusedOnAnExternalMethod`.
+
+**Why 358's fix did not hold.** LESSONS 358 says a privilege mechanism fails closed, and it was applied to the
+connection: `WithBecome` proves `sudo -n true`, and the elevated view refuses `Shell`, `Subsystem` and the dials. It was
+not applied to every route a method can take to a device. A method's route is a second axis (in process, in a Runner, in
+an external child), and the rule was checked along the first only. This is also LESSONS 244's class (a guard on one of two
+sibling paths) and 578's (a new path skipped the protection beside it).
+
+**Open.** (a) A Walk-tier runbook with `become` runs its earlier tasks before the refusal at the task that has it. The
+refusal is late but it fails closed. (b) The playbook converter still drops `become` with a review note
+(`internal/forge/playbook/keywords.go`, `codes.go`).
+
+**Lesson.** See LESSONS 363.
+
+## 749. A block's rollback_on_failure undo ran as the login while a later `pleiades rollback` replayed the same undo as the recorded account, so two tiers disagreed on one undo (fixed before push)
+
+**Symptom.** Found by the same review. Inside a run, the in-run undo of a `rollback_on_failure` block (the recorded one,
+and an authored `rollback:` step) connected as the login. The planner behind `pleiades rollback` replays the same undo
+as the account the change ran as (`Step.Become`). One undo had two meanings depending on when it ran.
+
+**Root cause.** `become` was added to the planner's replay and to the forward task, and the in-run path in
+`internal/engine/rollback_on_failure.go` builds its own call for the undo and was not given it. Two code paths run an
+undo, and the change touched one.
+
+**Fix.** Commit `3cdae87a`: `asAccountOf` in `internal/engine/rollback_on_failure.go` runs the undo as the account of
+the change it undoes. `TestRollbackOnFailure_AnUndoRunsAsTheAccountTheChangeRanAs`.
+
+I found no earlier entry for an in-run undo and a replayed undo disagreeing on the account. 604 is the nearest (the same
+two undo paths, a different disagreement), and 113 is the general shape (two statements of one contract).
+
+**Lesson.** A change to how a task runs lists every path that runs an undo, and gives each the same account. See also
+LESSONS 363.
+
+## 750. The clab client masked only the password, so under http_auth basic a server that echoed the login token put it into APIError.Message (a repeat of 626, 394 and 457) (fixed before push)
+
+**Symptom.** Found by the same review. The `pkg/clabapi` package doc says a secret cannot reach an error. With
+`http_auth: basic`, a server that echoed the login token in an error body put the token into `APIError.Message`.
+
+**Root cause.** The client's masked values held the password only. The token is a secret the server hands out after
+`Login`, so it did not exist when the client was built and was never added. 626 is this class exactly (a login error
+quoting a body that echoes the credential); there the credential was the password, here it is a value the server issued.
+
+**Fix.** Commit `3cdae87a`: the token joins the client's masked values after `Login` (`pkg/clabapi/client.go`).
+`TestClab_TheLoginTokenIsMaskedInAnError`.
+
+**Why 626's fix did not prevent it.** 626's lesson was about the password the caller supplies. A secret the server
+returns during the session is a second source, and the masking list was filled from the first only.
+
+**Lesson.** A client masks every secret it holds, including the ones it learns after it starts. List the secret's
+sources (supplied, issued, derived), not only the supplied one.
+
+## 751. `import-containerlab --api` mapped a port published on every address to this machine's loopback, wrong for a lab on another host, and its own test asserted the wrong mapping (a repeat of 740, 642 and 90 in its test half) (fixed before push)
+
+**Symptom.** Found by the same review. A containerlab topology that publishes a port on `0.0.0.0` or `::` was imported
+with the device address `127.0.0.1`. That is right for a topology file written on this machine and wrong for a lab on
+another host: the device would point at this machine's loopback, and `--key` or `--trust-first-connect` would act on
+whatever answered there.
+
+**Root cause.** The mapping assumed the lab runs where the command runs. The command's own test asserted that mapping,
+so the test passed and encoded the bug. 740 is the same pattern: a test or stub built from an assumption of how the
+other side behaves rather than from the other side.
+
+**Fix.** Commit `3cdae87a`: when the topology came from the API, the API server's host is the device's address
+(`clabTopology.wildcardHost` in `cmd/pleiades/importcontainerlab_api.go`). The test now uses `localhost` as the server's
+host, so a loopback mapping would fail it.
+
+**Why 740's fix did not prevent it.** 740's lesson is about a stub of a service you can run. This was a test of a pure
+mapping function whose expected value came from the author's picture of one deployment. The class is any expected value
+written from what the author believed instead of from a second case that contradicts it.
+
+**Lesson.** When a mapping depends on where something runs, the test names two places (here and elsewhere) and one
+case must fail the lazy answer.
+
+## 752. net.linux.route's undo was declared exact but recorded only destination, via, dev and metric, so an ECMP route would be replaced or removed with an undo that did not put it back (a repeat of 582) (fixed before push)
+
+**Symptom.** Found by the same review. A route with several gateways (ECMP) is changed or removed, and the undo recorded
+one destination, one `via`, a `dev` and a `metric`. Running it would not restore the route.
+
+**Root cause.** Same as 582: the undo was built from the fields the method sets, not from everything the change
+destroys, while its declaration said exact.
+
+**Fix.** Commit `3cdae87a`: a route with several gateways is refused (`internal/catalog/net/linux/route.go`). Proven on a
+real router in `TestLinux_BridgeAddressAndRouteOnARealRouter`.
+
+**Why 582's fix did not prevent it.** 582 corrected `net.ovs.*` and its lesson says to list what the object carries. A
+new method written a week later (`net.linux.route`) did not apply it, and nothing in registration compares a declared
+exact undo to what the object can hold.
+
+**Lesson.** For a new method with an undo, list what the object carries before declaring the undo exact; refuse a shape
+the undo cannot hold.
+
+## 753. `trust-host --first-connect --reason` recorded the reason before the scan and the trust, so a failed trust left a recorded reason (fixed before push)
+
+**Symptom.** Found by the same review. The command wrote the `--reason` into the record first. When the scan or the trust
+failed afterward, the inventory held a reason for a trust that never happened.
+
+**Root cause.** The reason is a justification for an act. It was written before the act and nothing removed it on
+failure.
+
+**Fix.** Commit `3cdae87a`: it is recorded after the keys are merged (`firstConnectGate` and
+`recordFirstConnectReason` in `cmd/pleiades/trusthost.go`). The refusal text now says the ephemeral flag guards a slip,
+not a determined operator, since anyone who may write the inventory can set it.
+`TestTrustHost_FirstConnectNeedsAnEphemeralDeviceOrAReason`.
+
+I found no earlier entry for a justification recorded before its act. 563 and 725 are the nearest (ordering of a record
+and an act that can fail), with the order the other way round.
+
+**Lesson.** See LESSONS 364.
+
+## 754. net/linux's live test starts a container, so internal/catalog/net/linux was missing from DOCKER_DEPENDENT_PACKAGES, and pr-check's devtools stage failed on TestEveryContainerPackageIsListed (a repeat of 239 and 447) (fixed before push)
+
+**Symptom.** `make pr-check` failed in its devtools stage within the first minute on
+`tools/internal/flakegate` `TestEveryContainerPackageIsListed`, naming `internal/catalog/net/linux`.
+
+**Root cause.** `TestLinux_BridgeAddressAndRouteOnARealRouter` starts a container, so the package belongs on the
+Makefile's list. The list is kept by hand. `internal/catalog/virt/clab` had been added to it earlier on this branch for
+the same reason (in `4425b6d1`, with its feature), and I did not run the guard after adding the live test for `net/linux`.
+
+**Fix.** Commit `46c5c464` lists the package and gives it a time in `tools/testgate/durations.json`.
+
+**Why 239's and 447's fixes did not prevent it.** They did what they were meant to: 239 built the guard and 447 made it
+read the property, and the guard caught this in under a minute. What neither can do is run before the commit. The miss is
+that the cheap guard ran first inside a hundred-minute gate instead of alone, minutes after the test was written. 746 has
+the same shape (an archtest that held, after the commit).
+
+**Lesson.** After adding a test that starts a container, run `go test ./tools/internal/flakegate -run
+TestEveryContainerPackageIsListed` alone before committing.

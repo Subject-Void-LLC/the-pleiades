@@ -4,6 +4,11 @@
       "type": "stdio",
       "command": "gopls",
       "args": ["mcp"]
+    },
+    "groundconfig": {
+      "type": "stdio",
+      "command": "sh",
+      "args": ["-c", "cd \"$HOME/Groundconfig\" && exec ./groundconfig mcp"]
     }
   }
 }

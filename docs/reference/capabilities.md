@@ -22,6 +22,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `CommandExecCapable` | - | `ShellExecCapable`, `WindowsShellCapable` |
 | `ConsoleServedCapable` | - | - |
 | `ContainerEngineCapable` | - | `DockerCapable`, `PodmanCapable` |
+| `ContainerlabAPICapable` | - | - |
 | `DnfCapable` | `PackageManagerCapable` | - |
 | `DockerCapable` | `ContainerEngineCapable` | - |
 | `EngineLocalCapable` | - | - |
@@ -61,7 +62,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 | `WindowsShellCapable` | `CommandExecCapable` | - |
 
-50 capabilities registered.
+51 capabilities registered.
 
 ## Transports
 
@@ -74,7 +75,7 @@ How a method's work reaches its device. A method lists the transports it uses; a
 | `engine_socket` | `EngineSocketCapable` |
 | `engine_stdio` | `EngineStdioCapable` |
 | `engine_tls` | `EngineTLSCapable` |
-| `https` | `HTTPAPICapable`, `CatalystAPICapable`, `AIProviderCapable`, `CloudflareAPICapable`, `BatfishAPICapable`, `CMLAPICapable` |
+| `https` | `HTTPAPICapable`, `CatalystAPICapable`, `AIProviderCapable`, `CloudflareAPICapable`, `BatfishAPICapable`, `CMLAPICapable`, `ContainerlabAPICapable` |
 | `kubernetes` | `KubernetesCapable` |
 | `netconf` | `NetconfCapable` |
 | `ssh` | `SSHTransportCapable` |

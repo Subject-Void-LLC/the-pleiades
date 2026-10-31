@@ -70,7 +70,7 @@ func TestCLI_BuildsACMLLabAndReachesItsNode(t *testing.T) {
 	run("init")
 	run("add-host", "cml", "--type", "cml_controller", "--set", "api_base="+env["PLEIADES_CML_URL"], "--set", "tls_fingerprint="+env["PLEIADES_CML_TLS_FINGERPRINT"])
 	stdin(env["PLEIADES_CML_PASSWORD"]+"\n", "add-credential", "cml", "--username", env["PLEIADES_CML_USERNAME"], "--password-stdin")
-	run("add-host", "P1", "--type", "cisco_router", "--set", "host="+env["PLEIADES_CML_FREE_ADDRESS"], "--set", "transport=ssh")
+	run("add-host", "P1", "--type", "cisco_router", "--set", "host="+env["PLEIADES_CML_FREE_ADDRESS"], "--set", "transport=ssh", "--set", "ephemeral=true")
 	stdin(secret()+"\n"+secret()+"\n", "add-credential", "P1", "--username", "netops", "--password-stdin", "--enable-password-stdin")
 	runbook := fmt.Sprintf(`# What this does: builds a one-router lab for the release gate.
 # Blast radius: the CML controller cml; one new lab, %[1]s.
@@ -130,7 +130,7 @@ tasks:
 	}
 
 	// The same login, through the controller's console server.
-	run("trust-host", "cml", "--first-connect")
+	run("trust-host", "cml", "--first-connect", "--reason", "the lab controller, trusted by the release gate")
 	run("import-cml", "--controller", "cml", "--lab", title, "--via", "console", "--nodes", "P1", "--replace")
 	_, tasks = report(run("adhoc", "P1", "net.ios.command", "command=show users", "--json"))
 	if stats, _ := tasks[0]["stats"].(map[string]any); !strings.Contains(fmt.Sprint(stats["stdout"]), "con 0") {

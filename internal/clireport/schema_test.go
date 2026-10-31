@@ -48,7 +48,7 @@ func fullRunReport() RunReport {
 		Rollback: &RollbackReport{
 			Of: "run-0",
 			Levels: [][]rollback.Step{{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Index: 0, Emitter: "file.copy",
-				FQCN: "file.remove", Params: map[string]any{"path": "/x"}, Name: "undo", Source: "recorded", Partial: true}}},
+				FQCN: "file.remove", Params: map[string]any{"path": "/x"}, Name: "undo", Source: "recorded", Partial: true, Become: "root"}}},
 			Left: []rollback.Gap{gap}, Unknown: []rollback.Gap{gap}, UnacceptedUnknown: 1, AlreadyUndone: []rollback.Gap{gap},
 			NothingToUndo: []rollback.Gap{gap},
 			Problems:      []rollback.Problem{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Reason: "no undo", Kind: "later_run", Accept: "--despite-run run-2"}},

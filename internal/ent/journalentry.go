@@ -94,6 +94,8 @@ type JournalEntry struct {
 	AuthoredRollback bool `json:"authored_rollback,omitempty"`
 	// AuthoredRollbackEmpty holds the value of the "authored_rollback_empty" field.
 	AuthoredRollbackEmpty bool `json:"authored_rollback_empty,omitempty"`
+	// Become holds the value of the "become" field.
+	Become string `json:"become,omitempty"`
 	// RollbackOf holds the value of the "rollback_of" field.
 	RollbackOf string `json:"rollback_of,omitempty"`
 	// UndoesNode holds the value of the "undoes_node" field.
@@ -114,7 +116,7 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount, journalentry.FieldUndoesStep:
 			values[i] = new(sql.NullInt64)
-		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode:
+		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldBecome, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode:
 			values[i] = new(sql.NullString)
 		case journalentry.FieldCreatedAt, journalentry.FieldUpdatedAt, journalentry.FieldStartedAt, journalentry.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -375,6 +377,12 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.AuthoredRollbackEmpty = value.Bool
 			}
+		case journalentry.FieldBecome:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field become", values[i])
+			} else if value.Valid {
+				_m.Become = value.String
+			}
 		case journalentry.FieldRollbackOf:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field rollback_of", values[i])
@@ -542,6 +550,9 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("authored_rollback_empty=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AuthoredRollbackEmpty))
+	builder.WriteString(", ")
+	builder.WriteString("become=")
+	builder.WriteString(_m.Become)
 	builder.WriteString(", ")
 	builder.WriteString("rollback_of=")
 	builder.WriteString(_m.RollbackOf)

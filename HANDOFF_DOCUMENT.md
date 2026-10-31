@@ -4,61 +4,105 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-30. Branch `fix/release-notes-links-and-prune-flake`, off `origin/main` at `7e40c5e1`. Uncommitted, not
-pushed, no pull request; `make pr-check` has not run on it.**
+**2026-10-31. Branch `feat/agent-friendly-frr-and-hosts`, 13 commits ahead of `main` at `ea70badf` (engine and become;
+net fixes; virt.clab; cli; docs; records; mcp; journal column; sdk and validate coverage tests; testgate durations;
+net.linux; the container-list fix `46c5c464`; the pre-PR review fixes `3cdae87a`). Clean tree apart from these records.
+Not pushed, no pull request.**
 
-v0.3.0 (PR #93) was merged and tagged on 2026-10-29: the tag is on `7e40c5e1`, with six archives and `SHA256SUMS`. The
-previous status (the pipeline cut, the headroom policy, the lab data disks, the resources manifest) shipped inside it;
-its detail is in `HANDOFF_ARCHIVE.md`. Only what is still open is carried below.
+### pr-check state
 
-### What works (this branch)
+- Run 3 (commit `90d204a0`) passed every stage: all 50 container-test packages (4010 s), images, coverage and sizes. It
+  failed only on `durations` (FAILURE_PATTERNS 745), fixed in `c6701288` and checked with `go run ./tools/testgate
+  -durations-check .coverage/pr/containers.json`.
+- A later run (after net.linux) failed within its first minute in the devtools stage on `tools/internal/flakegate`
+  `TestEveryContainerPackageIsListed`: `internal/catalog/net/linux` was not on the Makefile's container list
+  (FAILURE_PATTERNS 754), fixed in `46c5c464`.
+- **Everything since run 3 (durations, net.linux, the container-list fix, the pre-PR review fixes in `3cdae87a`, and these
+  records) has NOT been through a full gate.** Run `make pr-check` through the monitor again (about 100 minutes) before
+  pushing. Stop the old monitor by its exact PID first and confirm
+  the new run id (LESSONS 362); leave the tree alone until the verdict (LESSONS 288).
 
-- **Release notes links (FAILURE_PATTERNS 737).** The v0.3.0 release page's links all 404ed, because the workflow
-  published `docs/releases/<tag>.md` verbatim and a release page resolves a relative link against the repository
-  root. `tools/release/notes.go` (`rewriteLinks`) pins each relative link to the tag; `release -notes ... -repo ...
-  -out dist` writes `dist/RELEASE_NOTES.md`; `make release-notes VERSION= REPO=`; `release.yml`'s build job runs it
-  as its first tag-only step and publish uses its output. Proof: the `tools/release` tests, including
-  `TestRewriteLinks_TheRealV030Notes` and `TestRunNotes`; `make release-notes VERSION=v0.3.0
-  REPO=Subject-Void-LLC/the-pleiades` reproduces the live, hand-patched body but for two trailing blank lines;
-  actionlint is clean. **Not proven:** the workflow's own tag path, which only the next tag exercises.
-- **FAILURE_PATTERNS 560 seen a second time, instrumented, not fixed.** Nightly run 41058796153 (schedule, `main` at
-  `7e40c5e1`, job 124072978969, strict) failed on only `internal/catalog/container`
-  `TestPrune_RemovesWhatItsCheckListed` (`read_test.go:222`), the same words as PR #84's sighting on 2026-10-22.
-  300 consecutive local runs (`-race -tags integration -count=300`, Docker 29.8.0) all passed, so the cause is still
-  unproven and no fix was made. `harness.listed` (`harness_test.go`) and the failing assertion now print the
-  engine's list as prune asks it, the list by label alone, inspect's state, and both again a second later. The
-  next sighting shows whether the status filter hid the container and whether a list a second later holds it (not what the check itself saw). LESSONS 357.
-  Nothing else in that nightly failed (skips only).
-- No changelog fragment: this branch is CI plumbing and a test.
+### What works (each proven by a test that ran)
+
+- **net.frr.config check and save (FAILURE_PATTERNS 739).** `TestConfig_ASaveNeedsTheDirectoryToo`
+  (`frr_dirperm_live_test.go`), `frr_login_live_test.go` and `frr_become_live_test.go` against a real FRR container.
+  Blind lab run 1's second failure ("file would belong to netops:frr") was NOT reproduced.
+- **`hosts:` as a list** (`internal/engine/hosts_list.go`), `add-host --tag`, `set-host --tags`, `net.batfish.check`
+  `expect_devices`.
+- **`trust-host --first-connect` refuses a device not flagged ephemeral unless `--reason` is given.** It BREAKS scripts, so
+  it belongs in a minor release, not a 0.3.x patch (`changelog/trust-host-first-connect-ephemeral.breaking.md`).
+- **`become`** (LESSONS 358): `pkg/remoteexec/become.go`, `sdk` `WithBecome`, `internal/engine/become.go`,
+  `internal/validate/become_rule.go`, journal `Become` (now with its ent column and migrations, FAILURE_PATTERNS 743 and
+  LESSONS 361), rollback `Step.Become`. Covered in `pkg/sdk` and `internal/validate` by their own tests (FAILURE_PATTERNS 744).
+- **The `virt.clab.*` collection** (44 methods, `pkg/clabapi`). `TestLive_ARealLabEndToEnd` passes against the real
+  privileged server.
+- **New this round: `net.linux.bridge`, `net.linux.address`, `net.linux.route`** (`pkg/linuxnet` specs,
+  `internal/catalog/net/linux`). `TestLinux_BridgeAddressAndRouteOnARealRouter` runs on a real router with real sudo; the
+  frr and ovs lab images got `iproute2` and `sudo`. Catalog: 259 methods, 257 implemented, 235 that can predict.
+
+### Pre-PR review (fp-reviewer, 2026-10-31): six findings, all fixed in `3cdae87a`, each with a test
+
+- `become` on an external Collection's method was silently not applied (FAILURE_PATTERNS 748): `BecomeRule` and
+  `collection_action.go` now refuse it; `TestBecomeRule`, `TestCollectionActionExecutor_BecomeIsRefusedOnAnExternalMethod`.
+- A `rollback_on_failure` undo ran as the login (749): `asAccountOf`; `TestRollbackOnFailure_AnUndoRunsAsTheAccountTheChangeRanAs`.
+- The clab login token was not masked in an error (750): `TestClab_TheLoginTokenIsMaskedInAnError`.
+- `import-containerlab --api` mapped a wildcard port to this machine's loopback (751): the API server's host is used now.
+- `net.linux.route` refuses an ECMP route its undo could not restore (752):
+  `TestLinux_BridgeAddressAndRouteOnARealRouter`.
+- `trust-host --first-connect --reason` records the reason after the trust (753):
+  `TestTrustHost_FirstConnectNeedsAnEphemeralDeviceOrAReason`.
+
+### Records this session
+
+FAILURE_PATTERNS 739 to 754 (repeats: 739 of 564 and 722; 740 of 642 and 90; 744 of 427 and 731; 746 of 428 and 637;
+747 of 153 and LESSONS 288; 748 in kind of 578 and LESSONS 244; 750 of 626, 394 and 457; 751 of 740, 642 and 90; 752 of
+582; 754 of 239 and 447; 742, 747 and 748 open in part); LESSONS 358 to 364. Not yet written to `CI_LESSONS.md` or annotated
+in the failure ledgers (`go run ./tools/failures annotate`); 743 to 747 and 754 were all found by pr-check or the repo's own
+guards, so they are candidates.
+
+### Collection coverage audit (2026-10-30; three auditors, estimates, not measurements)
+
+- About half the methods have real-path proof; typical coverage is about 30% of each product's surface.
+- Strongest: `virt.clab` about 80%, `container` about 75%.
+- Weakest: `net.junos` and `net.eos` 0% (declared), `cloud.aws` about 1 to 2% (LocalStack only), `edge` about 2%,
+  `net.catalyst` about 3%, `net.batfish` and `net.ovs` about 10%, `net.netconf` about 12%, `fusion` about 10 to 15%,
+  `pkg` about 15% (apt and dnf only).
+- Biggest gaps by value: `container.image.build`, apk, zypper and pacman, `svc` reload, mask and status, `file`
+  find, replace, fetch and ini_file, `identity` ssh keys and sudoers, `win` registry, AWS describe, NETCONF reads, CML
+  topology import, OVS flows.
+- The roadmap item "Every method proven on every OS it targets" in `.SPECIFICATION/IMPLEMENTATION.md` stays OPEN.
 
 ### Open
 
-- FAILURE_PATTERNS 560 (above), open until a sighting prints the engine's list.
-- FAILURE_PATTERNS 734: the FreeBSD lab VM reset itself mid-run and the next start emptied the console log, so the
-  cause is lost (most likely 735's damage; not proven).
-- `make resources-record` after the next gate, and after CI's artifacts are downloaded; then set `complete: true`
-  in `tools/testgate/resources.json` once every package is in it.
-- Compaction (`VBoxManage modifymedium --compact`) is not a method yet.
-- The older items are unchanged: Phase 131 R4 waits on Phases 87, 88, 89 and 127d; the Phase 87 to 89 gates; the run 7
-  items.
-- `.SPECIFICATION/IMPLEMENTATION.md` holds a new proposed Phase 132 (exposure and hardening guidance, a design note
-  from CISA's Installed Base Program; six unticked items; not approved). That file is gitignored, so it is not in
-  the branch.
+- **Owner decisions pending:** (1) the `trust-host --first-connect` refusal is breaking, so it needs a minor release, not
+  a 0.3.x patch; (2) `JournalEntry.Become` as a kind 5 author label (FAILURE_PATTERNS 742, `internal/archtest/journal_test.go`).
+- **Not done:** the playbook converter still DROPS `become` with a review note (`internal/forge/playbook/keywords.go`,
+  `codes.go`); it should map it to native `become` and refuse other methods. The Walk tier refuses `become` until a
+  dispatch carries it, and a Walk-tier runbook with `become` runs its earlier tasks before the refusal at the task (late,
+  but it fails closed; FAILURE_PATTERNS 748).
+- Edgeshark install and uninstall are state-aware, but their real POST was never run live (it pulls images).
+  `virt.clab.capture.packetflix` needs Edgeshark running (the server answers 503).
+- `make resources-record` would rewrite about 1,665 lines of `tools/testgate/resources.json` with inflated machine-wide
+  figures (1.4 GB for `pkg/sdk`); it was NOT committed and needs its own look (FAILURE_PATTERNS 745).
+- `import-containerlab --api` has code and a test beside it (`cmd/pleiades/importcontainerlab_api.go`, in `b478bc5e`); I
+  did not run it here. The earlier note calling it unbuilt was stale. Its wildcard-port mapping was corrected in
+  `3cdae87a` (FAILURE_PATTERNS 751).
+- The whole `cmd/pleiades` package test run exceeds go test's 10 minute default (use testgate or pr-check).
+  `TestCLI_NetTraceFromAContainerThroughARouter` once failed with a Docker "no SSH greeting" start failure; the cause is
+  unproven.
+- Older items unchanged: FAILURE_PATTERNS 560 (open until a sighting prints the engine's list) and 734; Phase 131 R4 and
+  the Phase 87 to 89 gates.
 
 ### Next, in order
 
-1. Commit this branch, run `make pr-check` through the monitor, push, one pull request. Name the failure-pattern
-   classes in the PR body.
-2. After it, the queue the notes give: 117b part 3; Phase 126 (the owner chose option A, device to object storage);
-   the patch compatibility contract follow-up (define "breaking" per area, enforce 0.3.x against the v0.3.0 tag's
-   generated schemas); release tooling's remaining gaps.
-3. A 0.3.x release may add, never break.
+1. Commit these records, run `make commitgate`, run `go test ./tools/internal/flakegate -run TestEveryContainerPackageIsListed`, run `make pr-check` through the monitor, push, one pull request. Name the
+   failure-pattern classes in the PR body.
+2. Then the not-done list above, starting with the converter's `become` mapping.
 
 ### Files changed this session
 
-`tools/release/notes.go` and `tools/release/notes_test.go` (new), `tools/release/main.go`, `Makefile`,
-`.github/workflows/release.yml`, `internal/catalog/container/harness_test.go`, `internal/catalog/container/read_test.go`;
-records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md` (560 updated, 737 added), `LESSONS_LEARNED.md`,
-`LESSONS_LEARNED_ARCHIVE.md` (357), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+See `git log ea70badf..HEAD`. Records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md` (739 to 754),
+`LESSONS_LEARNED.md`, `LESSONS_LEARNED_ARCHIVE.md` (358 to 364), `HANDOFF_DOCUMENT.md`. Changelog fragments are in
+`changelog/` (including `net-linux.added.md`).
 
-Lab: not touched this session and not rechecked. The last session left bsd-check and win-check powered off (shut down through ACPI, not saved).
+Unchanged: bsd-check and win-check are powered off (shut down through ACPI, not saved); not touched this session.

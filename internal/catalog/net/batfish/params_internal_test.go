@@ -53,6 +53,9 @@ func TestReadParams_Refusals(t *testing.T) {
 		"@enter of a whole node":        {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": "@enter(r1)", "dst": "10.0.0.1"}}}},
 		"an interface of no device":     {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": `r9["eth1"]`, "dst": "10.0.0.1"}}}},
 		"a vrf that is no name":         {"devices": dev(nil), "assertions": []any{map[string]any{"route": map[string]any{"node": "r1", "prefix": "10.0.0.0/8", "vrf": "a b"}}}},
+		"an expected device as a path":  {"devices": dev(nil), "assertions": ok, "expect_devices": []any{"../sw1"}},
+		"an expected device twice":      {"devices": dev(nil), "assertions": ok, "expect_devices": []any{"sw1", "SW1"}},
+		"expect_devices not a list":     {"devices": dev(nil), "assertions": ok, "expect_devices": "sw1"},
 		"a vrf on reach":                {"devices": dev(nil), "assertions": []any{map[string]any{"reach": map[string]any{"from": "r1", "dst": "10.0.0.1", "vrf": "INET"}}}},
 	} {
 		if _, err := readParams(nil, p); err == nil {
@@ -77,6 +80,10 @@ func TestReadParams_Refusals(t *testing.T) {
 		if got, err := reachFrom(from, map[string]bool{"r1": true}); err != nil || got != want {
 			t.Errorf("reachFrom(%q) = %q, %v, want %q", from, got, err, want)
 		}
+	}
+	withExpect, err := readParams(nil, map[string]any{"devices": dev(nil), "assertions": ok, "expect_devices": []any{"r1", "sw1"}})
+	if err != nil || !slices.Equal(withExpect.expect, []string{"r1", "sw1"}) {
+		t.Errorf("expect_devices read as %v, err %v", withExpect.expect, err)
 	}
 	if req.devices[0].format != formatFRR || req.scenarios[0].interfaces[0].Hostname != "r1" || req.scenarios[0].assertions[0].from != `r1["eth3"]` || !req.scenarios[0].assertions[0].delivered {
 		t.Errorf("read %+v", req)

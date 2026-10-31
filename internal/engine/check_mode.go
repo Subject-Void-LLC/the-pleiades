@@ -213,18 +213,21 @@ func Checkable(fqcn string, params map[string]any) (bool, string) {
 // documentation generator checks its descriptions against this exact
 // set, and a test checks this set against WorkflowDef's struct tags.
 var RunbookKeys = map[string]bool{
-	"id":         true,
-	"name":       true,
-	"hosts":      true,
-	"type":       true,
-	"metadata":   true,
-	"check_mode": true,
-	"tags":       true,
-	"pretasks":   true,
-	"tasks":      true,
-	"posttasks":  true,
-	"reversible": true,
-	"vars":       true,
+	"id":            true,
+	"name":          true,
+	"hosts":         true,
+	"type":          true,
+	"metadata":      true,
+	"check_mode":    true,
+	"become":        true,
+	"become_user":   true,
+	"become_method": true,
+	"tags":          true,
+	"pretasks":      true,
+	"tasks":         true,
+	"posttasks":     true,
+	"reversible":    true,
+	"vars":          true,
 }
 
 // checkRunbookKeys refuses any top-level key not in RunbookKeys, naming

@@ -1,0 +1,1 @@
+Fixed `net.frr.config` passing a check whose save the real run refused: the save writes a file beside `frr.conf`, so a check now refuses an account that may write the file but not its directory, naming the account to connect as. A configuration FRR rewrites after the reload is now shown as a diff, and an undo records the account that made its backup and refuses to run as another.

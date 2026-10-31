@@ -36,6 +36,10 @@ var clabNodeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 type clabTopology struct {
 	Name  string              `json:"name"`
 	Nodes map[string]clabNode `json:"nodes"`
+	// wildcardHost is where a port published on every address is reached when
+	// the nodes are not on this machine: the API server's own host. Empty for a
+	// topology file, which containerlab wrote on the machine that runs the lab.
+	wildcardHost string
 }
 
 // clabNode is one node of a lab.
@@ -80,6 +84,7 @@ func runImportContainerlab(args []string) error {
 	fs := flag.NewFlagSet("import-containerlab", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	path := fs.String("topology", "", "containerlab's topology-data.json for the lab, written on deploy")
+	api := fs.String("api", "", "instead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read")
 	lab := fs.String("lab", "", "the lab's name, which the file must be for")
 	only := fs.String("nodes", "", "comma-separated nodes to import; every node when empty")
 	username := fs.String("username", "", "with --key, the account every node is reached as")
@@ -92,10 +97,10 @@ func runImportContainerlab(args []string) error {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("usage: pleiades import-containerlab --topology <topology-data.json> --lab <name> [--nodes a,b] [--username <user> --key <path>] [--trust-first-connect] [--onboard] [--replace] [--json]")
+		return fmt.Errorf("usage: pleiades import-containerlab (--topology <topology-data.json> | --api <device>) --lab <name> [--nodes a,b] [--username <user> --key <path>] [--trust-first-connect] [--onboard] [--replace] [--json]")
 	}
-	if *path == "" || *lab == "" {
-		return errors.New("--topology and --lab are both required: the import reads the file it is given, for the lab it names")
+	if (*path == "") == (*api == "") || *lab == "" {
+		return errors.New("--lab and exactly one of --topology and --api are required: the import reads the file or the server it is given, for the lab it names")
 	}
 	if (*username == "") != (*keyPath == "") {
 		return errors.New("--username and --key go together")
@@ -106,7 +111,13 @@ func runImportContainerlab(args []string) error {
 		// in the user's (the clean-slate lab's G7).
 		return fmt.Errorf("--trust-first-connect needs %s set to a known_hosts file of the lab's own, e.g. export %s=$PWD/known_hosts: a lab makes new host keys on every deploy, so they must not go in your own ~/.ssh/known_hosts", remoteexec.KnownHostsEnv, remoteexec.KnownHostsEnv)
 	}
-	topo, err := readTopology(*path)
+	var topo clabTopology
+	var err error
+	if *api != "" {
+		topo, err = readInspect(context.Background(), *dir, *api, *lab)
+	} else {
+		topo, err = readTopology(*path)
+	}
 	if err != nil {
 		return err
 	}
@@ -126,11 +137,13 @@ func runImportContainerlab(args []string) error {
 	res := clabResult{Lab: *lab}
 	for _, n := range names {
 		node := topo.Nodes[n]
-		host, port, from, err := clabAddress(node)
+		host, port, from, err := clabAddress(node, topo.wildcardHost)
 		if err != nil {
 			return fmt.Errorf("node %s: %w", n, err)
 		}
-		props := map[string]pkginventory.PropertyValue{"host": host, "port": port}
+		// ephemeral: the lab is deployed again with new host keys, which is what
+		// lets trust-host --first-connect run on it without a reason.
+		props := map[string]pkginventory.PropertyValue{"host": host, "port": port, ephemeralProperty: true}
 		spec := inventory.HostSpec{ID: uuid.New().String(), Name: n, Type: generic.TypeSSH, Tags: []string{"containerlab", "lab-" + *lab}, Properties: props}
 		if hosts, err = labPlace(hosts, spec, *replace); err != nil {
 			return err
@@ -264,19 +277,24 @@ func clabSelect(topo clabTopology, lab, only string) ([]string, error) {
 // is published on (a wildcard bind read as this machine's loopback), or
 // else its management address, which only a machine on the lab's
 // management network reaches.
-func clabAddress(node clabNode) (string, int, string, error) {
+func clabAddress(node clabNode, wildcardHost string) (string, int, string, error) {
 	for _, b := range node.PortBindings {
 		if b.Port != 22 || (b.Protocol != "" && b.Protocol != "tcp") || b.HostPort < 1 || b.HostPort > 65535 {
 			continue
 		}
 		host := b.HostIP
-		switch host {
-		case "", "0.0.0.0":
+		wildcard := host == "" || host == "0.0.0.0" || host == "::"
+		switch {
+		case wildcard && wildcardHost != "":
+			// A port published on every address of the lab's host is
+			// reached at that host, which is not this machine.
+			host = wildcardHost
+		case host == "", host == "0.0.0.0":
 			host = "127.0.0.1"
-		case "::":
+		case host == "::":
 			host = "::1"
 		}
-		if _, err := netip.ParseAddr(host); err != nil {
+		if _, err := netip.ParseAddr(host); err != nil && !(wildcard && wildcardHost != "") {
 			return "", 0, "", fmt.Errorf("its published SSH port binds %q, which is not an address", b.HostIP)
 		}
 		return host, b.HostPort, "published SSH port", nil

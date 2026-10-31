@@ -75,7 +75,9 @@ var rules = map[string]record.DiscoveryRules{
 	}},
 	TypeNetconf: {Grants: []capability.Name{capability.NameNetconf}},
 	TypeHTTP: {
-		Grants: []capability.Name{capability.NameHTTPAPI},
+		// A containerlab API server is an HTTP API that onboarding
+		// recognises by its /health (probe_http.go).
+		Grants: []capability.Name{capability.NameHTTPAPI, capability.NameClabAPI},
 		Bound:  append([]string{BaseURLProperty, HTTPAuthProperty, httpapi.AllowPlaintextCredentialsProperty}, devicetls.Properties()...),
 	},
 	TypeGRPC: {

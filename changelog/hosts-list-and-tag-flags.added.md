@@ -1,0 +1,1 @@
+Added `hosts:` as a YAML list as well as a string (Ansible's `a,b` spelling works too), refusing the run whole when a named device is missing and naming the line of a bad value. `add-host` takes `--tag` and `set-host` takes `--tags` as the other's spelling.

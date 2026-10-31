@@ -1,0 +1,1 @@
+Added `net.linux.bridge`, `net.linux.address` and `net.linux.route`, which manage a Linux host's bridges, addresses and routes through `ip` with check mode and an exact undo; a login without the right to change the network is refused with `ip`'s own words and the way out, `become: true`.

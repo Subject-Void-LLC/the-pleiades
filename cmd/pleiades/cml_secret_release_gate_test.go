@@ -113,7 +113,7 @@ func TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows(t *testing.T) {
 	// P2 is reached through the console, so its address is one no network here
 	// carries (TEST-NET-1); it is seeded only because node.create seeds one.
 	for name, addr := range map[string]string{"P1": env["PLEIADES_CML_FREE_ADDRESS"], "P2": "192.0.2.2"} {
-		run("add-host", name, "--type", "cisco_router", "--set", "host="+addr, "--set", "transport=ssh")
+		run("add-host", name, "--type", "cisco_router", "--set", "host="+addr, "--set", "transport=ssh", "--set", "ephemeral=true")
 		stdin(random("Gx-")+"\n"+random("Ex-")+"\n", "add-credential", name, "--username", "netops", "--password-stdin", "--enable-password-stdin")
 	}
 	stdin(psk+"\n", "add-secret", "gate", "--field", "psk", "--value-stdin")
@@ -177,7 +177,7 @@ tasks:
 	runID, _ := cmlReport(t, run("run", "runbooks/build.yaml", "--json"))
 
 	run("trust-host", "P1", "--first-connect")
-	run("trust-host", "cml", "--first-connect")
+	run("trust-host", "cml", "--first-connect", "--reason", "the lab controller, trusted by the release gate")
 	run("import-cml", "--controller", "cml", "--lab", title, "--via", "console", "--nodes", "P2", "--replace")
 
 	tunnel := "# What this does: keys a GRE tunnel between P1 and P2 with IKEv2 and a named secret.\n" +

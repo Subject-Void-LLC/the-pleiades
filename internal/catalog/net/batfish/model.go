@@ -50,6 +50,19 @@ func (m *model) consistency(ctx context.Context, req request) (parse, unrecogniz
 			refused = append(refused, fmt.Sprintf("Batfish reported nothing for %s", d.name))
 		}
 	}
+	// A device the lab holds that the task gave no configuration for is not in
+	// the model at all, so a gate that passes says nothing about it (a Linux
+	// bridge between two routers, say). It is reported, not refused: the
+	// author knows whether the model needs it.
+	given := map[string]bool{}
+	for _, d := range req.devices {
+		given[strings.ToLower(d.name)] = true
+	}
+	for _, name := range req.expect {
+		if !given[strings.ToLower(name)] {
+			notModelled = append(notModelled, fmt.Sprintf("%s: no configuration was given for it, so it is not in the model and this check says nothing about it", name))
+		}
+	}
 	warnings, err := m.ask(ctx, baseSnapshot, "parseWarning", nil)
 	if err != nil {
 		return nil, nil, nil, nil, err

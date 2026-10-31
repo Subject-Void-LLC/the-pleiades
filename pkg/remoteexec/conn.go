@@ -53,6 +53,10 @@ type Conn struct {
 	// that leaves the connection's state uncertain taints the lease so
 	// the Pool closes it rather than handing it to the next task.
 	lease *lease
+
+	// become, when set, runs every command this view sends as another
+	// account through sudo (WithBecome).
+	become *Become
 }
 
 // taint marks a borrowed connection as not to be reused. It does nothing
@@ -217,7 +221,7 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		}
 	}()
 
-	runErr := session.Start(command)
+	runErr := session.Start(c.elevate(command))
 	if runErr == nil {
 		startCopy()
 		runErr = session.Wait()

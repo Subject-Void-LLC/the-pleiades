@@ -228,6 +228,14 @@ type Manifest struct {
 	// method, which gets the bare answer without it.
 	NoCheckReason string `json:"noCheckReason,omitempty"`
 
+	// NoBecomeReason says why a task calling this method cannot run as
+	// another account (become), when it uses SSH but must not: its question
+	// is about the login itself, so a sudo in front of it would answer a
+	// different one. Empty means become applies whenever the method's
+	// transports include SSH. validate's BecomeRule refuses become on a
+	// method that carries one, with this text.
+	NoBecomeReason string `json:"noBecomeReason,omitempty"`
+
 	// EndsLoginSession reports that a real run of this method can change
 	// what a login to the device carries (the account's groups, its shell,
 	// the account itself), so a connection logged in before it no longer
