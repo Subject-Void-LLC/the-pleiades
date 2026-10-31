@@ -46,23 +46,37 @@ func StartClabServer(tb testing.TB) (baseURL, password string) {
 		tb.Fatal(err)
 	}
 	password = hex.EncodeToString(raw)
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        ClabAPIImage,
-			ExposedPorts: []string{"8090/tcp"},
-			Env: map[string]string{
-				"CLAB_API_USERNAME": ClabAPIUser, "CLAB_API_PASSWORD": password,
-				"API_PORT": "8090", "TLS_ENABLE": "false",
-			},
-			HostConfigModifier: func(hc *container.HostConfig) {
-				hc.Privileged = true
-				hc.PidMode = "host"
-				hc.Binds = []string{"/var/run/docker.sock:/var/run/docker.sock", "/var/run/netns:/var/run/netns"}
-			},
-			WaitingFor: wait.ForLog("Starting HTTP server").WithStartupTimeout(2 * time.Minute),
+	// On an engine running on this machine's own kernel the server shares the
+	// host's network, as containerlab documents: a lab's deploy makes a Docker
+	// bridge and then looks it up by name, which a bridged container's own
+	// namespace does not hold. Docker Desktop's engine is in a VM whose network
+	// a host-networked container would not publish here, and containerlab
+	// deploys from a bridged one there, so it keeps a published port.
+	hostNet := !dockerDesktop()
+	apiPort := "8090"
+	if hostNet {
+		apiPort = freeLocalPort(tb)
+	}
+	req := testcontainers.ContainerRequest{
+		Image: ClabAPIImage,
+		Env: map[string]string{
+			"CLAB_API_USERNAME": ClabAPIUser, "CLAB_API_PASSWORD": password,
+			"API_PORT": apiPort, "TLS_ENABLE": "false",
 		},
-		Started: true,
-	})
+		HostConfigModifier: func(hc *container.HostConfig) {
+			hc.Privileged = true
+			hc.PidMode = "host"
+			hc.Binds = []string{"/var/run/docker.sock:/var/run/docker.sock", "/var/run/netns:/var/run/netns"}
+			if hostNet {
+				hc.NetworkMode = "host"
+			}
+		},
+		WaitingFor: wait.ForLog("Starting HTTP server").WithStartupTimeout(2 * time.Minute),
+	}
+	if !hostNet {
+		req.ExposedPorts = []string{apiPort + "/tcp"}
+	}
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
 		if c != nil {
 			_ = c.Terminate(context.Background())
@@ -76,6 +90,9 @@ func StartClabServer(tb testing.TB) (baseURL, password string) {
 	if code, _, err := c.Exec(ctx, []string{"sh", "-c", script}); err != nil || code != 0 {
 		tb.Fatalf("making the API server's account: exit %d, err %v", code, err)
 	}
+	if hostNet {
+		return "http://" + net.JoinHostPort("127.0.0.1", apiPort), password
+	}
 	host, err := c.Host(ctx)
 	if err != nil {
 		tb.Fatal(err)
@@ -85,6 +102,25 @@ func StartClabServer(tb testing.TB) (baseURL, password string) {
 		tb.Fatal(err)
 	}
 	return fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprint(port.Num()))), password
+}
+
+// dockerDesktop reports whether the engine is Docker Desktop's, whose
+// containers run in a VM rather than on this machine's kernel.
+func dockerDesktop() bool {
+	out, err := exec.Command("docker", "info", "--format", "{{.OperatingSystem}}").Output() // #nosec G204 -- fixed arguments
+	return err == nil && strings.Contains(string(out), "Docker Desktop")
+}
+
+// freeLocalPort returns a TCP port free on 127.0.0.1 now, for a server that
+// binds the host's own network.
+func freeLocalPort(tb testing.TB) string {
+	tb.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	return fmt.Sprint(l.Addr().(*net.TCPAddr).Port)
 }
 
 // CleanClabLab removes, when tb ends, the containers a lab left on the host
