@@ -6670,3 +6670,28 @@ lab's `clab` network, and nothing else. The owner authorised running it on 2026-
 
 **Rule in practice.** Before a test starts a container that holds the Docker socket or host namespaces, say so, ask the
 owner, label everything it creates and remove it by that label. Never prune by a broad filter to clean up after it.
+
+## 361. A new field on a type the Walk-tier store round-trips needs its column, its migrations and its fixture value in the same change (2026-10-30).
+
+**Why.** `engine.JournalEntry` gained `Become`. The Crawl-tier file journal carried it with no further work, so every
+test on that path passed. The Walk-tier store keeps a column per field, and a field with no column is silently dropped
+on write and read back empty (FAILURE_PATTERNS 743). Nothing fails at build time or in the tests of the package that
+added the field. Two guards find it: `TestEntStoreRoundTripsEveryFieldByReflection` in `internal/journal` and
+`TestRunReportSchema_FitsAFullReport` in `internal/clireport`, and both run in a package the feature did not touch.
+**Rule in practice.** When a field joins a type that a store round-trips or a report schema describes, change the
+store in that commit: the ent schema, regenerated code, a migration per dialect, the store's mapping, and a value in
+every fixture that fills each field. Then run the packages that hold the reflection and schema tests alone, before the
+gate.
+
+## 362. A wait on a monitor is bound to the run it was started for: stop a finished run's monitor by its exact PID, and confirm the new run id (2026-10-30).
+
+**Why.** The monitor's dashboard process outlives the run that started it and keeps port 8765. The next
+`monitor.py run` then printed "Address already in use" and did not start, and a background wait on
+`/wait?for=fail,end` returned the previous run's failure at once (FAILURE_PATTERNS 747). A failure that arrives
+instantly, before any stage could have run, is the sign. Acting on it means stopping a gate that never started, or
+diagnosing a failure that belongs to another commit. `pkill -f` is not the remedy, since a pattern that is also in
+your own command line kills your own shell (FAILURE_PATTERNS 689).
+
+**Rule in practice.** Before a gate run, find the old monitor's PID and stop that one process. After starting, read the
+run id the monitor prints and check it names the new run. Treat a wait that returns at once as a stale answer until the
+run id says otherwise. LESSONS 288 still holds beside it: leave the tree alone until the verdict.

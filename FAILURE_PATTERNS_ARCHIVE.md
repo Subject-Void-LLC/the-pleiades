@@ -17891,3 +17891,120 @@ kind, the field's value must be reshaped, not the test relaxed.
 
 **Lesson.** When a guard test makes a new field a classified choice, record the choice and its reason in the same
 change and name it for the owner, since adding to the list is the one move the guard cannot check.
+
+## 743. A field added to a journaled type reached the Crawl-tier file but not the Walk-tier store, so the new `Become` was lost on a round trip until the gate's reflection test found it (fixed before push)
+
+**Symptom.** The first `make pr-check` on this branch (2026-10-30) failed two tests that no one had run. In
+`internal/journal`, `TestEntStoreRoundTripsEveryFieldByReflection` reported `Become = '' after the round trip`. In
+`internal/clireport`, `TestRunReportSchema_FitsAFullReport` failed because its fixture never gave the report's
+`Step.become` a value, so the published schema was checked against a report that lacked the new key.
+
+**Root cause.** `engine.JournalEntry` gained `Become`, the account a task ran as (commit 61eaac28). The Crawl-tier
+journal is a file and carried the new key without any further change. The Walk-tier store keeps one ent column per
+field, so a field with no column is dropped when a row is written and read back as empty. The reflection test walks
+every field of `JournalEntry` and fails on the first one that does not survive, which is the only thing that notices.
+The report model's fixture fills each field by hand, so a new field stays unfilled until the schema test fails on it.
+I found no earlier entry for this class (a field added to a persisted type without its store column and migration);
+the search covered round trip, every field, column, migration, journal and store wording. Nearest are 30 (a consumer
+that bypassed the event envelope zeroed every field) and 273 (a round trip that was not one), which differ in cause.
+Neither tests for a new field. The tests of `internal/journal` and `internal/clireport` were not run before the gate.
+
+**Fix.** Commit 1aac2f9f: an ent column `become` in `internal/ent/schema/journal_entry.go`, ent regenerated, the
+migrations `internal/ent/migrate/migrations/sqlite/0039_add_journal_become.sql` and
+`internal/ent/migrate/migrations/postgres/0036_add_journal_become.sql`, the mapping in `internal/journal/ent_store.go`,
+and a `become` value in the fixture of `internal/clireport/schema_test.go`. Both named tests are the proof.
+
+**Lesson.** A new field on a type the Walk-tier store round-trips needs its ent column, both migrations, the store
+mapping and the report fixture value in the same change. After adding a field to a journaled or reported type, run
+`internal/journal` and `internal/clireport` alone, since the reflection test is what finds the omission.
+
+## 744. become added code to pkg/sdk and internal/validate that only other packages' tests ran, and coverage-fast found both under their 100.0% floors (a repeat of 427 and 731) (fixed before push)
+
+**Symptom.** `make pr-check`'s `coverage-fast` stage (2026-10-30) failed with `pkg/sdk` at 96.0% and
+`internal/validate` at 99.9%, each against a floor of 100.0%. Every test passed.
+
+**Root cause.** `become` added `Connect`'s elevation branch, `WithBecome` and `BecomeFrom` to `pkg/sdk`, and
+`BecomeRule` to `internal/validate`. Their behavior was exercised by tests in `pkg/remoteexec`, `internal/engine` and
+the command's release gates, none of which count toward either package's floor, since a floor counts only the
+package's own tests. In `BecomeRule`, the branch for an unnamed task had no test at all.
+
+**Fix.** Commit 90d204a0. In `pkg/sdk`: `TestConnect_RunsAsTheAccountTheContextAsksFor` and
+`TestWithBecome_CarriesTheAccountInTheContext`. The first needed care: the in-process SSH server runs commands on
+the host, so the test puts a fake `sudo` first on `PATH`, and the host's real `sudo` cannot be reached. In
+`internal/validate`: an unnamed task in `TestBecomeRule`.
+
+**Why 427's and 731's fixes did not prevent it.** 427 said code and its tests live in the same package, and 731 said
+to measure each touched package against its floor after the last change. LESSONS 263 and 270 hold both rules. Neither
+was applied to a feature whose natural tests sit in the packages that use it. The failing packages were
+`pkg/`-level primitives, and the check that would have caught them runs only inside the gate.
+
+**Lesson.** For each package a change touches, read its floor in `coverage-floor.json` before committing and run that
+package's own tests with `-cover`. A package with a 100.0% floor has no margin for a branch tested from elsewhere.
+
+## 745. pr-check's durations stage failed although every test passed, because a new package had no recorded time and another had grown from 41 to 142 seconds (fixed before push)
+
+**Symptom.** Run 3 of `make pr-check` (commit 90d204a0, 2026-10-30) passed every stage, including all 50
+container-test packages (4010 seconds), images, coverage and sizes, and failed only on `durations`.
+`tools/testgate/durations.json` had no time for the new package `internal/catalog/virt/clab`, and
+`internal/catalog/net/batfish` ran 142 seconds against 41 recorded, because its live checks grew.
+
+**Root cause.** `durations.json` is a table of measured times that shard dealing and a drift check read. A new
+package, or a package whose tests got heavier, has to be added by hand, and nothing in the commit that adds a package
+asks for it. This is not 503's or 546's class (a table seeded from a different source than the check reads); the
+table was right when written and fell behind this branch's own change. I found no earlier entry for a missing or
+drifted time caused by a package this branch added.
+
+**Fix.** Commit c6701288 added `"internal/catalog/virt/clab": 23` and set `internal/catalog/net/batfish` to 142.
+Verified with `go run ./tools/testgate -durations-check .coverage/pr/containers.json`.
+
+**Open.** The resources check is advisory and passed. Its fold-in, `make resources-record`, would rewrite about 1,665
+lines of `tools/testgate/resources.json` with machine-wide figures that look inflated (1.4 GB for `pkg/sdk`), so it was
+not committed. It needs its own look before anyone records it.
+
+**Lesson.** A branch that adds a container-tier package, or lengthens one's tests, adds its time to
+`tools/testgate/durations.json` in the same change, from a run that measured it.
+
+## 746. A Go file named collections_linux.go was a GOOS build constraint, so the Linux-only name failed archtest (a repeat of 428 and 637) (fixed before push)
+
+**Symptom.** `internal/forge/catalogdata/collections_linux.go`, new on this branch for the `net.linux.*` data, failed
+`internal/archtest`'s `TestFileNamesConstrainBuildsOnlyOnPurpose` under `make pr-check`.
+
+**Root cause.** Go reads a trailing `_linux` in a file name as a build constraint, so the file would have built on
+Linux only. The name was meant as "the Linux network collection", and the toolchain read it as where the file may
+build. 428 was this exact name and 637 was `_ios`; 374 and 303 are the same cause. The shared catalog data would have
+been missing on every other platform.
+
+**Fix.** Renamed `internal/forge/catalogdata/collections_linuxnet.go`, in commit 73bdf7ea, with no other change.
+
+**Why 428's and 637's fixes did not prevent it.** 428 added the archtest and LESSONS 264 states the rule. The archtest
+did hold: it refused the file in the gate. What does not hold is the habit, since the test runs only after the name is
+in a commit, as 637 already said.
+
+**Lesson.** Never end a Go file name with an OS or architecture word (`linux`, `windows`, `darwin`, `freebsd`, `ios`,
+`arm64`). A subject that is an operating system goes first in the name or gets a suffix after it, as in `linuxnet`.
+
+## 747. Two process traps in a pr-check session: a finished run's monitor kept port 8765 and answered the next run's wait, and files were edited while the gate was still in its last stage (a repeat of 153 and of LESSONS 288) (open: the guard does not catch an edit made through a script)
+
+**Symptom.** Two things in one session (2026-10-30).
+
+(a) A previous run's monitor dashboard process kept port 8765. The next `monitor.py run` printed "Address already in
+use" and did not start. A background wait on `/wait?for=fail,end` then returned the **previous** run's failure at
+once, which read as a failure of the run in progress.
+
+(b) While `make pr-check` was in its last stage, `tools/testgate/durations.json` was edited and `make
+resources-record` was run. Nothing broke: the gate had already read both files. It was luck of timing.
+
+**Root cause.** (a) The old monitor's server outlives its run, so the port is held by a process that still answers
+for a run that is over. A wait cannot tell the runs apart unless it checks the run id. This is 153's shape (a stale
+process from an earlier run looks like a live one). (b) LESSONS 288 says to change nothing in the tree while a gate
+runs. The `pleiades-guards.py` guard blocks an edit made through the editing tools during pr-check, and an edit made
+through a script goes by it, so the rule held only as long as it was remembered.
+
+**Fix.** None in code. In practice: before `monitor.py run`, stop the old monitor by its exact PID (never `pkill -f`)
+and confirm the new run id before trusting a wait; and leave the tree alone until the verdict, whatever the stage.
+
+**Open.** Neither trap has a guard. A wait that compares the run id it was started for, and a guard that notices a
+script write to the tree during a gate, would close them. Not built.
+
+**Lesson.** A background wait is bound to a run id, not to a port. And a gate is over at its verdict, not at its last
+stage.
