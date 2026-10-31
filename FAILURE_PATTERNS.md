@@ -751,6 +751,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 745. pr-check's durations stage failed although every test passed, because a new package had no recorded time and another had grown from 41 to 142 seconds (fixed before push)
 746. A Go file named collections_linux.go was a GOOS build constraint, so the Linux-only name failed archtest (a repeat of 428 and 637) (fixed before push)
 747. Two process traps in a pr-check session: a finished run's monitor kept port 8765 and answered the next run's wait, and files were edited while the gate was still in its last stage (a repeat of 153 and of LESSONS 288) (open: the guard does not catch an edit made through a script)
+748. become on an external Collection's method was silently not applied: the call connected as the login while the stat and the journal said root (a repeat in kind of 578 and LESSONS 244, which LESSONS 358 did not reach) (fixed before push; two gaps open: the Walk tier refuses late, the playbook converter drops become)
+749. A block's rollback_on_failure undo ran as the login while a later `pleiades rollback` replayed the same undo as the recorded account, so two tiers disagreed on one undo (fixed before push)
+750. The clab client masked only the password, so under http_auth basic a server that echoed the login token put it into APIError.Message (a repeat of 626, 394 and 457) (fixed before push)
+751. `import-containerlab --api` mapped a port published on every address to this machine's loopback, wrong for a lab on another host, and its own test asserted the wrong mapping (a repeat of 740, 642 and 90 in its test half) (fixed before push)
+752. net.linux.route's undo was declared exact but recorded only destination, via, dev and metric, so an ECMP route would not be put back (a repeat of 582) (fixed before push)
+753. `trust-host --first-connect --reason` recorded the reason before the scan and the trust, so a failed trust left a recorded reason (fixed before push)
+754. net/linux's live test starts a container, so internal/catalog/net/linux was missing from DOCKER_DEPENDENT_PACKAGES and pr-check's devtools stage failed on TestEveryContainerPackageIsListed (a repeat of 239 and 447) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

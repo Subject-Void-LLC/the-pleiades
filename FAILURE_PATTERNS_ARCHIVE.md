@@ -18008,3 +18008,146 @@ script write to the tree during a gate, would close them. Not built.
 
 **Lesson.** A background wait is bound to a run id, not to a port. And a gate is over at its verdict, not at its last
 stage.
+
+## 748. become on an external Collection's method was silently not applied: the call connected as the login while the stat and the journal said root (a repeat in kind of 578 and LESSONS 244, which LESSONS 358 did not reach) (fixed before push; two gaps open)
+
+**Symptom.** Found by the pre-PR review of branch `feat/agent-friendly-frr-and-hosts` (2026-10-31). A task with `become`
+on a method from an external Collection ran as the login account. The result's `stats["become"]` and the journal's
+`Become` both said `root`, so the record claimed an elevation that never happened, and a later `pleiades rollback`
+replayed the recorded undo as root.
+
+**Root cause.** An external Collection's method runs in a child process, and the context that carries `become` does not
+reach that process. The elevation was applied to the connection a built-in method borrows, and an external method does
+not borrow it. Nothing on that route refused, and the engine wrote the stat and the journal field from the task's
+settings rather than from what was applied. A Runner had the same gap and a comment already admitted it; the external
+route had it without a comment.
+
+**Fix.** Commit `3cdae87a`. `BecomeRule` (`internal/validate/become_rule.go`) refuses `become` on a method whose
+descriptor has a `Provider`, at plan time, and `internal/engine/collection_action.go` refuses it again at run time.
+`TestBecomeRule` (the external case) and `TestCollectionActionExecutor_BecomeIsRefusedOnAnExternalMethod`.
+
+**Why 358's fix did not hold.** LESSONS 358 says a privilege mechanism fails closed, and it was applied to the
+connection: `WithBecome` proves `sudo -n true`, and the elevated view refuses `Shell`, `Subsystem` and the dials. It was
+not applied to every route a method can take to a device. A method's route is a second axis (in process, in a Runner, in
+an external child), and the rule was checked along the first only. This is also LESSONS 244's class (a guard on one of two
+sibling paths) and 578's (a new path skipped the protection beside it).
+
+**Open.** (a) A Walk-tier runbook with `become` runs its earlier tasks before the refusal at the task that has it. The
+refusal is late but it fails closed. (b) The playbook converter still drops `become` with a review note
+(`internal/forge/playbook/keywords.go`, `codes.go`).
+
+**Lesson.** See LESSONS 363.
+
+## 749. A block's rollback_on_failure undo ran as the login while a later `pleiades rollback` replayed the same undo as the recorded account, so two tiers disagreed on one undo (fixed before push)
+
+**Symptom.** Found by the same review. Inside a run, the in-run undo of a `rollback_on_failure` block (the recorded one,
+and an authored `rollback:` step) connected as the login. The planner behind `pleiades rollback` replays the same undo
+as the account the change ran as (`Step.Become`). One undo had two meanings depending on when it ran.
+
+**Root cause.** `become` was added to the planner's replay and to the forward task, and the in-run path in
+`internal/engine/rollback_on_failure.go` builds its own call for the undo and was not given it. Two code paths run an
+undo, and the change touched one.
+
+**Fix.** Commit `3cdae87a`: `asAccountOf` in `internal/engine/rollback_on_failure.go` runs the undo as the account of
+the change it undoes. `TestRollbackOnFailure_AnUndoRunsAsTheAccountTheChangeRanAs`.
+
+I found no earlier entry for an in-run undo and a replayed undo disagreeing on the account. 604 is the nearest (the same
+two undo paths, a different disagreement), and 113 is the general shape (two statements of one contract).
+
+**Lesson.** A change to how a task runs lists every path that runs an undo, and gives each the same account. See also
+LESSONS 363.
+
+## 750. The clab client masked only the password, so under http_auth basic a server that echoed the login token put it into APIError.Message (a repeat of 626, 394 and 457) (fixed before push)
+
+**Symptom.** Found by the same review. The `pkg/clabapi` package doc says a secret cannot reach an error. With
+`http_auth: basic`, a server that echoed the login token in an error body put the token into `APIError.Message`.
+
+**Root cause.** The client's masked values held the password only. The token is a secret the server hands out after
+`Login`, so it did not exist when the client was built and was never added. 626 is this class exactly (a login error
+quoting a body that echoes the credential); there the credential was the password, here it is a value the server issued.
+
+**Fix.** Commit `3cdae87a`: the token joins the client's masked values after `Login` (`pkg/clabapi/client.go`).
+`TestClab_TheLoginTokenIsMaskedInAnError`.
+
+**Why 626's fix did not prevent it.** 626's lesson was about the password the caller supplies. A secret the server
+returns during the session is a second source, and the masking list was filled from the first only.
+
+**Lesson.** A client masks every secret it holds, including the ones it learns after it starts. List the secret's
+sources (supplied, issued, derived), not only the supplied one.
+
+## 751. `import-containerlab --api` mapped a port published on every address to this machine's loopback, wrong for a lab on another host, and its own test asserted the wrong mapping (a repeat of 740, 642 and 90 in its test half) (fixed before push)
+
+**Symptom.** Found by the same review. A containerlab topology that publishes a port on `0.0.0.0` or `::` was imported
+with the device address `127.0.0.1`. That is right for a topology file written on this machine and wrong for a lab on
+another host: the device would point at this machine's loopback, and `--key` or `--trust-first-connect` would act on
+whatever answered there.
+
+**Root cause.** The mapping assumed the lab runs where the command runs. The command's own test asserted that mapping,
+so the test passed and encoded the bug. 740 is the same pattern: a test or stub built from an assumption of how the
+other side behaves rather than from the other side.
+
+**Fix.** Commit `3cdae87a`: when the topology came from the API, the API server's host is the device's address
+(`clabTopology.wildcardHost` in `cmd/pleiades/importcontainerlab_api.go`). The test now uses `localhost` as the server's
+host, so a loopback mapping would fail it.
+
+**Why 740's fix did not prevent it.** 740's lesson is about a stub of a service you can run. This was a test of a pure
+mapping function whose expected value came from the author's picture of one deployment. The class is any expected value
+written from what the author believed instead of from a second case that contradicts it.
+
+**Lesson.** When a mapping depends on where something runs, the test names two places (here and elsewhere) and one
+case must fail the lazy answer.
+
+## 752. net.linux.route's undo was declared exact but recorded only destination, via, dev and metric, so an ECMP route would be replaced or removed with an undo that did not put it back (a repeat of 582) (fixed before push)
+
+**Symptom.** Found by the same review. A route with several gateways (ECMP) is changed or removed, and the undo recorded
+one destination, one `via`, a `dev` and a `metric`. Running it would not restore the route.
+
+**Root cause.** Same as 582: the undo was built from the fields the method sets, not from everything the change
+destroys, while its declaration said exact.
+
+**Fix.** Commit `3cdae87a`: a route with several gateways is refused (`internal/catalog/net/linux/route.go`). Proven on a
+real router in `TestLinux_BridgeAddressAndRouteOnARealRouter`.
+
+**Why 582's fix did not prevent it.** 582 corrected `net.ovs.*` and its lesson says to list what the object carries. A
+new method written a week later (`net.linux.route`) did not apply it, and nothing in registration compares a declared
+exact undo to what the object can hold.
+
+**Lesson.** For a new method with an undo, list what the object carries before declaring the undo exact; refuse a shape
+the undo cannot hold.
+
+## 753. `trust-host --first-connect --reason` recorded the reason before the scan and the trust, so a failed trust left a recorded reason (fixed before push)
+
+**Symptom.** Found by the same review. The command wrote the `--reason` into the record first. When the scan or the trust
+failed afterward, the inventory held a reason for a trust that never happened.
+
+**Root cause.** The reason is a justification for an act. It was written before the act and nothing removed it on
+failure.
+
+**Fix.** Commit `3cdae87a`: it is recorded after the keys are merged (`firstConnectGate` and
+`recordFirstConnectReason` in `cmd/pleiades/trusthost.go`). The refusal text now says the ephemeral flag guards a slip,
+not a determined operator, since anyone who may write the inventory can set it.
+`TestTrustHost_FirstConnectNeedsAnEphemeralDeviceOrAReason`.
+
+I found no earlier entry for a justification recorded before its act. 563 and 725 are the nearest (ordering of a record
+and an act that can fail), with the order the other way round.
+
+**Lesson.** See LESSONS 364.
+
+## 754. net/linux's live test starts a container, so internal/catalog/net/linux was missing from DOCKER_DEPENDENT_PACKAGES, and pr-check's devtools stage failed on TestEveryContainerPackageIsListed (a repeat of 239 and 447) (fixed before push)
+
+**Symptom.** `make pr-check` failed in its devtools stage within the first minute on
+`tools/internal/flakegate` `TestEveryContainerPackageIsListed`, naming `internal/catalog/net/linux`.
+
+**Root cause.** `TestLinux_BridgeAddressAndRouteOnARealRouter` starts a container, so the package belongs on the
+Makefile's list. The list is kept by hand. `internal/catalog/virt/clab` had been added to it earlier on this branch for
+the same reason (in `4425b6d1`, with its feature), and I did not run the guard after adding the live test for `net/linux`.
+
+**Fix.** Commit `46c5c464` lists the package and gives it a time in `tools/testgate/durations.json`.
+
+**Why 239's and 447's fixes did not prevent it.** They did what they were meant to: 239 built the guard and 447 made it
+read the property, and the guard caught this in under a minute. What neither can do is run before the commit. The miss is
+that the cheap guard ran first inside a hundred-minute gate instead of alone, minutes after the test was written. 746 has
+the same shape (an archtest that held, after the commit).
+
+**Lesson.** After adding a test that starts a container, run `go test ./tools/internal/flakegate -run
+TestEveryContainerPackageIsListed` alone before committing.

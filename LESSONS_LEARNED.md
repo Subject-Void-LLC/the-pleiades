@@ -395,6 +395,8 @@ story, per `.AGENTS/AGENTS.md`.
 360. **A privileged test container is root-equivalent: it asks for the Docker socket first, labels what it makes, and runs only on the owner's word (2026-10-30).**
 361. **A new field on a type the Walk-tier store round-trips needs its column, its migrations and its fixture value in the same change (2026-10-30).**
 362. **A wait on a monitor is bound to the run it was started for: stop a finished run's monitor by its exact PID, and confirm the new run id (2026-10-30).**
+363. **A rule for a mechanism is checked along every route a method can take to a device (tier, how it runs, each path that runs an undo), not only along the first one it was written for (2026-10-31).**
+364. **A record that justifies an act is written after the act succeeds (2026-10-31).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

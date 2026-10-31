@@ -6695,3 +6695,32 @@ your own command line kills your own shell (FAILURE_PATTERNS 689).
 **Rule in practice.** Before a gate run, find the old monitor's PID and stop that one process. After starting, read the
 run id the monitor prints and check it names the new run. Treat a wait that returns at once as a stale answer until the
 run id says otherwise. LESSONS 288 still holds beside it: leave the tree alone until the verdict.
+
+## 363. A rule for a mechanism is checked along every route a method can take to a device, not only along the first one it was written for (2026-10-31).
+
+**Why.** LESSONS 358 made `become` fail closed, and it did so along one axis: the connection (`WithBecome`, the refused
+`Shell`, `Subsystem` and dials on the elevated view). A method also takes a route: in process, through a Runner, or in an
+external Collection's child process, and `become` reaches only the first. On an external method the call connected as the
+login while the result's stat and the journal said `root`, and a rollback replayed the undo as root (FAILURE_PATTERNS
+748). The same change left one more route: a block's `rollback_on_failure` undo ran as the login while `pleiades
+rollback` replayed it as the recorded account (FAILURE_PATTERNS 749). Both were found by the pre-PR review, not by a test
+of the feature. The Runner gap was already admitted in a comment, which is a sign the list of routes was known and not
+closed.
+
+**Rule in practice.** When a change adds a mechanism that alters how a call runs, write the list of routes first: each
+tier (Crawl, Walk), each way a method runs (built in, external child, Runner), and each path that runs an undo (the
+forward task, the in-run undo, the replayed rollback). For each route either apply the mechanism or refuse it by name, at
+plan time where the plan can tell and again at run time. A stat or a journal field is written from what was applied, never
+from what the task asked for. This is LESSONS 244 (one of two sibling paths carries the guard) and LESSONS 358 (privilege
+fails closed) read together.
+
+## 364. A record that justifies an act is written after the act succeeds (2026-10-31).
+
+**Why.** `trust-host --first-connect --reason` wrote the reason into the inventory before the host-key scan and the trust.
+When either failed, the inventory held a reason for a trust that never happened, and a reader would take it as the
+operator's account of a real trust (FAILURE_PATTERNS 753). A justification, an audit note and a "changed" flag all say
+that something occurred. If they are written first, a failure leaves a claim that is false.
+
+**Rule in practice.** Write the reason, the note or the marker after the act it describes has succeeded. Where it must come
+first for another reason, remove it on failure and test the failed path. The refusal text for a guard that anyone with
+write access can bypass says so: it guards a slip, not a determined operator.
