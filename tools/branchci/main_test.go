@@ -185,6 +185,9 @@ func TestRun_Refusals(t *testing.T) {
 	} {
 		for _, args := range [][]string{{"-packages", pkgA}, nil} {
 			receipt := filepath.Join(t.TempDir(), "r.json")
+			if err := os.WriteFile(receipt, []byte(`{"commit":"earlier","conclusion":"success"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
 			gh := &fakeGitHub{t: t, head: head}
 			if err := run(append(args, "-receipt", receipt), io.Discard, gh, git, nonce, c.Now, c.Sleep); err == nil {
 				t.Errorf("%s %v: accepted", name, args)
@@ -193,7 +196,7 @@ func TestRun_Refusals(t *testing.T) {
 				t.Errorf("%s %v: dispatched", name, args)
 			}
 			if _, err := os.Stat(receipt); !errors.Is(err, os.ErrNotExist) {
-				t.Errorf("%s %v: wrote a receipt (%v)", name, args, err)
+				t.Errorf("%s %v: a receipt is left (%v)", name, args, err)
 			}
 		}
 	}
@@ -278,6 +281,56 @@ func (f *failAfter) Get(path string) ([]byte, error) {
 		return nil, errors.New("HTTP 502")
 	}
 	return f.github.Get(path)
+}
+
+// TestRun_AFailedJobsReadKeepsTheConclusion: a run that ended is recorded
+// even when its jobs cannot then be listed.
+func TestRun_AFailedJobsReadKeepsTheConclusion(t *testing.T) {
+	gh := &fakeGitHub{t: t, head: head, conclusion: "success", polls: 1}
+	broken := &failJobs{github: gh}
+	receipt := filepath.Join(t.TempDir(), "r.json")
+	c := &clock{now: time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)}
+	var out strings.Builder
+	if err := run([]string{"-packages", pkgA, "-receipt", receipt}, &out, broken, pushed, nonce, c.Now, c.Sleep); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if r := readReceipt(t, receipt); r.Conclusion != "success" || r.RunID != 2 {
+		t.Errorf("receipt %+v", r)
+	}
+	if !strings.Contains(out.String(), "could not be listed") {
+		t.Errorf("the failed listing is not said:\n%s", out.String())
+	}
+}
+
+// failJobs is a github whose reads of a run's jobs fail.
+type failJobs struct{ github }
+
+// Get fails a jobs read, else asks github.
+func (f *failJobs) Get(path string) ([]byte, error) {
+	if strings.Contains(path, "/jobs") {
+		return nil, errors.New("HTTP 502")
+	}
+	return f.github.Get(path)
+}
+
+// TestRunNameMatchesTheWorkflow: ci.yml's run-name names a dispatch's run
+// exactly as runName does, or branchci would wait out -timeout for a run it
+// can never match.
+func TestRunNameMatchesTheWorkflow(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "format('" + runName("{0}") + "', inputs.nonce)"
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "run-name:") {
+			if !strings.Contains(line, want) {
+				t.Errorf("ci.yml's %s does not hold %s", line, want)
+			}
+			return
+		}
+	}
+	t.Error("ci.yml has no run-name")
 }
 
 // TestNewNonce: a nonce is sixteen hex characters and two differ.

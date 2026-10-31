@@ -44,8 +44,10 @@ func (ghCLI) Post(path string, body []byte) ([]byte, error) {
 	return ghAPI(cmd)
 }
 
-// ghAPI runs a gh api command and names gh's own words when it fails.
+// ghAPI runs a gh api command and names gh's own words when it fails. A
+// killed gh's pipes are waited for no longer than pipeWait.
 func ghAPI(cmd *exec.Cmd) ([]byte, error) {
+	cmd.WaitDelay = pipeWait
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

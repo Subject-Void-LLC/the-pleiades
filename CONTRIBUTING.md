@@ -142,7 +142,7 @@ Every job calls a `make` target, so you can run exactly what a job ran:
 | `containers` | `make ci-containers SHARD=k/6` | the container packages, in six shards, `tests/e2e` divided among them test by test |
 | `coverage` | `make coverage-measured` | the coverage ratchet, from the numbers the jobs above recorded; it fails, rather than being skipped, when any of them failed |
 | `branch-plan` | `make ci-branch-plan` | on a dispatch with `packages` only: those are container packages, and how many shards they fill |
-| `branch-containers` | `make ci-containers SHARD=k/n PACKAGES=...` | on a dispatch with `packages` only: those packages alone, before a pull request |
+| `branch-containers` | `PACKAGES=... make ci-containers SHARD=k/n` | on a dispatch with `packages` only: those packages alone, before a pull request |
 | `nightly` | `make test-full` | the whole suite, strictly, with nothing re-run |
 | `vulns` | `make govulncheck` | no known vulnerability is reachable, re-asked on the schedule because an advisory lands without any code changing |
 

@@ -79,13 +79,25 @@ func main() {
 // repository through git, the dispatch's nonce from nonce, the clock through
 // now and waiting through sleep, so a test drives every path.
 //
-// The receipt is removed before anything is dispatched and written only once
-// the outcome is known, so a run that times out, fails to read GitHub or is
-// interrupted leaves no receipt rather than an earlier commit's.
+// The receipt is removed first, before any refusal, and written as soon as
+// the run's conclusion is known, before its jobs are listed, so a refusal, a
+// timeout, a failed read of GitHub or an interrupt leaves no receipt rather
+// than an earlier commit's, and a run that ended is never lost to a failed
+// read of its jobs.
 func run(args []string, out io.Writer, gh github, git repository, nonce func() (string, error), now func() time.Time, sleep func(time.Duration)) error {
 	o, err := parse(args)
 	if err != nil {
 		return err
+	}
+	if o.receipt == "" {
+		dir, err := git.GitDir()
+		if err != nil {
+			return err
+		}
+		o.receipt = filepath.Join(dir, "pleiades-branch-ci.json")
+	}
+	if err := os.Remove(o.receipt); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("removing the earlier receipt: %w", err)
 	}
 	head, err := git.Head()
 	if err != nil {
@@ -104,16 +116,6 @@ func run(args []string, out io.Writer, gh github, git repository, nonce func() (
 	}
 	if remote != head {
 		return fmt.Errorf("origin's %s is at %q and HEAD is %s: push the branch first (make pr-check, then git push), since the runners test what origin holds", branch, short(remote), short(head))
-	}
-	if o.receipt == "" {
-		dir, err := git.GitDir()
-		if err != nil {
-			return err
-		}
-		o.receipt = filepath.Join(dir, "pleiades-branch-ci.json")
-	}
-	if err := os.Remove(o.receipt); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("removing the earlier receipt: %w", err)
 	}
 	if len(o.packages) == 0 {
 		fmt.Fprintln(out, "branchci: the branch changes no container package, so there is nothing to run (a container package that only imports a changed one is not covered)")
@@ -166,15 +168,15 @@ func run(args []string, out io.Writer, gh github, git repository, nonce func() (
 		}
 		failed, r = 0, next
 	}
-	jobs, err := readJobs(gh, r.ID)
-	if err != nil {
-		return err
-	}
-	for _, j := range jobs {
-		fmt.Fprintf(out, "  %-28s %s  %s\n", j.Name, j.Conclusion, j.URL)
-	}
 	if err := writeReceipt(o.receipt, Receipt{Commit: head, Branch: branch, RunID: r.ID, URL: r.URL, Conclusion: r.Conclusion, Packages: o.packages, WrittenAt: now().UTC()}); err != nil {
 		return err
+	}
+	if jobs, err := readJobs(gh, r.ID); err != nil {
+		fmt.Fprintf(out, "branchci: the run's jobs could not be listed (%v); they are at %s\n", err, r.URL)
+	} else {
+		for _, j := range jobs {
+			fmt.Fprintf(out, "  %-28s %s  %s\n", j.Name, j.Conclusion, j.URL)
+		}
 	}
 	if r.Conclusion != "success" {
 		return fmt.Errorf("the run concluded %s: fix what failed before the pull request (%s)", r.Conclusion, r.URL)
@@ -276,11 +278,18 @@ type repository interface {
 // -timeout.
 const gitTimeout = 2 * time.Minute
 
-// gitOutput runs git with args, bounded by gitTimeout.
+// pipeWait bounds the wait for a killed command's output pipes to close:
+// git ls-remote starts ssh, which holds git's stderr open after the context
+// has killed git, and Output waits for every pipe.
+const pipeWait = 5 * time.Second
+
+// gitOutput runs git with args, bounded by gitTimeout and pipeWait.
 func gitOutput(args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	return exec.CommandContext(ctx, "git", args...).Output() // #nosec G204 -- git with arguments this tool built, never a shell
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- git with arguments this tool built, never a shell
+	cmd.WaitDelay = pipeWait
+	return cmd.Output()
 }
 
 // gitCLI is repository through the git command.

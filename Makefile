@@ -580,10 +580,11 @@ endef
 # is set (import paths, space-separated), once each, refusing one that is not
 # on the list: ci-containers, ci-images and ci-branch-plan take it for CI's
 # branch-containers job, which tests a branch's changed container packages
-# alone. PACKAGES is read from the environment (make exports a command-line
-# variable to its recipes) with globbing off, never pasted into the recipe,
-# so a dispatch input is only ever compared, as fixed text, with go list's
-# own import paths.
+# alone. The recipe reads PACKAGES from its environment with globbing off,
+# never as $(PACKAGES), and compares it, as fixed text, with go list's own
+# import paths. Set it in the environment (PACKAGES="..." make ci-containers),
+# as CI does: make expands $(...) in a variable given on its command line
+# before any recipe sees it, so a value there is not data.
 define ONLY_PACKAGES
 if [ -n "$$PACKAGES" ]; then \
 		set -f; only=""; \

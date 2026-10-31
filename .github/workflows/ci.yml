@@ -355,6 +355,8 @@ jobs:
         shard: ${{ fromJSON(needs.branch-plan.outputs.shards) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # PACKAGES reaches make through the environment only: a variable on
+    # make's command line has its $(...) expanded before a recipe reads it.
     env:
       SHARD: ${{ matrix.shard }}/${{ needs.branch-plan.outputs.count }}
       PACKAGES: ${{ needs.branch-plan.outputs.packages }}
@@ -379,7 +381,7 @@ jobs:
           TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: echo "$TOKEN" | docker login --username "$USERNAME" --password-stdin
       - name: List this shard's images
-        run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt PACKAGES="$PACKAGES"
+        run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt
       - name: Wait for the disk to be freed
         run: |
           for _ in $(seq 600); do
@@ -399,11 +401,11 @@ jobs:
         run: docker load --input .ci/images.tar
       - name: Pull images
         if: steps.images.outputs.cache-hit != 'true'
-        run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt PACKAGES="$PACKAGES" PULL=-pull
+        run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt PULL=-pull
       - name: make ci-containers
         env:
           PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
-        run: make ci-containers SHARD="$SHARD" PACKAGES="$PACKAGES"
+        run: make ci-containers SHARD="$SHARD"
       - name: Keep the process logs of a failed test
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
