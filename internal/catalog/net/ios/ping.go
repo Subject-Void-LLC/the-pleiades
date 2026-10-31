@@ -39,6 +39,7 @@ func init() {
 			// flag parsing only, per Phase 33's own checklist. Add real
 			// entries by hand once this method's platform scope is known.
 			PlatformTargets: nil,
+			NoBecomeReason:  sdk.NoBecomeCLISession,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// Read-only: it sends one exec-mode ping, built from parameters refused if they hold whitespace, and never enters configuration mode, so a check runs it for real.

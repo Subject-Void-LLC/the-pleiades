@@ -95,6 +95,10 @@ func TestBecome_RefusesWhatCannotMeanWhatItSays(t *testing.T) {
 		"runbook level, bad":       {"id: x\nbecome: true\nbecome_method: doas\ntasks:\n  - name: a\n    noop: {}\n", `become_method "doas"`},
 		"become_exe stays refused": {"id: x\ntasks:\n  - name: a\n    noop: {}\n    become_exe: /usr/bin/sudo\n", "an Ansible keyword"},
 		"become_flags stays":       {"id: x\ntasks:\n  - name: a\n    noop: {}\n    become_flags: -H\n", "an Ansible keyword"},
+		// No password is ever carried for sudo: it runs with -n, so a
+		// become_password is refused rather than stored, sent or logged.
+		"become_password refused": {"id: x\ntasks:\n  - name: a\n    noop: {}\n    become: true\n    become_password: hunter2\n", "become_password"},
+		"runbook become_password": {"id: x\nbecome: true\nbecome_password: hunter2\ntasks:\n  - name: a\n    noop: {}\n", "become_password"},
 	} {
 		_, err := buildYAML(t, tc.yaml)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -125,8 +129,11 @@ func TestBecome_ChangesTheRunbooksVersion(t *testing.T) {
 }
 
 // TestCollectionActionExecutor_AMethodSeesTheAccountItBecomes: the context a
-// method runs in says which account, a task without become says none, and the
-// result records the account.
+// method runs in says which account, and a task without become says none. A
+// method that opens no SSH connection ran as the login whatever the task
+// asked, so the result names no account and warns instead
+// (TestCollectionActionExecutor_BecomeIsRecordedOnlyWhenAConnectionRanAsIt
+// covers one that does connect).
 func TestCollectionActionExecutor_AMethodSeesTheAccountItBecomes(t *testing.T) {
 	var seen []string
 	name := registerTestMethod(t, "becomes", collection.StatusImplemented,
@@ -146,8 +153,11 @@ func TestCollectionActionExecutor_AMethodSeesTheAccountItBecomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Stats[engine.StatBecome] != "netadmin" {
-		t.Errorf("stats %v do not record the account", res.Stats)
+	if _, recorded := res.Stats[engine.StatBecome]; recorded {
+		t.Errorf("stats %v name an account no connection ran as", res.Stats)
+	}
+	if !warns(res.Stats, "ran as the login") {
+		t.Errorf("stats %v do not warn that the task ran as the login", res.Stats)
 	}
 	if _, err := exec.Execute(context.Background(), &engine.Task{FQCN: name}, device); err != nil {
 		t.Fatal(err)
@@ -179,8 +189,10 @@ func TestCollectionActionExecutor_BecomeIsRefusedOnARunner(t *testing.T) {
 }
 
 // TestJournal_RecordsTheAccountATaskBecame: an entry carries the account the
-// task ran as, and none for a task that ran as its login, so a rollback can
-// replay the undo as the same account.
+// task's commands ran as, as its executor recorded it, so a rollback replays
+// the undo as the same account. A task that asked and was not run as the
+// account, a task that ran as its login, and a stat naming an account other
+// than the task's own all journal none.
 func TestJournal_RecordsTheAccountATaskBecame(t *testing.T) {
 	sink := &journalSink{}
 	dev := &inventorytest.Stub{StubID: "sw1", StubName: "sw1", StubState: inventory.StateActive}
@@ -189,16 +201,44 @@ func TestJournal_RecordsTheAccountATaskBecame(t *testing.T) {
 		"hosts": "sw1",
 		"tasks": [
 			{"name": "elevated", "fqcn": "noop", "become": true, "become_user": "svc"},
+			{"name": "asked, not applied", "fqcn": "noop", "become": true, "become_user": "svc"},
+			{"name": "claims another", "fqcn": "noop", "become": true, "become_user": "svc"},
 			{"name": "plain", "fqcn": "noop"}
 		]
-	}`, mapResolver{"sw1": {dev}}, deviceRecordingActionExecutor{onExecute: func(inventory.InventoryItem) {}}, sink)
+	}`, mapResolver{"sw1": {dev}}, becomeStatExecutor{"elevated": "svc", "claims another": "root", "plain": "root"}, sink)
 	got := map[string]string{}
 	for _, e := range sink.flat() {
 		got[e.TaskName] = e.Become
 	}
-	if got["elevated"] != "svc" || got["plain"] != "" {
-		t.Errorf("journal become = %v, want elevated svc and plain empty", got)
+	want := map[string]string{"elevated": "svc", "asked, not applied": "", "claims another": "", "plain": ""}
+	for name, user := range want {
+		if got[name] != user {
+			t.Errorf("journal become for %q = %q, want %q (all: %v)", name, got[name], user, got)
+		}
 	}
+}
+
+// becomeStatExecutor is an ActionExecutor that records, as the become stat,
+// the account it is given for each task by name, and nothing for the rest.
+type becomeStatExecutor map[string]string
+
+func (b becomeStatExecutor) Execute(_ context.Context, task *engine.Task, _ inventory.InventoryItem) (engine.ActionResult, error) {
+	user, ok := b[task.Name]
+	if !ok {
+		return engine.ActionResult{}, nil
+	}
+	return engine.ActionResult{Stats: map[string]interface{}{engine.StatBecome: user}}, nil
+}
+
+// warns reports whether stats carry a warning containing text.
+func warns(stats map[string]interface{}, text string) bool {
+	list, _ := stats[sdk.StatWarnings].([]string)
+	for _, w := range list {
+		if strings.Contains(w, text) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestCollectionActionExecutor_BecomeIsRefusedOnAnExternalMethod: an external

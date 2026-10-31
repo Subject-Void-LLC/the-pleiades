@@ -3,10 +3,12 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // BecomeMethodSudo is the only become_method: sudo, run without a password
@@ -38,6 +40,34 @@ func BecomeFor(task *Task) (user string, on bool) {
 		return DefaultBecomeUser, true
 	}
 	return task.BecomeUser, true
+}
+
+// recordBecome says in a method's stats which account its task ran as, from
+// what happened rather than what the task asked: StatBecome is set only when a
+// connection the method opened ran as the account (sdk.BecomeApplied), so a
+// report, an event, the journal and a later rollback never name an account
+// the commands did not run as. A task that asked and reached its device no
+// such way ran as the login, which is said as a warning every run shows. A
+// StatBecome the method set itself is dropped first: the engine is the only
+// one that says it.
+func recordBecome(ctx context.Context, fqcn, user string, becomes bool, stats map[string]interface{}) {
+	delete(stats, StatBecome)
+	if !becomes {
+		return
+	}
+	if sdk.BecomeApplied(ctx) {
+		stats[StatBecome] = user
+		return
+	}
+	warning := fmt.Sprintf("become: %s opened no SSH connection that ran as %s, so whatever it did ran as the login", fqcn, user)
+	switch existing := stats[sdk.StatWarnings].(type) {
+	case []string:
+		stats[sdk.StatWarnings] = append(existing, warning)
+	case []interface{}:
+		stats[sdk.StatWarnings] = append(existing, warning)
+	default:
+		stats[sdk.StatWarnings] = []string{warning}
+	}
 }
 
 // checkBecomeKeys refuses a become, become_user or become_method that cannot

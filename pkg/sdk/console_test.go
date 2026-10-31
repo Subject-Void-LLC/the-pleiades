@@ -168,3 +168,36 @@ func TestConsoleShell_AbandonsAQuestionWithoutAnsweringIt(t *testing.T) {
 		t.Errorf("left waiting then closed: %v, wrote %q, closed %v", err, l.written, l.closed)
 	}
 }
+
+// TestOpenShell_RefusesBecomeBeforeReachingTheDevice: a CLI session sends no
+// command for sudo to run, so a task asking to run as another account is
+// refused before the console is dialed, rather than logged in as the login
+// while the run records the account it asked for.
+func TestOpenShell_RefusesBecomeBeforeReachingTheDevice(t *testing.T) {
+	device := consoleDevice{&inventorytest.Stub{StubName: "P1", Caps: []capability.Name{capability.NameConsoleServed, capability.NameCiscoIOS}}}
+	dialed := false
+	rc := consoleContext{
+		dial: func(context.Context) (netcli.Shell, error) {
+			dialed = true
+			return &line{chunks: []string{"\r\nUsername: ", "Password: ", "\r\nP1#"}}, nil
+		},
+		secrets: map[string]string{wire.SecretUsername: "netops", wire.SecretPassword: "pw"},
+	}
+	ctx := sdk.WithBecome(context.Background(), "root")
+	shell, err := sdk.OpenShell(ctx, rc, device, nil, "net.ios.config")
+	if err == nil {
+		_ = shell.Close()
+		t.Fatal("a CLI session opened for a task that becomes root: it would run as the login")
+	}
+	for _, want := range []string{"net.ios.config", "become", "root"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
+	}
+	if dialed {
+		t.Error("the console was dialed before become was refused")
+	}
+	if sdk.BecomeApplied(ctx) {
+		t.Error("a refused become reads as applied")
+	}
+}

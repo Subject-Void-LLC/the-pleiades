@@ -214,6 +214,9 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 
 	if e.invoke != nil {
 		result, stats, err := e.invoke(ctx, desc, device, task.Params, mode)
+		// Only this executor says which account a task ran as; a child's
+		// stats never do (become is refused above for this path anyway).
+		delete(stats, StatBecome)
 		if err != nil {
 			return ActionResult{Stats: failedStats(task.FQCN, mode, stats)}, methodError(task.FQCN, mode, err)
 		}
@@ -292,11 +295,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if collector, isCollector := rc.(FactCollector); isCollector {
 		stats = collector.Facts()
 	}
-	if becomes {
-		// Said in the result, so a report, an event and a journal entry show
-		// that this task ran as another account, and which.
-		stats[StatBecome] = becomeUser
-	}
+	recordBecome(ctx, task.FQCN, becomeUser, becomes, stats)
 	if err != nil {
 		return ActionResult{Stats: failedStats(task.FQCN, mode, stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
 	}

@@ -4,6 +4,7 @@ package validate_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -116,5 +117,39 @@ tasks:
 	}
 	if nodes != 5 || len(findings) != 5 {
 		t.Errorf("%d findings for the 5 tasks that cannot become: %+v", len(findings), findings)
+	}
+}
+
+// TestBecomeRule_RefusesTheRealCLISessionMethods: the registered methods that
+// speak a device's CLI through a session (net.ios.*, net.cli.*) are refused at
+// plan time, naming why, since their carriers (SSH, Telnet, a console line)
+// all type into the device's own shell where no sudo prefix reaches; a
+// package method that runs commands over SSH is not. This reads the real
+// registry, which this test binary links through collection_rule_test.go.
+func TestBecomeRule_RefusesTheRealCLISessionMethods(t *testing.T) {
+	cli := []string{"net.ios.config", "net.ios.command", "net.ios.facts", "net.ios.ping", "net.ios.save", "net.ios.parse",
+		"net.ios.replace", "net.ios.checkpoints", "net.cli.command", "net.cli.config"}
+	var tasks strings.Builder
+	for i, fqcn := range cli {
+		fmt.Fprintf(&tasks, "  - name: t%d\n    %s: {}\n    become: true\n", i, fqcn)
+	}
+	tasks.WriteString("  - name: package\n    pkg.apt.install:\n      name: jq\n    become: true\n")
+	eval, _ := engine.NewCELEvaluator()
+	dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte("id: cli\nhosts: h\ntasks:\n" + tasks.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, f := range validate.BecomeRule(validate.WorldView{DAG: dag}) {
+		got[dag.Nodes[f.Node].Name] = f.Message
+	}
+	for i, fqcn := range cli {
+		msg := got[fmt.Sprintf("t%d", i)]
+		if !strings.Contains(msg, fqcn+" cannot run as another account") || !strings.Contains(msg, "no sudo prefix reaches") {
+			t.Errorf("%s with become: %q, want it refused as a CLI session", fqcn, msg)
+		}
+	}
+	if msg, refused := got["package"]; refused {
+		t.Errorf("pkg.apt.install with become was refused: %s", msg)
 	}
 }

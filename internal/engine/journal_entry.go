@@ -469,7 +469,16 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	// Non-nil, not non-empty: rollback: [] is an authored undo of nothing.
 	entry.AuthoredRollback = task.Rollback != nil
 	entry.AuthoredRollbackEmpty = task.Rollback != nil && len(task.Rollback) == 0
-	entry.Become, _ = BecomeFor(task)
+	// The account the commands ran as, which the executor records only once
+	// a connection really ran as it (recordBecome), and only ever the task's
+	// own: a stat naming any other account is not believed, so no method's
+	// stats can make a rollback replay an undo as an account the task never
+	// asked for.
+	if user, on := BecomeFor(task); on {
+		if ran, _ := n.journalStats[StatBecome].(string); ran == user {
+			entry.Become = user
+		}
+	}
 	switch {
 	case n.Undo != nil:
 		// A step of a block's rollback_on_failure: a rollback of this very
