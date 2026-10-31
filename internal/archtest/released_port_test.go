@@ -29,6 +29,10 @@ var allowedReleasedPorts = map[string]string{
 	"tests/e2e/harness_test.go:freeTCPPort": "the port is handed to a subprocess of the real binaries, which must bind " +
 		"it itself: a port held here would refuse that bind. If another process takes it first, the subprocess " +
 		"fails to start and the test fails loudly at startup; it never runs against the wrong server.",
+	"internal/testsupport/clabapi.go:freeLocalPort": "the port is handed to the containerlab API server, which runs on " +
+		"the host's network and must bind it itself: a port held here would refuse that bind. If another process " +
+		"takes it first, the server never logs that it started, StartClabServer's wait fails, and the test never " +
+		"runs against the wrong server.",
 }
 
 // TestNoReleasedPortIsUsedAsAnAddress refuses, in every Go file of the

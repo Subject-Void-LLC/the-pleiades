@@ -826,7 +826,8 @@ PR_CHECK_PARALLELISM ?= 0
 # not by default (owner, 2026-10-31): that pass took 104 minutes serial, and a
 # pull request's containers jobs on GitHub Actions run the same packages on
 # six shards, so a branch's container packages are left to CI and pr-check
-# says it did not run them. PR_CHECK_CONTAINERS=yes brings the pass back, with
+# says it did not run them, except PR_CHECK_ALWAYS's (internal/archtest is a
+# container package and runs every time). PR_CHECK_CONTAINERS=yes brings the pass back, with
 # PR_CHECK_DOCKER_PARALLELISM packages at once, each charged
 # PR_CHECK_DOCKER_BUDGET_MB (testgate -budget-mb). Ten at 300 MB was tried and
 # stopped at once: 2514 MB was free as the pass began, four ran, and the
@@ -891,8 +892,9 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
 	if [ "$(PR_CHECK_CONTAINERS)" != yes ] && [ -n "$$mine_docker" ]; then \
-		echo "pr-check: $$(echo $$mine_docker | wc -w) container package(s) are left to the containers jobs on GitHub Actions (PR_CHECK_CONTAINERS=yes runs them here)"; \
-		mine_docker=""; \
+		kept=""; for pkg in $$mine_docker; do case " $(PR_CHECK_ALWAYS) " in *" $$pkg "*) kept="$$kept $$pkg";; esac; done; \
+		echo "pr-check: $$(echo $$mine_docker | wc -w) container package(s) are left to the containers jobs on GitHub Actions but the $$(echo $$kept | wc -w) pr-check always runs (PR_CHECK_CONTAINERS=yes runs them all here)"; \
+		mine_docker="$$kept"; \
 	fi; \
 	since=""; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
