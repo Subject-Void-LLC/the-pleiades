@@ -65,7 +65,7 @@ var codes = map[Code]CodeDoc{
 	"block.always": {OutcomeReview, "always: converted. It runs on each device the block ran on, whatever happened, or once on its own target.", ""},
 	// Task keywords.
 	"keyword.notify":             {OutcomeReview, "notify dropped: the handler will not run.", "Run the handler's task explicitly after the change, guarded by when."},
-	"keyword.become":             {OutcomeReview, "become dropped: the task runs as the connecting user and fails if it needs root.", "A method that needs root says so in its manifest; use a credential with the privilege."},
+	"keyword.become":             {OutcomeReview, "become dropped: the task runs as the connecting user and fails if it needs root.", "Add become: true to the converted task (it runs sudo -n, so the login needs a NOPASSWD rule), or use a credential with the privilege."},
 	"keyword.become_user":        {OutcomeBlocked, "become_user names a user other than root.", ""},
 	"keyword.ignore_errors":      {OutcomeReview, "ignore_errors converted to the native key: the run goes on past a failure of the task, which is still recorded as a failure. Ansible's ignore_errors does not cover an unreachable host (ignore_unreachable does); the native key covers whatever fails the task.", ""},
 	"keyword.changed_when":       {OutcomeBlocked, "changed_when could not be carried: it is templated, has no register to read, on a block, or its condition does not translate.", "Write the condition as CEL over result.<register>."},

@@ -622,11 +622,18 @@ What it is, and is not:
 - Every command the method sends over its connection is elevated, including the reads
   and file writes the method makes to decide what to change, so a check sees what the
   real run will see.
-- It applies to a method that uses SSH. `validate` refuses it on a built-in action, on a
-  method that reaches its device another way (an API, a container engine, a terminal), and
-  on `net.ssh.ping` and `wait.connection`, whose question is the login itself.
-- The journal records the account, and `pleiades rollback` runs the undo as the same
-  account. A method that keeps something under the login's home (`net.frr.config`'s
+- There is no `become_password`. The key is refused, so no sudo password is ever stored,
+  sent or logged.
+- It applies to a method that runs commands over SSH. `validate` refuses it on a built-in
+  action, on a method that reaches its device another way (an API, a container engine), on
+  a method that types into the device's CLI (`net.ios.*`, `net.cli.*`), and on
+  `net.ssh.ping` and `wait.connection`, whose question is the login itself. A method that
+  picks its carrier per device is refused when the task runs, before the device is
+  contacted, on a carrier sudo cannot reach: a CLI session (`wait.routes` on Cisco IOS) or
+  WinRM (`svc.*` on Windows).
+- The result and the journal record the account only when a connection really ran as it.
+  A task that asked and was not run that way says so as a warning, and records no account.
+  `pleiades rollback` runs an undo as the account the change ran as. A method that keeps something under the login's home (`net.frr.config`'s
   backups) records which account made it, and refuses an undo run as another.
 - A Controller and Runner refuse a task with `become` for now. It runs from the CLI.
 
