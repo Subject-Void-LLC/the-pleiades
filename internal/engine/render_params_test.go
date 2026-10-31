@@ -180,3 +180,44 @@ tasks:
 		t.Errorf("skipped = %v, want only the critical task to run", got)
 	}
 }
+
+// TestRenderedParams_AValueHoldingBracesIsNotRenderedAgain: what a variable or
+// an earlier result holds reaches the method as text, braces and all, even when
+// it reads like a template: a parameter is rendered once, so a value a device
+// or an operator supplied can never become an expression evaluated in the
+// run's scope (Phase 87's hardening, the no-double-render rule). A one-expression
+// parameter keeps the value's own type, a string here.
+func TestRenderedParams_AValueHoldingBracesIsNotRenderedAgain(t *testing.T) {
+	const runbook = `id: braces
+tasks:
+  - name: a device answer that reads like a template
+    noop:
+      line: "{{ '{{' }} vars.env {{ '}}' }}"
+    register: answer
+  - name: use it
+    noop:
+      from_result: "{{ result.answer.line }}"
+      inside_text: "cmd {{ result.answer.line }} done"
+      from_var: "{{ vars.spoof }}"
+    register: used
+`
+	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0,
+		engine.WithVariables(map[string]any{"env": "prod", "spoof": "{{ vars.env }}"}), engine.WithRenderer(render.New()))
+	result, err := x.Run(context.Background(), yamlRunbook(t, runbook))
+	if err != nil || result.HasErrors() {
+		t.Fatalf("Run: %v, %+v", err, result.Nodes)
+	}
+	if got := result.Nodes[0].Stats["line"]; got != "{{ vars.env }}" {
+		t.Fatalf("the first task's literal braces rendered to %#v", got)
+	}
+	got := result.Nodes[1].Stats
+	for key, want := range map[string]any{
+		"from_result": "{{ vars.env }}",
+		"inside_text": "cmd {{ vars.env }} done",
+		"from_var":    "{{ vars.env }}",
+	} {
+		if got[key] != want {
+			t.Errorf("%s reached the method as %#v, want %#v: a value was rendered a second time", key, got[key], want)
+		}
+	}
+}
