@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/coverageledger"
 )
@@ -55,7 +54,7 @@ func run(root string) error {
 // refresh rewrites l's contract.json from its vendored file, reporting whether
 // anything changed.
 func refresh(l coverageledger.Ledger) (bool, error) {
-	doc, err := os.ReadFile(filepath.Join(l.Dir, l.Contract.Source.File)) // #nosec G304 -- a file the repository's own ledger names
+	doc, err := l.ReadSource()
 	if err != nil {
 		return false, err
 	}
@@ -77,13 +76,20 @@ func refresh(l coverageledger.Ledger) (bool, error) {
 	if err := enc.Encode(c); err != nil {
 		return false, err
 	}
-	path := filepath.Join(l.Dir, "contract.json")
-	old, err := os.ReadFile(path) // #nosec G304 -- the ledger's own contract file
+	// Read and written through a root on the ledger's directory, as
+	// ReadSource reads, so a contract.json that is a symbolic link cannot
+	// send the write outside it.
+	root, err := os.OpenRoot(l.Dir)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = root.Close() }()
+	old, err := root.ReadFile("contract.json")
 	if err != nil {
 		return false, err
 	}
 	if bytes.Equal(old, out.Bytes()) {
 		return false, nil
 	}
-	return true, os.WriteFile(path, out.Bytes(), 0o644) // #nosec G306 -- a committed data file, not secret material
+	return true, root.WriteFile("contract.json", out.Bytes(), 0o644) // #nosec G306 -- a committed data file, not secret material
 }

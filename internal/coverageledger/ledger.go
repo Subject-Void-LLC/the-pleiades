@@ -155,3 +155,19 @@ func Load(dir string) (Ledger, error) {
 	}
 	return l, nil
 }
+
+// ReadSource returns the vendored contract file l names, read through a root
+// opened on the ledger's directory, so neither a ".." in source.file nor a
+// symbolic link inside the directory can read a file outside it: the ledger
+// is data a pull request may change, and CI reads it.
+func (l Ledger) ReadSource() ([]byte, error) {
+	if !filepath.IsLocal(l.Contract.Source.File) {
+		return nil, fmt.Errorf("%s: source.file %q is not a path inside the ledger's directory", l.Dir, l.Contract.Source.File)
+	}
+	root, err := os.OpenRoot(l.Dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(l.Contract.Source.File)
+}

@@ -115,3 +115,46 @@ func TestSplitTest(t *testing.T) {
 		t.Errorf("got %q %q", dir, name)
 	}
 }
+
+// TestReadSource_StaysInsideTheLedger: the vendored file is read, and neither
+// a ".." in source.file nor a symbolic link pointing out of the directory
+// reads anything outside it; Problems names the first as well.
+func TestReadSource_StaysInsideTheLedger(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("not yours"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contract := func(file string) string {
+		return strings.Replace(strings.Replace(contractJSON, `"cli"`, `"openapi"`, 1), `"sha256"`, `"file": "`+file+`", "sha256"`, 1)
+	}
+	root := writeLedger(t, t.TempDir(), "x.tool", contract("source/api.json"), "")
+	dir := filepath.Join(root, coverageledger.CollectionsDir, "x.tool")
+	if err := os.MkdirAll(filepath.Join(dir, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "source", "api.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l, err := coverageledger.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := l.ReadSource(); err != nil || string(got) != "{}" {
+		t.Fatalf("ReadSource: %q, %v", got, err)
+	}
+
+	l.Contract.Source.File = "../../../../" + filepath.Base(outside) + "/secret"
+	if got, err := l.ReadSource(); err == nil {
+		t.Errorf("a .. path was read: %q", got)
+	}
+	if p := strings.Join(l.Problems(), "\n"); !strings.Contains(p, "not a path inside") {
+		t.Errorf("Problems did not name the .. path: %q", p)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret"), filepath.Join(dir, "source", "link")); err != nil {
+		t.Skipf("symbolic links unavailable here: %v", err)
+	}
+	l.Contract.Source.File = "source/link"
+	if got, err := l.ReadSource(); err == nil {
+		t.Errorf("a symbolic link out of the directory was read: %q", got)
+	}
+}

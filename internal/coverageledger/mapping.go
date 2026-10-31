@@ -4,6 +4,7 @@ package coverageledger
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -107,6 +108,9 @@ func (l Ledger) Problems() []string {
 	}
 	if c.Source.Kind == SourceOpenAPI && c.Source.File == "" {
 		add("an openapi contract is extracted from a vendored file, and source.file names none")
+	}
+	if c.Source.File != "" && !filepath.IsLocal(c.Source.File) {
+		add("source.file %q is not a path inside the ledger's directory", c.Source.File)
 	}
 	known := map[string]bool{}
 	for _, op := range c.Ops {

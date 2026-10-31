@@ -9,7 +9,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -118,7 +117,7 @@ func checkLedgerNames(t *testing.T, l coverageledger.Ledger, methods []string) {
 func checkVendoredContract(t *testing.T, l coverageledger.Ledger) {
 	t.Helper()
 	c := l.Contract
-	doc, err := os.ReadFile(filepath.Join(l.Dir, c.Source.File)) // #nosec G304 -- a file the repository's own ledger names
+	doc, err := l.ReadSource()
 	if err != nil {
 		t.Errorf("%s: %v", c.Collection, err)
 		return
