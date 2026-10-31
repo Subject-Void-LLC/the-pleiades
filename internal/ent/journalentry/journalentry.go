@@ -90,6 +90,8 @@ const (
 	FieldAuthoredRollback = "authored_rollback"
 	// FieldAuthoredRollbackEmpty holds the string denoting the authored_rollback_empty field in the database.
 	FieldAuthoredRollbackEmpty = "authored_rollback_empty"
+	// FieldBecome holds the string denoting the become field in the database.
+	FieldBecome = "become"
 	// FieldRollbackOf holds the string denoting the rollback_of field in the database.
 	FieldRollbackOf = "rollback_of"
 	// FieldUndoesNode holds the string denoting the undoes_node field in the database.
@@ -141,6 +143,7 @@ var Columns = []string{
 	FieldActionChanged,
 	FieldAuthoredRollback,
 	FieldAuthoredRollbackEmpty,
+	FieldBecome,
 	FieldRollbackOf,
 	FieldUndoesNode,
 	FieldUndoesStep,
@@ -417,6 +420,11 @@ func ByAuthoredRollback(opts ...sql.OrderTermOption) OrderOption {
 // ByAuthoredRollbackEmpty orders the results by the authored_rollback_empty field.
 func ByAuthoredRollbackEmpty(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAuthoredRollbackEmpty, opts...).ToFunc()
+}
+
+// ByBecome orders the results by the become field.
+func ByBecome(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBecome, opts...).ToFunc()
 }
 
 // ByRollbackOf orders the results by the rollback_of field.

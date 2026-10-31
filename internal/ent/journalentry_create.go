@@ -473,6 +473,20 @@ func (_c *JournalEntryCreate) SetNillableAuthoredRollbackEmpty(v *bool) *Journal
 	return _c
 }
 
+// SetBecome sets the "become" field.
+func (_c *JournalEntryCreate) SetBecome(v string) *JournalEntryCreate {
+	_c.mutation.SetBecome(v)
+	return _c
+}
+
+// SetNillableBecome sets the "become" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableBecome(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetBecome(*v)
+	}
+	return _c
+}
+
 // SetRollbackOf sets the "rollback_of" field.
 func (_c *JournalEntryCreate) SetRollbackOf(v string) *JournalEntryCreate {
 	_c.mutation.SetRollbackOf(v)
@@ -921,6 +935,10 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.AuthoredRollbackEmpty(); ok {
 		_spec.SetField(journalentry.FieldAuthoredRollbackEmpty, field.TypeBool, value)
 		_node.AuthoredRollbackEmpty = value
+	}
+	if value, ok := _c.mutation.Become(); ok {
+		_spec.SetField(journalentry.FieldBecome, field.TypeString, value)
+		_node.Become = value
 	}
 	if value, ok := _c.mutation.RollbackOf(); ok {
 		_spec.SetField(journalentry.FieldRollbackOf, field.TypeString, value)

@@ -188,6 +188,12 @@ func (JournalEntry) Fields() []ent.Field {
 		field.Bool("action_changed").Immutable().Default(false),
 		field.Bool("authored_rollback").Immutable().Default(false),
 		field.Bool("authored_rollback_empty").Immutable().Default(false),
+		// become is the account the task's commands ran as through sudo,
+		// empty when it ran as its login. A rollback replays the undo as the
+		// same account. It is an author-typed account name, held to
+		// ^[a-z_][a-z0-9_-]{0,31}$ before it is ever recorded, so it carries no
+		// secret (the journal's kind 5, author label).
+		field.String("become").Immutable().Optional(),
 		// rollback_of is the job this row's job undoes, empty for a job that
 		// is not a rollback; undoes_node and undoes_step say which node,
 		// and step, of that job's journal this row's node undoes.
