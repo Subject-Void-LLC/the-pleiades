@@ -6725,7 +6725,7 @@ that something occurred. If they are written first, a failure leaves a claim tha
 first for another reason, remove it on failure and test the failed path. The refusal text for a guard that anyone with
 write access can bypass says so: it guards a slip, not a determined operator.
 
-## 365. A feature's tests run first where CI runs them, not only where they pass: a container test on a native engine and every always-run guard, before the push (2026-10-31).
+## 365. A feature's tests run first where CI runs them, not only where they pass: a container test on a native engine and every always-run guard, before the pull request (2026-10-31).
 
 The owner, on pull request #95: every time a new feature is added it has failed in GitHub Actions, and that must
 not be repeated. On this pull request both CI failures (FAILURE_PATTERNS 755, 756) passed every local check, for

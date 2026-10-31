@@ -4,12 +4,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// ghTimeout bounds one gh api call, so a hung call cannot outlast -timeout.
+const ghTimeout = 2 * time.Minute
 
 // github answers GitHub REST calls, as gh api does. It is an interface so a
 // test answers from fixtures and needs no network.
@@ -25,12 +30,16 @@ type ghCLI struct{}
 
 // Get runs gh api path.
 func (ghCLI) Get(path string) ([]byte, error) {
-	return ghAPI(exec.Command("gh", "api", path)) // #nosec G204 -- gh with a path this tool built
+	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
+	defer cancel()
+	return ghAPI(exec.CommandContext(ctx, "gh", "api", path)) // #nosec G204 -- gh with a path this tool built
 }
 
 // Post runs gh api -X POST path with body on its standard input.
 func (ghCLI) Post(path string, body []byte) ([]byte, error) {
-	cmd := exec.Command("gh", "api", "-X", "POST", path, "--input", "-") // #nosec G204 -- gh with a path this tool built
+	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", "api", "-X", "POST", path, "--input", "-") // #nosec G204 -- gh with a path this tool built
 	cmd.Stdin = bytes.NewReader(body)
 	return ghAPI(cmd)
 }
@@ -51,6 +60,7 @@ func ghAPI(cmd *exec.Cmd) ([]byte, error) {
 type Run struct {
 	ID         int64  `json:"id"`
 	HeadSHA    string `json:"head_sha"`
+	Title      string `json:"display_title"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
 	URL        string `json:"html_url"`
@@ -63,10 +73,16 @@ type Job struct {
 	URL        string `json:"html_url"`
 }
 
+// runName is the name ci.yml's run-name gives the run a dispatch with nonce
+// makes.
+func runName(nonce string) string {
+	return "branch-containers " + nonce
+}
+
 // dispatch asks GitHub to run the workflow on branch with packages as its
-// packages input.
-func dispatch(gh github, branch string, packages []string) error {
-	body, err := json.Marshal(map[string]any{"ref": branch, "inputs": map[string]string{"packages": strings.Join(packages, " ")}})
+// packages input and nonce as its nonce, which names the run.
+func dispatch(gh github, branch string, packages []string, nonce string) error {
+	body, err := json.Marshal(map[string]any{"ref": branch, "inputs": map[string]string{"packages": strings.Join(packages, " "), "nonce": nonce}})
 	if err != nil {
 		return err
 	}
@@ -108,15 +124,18 @@ func dispatchRuns(gh github, branch string) (map[int64]bool, error) {
 	return seen, nil
 }
 
-// newRun is the dispatched run on branch at head that was not there before,
-// or a zero Run while GitHub has not made it yet.
-func newRun(gh github, branch, head string, before map[int64]bool) (Run, error) {
+// newRun is the run this command's dispatch made: on branch at head, named
+// by nonce, and not there before. It is a zero Run while GitHub has not made
+// it yet. The name is what ties a run to its dispatch, since another dispatch
+// at the same commit (a nightly by hand, a second make branch-containers)
+// makes a run that differs in nothing else.
+func newRun(gh github, branch, head, nonce string, before map[int64]bool) (Run, error) {
 	runs, err := listRuns(gh, branch)
 	if err != nil {
 		return Run{}, err
 	}
 	for _, r := range runs {
-		if !before[r.ID] && r.HeadSHA == head {
+		if !before[r.ID] && r.HeadSHA == head && r.Title == runName(nonce) {
 			return r, nil
 		}
 	}

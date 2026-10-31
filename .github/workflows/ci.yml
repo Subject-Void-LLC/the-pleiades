@@ -1,4 +1,9 @@
 name: CI
+# A dispatch from make branch-containers carries a nonce, and its run is
+# named by it, so tools/branchci follows the run its own dispatch made
+# rather than another dispatch's at the same commit. Every other run keeps
+# the name GitHub would give it.
+run-name: ${{ inputs.nonce && format('branch-containers {0}', inputs.nonce) || github.event.pull_request.title || github.event.head_commit.message || github.workflow }}
 
 # Phase 118: the tests run here again, split by what they need.
 #
@@ -19,9 +24,11 @@ name: CI
 #   fast-macos  the same on macOS, advisory until it has passed once
 #   containers  the container packages, in six shards (make ci-containers),
 #               tests/e2e divided among them test by test
-#   branch-containers  a branch's changed container packages alone, on a
-#               dispatch with packages (make branch-containers), before its
-#               pull request: the native engine this machine lacks
+#   branch-plan, branch-containers  a branch's changed container packages
+#               alone, on a dispatch with packages (make branch-containers),
+#               before its pull request: the native engine this machine
+#               lacks; branch-plan checks the packages and sizes the shards
+#               (make ci-branch-plan)
 #   coverage    the floors, from the numbers those jobs recorded
 #               (make coverage-measured), not from a fourth run
 #   nightly     the whole suite with no tolerance at all (make test-full),
@@ -61,12 +68,20 @@ on:
           it to a branch's changed container packages before its pull request.
         type: string
         default: ""
+      nonce:
+        description: >-
+          Names the run (branch-containers <nonce>), so make branch-containers
+          follows the run its own dispatch made. Leave it empty by hand.
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+# A packages dispatch is a group of its own, so it neither waits behind a
+# full or nightly dispatch on the branch nor cancels another one waiting.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}${{ inputs.packages != '' && format('-branch-{0}', inputs.nonce) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -319,30 +334,19 @@ jobs:
   branch-plan:
     if: github.event_name == 'workflow_dispatch' && inputs.packages != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
+      packages: ${{ steps.plan.outputs.packages }}
       shards: ${{ steps.plan.outputs.shards }}
       count: ${{ steps.plan.outputs.count }}
     steps:
-      - name: Check the packages and divide them
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-go
+      - name: make ci-branch-plan
         id: plan
         env:
           PACKAGES: ${{ inputs.packages }}
-        run: |
-          n=0
-          for pkg in $PACKAGES; do
-            case "$pkg" in
-              github.com/Subject-Void-LLC/the-pleiades|github.com/Subject-Void-LLC/the-pleiades/*) ;;
-              *) echo "not this module's package: $pkg" >&2; exit 1;;
-            esac
-            if ! printf '%s' "$pkg" | grep -Eqx '[A-Za-z0-9._/-]+'; then echo "not an import path: $pkg" >&2; exit 1; fi
-            # tests/e2e is dealt test by test, so it fills every shard.
-            if [ "$pkg" = github.com/Subject-Void-LLC/the-pleiades/tests/e2e ]; then n=$((n + 6)); else n=$((n + 1)); fi
-          done
-          if [ "$n" -eq 0 ]; then echo "no packages" >&2; exit 1; fi
-          k=$(( n < 6 ? n : 6 ))
-          echo "shards=$(seq -s, 1 "$k" | sed 's/^/[/; s/$/]/')" >> "$GITHUB_OUTPUT"
-          echo "count=$k" >> "$GITHUB_OUTPUT"
+        run: make -s ci-branch-plan >> "$GITHUB_OUTPUT"
   branch-containers:
     needs: branch-plan
     strategy:
@@ -353,7 +357,7 @@ jobs:
     timeout-minutes: 90
     env:
       SHARD: ${{ matrix.shard }}/${{ needs.branch-plan.outputs.count }}
-      PACKAGES: ${{ inputs.packages }}
+      PACKAGES: ${{ needs.branch-plan.outputs.packages }}
     steps:
       - name: Free disk space, in the background
         run: |
@@ -407,6 +411,7 @@ jobs:
           name: test-logs-branch-containers-${{ matrix.shard }}
           path: ${{ runner.temp }}/test-logs
           if-no-files-found: ignore
+          retention-days: 14
 
   coverage:
     # The ratchet, from the numbers the test jobs recorded. It checks

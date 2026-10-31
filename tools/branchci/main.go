@@ -13,9 +13,18 @@
 // Usage:
 //
 //	branchci -packages "pkg ..." [-receipt file] [-timeout 3h]
+//
+// A pass covers the packages named and nothing else. make branch-containers
+// names the container packages the branch changes, not the container
+// packages that only import a changed package, so a change to a
+// container-free package can pass here with "nothing" and still fail a
+// container package that uses it (FAILURE_PATTERNS 631).
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -23,6 +32,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -53,17 +63,26 @@ type options struct {
 	poll time.Duration
 }
 
+// tries is how many times in a row a read of GitHub may fail while a run is
+// followed before the command gives up: one failed call in hours of polling
+// is the network, not the run.
+const tries = 4
+
 func main() {
-	if err := run(os.Args[1:], os.Stdout, ghCLI{}, gitCLI{}, time.Now, time.Sleep); err != nil {
+	if err := run(os.Args[1:], os.Stdout, ghCLI{}, gitCLI{}, newNonce, time.Now, time.Sleep); err != nil {
 		fmt.Fprintln(os.Stderr, "branchci:", err)
 		os.Exit(1)
 	}
 }
 
 // run parses args and does the work, reading GitHub through gh, the
-// repository through git, the clock through now and waiting through sleep,
-// so a test drives every path.
-func run(args []string, out io.Writer, gh github, git repository, now func() time.Time, sleep func(time.Duration)) error {
+// repository through git, the dispatch's nonce from nonce, the clock through
+// now and waiting through sleep, so a test drives every path.
+//
+// The receipt is removed before anything is dispatched and written only once
+// the outcome is known, so a run that times out, fails to read GitHub or is
+// interrupted leaves no receipt rather than an earlier commit's.
+func run(args []string, out io.Writer, gh github, git repository, nonce func() (string, error), now func() time.Time, sleep func(time.Duration)) error {
 	o, err := parse(args)
 	if err != nil {
 		return err
@@ -79,10 +98,6 @@ func run(args []string, out io.Writer, gh github, git repository, now func() tim
 	if branch == "" || branch == "main" {
 		return fmt.Errorf("on %q: run it on a feature branch, which a pull request would come from", branch)
 	}
-	if len(o.packages) == 0 {
-		fmt.Fprintln(out, "branchci: the branch changes no container package, so there is nothing to run")
-		return writeReceipt(o.receipt, Receipt{Commit: head, Branch: branch, Conclusion: "nothing", WrittenAt: now().UTC()})
-	}
 	remote, err := git.RemoteTip(branch)
 	if err != nil {
 		return err
@@ -90,23 +105,46 @@ func run(args []string, out io.Writer, gh github, git repository, now func() tim
 	if remote != head {
 		return fmt.Errorf("origin's %s is at %q and HEAD is %s: push the branch first (make pr-check, then git push), since the runners test what origin holds", branch, short(remote), short(head))
 	}
+	if o.receipt == "" {
+		dir, err := git.GitDir()
+		if err != nil {
+			return err
+		}
+		o.receipt = filepath.Join(dir, "pleiades-branch-ci.json")
+	}
+	if err := os.Remove(o.receipt); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("removing the earlier receipt: %w", err)
+	}
+	if len(o.packages) == 0 {
+		fmt.Fprintln(out, "branchci: the branch changes no container package, so there is nothing to run (a container package that only imports a changed one is not covered)")
+		return writeReceipt(o.receipt, Receipt{Commit: head, Branch: branch, Conclusion: "nothing", WrittenAt: now().UTC()})
+	}
+	id, err := nonce()
+	if err != nil {
+		return err
+	}
 	before, err := dispatchRuns(gh, branch)
 	if err != nil {
 		return err
 	}
-	if err := dispatch(gh, branch, o.packages); err != nil {
+	if err := dispatch(gh, branch, o.packages, id); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "branchci: dispatched %s's branch-containers job for %d package(s) at %s\n", workflow, len(o.packages), short(head))
+	fmt.Fprintf(out, "branchci: dispatched %s's branch-containers job for %d package(s) at %s (run %q)\n", workflow, len(o.packages), short(head), runName(id))
 	deadline := now().Add(o.timeout)
 	var r Run
+	failed := 0
 	for {
-		r, err = newRun(gh, branch, head, before)
+		r, err = newRun(gh, branch, head, id, before)
 		if err != nil {
-			return err
-		}
-		if r.ID != 0 {
-			break
+			if failed++; failed >= tries {
+				return err
+			}
+		} else {
+			failed = 0
+			if r.ID != 0 {
+				break
+			}
 		}
 		if now().After(deadline) {
 			return fmt.Errorf("no run of the dispatch appeared within %s", o.timeout)
@@ -119,9 +157,14 @@ func run(args []string, out io.Writer, gh github, git repository, now func() tim
 			return fmt.Errorf("run %d did not end within %s; it is still at %s", r.ID, o.timeout, r.URL)
 		}
 		sleep(o.poll)
-		if r, err = readRun(gh, r.ID); err != nil {
-			return err
+		next, err := readRun(gh, r.ID)
+		if err != nil {
+			if failed++; failed >= tries {
+				return err
+			}
+			continue
 		}
+		failed, r = 0, next
 	}
 	jobs, err := readJobs(gh, r.ID)
 	if err != nil {
@@ -140,13 +183,22 @@ func run(args []string, out io.Writer, gh github, git repository, now func() tim
 	return nil
 }
 
+// newNonce is sixteen random hex characters, naming one dispatch's run.
+func newNonce() (string, error) {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("making the dispatch's nonce: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // parse reads the command line.
 func parse(args []string) (options, error) {
 	o := options{poll: 30 * time.Second}
 	fs := flag.NewFlagSet("branchci", flag.ContinueOnError)
 	var packages string
 	fs.StringVar(&packages, "packages", "", "the container packages to test, import paths separated by spaces")
-	fs.StringVar(&o.receipt, "receipt", ".git/pleiades-branch-ci.json", "where the outcome is written")
+	fs.StringVar(&o.receipt, "receipt", "", "where the outcome is written (default pleiades-branch-ci.json in the repository's git directory)")
 	fs.DurationVar(&o.timeout, "timeout", 3*time.Hour, "how long to wait for the run")
 	if err := fs.Parse(args); err != nil {
 		return o, err
@@ -181,7 +233,8 @@ func short(sha string) string {
 // Receipt is what a finished run leaves for a reader: which commit was
 // tested, by which run, and how it concluded.
 type Receipt struct {
-	// Commit is the commit the runners tested.
+	// Commit is the commit the runners tested, or, when nothing ran, the
+	// pushed commit whose branch changes no container package.
 	Commit string `json:"commit"`
 	// Branch is the branch it was on.
 	Branch string `json:"branch"`
@@ -215,6 +268,19 @@ type repository interface {
 	// RemoteTip is the commit origin's branch holds, or "" when origin has
 	// no such branch.
 	RemoteTip(branch string) (string, error)
+	// GitDir is the repository's git directory, as an absolute path.
+	GitDir() (string, error)
+}
+
+// gitTimeout bounds one git command, so a hung remote cannot outlast
+// -timeout.
+const gitTimeout = 2 * time.Minute
+
+// gitOutput runs git with args, bounded by gitTimeout.
+func gitOutput(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "git", args...).Output() // #nosec G204 -- git with arguments this tool built, never a shell
 }
 
 // gitCLI is repository through the git command.
@@ -222,13 +288,22 @@ type gitCLI struct{}
 
 // Head runs git rev-parse HEAD.
 func (gitCLI) Head() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	out, err := gitOutput("rev-parse", "HEAD")
 	return strings.TrimSpace(string(out)), err
+}
+
+// GitDir runs git rev-parse --absolute-git-dir.
+func (gitCLI) GitDir() (string, error) {
+	out, err := gitOutput("rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse --absolute-git-dir: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Branch runs git symbolic-ref --short -q HEAD.
 func (gitCLI) Branch() (string, error) {
-	out, err := exec.Command("git", "symbolic-ref", "--short", "-q", "HEAD").Output()
+	out, err := gitOutput("symbolic-ref", "--short", "-q", "HEAD")
 	if err != nil {
 		return "", nil
 	}
@@ -237,7 +312,7 @@ func (gitCLI) Branch() (string, error) {
 
 // RemoteTip asks origin for the branch with git ls-remote.
 func (gitCLI) RemoteTip(branch string) (string, error) {
-	out, err := exec.Command("git", "ls-remote", "origin", "refs/heads/"+branch).Output() // #nosec G204 -- git with a branch name, never a shell
+	out, err := gitOutput("ls-remote", "origin", "refs/heads/"+branch)
 	if err != nil {
 		return "", fmt.Errorf("git ls-remote origin %s: %w", branch, err)
 	}

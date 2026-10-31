@@ -46,7 +46,7 @@
 // earlier run's.
 //
 // Usage: go run ./tools/testgate [-integration | -full | -repeat n] [-strict] [-race=false] [-p n]
-// [-shard k/n] [-coverage-out file] [-report-out file [-commit sha -clean yes|no]] [-list] [package ...]
+// [-shard k/n] [-coverage-out file] [-report-out file [-commit sha -clean yes|no]] [-list | -shards-for n] [package ...]
 package main
 
 import (
@@ -90,6 +90,7 @@ func main() {
 	flag.StringVar(&o.commit, "commit", "", "stamp the record with the full commit hash pr-check began at (needs -clean)")
 	flag.StringVar(&o.clean, "clean", "", "yes or no: stamp the record with whether the working tree was clean as pr-check began (needs -commit)")
 	list := flag.Bool("list", false, "print the packages this run would test, one per line, and test nothing")
+	shardsMost := flag.Int("shards-for", 0, "print the most shards, up to this many, that each own part of the named packages as -shard deals them, and test nothing")
 	packagesFile := flag.String("packages-file", "", "read the packages to test from this file as well, separated by spaces or lines: how a caller passes a list longer than a command line holds (cmd.exe stops at 8191 characters)")
 	engineClock := flag.Bool("engine-time", false, "print the container engine's own clock (docker info), the time a later -clean-containers -since names; test nothing")
 	cleanAfter := flag.Bool("clean-containers", false, "remove the test containers, networks and anonymous volumes created since -since, and print what was removed; test nothing")
@@ -167,6 +168,18 @@ func main() {
 	// -list answers "which packages does this shard own?" for a step that
 	// needs the answer without running the tests, such as pulling the
 	// images a shard starts.
+	// -shards-for answers "how many shards can these packages fill?" for a
+	// workflow that sizes its matrix to a package list, since a shard left
+	// with nothing is refused.
+	if *shardsMost != 0 {
+		n, err := shardsFor(o.packages, *shardsMost, durations())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testgate:", err)
+			os.Exit(2)
+		}
+		fmt.Println(n)
+		return
+	}
 	if *list {
 		packages, err := o.selected()
 		if err != nil {

@@ -265,3 +265,52 @@ func TestRunPieces_RunsEachPartAloneAndTheWholeTogether(t *testing.T) {
 		t.Errorf("tests run = %v, want %v: the whole package, and of the others only what their pieces own", ran, want)
 	}
 }
+
+// fills reports whether every one of n shards owns a piece of packages.
+func fills(packages []string, n int, seconds map[string]float64) bool {
+	for k := 1; k <= n; k++ {
+		if _, err := piecesOf(packages, fmt.Sprintf("%d/%d", k, n), seconds); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// TestShardsFor_AsksForNoShardItCannotFill: the count shardsFor gives fills
+// every shard, and one more would leave a shard with nothing (or pass the
+// cap), for small lists, a divided package beside whole ones, and the
+// embedded times with tests/e2e and one other package, which counting e2e
+// as six shards got wrong.
+func TestShardsFor_AsksForNoShardItCannotFill(t *testing.T) {
+	cases := []struct {
+		name     string
+		packages []string
+		seconds  map[string]float64
+	}{
+		{"one package", []string{modulePrefix + "a"}, dividedTimes},
+		{"divided beside whole", dividedPackages, dividedTimes},
+		{"e2e and cmd/pleiades", []string{modulePrefix + "tests/e2e", modulePrefix + "cmd/pleiades"}, durations()},
+		{"e2e, cmd/pleiades, cmd/runner", []string{modulePrefix + "tests/e2e", modulePrefix + "cmd/pleiades", modulePrefix + "cmd/runner"}, durations()},
+	}
+	for _, c := range cases {
+		n, err := shardsFor(c.packages, 6, c.seconds)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if n < 1 || n > 6 || !fills(c.packages, n, c.seconds) {
+			t.Errorf("%s: %d shards, which do not all own a piece", c.name, n)
+		}
+		if n < 6 && fills(c.packages, n+1, c.seconds) {
+			t.Errorf("%s: %d shards, but %d would all own a piece", c.name, n, n+1)
+		}
+	}
+	if n, err := shardsFor(dividedPackages, 2, dividedTimes); err != nil || n != 2 {
+		t.Errorf("capped at 2: %d, %v", n, err)
+	}
+	if _, err := shardsFor(nil, 6, dividedTimes); err == nil {
+		t.Error("no packages: accepted")
+	}
+	if _, err := shardsFor(dividedPackages, 0, dividedTimes); err == nil {
+		t.Error("zero shards: accepted")
+	}
+}

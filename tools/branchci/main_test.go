@@ -16,7 +16,7 @@ import (
 
 // fakeGit answers repository's questions from fields.
 type fakeGit struct {
-	head, branch, remote string
+	head, branch, remote, dir string
 }
 
 // Head returns head.
@@ -28,24 +28,54 @@ func (g fakeGit) Branch() (string, error) { return g.branch, nil }
 // RemoteTip returns remote.
 func (g fakeGit) RemoteTip(string) (string, error) { return g.remote, nil }
 
+// GitDir returns dir.
+func (g fakeGit) GitDir() (string, error) { return g.dir, nil }
+
 // fakeGitHub is GitHub with one earlier dispatched run, which makes a new
-// run when dispatched to and moves it to completed after polls reads.
+// run when dispatched to and moves it to completed after polls reads. The
+// new run is at head and named by the dispatch's nonce unless runHead or
+// runTitle say otherwise, and the first fail GETs after the dispatch fail.
 type fakeGitHub struct {
 	t          *testing.T
 	head       string
 	conclusion string
 	polls      int
+	runHead    string
+	runTitle   string
+	fail       int
 	dispatched []byte
 	reads      int
 }
 
+// sentNonce is the nonce the dispatch carried.
+func (f *fakeGitHub) sentNonce() string {
+	var sent struct {
+		Inputs map[string]string `json:"inputs"`
+	}
+	if err := json.Unmarshal(f.dispatched, &sent); err != nil {
+		f.t.Fatal(err)
+	}
+	return sent.Inputs["nonce"]
+}
+
 // Get answers the runs list, a run and its jobs.
 func (f *fakeGitHub) Get(path string) ([]byte, error) {
+	if f.dispatched != nil && f.fail > 0 {
+		f.fail--
+		return nil, errors.New("HTTP 502")
+	}
 	switch {
 	case strings.Contains(path, "/workflows/ci.yml/runs?"):
-		runs := []Run{{ID: 1, HeadSHA: f.head, Status: "completed", Conclusion: "failure"}}
+		runs := []Run{{ID: 1, HeadSHA: f.head, Title: "branch-containers old", Status: "completed", Conclusion: "failure"}}
 		if f.dispatched != nil {
-			runs = append([]Run{{ID: 2, HeadSHA: f.head, Status: "queued", URL: "https://example/run/2"}}, runs...)
+			r := Run{ID: 2, HeadSHA: f.head, Title: runName(f.sentNonce()), Status: "queued", URL: "https://example/run/2"}
+			if f.runHead != "" {
+				r.HeadSHA = f.runHead
+			}
+			if f.runTitle != "" {
+				r.Title = f.runTitle
+			}
+			runs = append([]Run{r}, runs...)
 		}
 		return json.Marshal(map[string]any{"workflow_runs": runs})
 	case strings.HasSuffix(path, "/actions/runs/2"):
@@ -80,6 +110,12 @@ func (c *clock) Now() time.Time { return c.now }
 // Sleep moves the time on.
 func (c *clock) Sleep(d time.Duration) { c.now = c.now.Add(d) }
 
+// nonce is the fixed nonce the tests dispatch with.
+func nonce() (string, error) { return "00112233aabbccdd", nil }
+
+// pushed is a feature branch whose origin tip is HEAD.
+var pushed = fakeGit{head: head, branch: "feat/x", remote: head}
+
 const (
 	head = "0123456789abcdef0123456789abcdef01234567"
 	pkgA = "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/clab"
@@ -110,7 +146,7 @@ func TestRun_DispatchesFollowsAndRecords(t *testing.T) {
 			c := &clock{now: time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)}
 			receipt := filepath.Join(t.TempDir(), "r.json")
 			var out strings.Builder
-			err := run([]string{"-packages", pkgA + " " + pkgB + " " + pkgA, "-receipt", receipt}, &out, gh, fakeGit{head: head, branch: "feat/x", remote: head}, c.Now, c.Sleep)
+			err := run([]string{"-packages", pkgA + " " + pkgB + " " + pkgA, "-receipt", receipt}, &out, gh, pushed, nonce, c.Now, c.Sleep)
 			if (err == nil) != (conclusion == "success") {
 				t.Fatalf("err = %v for a run that concluded %s\n%s", err, conclusion, out.String())
 			}
@@ -121,7 +157,7 @@ func TestRun_DispatchesFollowsAndRecords(t *testing.T) {
 			if jerr := json.Unmarshal(gh.dispatched, &sent); jerr != nil {
 				t.Fatal(jerr)
 			}
-			if sent.Ref != "feat/x" || sent.Inputs["packages"] != pkgA+" "+pkgB {
+			if sent.Ref != "feat/x" || sent.Inputs["packages"] != pkgA+" "+pkgB || sent.Inputs["nonce"] != "00112233aabbccdd" {
 				t.Errorf("dispatched %+v", sent)
 			}
 			r := readReceipt(t, receipt)
@@ -136,39 +172,123 @@ func TestRun_DispatchesFollowsAndRecords(t *testing.T) {
 }
 
 // TestRun_Refusals: an unpushed branch, main and a detached HEAD are refused
-// before any dispatch, a branch with no container package writes a receipt
-// saying so and dispatches nothing, and a run that never ends times out.
+// before any dispatch and before any receipt, with packages or without, and
+// a branch with no container package writes a receipt saying so in the git
+// directory and dispatches nothing, but only once it is pushed.
 func TestRun_Refusals(t *testing.T) {
 	c := &clock{now: time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)}
-	pkgs := []string{"-packages", pkgA, "-receipt", filepath.Join(t.TempDir(), "r.json")}
 	for name, git := range map[string]fakeGit{
 		"not pushed":  {head: head, branch: "feat/x", remote: "ffff"},
 		"main":        {head: head, branch: "main", remote: head},
 		"detached":    {head: head, remote: head},
 		"never there": {head: head, branch: "feat/x"},
 	} {
-		gh := &fakeGitHub{t: t, head: head}
-		if err := run(pkgs, io.Discard, gh, git, c.Now, c.Sleep); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-		if gh.dispatched != nil {
-			t.Errorf("%s: dispatched", name)
+		for _, args := range [][]string{{"-packages", pkgA}, nil} {
+			receipt := filepath.Join(t.TempDir(), "r.json")
+			gh := &fakeGitHub{t: t, head: head}
+			if err := run(append(args, "-receipt", receipt), io.Discard, gh, git, nonce, c.Now, c.Sleep); err == nil {
+				t.Errorf("%s %v: accepted", name, args)
+			}
+			if gh.dispatched != nil {
+				t.Errorf("%s %v: dispatched", name, args)
+			}
+			if _, err := os.Stat(receipt); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s %v: wrote a receipt (%v)", name, args, err)
+			}
 		}
 	}
 
-	receipt := filepath.Join(t.TempDir(), "none.json")
+	git := pushed
+	git.dir = t.TempDir()
 	gh := &fakeGitHub{t: t, head: head}
-	if err := run([]string{"-receipt", receipt}, io.Discard, gh, fakeGit{head: head, branch: "feat/x", remote: head}, c.Now, c.Sleep); err != nil {
+	if err := run(nil, io.Discard, gh, git, nonce, c.Now, c.Sleep); err != nil {
 		t.Fatal(err)
 	}
-	if gh.dispatched != nil || readReceipt(t, receipt).Conclusion != "nothing" {
-		t.Errorf("no packages: dispatched %s, receipt %+v", gh.dispatched, readReceipt(t, receipt))
+	r := readReceipt(t, filepath.Join(git.dir, "pleiades-branch-ci.json"))
+	if gh.dispatched != nil || r.Conclusion != "nothing" || r.Commit != head {
+		t.Errorf("no packages: dispatched %s, receipt %+v", gh.dispatched, r)
 	}
+}
 
-	slow := &fakeGitHub{t: t, head: head, conclusion: "success", polls: 1 << 30}
-	err := run([]string{"-packages", pkgA, "-receipt", filepath.Join(t.TempDir(), "r.json"), "-timeout", "2m"}, io.Discard, slow, fakeGit{head: head, branch: "feat/x", remote: head}, c.Now, c.Sleep)
-	if err == nil || !strings.Contains(err.Error(), "did not end") {
-		t.Errorf("a run that never ends: %v", err)
+// TestRun_FollowsOnlyItsOwnRun: a new run at another commit (the branch
+// moved before the dispatch) or named by another dispatch's nonce is never
+// followed, so the command times out and leaves no receipt, the earlier one
+// removed, rather than recording a run that is not its own; a run that never
+// ends times out the same way.
+func TestRun_FollowsOnlyItsOwnRun(t *testing.T) {
+	for name, gh := range map[string]*fakeGitHub{
+		"another commit": {runHead: "fedcba9876543210fedcba9876543210fedcba98"},
+		"another nonce":  {runTitle: "branch-containers ffffffffffffffff"},
+		"a nightly":      {runTitle: "CI"},
+		"never ends":     {polls: 1 << 30},
+	} {
+		gh.t, gh.head, gh.conclusion = t, head, "success"
+		c := &clock{now: time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)}
+		receipt := filepath.Join(t.TempDir(), "r.json")
+		if err := os.WriteFile(receipt, []byte(`{"commit":"earlier","conclusion":"success"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := run([]string{"-packages", pkgA, "-receipt", receipt, "-timeout", "2m"}, io.Discard, gh, pushed, nonce, c.Now, c.Sleep)
+		want := "no run of the dispatch appeared"
+		if name == "never ends" {
+			want = "did not end"
+		}
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", name, err, want)
+		}
+		if _, err := os.Stat(receipt); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s: a receipt is left (%v)", name, err)
+		}
+	}
+}
+
+// TestRun_ReadsOfGitHubMayFailBriefly: fewer than tries failed reads in a
+// row are waited out, both finding the run and following it; tries of them
+// end the command with the error.
+func TestRun_ReadsOfGitHubMayFailBriefly(t *testing.T) {
+	for _, fail := range []int{tries - 1, tries} {
+		gh := &fakeGitHub{t: t, head: head, conclusion: "success", polls: 2, fail: fail}
+		c := &clock{now: time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)}
+		err := run([]string{"-packages", pkgA, "-receipt", filepath.Join(t.TempDir(), "r.json")}, io.Discard, gh, pushed, nonce, c.Now, c.Sleep)
+		if (err == nil) != (fail < tries) {
+			t.Errorf("%d failed reads: %v", fail, err)
+		}
+	}
+	// The same, once the run is found: the reads of the run fail.
+	gh := &fakeGitHub{t: t, head: head, conclusion: "success", polls: 3}
+	flaky := &failAfter{github: gh, after: 2, fail: tries - 1}
+	c := &clock{now: time.Date(2026, 10, 31, 18, 0, 0, 0, time.UTC)}
+	if err := run([]string{"-packages", pkgA, "-receipt", filepath.Join(t.TempDir(), "r.json")}, io.Discard, flaky, pushed, nonce, c.Now, c.Sleep); err != nil {
+		t.Errorf("following through %d failed reads: %v", tries-1, err)
+	}
+}
+
+// failAfter is a github whose GETs after the first after succeed fail fail
+// times in a row, then answer again.
+type failAfter struct {
+	github
+	after, fail, gets int
+}
+
+// Get fails as failAfter says, else asks github.
+func (f *failAfter) Get(path string) ([]byte, error) {
+	f.gets++
+	if f.gets > f.after && f.fail > 0 {
+		f.fail--
+		return nil, errors.New("HTTP 502")
+	}
+	return f.github.Get(path)
+}
+
+// TestNewNonce: a nonce is sixteen hex characters and two differ.
+func TestNewNonce(t *testing.T) {
+	a, err := newNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := newNonce()
+	if len(a) != 16 || a == b || strings.Trim(a, "0123456789abcdef") != "" {
+		t.Errorf("nonces %q and %q", a, b)
 	}
 }
 
@@ -208,7 +328,7 @@ func TestGitHubErrors(t *testing.T) {
 	if _, err := readJobs(errGitHub{body: "nope"}, 1); err == nil {
 		t.Error("readJobs read text that is not JSON")
 	}
-	if err := dispatch(errGitHub{err: boom}, "b", []string{pkgA}); !errors.Is(err, boom) {
+	if err := dispatch(errGitHub{err: boom}, "b", []string{pkgA}, "n"); !errors.Is(err, boom) {
 		t.Errorf("dispatch: %v", err)
 	}
 	if !strings.Contains(runsPath("feat/a b"), "branch=feat%2Fa+b") {

@@ -102,9 +102,10 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
 22. **A build failure with no compiler output is unexplained, not real and not contention.** Record what the
     machine had free when it happened, then build the package alone on the same tree before naming a cause.
     FAILURE_PATTERNS 537, 690.
-23. **A container test that leans on the host runs on a native engine before the push.** Docker Desktop is a VM;
+23. **A container test that leans on the host runs on a native engine before the pull request.** Docker Desktop is a VM;
     CI's runners are not. Host networking, the Docker socket, namespaces, PAM and cgroups behave differently, and
     pr-check does not run container packages by default. After `make pr-check` and `git push`, `make
     branch-containers` runs the branch's changed container packages on the runners (a dispatch of CI's
-    branch-containers job, receipt in `.git/pleiades-branch-ci.json`); open the pull request only when it passes. A
-    change that narrows what pr-check selects names what it still runs, and keeps `PR_CHECK_ALWAYS`. FAILURE_PATTERNS 426, 446, 538, 755, 756; LESSONS 365.
+    branch-containers job, receipt in `.git/pleiades-branch-ci.json`); open the pull request only when it passes. It
+    covers the container packages the branch changes, not the ones that only import a changed package (FAILURE_PATTERNS
+    631 is still open), and nothing reads the receipt yet: the rule is remembered, not enforced. A change that narrows what pr-check selects names what it still runs, and keeps `PR_CHECK_ALWAYS`. FAILURE_PATTERNS 426, 446, 538, 755, 756; LESSONS 365.
