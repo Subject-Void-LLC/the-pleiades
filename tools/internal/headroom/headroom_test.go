@@ -34,6 +34,29 @@ func TestParallelism(t *testing.T) {
 	}
 }
 
+// TestParallelismFor: a lighter budget lets more packages run at once, a
+// budget of zero or less is the default, and the ask still caps it.
+func TestParallelismFor(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		available      float64
+		want, cpus, mb int
+		ran, fit       int
+	}{
+		{"the capped WSL gate, containers at 300 MB each, asked for 10", 4500, 10, 20, 300, 10, 11},
+		{"the same at the default budget is lowered to 2", 4500, 10, 20, 0, 2, 2},
+		{"a lighter budget still obeys the ask", 4500, 4, 20, 300, 4, 11},
+		{"a short machine still runs one", 1500, 10, 20, 300, 1, 1},
+		{"a negative budget is the default", 4500, 10, 20, -5, 2, 2},
+		{"an unknown reading leaves the ask", 0, 10, 20, 300, 10, 0},
+	} {
+		ran, fit := ParallelismFor(tc.available, tc.want, tc.cpus, tc.mb)
+		if ran != tc.ran || fit != tc.fit {
+			t.Errorf("%s: ParallelismFor(%.0f, %d, %d, %d) = %d, %d; want %d, %d", tc.name, tc.available, tc.want, tc.cpus, tc.mb, ran, fit, tc.ran, tc.fit)
+		}
+	}
+}
+
 // TestStop: a reading under the floor stops the run, and so does swap grown
 // past the limit since the start; a reading with room, and no reading at
 // all, do not.

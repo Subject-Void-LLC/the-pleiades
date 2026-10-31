@@ -83,6 +83,7 @@ func main() {
 	race := flag.Bool("race", true, "use the race detector in the passes that do (-race=false where it cannot build, as on Windows with no C toolchain)")
 	flag.IntVar(&o.repeat, "repeat", 0, "run every test this many times in one process, untagged and without -race (test-repeat)")
 	flag.IntVar(&o.parallel, "p", 0, "how many packages go test runs at once (go test -p); 0 keeps its default")
+	flag.IntVar(&o.budgetMB, "budget-mb", 0, "the memory, in MB, one package's tests are charged for when -p is lowered to what the machine fits; 0 keeps the policy's own. The container pass sets it low: its test processes are light and its containers belong to the engine. The sampler still stops a run the machine cannot hold")
 	flag.StringVar(&o.shard, "shard", "", "k/n: test only this shard of the named packages")
 	flag.StringVar(&o.coverageOut, "coverage-out", "", "write each package's coverage to this JSON file (needs -full)")
 	flag.StringVar(&o.reportOut, "report-out", "", "write the run's record (verdict, failures with their output, skips, coverage) to this JSON file, whatever the outcome")
@@ -199,7 +200,7 @@ func run(o options) (err error) {
 	// short of space, lowers -p to what the memory fits, and follows the run
 	// from here; the record and the log get its account however the run
 	// ends. This defer runs before finishRecord's, which was deferred first.
-	g, err := newGuard(o.parallel, o.packages, divided(o.packages))
+	g, err := newGuard(o.parallel, o.budgetMB, o.packages, divided(o.packages))
 	if err != nil {
 		return err
 	}

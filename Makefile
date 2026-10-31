@@ -822,6 +822,16 @@ PR_BASE ?= origin/main
 # defined here because a prerequisite list is read when its rule is.
 CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 PR_CHECK_PARALLELISM ?= 0
+# PR_CHECK_DOCKER_PARALLELISM and PR_CHECK_DOCKER_BUDGET_MB size pr-check's
+# container pass alone (test-full and CI keep DOCKER_TEST_PARALLELISM). Its
+# test processes are light and the containers they start are the engine's,
+# so the pass runs up to ten packages at once, each charged 300 MB by
+# testgate's -budget-mb instead of the flat 1200 MB that fits two under
+# capped. A run serial took 104 minutes (October 2026). The sampler still stops
+# a run the machine cannot hold, and a failure that passes alone is contention
+# as for any pass, so set the parallelism back to 1 to compare.
+PR_CHECK_DOCKER_PARALLELISM ?= 10
+PR_CHECK_DOCKER_BUDGET_MB ?= 300
 # SIZE_PLATFORMS are the GOOS/GOARCH pairs pr-check's sizes step builds
 # pleiades for (tools/binsize), recording each size in the gitignored
 # .IGNORE/ci/binsize.jsonl so its growth is tracked run after run.
@@ -953,7 +963,7 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 	if [ -n "$$mine_docker" ] && want containers; then \
 		echo "pr-check: the containers pass begins"; \
 		since="$$(go run ./tools/testgate -engine-time)" || since=""; \
-		go run ./tools/testgate -full -p $(DOCKER_TEST_PARALLELISM) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$mine_docker || status=1; \
+		go run ./tools/testgate -full -p $(PR_CHECK_DOCKER_PARALLELISM) -budget-mb $(PR_CHECK_DOCKER_BUDGET_MB) -coverage-out $(COVERAGE_DIR)/pr/containers.json -report-out $$rec/containers.json $(PR_STAMP) $$mine_docker || status=1; \
 		if [ -n "$$since" ]; then go run ./tools/testgate -clean-containers -since "$$since" || true; since=""; fi; \
 	fi; \
 	if want images; then \

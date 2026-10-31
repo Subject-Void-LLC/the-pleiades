@@ -60,8 +60,9 @@ type guard struct {
 // run's, which resources.json's measurements pack into the memory
 // (packedParallelism), or none for ./..., which the flat budget sizes
 // (headroom.Parallelism); divided says which packages' tests are charged
-// one by one (see guard.divided).
-func newGuard(parallel int, packages []string, divided func(string) bool) (*guard, error) {
+// one by one (see guard.divided). budgetMB, when above zero, is the memory a
+// package is charged for in place of both of those (-budget-mb).
+func newGuard(parallel, budgetMB int, packages []string, divided func(string) bool) (*guard, error) {
 	g := &guard{asked: parallel, ran: parallel, divided: divided}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -80,7 +81,12 @@ func newGuard(parallel int, packages []string, divided func(string) bool) (*guar
 		g.start = m
 		g.ran, g.fit = headroom.Parallelism(m.AvailableMB, parallel, runtime.NumCPU())
 		by := fmt.Sprintf("at %d MB a package", headroom.BudgetMB)
-		if len(packages) > 0 {
+		if budgetMB > 0 {
+			// A budget given on the command line replaces both the flat one and
+			// the packing by what resources.json records.
+			g.ran, g.fit = headroom.ParallelismFor(m.AvailableMB, parallel, runtime.NumCPU(), budgetMB)
+			by = fmt.Sprintf("at the %d MB a package that -budget-mb gives", budgetMB)
+		} else if len(packages) > 0 {
 			g.ran = packedParallelism(resources(), packages, m.AvailableMB, parallel, runtime.NumCPU(), headroom.BudgetMB, headroom.ReserveMB)
 			g.fit = g.ran
 			by = fmt.Sprintf("by the most memory %s records each needed (%d MB for one it has none for)", resourcesPath, headroom.BudgetMB)
