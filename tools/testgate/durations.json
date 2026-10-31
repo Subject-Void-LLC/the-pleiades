@@ -19,6 +19,7 @@
  "internal/catalog/net": 7,
  "internal/catalog/net/batfish": 142,
  "internal/catalog/net/frr": 10,
+ "internal/catalog/net/linux": 10,
  "internal/catalog/net/ovs": 6,
  "internal/catalog/scan": 15,
  "internal/catalog/virt/clab": 23,
