@@ -200,6 +200,12 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	// than carried out as the login.
 	becomeUser, becomes := BecomeFor(task)
 	if becomes {
+		// An external Collection's method runs in a process of its own, which
+		// the context does not reach: it would connect as the login while the
+		// result and the journal said it ran as the account.
+		if desc.Provider != nil {
+			return ActionResult{}, fmt.Errorf("collection method %q is an external Collection's, which runs in a process of its own that is not carried become, so it would run as the login instead of %s: remove become", task.FQCN, becomeUser)
+		}
 		if e.invoke != nil {
 			return ActionResult{}, fmt.Errorf("collection method %q: become is not carried to a Runner yet, so this task would run as the login instead of %s: run it from the CLI, or remove become", task.FQCN, becomeUser)
 		}

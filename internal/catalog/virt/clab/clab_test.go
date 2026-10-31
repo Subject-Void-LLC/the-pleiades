@@ -124,6 +124,11 @@ func newServer(t *testing.T) *server {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		lab := r.PathValue("lab")
+		if lab == "leaky" {
+			// A server that quotes the bearer token it was sent in its error.
+			reply(w, 500, map[string]string{"error": "failed for " + r.Header.Get("Authorization")})
+			return
+		}
 		if _, ok := s.labs[lab]; !ok {
 			reply(w, 404, map[string]string{"error": "lab '" + lab + "' not found"})
 			return

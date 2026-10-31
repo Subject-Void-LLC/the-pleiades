@@ -50,6 +50,10 @@ func clabInspectServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// A port published on every address of the lab's host is reached at the API
+// server's host (localhost here, which the test server answers on), never at
+// this machine's loopback by default: the lab is not on this machine.
+//
 // TestImportContainerlab_FromTheAPIServer: the lab's nodes become
 // ephemeral generic_ssh devices at the address inspect gives (a published SSH
 // port over the management address), a lab the server does not have is named
@@ -66,7 +70,7 @@ func TestImportContainerlab_FromTheAPIServer(t *testing.T) {
 			fn   func([]string) error
 			args []string
 		}{
-			{"add-host", runAddHost, []string{"clab-api", "--dir", dir, "--type", "generic_http", "--set", "base_url=" + srv.URL, "--set", "http_auth=basic", "--set", "http_allow_plaintext_credentials=true"}},
+			{"add-host", runAddHost, []string{"clab-api", "--dir", dir, "--type", "generic_http", "--set", "base_url=" + strings.Replace(srv.URL, "127.0.0.1", "localhost", 1), "--set", "http_auth=basic", "--set", "http_allow_plaintext_credentials=true"}},
 			{"add-host (plain)", runAddHost, []string{"plain-api", "--dir", dir, "--type", "generic_http", "--set", "base_url=" + srv.URL, "--set", "http_auth=basic", "--set", "http_allow_plaintext_credentials=true"}},
 			{"add-credential", runAddCredential, []string{"clab-api", "--dir", dir, "--username", "pleiades", "--password", "swordfish-0042"}},
 			{"onboard", runOnboard, []string{"clab-api", "--dir", dir}},
@@ -108,7 +112,7 @@ func TestImportContainerlab_FromTheAPIServer(t *testing.T) {
 	for _, n := range res.Nodes {
 		got[n.Device] = n
 	}
-	if len(got) != 2 || got["n1"].Host != "172.20.20.2" || got["n1"].Port != 22 || got["n2"].Host != "127.0.0.1" || got["n2"].Port != 2202 {
+	if len(got) != 2 || got["n1"].Host != "172.20.20.2" || got["n1"].Port != 22 || got["n2"].Host != "localhost" || got["n2"].Port != 2202 {
 		t.Errorf("imported %+v", got)
 	}
 	for _, name := range []string{"n1", "n2"} {

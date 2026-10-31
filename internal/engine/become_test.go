@@ -200,3 +200,24 @@ func TestJournal_RecordsTheAccountATaskBecame(t *testing.T) {
 		t.Errorf("journal become = %v, want elevated svc and plain empty", got)
 	}
 }
+
+// TestCollectionActionExecutor_BecomeIsRefusedOnAnExternalMethod: an external
+// Collection's method runs in a process of its own that the context does not
+// reach, so a task that becomes an account is refused rather than run as the
+// login while its result and the journal say otherwise.
+func TestCollectionActionExecutor_BecomeIsRefusedOnAnExternalMethod(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	if err := collection.Register(collection.Descriptor{Name: "enginetest.external", Provider: &collection.Provider{Program: "/opt/collections/e", Digest: "sha256:00"},
+		Invoke: func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+			t.Error("the external method ran")
+			return collection.Result{}, nil
+		},
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "fixture"}}}); err != nil {
+		t.Fatal(err)
+	}
+	on := true
+	_, err := newBridge(&recordingFallback{}).Execute(context.Background(), &engine.Task{FQCN: "enginetest.external", Become: &on}, &inventorytest.Stub{StubName: "sw1"})
+	if err == nil || !strings.Contains(err.Error(), "external Collection") || !strings.Contains(err.Error(), "run as the login") {
+		t.Errorf("err %v", err)
+	}
+}

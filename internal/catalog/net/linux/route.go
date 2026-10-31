@@ -155,6 +155,12 @@ func routeRun(ctx context.Context, rc sdk.RunbookContext, s *session, p map[stri
 	}
 	record := func(is bool) error { return rc.SetStat("present", is) }
 	want := route{dest: dest, via: via, dev: dev, metric: metric}
+	// A route with several gateways (or none named on its first line) is more
+	// than the four things recorded for an undo, so replacing or removing it
+	// would record an undo that does not put it back.
+	if found != nil && found.via == "" && found.dev == "" && (!present || via != "" || dev != "") {
+		return false, fmt.Errorf("%s: the route to %s has a form this method cannot record whole (several gateways, or none named on its line), so it is not replaced or removed", s.fqcn, dest)
+	}
 
 	if !present {
 		if found == nil {

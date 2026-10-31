@@ -44,6 +44,8 @@ func BecomeRule(world WorldView) []Finding {
 		switch {
 		case !ok:
 			refuse(task.FQCN + " is not a Collection method: become applies to a method that reaches its device over SSH, and a built-in action or a transport action does not take it")
+		case desc.Provider != nil:
+			refuse(task.FQCN + " is an external Collection's method, which runs in a process of its own that is not carried the account: it would run as the login while the journal said " + user)
 		case desc.Manifest.NoBecomeReason != "":
 			refuse(fmt.Sprintf("%s cannot run as another account: %s", task.FQCN, desc.Manifest.NoBecomeReason))
 		case !slices.Contains(desc.Manifest.For(task.Params).SupportedTransports, capability.TransportSSH):

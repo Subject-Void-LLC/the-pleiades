@@ -163,6 +163,7 @@ func (r *run) undoSteps(n NodeResult) (steps []*Task, authored bool, err error) 
 			if step.Name == "" {
 				step.Name = fmt.Sprintf("undo %s, step %d", taskLabel(n.NodeID, task), i+1)
 			}
+			asAccountOf(&step, task)
 			steps = append(steps, &step)
 		}
 		return steps, true, nil
@@ -189,7 +190,20 @@ func (r *run) undoSteps(n NodeResult) (steps []*Task, authored bool, err error) 
 			params[p.Key] = v
 		}
 	}
-	return []*Task{{Name: "undo " + taskLabel(n.NodeID, task), FQCN: entry.InverseFQCN, Params: params}}, false, nil
+	undo := &Task{Name: "undo " + taskLabel(n.NodeID, task), FQCN: entry.InverseFQCN, Params: params}
+	asAccountOf(undo, task)
+	return []*Task{undo}, false, nil
+}
+
+// asAccountOf makes step run as the account task ran as, when it ran as one,
+// the way a later pleiades rollback replays the undo (rollback.Step.Become): an
+// undo of a change made as root that ran as the login would meet files and
+// state it has no right to, or fail.
+func asAccountOf(step, task *Task) {
+	if user, on := BecomeFor(task); on {
+		yes := true
+		step.Become, step.BecomeUser, step.BecomeMethod = &yes, user, BecomeMethodSudo
+	}
 }
 
 // undoRefused is the failed result of a change undoBlock could not undo: it

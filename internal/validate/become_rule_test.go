@@ -36,6 +36,12 @@ func TestBecomeRule(t *testing.T) {
 	reg("bt.over_ssh", []string{capability.TransportSSH}, "")
 	reg("bt.over_api", []string{capability.TransportHTTPS}, "")
 	reg("bt.login_question", []string{capability.TransportSSH}, "its question is the login itself")
+	// An external Collection's method uses SSH and carries a Provider.
+	if err := collection.Register(collection.Descriptor{Name: "bt.external", Invoke: none, Provider: &collection.Provider{Program: "/opt/collections/bt", Digest: "sha256:00"},
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "fixture", ReadOnly: true},
+			SupportedTransports: []string{capability.TransportSSH}, ExecutionContext: collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	eval, _ := engine.NewCELEvaluator()
 	dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte(`id: b
@@ -56,6 +62,9 @@ tasks:
     noop: {}
     become: true
   - bt.over_api: {}
+    become: true
+  - name: external
+    bt.external: {}
     become: true
   - name: off
     bt.over_api: {}
@@ -93,6 +102,11 @@ tasks:
 			if !strings.Contains(msg, `task "`+id+`"`) || !strings.Contains(msg, "does not reach its device over SSH") {
 				t.Errorf("an unnamed task is not named by its node (%s): %q", id, msg)
 			}
+		case "external":
+			nodes++
+			if !strings.Contains(msg, "external Collection") || !strings.Contains(msg, "not carried the account") {
+				t.Errorf("external: %q", msg)
+			}
 		case "builtin":
 			nodes++
 			if !strings.Contains(msg, "not a Collection method") {
@@ -100,7 +114,7 @@ tasks:
 			}
 		}
 	}
-	if nodes != 4 || len(findings) != 4 {
-		t.Errorf("%d findings for the 4 tasks that cannot become: %+v", len(findings), findings)
+	if nodes != 5 || len(findings) != 5 {
+		t.Errorf("%d findings for the 5 tasks that cannot become: %+v", len(findings), findings)
 	}
 }

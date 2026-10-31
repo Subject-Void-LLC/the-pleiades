@@ -99,8 +99,9 @@ func runTrustHost(args []string) error {
 		return err
 	}
 	var keys []ssh.PublicKey
+	toRecord := ""
 	if *firstConnect {
-		if err := requireFirstConnectReason(ctx, repo, device, *reason); err != nil {
+		if toRecord, err = firstConnectGate(device, *reason); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "WARNING: trusting whatever answered at %s without verifying it: anything on that network could have answered as %s\n", address, name)
@@ -122,6 +123,11 @@ func runTrustHost(args []string) error {
 	if err != nil {
 		return err
 	}
+	if toRecord != "" {
+		if err := recordFirstConnectReason(ctx, repo, device, toRecord); err != nil {
+			return fmt.Errorf("the keys were trusted, but %w", err)
+		}
+	}
 	for _, key := range keys {
 		sum := sha256.Sum256(key.Marshal())
 		fmt.Printf("%s %s SHA256:%s\n", address, key.Type(), base64.RawStdEncoding.EncodeToString(sum[:]))
@@ -130,25 +136,33 @@ func runTrustHost(args []string) error {
 	return nil
 }
 
-// requireFirstConnectReason holds --first-connect to the devices it is for. A
-// device flagged ephemeral is made again with new keys, so there is nothing
-// older to check them against. Any other device has keys that mean something,
-// and trusting whatever answers for it is a decision: it needs a reason, and
-// the reason (with the time) is recorded on the device, in its history.
-func requireFirstConnectReason(ctx context.Context, repo inv.Repository, device inventory.InventoryItem, reason string) error {
+// firstConnectGate holds --first-connect to the devices it is for, and returns
+// the reason to record once the keys are trusted (empty for none). A device
+// flagged ephemeral is made again with new keys, so there is nothing older to
+// check them against. Any other device has keys that mean something, and
+// trusting whatever answers for it is a decision: it needs a reason. The flag
+// guards against a slip, not a determined operator: ephemeral is a property
+// anyone who may write the inventory can set.
+func firstConnectGate(device inventory.InventoryItem, reason string) (string, error) {
 	reason = strings.TrimSpace(reason)
 	if isEphemeral(device) && reason == "" {
-		return nil
+		return "", nil
 	}
 	if reason == "" {
-		return fmt.Errorf("device %q is not flagged ephemeral, so --first-connect would trust whatever answers for a machine whose keys should mean something: trust its keys from a source you can check (--from-console), or pass --reason \"why\" to trust it anyway, which is recorded on the device. A lab node an import-containerlab or import-cml made is flagged already; flag another with: pleiades set-host %s --set %s=true", device.Name(), device.Name(), ephemeralProperty)
+		return "", fmt.Errorf("device %q is not flagged ephemeral, so --first-connect would trust whatever answers for a machine whose keys should mean something: trust its keys from a source you can check (--from-console), or pass --reason \"why\" to trust it anyway, which is recorded on the device once the keys are trusted. A lab node an import-containerlab or import-cml made is flagged already; flag another with: pleiades set-host %s --set %s=true (a guard against a slip: anyone who may write the inventory can set it)", device.Name(), device.Name(), ephemeralProperty)
 	}
-	entry := time.Now().UTC().Format(time.RFC3339) + ": " + reason
+	return time.Now().UTC().Format(time.RFC3339) + ": " + reason, nil
+}
+
+// recordFirstConnectReason writes the reason, with its time, on the device as a
+// revision of it, after the keys were trusted, so a trust that failed leaves no
+// record of one.
+func recordFirstConnectReason(ctx context.Context, repo inv.Repository, device inventory.InventoryItem, entry string) error {
 	if err := device.AddInfo(firstConnectReasonProperty, entry, true); err != nil {
-		return fmt.Errorf("recording the reason on %s: %w", device.Name(), err)
+		return fmt.Errorf("the reason could not be recorded on %s: %w", device.Name(), err)
 	}
 	if err := repo.Save(ctx, device); err != nil {
-		return fmt.Errorf("recording the reason on %s: %w", device.Name(), err)
+		return fmt.Errorf("the reason could not be recorded on %s: %w", device.Name(), err)
 	}
 	return nil
 }

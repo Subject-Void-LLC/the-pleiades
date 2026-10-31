@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -52,7 +53,18 @@ func readInspect(ctx context.Context, dir, device, lab string) (clabTopology, er
 	if !ok {
 		return clabTopology{}, fmt.Errorf("%s's answer could not be read", inspectMethod)
 	}
-	return inspectTopology(facts.Facts(), device, lab)
+	topo, err := inspectTopology(facts.Facts(), device, lab)
+	if err != nil {
+		return clabTopology{}, err
+	}
+	// The lab is on the server's host, so a port it publishes on every
+	// address is reached there, not on this machine.
+	if api, ok := item.(capability.HTTPAPICapable); ok {
+		if u, perr := url.Parse(api.HTTPBaseURL()); perr == nil {
+			topo.wildcardHost = u.Hostname()
+		}
+	}
+	return topo, nil
 }
 
 // inspectTopology reads lab.info's answer for lab on device as a topology.

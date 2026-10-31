@@ -36,6 +36,10 @@ var clabNodeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 type clabTopology struct {
 	Name  string              `json:"name"`
 	Nodes map[string]clabNode `json:"nodes"`
+	// wildcardHost is where a port published on every address is reached when
+	// the nodes are not on this machine: the API server's own host. Empty for a
+	// topology file, which containerlab wrote on the machine that runs the lab.
+	wildcardHost string
 }
 
 // clabNode is one node of a lab.
@@ -133,7 +137,7 @@ func runImportContainerlab(args []string) error {
 	res := clabResult{Lab: *lab}
 	for _, n := range names {
 		node := topo.Nodes[n]
-		host, port, from, err := clabAddress(node)
+		host, port, from, err := clabAddress(node, topo.wildcardHost)
 		if err != nil {
 			return fmt.Errorf("node %s: %w", n, err)
 		}
@@ -273,19 +277,24 @@ func clabSelect(topo clabTopology, lab, only string) ([]string, error) {
 // is published on (a wildcard bind read as this machine's loopback), or
 // else its management address, which only a machine on the lab's
 // management network reaches.
-func clabAddress(node clabNode) (string, int, string, error) {
+func clabAddress(node clabNode, wildcardHost string) (string, int, string, error) {
 	for _, b := range node.PortBindings {
 		if b.Port != 22 || (b.Protocol != "" && b.Protocol != "tcp") || b.HostPort < 1 || b.HostPort > 65535 {
 			continue
 		}
 		host := b.HostIP
-		switch host {
-		case "", "0.0.0.0":
+		wildcard := host == "" || host == "0.0.0.0" || host == "::"
+		switch {
+		case wildcard && wildcardHost != "":
+			// A port published on every address of the lab's host is
+			// reached at that host, which is not this machine.
+			host = wildcardHost
+		case host == "", host == "0.0.0.0":
 			host = "127.0.0.1"
-		case "::":
+		case host == "::":
 			host = "::1"
 		}
-		if _, err := netip.ParseAddr(host); err != nil {
+		if _, err := netip.ParseAddr(host); err != nil && !(wildcard && wildcardHost != "") {
 			return "", 0, "", fmt.Errorf("its published SSH port binds %q, which is not an address", b.HostIP)
 		}
 		return host, b.HostPort, "published SSH port", nil

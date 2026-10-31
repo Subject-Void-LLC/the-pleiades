@@ -32,7 +32,9 @@ const maxBody = 8 << 20
 type Client struct {
 	base *url.URL
 	http *http.Client
-	mask func(string) string
+	// secrets are the values masked wherever the client quotes the server: the
+	// password, and the token once a login has returned one.
+	secrets []string
 }
 
 // NewClient returns a client for the server at base. tlsConfig is the
@@ -54,15 +56,18 @@ func NewClient(base *url.URL, tlsConfig *tls.Config, secrets ...string) *Client 
 				return nil
 			},
 		},
-		mask: func(s string) string {
-			for _, secret := range secrets {
-				if secret != "" {
-					s = strings.ReplaceAll(s, secret, "[masked]")
-				}
-			}
-			return s
-		},
+		secrets: secrets,
 	}
+}
+
+// maskText replaces each secret the client holds in s.
+func (c *Client) maskText(s string) string {
+	for _, secret := range c.secrets {
+		if secret != "" {
+			s = strings.ReplaceAll(s, secret, "[masked]")
+		}
+	}
+	return s
 }
 
 // APIError is an answer the server gave with a status other than 200: its
@@ -114,6 +119,8 @@ func (c *Client) Login(ctx context.Context, username, password string) (string, 
 	if out.Token == "" {
 		return "", errors.New("logging in: the server returned no token")
 	}
+	// From here an answer that echoes the token back is masked too.
+	c.secrets = append(c.secrets, out.Token)
 	return out.Token, nil
 }
 
@@ -141,12 +148,12 @@ func (c *Client) Call(ctx context.Context, token, method, path string, query url
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: %s", path, c.mask(err.Error()))
+		return fmt.Errorf("%s: %s", path, c.maskText(err.Error()))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	content, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		return fmt.Errorf("%s: reading the answer: %s", path, c.mask(err.Error()))
+		return fmt.Errorf("%s: reading the answer: %s", path, c.maskText(err.Error()))
 	}
 	if len(content) > maxBody {
 		return fmt.Errorf("%s: the answer is larger than %d MiB", path, maxBody>>20)
@@ -177,5 +184,5 @@ func (c *Client) said(content []byte) string {
 	if json.Unmarshal(content, &e) == nil && e.Error != "" {
 		text = e.Error
 	}
-	return farside.OutputTail(c.mask(text))
+	return farside.OutputTail(c.maskText(text))
 }

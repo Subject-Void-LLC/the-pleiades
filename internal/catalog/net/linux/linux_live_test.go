@@ -194,6 +194,21 @@ func TestLinux_BridgeAddressAndRouteOnARealRouter(t *testing.T) {
 	if h.sh("ip route show 10.88.0.0/24") != "" {
 		t.Error("the undo of the add left the route")
 	}
+	// A route with two gateways is more than the undo records, so it is
+	// refused for a replace and for a removal, and left as it is.
+	h.sh("ip route add 10.99.0.0/24 nexthop via 10.77.0.2 nexthop via 10.77.0.3")
+	for _, p := range []map[string]any{
+		{"destination": "10.99.0.0/24", "via": "10.77.0.9"},
+		{"destination": "10.99.0.0/24", "state": "absent"},
+	} {
+		if _, _, err := h.call("net.linux.route", p, true, false); err == nil || !strings.Contains(err.Error(), "cannot record whole") {
+			t.Errorf("a route with two gateways, %v: %v", p, err)
+		}
+	}
+	if got := h.sh("ip route show 10.99.0.0/24"); !strings.Contains(got, "10.77.0.2") || !strings.Contains(got, "10.77.0.3") {
+		t.Errorf("a refused change altered the route: %q", got)
+	}
+	h.sh("ip route del 10.99.0.0/24")
 	for name, p := range map[string]map[string]any{
 		"no gateway or device": {"destination": "10.9.0.0/24"},
 		"a bad destination":    {"destination": "ten", "via": "10.77.0.2"},

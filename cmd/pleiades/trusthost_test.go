@@ -37,6 +37,7 @@ func trustProject(t *testing.T) (dir, knownHosts string, srv *remoteexectest.Ser
 	for _, args := range [][]string{
 		{"lab", "--type", "linux_server", "--set", "host=" + srv.Host, "--set", "port=" + strconv.Itoa(srv.Port), "--set", "ephemeral=true", "--dir", dir},
 		{"plain", "--type", "linux_server", "--set", "host=" + srv.Host, "--set", "port=" + strconv.Itoa(srv.Port), "--dir", dir},
+		{"dead", "--type", "linux_server", "--set", "host=127.0.0.1", "--set", "port=1", "--dir", dir},
 		{"win", "--type", "windows_server", "--set", "host=192.0.2.1", "--dir", dir},
 	} {
 		captureStdout(t, func() {
@@ -101,6 +102,15 @@ func TestTrustHost_FirstConnectNeedsAnEphemeralDeviceOrAReason(t *testing.T) {
 	recorded, _ := loadHost(t, dir, "plain").Properties().Raw()[firstConnectReasonProperty].(string)
 	if !strings.Contains(recorded, "lab switch, console not reachable") || !strings.Contains(recorded, "T") {
 		t.Errorf("recorded reason %q holds no reason and time", recorded)
+	}
+
+	// A trust that fails (nothing answers) leaves no record of a reason given.
+	err = runTrustHost([]string{"dead", "--first-connect", "--reason", "never trusted", "--timeout", "5s", "--dir", dir})
+	if err == nil {
+		t.Fatal("trusting a device nothing answers for succeeded")
+	}
+	if got := loadHost(t, dir, "dead").Properties().Raw()[firstConnectReasonProperty]; got != nil {
+		t.Errorf("a failed trust recorded the reason %v", got)
 	}
 
 	// A flagged device needs none, and records none.

@@ -399,3 +399,14 @@ func TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove(t *testing.T) {
 		t.Errorf("uninstall of one that is not there: changed %v, err %v", res.Changed, err)
 	}
 }
+
+// TestClab_TheLoginTokenIsMaskedInAnError: a server that quotes the token it was
+// sent in an error does not put it in the task's, under basic auth where the
+// token is not the stored password.
+func TestClab_TheLoginTokenIsMaskedInAnError(t *testing.T) {
+	srv := newServer(t)
+	_, err := run(t, "virt.clab.lab.info", device(t, srv.URL, true), login(), map[string]any{"lab": "leaky"}, false)
+	if err == nil || strings.Contains(err.Error(), testToken) || strings.Contains(err.Error(), testPassword) || !strings.Contains(err.Error(), "[masked]") {
+		t.Errorf("an error that quoted the token: %v", err)
+	}
+}
