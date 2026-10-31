@@ -55,6 +55,8 @@ tasks:
   - name: builtin
     noop: {}
     become: true
+  - bt.over_api: {}
+    become: true
   - name: off
     bt.over_api: {}
     become: false
@@ -85,6 +87,12 @@ tasks:
 			if !strings.Contains(msg, "its question is the login itself") {
 				t.Errorf("login: %q", msg)
 			}
+		case "":
+			// A task with no name is named by its node in the finding.
+			nodes++
+			if !strings.Contains(msg, `task "`+id+`"`) || !strings.Contains(msg, "does not reach its device over SSH") {
+				t.Errorf("an unnamed task is not named by its node (%s): %q", id, msg)
+			}
 		case "builtin":
 			nodes++
 			if !strings.Contains(msg, "not a Collection method") {
@@ -92,7 +100,7 @@ tasks:
 			}
 		}
 	}
-	if nodes != 3 || len(findings) != 3 {
-		t.Errorf("%d findings for the 3 tasks that cannot become: %+v", len(findings), findings)
+	if nodes != 4 || len(findings) != 4 {
+		t.Errorf("%d findings for the 4 tasks that cannot become: %+v", len(findings), findings)
 	}
 }
