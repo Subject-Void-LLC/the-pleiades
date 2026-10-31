@@ -73,10 +73,17 @@ func (d *testdataDevice) addr() string {
 }
 
 // manage makes a project managing the device under name, classified as
-// classify, with any extra add-host --set values, and a home whose
-// known_hosts holds the key the device presented at a first login as
-// root. It returns the project directory and that home.
+// classify, with any extra add-host --set values, logging in as root, and a
+// home whose known_hosts holds the key the device presented at a first login
+// as root. It returns the project directory and that home.
 func (d *testdataDevice) manage(t *testing.T, name, classify string, sets ...string) (dir, home string) {
+	t.Helper()
+	return d.manageAs(t, name, classify, "root", d.password, sets...)
+}
+
+// manageAs is manage with the device's credential naming user and password
+// instead of root's, for a gate that needs a login without root.
+func (d *testdataDevice) manageAs(t *testing.T, name, classify, user, password string, sets ...string) (dir, home string) {
 	t.Helper()
 	home = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
@@ -98,7 +105,7 @@ func (d *testdataDevice) manage(t *testing.T, name, classify string, sets ...str
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}
-	if out, err := runPleiadesWithStdin(t, dir, d.password+"\n", "add-credential", name, "--username", "root", "--password-stdin"); err != nil {
+	if out, err := runPleiadesWithStdin(t, dir, password+"\n", "add-credential", name, "--username", user, "--password-stdin"); err != nil {
 		t.Fatalf("add-credential: %v\n%s", err, out)
 	}
 	return dir, home
