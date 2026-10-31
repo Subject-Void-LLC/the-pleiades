@@ -209,6 +209,12 @@ type WorkflowDef struct {
 	// PostTasks runs after Tasks, in order. It is the runbook's teardown
 	// phase, mirroring an Ansible play's post_tasks:.
 	PostTasks []Task `json:"posttasks,omitempty" yaml:"posttasks,omitempty"`
+
+	// Handlers are tasks that run only when a task's notify: names them and
+	// that task changed something, at the end of each section, once per
+	// device, in this order (notify.go), mirroring an Ansible play's
+	// handlers:.
+	Handlers []Task `json:"handlers,omitempty" yaml:"handlers,omitempty"`
 }
 
 // Task is a single step in a runbook, or a grouping of steps. Mirroring
@@ -411,6 +417,17 @@ type Task struct {
 	FailedWhen   StringList `json:"failed_when,omitempty" yaml:"failed_when,omitempty"`
 	IgnoreErrors bool       `json:"ignore_errors,omitempty" yaml:"ignore_errors,omitempty"`
 
+	// Notify names the handlers to run when this task changes something on a
+	// device: a handler's name, or a topic handlers listen to. Listen, on a
+	// handler only, is the topics it also answers to. Both are validated by
+	// validateHandlers (notify.go).
+	Notify StringList `json:"notify,omitempty" yaml:"notify,omitempty"`
+	Listen StringList `json:"listen,omitempty" yaml:"listen,omitempty"`
+
+	// handler, set only on the copies of a handler the builder splices after
+	// a section (chain.go), says which handler the node is.
+	handler *handlerRef
+
 	// evalRoots are the roots the task was decided with (its loop's item, a
 	// rescue's error), kept on the copy a run executes so changed_when and
 	// failed_when read what the task's own condition did.
@@ -487,6 +504,11 @@ type DAG struct {
 	PreTasks  []Task
 	Tasks     []Task
 	PostTasks []Task
+
+	// Handlers is def.Handlers, kept for Select's re-walk, and notifyTargets
+	// is which handlers each notify name reaches (validateHandlers).
+	Handlers      []Task
+	notifyTargets map[string][]int
 
 	// Nodes is the flattened view of every task in the runbook, including
 	// every Block, Rescue, Always, and Parallel descendant at any nesting
@@ -706,6 +728,10 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	if err := validateBecomeKeys(&def); err != nil {
 		return nil, err
 	}
+	notifyTargets, err := validateHandlers(&def)
+	if err != nil {
+		return nil, err
+	}
 	propagateCheckMode(&def)
 	propagateBecome(&def)
 	propagateTags(&def)
@@ -752,6 +778,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		PreTasks:    def.PreTasks,
 		Tasks:       def.Tasks,
 		PostTasks:   def.PostTasks,
+		Handlers:    def.Handlers,
 		Nodes:       make(map[string]*Task),
 		Adjacency:   make(map[string][]EdgeConfig),
 		Conditions:  make(map[string]*ConditionProgram),
@@ -767,7 +794,9 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		dag:      dag,
 		register: func(task *Task, id string) error { return b.registerTask(dag, task, id) },
 		include:  func(*Task) bool { return true },
+		handlers: def.Handlers,
 	}
+	dag.notifyTargets = notifyTargets
 	if err := w.wire(def.PreTasks, def.Tasks, def.PostTasks); err != nil {
 		return nil, err
 	}

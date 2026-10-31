@@ -365,7 +365,7 @@ func validFailureStage(stage FailureStage) bool {
 // validFailureStage does.
 func validSkipKind(kind SkipKind) bool {
 	switch kind {
-	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed:
+	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed, SkipKindNotNotified:
 		return true
 	case SkipKindNone:
 		return false

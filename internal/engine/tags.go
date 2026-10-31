@@ -199,7 +199,7 @@ func (f TagFilter) Runs(tags []string) bool {
 // an imported file's tasks inherit the tags of the task that imported
 // them.
 func propagateTags(def *WorkflowDef) {
-	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks} {
+	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks, def.Handlers} {
 		propagateTagsInto(list, def.Tags)
 	}
 }

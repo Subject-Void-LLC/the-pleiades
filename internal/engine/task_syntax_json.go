@@ -22,7 +22,7 @@ func normalizeWorkflowJSON(payload []byte) ([]byte, error) {
 		return payload, nil
 	}
 
-	for _, key := range []string{"pretasks", "tasks", "posttasks"} {
+	for _, key := range []string{"pretasks", "tasks", "posttasks", "handlers"} {
 		if list, ok := generic[key]; ok {
 			if err := normalizeTaskListJSON(list, key); err != nil {
 				return nil, err

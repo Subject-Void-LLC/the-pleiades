@@ -648,6 +648,9 @@ type run struct {
 
 	// facts holds what set_fact tasks have set, by device (vars.go).
 	facts *factStore
+
+	// notified is, per device, which handlers wait to run (notify.go).
+	notified *notifiedHandlers
 }
 
 // modeFor is the mode task runs in (TaskMode): a check whenever the run
@@ -682,6 +685,7 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		undone:    map[resultKey]bool{},
 		items:     map[string]inventory.InventoryItem{},
 		facts:     newFactStore(),
+		notified:  newNotifiedHandlers(),
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
@@ -761,6 +765,9 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 		failed := false
 		for _, out := range outs {
 			result.Nodes = append(result.Nodes, out...)
+			// What changed notifies its handlers, before the next level, so a
+			// handler spliced after this section sees it.
+			r.recordNotifications(out)
 			for _, nr := range out {
 				if nr.Err != nil && !nr.Ignored && !nr.Retried && (nr.Checked || !r.handlers.failed(nr)) {
 					failed = true

@@ -68,8 +68,9 @@ func deviceRoot(d inventory.InventoryItem) map[string]any {
 // its condition (its syntax tree, never its text, so a string holding the
 // word does not count) or in a parameter's template.
 func (r *run) readsDevice(nodeID string, task *Task) bool {
-	// A loop or a retry runs on each device on its own (loop.go).
-	if task.iterates() {
+	// A loop or a retry runs on each device on its own (loop.go), and so does
+	// a handler, which runs only where it was notified (notify.go).
+	if task.iterates() || task.handler != nil {
 		return true
 	}
 	if r.dag.Conditions[nodeID] != nil {
@@ -171,6 +172,14 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 		var one []inventory.InventoryItem
 		if d != nil {
 			key, one = string(d.ID()), []inventory.InventoryItem{d}
+		}
+		// A handler runs on a device only where it was notified, and taking
+		// the notification there is what keeps it to once.
+		if task.handler != nil && !r.notified.take(key, task.handler.index) {
+			r.publish(nodeID, task, key, "skipped", SkipReasonNotNotified)
+			return []NodeResult{finish(NodeResult{
+				NodeID: nodeID, Device: key, StartedAt: started, Skipped: true, SkipReason: SkipReasonNotNotified, skipKind: SkipKindNotNotified,
+			})}
 		}
 		roots := map[string]any{TemplateRootDevice: deviceRoot(d), hostVarsRoot: deviceVars(d)}
 		if errorRoot != nil {

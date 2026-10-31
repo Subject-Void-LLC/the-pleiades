@@ -109,7 +109,7 @@ func yamlKindName(k yaml.Kind) string {
 // children, at any depth. It must run after resolveImportTasks, and
 // before anything reads Task.CheckMode.
 func propagateCheckMode(def *WorkflowDef) {
-	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks} {
+	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks, def.Handlers} {
 		propagateCheckModeInto(list, bool(def.CheckMode))
 	}
 }
@@ -224,6 +224,7 @@ var RunbookKeys = map[string]bool{
 	"become_method": true,
 	"tags":          true,
 	"pretasks":      true,
+	"handlers":      true,
 	"tasks":         true,
 	"posttasks":     true,
 	"reversible":    true,

@@ -84,6 +84,20 @@
           "description": "Go on past a failure of this task; it is still recorded as one.",
           "type": "boolean"
         },
+        "listen": {
+          "description": "On a handler: topics it also answers to.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
         "lock_acquisition": {
           "description": "When this task's device locks are acquired.",
           "enum": [
@@ -114,6 +128,20 @@
         "name": {
           "description": "Free-form label.",
           "type": "string"
+        },
+        "notify": {
+          "description": "Handlers to run when this task changes something: a name or listen topic, or a list of them.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
         },
         "parallel": {
           "items": {
@@ -324,6 +352,12 @@
           "type": "string"
         }
       ]
+    },
+    "handlers": {
+      "items": {
+        "$ref": "#/$defs/task"
+      },
+      "type": "array"
     },
     "hosts": {
       "description": "Default target for a task that does not set its own.",
