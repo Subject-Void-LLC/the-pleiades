@@ -644,8 +644,55 @@ What it is, and is not:
   backups) records which account made it, and refuses an undo run as another.
 - A Controller and Runner refuse a task with `become` for now. It runs from the CLI.
 
+## Handlers and notify
+
+A handler is a task that runs only when something before it changed, such as
+restarting a service after its configuration file was written. List them under
+`handlers:` and name them from a task with `notify:`:
+
+```yaml
+# Writes nginx's configuration and restarts nginx when it changed.
+# Blast radius: the web servers, one file and one reload each.
+# Changes: two files under /etc/nginx/conf.d, and restarts nginx.
+# Undo: pleiades rollback restores the files; the restart is not undone.
+id: web-config
+hosts: web
+become: true
+tasks:
+  - name: Write the site configuration
+    file.copy:
+      dest: /etc/nginx/conf.d/app.conf
+      content: "server { listen 8080; }\n"
+    notify: restart nginx
+  - name: Write the upstream list
+    file.copy:
+      dest: /etc/nginx/conf.d/upstream.conf
+      content: "upstream app { server 127.0.0.1:9000; }\n"
+    notify: restart nginx
+handlers:
+  - name: restart nginx
+    svc.systemd.restart:
+      name: nginx
+```
+
+- A handler runs on a device only when a task that notifies it ran there and
+  changed something. A task that failed, was skipped by `when:` or changed
+  nothing notifies nothing.
+- However many tasks notify it, a handler runs once per device, at the end of
+  the section the tasks are in (`pretasks`, `tasks`, `posttasks`). Handlers run
+  in the order `handlers:` lists them, not the order they were notified.
+- `notify:` takes a handler's `name`, which must be unique, or a topic handlers
+  `listen:` to, so one notification can run several handlers. A name nothing
+  answers to is refused when the runbook is built.
+- A failure that ends the run runs no handler, as in Ansible without
+  `force_handlers`. A failure a `rescue:` answers does not end the run, so the
+  rescue's own notifications are kept.
+- `--tags` does not filter handlers: a handler a selected task notified runs.
+- Not supported yet: `meta: flush_handlers`, a handler that notifies another
+  handler, and a block as a handler. Each is refused with its reason.
+
 ## What is not supported
 
-`with_*` loops other than `with_items`, `handlers` and `notify`, and `serial`
+`with_*` loops other than `with_items`, `meta: flush_handlers`, and `serial`
 are not supported. `pleiades forge migrate-playbook` reports them for a person
 to resolve. See [Migrating from Ansible](03-migrating-from-ansible.md).

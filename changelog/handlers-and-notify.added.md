@@ -1,0 +1,1 @@
+Added `handlers:` and `notify:`: a handler runs on a device only when a task that notifies it (by name or a `listen:` topic) changed something there, once however many tasks did, at the end of `pretasks`, `tasks` and `posttasks`, in the order the handlers are written. `meta: flush_handlers` is not supported yet.
