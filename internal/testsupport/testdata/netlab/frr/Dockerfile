@@ -8,7 +8,7 @@ FROM ${BASE}
 # sudo, with a rule letting the operator become root and frr without a
 # password, for the tests of a task's become. Becoming anyone else is not
 # allowed, which is the refusal those tests read.
-RUN apk add --no-cache openssh-server iputils-tracepath sudo \
+RUN apk add --no-cache openssh-server iputils-tracepath sudo iproute2 \
  && mkdir -p /etc/sudoers.d && printf 'netops ALL=(root,frr) NOPASSWD: ALL\n' > /etc/sudoers.d/netops && chmod 0440 /etc/sudoers.d/netops \
  && adduser -D -s /bin/sh -G frr netops \
  && addgroup netops frrvty \

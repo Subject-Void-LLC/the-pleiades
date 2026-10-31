@@ -46,6 +46,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/junos"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/linux"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ovs"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/pcap"

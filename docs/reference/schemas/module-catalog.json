@@ -12125,6 +12125,304 @@
       "summary": "Applies configuration to a Juniper Junos device."
     }
   },
+  "net.linux.address": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "LinuxCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo is the other state of the same address.",
+      "inverses": [
+        {
+          "fqcn": "net.linux.address",
+          "record": [
+            "interface",
+            "address",
+            "state"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes an address present on a Linux interface, or absent.",
+      "description": "Reads the interface's addresses (ip -o addr show) and adds or deletes only the one named, so a run that repeats it is unchanged. The interface must exist. Its undo is the other state of the same address. It runs ip as the account the task connects as, and changing the network needs root or CAP_NET_ADMIN: a task whose login lacks it fails with ip's own refusal, and become: true runs the task as root through sudo -n (see Writing runbooks). A check reads what a run reads and changes nothing.",
+      "params": [
+        {
+          "name": "interface",
+          "type": "string",
+          "required": true,
+          "description": "The interface (eth1, br0)."
+        },
+        {
+          "name": "address",
+          "type": "string",
+          "required": true,
+          "description": "The address with its prefix length, IPv4 or IPv6 (10.1.1.1/24)."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present or absent."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "present",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the address is on the interface now."
+        },
+        {
+          "name": "addresses",
+          "type": "list of string",
+          "returned": "always",
+          "description": "The interface's addresses now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Give an interface an address",
+          "runbookYaml": "- name: br0 has its address\n  net.linux.address:\n    interface: br0\n    address: 10.1.1.1/24\n  become: true\n"
+        }
+      ],
+      "seeAlso": [
+        "net.linux.bridge",
+        "net.linux.route"
+      ]
+    }
+  },
+  "net.linux.bridge": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "LinuxCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo puts back what it found: a created bridge is removed, attached ports are detached, detached ports are attached again, and a removed bridge is made again with the ports it held, which is partial: a port's own addresses and settings are not recorded.",
+      "inverses": [
+        {
+          "fqcn": "net.linux.bridge",
+          "record": [
+            "name",
+            "state",
+            "ports",
+            "up",
+            "detach_ports"
+          ],
+          "mayBePartial": true,
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a Linux bridge exist with the ports given, or not exist.",
+      "description": "Reads the bridge from /sys/class/net and changes only what differs: creates it, brings it up, and attaches each port in ports that is not on it. A device of that name that is not a bridge is refused, never replaced. Ports not listed are left alone unless remove_other_ports is set. Its undo puts back what it found: a bridge it created is removed, ports it attached are detached, and a bridge it removed is made again with the ports it held (partial: a port's own addresses and settings are not recorded). It runs ip as the account the task connects as, and changing the network needs root or CAP_NET_ADMIN: a task whose login lacks it fails with ip's own refusal, and become: true runs the task as root through sudo -n (see Writing runbooks). A check reads what a run reads and changes nothing.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The bridge's interface name."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present or absent."
+        },
+        {
+          "name": "ports",
+          "type": "list of string",
+          "description": "Interfaces that must be attached to the bridge."
+        },
+        {
+          "name": "up",
+          "type": "bool",
+          "default": "true",
+          "description": "Whether the bridge is administratively up."
+        },
+        {
+          "name": "remove_other_ports",
+          "type": "bool",
+          "default": "false",
+          "description": "Detach interfaces attached to the bridge that ports does not name."
+        },
+        {
+          "name": "detach_ports",
+          "type": "list of string",
+          "description": "Interfaces to detach from the bridge. Set by an undo."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the bridge exists now."
+        },
+        {
+          "name": "ports",
+          "type": "list of string",
+          "returned": "when it exists",
+          "description": "Its ports now, sorted."
+        },
+        {
+          "name": "up",
+          "type": "bool",
+          "returned": "when it exists",
+          "description": "Whether it is up now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "A switch of two ports",
+          "runbookYaml": "- name: br0 joins eth1 and eth2\n  net.linux.bridge:\n    name: br0\n    ports: [eth1, eth2]\n  become: true\n"
+        }
+      ],
+      "seeAlso": [
+        "net.linux.address",
+        "net.linux.route",
+        "net.ovs.bridge"
+      ]
+    }
+  },
+  "net.linux.route": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "LinuxCapable",
+      "CommandExecCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.3.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "Its undo puts back what it found: a new route is removed, a replaced route is replaced by the old one, a removed route is added again.",
+      "inverses": [
+        {
+          "fqcn": "net.linux.route",
+          "record": [
+            "destination",
+            "via",
+            "dev",
+            "metric",
+            "state"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Makes a route present in a Linux host's main routing table, or absent.",
+      "description": "Reads the routing table (ip route show) and acts only when the route differs: a route to the same destination and metric through another gateway or device is replaced, and its undo puts the old one back exactly; a new route's undo removes it. A route removed is made again by its undo. It runs ip as the account the task connects as, and changing the network needs root or CAP_NET_ADMIN: a task whose login lacks it fails with ip's own refusal, and become: true runs the task as root through sudo -n (see Writing runbooks). A check reads what a run reads and changes nothing.",
+      "params": [
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "The destination prefix (10.2.2.0/24), or default."
+        },
+        {
+          "name": "via",
+          "type": "string",
+          "description": "The gateway address. Set via, dev or both."
+        },
+        {
+          "name": "dev",
+          "type": "string",
+          "description": "The outgoing interface."
+        },
+        {
+          "name": "metric",
+          "type": "int",
+          "description": "The route's metric; the kernel's default when unset."
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "default": "present",
+          "choices": [
+            "present",
+            "absent"
+          ],
+          "description": "present or absent."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "present",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the route is in the table now."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Reach another LAN through the router",
+          "runbookYaml": "- name: h1 reaches LAN B through r1\n  net.linux.route:\n    destination: 10.2.2.0/24\n    via: 10.1.1.1\n  become: true\n"
+        }
+      ],
+      "seeAlso": [
+        "net.linux.address",
+        "net.frr.config"
+      ]
+    }
+  },
   "net.netconf.config": {
     "supportedTransports": [
       "netconf"

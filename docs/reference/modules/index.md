@@ -23,7 +23,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 27 | 25 |
+| `net` | 30 | 28 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
@@ -31,7 +31,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 82 | 82 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **256** | **254** |
+| **total** | **259** | **257** |
 
 ## All methods
 
@@ -158,6 +158,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.ios.replace](net/ios/replace.md) | implemented | Replaces a Cisco IOS device's running configuration with a checkpoint file on the device. |
 | [net.ios.save](net/ios/save.md) | implemented | Saves a Cisco IOS device's running configuration to startup. |
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
+| [net.linux.address](net/linux/address.md) | implemented | Makes an address present on a Linux interface, or absent. |
+| [net.linux.bridge](net/linux/bridge.md) | implemented | Makes a Linux bridge exist with the ports given, or not exist. |
+| [net.linux.route](net/linux/route.md) | implemented | Makes a route present in a Linux host's main routing table, or absent. |
 | [net.netconf.config](net/netconf/config.md) | implemented | Applies a configuration document to a device over NETCONF, with an optional pre-change backup. |
 | [net.ovs.bridge](net/ovs/bridge.md) | implemented | Makes an Open vSwitch bridge exist with the datapath given, or not exist. |
 | [net.ovs.port](net/ovs/port.md) | implemented | Makes a port exist on an Open vSwitch bridge with the VLAN tag given, or not exist. |

@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**254 of 256 methods are implemented.**
+**257 of 259 methods are implemented.**
 
 ## Implemented
 
@@ -246,6 +246,9 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [virt.clab.edgeshark.status](modules/virt/clab/edgeshark/status.md)
 - [virt.clab.edgeshark.install](modules/virt/clab/edgeshark/install.md)
 - [virt.clab.edgeshark.uninstall](modules/virt/clab/edgeshark/uninstall.md)
+- [net.linux.bridge](modules/net/linux/bridge.md)
+- [net.linux.address](modules/net/linux/address.md)
+- [net.linux.route](modules/net/linux/route.md)
 - [win.file.copy](modules/win/file/copy.md)
 - [win.file.download](modules/win/file/download.md)
 - [win.cpu.topology](modules/win/cpu/topology.md)

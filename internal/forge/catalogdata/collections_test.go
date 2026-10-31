@@ -85,9 +85,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// and detach_disk. A containerlab API server's methods added the 213th
 	// through 256th: virt.clab.lab.*, node.*, netem.*, veth, vxlan, image.*,
 	// server.*, capture, topology.generate, ssh_session.* and edgeshark.*.
+	// A Linux host's network added the 257th through 259th: net.linux.bridge,
+	// address and route.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 256
+	const wantCollections = 259
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}
