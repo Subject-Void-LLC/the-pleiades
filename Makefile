@@ -822,16 +822,20 @@ PR_BASE ?= origin/main
 # defined here because a prerequisite list is read when its rule is.
 CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
 PR_CHECK_PARALLELISM ?= 0
-# PR_CHECK_DOCKER_PARALLELISM and PR_CHECK_DOCKER_BUDGET_MB size pr-check's
-# container pass alone (test-full and CI keep DOCKER_TEST_PARALLELISM). Its
-# test processes are light and the containers they start are the engine's,
-# so the pass runs up to ten packages at once, each charged 300 MB by
-# testgate's -budget-mb instead of the flat 1200 MB that fits two under
-# capped. A run serial took 104 minutes (October 2026). The sampler still stops
-# a run the machine cannot hold, and a failure that passes alone is contention
-# as for any pass, so set the parallelism back to 1 to compare.
-PR_CHECK_DOCKER_PARALLELISM ?= 10
-PR_CHECK_DOCKER_BUDGET_MB ?= 300
+# PR_CHECK_CONTAINERS says whether pr-check runs the container pass. It does
+# not by default (owner, 2026-10-31): that pass took 104 minutes serial, and a
+# pull request's containers jobs on GitHub Actions run the same packages on
+# six shards, so a branch's container packages are left to CI and pr-check
+# says it did not run them. PR_CHECK_CONTAINERS=yes brings the pass back, with
+# PR_CHECK_DOCKER_PARALLELISM packages at once, each charged
+# PR_CHECK_DOCKER_BUDGET_MB (testgate -budget-mb). Ten at 300 MB was tried and
+# stopped at once: 2514 MB was free as the pass began, four ran, and the
+# machine fell under the 700 MB floor, because the containers these packages
+# start take the machine's memory too. Raise the parallelism only from a
+# run's headroom line.
+PR_CHECK_CONTAINERS ?= no
+PR_CHECK_DOCKER_PARALLELISM ?= 3
+PR_CHECK_DOCKER_BUDGET_MB ?= 500
 # SIZE_PLATFORMS are the GOOS/GOARCH pairs pr-check's sizes step builds
 # pleiades for (tools/binsize), recording each size in the gitignored
 # .IGNORE/ci/binsize.jsonl so its growth is tracked run after run.
@@ -886,6 +890,10 @@ pr-check: $(CI_REMOTE_STATIC) pr-check-vet
 		elif printf '%s\n' $$docker | grep -qx "$$pkg"; then mine_docker="$$mine_docker $$pkg"; \
 		elif printf '%s\n' $$fast | grep -qx "$$pkg"; then mine_fast="$$mine_fast $$pkg"; fi; \
 	done; \
+	if [ "$(PR_CHECK_CONTAINERS)" != yes ] && [ -n "$$mine_docker" ]; then \
+		echo "pr-check: $$(echo $$mine_docker | wc -w) container package(s) are left to the containers jobs on GitHub Actions (PR_CHECK_CONTAINERS=yes runs them here)"; \
+		mine_docker=""; \
+	fi; \
 	since=""; \
 	echo "pr-check: $$(echo $$mine_fast | wc -w) container-free and $$(echo $$mine_docker | wc -w) container package(s) against $(PR_BASE)"; \
 	want() { [ -z "$(LEGS_RUN)" ] && return 0; case " $(LEGS_RUN) " in *" $$1 "*) return 0;; esac; return 1; }; \
