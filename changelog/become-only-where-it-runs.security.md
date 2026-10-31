@@ -1,0 +1,1 @@
+`become` is refused before contact wherever sudo cannot reach (a device's CLI session over SSH, Telnet or a console line, and WinRM), and a task's result and journal name the account only when a connection really ran as it, so a task can no longer run as the login while its record says root.
