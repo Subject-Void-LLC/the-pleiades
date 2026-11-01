@@ -394,19 +394,23 @@ tasks:
 	}
 }
 
-// TestDirSource_Get_RefusesSerial: a Controller does not run serial: batches
-// yet, so a runbook asking for them is refused when it is read, naming why,
-// rather than dispatched to every device at once.
-func TestDirSource_Get_RefusesSerial(t *testing.T) {
+// TestDirSource_Get_CarriesSerial: a runbook's serial: reaches the
+// Controller's fan-out through the source, which runs its devices a batch at
+// a time (internal/dispatch's serial gate).
+func TestDirSource_Get_CarriesSerial(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "rolling.yaml"), []byte("id: rolling\nhosts: web\nserial: 2\ntasks:\n  - name: a\n    noop: {}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "rolling.yaml"), []byte("id: rolling\nhosts: web\nserial: [1, \"50%\"]\ntasks:\n  - name: a\n    noop: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	src, err := runbook.NewDirSource(dir)
 	if err != nil {
 		t.Fatalf("NewDirSource: %v", err)
 	}
-	if _, err := src.Get(context.Background(), "rolling"); err == nil || !strings.Contains(err.Error(), "only the pleiades CLI runs so far") {
-		t.Errorf("Get: %v, want serial: refused", err)
+	rb, err := src.Get(context.Background(), "rolling")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(rb.Serial) != 2 || rb.Serial[0].N != 1 || !rb.Serial[1].Percent || rb.Serial[1].N != 50 {
+		t.Errorf("serial %+v, want [1, 50%%]", rb.Serial)
 	}
 }

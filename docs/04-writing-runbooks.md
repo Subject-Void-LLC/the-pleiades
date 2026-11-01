@@ -720,7 +720,13 @@ tasks:
   run on every device.
 - The batches are one run: one journal, one report, and one `pleiades rollback`.
 - Handlers run at the end of each batch's sections, as in Ansible.
-- The CLI runs batches. A Controller does not yet, so it refuses a runbook with `serial:`.
+- The CLI and a Controller both run batches, in the same order. On a Controller each device of a
+  batch is its own dispatch, bounded by the launch's `forks` when it is set, and the next batch is
+  dispatched once every device of the one before has reported. A failure there lets the rest of its
+  batch finish, then skips every later device, naming the batch; on the CLI a failure ends the batch's
+  run on every device. Either way no later batch starts.
+- A Controller refuses a launch that asks for credential inputs at launch for a runbook with `serial:`:
+  those inputs are held only while the job starts, and later batches start after that.
 
 ### Holding between steps (`pause`)
 

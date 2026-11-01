@@ -85,6 +85,11 @@ type Runbook struct {
 	// it run to completion.
 	Interruptible bool
 
+	// Serial is the runbook's serial: batch sizes, empty for none: the
+	// Controller's fan-out runs its devices a batch at a time
+	// (internal/dispatch's serial gate).
+	Serial engine.SerialList
+
 	// Name, Description, Category and Labels are the catalog metadata a
 	// reader browsing runbooks needs and an executor does not. They come
 	// straight from the compiled WorkflowDef, so a runbook is described by

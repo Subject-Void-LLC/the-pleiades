@@ -39,6 +39,8 @@ const (
 	FieldWaiting = "waiting"
 	// FieldSlot holds the string denoting the slot field in the database.
 	FieldSlot = "slot"
+	// FieldBatch holds the string denoting the batch field in the database.
+	FieldBatch = "batch"
 	// EdgeJob holds the string denoting the job edge name in mutations.
 	EdgeJob = "job"
 	// Table holds the table name of the jobtask in the database.
@@ -67,6 +69,7 @@ var Columns = []string{
 	FieldUnchecked,
 	FieldWaiting,
 	FieldSlot,
+	FieldBatch,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "job_tasks"
@@ -109,6 +112,8 @@ var (
 	DefaultWaiting bool
 	// SlotValidator is a validator for the "slot" field. It is called by the builders before save.
 	SlotValidator func(int) error
+	// BatchValidator is a validator for the "batch" field. It is called by the builders before save.
+	BatchValidator func(int) error
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -224,6 +229,11 @@ func ByWaiting(opts ...sql.OrderTermOption) OrderOption {
 // BySlot orders the results by the slot field.
 func BySlot(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSlot, opts...).ToFunc()
+}
+
+// ByBatch orders the results by the batch field.
+func ByBatch(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBatch, opts...).ToFunc()
 }
 
 // ByJobField orders the results by job field.

@@ -120,6 +120,10 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credenti
 				// above are held only while the job fans out, so a window
 				// that dispatches devices later would run them without.
 				return "", view.FieldErrors{dispatch.ForksField: {"A launch that asks for credential inputs cannot also set forks: those inputs are held only while the job starts, and forks dispatches most devices later. Clear forks, or bind a stored credential."}}, nil
+			case errors.Is(err, api.ErrSerialPrompt):
+				// The runbook itself batches its devices (serial:), so no
+				// control on this form is at fault: the message stands alone.
+				return "", view.FieldErrors{"": {"This runbook runs its devices in serial: batches, and a launch that asks for credential inputs cannot run it: those inputs are held only while the job starts, and every batch after the first starts later. Bind a stored credential instead."}}, nil
 			case err != nil:
 				return "", nil, err
 			}

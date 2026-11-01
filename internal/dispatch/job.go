@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -646,6 +647,18 @@ type JobStore interface {
 	// HeldSlots returns the forks-window slots jobID's dispatched devices
 	// hold while they run (window.go).
 	HeldSlots(ctx context.Context, jobID string) ([]int, error)
+
+	// AssignBatches gives each of jobID's queued tasks its serial: batch,
+	// by device name (engine.Batches), once: a job whose tasks already
+	// carry batches is left as it is, so a fan-out run again changes
+	// nothing (serial.go).
+	AssignBatches(ctx context.Context, jobID string, sizes engine.SerialList) error
+
+	// SerialGate reads where jobID's serial: batches stand (serial.go).
+	SerialGate(ctx context.Context, jobID string) (SerialGate, error)
+
+	// QueuedInBatch is QueuedTasks limited to one serial: batch.
+	QueuedInBatch(ctx context.Context, jobID string, batch, limit int) ([]JobTask, error)
 
 	// ClaimQueued moves jobID's queued task for deviceID to dispatched,
 	// holding slot, and counts it in the job's dispatched tally. It

@@ -183,6 +183,13 @@ devices run at once:
   stored, so devices dispatched later could not have them. Bind a stored credential, or
   leave `forks` unset.
 
+A runbook with `serial:` runs through the same queue: every admitted device is queued, given its
+batch by device name once the fan-out ends, and only the lowest batch with a device still to report
+is dispatched, `forks` at a time when it is set and the whole batch when it is not. A batch in which a
+device failed finishes, then every later device is `skipped` with the reason naming the batch. A
+launch with credential inputs asked for at launch cannot run such a runbook, for the reason it cannot
+set `forks` (422).
+
 The limit holds across Controller replicas: each running device holds a numbered place, and
 the database refuses a second device in the same place. Two things can still make it
 inexact, and both are stated rather than hidden:

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -30,6 +31,11 @@ type PreparedDefinition struct {
 	// Interruptible is whether the run tolerates being stopped mid-flight,
 	// carried onto every device's dispatch payload.
 	Interruptible bool
+
+	// Serial is the runbook's serial: batch sizes, empty for none: the
+	// fan-out queues every admitted device and the pump runs them a batch at
+	// a time (serial.go). Empty for a playbook, whose serial: is Ansible's own.
+	Serial engine.SerialList
 }
 
 // DefinitionSource prepares one kind's definitions for fan-out.
@@ -71,7 +77,7 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		}
 		return PreparedDefinition{}, reason, err
 	}
-	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible}, "", nil
+	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible, Serial: rb.Serial}, "", nil
 }
 
 // PlaybookGetter is the slice of internal/playbook.Source fan-out needs:

@@ -105,6 +105,11 @@ func Slot(v int) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldSlot, v))
 }
 
+// Batch applies equality check predicate on the "batch" field. It's identical to BatchEQ.
+func Batch(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldBatch, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldCreatedAt, v))
@@ -663,6 +668,56 @@ func SlotIsNil() predicate.JobTask {
 // SlotNotNil applies the NotNil predicate on the "slot" field.
 func SlotNotNil() predicate.JobTask {
 	return predicate.JobTask(sql.FieldNotNull(FieldSlot))
+}
+
+// BatchEQ applies the EQ predicate on the "batch" field.
+func BatchEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldBatch, v))
+}
+
+// BatchNEQ applies the NEQ predicate on the "batch" field.
+func BatchNEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldBatch, v))
+}
+
+// BatchIn applies the In predicate on the "batch" field.
+func BatchIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldBatch, vs...))
+}
+
+// BatchNotIn applies the NotIn predicate on the "batch" field.
+func BatchNotIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldBatch, vs...))
+}
+
+// BatchGT applies the GT predicate on the "batch" field.
+func BatchGT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldBatch, v))
+}
+
+// BatchGTE applies the GTE predicate on the "batch" field.
+func BatchGTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldBatch, v))
+}
+
+// BatchLT applies the LT predicate on the "batch" field.
+func BatchLT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldBatch, v))
+}
+
+// BatchLTE applies the LTE predicate on the "batch" field.
+func BatchLTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldBatch, v))
+}
+
+// BatchIsNil applies the IsNil predicate on the "batch" field.
+func BatchIsNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldIsNull(FieldBatch))
+}
+
+// BatchNotNil applies the NotNil predicate on the "batch" field.
+func BatchNotNil() predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotNull(FieldBatch))
 }
 
 // HasJob applies the HasEdge predicate on the "job" edge.
