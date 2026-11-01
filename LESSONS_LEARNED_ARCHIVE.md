@@ -6789,3 +6789,48 @@ Open each through the same `os.Root`, or resolve it with `filepath.EvalSymlinks`
 before use, and give each a test with a real symbolic link that points out. Treat `filepath.IsLocal`, `filepath.Rel`
 and a cleaned prefix as a check of spelling only. A directory confined this way does not confine the files inside
 it, so a glob in it needs its own check.
+
+## 368. A test that proves a mechanism watches for a mark only that mechanism leaves, not an outcome another path also gives (a repeat in kind of 95, 180 and 338) (2026-11-01).
+
+**Why.** The Runner's async gate first checked that a task failed at its limit, that the sleep it started was stopped
+and that no job directory was left (FAILURE_PATTERNS 775). Each of those holds when the command runs attached and dies
+to the signal at the limit, so the gate passed while the Runner's child ran the command attached. The same shape hid,
+from 2026-10-18 to 2026-11-01, that the test binaries' children died on SIGTERM before any stop ran (776): a command
+gone from the device does not say which path ended it.
+LESSONS 95 and 338 say to prove an assertion can fail, and 180 says to pick an identity only the mechanism admits. This
+is the same rule for what a gate observes.
+
+**Rule in practice.** Before trusting a gate, name one other path that would produce what it checks: the plain path, a
+dropped connection, the server's own cleanup. If one exists, add a check only the mechanism can satisfy (the job
+directory only a detached run makes, a mark the stop itself writes), and run the gate once with the mechanism removed
+to see it fail.
+
+## 369. A behavior carried as a context value stops at every process boundary: list each place a call leaves the process and give the request a field for it, tested through the child (a repeat in kind of 363) (2026-11-01).
+
+**Why.** `remoteexec.WithDetach` marks an async task's context so its SSH commands run detached. The Crawl tier runs a
+built-in method in process and honored it. A Runner runs the method in a per-task or session child, and an external
+Collection runs it in its own program; each builds a fresh context from a `wire.ChildRequest`, and the request did not
+carry the mark (FAILURE_PATTERNS 775). Nothing failed, because a missing mark reads as false. LESSONS 363, written the
+day before about `become` (FAILURE_PATTERNS 748), says to list every route a method can take; the list was not written
+for this change, and the in-process tests and the Crawl gate were green.
+
+**Rule in practice.** For each new `context.WithValue` mark that changes how a call runs, find every place the call
+leaves the process (today `internal/adapters/native/ipc_parent.go`, `ipc_session.go` and
+`internal/loader/proxy_unix.go`) and add a request field that the child turns back into the mark
+(`pkg/external.InvokeRequestFor`). Test it through the child (`TestInvokeRequest_AnAsyncCallRunsDetachedInTheChild`)
+and once through a real Runner.
+
+## 370. A race on a path only a release gate reaches is invisible to `-race`, because the gate's own binaries are not race builds: reproduce the server's behavior in a package test so the detector watches the path (a repeat in kind of 34) (2026-11-01).
+
+**Why.** `waitOrAbandon` exists because Debian's sshd never answers a client's close while a command's child holds its
+output (FAILURE_PATTERNS 774). The only test of that path was the async release gate, which builds `pleiades` and runs it
+against a real sshd. `run` read the output buffers while x/crypto/ssh's copiers could still write them (778), and the
+gate could not see it twice over: its command wrote nothing, and the binary it ran was not built with `-race`, so the
+detector ran only on the test's own process. The fp-reviewer agent found the race by reading. A TCP proxy that stops
+forwarding the server's side reproduced the sshd behavior inside `pkg/remoteexec`'s own tests, and `-race` then
+reported it on the old code. LESSONS 34 says only `-race` on the specific path catches such a race; this is the case
+where the path's one test runs it in another process.
+
+**Rule in practice.** When a fix exists for a server's behavior that only a gate reproduces, write a package test that
+reproduces the behavior in process (a proxy, a stand-in that withholds the same answer) and drives the same code with
+output flowing, so `-race` sees it. Do not count a gate's pass as race evidence for code inside the binary it built.

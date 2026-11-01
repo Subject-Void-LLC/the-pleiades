@@ -400,6 +400,9 @@ story, per `.AGENTS/AGENTS.md`.
 365. **A feature's tests run first where CI runs them, not only where they pass: a container test on a native engine and every always-run guard, before the pull request (2026-10-31).**
 366. **When a record's field moves from what was asked to what happened, every path that writes the stats it is built from carries the field, the failure paths that keep something included; find the writers where the map is built, not only the readers (a repeat in kind of 348) (2026-11-01).**
 367. **A confinement rule found on one read of a data source binds every read of that source and every path derived from it; a lexical check such as `filepath.IsLocal` names a path, it does not confine one, once the path reaches the filesystem (a repeat in kind of 229 and 244) (2026-11-01).**
+368. **A test that proves a mechanism watches for a mark only that mechanism leaves, not an outcome another path also gives (a repeat in kind of 95, 180 and 338) (2026-11-01).**
+369. **A behavior carried as a context value stops at every process boundary: list each place a call leaves the process and give the request a field for it, tested through the child (a repeat in kind of 363) (2026-11-01).**
+370. **A race on a path only a release gate reaches is invisible to `-race`, because the gate's own binaries are not race builds: reproduce the server's behavior in a package test so the detector watches the path (a repeat in kind of 34) (2026-11-01).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

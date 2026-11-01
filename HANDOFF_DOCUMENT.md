@@ -4,105 +4,75 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-10-31. Branch `feat/agent-friendly-frr-and-hosts`, 13 commits ahead of `main` at `ea70badf` (engine and become;
-net fixes; virt.clab; cli; docs; records; mcp; journal column; sdk and validate coverage tests; testgate durations;
-net.linux; the container-list fix `46c5c464`; the pre-PR review fixes `3cdae87a`). Clean tree apart from these records.
-Not pushed, no pull request.**
-
-### pr-check state
-
-- Run 3 (commit `90d204a0`) passed every stage: all 50 container-test packages (4010 s), images, coverage and sizes. It
-  failed only on `durations` (FAILURE_PATTERNS 745), fixed in `c6701288` and checked with `go run ./tools/testgate
-  -durations-check .coverage/pr/containers.json`.
-- A later run (after net.linux) failed within its first minute in the devtools stage on `tools/internal/flakegate`
-  `TestEveryContainerPackageIsListed`: `internal/catalog/net/linux` was not on the Makefile's container list
-  (FAILURE_PATTERNS 754), fixed in `46c5c464`.
-- **Everything since run 3 (durations, net.linux, the container-list fix, the pre-PR review fixes in `3cdae87a`, and these
-  records) has NOT been through a full gate.** Run `make pr-check` through the monitor again (about 100 minutes) before
-  pushing. Stop the old monitor by its exact PID first and confirm
-  the new run id (LESSONS 362); leave the tree alone until the verdict (LESSONS 288).
+**2026-11-01. Branch `feat/c1-language`, HEAD `56a42de4`, 27 commits on `main` at `1e97aa2e` (`git log main..HEAD`).
+C1 is complete, and the fp-reviewer's findings are fixed in `2e91d59d`..`56a42de4` (FAILURE_PATTERNS 778 to 789). Not
+through `make pr-check` yet, not pushed, no pull request.** Pull requests #96 to #98 merged
+without a handoff rewrite; the previous status (PR #95's branch) is in `HANDOFF_ARCHIVE.md`.
 
 ### What works (each proven by a test that ran)
 
-- **net.frr.config check and save (FAILURE_PATTERNS 739).** `TestConfig_ASaveNeedsTheDirectoryToo`
-  (`frr_dirperm_live_test.go`), `frr_login_live_test.go` and `frr_become_live_test.go` against a real FRR container.
-  Blind lab run 1's second failure ("file would belong to netops:frr") was NOT reproduced.
-- **`hosts:` as a list** (`internal/engine/hosts_list.go`), `add-host --tag`, `set-host --tags`, `net.batfish.check`
-  `expect_devices`.
-- **`trust-host --first-connect` refuses a device not flagged ephemeral unless `--reason` is given.** It BREAKS scripts, so
-  it belongs in a minor release, not a 0.3.x patch (`changelog/trust-host-first-connect-ephemeral.breaking.md`).
-- **`become`** (LESSONS 358): `pkg/remoteexec/become.go`, `sdk` `WithBecome`, `internal/engine/become.go`,
-  `internal/validate/become_rule.go`, journal `Become` (now with its ent column and migrations, FAILURE_PATTERNS 743 and
-  LESSONS 361), rollback `Step.Become`. Covered in `pkg/sdk` and `internal/validate` by their own tests (FAILURE_PATTERNS 744).
-- **The `virt.clab.*` collection** (44 methods, `pkg/clabapi`). `TestLive_ARealLabEndToEnd` passes against the real
-  privileged server.
-- **New this round: `net.linux.bridge`, `net.linux.address`, `net.linux.route`** (`pkg/linuxnet` specs,
-  `internal/catalog/net/linux`). `TestLinux_BridgeAddressAndRouteOnARealRouter` runs on a real router with real sudo; the
-  frr and ovs lab images got `iproute2` and `sudo`. Catalog: 259 methods, 257 implemented, 235 that can predict.
+- **Params render from every source** on a real Debian device: `TestCLI_ParamsRenderEverySourceInItsOrder`; a value
+  holding braces is never rendered twice: `TestRenderedParams_AValueHoldingBracesIsNotRenderedAgain`.
+- **Handlers and `notify:`** (`internal/engine/notify.go`, `chain.go`): `TestCLI_HandlersRunOnceInTheirOrderOnlyWhenNotified`,
+  `FuzzNotify`, `TestNotify_ChangedWhenDecidesWhatNotifies`. `meta: flush_handlers` is refused (deferred).
+- **`serial:`** on both tiers, in device-name order (`engine.BatchDevices`): `TestCLI_SerialRunsTwoDevicesAtATime`,
+  `TestCLI_SerialStopsTheRolloutAtAFailedBatch`, `TestSerialReleaseGate_TwoAtATimeAndAFailedBatchStops` (real NATS,
+  Runner and sshd), `FuzzSerialList`. The Controller adds a nullable `job_task.batch` column with both migrations.
+- **Timed `pause`** (`internal/engine/timed_pause.go`; Phase 27's `pause.go` is untouched): `TestPause_HoldsOnceForTheWholeRun`.
+  The dotted `pleiades.builtin.fail`, `assert` and `set_fact` now validate (FAILURE_PATTERNS 768).
+- **`limit`**, one matcher (`engine.ParseLimit`) for `pleiades run --limit`, `adhoc --limit` and the Controller's
+  fan-out: `TestLimit_NarrowsWhatARunReaches`, `TestLimit_OnlyWhatItAdmitsIsPartOfTheJob`, `FuzzLimit`. A playbook job's
+  limit is applied by the Controller (`changelog/playbook-limit-read-by-controller.breaking.md`).
+- **`async:` and `poll:`** for every method, detached on SSH devices, on both tiers:
+  `TestCLI_AsyncRunsInTheBackgroundAndItsLimitStopsTheDevicesWork`, `TestAsyncReleaseGate_DetachedOnARunner`. A plain
+  `timeout:` now ends a command whose child holds its output (FAILURE_PATTERNS 774).
+- **The review's fixes**, each test failing on the old code: an abandoned command's output is not read
+  (`TestRun_ACommandWhoseServerNeverAnswersIsAbandoned`, under `-race`); a detached command runs as it would attached,
+  never as an argument, and only in a base its account owns (`TestDetached_*` in `pkg/remoteexec/detach_test.go`); the
+  stop's budget fits inside every kill and an external program ends its method on SIGTERM
+  (`TestProgram_SIGTERMEndsTheMethodsContext`); cancelling a run stops its background jobs
+  (`TestAsync_CancellingTheRunStopsABackgroundJob`); handlers and background tasks that could never run as written are
+  refused; a limit of only separators is refused; a Controller serial job repairs its batches whatever its forks; the
+  CLI cuts batches from the admitted hosts as the Controller does; the gates no longer race a fixed sleep;
+  `internal/engine/builtin_table_test.go` holds the engine's action table to its executor. Phase 90 and 91 items carry
+  this evidence now; no item changed state.
 
-### Pre-PR review (fp-reviewer, 2026-10-31): six findings, all fixed in `3cdae87a`, each with a test
+### Current blocker
 
-- `become` on an external Collection's method was silently not applied (FAILURE_PATTERNS 748): `BecomeRule` and
-  `collection_action.go` now refuse it; `TestBecomeRule`, `TestCollectionActionExecutor_BecomeIsRefusedOnAnExternalMethod`.
-- A `rollback_on_failure` undo ran as the login (749): `asAccountOf`; `TestRollbackOnFailure_AnUndoRunsAsTheAccountTheChangeRanAs`.
-- The clab login token was not masked in an error (750): `TestClab_TheLoginTokenIsMaskedInAnError`.
-- `import-containerlab --api` mapped a wildcard port to this machine's loopback (751): the API server's host is used now.
-- `net.linux.route` refuses an ECMP route its undo could not restore (752):
-  `TestLinux_BridgeAddressAndRouteOnARealRouter`.
-- `trust-host --first-connect --reason` records the reason after the trust (753):
-  `TestTrustHost_FirstConnectNeedsAnEphemeralDeviceOrAReason`.
-
-### Records this session
-
-FAILURE_PATTERNS 739 to 754 (repeats: 739 of 564 and 722; 740 of 642 and 90; 744 of 427 and 731; 746 of 428 and 637;
-747 of 153 and LESSONS 288; 748 in kind of 578 and LESSONS 244; 750 of 626, 394 and 457; 751 of 740, 642 and 90; 752 of
-582; 754 of 239 and 447; 742, 747 and 748 open in part); LESSONS 358 to 364. Not yet written to `CI_LESSONS.md` or annotated
-in the failure ledgers (`go run ./tools/failures annotate`); 743 to 747 and 754 were all found by pr-check or the repo's own
-guards, so they are candidates.
-
-### Collection coverage audit (2026-10-30; three auditors, estimates, not measurements)
-
-- About half the methods have real-path proof; typical coverage is about 30% of each product's surface.
-- Strongest: `virt.clab` about 80%, `container` about 75%.
-- Weakest: `net.junos` and `net.eos` 0% (declared), `cloud.aws` about 1 to 2% (LocalStack only), `edge` about 2%,
-  `net.catalyst` about 3%, `net.batfish` and `net.ovs` about 10%, `net.netconf` about 12%, `fusion` about 10 to 15%,
-  `pkg` about 15% (apt and dnf only).
-- Biggest gaps by value: `container.image.build`, apk, zypper and pacman, `svc` reload, mask and status, `file`
-  find, replace, fetch and ini_file, `identity` ssh keys and sudoers, `win` registry, AWS describe, NETCONF reads, CML
-  topology import, OVS flows.
-- The roadmap item "Every method proven on every OS it targets" in `.SPECIFICATION/IMPLEMENTATION.md` stays OPEN.
+None. Next is the gate.
 
 ### Open
 
-- **Owner decisions pending:** (1) the `trust-host --first-connect` refusal is breaking, so it needs a minor release, not
-  a 0.3.x patch; (2) `JournalEntry.Become` as a kind 5 author label (FAILURE_PATTERNS 742, `internal/archtest/journal_test.go`).
-- **Not done:** the playbook converter still DROPS `become` with a review note (`internal/forge/playbook/keywords.go`,
-  `codes.go`); it should map it to native `become` and refuse other methods. The Walk tier refuses `become` until a
-  dispatch carries it, and a Walk-tier runbook with `become` runs its earlier tasks before the refusal at the task (late,
-  but it fails closed; FAILURE_PATTERNS 748).
-- Edgeshark install and uninstall are state-aware, but their real POST was never run live (it pulls images).
-  `virt.clab.capture.packetflix` needs Edgeshark running (the server answers 503).
-- `make resources-record` would rewrite about 1,665 lines of `tools/testgate/resources.json` with inflated machine-wide
-  figures (1.4 GB for `pkg/sdk`); it was NOT committed and needs its own look (FAILURE_PATTERNS 745).
-- `import-containerlab --api` has code and a test beside it (`cmd/pleiades/importcontainerlab_api.go`, in `b478bc5e`); I
-  did not run it here. The earlier note calling it unbuilt was stale. Its wildcard-port mapping was corrected in
-  `3cdae87a` (FAILURE_PATTERNS 751).
-- The whole `cmd/pleiades` package test run exceeds go test's 10 minute default (use testgate or pr-check).
-  `TestCLI_NetTraceFromAContainerThroughARouter` once failed with a Docker "no SSH greeting" start failure; the cause is
-  unproven.
-- Older items unchanged: FAILURE_PATTERNS 560 (open until a sighting prints the engine's list) and 734; Phase 131 R4 and
-  the Phase 87 to 89 gates.
+- Phase 91: `max_fail_percentage` refused by decision; the pause prompt on a terminal and the converter's mapping of
+  the timed pause; each batch accepted before the next (Part XVI); its Adversarial Pattern Justification and
+  Schema/Injection Hardening gates. Phase 87's `set_fact` item is the owner's call (built as `vars.<name>`).
+- No test lands an async limit inside a poll on purpose (FAILURE_PATTERNS 777, path 1).
+- The playbook converter does not carry `notify:`, `handlers:`, `async:` or `serial:` yet (its notes now say so).
+- Detach on FreeBSD and macOS (no `setsid`, the `set -m` path) is unproven, since the BSD leg is cut.
+- `internal/inventory/ent_group_names.go` recurses per group with a fresh seen-set (O(groups x depth)).
+- `internal/segment` (117b) knows neither spliced handler nodes nor a background job collected in a later segment.
+- The 781 attack (a login steering root's polls under a sudo that keeps `HOME`) was reasoned, not reproduced; the fix
+  refuses the shape.
+- **Triad finding (this session):** vuln-corpus `eae41a4`'s "skips constant joins" is live, but the sweep still flags a
+  join whose segment is another package's const or a range variable over a literal map: two known false positives in
+  `internal/archtest/coverage_ledger_test.go`. And argus `expand_seeds` wrote corpus files into the target repository's
+  `testdata/fuzz` despite `persist: false`; its record belongs in `~/argus`, not here.
 
 ### Next, in order
 
-1. Commit these records, run `make commitgate`, run `go test ./tools/internal/flakegate -run TestEveryContainerPackageIsListed`, run `make pr-check` through the monitor, push, one pull request. Name the
-   failure-pattern classes in the PR body.
-2. Then the not-done list above, starting with the converter's `become` mapping.
+1. `make pr-check` through the monitor, then push, then `make branch-containers`, then one pull request naming the
+   failure-pattern classes (768 to 789) in its body. Merge only when its checks are green.
+2. After the merge: pull `main`, delete merged branches, prune.
+3. The triad version handshake, in `~/argus`, `~/vuln-corpus` and `~/Groundconfig`, never committed there.
+4. Release 0.4.0. No tag until the owner says so.
 
 ### Files changed this session
 
-See `git log ea70badf..HEAD`. Records: `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md` (739 to 754),
-`LESSONS_LEARNED.md`, `LESSONS_LEARNED_ARCHIVE.md` (358 to 364), `HANDOFF_DOCUMENT.md`. Changelog fragments are in
-`changelog/` (including `net-linux.added.md`).
+See `git log main..HEAD`. Records: `FAILURE_PATTERNS.md` and `FAILURE_PATTERNS_ARCHIVE.md` (768 to 789),
+`LESSONS_LEARNED.md` and `LESSONS_LEARNED_ARCHIVE.md` (368 to 370), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+Changelog fragments: `async-and-poll.added.md`, `dotted-builtins-validate.fixed.md`, `handlers-and-notify.added.md`,
+`limit.added.md`, `playbook-limit-read-by-controller.breaking.md`, `serial.added.md`,
+`ssh-timeout-ends-the-task.fixed.md`, `timed-pause.added.md`.
 
-Unchanged: bsd-check and win-check are powered off (shut down through ACPI, not saved); not touched this session.
+Lab: no change was reported this session. Last recorded: bsd-check and win-check powered off (shut down through ACPI,
+not saved).
