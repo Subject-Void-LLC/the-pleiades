@@ -405,8 +405,11 @@ const taggedReleaseGatePlaybook = `---
 // Two kinds of evidence, both real, both from this one dispatch:
 //  1. observingOrchestrator's recorded ContainerSpec.Argv, the exact
 //     argument vector the real Docker daemon started the real container
-//     with, proves --forks 1, --tags deploy, --limit, and -v all reached
-//     the real invocation at the position buildArgv documents.
+//     with, proves --forks 1, --tags deploy and -v all reached the real
+//     invocation at the position buildArgv documents, and that the launch's
+//     limit did not: the Controller applies a limit before it dispatches,
+//     so the one device a dispatch names is already inside it, and no
+//     --limit reaches ansible-playbook.
 //  2. The parsed job.log event stream proves --tags genuinely filtered
 //     which tasks ran: "deploy task" carries the "deploy" tag and its own
 //     event appears; "other task" carries "other" and is absent
@@ -444,7 +447,7 @@ func TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation(t *testing.T) {
 
 	wantArgv := []string{
 		"ansible-playbook", "-v", "-i", "/run/pleiades/inventory.json",
-		"--limit", "sw1", "--forks", "1", "--tags", "deploy",
+		"--forks", "1", "--tags", "deploy",
 		"/run/pleiades/playbook.yml",
 	}
 	if gotArgv := h.orch.lastSpec().Argv; !reflect.DeepEqual(gotArgv, wantArgv) {

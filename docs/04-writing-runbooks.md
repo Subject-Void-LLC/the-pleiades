@@ -777,12 +777,12 @@ which a `rescue:` can answer. `poll:` says how the run waits for it:
   run goes on to later tasks while it runs. An `async_status` task collects it.
 
 ```yaml
-# Rebuilds the search index in the background while the caches are cleared.
-# Blast radius: every search host, all at once.
+# Rebuilds the web hosts' search index in the background while the caches are cleared.
+# Blast radius: every web host, all at once.
 # Changes: the search index; the page cache.
 # Undo: none; a rebuild replaces the index, and a later rebuild restores it.
 id: reindex-in-the-background
-hosts: search
+hosts: web
 tasks:
   - name: Rebuild the index (up to an hour)
     exec.command:
