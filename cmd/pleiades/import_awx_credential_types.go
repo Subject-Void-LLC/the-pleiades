@@ -263,6 +263,13 @@ func writeImportable(dir string, results []importedType) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("creating the output directory: %w", err)
 	}
+	// Every write goes through a root on dir and replaces by rename, so a
+	// symlink planted at a document's name is replaced, not written through.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("opening the output directory: %w", err)
+	}
+	defer root.Close()
 
 	for _, r := range results {
 		if r.Verdict != verdictImportable {
@@ -272,8 +279,9 @@ func writeImportable(dir string, results []importedType) error {
 		if err != nil {
 			return fmt.Errorf("encoding %s: %w", r.Namespace, err)
 		}
-		path := filepath.Join(dir, r.Namespace+".json")
-		if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
+		name := r.Namespace + ".json"
+		path := filepath.Join(dir, name)
+		if err := replaceInRoot(root, name, append(body, '\n'), 0o600); err != nil {
 			return fmt.Errorf("writing %s: %w", path, err)
 		}
 		fmt.Fprintf(os.Stdout, "wrote %s\n", path)

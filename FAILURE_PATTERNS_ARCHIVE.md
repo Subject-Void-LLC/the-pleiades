@@ -18987,3 +18987,35 @@ tests waited for a mark that comes before the event they meant, and nothing read
 
 **Lesson.** As 211's: wait for the event itself. When a change moves what happens between two marks, re-read every
 test that waits on the first one.
+
+## 792. Generated files were written through a symlink at their name, and forge's "refuse to overwrite" was a check then a write
+
+**Symptom.** Found by reading during a vuln-corpus sweep triage on 2026-11-01, then measured. `writeGeneratedFile`
+(`cmd/pleiades/forge_scaffold_io.go`, every `forge new-*` subcommand) checked the target with `os.Stat` and then wrote
+it with `os.WriteFile`. A dangling symlink at a generated file's name passed the check (Stat follows the link and finds
+nothing) and the write created the link's target, wherever it pointed; a symlinked directory on the way carried the
+write outside `--dir`; and a file created between the check and the write was silently overwritten.
+`writeImportable` (`cmd/pleiades/import_awx_credential_types.go`, `import awx-credential-types --out`) wrote each
+`<namespace>.json` with `os.WriteFile`, which writes through a symlink planted at that name. Reaching either needs
+someone else able to write into the output directory the operator chose, so the severity is low.
+
+**Root cause.** Two separate calls for one decision ("create this file, and only this file"), and path-based writes
+that follow links. Same family as 260 and 321 (a read through a symlinked path), on the write side.
+
+**Fix.** On the branch `fix/generated-file-writes-no-symlink-follow`: `writeGeneratedFile` opens an `os.Root` on the
+output directory, creates directories through it, and creates the file with `O_EXCL`, so "does not exist yet" and
+"create it" are one step that refuses an existing file or symlink and cannot leave the directory.
+`firstExistingFile` uses `Lstat`, so `--skip-existing` counts a dangling link as present. `writeImportable` writes
+through a new `replaceInRoot` (`cmd/pleiades/replace_in_root.go`): a fresh `O_EXCL` temporary file inside the root,
+synced, renamed over the name; a rename replaces a link instead of following it. Tests, each failing on the old
+code: `TestWriteGeneratedFile_DoesNotWriteThroughASymlinkAtTheName`,
+`TestWriteGeneratedFile_DoesNotFollowASymlinkedDirectory`, `TestFirstExistingFile_CountsASymlinkAsExisting`,
+`TestImportReplacesALinkAtADocumentsNameInsteadOfWritingThroughIt`; `TestReplaceInRoot_ReplacesALinkAndKeepsItsTarget`
+covers the helper.
+
+**Lesson.** Writing a file you mean to create is one call, not a check and a write: `O_EXCL` for "new only", a
+temporary file renamed into place for "replace", and an `os.Root` on the directory so no link along the path counts.
+
+**Class.** C4 (path traversal and confinement escape), CWE-59 and CWE-367
+**Portable.** yes: any generator, exporter or installer that checks a path and then writes it, or writes a fixed name into a directory someone else can write
+**Detector.** `os.Stat`/`os.Lstat` on a path followed by `os.WriteFile`/`os.Create` on the same path; `os.WriteFile` into a caller-chosen directory; plant a dangling symlink at the output name and run the command

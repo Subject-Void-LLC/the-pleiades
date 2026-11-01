@@ -304,3 +304,47 @@ func TestImportWritesOnlyInsideTheOutputDirectory(t *testing.T) {
 		}
 	}
 }
+
+// TestImportReplacesALinkAtADocumentsNameInsteadOfWritingThroughIt holds
+// --out to FAILURE_PATTERNS 792 through the real command: os.WriteFile
+// followed a symlink planted at <namespace>.json and wrote the document
+// wherever it pointed. The link is now replaced and its target untouched,
+// while a plain re-import still replaces the previous document.
+func TestImportReplacesALinkAtADocumentsNameInsteadOfWritingThroughIt(t *testing.T) {
+	t.Parallel()
+
+	path := writeExport(t, `{"results":[
+		{"name":"Custom","namespace":"custom_thing","kind":"cloud","inputs":{"fields":[{"id":"token","label":"Token","secret":true}]},"injectors":{"env":{"CUSTOM_TOKEN":"{{ token }}"}}}
+	]}`)
+	out := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("untouched\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc := filepath.Join(out, "custom_thing.json")
+	if err := os.Symlink(victim, doc); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runImportAWXCredentialTypes([]string{"--out", out, path}); err != nil {
+		t.Fatalf("runImportAWXCredentialTypes() error = %v", err)
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "untouched\n" {
+		t.Fatalf("the document was written through the link into %s: %q", victim, got)
+	}
+	info, err := os.Lstat(doc)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("%s = %v %v, want a regular file", doc, info, err)
+	}
+
+	// A plain re-import still replaces the previous document.
+	if err := os.WriteFile(doc, []byte("stale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runImportAWXCredentialTypes([]string{"--out", out, path}); err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+	if got, _ := os.ReadFile(doc); !strings.Contains(string(got), `"namespace": "custom_thing"`) {
+		t.Errorf("re-import did not replace the document: %q", got)
+	}
+}

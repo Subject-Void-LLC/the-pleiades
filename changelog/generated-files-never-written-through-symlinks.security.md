@@ -1,0 +1,1 @@
+`pleiades forge new-*` and `pleiades import awx-credential-types --out` no longer write through a symbolic link at an output file's name or along its path. Forge creates each file only if nothing, link or file, is already there; the importer replaces a link instead of following it.
