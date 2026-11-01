@@ -1,0 +1,1 @@
+A playbook job's `limit` is now applied by the Controller, with the same grammar as native runbooks and `pleiades run --limit`, and is no longer passed to ansible-playbook. A limit using a regular expression (`~`) or a file of names (`@`) now fails the job, naming why, where ansible-playbook accepted it; rewrite it as names, tags, groups or globs.

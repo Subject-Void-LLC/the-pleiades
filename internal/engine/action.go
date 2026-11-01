@@ -216,6 +216,9 @@ func (builtinActionExecutor) Execute(ctx context.Context, task *Task, _ inventor
 		return ActionResult{Stats: data, IsMetadata: true}, nil
 	case FailName, FailFQCN:
 		return ActionResult{}, fmt.Errorf("%s", failMessage(task))
+	case AsyncStatusName, AsyncStatusFQCN:
+		// runOne collects a job itself, which it alone can (async.go).
+		return ActionResult{}, fmt.Errorf("fqcn %q is evaluated by the engine, not run as a method", task.FQCN)
 	case AssertName, AssertFQCN:
 		// runOne evaluates an assert itself, which it alone can (assert.go).
 		return ActionResult{}, fmt.Errorf("fqcn %q is evaluated by the engine, not run as a method", task.FQCN)

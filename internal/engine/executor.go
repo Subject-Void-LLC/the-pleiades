@@ -204,6 +204,15 @@ type NodeResult struct {
 	// most needs.
 	journalChanged bool
 
+	// background marks the result a background task (poll: 0) returns when
+	// it starts: not a change yet, and never journaled (async.go). fromJob
+	// marks a job's own result once collected, journaled under its node, its
+	// failure carried by the async_status that collected it. collected is the
+	// job's result an async_status returns beside its own, for Run to journal.
+	background bool
+	fromJob    bool
+	collected  *NodeResult
+
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
 	// runNode for a result runNode produces itself, and once per device
@@ -412,7 +421,7 @@ func (r *RunResult) Absorb(next RunResult) {
 // rescue: answered aside.
 func (r RunResult) HasErrors() bool {
 	for _, n := range r.Nodes {
-		if n.Err != nil && n.RescuedBy == "" && !n.Ignored && !n.Retried {
+		if n.Err != nil && n.RescuedBy == "" && !n.Ignored && !n.Retried && !n.fromJob {
 			return true
 		}
 	}
@@ -684,6 +693,11 @@ type run struct {
 
 	// notified is, per device, which handlers wait to run (notify.go).
 	notified *notifiedHandlers
+
+	// jobs are the run's background tasks, and leases the device leases they
+	// hold for the rest of the run to join (async.go).
+	jobs   asyncJobs
+	leases heldLeases
 }
 
 // modeFor is the mode task runs in (TaskMode): a check whenever the run
@@ -761,6 +775,17 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 	// it is not stored in the journal, whose entries are ordered by
 	// Sequence and grouped by RunID.
 	levelIndex := 0
+	// Registered after the deferred cleanup above, so it runs first: a job
+	// nobody collected is waited for and journaled before the run's sequence
+	// and secrets are read, and before Run returns (async.go).
+	defer func() {
+		drained := r.drainJobs()
+		if len(drained) == 0 {
+			return
+		}
+		result.Nodes = append(result.Nodes, drained...)
+		r.recordLevel(context.WithoutCancel(ctx), levelIndex+1, [][]NodeResult{drained})
+	}()
 	// ending holds, once a failure has ended the run, the blocks the walk
 	// was inside then: their always: tasks still run (whileEnding).
 	var ending map[string]bool
@@ -788,6 +813,15 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		outs := runConcurrently(level, func(nodeID string) []NodeResult {
 			return r.runNode(ctx, nodeID)
 		})
+		// A background job an async_status collected joins this level under
+		// its own node, so it is journaled and notifies as any result does.
+		for i := range outs {
+			for _, nr := range outs[i] {
+				if nr.collected != nil {
+					outs[i] = append(outs[i], *nr.collected)
+				}
+			}
+		}
 		// A failure of a task that sets ignore_errors is recorded as the failure
 		// it is, and the run carries on past it.
 		for _, out := range outs {
@@ -816,7 +850,8 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 			// handler spliced after this section sees it.
 			r.recordNotifications(out)
 			for _, nr := range out {
-				if nr.Err != nil && !nr.Ignored && !nr.Retried && (nr.Checked || !r.handlers.failed(nr)) {
+				// A collected job's failure is its async_status's to carry.
+				if nr.Err != nil && !nr.Ignored && !nr.Retried && !nr.fromJob && (nr.Checked || !r.handlers.failed(nr)) {
 					failed = true
 				}
 			}
@@ -1205,6 +1240,8 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	// a few lines down, charging that cleanup to the task's own duration.
 	result := NodeResult{NodeID: cmd.NodeID, StartedAt: time.Now().UTC(), Provider: externalProvider(cmd.Task.FQCN)}
 	host := ""
+	var lease lock.Lease
+	handedOff := false
 	if cmd.Device != nil {
 		host = cmd.Device.Name()
 		result.Device = string(cmd.Device.ID())
@@ -1213,7 +1250,12 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		// runNode, before any cmd in this node started running; only
 		// AcquisitionPerDeviceAsReached (the default) acquires here,
 		// immediately before this one device's own action.
-		lease := cmd.Lease
+		lease = cmd.Lease
+		if lease == nil {
+			// A background job of this run holding the device's lock is
+			// joined, not contended (async.go): the run already holds it.
+			lease = r.leases.join(result.Device)
+		}
 		if lease == nil {
 			var err error
 			lease, err = r.x.locks.Acquire(ctx, result.Device, defaultLockTTL, deviceLockOptions(cmd.Device))
@@ -1224,6 +1266,10 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 			}
 		}
 		defer func() {
+			// A background job took the lease with it (async.go).
+			if handedOff {
+				return
+			}
 			// ctx may already be canceled by the time we get here (a
 			// sibling device's failure aborted the run); Release still
 			// needs to run so the lock is not held until its TTL expires,
@@ -1233,17 +1279,50 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		}()
 	}
 
+	// A background task (poll: 0) returns as it starts, its run going on in
+	// a goroutine that holds the lease until it ends.
+	if cmd.Task.background() {
+		handedOff = true
+		return r.startJob(ctx, cmd, result, host, lease, func(ctx context.Context, cmd nodeExecution, result NodeResult) NodeResult {
+			return r.runAction(ctx, cmd, result, host, nil)
+		})
+	}
+	return r.runAction(ctx, cmd, result, host, lease)
+}
+
+// runAction is runOne's own run of the task, once its device's lock is held:
+// the action under the task's limit, then everything that classifies,
+// registers and reports its result. lease, when not nil, is the device's
+// lease, kept alive while an async task runs past its ttl.
+func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResult, host string, lease lock.Lease) NodeResult {
+
 	// WithTaskTimeout and the task's own timeout apply fresh to every task,
 	// not once for the whole Run call: a slow task earlier in the DAG must
 	// not shorten how long a later, independent task is allowed to run.
 	// Neither set (the default) wraps nothing, leaving ctx exactly as the
 	// caller supplied it.
 	execCtx := ctx
-	limit := taskLimit(r.x.taskTimeout, cmd.Task.Timeout)
+	own := cmd.Task.Timeout
+	if a := cmd.Task.Async; a > 0 && (own == 0 || a < own) {
+		own = a
+	}
+	limit := taskLimit(r.x.taskTimeout, own)
 	if limit > 0 {
 		var cancel context.CancelFunc
 		execCtx, cancel = context.WithTimeout(ctx, limit)
 		defer cancel()
+	}
+	// An async task is reported still running every poll, and its lease kept
+	// alive, since its limit may outlast the lease's ttl (async.go).
+	if cmd.Task.Async > 0 {
+		stop := make(chan struct{})
+		defer close(stop)
+		if every := cmd.Task.pollInterval(); every > 0 {
+			go r.reportProgress(cmd, host, every, limit, stop)
+		}
+		if lease != nil {
+			go keepAlive(lease, defaultLockTTL, stop)
+		}
 	}
 
 	var actionResult ActionResult
@@ -1253,6 +1332,9 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	if isAssert(cmd.Task.FQCN) && cmd.Task.progs != nil && cmd.Task.progs.assert != nil {
 		// An assert reads the run's state, which only the engine holds.
 		actionResult, err = r.runAssert(cmd, result.Device)
+	} else if isAsyncStatus(cmd.Task.FQCN) {
+		// So does a background job, which async_status collects (async.go).
+		actionResult, result.collected, err = r.runAsyncStatus(execCtx, cmd, result.Device)
 	} else {
 		switch mode {
 		case collection.ModeExecute:
@@ -1297,7 +1379,11 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	if err != nil && limit > 0 && errors.Is(execCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 		// Said in so many words, since the method's own error describes only
 		// the mechanism (a closed session, a cancelled context).
-		err = fmt.Errorf("%w (its timeout of %s ran out)", err, limit)
+		what := "timeout"
+		if cmd.Task.Async > 0 && time.Duration(cmd.Task.Async)*time.Second == limit {
+			what = "async limit"
+		}
+		err = fmt.Errorf("%w (its %s of %s ran out)", err, what, limit)
 	}
 	if err != nil {
 		// What the method recorded before it failed (exit status, output)

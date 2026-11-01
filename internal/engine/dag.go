@@ -428,7 +428,14 @@ type Task struct {
 	// handler only, is the topics it also answers to. Both are validated by
 	// validateHandlers (notify.go).
 	Notify StringList `json:"notify,omitempty" yaml:"notify,omitempty"`
-	Listen StringList `json:"listen,omitempty" yaml:"listen,omitempty"`
+
+	// Async is a hard limit, in seconds per device, past which the task is
+	// stopped and fails; Poll is how often a task running where it stands is
+	// reported still running (10 by default), and 0 runs it in the
+	// background for an async_status to collect (async.go).
+	Async  TimeoutSeconds  `json:"async,omitempty" yaml:"async,omitempty"`
+	Poll   *TimeoutSeconds `json:"poll,omitempty" yaml:"poll,omitempty"`
+	Listen StringList      `json:"listen,omitempty" yaml:"listen,omitempty"`
 
 	// handler, set only on the copies of a handler the builder splices after
 	// a section (chain.go), says which handler the node is.
@@ -740,6 +747,9 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 	}
 	notifyTargets, err := validateHandlers(&def)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateAsyncFlow(&def); err != nil {
 		return nil, err
 	}
 	propagateCheckMode(&def)

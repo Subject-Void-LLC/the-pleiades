@@ -9,6 +9,19 @@
           },
           "type": "array"
         },
+        "async": {
+          "description": "A hard per-device limit in seconds; with poll: 0 the task runs in the background.",
+          "oneOf": [
+            {
+              "maximum": 86400,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
         "become": {
           "description": "Run this task's SSH commands as become_user through sudo -n. A block's covers its tasks; the narrowest key wins; false turns off one set above.",
           "type": "boolean"
@@ -152,6 +165,18 @@
         "params": {
           "description": "Arguments passed to fqcn. A string holding {{ }} renders when the task runs, reading vars, nodes and result.",
           "type": "object"
+        },
+        "poll": {
+          "description": "With async: seconds between progress reports, or 0 to run in the background.",
+          "oneOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "register": {
           "description": "Name to store this task's result under.",

@@ -59,6 +59,8 @@ var ReservedTaskKeys = map[string]bool{
 	"failed_when":         true,
 	"ignore_errors":       true,
 	"notify":              true,
+	"async":               true,
+	"poll":                true,
 	"listen":              true,
 }
 

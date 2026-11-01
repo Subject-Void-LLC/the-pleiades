@@ -162,6 +162,8 @@ var builtinCheckable = map[string]bool{
 	"fail":                          true,
 	"pleiades.builtin.fail":         true,
 	"pause":                         true,
+	"async_status":                  true,
+	"pleiades.builtin.async_status": true,
 	"pleiades.builtin.pause":        true,
 }
 

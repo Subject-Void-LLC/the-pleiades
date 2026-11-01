@@ -120,6 +120,8 @@ var engineActionStatKeys = map[string][]string{
 	"fail":                          nil,
 	"pleiades.builtin.fail":         nil,
 	"pause":                         nil,
+	"async_status":                  nil,
+	"pleiades.builtin.async_status": nil,
 	"pleiades.builtin.pause":        nil,
 	"ssh_exec":                      transportExecStatKeys,
 	"serial_exec":                   transportExecStatKeys,
@@ -855,6 +857,12 @@ func (r *run) recordLevel(ctx context.Context, levelIndex int, outs [][]NodeResu
 	outs = slices.DeleteFunc(slices.Clone(outs), func(node []NodeResult) bool {
 		return len(node) > 0 && r.modeFor(r.taskFor(node[0].NodeID)) != collection.ModeExecute
 	})
+	// A background task's start is not journaled: nothing has happened yet.
+	// Its job's own result is, when collected (async.go).
+	for i := range outs {
+		outs[i] = slices.DeleteFunc(slices.Clone(outs[i]), func(n NodeResult) bool { return n.background })
+	}
+	outs = slices.DeleteFunc(outs, func(node []NodeResult) bool { return len(node) == 0 })
 	if len(outs) == 0 {
 		return
 	}

@@ -70,6 +70,8 @@ func taskSchema() map[string]any {
 			"failed_when":   stringOrList("Conditions that fail the task when they hold."),
 			"ignore_errors": map[string]any{"type": "boolean", "description": "Go on past a failure of this task; it is still recorded as one."},
 			"notify":        map[string]any{"description": "Handlers to run when this task changes something: a name or listen topic, or a list of them.", "oneOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}},
+			"async":         map[string]any{"description": "A hard per-device limit in seconds; with poll: 0 the task runs in the background.", "oneOf": []any{map[string]any{"type": "integer", "minimum": 1, "maximum": 86400}, map[string]any{"type": "string"}}},
+			"poll":          map[string]any{"description": "With async: seconds between progress reports, or 0 to run in the background.", "oneOf": []any{map[string]any{"type": "integer", "minimum": 0}, map[string]any{"type": "string"}}},
 			"listen":        map[string]any{"description": "On a handler: topics it also answers to.", "oneOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}},
 			"vars":          map[string]any{"type": "object", "description": "Variables for this task (or every task in a block), read as {{ vars.name }}. The narrower scope wins."},
 			"within":        map[string]any{"type": "string", "description": "The device name or tag a target rendered from data must stay inside. Required beside a params.target holding {{ }}, refused anywhere else, and written literally."},
