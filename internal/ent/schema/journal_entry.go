@@ -200,6 +200,15 @@ func (JournalEntry) Fields() []ent.Field {
 		field.String("rollback_of").Immutable().Optional(),
 		field.String("undoes_node").Immutable().Optional(),
 		field.Int("undoes_step").Immutable().NonNegative().Default(0),
+		// The run-order columns (Phase 40a), last so the migration adding them
+		// only adds. lease_revision is the fencing token of the device lease
+		// the Runner held (lock.Fenced), which only grows for a device, so the
+		// rollback planner orders jobs on a device by it rather than by two
+		// Runners' clocks. run_tick is the Crawl tier's project counter, zero
+		// on every Walk row; it is a column so a journal row has one shape on
+		// both tiers. Zero means a row written before either existed.
+		field.Uint64("run_tick").Immutable().Default(0),
+		field.Uint64("lease_revision").Immutable().Default(0),
 	}
 }
 
@@ -220,5 +229,8 @@ func (JournalEntry) Indexes() []ent.Index {
 		// A Walk rollback reads every earlier rollback of the job it undoes,
 		// to resume rather than repeat what is already undone.
 		index.Fields("rollback_of"),
+		// A Walk rollback reads the rows of later jobs on the devices it
+		// undoes, by lease revision.
+		index.Fields("device_id", "lease_revision"),
 	}
 }

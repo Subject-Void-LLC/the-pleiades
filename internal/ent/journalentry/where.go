@@ -239,6 +239,16 @@ func UndoesStep(v int) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldUndoesStep, v))
 }
 
+// RunTick applies equality check predicate on the "run_tick" field. It's identical to RunTickEQ.
+func RunTick(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldRunTick, v))
+}
+
+// LeaseRevision applies equality check predicate on the "lease_revision" field. It's identical to LeaseRevisionEQ.
+func LeaseRevision(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldLeaseRevision, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldCreatedAt, v))
@@ -2122,6 +2132,86 @@ func UndoesStepLT(v int) predicate.JournalEntry {
 // UndoesStepLTE applies the LTE predicate on the "undoes_step" field.
 func UndoesStepLTE(v int) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldLTE(FieldUndoesStep, v))
+}
+
+// RunTickEQ applies the EQ predicate on the "run_tick" field.
+func RunTickEQ(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldRunTick, v))
+}
+
+// RunTickNEQ applies the NEQ predicate on the "run_tick" field.
+func RunTickNEQ(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldRunTick, v))
+}
+
+// RunTickIn applies the In predicate on the "run_tick" field.
+func RunTickIn(vs ...uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldRunTick, vs...))
+}
+
+// RunTickNotIn applies the NotIn predicate on the "run_tick" field.
+func RunTickNotIn(vs ...uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldRunTick, vs...))
+}
+
+// RunTickGT applies the GT predicate on the "run_tick" field.
+func RunTickGT(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldRunTick, v))
+}
+
+// RunTickGTE applies the GTE predicate on the "run_tick" field.
+func RunTickGTE(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldRunTick, v))
+}
+
+// RunTickLT applies the LT predicate on the "run_tick" field.
+func RunTickLT(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldRunTick, v))
+}
+
+// RunTickLTE applies the LTE predicate on the "run_tick" field.
+func RunTickLTE(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldRunTick, v))
+}
+
+// LeaseRevisionEQ applies the EQ predicate on the "lease_revision" field.
+func LeaseRevisionEQ(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldLeaseRevision, v))
+}
+
+// LeaseRevisionNEQ applies the NEQ predicate on the "lease_revision" field.
+func LeaseRevisionNEQ(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldLeaseRevision, v))
+}
+
+// LeaseRevisionIn applies the In predicate on the "lease_revision" field.
+func LeaseRevisionIn(vs ...uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldLeaseRevision, vs...))
+}
+
+// LeaseRevisionNotIn applies the NotIn predicate on the "lease_revision" field.
+func LeaseRevisionNotIn(vs ...uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldLeaseRevision, vs...))
+}
+
+// LeaseRevisionGT applies the GT predicate on the "lease_revision" field.
+func LeaseRevisionGT(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldLeaseRevision, v))
+}
+
+// LeaseRevisionGTE applies the GTE predicate on the "lease_revision" field.
+func LeaseRevisionGTE(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldLeaseRevision, v))
+}
+
+// LeaseRevisionLT applies the LT predicate on the "lease_revision" field.
+func LeaseRevisionLT(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldLeaseRevision, v))
+}
+
+// LeaseRevisionLTE applies the LTE predicate on the "lease_revision" field.
+func LeaseRevisionLTE(v uint64) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldLeaseRevision, v))
 }
 
 // And groups predicates with the AND operator between them.

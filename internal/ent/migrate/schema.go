@@ -528,6 +528,8 @@ var (
 		{Name: "rollback_of", Type: field.TypeString, Nullable: true},
 		{Name: "undoes_node", Type: field.TypeString, Nullable: true},
 		{Name: "undoes_step", Type: field.TypeInt, Default: 0},
+		{Name: "run_tick", Type: field.TypeUint64, Default: 0},
+		{Name: "lease_revision", Type: field.TypeUint64, Default: 0},
 	}
 	// JournalEntriesTable holds the schema information for the "journal_entries" table.
 	JournalEntriesTable = &schema.Table{
@@ -549,6 +551,11 @@ var (
 				Name:    "journalentry_rollback_of",
 				Unique:  false,
 				Columns: []*schema.Column{JournalEntriesColumns[40]},
+			},
+			{
+				Name:    "journalentry_device_id_lease_revision",
+				Unique:  false,
+				Columns: []*schema.Column{JournalEntriesColumns[4], JournalEntriesColumns[44]},
 			},
 		},
 	}

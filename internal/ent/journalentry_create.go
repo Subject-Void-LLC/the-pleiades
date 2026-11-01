@@ -529,6 +529,34 @@ func (_c *JournalEntryCreate) SetNillableUndoesStep(v *int) *JournalEntryCreate 
 	return _c
 }
 
+// SetRunTick sets the "run_tick" field.
+func (_c *JournalEntryCreate) SetRunTick(v uint64) *JournalEntryCreate {
+	_c.mutation.SetRunTick(v)
+	return _c
+}
+
+// SetNillableRunTick sets the "run_tick" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableRunTick(v *uint64) *JournalEntryCreate {
+	if v != nil {
+		_c.SetRunTick(*v)
+	}
+	return _c
+}
+
+// SetLeaseRevision sets the "lease_revision" field.
+func (_c *JournalEntryCreate) SetLeaseRevision(v uint64) *JournalEntryCreate {
+	_c.mutation.SetLeaseRevision(v)
+	return _c
+}
+
+// SetNillableLeaseRevision sets the "lease_revision" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableLeaseRevision(v *uint64) *JournalEntryCreate {
+	if v != nil {
+		_c.SetLeaseRevision(*v)
+	}
+	return _c
+}
+
 // Mutation returns the JournalEntryMutation object of the builder.
 func (_c *JournalEntryCreate) Mutation() *JournalEntryMutation {
 	return _c.mutation
@@ -627,6 +655,14 @@ func (_c *JournalEntryCreate) defaults() {
 	if _, ok := _c.mutation.UndoesStep(); !ok {
 		v := journalentry.DefaultUndoesStep
 		_c.mutation.SetUndoesStep(v)
+	}
+	if _, ok := _c.mutation.RunTick(); !ok {
+		v := journalentry.DefaultRunTick
+		_c.mutation.SetRunTick(v)
+	}
+	if _, ok := _c.mutation.LeaseRevision(); !ok {
+		v := journalentry.DefaultLeaseRevision
+		_c.mutation.SetLeaseRevision(v)
 	}
 }
 
@@ -757,6 +793,12 @@ func (_c *JournalEntryCreate) check() error {
 		if err := journalentry.UndoesStepValidator(v); err != nil {
 			return &ValidationError{Name: "undoes_step", err: fmt.Errorf(`ent: validator failed for field "JournalEntry.undoes_step": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.RunTick(); !ok {
+		return &ValidationError{Name: "run_tick", err: errors.New(`ent: missing required field "JournalEntry.run_tick"`)}
+	}
+	if _, ok := _c.mutation.LeaseRevision(); !ok {
+		return &ValidationError{Name: "lease_revision", err: errors.New(`ent: missing required field "JournalEntry.lease_revision"`)}
 	}
 	return nil
 }
@@ -951,6 +993,14 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.UndoesStep(); ok {
 		_spec.SetField(journalentry.FieldUndoesStep, field.TypeInt, value)
 		_node.UndoesStep = value
+	}
+	if value, ok := _c.mutation.RunTick(); ok {
+		_spec.SetField(journalentry.FieldRunTick, field.TypeUint64, value)
+		_node.RunTick = value
+	}
+	if value, ok := _c.mutation.LeaseRevision(); ok {
+		_spec.SetField(journalentry.FieldLeaseRevision, field.TypeUint64, value)
+		_node.LeaseRevision = value
 	}
 	return _node, _spec
 }

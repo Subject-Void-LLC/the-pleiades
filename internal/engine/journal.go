@@ -51,7 +51,8 @@ import (
 //     synthesized graph id, see NodeResult.NodeID), DeviceID (the
 //     inventory item's own stored id field, internal/inventory/record/
 //     record.go:161, never a device property), JobID, Attempt, StartedAt,
-//     FinishedAt, and a rollback's RollbackOf and UndoesNode.
+//     FinishedAt, RunTick, LeaseRevision, and a rollback's RollbackOf and
+//     UndoesNode.
 //  2. A compile-time constant resolved through a registry at write time:
 //     FQCN and InverseFQCN after resolution through collection.Lookup,
 //     the stat and param key names a method's own Doc declares, and the
@@ -224,6 +225,22 @@ type JournalEntry struct {
 	// concurrent fan-out.
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
+
+	// RunTick and LeaseRevision order this entry's run against other runs on
+	// the same device without a clock (kind 1), for the rollback planner's
+	// "a later run changed this device" (internal/rollback). Two machines'
+	// clocks, or one clock stepped back, cannot be trusted to do that.
+	//
+	// RunTick is the Crawl tier's project counter (.pleiades/clock,
+	// internal/journal) as the run began, the same on every entry of the
+	// run; the seal holds the counter as it ended. LeaseRevision is the Walk
+	// tier's fencing token of the exclusive device lease the Runner held for
+	// this dispatch (lock.Fenced), compared only with another entry's for the
+	// same device; zero under a shared lease, whose holders overlap. The Crawl sink and the Runner's publisher stamp them; the
+	// engine never does. Zero in a journal written before either existed,
+	// which the planner orders by clock instead, and says so.
+	RunTick       uint64 `json:"run_tick,omitempty"`
+	LeaseRevision uint64 `json:"lease_revision,omitempty"`
 
 	// Outcome is what this node did (kind 3).
 	Outcome Outcome `json:"outcome"`

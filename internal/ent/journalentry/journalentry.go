@@ -98,6 +98,10 @@ const (
 	FieldUndoesNode = "undoes_node"
 	// FieldUndoesStep holds the string denoting the undoes_step field in the database.
 	FieldUndoesStep = "undoes_step"
+	// FieldRunTick holds the string denoting the run_tick field in the database.
+	FieldRunTick = "run_tick"
+	// FieldLeaseRevision holds the string denoting the lease_revision field in the database.
+	FieldLeaseRevision = "lease_revision"
 	// Table holds the table name of the journalentry in the database.
 	Table = "journal_entries"
 )
@@ -147,6 +151,8 @@ var Columns = []string{
 	FieldRollbackOf,
 	FieldUndoesNode,
 	FieldUndoesStep,
+	FieldRunTick,
+	FieldLeaseRevision,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -216,6 +222,10 @@ var (
 	DefaultUndoesStep int
 	// UndoesStepValidator is a validator for the "undoes_step" field. It is called by the builders before save.
 	UndoesStepValidator func(int) error
+	// DefaultRunTick holds the default value on creation for the "run_tick" field.
+	DefaultRunTick uint64
+	// DefaultLeaseRevision holds the default value on creation for the "lease_revision" field.
+	DefaultLeaseRevision uint64
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -440,4 +450,14 @@ func ByUndoesNode(opts ...sql.OrderTermOption) OrderOption {
 // ByUndoesStep orders the results by the undoes_step field.
 func ByUndoesStep(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUndoesStep, opts...).ToFunc()
+}
+
+// ByRunTick orders the results by the run_tick field.
+func ByRunTick(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRunTick, opts...).ToFunc()
+}
+
+// ByLeaseRevision orders the results by the lease_revision field.
+func ByLeaseRevision(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLeaseRevision, opts...).ToFunc()
 }
