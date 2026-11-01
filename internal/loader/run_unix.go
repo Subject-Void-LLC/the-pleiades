@@ -15,6 +15,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // newCommand builds the exec.Cmd every run of an external program uses,
@@ -53,6 +54,11 @@ func newCommand(ctx context.Context, path, command string, prog *os.File, o Opti
 		return cmd.Process.Signal(syscall.SIGTERM)
 	}
 	cmd.WaitDelay = o.waitDelay
+	// A program running a detached command stops it on the device after
+	// its SIGTERM; the kill waits for that stop.
+	if remoteexec.Detached(ctx) {
+		cmd.WaitDelay += remoteexec.DetachStopBudget
+	}
 	return cmd
 }
 

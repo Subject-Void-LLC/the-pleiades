@@ -66,6 +66,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -161,13 +163,25 @@ func Main(descs ...collection.Descriptor) {
 }
 
 // MainProgram is Main for a program that also defines capabilities.
+//
+// The method runs in a context that ends on SIGTERM, which The Pleiades
+// sends when the task's own context ends (its timeout or async limit, or a
+// cancel), before killing the program a grace later. Ending it cancels the
+// method's work, so a command it started on a device is stopped there
+// (pkg/remoteexec: a signal to a plain command, the stop of a detached one)
+// before the program exits. Without it SIGTERM would kill the program at
+// once and stop nothing, and a detached command would run on past its limit.
 func MainProgram(p Program) {
-	os.Exit(ServeProgram(context.Background(), os.Args[1:], p, Streams{
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	code := ServeProgram(ctx, os.Args[1:], p, Streams{
 		In:       os.Stdin,
 		Out:      os.Stdout,
 		Err:      os.Stderr,
 		Response: os.NewFile(uintptr(ResponseFD), "collection-response"),
-	}))
+	})
+	// os.Exit skips deferred calls, so the signal handler is released here.
+	stop()
+	os.Exit(code)
 }
 
 // Serve answers one command for descs and returns the process exit code:

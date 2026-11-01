@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -62,7 +63,15 @@ func main() {
 
 // invoke is the execute-mode function. It reports Changed true so the
 // test can tell its answer apart from check's.
-func invoke(_ context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+func invoke(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	// On request, wait until the method's context ends and say so, standing
+	// in for a method whose device command a SIGTERM must stop: the test
+	// proves the signal ends the context rather than killing the program.
+	if wait, _ := params["wait_for_cancel"].(bool); wait {
+		fmt.Fprintln(os.Stderr, "waiting")
+		<-ctx.Done()
+		return collection.Result{}, fmt.Errorf("stopped: %w", ctx.Err())
+	}
 	if err := echo(rc, device, params, "invoke"); err != nil {
 		return collection.Result{}, err
 	}
