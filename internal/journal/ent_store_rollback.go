@@ -54,16 +54,33 @@ func (s *EntStore) allForJob(ctx context.Context, jobID string, limit int) ([]en
 }
 
 // OnDevicesSince returns every entry a job other than jobID wrote on one
-// of devices that finished after since: every job that could have changed
-// those devices after jobID began, its rollbacks included, and jobID's
-// own rollbacks. Or ErrTooMuchToPlan.
-func (s *EntStore) OnDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time) ([]engine.JournalEntry, error) {
-	return s.onDevicesSince(ctx, jobID, devices, since, MaxRollbackEntries, deviceChunk)
+// of devices that could have changed them after jobID began: every such
+// job, its rollbacks included, and jobID's own rollbacks. Or
+// ErrTooMuchToPlan.
+//
+// fromRevision is the lowest lease revision jobID's own entries record
+// (lock.Fenced), zero when they record none. A row carrying a revision is
+// selected when its revision is above fromRevision, whatever its times say,
+// since two Runners' clocks can disagree; the planner then compares each
+// device's revisions exactly (internal/rollback's order.go). A row from
+// before revisions, and every row when jobID has none, is selected as it
+// always was: finished after since.
+func (s *EntStore) OnDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, fromRevision uint64) ([]engine.JournalEntry, error) {
+	return s.onDevicesSince(ctx, jobID, devices, since, fromRevision, MaxRollbackEntries, deviceChunk)
 }
 
 // onDevicesSince is OnDevicesSince with its bound and IN-list size as
 // parameters.
-func (s *EntStore) onDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, limit, size int) ([]engine.JournalEntry, error) {
+func (s *EntStore) onDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, fromRevision uint64, limit, size int) ([]engine.JournalEntry, error) {
+	// Which rows could be later than jobID: by revision where both carry one,
+	// by clock where either does not.
+	later := entjournal.FinishedAtGT(since)
+	if fromRevision != 0 {
+		later = entjournal.Or(
+			entjournal.LeaseRevisionGT(fromRevision),
+			entjournal.And(entjournal.LeaseRevisionEQ(0), entjournal.FinishedAtGT(since)),
+		)
+	}
 	var entries []engine.JournalEntry
 	for start := 0; start < len(devices); start += size {
 		chunk := devices[start:min(start+size, len(devices))]
@@ -71,7 +88,7 @@ func (s *EntStore) onDevicesSince(ctx context.Context, jobID string, devices []s
 			Where(
 				entjournal.JobIDNEQ(jobID),
 				entjournal.DeviceIDIn(chunk...),
-				entjournal.FinishedAtGT(since),
+				later,
 			).
 			Order(ent.Asc(entjournal.FieldJobID), ent.Asc(entjournal.FieldDeviceID), ent.Asc(entjournal.FieldAttempt), ent.Asc(entjournal.FieldSequence)).
 			Limit(limit + 1 - len(entries)).

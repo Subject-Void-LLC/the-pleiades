@@ -39,8 +39,10 @@ type RollbackJournal interface {
 	// AllForJob returns every entry the job wrote.
 	AllForJob(ctx context.Context, jobID string) ([]engine.JournalEntry, error)
 	// OnDevicesSince returns every entry other jobs wrote on devices that
-	// finished after since.
-	OnDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time) ([]engine.JournalEntry, error)
+	// could be later than the job: above fromRevision, the job's lowest lease
+	// revision, for a row carrying one, and finished after since for a row
+	// from before lease revisions or when fromRevision is zero.
+	OnDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, fromRevision uint64) ([]engine.JournalEntry, error)
 }
 
 // DeviceNamer resolves device ids to the names the inventory holds for
@@ -237,8 +239,8 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 			"runbook %s has changed since this job ran, so the Controller cannot hold the journal to it; put it back as it was to roll the job back (adding or editing a rollback: list is not a change)", job.RunbookID)}}}
 	}
 
-	devices, since := journaledDevices(entries)
-	later, err := d.rollbackJournal.OnDevicesSince(ctx, job.JobID, devices, since)
+	devices, since, fromRevision := journaledDevices(entries)
+	later, err := d.rollbackJournal.OnDevicesSince(ctx, job.JobID, devices, since, fromRevision)
 	if err != nil {
 		return nil, err
 	}
@@ -315,11 +317,13 @@ func addStep(plan *dispatch.RollbackPlan, s rollback.Step) {
 	plan.Devices = append(plan.Devices, dispatch.RollbackDevice{DeviceID: s.DeviceID, DeviceName: s.DeviceName, Steps: []wire.RollbackStep{step}})
 }
 
-// journaledDevices returns the devices entries name, sorted, and when the
-// earliest entry began.
-func journaledDevices(entries []engine.JournalEntry) ([]string, time.Time) {
+// journaledDevices returns the devices entries name, sorted, when the
+// earliest entry began, and the lowest lease revision any entry records
+// (zero when none does).
+func journaledDevices(entries []engine.JournalEntry) ([]string, time.Time, uint64) {
 	seen := map[string]bool{}
 	var since time.Time
+	var lowest uint64
 	for _, e := range entries {
 		if e.DeviceID != "" {
 			seen[e.DeviceID] = true
@@ -327,8 +331,11 @@ func journaledDevices(entries []engine.JournalEntry) ([]string, time.Time) {
 		if !e.StartedAt.IsZero() && (since.IsZero() || e.StartedAt.Before(since)) {
 			since = e.StartedAt
 		}
+		if e.LeaseRevision != 0 && (lowest == 0 || e.LeaseRevision < lowest) {
+			lowest = e.LeaseRevision
+		}
 	}
-	return slices.Sorted(maps.Keys(seen)), since
+	return slices.Sorted(maps.Keys(seen)), since, lowest
 }
 
 // groupByJob groups entries into the runs the planner reads, one per job.

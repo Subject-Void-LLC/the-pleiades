@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
@@ -77,8 +76,8 @@ func fullyUndone(run Run, others []Run) bool {
 		return false
 	}
 	type attempt struct {
-		at time.Time
-		ok bool
+		entry engine.JournalEntry
+		ok    bool
 	}
 	latest := map[stepKey]attempt{}
 	for _, r := range append([]Run{run}, others...) {
@@ -90,8 +89,8 @@ func fullyUndone(run Run, others []Run) bool {
 				continue
 			}
 			k := stepKey{pair{e.UndoesNode, e.DeviceID}, e.UndoesStep}
-			if prev, seen := latest[k]; !seen || e.FinishedAt.After(prev.at) {
-				latest[k] = attempt{at: e.FinishedAt, ok: succeeded(e)}
+			if prev, seen := latest[k]; !seen || entryAfter(e, prev.entry) {
+				latest[k] = attempt{entry: e, ok: succeeded(e)}
 			}
 		}
 	}
@@ -127,8 +126,11 @@ func fullyUndone(run Run, others []Run) bool {
 // then undoes them on top of the other run's. Runs that cancel out (a run
 // fully undone by its own rollback, and that rollback) do not count, nor
 // does a rollback of target itself.
-func laterRunProblems(req Request, changed []engine.JournalEntry) []Problem {
-	begun := firstStart(req.Target)
+//
+// Which runs are later is decided by ticks and lease revisions (order.go),
+// and by clock times only for a pair of runs one of which predates them: the
+// ids of those runs are returned too, for the plan to say so.
+func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []string) {
 	devices := map[string]bool{}
 	for _, e := range changed {
 		devices[e.DeviceID] = true
@@ -139,6 +141,7 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) []Problem {
 	}
 
 	var problems []Problem
+	var byClockRuns []string
 	for _, r := range req.Others {
 		if r.ID == req.Target.ID || rollbackOf(r) == req.Target.ID || req.DespiteRuns[r.ID] {
 			continue
@@ -151,14 +154,15 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) []Problem {
 				continue
 			}
 		}
-		if !lastFinish(r).After(begun) {
-			continue
+		later, basis := laterOn(req.Target, r, devices)
+		if basis == byClock {
+			byClockRuns = append(byClockRuns, r.ID)
 		}
 		theirs, _ := changesOf(r)
 		var shared, irreversible []string
 		undoable := false
 		for _, e := range theirs {
-			if !devices[e.DeviceID] {
+			if !devices[e.DeviceID] || !later[e.DeviceID] {
 				continue
 			}
 			name := deviceName(req, e.DeviceID)
@@ -181,9 +185,16 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) []Problem {
 		}
 		slices.Sort(shared)
 		slices.Sort(irreversible)
-		problems = append(problems, laterRun(r.ID, strings.Join(shared, ", "), undoable, irreversible))
+		p := laterRun(r.ID, strings.Join(shared, ", "), undoable, irreversible)
+		switch basis {
+		case byUnfinished:
+			p.Reason += "; it never recorded its end on the project's run counter (it was stopped, or is still running), so it may have changed them at any time after it began"
+		case byClock:
+			p.Reason += "; one of the two journals predates run ordering, so this was decided by the journals' clock times"
+		}
+		problems = append(problems, p)
 	}
-	return problems
+	return problems, byClockRuns
 }
 
 // The kinds of later run a rollback can be refused over (Problem.Kind),
@@ -222,26 +233,4 @@ func laterRun(id, devices string, undoable bool, irreversible []string) Problem 
 		p.Reason = head + "; its runbook says none of its changes there needs undoing (rollback: []), so stepping over it is safe when that still holds"
 	}
 	return p
-}
-
-// firstStart is when a run's earliest recorded task began.
-func firstStart(run Run) time.Time {
-	var first time.Time
-	for _, e := range run.Entries {
-		if !e.StartedAt.IsZero() && (first.IsZero() || e.StartedAt.Before(first)) {
-			first = e.StartedAt
-		}
-	}
-	return first
-}
-
-// lastFinish is when a run's latest recorded task finished.
-func lastFinish(run Run) time.Time {
-	var last time.Time
-	for _, e := range run.Entries {
-		if e.FinishedAt.After(last) {
-			last = e.FinishedAt
-		}
-	}
-	return last
 }

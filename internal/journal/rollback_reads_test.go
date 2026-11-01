@@ -58,19 +58,70 @@ func TestRollbackReads_ReturnWhatAPlanNeedsAndRefuseWhatIsTooMuch(t *testing.T) 
 	}
 
 	since := time.Date(2026, 9, 28, 12, 1, 0, 0, time.UTC)
-	others, err := store.OnDevicesSince(ctx, "job-a", []string{"d1", "d2"}, since)
+	others, err := store.OnDevicesSince(ctx, "job-a", []string{"d1", "d2"}, since, 0)
 	if err != nil || len(others) != 1 || others[0].JobID != "job-b" || others[0].DeviceID != "d1" {
 		t.Fatalf("OnDevicesSince = %+v, %v, want only job-b's entry on d1", others, err)
 	}
 	// One device per query reads the same.
-	if chunked, err := journal.OnDevicesSinceWithin(store, ctx, "job-a", []string{"d1", "d2", "d3"}, since, 10, 1); err != nil || len(chunked) != 2 {
+	if chunked, err := journal.OnDevicesSinceWithin(store, ctx, "job-a", []string{"d1", "d2", "d3"}, since, 0, 10, 1); err != nil || len(chunked) != 2 {
 		t.Errorf("chunked one device per query: %d entries, %v, want job-b's two", len(chunked), err)
 	}
-	if _, err := journal.OnDevicesSinceWithin(store, ctx, "job-a", []string{"d1", "d3"}, since, 1, 1); !errors.Is(err, journal.ErrTooMuchToPlan) {
+	if _, err := journal.OnDevicesSinceWithin(store, ctx, "job-a", []string{"d1", "d3"}, since, 0, 1, 1); !errors.Is(err, journal.ErrTooMuchToPlan) {
 		t.Errorf("other jobs past the bound: %v, want ErrTooMuchToPlan", err)
 	}
-	if none, err := store.OnDevicesSince(ctx, "job-a", nil, since); err != nil || len(none) != 0 {
+	if none, err := store.OnDevicesSince(ctx, "job-a", nil, since, 0); err != nil || len(none) != 0 {
 		t.Errorf("no devices: %v, %v", none, err)
+	}
+}
+
+// TestRollbackReads_ALaterJobIsFoundByLeaseRevisionWhateverItsClock: with
+// the job's lowest lease revision given, a row from a Runner whose clock ran
+// an hour behind is still read as possibly later by its revision, a row with
+// a lower revision but a later clock is not, and a row from before lease
+// revisions is read by its clock as before.
+func TestRollbackReads_ALaterJobIsFoundByLeaseRevisionWhateverItsClock(t *testing.T) {
+	store, _ := newEntStore(t)
+	ctx := context.Background()
+	base := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	row := func(job string, revision uint64, offset time.Duration) engine.JournalEntry {
+		e := walkEntry(job, "d1", 1, 1, "tasks[0]")
+		e.RunID = "run-" + job
+		e.LeaseRevision = revision
+		e.StartedAt = base.Add(offset)
+		e.FinishedAt = e.StartedAt.Add(time.Second)
+		return e
+	}
+	entries := []engine.JournalEntry{
+		row("job-a", 10, 0),               // the job undone
+		row("job-skewed", 20, -time.Hour), // later lease, clock an hour behind
+		row("job-earlier", 5, time.Hour),  // earlier lease, clock an hour ahead
+		row("job-legacy", 0, time.Hour),   // from before lease revisions
+	}
+	if _, err := store.Save(ctx, entries); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	others, err := store.OnDevicesSince(ctx, "job-a", []string{"d1"}, base, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range others {
+		got = append(got, e.JobID)
+	}
+	if strings.Join(got, ",") != "job-legacy,job-skewed" {
+		t.Errorf("OnDevicesSince read %v, want job-legacy (by clock) and job-skewed (by revision)", got)
+	}
+	// With no revision for the job undone, every row is read by clock.
+	byClock, err := store.OnDevicesSince(ctx, "job-a", []string{"d1"}, base, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = got[:0]
+	for _, e := range byClock {
+		got = append(got, e.JobID)
+	}
+	if strings.Join(got, ",") != "job-earlier,job-legacy" {
+		t.Errorf("by clock, OnDevicesSince read %v, want job-earlier and job-legacy", got)
 	}
 }
 
@@ -279,7 +330,7 @@ func TestRollbackReads_ReportAStoreThatCannotBeRead(t *testing.T) {
 	if _, err := store.AllForJob(ctx, "job-a"); err == nil || errors.Is(err, journal.ErrTooMuchToPlan) {
 		t.Errorf("AllForJob on a closed store: %v", err)
 	}
-	if _, err := store.OnDevicesSince(ctx, "job-a", []string{"d1"}, time.Now()); err == nil || errors.Is(err, journal.ErrTooMuchToPlan) {
+	if _, err := store.OnDevicesSince(ctx, "job-a", []string{"d1"}, time.Now(), 0); err == nil || errors.Is(err, journal.ErrTooMuchToPlan) {
 		t.Errorf("OnDevicesSince on a closed store: %v", err)
 	}
 	if _, err := journal.ReadRun(t.TempDir(), readerRun); err == nil || !strings.Contains(err.Error(), "journal directory") {
