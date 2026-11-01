@@ -19,11 +19,21 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
 // detachedConn starts a server and connects to it with HOME set to a fresh
-// directory, returning the connection, the server and that HOME.
+// directory, returning the connection, the server's login count, a function
+// dropping its connections, and that HOME.
 func detachedConn(t *testing.T) (*Conn, func() int64, func(), string) {
+	t.Helper()
+	conn, srv, home := detachedServer(t)
+	return conn, srv.Logins, srv.DropConnections, home
+}
+
+// detachedServer is detachedConn returning the server itself.
+func detachedServer(t *testing.T) (*Conn, *remoteexectest.Server, string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -35,7 +45,24 @@ func detachedConn(t *testing.T) (*Conn, func() int64, func(), string) {
 		t.Fatalf("Connect: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	return conn, srv.Logins, srv.DropConnections, home
+	return conn, srv, home
+}
+
+// waitForPoll waits until srv has run a detached job's first poll, which
+// comes only once the start command has answered: a drop before then would
+// cut the start itself, which is a different case from a dropped poll.
+func waitForPoll(t *testing.T, srv *remoteexectest.Server) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		for _, cmd := range srv.Commands() {
+			if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "/rc") {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the detached job was never polled")
+		}
+	}
 }
 
 // jobsLeft lists the job directories left under home.
@@ -66,7 +93,8 @@ func TestDetached_ReturnsTheCommandsOutputAndExitCodeAndCleansUp(t *testing.T) {
 }
 
 func TestDetached_OutlivesADroppedConnection(t *testing.T) {
-	conn, logins, drop, home := detachedConn(t)
+	conn, srv, home := detachedServer(t)
+	logins, drop := srv.Logins, srv.DropConnections
 	type out struct {
 		res Result
 		err error
@@ -76,13 +104,7 @@ func TestDetached_OutlivesADroppedConnection(t *testing.T) {
 		res, err := conn.Run(WithDetach(context.Background()), "sleep 2; echo finished")
 		done <- out{res, err}
 	}()
-	deadline := time.Now().Add(10 * time.Second)
-	for len(jobsLeft(t, home)) == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the detached job never started")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitForPoll(t, srv)
 	drop()
 	got := <-done
 	if got.err != nil || got.res.Stdout != "finished\n" || got.res.ExitCode != 0 {
@@ -225,18 +247,15 @@ func TestDetached_FailuresAreNamedAndNeverRunTwice(t *testing.T) {
 }
 
 func TestDetached_ALostConnectionThatCannotBeRedialedIsNamed(t *testing.T) {
-	conn, _, drop, home := detachedConn(t)
+	conn, srv, _ := detachedServer(t)
+	drop := srv.DropConnections
 	conn.redial = func(context.Context) (*Conn, error) { return nil, errors.New("the device is gone") }
 	done := make(chan error, 1)
 	go func() {
 		_, err := conn.Run(WithDetach(context.Background()), "sleep 2")
 		done <- err
 	}()
-	for deadline := time.Now().Add(10 * time.Second); len(jobsLeft(t, home)) == 0; time.Sleep(20 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the detached job never started")
-		}
-	}
+	waitForPoll(t, srv)
 	drop()
 	if err := <-done; err == nil || !strings.Contains(err.Error(), "may still be running") {
 		t.Errorf("a lost connection: %v, want one naming the job that may still run", err)
