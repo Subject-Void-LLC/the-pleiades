@@ -110,6 +110,11 @@ vet, ingest or index call): report what should be recorded, and the caller decid
 
 A sweep that comes back clean is not a finding and not evidence the code is safe: say what it covered.
 
+Check first that the triad reached you: call `mcp__vuln-corpus__status` before anything else. If it, or any
+triad tool your definition lists, is missing from your tools, say so in your first line and stop: a review
+without the triad must never pass for one with it (on 2026-11-01 an agent launched seconds after this list was
+added got the new instructions and the old tools).
+
 ## Security findings
 
 If something could be a vulnerability, report it as its own finding, even if you are not sure. Give: what the
