@@ -225,6 +225,12 @@ func testFuncExists(t *testing.T, dir, name string) bool {
 	}
 	fset := token.NewFileSet()
 	for _, f := range files {
+		// A test file that is a symbolic link is neither parsed nor counted:
+		// its directory being inside the repository says nothing of where
+		// the link points.
+		if info, err := os.Lstat(f); err != nil || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
 		parsed, err := parser.ParseFile(fset, f, nil, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			t.Fatalf("parsing %s: %v", f, err)
@@ -359,6 +365,17 @@ func TestCoverageLedgerChecks_CanFail(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "out")); err == nil {
 		if insideRoot(root, "out") {
 			t.Error("insideRoot accepted a symbolic link out of the root")
+		}
+		// A test file linked from outside is not read, though its directory
+		// is inside.
+		if err := os.WriteFile(filepath.Join(outside, "elsewhere_test.go"), []byte("package x\n\nimport \"testing\"\n\nfunc TestElsewhere(t *testing.T) {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(outside, "elsewhere_test.go"), filepath.Join(dir, "linked_test.go")); err != nil {
+			t.Fatal(err)
+		}
+		if testFuncExists(t, dir, "TestElsewhere") {
+			t.Error("testFuncExists read a test file linked from outside the directory")
 		}
 	} else {
 		t.Logf("symbolic links unavailable here, so the link case is not checked: %v", err)
