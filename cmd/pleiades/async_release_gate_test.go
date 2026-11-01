@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-// asyncGateBackground starts a job that writes after a later task does, and
+// asyncGateBackground starts a job that waits for a later task's line before
+// writing its own, so it can only finish if the two ran at the same time, and
 // collects it.
 const asyncGateBackground = `# Appends two lines to /tmp/ag.order, one from a background job.
 # Blast radius: the gate's one device.
@@ -22,7 +23,7 @@ hosts: debian
 tasks:
   - name: slow write in the background
     exec.shell:
-      cmd: sleep 3; echo built >> /tmp/ag.order
+      cmd: until grep -q meanwhile /tmp/ag.order 2>/dev/null; do sleep 0.2; done; echo built >> /tmp/ag.order
     async: 60
     poll: 0
     register: build
@@ -60,7 +61,7 @@ hosts: debian
 tasks:
   - name: holds its output
     exec.shell:
-      cmd: sleep 30 & wait
+      cmd: sleep 120 & wait
     timeout: 3
 `
 
@@ -82,7 +83,7 @@ func TestCLI_AsyncRunsInTheBackgroundAndItsLimitStopsTheDevicesWork(t *testing.T
 	// waits for the command's output to end.
 	began := time.Now()
 	out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/timeout.yaml")
-	if err == nil || time.Since(began) > 20*time.Second {
+	if err == nil || time.Since(began) > 60*time.Second {
 		t.Fatalf("a task past its timeout should fail promptly (err %v, took %s):\n%s", err, time.Since(began), out)
 	}
 

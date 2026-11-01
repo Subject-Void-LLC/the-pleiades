@@ -34,7 +34,7 @@ import (
 // async_status, and a task that starts a child and outlives its limit.
 var asyncRunbooks = map[string]string{
 	"async-background.yaml": "id: async-background\ntasks:\n" +
-		"  - name: slow write in the background\n    exec.shell:\n      cmd: sleep 3; echo built >> /tmp/async-order\n    async: 60\n    poll: 0\n    register: build\n" +
+		"  - name: slow write in the background\n    exec.shell:\n      cmd: until grep -q meanwhile /tmp/async-order 2>/dev/null; do sleep 0.2; done; echo built >> /tmp/async-order\n    async: 60\n    poll: 0\n    register: build\n" +
 		"  - name: meanwhile\n    exec.shell:\n      cmd: echo meanwhile >> /tmp/async-order\n" +
 		"  - name: collect\n    async_status:\n      jid: \"{{ result.build.ansible_job_id }}\"\n",
 	"async-limit.yaml": "id: async-limit\ntasks:\n" +
