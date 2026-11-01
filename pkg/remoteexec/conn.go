@@ -245,17 +245,19 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w (%d bytes on one stream)", c.addr, ErrOutputTooLarge, limit)
 	}
 
-	result := Result{Stdout: stdout.buf.String(), Stderr: stderr.buf.String()}
-
+	// The buffers are read only once Wait has returned, in the two cases
+	// below: Wait is what joins x/crypto/ssh's goroutines copying the
+	// streams into them, and an abandoned command (waitOrAbandon gave up on
+	// it) may still be writing, so reading them then would race.
 	var exitErr *ssh.ExitError
 	switch {
 	case runErr == nil:
-		result.ExitCode = 0
+		return Result{Stdout: stdout.buf.String(), Stderr: stderr.buf.String()}, nil
 
 	case errors.As(runErr, &exitErr):
 		// A non-zero remote exit status is real information, not a Go
 		// error: the command ran to completion and reported failure.
-		result.ExitCode = exitErr.ExitStatus()
+		return Result{Stdout: stdout.buf.String(), Stderr: stderr.buf.String(), ExitCode: exitErr.ExitStatus()}, nil
 
 	default:
 		// The connection's state is now unknown (a command cut off
@@ -274,8 +276,6 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		// side is unknown, which is a genuine error and never an exit code.
 		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, runErr)
 	}
-
-	return result, nil
 }
 
 // abandonGrace is how long a cancelled command's session is waited on after
