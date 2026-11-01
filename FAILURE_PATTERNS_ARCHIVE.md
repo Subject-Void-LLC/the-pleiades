@@ -18943,3 +18943,27 @@ switch equal both ways.
 
 **Lesson.** When a change makes a sentence false, the change corrects it: search the docs and comments for the names it
 changes before committing.
+
+## 790. Two tests in container packages still held behavior the branch had changed (an Ansible gate's argv expecting the dropped --limit, and the runbook guide's async example naming a tag its gate's inventory lacks), and pr-check, which leaves container packages to Actions, passed (a repeat in kind of 756) (fixed before the pull request)
+
+**Symptom.** `make branch-containers` at `77303189` on `feat/c1-language`, 2026-11-01, run 41341971748: shard 5 failed
+`cmd/runner`'s `TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation`, whose wanted argv still held `--limit sw1`,
+which `d8c59440` stopped passing to ansible-playbook on purpose (the Controller applies the limit before it dispatches).
+Shard 1 failed `cmd/pleiades`'s `TestCLI_WritingRunbooksPageExamplesValidate`: the guide's async example, added in
+`fe9c4d62`, used `hosts: search`, and the gate validates every example against an inventory with only the `web` tag, so
+validate warned. A local `make pr-check` had passed at the same commit.
+
+**Root cause.** 756's class: pr-check leaves container packages to Actions by default, and both tests live in container
+packages (`cmd/runner`, `cmd/pleiades`). The commits that changed the behavior ran the gates they wrote, not the older
+tests in the same packages that read the same behavior.
+
+**Fix.** The Ansible gate's wanted argv drops `--limit`, keeps the launch's `limit` field in the payload, and its comment
+says why no limit reaches ansible-playbook; the guide's example runs on `hosts: web`. Both pass locally against real
+containers.
+
+**Why 756 did not prevent it.** 756 kept `internal/archtest` in pr-check; it did not make pr-check run a changed
+container package's other tests, and `make branch-containers` exists for exactly this. It caught both before a pull
+request, as designed.
+
+**Lesson.** A change to a behavior other tests read (a breaking flag, a documented example) runs the whole package those
+tests live in before the push, container package or not: `go test -run . ./cmd/runner` is minutes, a CI round is an hour.

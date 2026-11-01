@@ -793,6 +793,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 787. The CLI cut serial: percentages from every resolved host and the Controller from the admitted ones, and a serial: runbook with no hosts ran nothing, device-less tasks included (a repeat in kind of 749) (fixed before push)
 788. The async release gates ordered two tasks by racing a fixed sleep, and bounded a timeout at 20 seconds against a 30-second sleep (a repeat of 211 and 769) (fixed before push)
 789. Text that the branch's own changes made false: the stop's SIGKILL time, the list of Ansible keywords a runbook lacks, the converter's notes, a merged doc comment, and comments naming a removed list (a repeat of 571 and 765) (fixed before push)
+790. Two tests in container packages still held behavior the branch had changed (an Ansible gate's argv expecting the dropped --limit, and the runbook guide's async example naming a tag its gate's inventory lacks), and pr-check, which leaves container packages to Actions, passed (a repeat in kind of 756) (fixed before the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
