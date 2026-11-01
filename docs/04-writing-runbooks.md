@@ -626,11 +626,15 @@ What it is, and is not:
   sent or logged.
 - It applies to a method that runs commands over SSH. `validate` refuses it on a built-in
   action, on a method that reaches its device another way (an API, a container engine), on
-  a method that types into the device's CLI (`net.ios.*`, `net.cli.*`), and on
-  `net.ssh.ping` and `wait.connection`, whose question is the login itself. A method that
-  picks its carrier per device is refused when the task runs, before the device is
-  contacted, on a carrier sudo cannot reach: a CLI session (`wait.routes` on Cisco IOS) or
-  WinRM (`svc.*` on Windows).
+  a method that types into the device's CLI (`net.ios.*`, `net.cli.*`), on a method that
+  reaches its service through a forward or subsystem the login opens (`db.pg.*`,
+  `net.netconf.config`), and on `net.ssh.ping` and `wait.connection`, whose question is the
+  login itself. A method that picks its carrier per device is refused when the task runs,
+  on a carrier sudo cannot reach: a CLI session (`wait.routes` on Cisco IOS), WinRM (`svc.*`
+  on Windows), a `gate.run` check's TCP precondition, or a container engine's socket reached
+  through the login (`container.*`, after sudo has been checked). A method that reaches its
+  device no SSH way on that device (a container engine over TLS) runs as the login and says
+  so as a warning; nothing is refused there.
 - The result and the journal record the account only when a connection really ran as it.
   A task that asked and was not run that way says so as a warning, and records no account.
   `pleiades rollback`, and a block's `rollback_on_failure` inside the run, run an undo as the

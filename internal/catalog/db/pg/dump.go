@@ -45,6 +45,7 @@ func init() {
 			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
+			NoBecomeReason:       noBecomeForward,
 			SupportsCheck:        true,
 			Reversibility: collection.Reversibility{
 				Reversible: true,

@@ -18,6 +18,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/gate"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // TestRun_Registered declares what the design note promises.
@@ -274,6 +275,31 @@ func TestRun_ATCPPreconditionIsTestedFromTheDevice(t *testing.T) {
 	}
 	if r, _ := got["down"]["reason"].(string); got["down"]["status"] != "SKIP" || !strings.Contains(r, "needs tcp "+closedAddr) {
 		t.Errorf("down = %v", got["down"])
+	}
+}
+
+// TestRun_ATCPPreconditionUnderBecomeFailsAndDoesNotSkip: become cannot
+// elevate a port forward, so a check with a TCP precondition fails naming
+// become rather than skipping as though the port were closed, and the check
+// itself never runs.
+func TestRun_ATCPPreconditionUnderBecomeFailsAndDoesNotSkip(t *testing.T) {
+	h := newHarness(t)
+	// The harness's commands run on this machine: sudo must be a stand-in,
+	// never the host's own.
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "sudo"), []byte("#!/bin/sh\nshift 4\nexec \"$@\"\n"), 0o755); err != nil { // #nosec G306 -- a test's own stand-in, which must be executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	marker := filepath.Join(t.TempDir(), "ran")
+	manifest := h.manifest(t, fmt.Sprintf("version: 1\ndefaults: {timeout: 30s}\nchecks:\n  - {name: probe, kind: network, shell: \"touch %s\", requires: {tcp: [\"127.0.0.1:22\"]}}\n", marker))
+	_, _ = gate.Run(sdk.WithBecome(context.Background(), "root"), h.rc, h.device, params(manifest, nil))
+	got := resultsByName(t, h.rc)
+	if r, _ := got["probe"]["reason"].(string); got["probe"]["status"] != "FAIL" || !strings.Contains(r, "become does not apply to a TCP precondition") {
+		t.Errorf("probe = %v, want a FAIL naming become", got["probe"])
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the check ran although its precondition was refused")
 	}
 }
 
