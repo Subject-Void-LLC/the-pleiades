@@ -68,6 +68,8 @@ func TestLimit_AdmitsAsAnsibleDoes(t *testing.T) {
 func TestLimit_RefusesWhatItCannotRead(t *testing.T) {
 	for text, want := range map[string]string{
 		"!":                       "empty pattern",
+		",":                       "only separators",
+		",,:":                     "only separators",
 		"~web.*":                  "regular expression",
 		"@hosts.txt":              "from a file",
 		"{{ vars.hosts }}":        "template",
@@ -85,7 +87,7 @@ func TestLimit_RefusesWhatItCannotRead(t *testing.T) {
 // device without panicking, and an exclusion of the device's own name always
 // keeps it out.
 func FuzzLimit(f *testing.F) {
-	for _, seed := range []string{"web,&prod,!db-1", "*", "!*", "[a-", "a:b:c", "~x", "@f", "&", "web-[0-9]"} {
+	for _, seed := range []string{"web,&prod,!db-1", "*", "!*", "[a-", "a:b:c", "~x", "@f", "&", "web-[0-9]", ",", "::"} {
 		f.Add(seed, "web-1", "web")
 	}
 	f.Fuzz(func(t *testing.T, text, name, group string) {

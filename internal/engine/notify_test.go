@@ -307,14 +307,17 @@ handlers:
 func TestNotify_RefuseWhatCannotMeanWhatItSays(t *testing.T) {
 	const task = "tasks:\n  - name: t\n    noop: {}\n"
 	for name, tc := range map[string]struct{ yaml, want string }{
-		"an unknown handler":     {"id: x\ntasks:\n  - name: t\n    noop: {}\n    notify: nope\n", `notify: names "nope", which no handler is named or listens to`},
-		"a handler with no name": {"id: x\n" + task + "handlers:\n  - noop: {}\n", "a handler needs a name"},
-		"two handlers one name":  {"id: x\n" + task + "handlers:\n  - name: h\n    noop: {}\n  - name: h\n    noop: {}\n", `two handlers are named "h"`},
-		"a block handler":        {"id: x\n" + task + "handlers:\n  - name: h\n    block:\n      - name: a\n        noop: {}\n", "a block, a parallel group or import_tasks is not supported as a handler"},
-		"a handler notifying":    {"id: x\n" + task + "handlers:\n  - name: h\n    noop: {}\n    notify: g\n  - name: g\n    noop: {}\n", "a handler notifying another handler is not supported"},
-		"listen on a task":       {"id: x\ntasks:\n  - name: t\n    noop: {}\n    listen: topic\n", "listen: belongs on a handler"},
-		"notify on a block":      {"id: x\ntasks:\n  - name: g\n    block:\n      - name: a\n        noop: {}\n    notify: h\nhandlers:\n  - name: h\n    noop: {}\n", "not on a block or a parallel group"},
-		"an empty topic":         {"id: x\n" + task + "handlers:\n  - name: h\n    noop: {}\n    listen: \"\"\n", "empty topic"},
+		"an unknown handler":      {"id: x\ntasks:\n  - name: t\n    noop: {}\n    notify: nope\n", `notify: names "nope", which no handler is named or listens to`},
+		"a handler with no name":  {"id: x\n" + task + "handlers:\n  - noop: {}\n", "a handler needs a name"},
+		"two handlers one name":   {"id: x\n" + task + "handlers:\n  - name: h\n    noop: {}\n  - name: h\n    noop: {}\n", `two handlers are named "h"`},
+		"a block handler":         {"id: x\n" + task + "handlers:\n  - name: h\n    block:\n      - name: a\n        noop: {}\n", "a block, a parallel group or import_tasks is not supported as a handler"},
+		"a handler notifying":     {"id: x\n" + task + "handlers:\n  - name: h\n    noop: {}\n    notify: g\n  - name: g\n    noop: {}\n", "a handler notifying another handler is not supported"},
+		"listen on a task":        {"id: x\ntasks:\n  - name: t\n    noop: {}\n    listen: topic\n", "listen: belongs on a handler"},
+		"notify on a block":       {"id: x\ntasks:\n  - name: g\n    block:\n      - name: a\n        noop: {}\n    notify: h\nhandlers:\n  - name: h\n    noop: {}\n", "not on a block or a parallel group"},
+		"an empty topic":          {"id: x\n" + task + "handlers:\n  - name: h\n    noop: {}\n    listen: \"\"\n", "empty topic"},
+		"a handler with a target": {"id: x\n" + task + "handlers:\n  - name: h\n    noop:\n      target: lb1\n", "a target: of its own is not supported"},
+		"a deviceless handler":    {"id: x\n" + task + "handlers:\n  - name: h\n    pause:\n      seconds: 1\n", "acts on no device"},
+		"a handler locking all":   {"id: x\n" + task + "handlers:\n  - name: h\n    noop: {}\n    lock_acquisition: all_at_plan_time\n", "cannot take lock_acquisition: all_at_plan_time"},
 	} {
 		if _, err := buildYAML(t, tc.yaml); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err %v, want one saying %q", name, err, tc.want)

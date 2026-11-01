@@ -25,7 +25,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
+
+// ErrHandlerLockAll is why a handler cannot take lock_acquisition:
+// all_at_plan_time: it runs on each notified device on its own, so its
+// devices' locks cannot all be taken together.
+const ErrHandlerLockAll = "a handler runs on each notified device on its own, so it cannot take lock_acquisition: all_at_plan_time, which takes every device's lock together"
 
 // SkipReasonNotNotified is why a handler did not run on a device.
 const SkipReasonNotNotified = "not notified: no task that notifies this handler changed anything on this device in this section"
@@ -55,6 +62,19 @@ func validateHandlers(def *WorkflowDef) (map[string][]int, error) {
 			return nil, fmt.Errorf("handler %q: a handler is one task calling one method; a block, a parallel group or import_tasks is not supported as a handler", name)
 		case len(h.Notify) > 0:
 			return nil, fmt.Errorf("handler %q: a handler notifying another handler is not supported; notify both handlers from the task instead", name)
+		case h.LockAcquisition == AcquisitionAllAtPlanTime:
+			// A handler runs on each notified device on its own (runPerDevice),
+			// which fails such a lock on every run that notifies it.
+			return nil, fmt.Errorf("handler %q: %s", name, ErrHandlerLockAll)
+		}
+		// A handler runs on the devices that notified it: a notification is
+		// kept per device, so a handler that runs somewhere else, or nowhere,
+		// would never find one and would skip on every run.
+		if target, _ := h.Params[collection.TargetParam].(string); strings.TrimSpace(target) != "" {
+			return nil, fmt.Errorf("handler %q: a handler runs on the devices whose tasks notified it, so a target: of its own is not supported; give the task a handler that acts on the device, or run the call as an ordinary task with a when:", name)
+		}
+		if !TaskNeedsDevice(h) {
+			return nil, fmt.Errorf("handler %q: %s with these parameters acts on no device, and a handler runs on the devices whose tasks notified it, so it would never run; run it as an ordinary task with a when: instead", name, h.FQCN)
 		}
 		names[name] = true
 		targets[name] = append(targets[name], i)

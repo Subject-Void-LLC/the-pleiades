@@ -240,14 +240,15 @@ tasks:
 func TestAsync_RefusesWhatCannotMeanWhatItSays(t *testing.T) {
 	collect := "  - name: c\n    async_status:\n      jid: \"{{ result.j.ansible_job_id }}\"\n"
 	for name, tc := range map[string]struct{ yaml, want string }{
-		"poll without async":          {"id: x\ntasks:\n  - name: t\n    noop: {}\n    poll: 5\n", "poll needs async"},
-		"async on a block":            {"id: x\ntasks:\n  - name: b\n    async: 5\n    block:\n      - name: t\n        noop: {}\n", "not on a block"},
-		"async on set_fact":           {"id: x\ntasks:\n  - name: t\n    set_fact:\n      a: 1\n    async: 5\n", "runs in the engine at once"},
-		"poll past async":             {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    poll: 10\n", "longer than the async limit"},
-		"async with a loop":           {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    loop: [1, 2]\n", "loop or a retry"},
-		"background, no register":     {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    poll: 0\n" + collect, "needs a register"},
-		"background, never collected": {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    poll: 0\n    register: j\n", "no later async_status collects it"},
-		"async past a day":            {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 90000\n", "from 1 to 86400"},
+		"poll without async":                 {"id: x\ntasks:\n  - name: t\n    noop: {}\n    poll: 5\n", "poll needs async"},
+		"async on a block":                   {"id: x\ntasks:\n  - name: b\n    async: 5\n    block:\n      - name: t\n        noop: {}\n", "not on a block"},
+		"async on set_fact":                  {"id: x\ntasks:\n  - name: t\n    set_fact:\n      a: 1\n    async: 5\n", "runs in the engine at once"},
+		"poll past async":                    {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    poll: 10\n", "longer than the async limit"},
+		"async with a loop":                  {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    loop: [1, 2]\n", "loop or a retry"},
+		"background, no register":            {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    poll: 0\n" + collect, "needs a register"},
+		"background, never collected":        {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    poll: 0\n    register: j\n", "no later async_status collects it"},
+		"async past a day":                   {"id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 90000\n", "from 1 to 86400"},
+		"background in a self-undoing block": {"id: x\ntasks:\n  - name: b\n    rollback_on_failure: true\n    block:\n      - name: t\n        noop: {}\n        async: 5\n        poll: 0\n        register: j\n" + collect, "inside block \"b\", which has rollback_on_failure"},
 	} {
 		if _, err := buildYAML(t, tc.yaml); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err %v, want one saying %q", name, err, tc.want)
@@ -255,5 +256,51 @@ func TestAsync_RefusesWhatCannotMeanWhatItSays(t *testing.T) {
 	}
 	if _, err := buildYAML(t, "id: x\ntasks:\n  - name: t\n    noop: {}\n    async: 5\n    poll: 0\n    register: j\n"+collect); err != nil {
 		t.Errorf("a collected background task was refused: %v", err)
+	}
+	// A rescue runs after its block's undo, so a background task there is
+	// not one the undo would miss.
+	if _, err := buildYAML(t, "id: x\ntasks:\n  - name: b\n    rollback_on_failure: true\n    block:\n      - name: a\n        noop: {}\n    rescue:\n      - name: t\n        noop: {}\n        async: 5\n        poll: 0\n        register: j\n"+collect); err != nil {
+		t.Errorf("a background task in a self-undoing block's rescue was refused: %v", err)
+	}
+}
+
+// TestAsync_CancellingTheRunStopsABackgroundJob: a run cancelled while a
+// background job goes on stops the job through its context, rather than
+// waiting in Run's drain for the job's whole async limit.
+func TestAsync_CancellingTheRunStopsABackgroundJob(t *testing.T) {
+	log := registerSlow(t)
+	device := &inventorytest.Stub{StubID: "d1", StubName: "d1", StubState: inventory.StateActive}
+	x := engine.NewExecutor(mapResolver{"all": {device}}, newBridge(&recordingFallback{}), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0,
+		engine.WithRenderer(render.New()), engine.WithJournal(&journalSink{}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		// Cancel once the job has started; the run then sits in its drain.
+		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(log.joined(), "long+") && time.Now().Before(deadline); {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+	}()
+	began := time.Now()
+	_, _ = x.Run(ctx, yamlRunbook(t, `id: a
+hosts: all
+tasks:
+  - name: long
+    enginetest.slow:
+      id: long
+      ms: 60000
+    async: 3600
+    poll: 0
+    register: job
+  - name: collect, or not
+    async_status:
+      jid: "{{ result.job.ansible_job_id }}"
+    when_cel: 1 == 2
+`))
+	if took := time.Since(began); took > 10*time.Second {
+		t.Fatalf("Run took %s after the cancel: the background job ran on", took)
+	}
+	if got := log.joined(); got != "long+,long!" {
+		t.Errorf("marks %q, want long+,long! (the job stopped by the run's cancel)", got)
 	}
 }

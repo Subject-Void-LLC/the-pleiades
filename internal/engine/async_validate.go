@@ -51,22 +51,41 @@ func validateAsyncKeys(t *Task, label string) error {
 // validateAsyncFlow refuses a background task no later task collects: its
 // result would be lost, so validation asks for an async_status reading its
 // register's job id after it, in the same runbook.
+//
+// It also refuses a background task inside a block with rollback_on_failure:
+// that block's undo restores the device when it fails, while the job would go
+// on changing the device after the undo, and is journaled only when collected.
 func validateAsyncFlow(def *WorkflowDef) error {
 	var order []*Task
-	var walk func([]Task)
-	walk = func(tasks []Task) {
+	var refused error
+	var walk func([]Task, string)
+	walk = func(tasks []Task, undoneBy string) {
 		for i := range tasks {
-			order = append(order, &tasks[i])
-			walk(tasks[i].Block)
-			walk(tasks[i].Rescue)
-			walk(tasks[i].Always)
-			walk(tasks[i].Parallel)
+			t := &tasks[i]
+			order = append(order, t)
+			if refused == nil && undoneBy != "" && t.background() {
+				refused = fmt.Errorf("task %q runs in the background (poll: 0) inside block %q, which has rollback_on_failure: the block's undo cannot undo a job still running; poll the task (poll: N) or move it out of the block", t.Name, undoneBy)
+			}
+			// The tasks of a block that undoes itself on failure are held to
+			// that block's undo; its rescue and always run after the undo,
+			// so they are held only to an enclosing block's.
+			inner := undoneBy
+			if t.RollbackOnFailure {
+				inner = t.Name
+			}
+			walk(t.Block, inner)
+			walk(t.Rescue, undoneBy)
+			walk(t.Always, undoneBy)
+			walk(t.Parallel, undoneBy)
 		}
 	}
-	walk(def.PreTasks)
-	walk(def.Tasks)
-	walk(def.PostTasks)
-	walk(def.Handlers)
+	walk(def.PreTasks, "")
+	walk(def.Tasks, "")
+	walk(def.PostTasks, "")
+	walk(def.Handlers, "")
+	if refused != nil {
+		return refused
+	}
 	for i, t := range order {
 		// A background task with no register is refused on its own, naming
 		// that (validateAsyncKeys).

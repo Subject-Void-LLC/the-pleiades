@@ -253,6 +253,21 @@ func keepAlive(lease lock.Lease, ttl time.Duration, stop <-chan struct{}) {
 // job's id. run is the task's own run, called in the job's goroutine.
 func (r *run) startJob(ctx context.Context, cmd nodeExecution, result NodeResult, host string, lease lock.Lease, run func(context.Context, nodeExecution, NodeResult) NodeResult) NodeResult {
 	job := &asyncJob{id: newJobID(), nodeID: cmd.NodeID, device: result.Device, done: make(chan struct{})}
+	// The job id is recorded before the job starts: a record that fails then
+	// fails a task that started nothing, where after the start it would report
+	// a failure while the job ran on, uncollectable.
+	stats := map[string]interface{}{StatJobID: job.id, StatStarted: 1, StatFinished: 0}
+	if cmd.Task.Register != "" && !cmd.Task.noMerge {
+		if err := r.x.workflow.Merge(cmd.Task.Register, result.Device, stats); err != nil {
+			if lease != nil {
+				// runOne handed the lease to this job, which will not run.
+				_ = lease.Release(context.Background())
+			}
+			result.fail(FailureStageRecord, fmt.Errorf("failed to record the job id of task %s: %w", taskLabel(cmd.NodeID, cmd.Task), err))
+			r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
+			return finish(result)
+		}
+	}
 	if lease != nil {
 		lease = r.leases.adopt(result.Device, lease, defaultLockTTL)
 	}
@@ -270,19 +285,14 @@ func (r *run) startJob(ctx context.Context, cmd nodeExecution, result NodeResult
 		if lease != nil {
 			defer func() { _ = lease.Release(context.Background()) }()
 		}
-		// Not this level's to cancel: the job runs past it, bounded by its own
-		// async limit and by the run's own context.
-		job.result = run(context.WithoutCancel(ctx), bg, start)
+		// The job runs past the level that started it, bounded by its own async
+		// limit and by ctx, the run's own context: nothing in the engine ends
+		// ctx at a level's end, so it ends only when the run is cancelled (an
+		// interrupt, a cancelled job), and that cancel must stop the job, or
+		// Run's drain would hold the run open for the job's whole limit.
+		job.result = run(ctx, bg, start)
 	}()
 
-	stats := map[string]interface{}{StatJobID: job.id, StatStarted: 1, StatFinished: 0}
-	if cmd.Task.Register != "" && !cmd.Task.noMerge {
-		if err := r.x.workflow.Merge(cmd.Task.Register, result.Device, stats); err != nil {
-			result.fail(FailureStageRecord, fmt.Errorf("failed to record the job id of task %s: %w", taskLabel(cmd.NodeID, cmd.Task), err))
-			r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
-			return finish(result)
-		}
-	}
 	result.Stats = stats
 	result.background = true
 	r.publish(cmd.NodeID, cmd.Task, host, "started", "running in the background as job "+job.id)

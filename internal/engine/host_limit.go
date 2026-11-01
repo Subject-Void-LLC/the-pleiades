@@ -62,6 +62,12 @@ func ParseLimit(text string) (Limit, error) {
 		return Limit{}, fmt.Errorf("limit: %d characters is more than the %d a limit may hold", len(text), maxLimitLength)
 	}
 	fields := strings.FieldsFunc(text, func(r rune) bool { return r == ',' || r == ':' })
+	// Text made only of separators (",", or "$HOSTS," with HOSTS empty)
+	// leaves no pattern, and the zero Limit admits every device: a limit
+	// someone wrote must never widen to all of them.
+	if len(fields) == 0 {
+		return Limit{}, fmt.Errorf("limit: %q has no pattern, only separators; name the devices or groups to run on", text)
+	}
 	if len(fields) > maxLimitTerms {
 		return Limit{}, fmt.Errorf("limit: %d patterns is more than the %d a limit may hold", len(fields), maxLimitTerms)
 	}
