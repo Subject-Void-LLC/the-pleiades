@@ -1,0 +1,209 @@
+# virt.clab against the containerlab API server's own OpenAPI document (contract.json).
+# Each operation maps to the method that implements it, or is excluded with why no runbook
+# would want it; an operation listed nowhere is a gap. Proof says how each method is tested on
+# the OS the server runs on: live against the real server (internal/testsupport.StartClabServer),
+# fixture against a scripted one. Checked by internal/archtest; rendered by tools/gendocs.
+ops:
+  "DELETE /api/v1/images":
+    methods: [virt.clab.image.remove]
+  "DELETE /api/v1/labs/{labName}":
+    methods: [virt.clab.lab.destroy]
+  "DELETE /api/v1/ssh/sessions/{port}":
+    methods: [virt.clab.ssh_session.terminate]
+  "DELETE /api/v1/tools/vxlan":
+    methods: [virt.clab.vxlan.delete]
+  "DELETE /api/v1/ui/custom-nodes/{name}":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "DELETE /api/v1/ui/icons/{iconName}":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "GET /api/v1/capture/wireshark-vnc-sessions/{sessionId}/vnc/{proxyPath}":
+    excluded: "proxies the noVNC page assets a browser loads for a Wireshark session; a runbook has no browser to load them into"
+  "GET /api/v1/health/metrics":
+    methods: [virt.clab.server.metrics]
+  "GET /api/v1/images":
+    methods: [virt.clab.image.list]
+  "GET /api/v1/labs":
+    methods: [virt.clab.lab.list]
+  "GET /api/v1/labs/{labName}":
+    methods: [virt.clab.lab.info]
+  "GET /api/v1/labs/{labName}/interfaces":
+    methods: [virt.clab.lab.interfaces]
+  "GET /api/v1/labs/{labName}/links":
+    methods: [virt.clab.lab.links]
+  "GET /api/v1/labs/{labName}/nodes/{nodeName}/browser-ports":
+    methods: [virt.clab.node.ports]
+  "GET /api/v1/labs/{labName}/nodes/{nodeName}/logs":
+    methods: [virt.clab.node.logs]
+  "GET /api/v1/labs/{labName}/topology/yaml":
+    methods: [virt.clab.lab.topology]
+  "GET /api/v1/labs/{labName}/ui/icons":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "GET /api/v1/ssh/sessions":
+    methods: [virt.clab.ssh_session.list]
+  "GET /api/v1/tools/edgeshark/status":
+    methods: [virt.clab.edgeshark.status]
+  "GET /api/v1/tools/netem/show":
+    methods: [virt.clab.netem.show]
+  "GET /api/v1/ui/custom-nodes":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "GET /api/v1/ui/icons":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "GET /api/v1/version":
+    methods: [virt.clab.server.version]
+  "GET /api/v1/version/check":
+    methods: [virt.clab.server.version_check]
+  "GET /health":
+    methods: [virt.clab.server.health]
+  "POST /api/v1/generate":
+    methods: [virt.clab.topology.generate]
+  "POST /api/v1/images/pull":
+    methods: [virt.clab.image.pull]
+  "POST /api/v1/labs":
+    methods: [virt.clab.lab.deploy]
+  "POST /api/v1/labs/{labName}/apply":
+    methods: [virt.clab.lab.apply]
+  "POST /api/v1/labs/{labName}/capture/packetflix":
+    methods: [virt.clab.capture.packetflix]
+  "POST /api/v1/labs/{labName}/exec":
+    methods: [virt.clab.node.exec]
+  "POST /api/v1/labs/{labName}/nodes/{nodeName}/pause":
+    methods: [virt.clab.node.pause]
+  "POST /api/v1/labs/{labName}/nodes/{nodeName}/restart":
+    methods: [virt.clab.node.restart]
+  "POST /api/v1/labs/{labName}/nodes/{nodeName}/ssh":
+    methods: [virt.clab.node.ssh_access]
+  "POST /api/v1/labs/{labName}/nodes/{nodeName}/start":
+    methods: [virt.clab.node.start]
+  "POST /api/v1/labs/{labName}/nodes/{nodeName}/stop":
+    methods: [virt.clab.node.stop]
+  "POST /api/v1/labs/{labName}/nodes/{nodeName}/unpause":
+    methods: [virt.clab.node.unpause]
+  "POST /api/v1/labs/{labName}/restart":
+    methods: [virt.clab.lab.restart]
+  "POST /api/v1/labs/{labName}/save":
+    methods: [virt.clab.lab.save]
+  "POST /api/v1/labs/{labName}/start":
+    methods: [virt.clab.lab.start]
+  "POST /api/v1/labs/{labName}/stop":
+    methods: [virt.clab.lab.stop]
+  "POST /api/v1/labs/{labName}/ui/icons/reconcile":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "POST /api/v1/labs/{labName}/validate":
+    methods: [virt.clab.lab.validate]
+  "POST /api/v1/tools/disable-tx-offload":
+    methods: [virt.clab.node.disable_tx_offload]
+  "POST /api/v1/tools/edgeshark/install":
+    methods: [virt.clab.edgeshark.install]
+  "POST /api/v1/tools/edgeshark/uninstall":
+    methods: [virt.clab.edgeshark.uninstall]
+  "POST /api/v1/tools/netem/reset":
+    methods: [virt.clab.netem.reset]
+  "POST /api/v1/tools/netem/set":
+    methods: [virt.clab.netem.set]
+  "POST /api/v1/tools/veth":
+    methods: [virt.clab.veth.create]
+  "POST /api/v1/tools/vxlan":
+    methods: [virt.clab.vxlan.create]
+  "POST /api/v1/ui/custom-nodes":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "POST /api/v1/ui/custom-nodes/default":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "POST /api/v1/ui/icons":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+  "POST /login":
+    excluded: "the session handshake every method makes before its call (pkg/clabapi.Client.Login), with the device's credential; not an operation a task asks for"
+  "PUT /api/v1/labs/{labName}":
+    methods: [virt.clab.lab.redeploy]
+  "PUT /api/v1/ui/custom-nodes":
+    excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
+proof:
+  virt.clab.capture.packetflix:
+    # The live test reaches only the server's refusal with no Edgeshark
+    # running; a capture link it returns is not proven.
+    linux: {status: none}
+  virt.clab.edgeshark.install:
+    linux: {status: fixture, test: internal/catalog/virt/clab.TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove}
+  virt.clab.edgeshark.status:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.edgeshark.uninstall:
+    linux: {status: fixture, test: internal/catalog/virt/clab.TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove}
+  virt.clab.image.list:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.image.pull:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.image.remove:
+    linux: {status: none}
+  virt.clab.lab.apply:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.deploy:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.destroy:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.info:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.interfaces:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.links:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.list:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.redeploy:
+    linux: {status: none}
+  virt.clab.lab.restart:
+    linux: {status: none}
+  virt.clab.lab.save:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.start:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.stop:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.topology:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.lab.validate:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.netem.reset:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.netem.set:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.netem.show:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.disable_tx_offload:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.exec:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.logs:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.pause:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.ports:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.restart:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.ssh_access:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.start:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.stop:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.node.unpause:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.server.health:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.server.metrics:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.server.version:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.server.version_check:
+    linux: {status: none}
+  virt.clab.ssh_session.list:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.ssh_session.terminate:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.topology.generate:
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+  virt.clab.veth.create:
+    linux: {status: none}
+  virt.clab.vxlan.create:
+    linux: {status: none}
+  virt.clab.vxlan.delete:
+    linux: {status: none}

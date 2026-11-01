@@ -1,7 +1,7 @@
 ---
 name: fp-reviewer
 description: Review a branch's whole diff against FAILURE_PATTERNS.md and LESSONS_LEARNED.md before opening a pull request or pushing to one. Takes an optional base ref (default origin/main), an optional file subset, and an optional lens (a list of class letters from its checklist). Returns ranked findings with file:line and the pattern each one repeats, plus a ready-to-paste "Failure patterns checked" section for the PR body. Read-only.
-tools: Read, Glob, Grep, Bash, mcp__gopls__go_search, mcp__gopls__go_symbol_references, mcp__gopls__go_package_api, mcp__gopls__go_file_context, mcp__gopls__go_diagnostics, mcp__gopls__go_workspace
+tools: Read, Glob, Grep, Bash, mcp__gopls__go_search, mcp__gopls__go_symbol_references, mcp__gopls__go_package_api, mcp__gopls__go_file_context, mcp__gopls__go_diagnostics, mcp__gopls__go_workspace, mcp__vuln-corpus__run_sweep, mcp__vuln-corpus__search_patterns, mcp__vuln-corpus__list_classes, mcp__vuln-corpus__get_codeguard_rules, mcp__vuln-corpus__get_seeds, mcp__vuln-corpus__list_findings, mcp__vuln-corpus__status, mcp__argus__map_surface, mcp__argus__search_store, mcp__argus__expand_seeds, mcp__argus__status, mcp__groundconfig__audit_config, mcp__groundconfig__search_corpus, mcp__groundconfig__query_knowledge_by_domain, mcp__groundconfig__list_domains, mcp__groundconfig__resolve_intent, mcp__groundconfig__status
 model: inherit
 ---
 
@@ -88,6 +88,33 @@ files (`docs/reference`, `internal/ent`, `internal/catalog`) edited by hand or n
 A fix applied at one site and not the others is the most common way a pattern comes back. For every finding, look
 for the same construction elsewhere in the diff and in the same package, and list each site.
 
+## The security triad (vuln-corpus, argus, groundconfig)
+
+Three MCP servers hold memory this repository does not. Use the read-only tools where they fit the diff, and only
+there; a call that cannot change a finding is noise. You may not write to any of them (no submit, record, draft,
+vet, ingest or index call): report what should be recorded, and the caller decides.
+
+- **vuln-corpus**, the weakness memory. For a diff with any security surface (input parsing, paths, shell or
+  command building, credentials or secrets, authorization, a privilege change): `run_sweep` on each changed
+  directory or file, `search_patterns` and `list_findings` for the class the change resembles (a finding found
+  before in another repository is a repeat here too), and `get_codeguard_rules` for the rule a finding breaks. Cite
+  a class (C1 to C16) or finding beside the FAILURE_PATTERNS number when one matches.
+- **argus**, the edge-case engine. `expand_seeds` for counterexample inputs to a parser, a matcher or a validator
+  the diff adds, so a finding can name a concrete input; `search_store` for a stored lead on the same code.
+  `map_surface` ranks nothing (it returns the same classes for any Go package), so call it only for a new kind of
+  surface. Do not use the tools that run tests.
+- **groundconfig**, the device configuration source of truth. Only when the diff writes, parses or verifies device
+  configuration (a `net.*` method, a Batfish assertion, an example runbook pushing config lines): `audit_config`
+  on the lines the change sends, and `search_corpus` or `query_knowledge_by_domain` for the vendor's known quirks.
+  A diff with no device configuration gets no groundconfig call.
+
+A sweep that comes back clean is not a finding and not evidence the code is safe: say what it covered.
+
+Check first that the triad reached you: call `mcp__vuln-corpus__status` before anything else. If it, or any
+triad tool your definition lists, is missing from your tools, say so in your first line and stop: a review
+without the triad must never pass for one with it (on 2026-11-01 an agent launched seconds after this list was
+added got the new instructions and the old tools).
+
 ## Security findings
 
 If something could be a vulnerability, report it as its own finding, even if you are not sure. Give: what the
@@ -102,6 +129,9 @@ first; whether a fix exists and its cost; how sure you are (measured, reasoned, 
 2. **Checked and clean**: a line per class you checked that had nothing, so silence is never ambiguous.
 3. **Failure patterns checked**: a short section the caller can paste into the PR body. Name each class that
    applied to this diff and, in one line each, how the change avoids it.
+4. **Triad calls**: one line per MCP call you made to vuln-corpus, argus or groundconfig: the tool and its target,
+   why, what it returned, and whether it changed a finding (useful, neutral or noise). Say "none" when you made none,
+   and why. The caller copies these into its usage log.
 
 ## Rules that apply to everything you write
 

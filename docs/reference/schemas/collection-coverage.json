@@ -1,0 +1,1466 @@
+{
+  "schemaVersion": 1,
+  "collections": [
+    {
+      "collection": "pkg.apt",
+      "title": "APT (apt-get)",
+      "source": {
+        "kind": "cli",
+        "url": "https://salsa.debian.org/apt-team/apt/-/raw/2.6.1/doc/apt-get.8.xml",
+        "version": "2.6.1",
+        "revision": "2.6.1",
+        "sha256": "0b6b74538cea46fa17dff8f90b0825101228e5849810f43848480b19c1eff219",
+        "license": "GPL-2.0-or-later"
+      },
+      "total": 19,
+      "mapped": 2,
+      "excluded": 5,
+      "unmapped": 12,
+      "live": 2,
+      "mappedPercent": 14.3,
+      "livePercent": 14.3,
+      "ops": [
+        {
+          "id": "update",
+          "summary": "Resynchronize the package index files from their sources.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "upgrade",
+          "summary": "Install the newest versions of all packages currently installed.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "dist-upgrade",
+          "summary": "Upgrade, handling changing dependencies with new package versions.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "dselect-upgrade",
+          "summary": "Follow the changes made by dselect to the Status field of available packages.",
+          "status": "excluded",
+          "reason": "follows selections made in the dselect interactive frontend, which an unattended run never sets",
+          "live": false
+        },
+        {
+          "id": "install",
+          "summary": "Install one or more packages, optionally at a version or from a release.",
+          "status": "mapped",
+          "methods": [
+            "pkg.apt.install",
+            "pkg.apt.upgrade"
+          ],
+          "live": true
+        },
+        {
+          "id": "reinstall",
+          "summary": "Reinstall packages that are already installed and at the newest version.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "remove",
+          "summary": "Remove packages, leaving their configuration files.",
+          "status": "mapped",
+          "methods": [
+            "pkg.apt.remove"
+          ],
+          "live": true
+        },
+        {
+          "id": "purge",
+          "summary": "Remove packages and delete their configuration files.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "source",
+          "summary": "Fetch source packages.",
+          "status": "excluded",
+          "reason": "fetches a source package into the current directory: it changes nothing the host runs, and a task has no working directory on the device to collect it from",
+          "live": false
+        },
+        {
+          "id": "build-dep",
+          "summary": "Install or remove packages to satisfy the build dependencies of source packages.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "satisfy",
+          "summary": "Satisfy dependency strings.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "check",
+          "summary": "Update the package cache and check for broken dependencies.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "download",
+          "summary": "Download the binary package into the current directory.",
+          "status": "excluded",
+          "reason": "downloads a .deb into the current directory without installing it, leaving no state on the host a runbook would manage",
+          "live": false
+        },
+        {
+          "id": "clean",
+          "summary": "Clear out the local repository of retrieved package files.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "autoclean",
+          "summary": "Clear out retrieved package files that can no longer be downloaded.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "autoremove",
+          "summary": "Remove packages installed to satisfy dependencies that are no longer needed.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "autopurge",
+          "summary": "Autoremove, also deleting configuration files.",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "changelog",
+          "summary": "Download a package changelog and display it.",
+          "status": "excluded",
+          "reason": "prints a package's changelog from the network and changes nothing on the host",
+          "live": false
+        },
+        {
+          "id": "indextargets",
+          "summary": "Display the index files apt-get update would download.",
+          "status": "excluded",
+          "reason": "a query for frontend developers about which index files apt-get update would fetch, not package management",
+          "live": false
+        }
+      ],
+      "methods": [
+        {
+          "fqcn": "pkg.apt.install",
+          "ops": [
+            "install"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "cmd/pleiades.TestCLI_AptChecksMatchTheirRealRuns"
+            }
+          }
+        },
+        {
+          "fqcn": "pkg.apt.remove",
+          "ops": [
+            "remove"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "cmd/pleiades.TestCLI_AptChecksMatchTheirRealRuns"
+            }
+          }
+        },
+        {
+          "fqcn": "pkg.apt.upgrade",
+          "ops": [
+            "install"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "cmd/pleiades.TestCLI_AptChecksMatchTheirRealRuns"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "collection": "virt.clab",
+      "title": "containerlab API server",
+      "source": {
+        "kind": "openapi",
+        "url": "https://github.com/srl-labs/clab-api-server/blob/a70e099b481bb2be7c873cbad506bb40e234c43f/docs/swagger.json",
+        "version": "v0.9.0",
+        "revision": "a70e099b481bb2be7c873cbad506bb40e234c43f",
+        "sha256": "81ef3ecc951051010a4ec6941d6b02f862f84e3a4e98e064871fd38475a3ba20",
+        "file": "source/swagger.json",
+        "license": "Apache-2.0"
+      },
+      "total": 98,
+      "mapped": 44,
+      "excluded": 12,
+      "unmapped": 42,
+      "live": 34,
+      "mappedPercent": 51.2,
+      "livePercent": 39.5,
+      "ops": [
+        {
+          "id": "DELETE /api/v1/capture/wireshark-vnc-sessions",
+          "summary": "Delete all Wireshark VNC sessions",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/capture/wireshark-vnc-sessions/{sessionId}",
+          "summary": "Delete Wireshark VNC session",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/capture/wireshark-vnc-sessions/{sessionId}/ready",
+          "summary": "Get Wireshark VNC session readiness",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/capture/wireshark-vnc-sessions/{sessionId}/vnc/{proxyPath}",
+          "summary": "Proxy Wireshark VNC assets",
+          "status": "excluded",
+          "reason": "proxies the noVNC page assets a browser loads for a Wireshark session; a runbook has no browser to load them into",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/events",
+          "summary": "Stream containerlab events",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/generate",
+          "summary": "Generate containerlab topology",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.topology.generate"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/health/metrics",
+          "summary": "Get system metrics",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.server.metrics"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/images",
+          "summary": "List runtime images",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.image.list"
+          ],
+          "live": true
+        },
+        {
+          "id": "DELETE /api/v1/images",
+          "summary": "Remove a runtime image",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.image.remove"
+          ],
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/images/pull",
+          "summary": "Pull a runtime image",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.image.pull"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/labs",
+          "summary": "List labs",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.list"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs",
+          "summary": "Deploy lab",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.deploy"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/archive",
+          "summary": "Deploy lab from archive",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/topology/files",
+          "summary": "List editable lab topology files",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/topology/import-from-url",
+          "summary": "Import topology repository as undeployed lab",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/workspace/directory",
+          "summary": "Create lab workspace directory",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/workspace/events",
+          "summary": "Stream lab workspace file events",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/workspace/file",
+          "summary": "Read lab workspace file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "PUT /api/v1/labs/workspace/file",
+          "summary": "Write lab workspace file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/labs/workspace/file",
+          "summary": "Delete lab workspace file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/workspace/file/rename",
+          "summary": "Rename lab workspace file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/workspace/tree",
+          "summary": "List lab workspace files",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}",
+          "summary": "Inspect lab",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.info"
+          ],
+          "live": true
+        },
+        {
+          "id": "PUT /api/v1/labs/{labName}",
+          "summary": "Redeploy lab",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.redeploy"
+          ],
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/labs/{labName}",
+          "summary": "Destroy lab",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.destroy"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/apply",
+          "summary": "Apply on-disk topology for lab",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.apply"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/capture/packetflix",
+          "summary": "Build packetflix capture URI",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.capture.packetflix"
+          ],
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/capture/wireshark-vnc-sessions",
+          "summary": "Create Wireshark VNC capture session(s)",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/deploy",
+          "summary": "Deploy on-disk topology for lab",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/exec",
+          "summary": "Execute command in lab",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.exec"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/fcli",
+          "summary": "Run fcli command",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/gotty/{action}",
+          "summary": "GoTTY share action",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/graph/drawio",
+          "summary": "Generate draw.io graph",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/interfaces",
+          "summary": "List lab interfaces",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.interfaces"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/links",
+          "summary": "List lab links",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.links"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/nodes/{nodeName}/browser-ports",
+          "summary": "Get node browser ports",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.ports"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/nodes/{nodeName}/logs",
+          "summary": "Get node logs",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.logs"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/pause",
+          "summary": "Pause node",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.pause"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/restart",
+          "summary": "Restart node",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.restart"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/ssh",
+          "summary": "Request temporary SSH access details",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.ssh_access"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/start",
+          "summary": "Start node",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.start"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/stop",
+          "summary": "Stop node",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.stop"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/terminal-sessions",
+          "summary": "Create browser terminal session",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/nodes/{nodeName}/unpause",
+          "summary": "Unpause node",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.unpause"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/restart",
+          "summary": "Restart lab nodes",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.restart"
+          ],
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/save",
+          "summary": "Save lab configuration",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.save"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/sshx/{action}",
+          "summary": "SSHX share action",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/start",
+          "summary": "Start lab nodes",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.start"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/stop",
+          "summary": "Stop lab nodes",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.stop"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/tailscale",
+          "summary": "Get lab Tailscale status",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/topology/annotations",
+          "summary": "Get lab annotations",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "PUT /api/v1/labs/{labName}/topology/annotations",
+          "summary": "Update lab annotations",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/topology/events",
+          "summary": "Stream topology document events",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/topology/file",
+          "summary": "Read lab topology file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "PUT /api/v1/labs/{labName}/topology/file",
+          "summary": "Write lab topology file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/labs/{labName}/topology/file",
+          "summary": "Delete lab topology file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "HEAD /api/v1/labs/{labName}/topology/file",
+          "summary": "Check lab topology file existence",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/topology/file/rename",
+          "summary": "Rename lab topology file",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/topology/yaml",
+          "summary": "Get lab topology YAML",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.topology"
+          ],
+          "live": true
+        },
+        {
+          "id": "PUT /api/v1/labs/{labName}/topology/yaml",
+          "summary": "Update lab topology YAML",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/labs/{labName}/ui/icons",
+          "summary": "List lab custom icons",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/ui/icons/reconcile",
+          "summary": "Reconcile lab custom icons",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/labs/{labName}/validate",
+          "summary": "Validate on-disk topology for lab",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.lab.validate"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/ssh/sessions",
+          "summary": "List SSH sessions",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.ssh_session.list"
+          ],
+          "live": true
+        },
+        {
+          "id": "DELETE /api/v1/ssh/sessions/{port}",
+          "summary": "Terminate SSH session",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.ssh_session.terminate"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/terminal-sessions/{sessionId}",
+          "summary": "Get terminal session",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/terminal-sessions/{sessionId}",
+          "summary": "Terminate terminal session",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/terminal-sessions/{sessionId}/stream",
+          "summary": "Stream terminal session",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/tools/certs/ca",
+          "summary": "Create certificate authority (CA)",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/tools/certs/sign",
+          "summary": "Sign certificate",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/tools/disable-tx-offload",
+          "summary": "Disable TX checksum offload",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.node.disable_tx_offload"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/tools/edgeshark/install",
+          "summary": "Install EdgeShark",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.edgeshark.install"
+          ],
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/tools/edgeshark/status",
+          "summary": "Get EdgeShark status",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.edgeshark.status"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/tools/edgeshark/uninstall",
+          "summary": "Uninstall EdgeShark",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.edgeshark.uninstall"
+          ],
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/tools/netem/reset",
+          "summary": "Reset link impairments (netem)",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.netem.reset"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/tools/netem/set",
+          "summary": "Set link impairments (netem)",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.netem.set"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/tools/netem/show",
+          "summary": "Show link impairments (netem)",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.netem.show"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /api/v1/tools/veth",
+          "summary": "Create vEth pair",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.veth.create"
+          ],
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/tools/vxlan",
+          "summary": "Create VxLAN tunnel",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.vxlan.create"
+          ],
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/tools/vxlan",
+          "summary": "Delete VxLAN tunnels by prefix",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.vxlan.delete"
+          ],
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/ui/custom-nodes",
+          "summary": "List custom node templates",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "PUT /api/v1/ui/custom-nodes",
+          "summary": "Replace custom node templates",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/ui/custom-nodes",
+          "summary": "Save custom node template",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/ui/custom-nodes/default",
+          "summary": "Set default custom node template",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/ui/custom-nodes/{name}",
+          "summary": "Delete custom node template",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/ui/icons",
+          "summary": "List global custom icons",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/ui/icons",
+          "summary": "Upload global custom icon",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/ui/icons/{iconName}",
+          "summary": "Delete global custom icon",
+          "status": "excluded",
+          "reason": "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/users",
+          "summary": "List users",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "POST /api/v1/users",
+          "summary": "Create user",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/users/{username}",
+          "summary": "Get user details",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "PUT /api/v1/users/{username}",
+          "summary": "Update user",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "DELETE /api/v1/users/{username}",
+          "summary": "Delete user",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "PUT /api/v1/users/{username}/password",
+          "summary": "Change user password",
+          "status": "unmapped",
+          "live": false
+        },
+        {
+          "id": "GET /api/v1/version",
+          "summary": "Get containerlab version",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.server.version"
+          ],
+          "live": true
+        },
+        {
+          "id": "GET /api/v1/version/check",
+          "summary": "Check containerlab updates",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.server.version_check"
+          ],
+          "live": false
+        },
+        {
+          "id": "GET /health",
+          "summary": "Get API server health",
+          "status": "mapped",
+          "methods": [
+            "virt.clab.server.health"
+          ],
+          "live": true
+        },
+        {
+          "id": "POST /login",
+          "summary": "Log in",
+          "status": "excluded",
+          "reason": "the session handshake every method makes before its call (pkg/clabapi.Client.Login), with the device's credential; not an operation a task asks for",
+          "live": false
+        }
+      ],
+      "methods": [
+        {
+          "fqcn": "virt.clab.capture.packetflix",
+          "ops": [
+            "POST /api/v1/labs/{labName}/capture/packetflix"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.edgeshark.install",
+          "ops": [
+            "POST /api/v1/tools/edgeshark/install"
+          ],
+          "proof": {
+            "linux": {
+              "status": "fixture",
+              "test": "internal/catalog/virt/clab.TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.edgeshark.status",
+          "ops": [
+            "GET /api/v1/tools/edgeshark/status"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.edgeshark.uninstall",
+          "ops": [
+            "POST /api/v1/tools/edgeshark/uninstall"
+          ],
+          "proof": {
+            "linux": {
+              "status": "fixture",
+              "test": "internal/catalog/virt/clab.TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.image.list",
+          "ops": [
+            "GET /api/v1/images"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.image.pull",
+          "ops": [
+            "POST /api/v1/images/pull"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.image.remove",
+          "ops": [
+            "DELETE /api/v1/images"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.apply",
+          "ops": [
+            "POST /api/v1/labs/{labName}/apply"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.deploy",
+          "ops": [
+            "POST /api/v1/labs"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.destroy",
+          "ops": [
+            "DELETE /api/v1/labs/{labName}"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.info",
+          "ops": [
+            "GET /api/v1/labs/{labName}"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.interfaces",
+          "ops": [
+            "GET /api/v1/labs/{labName}/interfaces"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.links",
+          "ops": [
+            "GET /api/v1/labs/{labName}/links"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.list",
+          "ops": [
+            "GET /api/v1/labs"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.redeploy",
+          "ops": [
+            "PUT /api/v1/labs/{labName}"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.restart",
+          "ops": [
+            "POST /api/v1/labs/{labName}/restart"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.save",
+          "ops": [
+            "POST /api/v1/labs/{labName}/save"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.start",
+          "ops": [
+            "POST /api/v1/labs/{labName}/start"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.stop",
+          "ops": [
+            "POST /api/v1/labs/{labName}/stop"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.topology",
+          "ops": [
+            "GET /api/v1/labs/{labName}/topology/yaml"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.lab.validate",
+          "ops": [
+            "POST /api/v1/labs/{labName}/validate"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.netem.reset",
+          "ops": [
+            "POST /api/v1/tools/netem/reset"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.netem.set",
+          "ops": [
+            "POST /api/v1/tools/netem/set"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.netem.show",
+          "ops": [
+            "GET /api/v1/tools/netem/show"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.disable_tx_offload",
+          "ops": [
+            "POST /api/v1/tools/disable-tx-offload"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.exec",
+          "ops": [
+            "POST /api/v1/labs/{labName}/exec"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.logs",
+          "ops": [
+            "GET /api/v1/labs/{labName}/nodes/{nodeName}/logs"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.pause",
+          "ops": [
+            "POST /api/v1/labs/{labName}/nodes/{nodeName}/pause"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.ports",
+          "ops": [
+            "GET /api/v1/labs/{labName}/nodes/{nodeName}/browser-ports"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.restart",
+          "ops": [
+            "POST /api/v1/labs/{labName}/nodes/{nodeName}/restart"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.ssh_access",
+          "ops": [
+            "POST /api/v1/labs/{labName}/nodes/{nodeName}/ssh"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.start",
+          "ops": [
+            "POST /api/v1/labs/{labName}/nodes/{nodeName}/start"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.stop",
+          "ops": [
+            "POST /api/v1/labs/{labName}/nodes/{nodeName}/stop"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.node.unpause",
+          "ops": [
+            "POST /api/v1/labs/{labName}/nodes/{nodeName}/unpause"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.server.health",
+          "ops": [
+            "GET /health"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.server.metrics",
+          "ops": [
+            "GET /api/v1/health/metrics"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.server.version",
+          "ops": [
+            "GET /api/v1/version"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.server.version_check",
+          "ops": [
+            "GET /api/v1/version/check"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.ssh_session.list",
+          "ops": [
+            "GET /api/v1/ssh/sessions"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.ssh_session.terminate",
+          "ops": [
+            "DELETE /api/v1/ssh/sessions/{port}"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.topology.generate",
+          "ops": [
+            "POST /api/v1/generate"
+          ],
+          "proof": {
+            "linux": {
+              "status": "live",
+              "test": "internal/catalog/virt/clab.TestLive_ARealLabEndToEnd"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.veth.create",
+          "ops": [
+            "POST /api/v1/tools/veth"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.vxlan.create",
+          "ops": [
+            "POST /api/v1/tools/vxlan"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        },
+        {
+          "fqcn": "virt.clab.vxlan.delete",
+          "ops": [
+            "DELETE /api/v1/tools/vxlan"
+          ],
+          "proof": {
+            "linux": {
+              "status": "none"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

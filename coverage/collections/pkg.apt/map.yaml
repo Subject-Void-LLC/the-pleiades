@@ -1,0 +1,28 @@
+# pkg.apt against apt-get(8) at apt 2.6.1, Debian bookworm's (contract.json lists its commands by hand
+# from that file, whose sha256 it records; the man page is not vendored). Each command maps to the
+# method that implements it, or is excluded with why no runbook would want it; a command listed
+# nowhere is a gap. pkg.apt.upgrade keeps ONE package current (apt-get install --only-upgrade), so it
+# is the install command's, not upgrade's: apt-get upgrade (every package) is a gap. Proof: live is
+# cmd/pleiades's release gate, which runs each method through the real binary on a real Debian device.
+ops:
+  install:
+    methods: [pkg.apt.install, pkg.apt.upgrade]
+  remove:
+    methods: [pkg.apt.remove]
+  source:
+    excluded: "fetches a source package into the current directory: it changes nothing the host runs, and a task has no working directory on the device to collect it from"
+  download:
+    excluded: "downloads a .deb into the current directory without installing it, leaving no state on the host a runbook would manage"
+  changelog:
+    excluded: "prints a package's changelog from the network and changes nothing on the host"
+  indextargets:
+    excluded: "a query for frontend developers about which index files apt-get update would fetch, not package management"
+  dselect-upgrade:
+    excluded: "follows selections made in the dselect interactive frontend, which an unattended run never sets"
+proof:
+  pkg.apt.install:
+    linux: {status: live, test: cmd/pleiades.TestCLI_AptChecksMatchTheirRealRuns}
+  pkg.apt.remove:
+    linux: {status: live, test: cmd/pleiades.TestCLI_AptChecksMatchTheirRealRuns}
+  pkg.apt.upgrade:
+    linux: {status: live, test: cmd/pleiades.TestCLI_AptChecksMatchTheirRealRuns}

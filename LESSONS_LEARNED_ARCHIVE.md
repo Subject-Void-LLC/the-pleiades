@@ -6766,3 +6766,26 @@ nothing when the field is not new.
 place that record is built, by its construction sites (each map literal, each `make`, each copy that picks keys), and
 give each one the field. Failure paths that keep part of a result, such as a kept undo, are writers too. Then write a
 test through the failure path that keeps something, and check it fails without the field.
+
+## 367. A confinement rule found on one read of a data source binds every read of that source and every path derived from it; a lexical check such as `filepath.IsLocal` names a path, it does not confine one, once the path reaches the filesystem (a repeat in kind of 229 and 244) (2026-11-01).
+
+**Why.** The coverage ledger (`internal/coverageledger`) is data a pull request may change and CI reads. On
+2026-10-31 the vuln-corpus sweep found that `Ledger.ReadSource` could read the vendored contract through a symbolic
+link outside the ledger, and commit `b52e0ab8` fixed that one read with `os.OpenRoot`. The next day the pre-push
+review found the same class three more times in the same ledger (FAILURE_PATTERNS 761): `Load` read `contract.json`
+and `map.yaml` with `os.ReadFile`, and a proof's test directory, which comes from the ledger's own text, passed
+`filepath.IsLocal` and was then globbed and handed to `go list` on the real filesystem. The fix had been written for
+the read the finding named, not for the source the finding was about. The plain sweep did not report the other three;
+the review's C4 search of vuln-corpus did.
+
+LESSONS 244 says to read a sibling path for the guard the first one carries, and LESSONS 229 says a lexical guard
+confines a name and not a file. Both applied here and neither was used, because the fix was framed as "this read is
+unsafe" rather than "this data is untrusted". FAILURE_PATTERNS 260 and 321 fixed the same class one read at a time,
+and nothing shared carries the fix to the next reader.
+
+**Rule in practice.** When a confinement finding lands on one read, list every read of the same source before fixing
+it: each file opened from it, and each path built from a value in it (a directory, a glob, an argument to a tool).
+Open each through the same `os.Root`, or resolve it with `filepath.EvalSymlinks` and compare it with the resolved root
+before use, and give each a test with a real symbolic link that points out. Treat `filepath.IsLocal`, `filepath.Rel`
+and a cleaned prefix as a check of spelling only. A directory confined this way does not confine the files inside
+it, so a glob in it needs its own check.

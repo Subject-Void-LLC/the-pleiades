@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/coverageledger"
 )
 
 // TestRun_Idempotent runs the full generator twice into a scratch working
@@ -43,6 +44,19 @@ func TestRun_Idempotent(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(tmp, file), model, 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// The coverage pages read the collection ledgers and their floor file,
+	// also from the repository root.
+	repo := filepath.Join(origWD, "..", "..")
+	if err := os.CopyFS(filepath.Join(tmp, coverageledger.CollectionsDir), os.DirFS(filepath.Join(repo, coverageledger.CollectionsDir))); err != nil {
+		t.Fatal(err)
+	}
+	floors, err := os.ReadFile(filepath.Join(repo, coverageledger.FloorFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, coverageledger.FloorFileName), floors, 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatalf("os.Chdir(%s): %v", tmp, err)
@@ -91,6 +105,9 @@ func TestRun_Idempotent(t *testing.T) {
 	assertExists(filepath.Join(outputDir, "filters", "index.md"))
 	assertExists(filepath.Join(outputDir, "task-keys.md"))
 	assertExists(filepath.Join(outputDir, "implementation-status.md"))
+	assertExists(filepath.Join(outputDir, "coverage", "index.md"))
+	assertExists(filepath.Join(outputDir, "coverage", "virt.clab.md"))
+	assertExists(filepath.Join(outputDir, "schemas", "collection-coverage.json"))
 	assertExists(filepath.Join(outputDir, "schemas", "runbook.schema.json"))
 	assertExists(filepath.Join(outputDir, "schemas", "inventory.schema.json"))
 	assertExists(filepath.Join(outputDir, "schemas", "module-catalog.json"))

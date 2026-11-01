@@ -18303,3 +18303,200 @@ warning (757's `recordBecome`).
 **Lesson.** A plan-time refusal that reads a declaration needs the run-time refusal it mirrors to be checked against
 it. Until one function decides both, list every method that reaches the refused calls (`DialTCP`, `DialUnix`,
 `Subsystem`) and declare each.
+
+## 760. The collection coverage ratchet walked only the ledgers that exist, so deleting or renaming one took its floor out, and a ledger with no floor was only logged (a repeat of 403 and 397) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review of branch `feat/c0-roadmap-and-coverage-ledger` before push
+(2026-11-01). `internal/archtest`'s `TestCoverageLedgers` compared each ledger under `coverage/collections` with its
+floor in `coverage-floor-collections.json`. Deleting a ledger, or renaming its directory, took it out of the loop, and
+its floor was never read again: the ratchet passed with nothing under it. A ledger with no floor was written to the
+test log with `t.Logf` and passed.
+
+**Root cause.** The loop ran over ledgers, never over floors. That is 403's shape (a floor with nothing measured
+behind it is never visited), in a second ratchet file read by a different checker.
+
+**Fix.** Commit `37147b76`. `coverageledger.FloorFile.Orphans` (`internal/coverageledger/report.go`) returns each
+floored collection with no ledger, and `TestCoverageLedgers` fails on each one and on a ledger with no floor
+(`internal/archtest/coverage_ledger_test.go`). Test: `TestFloors_AFloorWithNoLedgerIsAnOrphan`
+(`internal/coverageledger/report_test.go`). The floor file's own comment now says both fail.
+
+**Why 403's fix did not reach this.** 403's fix is `unmeasured` in `tools/coverage-check/measured.go`, and it guards
+only `coverage-floor.json`'s package floors. The collection ratchet is new code with its own file and its own checker,
+and it was written in the shape 397 and 403 had already fixed once: walk what was measured, compare it with its floor,
+stop. A rule held in one tool's code does not travel to the next ratchet someone writes.
+
+**Lesson.** As 403's: a ratchet checks both directions, every measurement against its floor and every floor against a
+measurement. Write the second loop in the same change as the first, in every ratchet.
+
+## 761. The coverage ledger confined one read of four, so contract.json, map.yaml and a proof's test directory could be read through a committed symbolic link outside the repository (a repeat of 260 and 321) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent before push (2026-11-01), through its vuln-corpus `search_patterns` and
+`list_findings` calls for class C4; the plain sweep did not report it. Earlier on the same branch, commit `b52e0ab8`
+had made `coverageledger.Ledger.ReadSource` read the vendored contract through `os.OpenRoot` on the ledger's
+directory. The other reads of the same ledger did not: `Load` read `contract.json` and `map.yaml` with `os.ReadFile`,
+and a proof's test directory, checked only by `filepath.IsLocal` on its text, was globbed for `*_test.go` and passed to
+`go list` on the real filesystem. A ledger is data a pull request may change and CI reads, so a committed symbolic
+link in place of either file or of the test directory read a path outside the repository on whatever machine ran the
+check.
+
+**Root cause.** The confinement rule was applied to the read it was found on, not to the data source. `b52e0ab8`
+fixed `ReadSource` because the sweep named it; `Load` and the proof check were siblings reading the same ledger
+(LESSONS 244), and the test directory, a path derived from `Proof.Test`, was treated as checked because its text was
+local. A lexical check says what a name looks like, not where the filesystem resolves it (LESSONS 229).
+
+**Fix.** Commit `37147b76`. `Load` opens the ledger's directory with `os.OpenRoot` and reads both files through it
+(`internal/coverageledger/ledger.go`). `insideRoot` in `internal/archtest/coverage_ledger_test.go` resolves the
+repository root and the proof's directory with `filepath.EvalSymlinks` and requires the second inside the first
+before the glob and `go list` run. Tests: `TestLoad_ReadsNeitherFileThroughALinkOut` (a link out in place of each
+file is refused) and `insideRoot`'s negative control in `TestCoverageLedgerChecks_CanFail` (a directory that links out
+is reported outside). Recorded in vuln-corpus as `C4_auto-roboto_2026-11-01`, beside `C4_auto-roboto_2026-10-31`
+for `ReadSource`.
+
+**Why 260's and 321's fix did not reach this.** Each fixed one read by opening it through `os.Root`, the right fix for
+that read. Nothing makes the next reader of a new data source use it: no shared helper reads committed repository
+data, and no check finds an `os.ReadFile` or a glob on a path taken from that data. This branch repeated the class
+twice, the second time on the day after fixing the first, in the same package.
+
+**A gap found while recording this, then fixed before push.** `insideRoot` confined the directory, not the files in
+it: `testFuncExists` globbed `*_test.go` there and parsed each with `go/parser`, so a `*_test.go` that is itself a
+symbolic link out would have been read. `testFuncExists` now skips a test file that is a symbolic link (`os.Lstat`),
+proven by `TestCoverageLedgerChecks_CanFail`, whose linked `elsewhere_test.go` is not counted. Residual, not
+measured: `go list -deps` in such a directory may still read a linked file's package clause and imports.
+
+**Lesson.** See LESSONS 367.
+
+## 762. Untrusted ledger data panicked the archtest and the docs generator, and a proof naming a function go test never runs was accepted (a repeat in kind of 317) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent before push (2026-11-01). A proof's `test` with no dot made
+`coverageledger.SplitTest` slice `ref[:-1]` and panic, in `TestCoverageLedgers` and in `tools/gendocs`, which
+rendered a ledger without calling `Ledger.Problems` first. The reference pattern also accepted a name like `Testfoo`,
+which `go test` never runs, since a test name cannot go on after `Test` with a lower-case letter.
+
+**Root cause.** 317's kind: input someone else writes was handed to code that assumed its shape. `SplitTest` used
+`strings.LastIndex` without checking that it found a dot, and the pattern said `Test[A-Za-z0-9_]*` rather than go
+test's own rule. `Problems` held the shape check, and gendocs never called it.
+
+**Fix.** Commit `37147b76`. `SplitTest` returns `ok` and refuses a reference that does not match the pattern or whose
+directory is not local (`internal/coverageledger/mapping.go`); the pattern is `Test([A-Z0-9_][A-Za-z0-9_]*)?`; and
+gendocs refuses a ledger with any `Problems` (`tools/gendocs/coverage.go`). Test: `TestSplitTest`
+(`internal/coverageledger/ledger_test.go`), whose bad references include `TestFoo` with no directory, `a.`, `.`,
+`a.Testfoo` and three that leave the module.
+
+**Why 317's fix did not reach this.** 317's fix hardened one package's filename guard. The class it showed (code that
+parses outside input assumes a shape and fails hard when the shape is wrong) has no shared check; each new parser has
+to refuse its own bad input.
+
+**Lesson.** A function that splits or parses a reference reports whether it could, and every caller that renders or
+reads the data runs the validator's check first, not only the validator.
+
+## 763. The OpenAPI reader skipped what it could not count, matched keys in any case and kept the last of repeated keys, each of which would raise a collection's coverage (a repeat of 325) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent before push (2026-11-01). `coverageledger.ExtractOpenAPI`, which lists a
+contract's operations, skipped a path item written as a `$ref`, a method in upper case and any key it did not know,
+dropped a Swagger 2 `basePath`, and returned zero operations without an error. Its decode through `encoding/json`
+matched `"Paths"` as `paths` and kept only the last of two repeated keys. Each one makes the operation list shorter or
+other than the contract's, and a shorter list reads as higher mapped and live percentages.
+
+**Root cause.** Two. The reader treated what it could not count as nothing to count, the hole LESSONS 104 names (a
+measurement is confidently silent where its model is wrong). And it trusted `encoding/json`'s forgiving defaults for a
+document whose every key matters, which is 325's root cause.
+
+**Fix.** Commit `37147b76` (`internal/coverageledger/openapi.go`). Keys are matched exactly. `refuseRepeatedKeys`
+reads the document token by token and refuses a repeated key anywhere. An unknown path-item key, a `$ref`, a near-miss
+top-level key (such as `Paths`), a `basePath` that is not text and a document with no operations are refused, and a
+`basePath` is joined to every path. Tests: `TestExtractOpenAPI_RefusesWhatItCannotCount` and `TestExtractOpenAPI`
+(`internal/coverageledger/report_test.go`).
+
+**Why 325's fix did not reach this.** 325's fix, `parseJSONKeyTree` in `internal/engine/json_strict.go`, is the
+engine's own reader for JSON runbooks. It is not a shared strict decoder, so a new package reading JSON starts again
+from `encoding/json`'s defaults.
+
+**Lesson.** A reader that feeds a measurement refuses what it cannot count. Skipping it changes the number, and the
+number is the only thing anyone reads.
+
+## 764. A declared method could count an operation as mapped, and its proof skipped the reach check (the class of LESSONS 15) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent before push (2026-11-01). A ledger could map an operation to a method whose
+status is declared but not implemented, and the operation counted as mapped. Since a declared method has no `Invoke`,
+`checkProofTests` skipped its reach check, so its proof was held to nothing more than a test existing.
+
+**Root cause.** The ledger checks asked only whether a named method is registered. A declared method is registered
+and implements nothing, the distinction LESSONS 15 says a linter must know.
+
+**Fix.** Commit `37147b76`. `checkLedgerNames` in `internal/archtest/coverage_ledger_test.go` fails a ledger that names
+a method whose `Manifest.Status` is not `collection.StatusImplemented`.
+
+**Lesson.** A count of what is covered counts only what is implemented. Every check that asks "is this method known"
+also asks "does it run".
+
+## 765. The coverage ledger's first records said more than the code and upstream support: the changelog, the floor file's rule, the published schema's field names and the vendored contract's copyright and version (a repeat of 571 and 228) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent before push (2026-11-01). Five statements, each read as settled:
+
+1. The changelog fragment said every operation was mapped to a method or excluded with a reason. Fifty-four were
+   neither (42 in `virt.clab` alone).
+2. `coverage-floor-collections.json` said lowering a floor needs a written reason, and nothing compared a floor with
+   its earlier value.
+3. `docs/reference/schemas/collection-coverage.json`, published as `schemaVersion` 1, carried each proof's fields as
+   Go's names (`Status`, `Test`), while every other field is lower case.
+4. The vendored containerlab API contract carried no `LICENSE`, though it is Apache-2.0, and its `NOTICE` said
+   "Copyright the containerlab authors". Upstream's `LICENSE` names no copyright holder.
+5. The vendored contract's version was stated and unverified: nothing tied it to the server the live tests run.
+
+**Root cause.** 228's class: a record states what was meant, and nothing re-reads it against the code or the source.
+The license text is LESSONS 318's rule not applied: carry the upstream license verbatim, and the notice as upstream
+gives it.
+
+**Fix.** Commit `37147b76`. The fragment says each operation is shown as mapped, excluded or not implemented
+(`changelog/collection-coverage-ledger.added.md`). The floor comment says a lowering is caught in review of the file's
+diff. `coverageledger.Proof` carries `json:"status"` and `json:"test,omitempty"`. `coverage/collections/virt.clab/source/LICENSE`
+is upstream's, copied unchanged from the pinned commit, and the `NOTICE` says upstream's license names no holder. The
+image `internal/testsupport.ClabAPIImage` pins was read for its labels (revision
+`a70e099b481bb2be7c873cbad506bb40e234c43f`, version `v0.9.0`), its comment names both, and `checkPinnedRevisions` in
+`internal/archtest/coverage_ledger_test.go` fails when the `NOTICE`'s upstream commit is not named beside the image.
+
+**Why 571's fix did not reach this.** 571's fix corrected four texts and set a rule (a claimed refusal is checked by a
+test of that refusal). New records on a new feature are written fresh, and a review is still the only thing that reads
+them against the code.
+
+**Lesson.** As 571's. A record that states a version or a copyright is checked against the source it names, and
+where a test can hold the two together, one does.
+
+## 766. Two "live" proofs rested on a refusal and on a log line, and node.start, which the live test runs, was declared fixture (a repeat of 467 and 491) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent before push (2026-11-01). `virt.clab`'s `map.yaml` declared
+`virt.clab.capture.packetflix` live through `TestLive_ARealLabEndToEnd`, which reaches only the server's refusal
+("Edgeshark is not running"); a capture link the method returns was never proven. `virt.clab.edgeshark.status` was
+declared live through the same test, which only wrote its result to the log with `t.Logf`. `virt.clab.node.start`
+was declared fixture, though the live test runs it as the undo of a stop.
+
+**Root cause.** 467's class: a test counted as proof of what it touched, not of what it asserted. A refusal and a log
+line both pass whatever the method does. LESSONS 158 says the same of presence checks.
+
+**Fix.** Commit `37147b76`. `packetflix` is `status: none`, with a comment saying why. The live test asserts
+`edgeshark.status` reports `running: false`, and that a stop's recorded undo is `virt.clab.node.start`, which then
+brings the node back to running; `node.start` is declared live. The live test was run against the real server after
+the change and passed. The mapped and live percentages are unchanged (one live proof removed, one added).
+
+**Why 467's and 491's fix did not reach this.** Both fixed one gate's assertions. A ledger that declares proof per
+method makes every assertion in a shared live test a claim, and a declaration is checked by `internal/archtest` only
+for the test existing and reaching the method, never for what it asserts.
+
+**Lesson.** A test named as a method's proof asserts that method's answer. A refusal or a logged value is not one.
+
+## 767. An fp-reviewer launched seconds after its definition gained the triad tools ran with the new instructions and the old tool list, and reported the triad unavailable (open: cause unknown; the agent now checks its tools first)
+
+**Symptom.** On 2026-11-01, commit `c111f52d` gave the fp-reviewer agent the security triad's MCP tools by editing
+`.claude/agents/fp-reviewer.md`. An instance launched seconds after the edit had the new instructions (its transcript
+holds the new triad section) but only the gopls tools, and it reported that no triad tool was available. A probe
+launched minutes later had all 17.
+
+**Root cause.** Unknown. The evidence fits a stale copy of the definition's tool list being used for a launch made
+soon after an edit, while the instructions were read fresh. Not reproduced.
+
+**Fix.** Commit `a0c282e6`. The definition tells the agent to call `mcp__vuln-corpus__status` before anything else,
+and to say so in its first line and stop when that or any triad tool it lists is missing. After editing an agent's
+definition, relaunch it and check its first line before relying on its review.
+
+**Lesson.** A review agent proves the tools its review depends on before it reviews, and says so first. A review that
+silently lacks a tool reads like one that had it.

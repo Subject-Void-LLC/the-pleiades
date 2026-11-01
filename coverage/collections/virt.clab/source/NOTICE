@@ -1,0 +1,13 @@
+swagger.json is the containerlab API server's OpenAPI (Swagger 2) document,
+copied unchanged from https://github.com/srl-labs/clab-api-server
+(docs/swagger.json at commit a70e099b481bb2be7c873cbad506bb40e234c43f,
+release v0.9.0, the image internal/testsupport.ClabAPIImage pins).
+
+It is licensed under the Apache License, Version 2.0, whose text is in
+LICENSE beside this file, copied unchanged from the same commit. Upstream's
+LICENSE names no copyright holder and the repository carries no NOTICE file;
+the work is the srl-labs/clab-api-server project's.
+
+It is vendored only so the coverage ledger's operation list can be checked
+against it offline (internal/archtest). Refresh it with the same file from a
+newer release, then run go run ./tools/genledger.

@@ -210,6 +210,9 @@ func TestLive_ARealLabEndToEnd(t *testing.T) {
 		t.Errorf("stop of a stopped node: changed %v, err %v", res.Changed, err)
 	}
 	f, p, _ := recorded(stop)
+	if f != "virt.clab.node.start" {
+		t.Fatalf("stop recorded the undo %s, want virt.clab.node.start", f)
+	}
 	l.must(f, p)
 	if st := nodeState(t, l, lab, "n2"); st != "running" {
 		t.Errorf("n2 is %s after the undo of stop", st)
@@ -258,12 +261,16 @@ func TestLive_ARealLabEndToEnd(t *testing.T) {
 	if !strings.Contains(gen.stats["topology"].(string), "name: g1") {
 		t.Errorf("topology.generate = %v", gen.stats)
 	}
-	// Capture links need Edgeshark, which is not running here: the server's
-	// own refusal reaches the caller whole, naming the reason.
+	// Capture links need Edgeshark, which is not running here: the status
+	// says so, and the server's own refusal reaches the caller whole, naming
+	// the reason. Only that refusal of packetflix is proven live.
+	status, _ := l.must("virt.clab.edgeshark.status", nil).stats["status"].(map[string]any)
+	if running, ok := status["running"].(bool); !ok || running {
+		t.Errorf("edgeshark.status = %v, want running: false", status)
+	}
 	if _, _, err := l.call("virt.clab.capture.packetflix", map[string]any{"lab": lab, "targets": []any{map[string]any{"container_name": "clab-" + lab + "-n1", "interface_name": "eth1"}}}, false); err == nil || !strings.Contains(err.Error(), "Edgeshark is not running") {
 		t.Errorf("packetflix without Edgeshark: %v", err)
 	}
-	t.Logf("edgeshark status: %v", l.must("virt.clab.edgeshark.status", nil).stats["status"])
 
 	// The undo the deploy recorded destroys the lab, and a second destroy is
 	// unchanged.
