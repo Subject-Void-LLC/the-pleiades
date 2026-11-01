@@ -73,6 +73,13 @@ type FileStore struct {
 	// construction. No part of it is ever derived from an entry.
 	dir string
 
+	// root is the project directory, where the run counter lives (clock.go).
+	root string
+
+	// runTick is the counter's value as the run began (BeginRun), stamped on
+	// every entry Record writes and zero until BeginRun is called.
+	runTick uint64
+
 	// mu serializes Record calls. It is held across the whole call
 	// rather than per file, because the cost is one short append and the
 	// simpler rule is the one a reader can check.
@@ -143,7 +150,22 @@ func NewFileStore(root string) (*FileStore, error) {
 		return nil, fmt.Errorf("failed to clean up the write probe in %s: %w", dir, err)
 	}
 
-	return &FileStore{dir: dir}, nil
+	return &FileStore{dir: dir, root: root}, nil
+}
+
+// BeginRun ticks the project's run counter for the run this store records
+// and stamps that tick on every entry it writes from now on, so the rollback
+// planner can tell this run's order from other runs' without a clock. Call it
+// once, before the run starts; Seal ticks the counter again as the run ends.
+func (s *FileStore) BeginRun() (uint64, error) {
+	tick, err := TickClock(s.root)
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	s.runTick = tick
+	s.mu.Unlock()
+	return tick, nil
 }
 
 // Dir reports where this store writes, so a caller can tell an operator

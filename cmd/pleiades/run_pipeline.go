@@ -221,6 +221,14 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		if err != nil {
 			return rep, fmt.Errorf("failed to open the run journal: %w", err)
 		}
+		// The run's start tick on the project counter orders it against other
+		// runs for a rollback without a clock (internal/journal's clock.go);
+		// the seal takes the end tick. A counter that cannot be ticked fails
+		// the run before it changes anything, as a journal that cannot be
+		// written does.
+		if _, err := store.BeginRun(); err != nil {
+			return rep, fmt.Errorf("failed to tick the project's run counter: %w", err)
+		}
 		sink = store
 	}
 

@@ -33,6 +33,11 @@ type Seal struct {
 
 	// SealedAt is when the run returned, in UTC.
 	SealedAt time.Time `json:"sealed_at"`
+
+	// EndTick is the project's run counter as the run ended (clock.go),
+	// zero for a run that took no start tick (FileStore.BeginRun) or was
+	// sealed before the counter existed.
+	EndTick uint64 `json:"end_tick,omitempty"`
 }
 
 // PathFor returns where runID's journal file is, or would be, written:
@@ -56,7 +61,9 @@ func sealPathFor(dir, runID string) (string, error) {
 	return filepath.Join(dir, name[:len(name)-len(fileExtension)]+sealExtension), nil
 }
 
-// Seal records that runID's journal is complete, at the moment at.
+// Seal records that runID's journal is complete, at the moment at. A store
+// whose run took a start tick (BeginRun) ticks the counter again and records
+// that end tick in the seal.
 //
 // A run is sealed once. A second seal for the same run is refused rather
 // than overwritten, because two runs sharing an id would be two runs'
@@ -66,7 +73,16 @@ func (s *FileStore) Seal(runID string, at time.Time) (err error) {
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(Seal{RunID: runID, SealedAt: at.UTC()})
+	var endTick uint64
+	s.mu.Lock()
+	began := s.runTick != 0
+	s.mu.Unlock()
+	if began {
+		if endTick, err = TickClock(s.root); err != nil {
+			return fmt.Errorf("failed to tick the run counter for run %s's seal: %w", runID, err)
+		}
+	}
+	body, err := json.Marshal(Seal{RunID: runID, SealedAt: at.UTC(), EndTick: endTick})
 	if err != nil {
 		return fmt.Errorf("failed to encode the seal for run %s: %w", runID, err)
 	}

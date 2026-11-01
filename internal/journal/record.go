@@ -48,6 +48,19 @@ func (s *FileStore) Record(ctx context.Context, entries []engine.JournalEntry) e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Every entry carries the run's start tick (BeginRun), never one an
+	// entry brought with it.
+	if s.runTick != 0 {
+		for _, runID := range order {
+			stamped := make([]engine.JournalEntry, len(byRun[runID]))
+			for i, e := range byRun[runID] {
+				e.RunTick = s.runTick
+				stamped[i] = e
+			}
+			byRun[runID] = stamped
+		}
+	}
+
 	for _, runID := range order {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("failed to record the journal: %w", err)

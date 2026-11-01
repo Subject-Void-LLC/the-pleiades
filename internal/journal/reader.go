@@ -53,6 +53,9 @@ type RunJournal struct {
 	Entries []engine.JournalEntry
 	// Sealed says the run returned and its journal is complete (seal.go).
 	Sealed bool
+	// EndTick is the run counter as the run ended, from its seal; zero for a
+	// run with no seal or one sealed before the counter existed.
+	EndTick uint64
 }
 
 // ErrNoSuchRun is returned for a run id with no journal file.
@@ -76,15 +79,16 @@ func ReadRun(root, runID string) (RunJournal, error) {
 	if err != nil {
 		return RunJournal{}, err
 	}
-	sealed, err := readSeal(sealPath, runID)
+	sealed, endTick, err := readSeal(sealPath, runID)
 	if err != nil {
 		return RunJournal{}, err
 	}
-	return RunJournal{ID: runID, Entries: entries, Sealed: sealed}, nil
+	return RunJournal{ID: runID, Entries: entries, Sealed: sealed, EndTick: endTick}, nil
 }
 
-// ListRuns reads every run's journal in the project at root, oldest first
-// by its first entry. A project with no journal directory has no runs.
+// ListRuns reads every run's journal in the project at root, oldest first:
+// runs from before the run counter by their first entry's time, then the
+// rest by start tick. A project with no journal directory has no runs.
 func ListRuns(root string) ([]RunJournal, error) {
 	dir := filepath.Join(root, pleiadesDirName, journalDirName)
 	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
@@ -109,7 +113,19 @@ func ListRuns(root string) ([]RunJournal, error) {
 		}
 		runs = append(runs, run)
 	}
-	sort.SliceStable(runs, func(i, j int) bool { return firstStart(runs[i]).Before(firstStart(runs[j])) })
+	// Every run that carries no tick was written before the counter existed,
+	// so before every run that does: those come first, by time, then the rest
+	// by tick. One total order, whatever the mix.
+	sort.SliceStable(runs, func(i, j int) bool {
+		a, b := startTick(runs[i]), startTick(runs[j])
+		switch {
+		case a == 0 && b == 0:
+			return firstStart(runs[i]).Before(firstStart(runs[j]))
+		case a == 0 || b == 0:
+			return a == 0
+		}
+		return a < b
+	})
 	return runs, nil
 }
 
@@ -197,23 +213,35 @@ var (
 	}
 )
 
-// readSeal reports whether runID's seal exists and names it.
-func readSeal(path, runID string) (bool, error) {
+// readSeal reports whether runID's seal exists and names it, and the end
+// tick it records.
+func readSeal(path, runID string) (bool, uint64, error) {
 	f, err := openPrivate(path, 4<<10)
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+		return false, 0, nil
 	}
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	defer func() { _ = f.Close() }()
 	var seal Seal
 	dec := json.NewDecoder(io.LimitReader(f, 4<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&seal); err != nil || seal.RunID != runID {
-		return false, fmt.Errorf("the seal of run %s is not one a run wrote", runID)
+		return false, 0, fmt.Errorf("the seal of run %s is not one a run wrote", runID)
 	}
-	return true, nil
+	return true, seal.EndTick, nil
+}
+
+// startTick is the run counter as a run began, from its entries; zero for a
+// run written before the counter existed.
+func startTick(run RunJournal) uint64 {
+	for _, e := range run.Entries {
+		if e.RunTick != 0 {
+			return e.RunTick
+		}
+	}
+	return 0
 }
 
 // firstStart is when a run's earliest entry began.
