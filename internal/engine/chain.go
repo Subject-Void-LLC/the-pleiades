@@ -29,6 +29,10 @@ type chainWalker struct {
 	// enclosing blocks that have a rescue: or an always:.
 	scope  []BlockScope
 	walked []string
+
+	// handlers are the runbook's handlers, spliced in after each section
+	// that notifies any (wire).
+	handlers []Task
 }
 
 // wire walks the runbook's three top-level lists as three independent
@@ -51,6 +55,11 @@ func (w *chainWalker) wire(pre, main, post []Task) error {
 		if err != nil {
 			return err
 		}
+		if entry != "" && notifies(list.tasks) {
+			if exit, err = w.spliceHandlers(exit, list.prefix); err != nil {
+				return err
+			}
+		}
 		if entry != "" {
 			sections = append(sections, section{entry: entry, exit: exit})
 		}
@@ -62,6 +71,29 @@ func (w *chainWalker) wire(pre, main, post []Task) error {
 		w.dag.EntryPoint = sections[0].entry
 	}
 	return nil
+}
+
+// spliceHandlers chains one copy of every handler after exit, the last node
+// of the section at prefix, in the order the handlers are written, with the
+// ID "<prefix>.handlers[i]", and returns the section's new last node. Each
+// copy is its own node: a handler that runs after two sections is two nodes,
+// each deciding on each device whether it was notified there (notify.go).
+func (w *chainWalker) spliceHandlers(exit, prefix string) (string, error) {
+	for i := range w.handlers {
+		copied := new(Task)
+		*copied = w.handlers[i]
+		copied.handler = &handlerRef{index: i}
+		entry, last, err := w.one(copied, fmt.Sprintf("%s.handlers[%d]", prefix, i))
+		if err != nil {
+			return "", err
+		}
+		if entry == "" {
+			continue
+		}
+		w.link(exit, entry)
+		exit = last
+	}
+	return exit, nil
 }
 
 // chain walks tasks, the list at prefix, giving each task the ID

@@ -644,8 +644,202 @@ What it is, and is not:
   backups) records which account made it, and refuses an undo run as another.
 - A Controller and Runner refuse a task with `become` for now. It runs from the CLI.
 
+## Handlers and notify
+
+A handler is a task that runs only when something before it changed, such as
+restarting a service after its configuration file was written. List them under
+`handlers:` and name them from a task with `notify:`:
+
+```yaml
+# Writes nginx's configuration and restarts nginx when it changed.
+# Blast radius: the web servers, one file and one reload each.
+# Changes: two files under /etc/nginx/conf.d, and restarts nginx.
+# Undo: pleiades rollback restores the files; the restart is not undone.
+id: web-config
+hosts: web
+become: true
+tasks:
+  - name: Write the site configuration
+    file.copy:
+      dest: /etc/nginx/conf.d/app.conf
+      content: "server { listen 8080; }\n"
+    notify: restart nginx
+  - name: Write the upstream list
+    file.copy:
+      dest: /etc/nginx/conf.d/upstream.conf
+      content: "upstream app { server 127.0.0.1:9000; }\n"
+    notify: restart nginx
+handlers:
+  - name: restart nginx
+    svc.systemd.restart:
+      name: nginx
+```
+
+- A handler runs on a device only when a task that notifies it ran there and
+  changed something. A task that failed, was skipped by `when:` or changed
+  nothing notifies nothing.
+- However many tasks notify it, a handler runs once per device, at the end of
+  the section the tasks are in (`pretasks`, `tasks`, `posttasks`). Handlers run
+  in the order `handlers:` lists them, not the order they were notified.
+- `notify:` takes a handler's `name`, which must be unique, or a topic handlers
+  `listen:` to, so one notification can run several handlers. A name nothing
+  answers to is refused when the runbook is built.
+- A failure that ends the run runs no handler, as in Ansible without
+  `force_handlers`. A failure a `rescue:` answers does not end the run, so the
+  rescue's own notifications are kept.
+- `--tags` does not filter handlers: a handler a selected task notified runs.
+- Not supported yet: `meta: flush_handlers`, a handler that notifies another
+  handler, and a block as a handler. Each is refused with its reason.
+- A handler runs on the devices whose tasks notified it, so a handler with a
+  `target:` of its own, one whose call acts on no device (a `pause`, an
+  `http.request` to a full URL), and one with `lock_acquisition:
+  all_at_plan_time` are refused when the runbook is built: none of them could
+  ever run. Run such a call as an ordinary task with a `when:` instead.
+
+## Rolling out a few devices at a time (`serial`)
+
+`serial:` runs the whole runbook over a few of its hosts at a time, finishing every task on one batch
+before the next batch starts, so a bad change stops after the first few devices instead of reaching all
+of them:
+
+```yaml
+# Rolls the new release marker out to the web tier, two hosts at a time.
+# Blast radius: every web host, two at a time; a failure stops the rollout.
+# Changes: /etc/app/release on each web host.
+# Undo: pleiades rollback restores the file.
+id: rolling-release
+hosts: web
+serial: 2
+tasks:
+  - name: Mark the new release
+    file.copy:
+      dest: /etc/app/release
+      content: "2.4.0\n"
+```
+
+- `serial:` takes a number of devices (`2`), a percentage (`"30%"`, rounded down, never less than one),
+  or a list of them (`[1, "50%"]`), the last size repeating for every later batch, as in Ansible.
+- Devices are batched in name order, so you can tell which devices go first.
+- A percentage counts the hosts whose lifecycle admits the run, on the CLI and on a Controller alike. A
+  host it does not admit (an archived one, say) is in the first batch and skipped there, naming why. A
+  runbook whose hosts match nothing runs as if it had no `serial:`.
+- A batch with a failure stops the rollout there: later batches do not start, and the run says which
+  devices it left alone. `max_fail_percentage` is not supported, since a failure already ends its batch's
+  run on every device.
+- The batches are one run: one journal, one report, and one `pleiades rollback`.
+- Handlers run at the end of each batch's sections, as in Ansible.
+- The CLI and a Controller both run batches, in the same order. On a Controller each device of a
+  batch is its own dispatch, bounded by the launch's `forks` when it is set, and the next batch is
+  dispatched once every device of the one before has reported. A failure there lets the rest of its
+  batch finish, then skips every later device, naming the batch; on the CLI a failure ends the batch's
+  run on every device. Either way no later batch starts.
+- A Controller refuses a launch that asks for credential inputs at launch for a runbook with `serial:`:
+  those inputs are held only while the job starts, and later batches start after that.
+
+### Holding between steps (`pause`)
+
+`pause:` holds the run for a time, most often at the end of a batch so a change can settle, or be
+watched, before the next batch starts:
+
+```yaml
+# Rolls the release marker out two web hosts at a time, a minute apart.
+# Blast radius: every web host, two at a time; a failure stops the rollout.
+# Changes: /etc/app/release on each web host.
+# Undo: pleiades rollback restores the file.
+id: rolling-release-held
+hosts: web
+serial: 2
+tasks:
+  - name: Mark the new release
+    file.copy:
+      dest: /etc/app/release
+      content: "2.4.0\n"
+  - name: Let the batch settle before the next
+    pause:
+      minutes: 1
+```
+
+- `pause` takes `seconds` or `minutes`, a whole number, up to a day in all. It is also spelled
+  `pleiades.builtin.pause`.
+- It runs once for the run (once per batch under `serial:`), not once per host, and changes nothing.
+- A check does not wait: it reports the pause and moves on.
+- A pause that waits for a person (Ansible's `prompt`, or no duration) is refused, since a scheduled or
+  dispatched run has no one to answer it.
+
+## Long tasks (`async` and `poll`)
+
+`async: N` gives a task a hard limit of N seconds on each device. Past it the task is stopped and fails,
+which a `rescue:` can answer. `poll:` says how the run waits for it:
+
+- `poll: M` (10 when `async` is set and `poll` is not): the task runs where it stands, and the run reports
+  it still running every M seconds.
+- `poll: 0`: the task runs in the background. Its `register` holds the job's id, `ansible_job_id`, and the
+  run goes on to later tasks while it runs. An `async_status` task collects it.
+
+```yaml
+# Rebuilds the web hosts' search index in the background while the caches are cleared.
+# Blast radius: every web host, all at once.
+# Changes: the search index; the page cache.
+# Undo: none; a rebuild replaces the index, and a later rebuild restores it.
+id: reindex-in-the-background
+hosts: web
+tasks:
+  - name: Rebuild the index (up to an hour)
+    exec.command:
+      cmd: /usr/local/bin/reindex --full
+    async: 3600
+    poll: 0
+    register: reindex
+  - name: Clear the page cache meanwhile
+    exec.command:
+      cmd: /usr/local/bin/cache-clear
+  - name: Wait for the rebuild
+    async_status:
+      jid: "{{ result.reindex.ansible_job_id }}"
+```
+
+- `async_status` (also spelled `pleiades.builtin.async_status`) waits for the job and returns the job's
+  own result as its result: its change, its output, its failure. Ansible's version returns at once and is
+  polled with `until: result.finished`. Here the wait happens inside it, so such a loop is satisfied the
+  first time. A `timeout:` on the `async_status` task bounds the wait. A job that has not finished by then is
+  not lost: the run still waits for it at the end.
+- A device collects only its own job, and a job is collected once.
+- `validate` refuses a background task that no later `async_status` collects. A run that ends anyway with a
+  job nobody collected (a failure skipped the `async_status`) waits for it, up to its limit, before it
+  ends, so its change is always in the journal.
+- The job's change is journaled under its own task when it is collected, so `pleiades rollback` sees it.
+  Its start changes nothing and is not journaled.
+- A background job keeps its device's lock while it runs. Later tasks of the same run on that device go
+  ahead, and another run is kept out until the job ends.
+- On a device reached over SSH, an async task's commands run detached on the device: started in the
+  background under `~/.pleiades-async-<uid>`, readable only by that account, and polled until they end.
+  The command reaches the device on standard input and waits in a file there, never in a process's
+  arguments, and it runs under the login's own shell and umask, as it would without `async:` (under
+  `become:`, under `sh`, as a `become:` task always does). The directory is used only when the home
+  directory and the directory itself belong to the account the command runs as, which a `sudo` that
+  keeps the login's `HOME` does not give; the command then runs where it stands. So does a command on a
+  Windows server whose SSH shell is Git's or Cygwin's `sh`.
+  A command started this way keeps running when the connection drops. The polls reconnect, up to five times
+  in a row, and read its output and exit status when it ends. At the limit, its whole process group gets
+  `SIGTERM` and, up to three seconds later, `SIGKILL`, and its directory is removed. A device with no POSIX `sh`
+  runs the command where it stands, under the same limit. The same holds on a Controller's Runner, whose
+  per-task process is told the task is async and stops the job itself at the limit, and for an external
+  Collection, whose program does the same. Each is given the stop's own time (up to twenty seconds, to reach
+  the device again if its connection is gone) before it is killed. Commands that send input (a file upload) are
+  never detached. A command's output is held in that directory until it is read back, which is the one
+  place an async task's output touches the device's disk.
+- A plain task's `timeout:` ends the task at its time on every device. It sends the command `SIGTERM`, but
+  on some devices it never reaches the command (measured on Debian's sshd), so the command, and anything it started, may
+  run on after the task has failed. When the work itself must stop, use `async:`.
+- `async` goes on a task that calls a method. It is refused on a block, on a loop or a retry, and on
+  `set_fact`, `assert`, `fail`, `pause` and `async_status`, which run in the engine at once. `poll:` needs
+  `async:` and cannot be longer than it.
+- A background task (`poll: 0`) inside a block with `rollback_on_failure: true` is refused: the block's
+  undo cannot undo a job still running. Poll the task, or move it out of the block.
+- Cancelling a run (an interrupt, or a cancelled job on a Controller) stops its background jobs too.
+
 ## What is not supported
 
-`with_*` loops other than `with_items`, `handlers` and `notify`, and `serial`
-are not supported. `pleiades forge migrate-playbook` reports them for a person
+`with_*` loops other than `with_items`, `meta: flush_handlers` and `max_fail_percentage` are not
+supported. `pleiades forge migrate-playbook` reports them for a person
 to resolve. See [Migrating from Ansible](03-migrating-from-ansible.md).

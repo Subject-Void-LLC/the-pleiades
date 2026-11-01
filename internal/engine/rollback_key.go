@@ -67,6 +67,7 @@ func validateRollbackStep(step *Task, label string) error {
 		"lock_acquisition": step.LockAcquisition != AcquisitionPerDeviceAsReached,
 		"rollback":         step.Rollback != nil,
 		"timeout":          step.Timeout != 0,
+		"async":            step.Async != 0 || step.Poll != nil,
 	} {
 		if isSet {
 			set = append(set, key)

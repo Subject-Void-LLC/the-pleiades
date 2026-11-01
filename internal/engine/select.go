@@ -100,6 +100,8 @@ func (s TagSelection) Select(dag *DAG) (*DAG, error) {
 		PreTasks:    dag.PreTasks,
 		Tasks:       dag.Tasks,
 		PostTasks:   dag.PostTasks,
+		Handlers:    dag.Handlers,
+		Serial:      dag.Serial,
 		Nodes:       make(map[string]*Task),
 		Adjacency:   make(map[string][]EdgeConfig),
 		Conditions:  make(map[string]*ConditionProgram),
@@ -112,14 +114,23 @@ func (s TagSelection) Select(dag *DAG) (*DAG, error) {
 	w := chainWalker{
 		dag: out,
 		register: func(task *Task, id string) error {
+			// The builder's own node for id: a handler's copy is made afresh
+			// by each walk, and only the builder's was compiled.
+			if built := dag.full.nodes[id]; built != nil {
+				task = built
+			}
 			out.Nodes[id] = task
 			if prg := dag.full.conditions[id]; prg != nil {
 				out.Conditions[id] = prg
 			}
 			return nil
 		},
-		include: func(task *Task) bool { return f.Runs(task.Tags) },
+		// A handler runs where it was notified whatever the filter, as in
+		// Ansible: its notifier is what the filter chose.
+		include:  func(task *Task) bool { return task.handler != nil || f.Runs(task.Tags) },
+		handlers: dag.Handlers,
 	}
+	out.notifyTargets = dag.notifyTargets
 	if err := w.wire(dag.PreTasks, dag.Tasks, dag.PostTasks); err != nil {
 		return nil, err
 	}

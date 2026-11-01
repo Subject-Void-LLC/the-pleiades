@@ -379,11 +379,12 @@
           ]
         },
         "kind": {
-          "description": "Kind is concurrent_run, concurrent_change or concurrent_unknown. Known values: concurrent_run, concurrent_change, concurrent_unknown. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "description": "Kind is concurrent_run, concurrent_change, concurrent_unknown or serial_stopped. Known values: concurrent_run, concurrent_change, concurrent_unknown, serial_stopped. A newer producer may add others, and a reader treats one it does not know as not a pass.",
           "examples": [
             "concurrent_run",
             "concurrent_change",
-            "concurrent_unknown"
+            "concurrent_unknown",
+            "serial_stopped"
           ],
           "type": "string"
         },

@@ -620,6 +620,10 @@ const (
 	// SkipKindNotFailed is a rescue task on a device where its block did
 	// not fail, so there was nothing for it to answer.
 	SkipKindNotFailed SkipKind = "not_failed"
+
+	// SkipKindNotNotified is a handler on a device where no task that
+	// notifies it changed anything in the section it follows (notify.go).
+	SkipKindNotNotified SkipKind = "not_notified"
 )
 
 // Journal is the durable record of what a run did. Executor.Run is its

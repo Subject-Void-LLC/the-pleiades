@@ -18500,3 +18500,490 @@ definition, relaunch it and check its first line before relying on its review.
 
 **Lesson.** A review agent proves the tools its review depends on before it reviews, and says so first. A review that
 silently lacks a tool reads like one that had it.
+
+## 768. validate refused pleiades.builtin.fail, assert and set_fact, which the engine runs, because the Collection rules kept their own list of dotted builtins (a repeat in kind of 661's doc_topics list and LESSONS 273) (fixed)
+
+**Symptom.** Found 2026-10-31 on `feat/c1-language` while adding the timed pause and its dotted spelling
+`pleiades.builtin.pause`. `pleiades validate` refused `pleiades.builtin.fail`, `pleiades.builtin.assert` and
+`pleiades.builtin.set_fact` as collection names nothing registered, though the engine runs all three. The dotted fail
+and assert came with Phases 88 and 89 (`dad90e5b`) and the dotted set_fact with Phase 87 (`26ec87d8`), both on
+2026-10-27, so v0.3.0 shipped with the refusal.
+
+**Root cause.** `internal/validate`'s Collection rules (`CollectionRule`, `ParamsRule`, `ParamTypeRule`,
+`ParamChoiceRule`, the required-params and rollback rules) skipped engine actions through their own hand-kept map,
+`dottedBuiltinExemptions`, which named only `pleiades.builtin.set_metadata`. Each new dotted engine action needed a
+line there, and nothing failed when it was missing.
+
+**Fix.** `09a9cd2a`. The map is gone; the rules ask `engine.IsBuiltinAction`, which reads the engine's own table of
+the actions it runs (`engineActionStatKeys`, `internal/engine/journal_entry.go`). `TestValidate_AcceptsEveryDottedBuiltin`
+validates the dotted fail, assert, set_fact and set_metadata, and `TestValidate_AcceptsATimedPause` both spellings of
+pause. The user-facing note is in `changelog/timed-pause.added.md`.
+
+**Why 661's sibling fix and LESSONS 273 did not prevent it.** 661's review found a hand list in `doc_topics.go` and
+held that one list to the engine's table; it did not look for other lists of engine names. LESSONS 273 says a hand
+list read by a guard is that guard's defect, and this list predated it.
+
+**Lesson.** A list of the engine's own names outside the engine is a second source; read the engine's table instead,
+and test the spellings a user writes.
+
+## 769. A flaky start-order assertion was committed because the test step was piped through `| tail` inside an `&&` chain (a repeat of LESSONS 100 and 192) (fixed before push)
+
+**Symptom.** 2026-10-31, commit `e0eff519` (async and poll) held `TestAsync_ABackgroundTaskRunsWhileTheRunGoesOn`
+asserting the marks `long+,quick+,quick-,long-`. Which of the background task and the next task starts first is the
+scheduler's choice, so the assertion failed on some runs. The test step before the commit ran in an `&&` chain with its
+output piped through `| tail`, and the chain went on to the commit.
+
+**Root cause.** A pipeline's status is its last command's. `tail` succeeded, so the chain read success. The assertion
+itself named an order nothing promises.
+
+**Fix.** The commit was amended 43 seconds later (`2c128590`, now `632c7552`), before any push: the assertion accepts
+either start order and holds what the design promises, that the quick task started and finished while the long one ran.
+
+**Why LESSONS 100 and 192 did not prevent it.** Both were written about reading a gate's verdict, and both say to
+capture the status of the command that matters in its own statement. The habit was not applied to a quick test step in
+a chain, where a hidden failure becomes a commit rather than a wrong report.
+
+**Lesson.** As 100 and 192: never pipe a command whose status decides the next step. And an assertion on two
+concurrent starts names only the order the design guarantees.
+
+## 770. A background job's goroutine read the task's result while startJob went on writing it (a repeat in kind of 64) (fixed before push)
+
+**Symptom.** Found while writing `632c7552` (async and poll), before it was committed. `startJob`
+(`internal/engine/async.go`) handed `result` to the job's goroutine and then went on writing `result` (its stats, its
+background mark, a failure when the job id could not be registered), so two goroutines touched one value at once.
+
+**Root cause.** 64's class: what a goroutine reads was not final when the goroutine started.
+
+**Fix.** In the same commit: the job starts from its own copy (`start := result`), taken before the `go` statement,
+with a comment saying why.
+
+**Why 64's fix did not reach this.** 64 moved one handler's header writes above its handoff, and its lesson is worded
+for an `http.ResponseWriter`. Nothing checks what a caller does to a value after `go func`.
+
+**Lesson.** Whatever a goroutine reads is final, or copied, before the `go` statement; after it, the caller writes only
+its own copy.
+
+## 771. --limit first narrowed every target, so a task naming a device outside the hosts would lose it under a limit (fixed before push)
+
+**Symptom.** While building `pleiades run --limit` (`dc47e646`), the first version filtered every target the run
+resolved, not only the runbook's hosts. A task that names a device outside the hosts (a lab server, a Batfish service)
+would lose that device under a limit. Ansible's `--limit` leaves `delegate_to` alone, and `serial:`, built the same
+day, divides only the hosts.
+
+**Root cause.** The limit was applied to the resolver as a whole, which answers for every target, rather than to the
+set of hosts.
+
+**Fix.** In the same commit: `limitResolver` (`cmd/pleiades/run_limit.go`) narrows only the devices among the runbook's
+hosts and passes every other target through. `TestLimit_NarrowsWhatARunReaches` runs a task naming `lab` under
+`--limit w1` and requires `lab@lab,a@w1`.
+
+**Lesson.** A filter on which devices run applies to the hosts, the same set `serial:` divides. A device a task names
+itself is the author's choice, and a filter that wraps the whole resolver changes it without a word.
+
+## 772. serial: batches followed the devices' generated IDs, not their names, so a rollout ran s3 and s4 first (a sibling of 411) (fixed before push)
+
+**Symptom.** `TestCLI_SerialRunsTwoDevicesAtATime` (four real Debian devices, `serial: 2`, `fe89f92f`) found the CLI's
+batches in the order s3, s4, s1, s2.
+
+**Root cause.** `engine.Batches` keeps its input order, as Ansible keeps the play's host order. The CLI's resolver
+returns devices in the order of their generated IDs, which says nothing about their names. 411's class: an order a user
+reads, taken from IDs that carry none.
+
+**Fix.** `fe89f92f`: `engine.BatchDevices` sorts a run's devices by name before batching (`TestBatchDevices_OrdersByName`
+feeds it out of order), and the CLI uses it. The Controller numbers a job's queued devices by name once
+(`AssignBatches`, `6e8ba355`). The guide and `docs/reference/task-keys.md` say batches are in name order.
+
+**Lesson.** When a feature's order is visible to a user, choose it on purpose and test it with input in another
+order; a store's order is its IDs'.
+
+## 773. The Runner serial gate made its failure marker as root in sticky /tmp, so the task's login could not remove it and no task failed (fixed before push)
+
+**Symptom.** `TestSerialReleaseGate_TwoAtATimeAndAFailedBatchStops` (`cmd/runner/serial_release_gate_test.go`,
+`3155e238`) fails a task by having it remove a marker: when `rm /tmp/fail-<tag>` succeeds, the task exits 1. As first
+written, the gate made the marker through the container's exec, which runs as root. `/tmp` is sticky, so the login the
+tasks run as could not remove a root-owned file there, `rm` failed, the task took its success branch, and no batch
+failed.
+
+**Root cause.** The fixture was made by a different account than the one the task runs as, in a directory where the
+sticky bit lets only a file's owner remove it.
+
+**Fix.** In the same commit: the gate creates the marker and gives it to the gate's SSH login (`chown` to
+`releaseGateSSHUser`), with a comment saying why. The gate measures `S S E` on the device and the second batch skipped.
+
+**Lesson.** A fixture a task acts on is made as, or given to, the account the task runs as. A container's exec is root.
+
+## 774. A task timeout never ended an SSH command whose child held its output, on Debian's sshd, and the task reported success (a sibling of 506, the class of 740) (fixed)
+
+**Symptom.** Found 2026-10-31 by the async gate on a real Debian sshd (`cmd/pleiades/async_release_gate_test.go`):
+under `timeout: 3`, `sleep 60 & wait` ran its whole minute and the task reported success. The task timeout of
+2026-10-18 (`11493533`) had promised that a timeout stops the command on the device.
+
+**Root cause.** At a timeout `pkg/remoteexec` sends the command SIGTERM over SSH, closes the session, and then waited
+on `session.Wait`. OpenSSH's sshd answers a client's close only once the command's output ends, and the backgrounded
+child held it; on Debian's sshd the signal did not reach the command either. Wait returned when the sleep ended, with
+the command's own exit status. The 2026-10-18 change was proven by `TestConn_RunSignalsTheCommandWhenCancelled`,
+against an in-process SSH server that ends the session when it receives a signal request, which a real sshd does not
+promise.
+
+**Fix.** `fe9c4d62`: `waitOrAbandon` (`pkg/remoteexec/conn.go`) waits for the command, or, once the context ends, for at
+most `abandonGrace` (two seconds) more, and then returns the context's error; the connection is tainted, so the
+abandoned Wait ends when it closes. The gate's first run, `timeout-gate`, requires the task to fail within 60 seconds
+of a 120-second sleep (first written as 20 against 30, too close to tell apart; see 788).
+The command itself may still run on such a device, as `changelog/ssh-timeout-ends-the-task.fixed.md` says; an
+`async:` task stops it.
+
+**Why 506's fix did not reach this.** 506 made the Runner's child handle its signal so the method's context ends. This
+is the next link, the SSH side, and it was proven only against a stand-in server that obeyed the request (740's class:
+a stub built from assumed shapes).
+
+**Lesson.** A stop is proven against the real server it must stop, with a command shaped like real work, one that
+starts a child. A stand-in that obeys the request proves the request was sent, not that anything stopped.
+
+## 775. An async task ran attached in the Runner's child, because the detach mark was a context value no process boundary carries, and the Runner gate first passed without it (a repeat of 748 and LESSONS 363) (fixed before push)
+
+**Symptom.** `fe9c4d62` made an async task's SSH commands run detached on the device, marked by
+`remoteexec.WithDetach`, a context value. On a Runner a method runs in a per-task or session child, and an external
+Collection's method in its own program. Each builds a fresh context from the `wire.ChildRequest` it receives, and the
+request did not say the call was async, so the child ran the command attached. The Runner gate,
+`TestAsyncReleaseGate_DetachedOnARunner`, as first written checked that the task failed at its limit, that the sleep it
+started was stopped and that no job directory was left. It passed without the mark: this image's sshd delivers the
+signal, so the attached command died to it at the limit, the same outcome a detached stop gives.
+
+**Root cause.** LESSONS 363's class: a mechanism applied along the in-process route only. A context value does not
+cross a process boundary, and nothing fails when it is missing, since a missing mark reads as false. The gate checked
+outcomes both paths produce.
+
+**Fix.** `d5e80674`. `wire.ChildRequest.Detach` carries the mark. The per-task parent (`ipc_parent.go`), the session
+(`ipc_session.go`) and the external proxy (`internal/loader/proxy_unix.go`) set it from `remoteexec.Detached(ctx)`,
+and `pkg/external.InvokeRequestFor` marks the child's context (`TestInvokeRequest_AnAsyncCallRunsDetachedInTheChild`).
+The gate now watches the device for the job's directory while the task runs, which only a detached run makes, and
+fails when none appears.
+
+**Why 748's fix and LESSONS 363 did not prevent it.** 363 (2026-10-31, in the tree when this branch was cut) says to
+list every route a method can take before adding a mechanism that changes how a call runs. It was written about
+`become`, and the async change did not write its list; its in-process tests and the Crawl gate passed.
+
+**Lesson.** LESSONS 368 and 369.
+
+## 776. The test binaries' child entry ran on a bare context.Background(), so SIGTERM killed it before any stop ran: 506's fix lived only in the real Runner's main (a repeat of 506 and 693) (fixed)
+
+**Symptom.** Found 2026-11-01 while writing the Runner async gate. A Runner ends a task's child with SIGTERM at its
+limit. The real Runner's child runs its method on a context that SIGTERM ends (506's fix, `cmd/runner/child.go`),
+so the method stops its work on the device before the child exits. The test binaries that stand in for that child
+(`cmd/runner`'s `TestMain` in `ssh_mesh_release_gate_test.go` and `tests/e2e`'s in `harness_test.go`) called
+`native.RunChildFor(context.Background(), ...)`. There SIGTERM killed the child at once and no stop ran, so every gate
+since 2026-10-18 ran a child unlike the real one.
+
+**Root cause.** 506's fix was a function in `cmd/runner`'s `main` package, which no test binary can call, so each
+`TestMain` kept its own line. 693's class: a harness that wires a production object by hand and leaves out what the
+composition root passes.
+
+**Fix.** `d5e80674`. `native.ChildContext` (`internal/adapters/native/child_context.go`) is the one function the
+Runner's `main` and both test mains call, and `cmd/runner/child.go` is gone. `TestChildContext_EndsOnSIGTERM`.
+
+**Why 506 and 693 did not prevent it.** 506 fixed the half of a graceful stop that handles the signal, in one binary,
+and its test checked the function, not that every entry point used it. 693's lesson (LESSONS 351) asks to compare a
+harness's constructor with the composition root's, and a `TestMain` that routes to the child was not seen as one.
+
+**Lesson.** A production entry point's setup lives in a package a test can call, and the test's stand-in calls it. A
+copied line is a second program.
+
+## 777. A detached job's stop did not run when the limit landed inside a poll, nor when the child's connection had already closed (a sibling of 506) (fixed before push)
+
+**Symptom.** Found while proving async on a Runner (`d5e80674`). Two paths left a detached job running past its async
+limit. (1) When the limit landed while a poll's command was in flight, that command failed with the context's error,
+and the loop treated the failure as a dropped connection: it reconnected or reported the job as possibly still
+running, and did not stop it. (2) A Runner's child is told to stop by the same signal that closes its connections, so
+the stop ran its commands on a connection already gone and stopped nothing.
+
+**Root cause.** The stop was written for the path the first tests took: the limit between polls, on a live connection.
+The other exits were not walked, as the Failure-Mode Walk asks.
+
+**Fix.** `d5e80674`. In `runDetached` every poll command that fails after the context ended goes to the stop. When its
+own connection fails, `stopDetached` redials as the same account (`become` kept) and runs the stop there; TERM is
+given three seconds before KILL, inside a 20-second bound. `TestDetached_TheStopReconnectsWhenItsConnectionIsGone`
+closes the connection first and requires the job's child gone and its directory removed;
+`TestDetached_ALostConnectionThatCannotBeRedialedIsNamed`; the Runner gate checks the started sleep is gone. No test
+written in `d5e80674` lands the limit inside a poll on purpose, so path (1) rests on the code and the gate.
+
+**Lesson.** As 506's: a stop has a sender and a handler, and here the handler has every exit of the loop it ends. Walk
+each one, and the state of the connection at each.
+
+## 778. remoteexec.run read a command's output buffers while x/crypto/ssh's copiers could still write them, once waitOrAbandon had abandoned the command (a repeat of 197, made by 774's fix) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review of `feat/c1-language`, 2026-11-01. 774's fix (`fe9c4d62`) lets
+`run` (`pkg/remoteexec/conn.go`) return two seconds after its context ends without waiting for the command. `run` then
+built its `Result` from the stdout and stderr buffers before deciding the outcome. On an abandoned command
+x/crypto/ssh's goroutines that copy the streams into those buffers are still running, so the read raced them. Under
+`-race` the old code reports a data race at `conn.go:248`.
+
+**Root cause.** 197's class: only the wait that joins the copiers makes the buffers safe to read, and an abandoned
+command has no such wait. The async release gate missed it twice over: its timed-out command wrote nothing, and the
+gate's binaries are not built with `-race`.
+
+**Fix.** `2e91d59d`. The buffers are read only on the two paths where `Wait` returned (exit 0, or an exit status); an
+abandoned command returns the context's error and no output. `TestRun_ACommandWhoseServerNeverAnswersIsAbandoned`
+(`pkg/remoteexec/abandon_test.go`) puts a TCP proxy between client and server that stops forwarding the server's side,
+which is how Debian's sshd behaves here, inside a package test the race detector watches. It fails on the old code.
+
+**Why 197's fix did not reach this.** 197 fixed one `cmd.Process.Wait()` in a test and swept the module for that call.
+This is the same rule (read what a goroutine writes only after joining it) at a different API, where giving up on the
+wait is the feature.
+
+**Lesson.** A call that may return without waiting owns nothing its helpers still write. LESSONS 370 for why no gate saw it.
+
+## 779. A detached command ran unlike the same command attached: the start script's umask leaked into it, it ran under sh rather than the login shell, and a login banner broke the job-directory parse (the class of 749) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. Under `async:` (`pkg/remoteexec/detach.go`,
+`detachStart`): (a) the script's `umask 077`, meant for the job's own files, applied to the user's command, so the files
+and directories it made were 0600 and 0700 where a plain run made them by the account's umask; (b) the command ran
+under `sh -c`, where a plain run's command goes to the login shell sshd gives it; (c) the job directory was taken from
+all of stdout, so a login shell's startup output before it broke the parse, and the pattern `jobDir` let a newline
+through.
+
+**Root cause.** 749's class: two paths that run one thing, and the second written without holding it to the first. The
+detached path was tested for detaching, not for running the command as an attached run would.
+
+**Fix.** `54c0cff4`. The script saves the caller's umask and the job restores it; the job runs under the account's login
+shell, or `sh` under `become` as a plain elevated run does (`jobShell`); the directory is the last line of output
+(`lastLine`), and `jobDir` refuses a newline. It also refuses MSYS and Cygwin, where a command written for cmd.exe would
+run under sh, and runs the command where it stands instead. `TestDetached_TheJobKeepsTheCallersUmaskAndShell`,
+`TestDetached_ALoginBannerBeforeTheDirectoryIsSkipped`.
+
+**Lesson.** A second way to run a command is tested against the first for everything the command can see: its
+umask, its shell, its input, its output.
+
+## 780. A detached command was an argument of the job's process for its whole life, visible in any process listing on the device (a repeat in kind of 455 and 719) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. `detachStart` received the user's command as `"$1"`
+and passed it on to `sh -c`, so the command, and any secret written into it, sat in the argv of a long-running process
+that every account on the device can list.
+
+**Root cause.** 455's class: a value that may hold a secret placed on a command line. A plain run sends the command
+in the SSH exec request, which no other account sees; the detached path turned it into an argument.
+
+**Fix.** `54c0cff4`. The command travels on the start script's stdin into a 0600 file in the job's private directory,
+and the job runs that file. `TestDetached_TheCommandIsNeverAnArgument`.
+
+**Why 455 and 719 did not prevent it.** Both fixed what a method reports; this was the transport's own construction of
+a process on the device, a place no earlier fix looked.
+
+**Lesson.** Whatever may carry a secret travels on stdin or in a private file, never in a process's arguments, on the
+device as on this machine.
+
+## 781. Under become with a sudo that keeps the login's HOME, the job base sat in a directory the login owns, so the login could steer root's polls and kills (a repeat in kind of 761 and LESSONS 367) (fixed before push; the attack was reasoned, not reproduced)
+
+**Symptom.** Raised as suspected by the records-keeper agent on 2026-11-01, from reading `detachStart`. The job base was
+`$HOME/.pleiades-async-<uid>`. Under `become`, where sudo keeps the login's `HOME`, root made that base inside a
+directory the login owns, and then polled and stopped the job through paths in it as root (`cat .../out`,
+`kill -TERM -$(cat .../pid)`). A process running as the login could swap the job directory for its own between the
+start and the first poll: an `out` linked to `/etc/shadow` would be read by root into the task's output, and a `pid`
+file could name any process group for root's kill. Nobody reproduced this.
+
+**Root cause.** 761's class (LESSONS 367): a path built from a location another account controls, and trusted. The base
+was chosen by account id so that become would get its own, without checking who owns `HOME` or the base.
+
+**Fix.** `54c0cff4`. The script uses the base only when `$HOME` and the base belong to the account running the job and
+the base is not a link, and makes it 0700; otherwise it exits 70 and the command runs where it stands.
+`TestDetached_AHomeTheAccountDoesNotOwnRunsTheCommandWhereItStands`, `TestDetached_ALinkedBaseIsRefused`.
+
+**A test that could not fail.** `TestDetached_ALinkedBaseIsRefused` first passed against the old script: it checked for
+the job's directory after the run, and a finished job removes its own directory, so the old script and the new one
+looked the same. It now tells attached from detached by the command's stdin (a pipe when attached, `/dev/null` when
+detached) and fails on the old script. That is LESSONS 368, written the same day, met again in a unit test.
+
+**Lesson.** As LESSONS 367: under elevation, a path the elevated side reads or acts on is owned by the elevated account
+from its root down, and checked before each use, not only named.
+
+## 782. A detached command's 20-second stop sat inside a 5-second kill, and an external Collection's program had no SIGTERM handling at all, so the stop never reached the device (a repeat of 776 at a sibling site, and of LESSONS 225) (fixed)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. At an async limit the Runner sends its collection child
+SIGTERM and kills it `childWaitDelay` (5 s) later; the loader does the same to an external program after its kill
+grace. The detached stop (777's fix) can take up to 20 s, since it may redial first, so the kill could land before the
+stop reached the device. And `pkg/external.Main` ran its method on `context.Background()` with no signal handling, so
+SIGTERM killed an external program at once and its detached job ran past the limit.
+
+**Root cause.** LESSONS 225's class: an inner budget inside an outer deadline, which fires first. And 776's: 776 gave
+the Runner's own child a SIGTERM-ending context and left the external SDK's entry point, the third stand-in for the
+same child, as it was. By reading the code, not by a run, the same held before this branch for a plain timeout in an
+external program: SIGTERM killed it before its method's context ended, so no SSH signal was sent (506's shape).
+
+**Fix.** `7a95bfa4`. `remoteexec.DetachStopBudget` names the stop's time. The Runner's per-task and session children
+are given `killDelay` (`childWaitDelay` plus the budget when the call is detached), and the loader's `newCommand` adds
+the budget to `WaitDelay` under a detached context. `external.Main` runs the method under `signal.NotifyContext` for
+SIGTERM. `TestProgram_SIGTERMEndsTheMethodsContext` (`pkg/external/sigterm_test.go`; the old code ends "signal:
+terminated"), `internal/adapters/native/kill_delay_test.go`, `internal/loader/detach_delay_test.go`.
+
+**Why 776's fix and LESSONS 225 did not prevent it.** 776 was framed as "the test mains differ from the Runner", so the
+search for stand-ins stopped at test binaries. LESSONS 225 was not consulted when the stop's budget was chosen.
+
+**Lesson.** A stop's budget is checked against every kill that can end the process running it, and every entry point
+that runs a child method handles SIGTERM the same way.
+
+## 783. A background job ran on context.WithoutCancel, so a cancelled run waited out the job's whole async limit, and a failed job-id record reported a failed start while the job ran (the class of 777; its comment said the opposite) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01, in `startJob` (`internal/engine/async.go`). (1) The
+job ran under `context.WithoutCancel(ctx)`. Nothing in the engine ends a level's context, so this dropped only the run's
+own cancel: a cancelled run's job ran on, and `drainJobs` held the run open for the job's async limit, which may be a
+day. The comment beside it said the job was "bounded by ... the run's own context". (2) The job id was recorded in the
+register after the job's goroutine started, so a failed record failed the task while its job ran on, uncollectable.
+
+**Root cause.** Both are exits not walked: the run's cancel, and a failure after the act had begun. The comment
+described the intent, and no test cancelled a run with a job in flight.
+
+**Fix.** `736a4d79`. The job runs under the run's own context, with a comment saying why that is the only cancel it
+sees. The job id is recorded before the job starts, and a failed record releases the lease the job would have held.
+`TestAsync_CancellingTheRunStopsABackgroundJob` (60 s on the old code).
+
+**Lesson.** A goroutine that outlives its caller takes the cancel of whatever must be able to stop it, and is started
+only after everything that can fail its start has succeeded.
+
+## 784. A handler with its own target, a handler whose call needs no device, a handler locking all devices at plan time, and a background task inside a rollback_on_failure block were all accepted and then skipped, failed or left un-undone on every run (a repeat of 252 and 324) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. A handler runs on the devices whose tasks notified it.
+One with a `target:` of its own, or whose call acts on no device, never found a notification and skipped on every run.
+One with `lock_acquisition: all_at_plan_time` failed on every run that notified it, since a handler runs on each device
+alone. A `poll: 0` task inside a block with `rollback_on_failure` passed validation, though the block's undo cannot undo
+a job still running and the job would change the device after it.
+
+**Root cause.** 252's class: a combination the parser accepts and the run cannot honor, refused nowhere.
+
+**Fix.** `736a4d79`. `validateHandlers` refuses the three handler shapes by name (`ErrHandlerLockAll` for the lock), and
+the async check refuses a background task in a self-undoing block (its rescue and always run after the undo, so they
+are held only to an enclosing block's). Cases in `TestNotify_RefuseWhatCannotMeanWhatItSays` and
+`TestAsync_RefusesWhatCannotMeanWhatItSays`.
+
+**Why 252 and 324 did not prevent it.** Their fixes refused the keys they found. A new feature brings new combinations,
+and each needs its own list of what it cannot honor.
+
+**Lesson.** When a feature is added, list every existing key it can be combined with and either honor it or refuse it.
+
+## 785. A limit made only of separators parsed to the zero Limit, which admits every device (a sibling of 723) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. `engine.ParseLimit(",")`, and `",,:"`, dropped the
+empty patterns and returned no error and the zero `Limit`, which admits every device. A limit written as `$HOSTS,`
+with `HOSTS` empty would have run on every host.
+
+**Root cause.** 723's class: an empty parse read as "everything". The zero value of `Limit` means "no limit", which is
+right for no flag and wrong for a flag with nothing in it.
+
+**Fix.** `736a4d79`. Text that leaves no pattern is refused, naming why. `TestLimit_RefusesWhatItCannotRead` covers
+`","` and `",,:"`.
+
+**Lesson.** A filter someone wrote never widens to everything: when its parse leaves nothing, refuse it.
+
+## 786. A Controller serial job with forks ran unbatched after one failed batch assignment, and a definition gone before its batches left the job running for ever (the class of 79) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. `serialGate` (`internal/dispatch/serial.go`) repaired a
+serial job's missing batches only when `forks` was 0. With forks set, one failed `AssignBatches` left the pump running
+every device unbatched, forks at a time, with no stop on a failed batch. With forks 0, a definition that could no
+longer be read left the queued devices queued, and the job stayed running.
+
+**Root cause.** 79's class: a state with no way out. The repair was written for the path the first tests took.
+
+**Fix.** `e67f2baf`. The gate reads the definition whenever queued devices carry no batch, whatever the forks, and a
+definition that went away fails the queued devices with its reason, so the job completes.
+`TestSerial_AFailedAssignmentIsRepairedWhateverTheForks`, `TestSerial_ADefinitionGoneBeforeItsBatchesFailsTheQueuedDevices`.
+
+**Lesson.** A repair path runs on every configuration that can need it, and every state a job can enter has an exit.
+
+## 787. The CLI cut serial: percentages from every resolved host and the Controller from the admitted ones, and a serial: runbook with no hosts ran nothing, device-less tasks included (a repeat in kind of 749) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. A percentage gave different batches on the two tiers
+when some hosts' lifecycle did not admit a run, because the CLI counted them and the Controller, which queues only
+admitted devices, did not. And on the CLI a `serial:` runbook whose hosts matched nothing made no batches, so even its
+device-less tasks never ran.
+
+**Root cause.** 749's class: one behavior built twice, on two tiers, from different inputs.
+
+**Fix.** `5406e60e`. `planSerial` (`cmd/pleiades/run_serial.go`) cuts batches from the hosts the lifecycle admits in the
+run's mode; a host it does not admit joins the first batch, where the engine skips it once, naming why. With no hosts
+there is no plan and the run goes ahead unbatched. `TestSerial_APercentageCountsTheAdmittedHostsAsTheControllerDoes`,
+`TestSerial_NoHostsIsNoPlan`.
+
+**Why 749's fix did not prevent it.** 749 aligned one undo's account across two paths; the shared `engine.BatchDevices`
+gave both tiers one batching function, but not one input.
+
+**Lesson.** Where two tiers share a function, they also share what they feed it; test each tier with an input where the
+two could differ.
+
+## 788. The async release gates ordered two tasks by racing a fixed sleep, and bounded a timeout at 20 seconds against a 30-second sleep (a repeat of 211 and 769) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. In both async gates the background job wrote its line
+after `sleep 3`, betting that the later task had written first. A job that ran only after the later task would have
+passed too, and a later task slower than three seconds would have failed it. The CLI gate's timeout case required a
+failure within 20 s of a 30-second sleep, a margin a slow machine can eat.
+
+**Root cause.** 211's class: a fixed sleep standing for an order, and 769's: an order nothing promised.
+
+**Fix.** `60e5e147`. The job waits for the later task's line before writing its own, so the order can only happen if
+the two ran at once; the timeout bound is 60 s against a 120-second sleep.
+
+**Why 211 and 769 did not prevent it.** 769 was fixed in a unit test the day before; the gates written the same evening
+were not read for the same shape.
+
+**Lesson.** As 211's: a test waits for the event it orders by, never for a time.
+
+## 789. Text that the branch's own changes made false: the stop's SIGKILL time, the list of Ansible keywords a runbook lacks, the converter's notes, a merged doc comment, and comments naming a removed list (a repeat of 571 and 765) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review, 2026-11-01, all on `feat/c1-language`. The guide said a detached
+job's SIGKILL came "up to ten seconds" after SIGTERM, where the code waits three. `ansibleTaskKeywords` still listed
+`async` and `poll` as keywords a runbook lacks. The playbook converter's notes said notify, handlers, async and serial
+have no native equivalent. `IsBuiltinAction`'s doc comment had run into `engineActionStatKeys`', leaving the table
+without one. Two comments named the exemption list 768 removed. Nothing held `engineActionStatKeys` equal to the
+executor's switch in `action.go`, which is what 768's fix reads.
+
+**Root cause.** 571's class: text that states what was true, with nothing that reads it against the code.
+
+**Fix.** `a5956a15` and `56a42de4`: each text corrected; the converter's notes say it does not carry those keys yet and
+how to write them by hand. `internal/engine/builtin_table_test.go` holds `engineActionStatKeys` and the executor's
+switch equal both ways.
+
+**Why 571 and 765 did not prevent it.** Their rule is a review; this was found by one.
+
+**Lesson.** When a change makes a sentence false, the change corrects it: search the docs and comments for the names it
+changes before committing.
+
+## 790. Two tests in container packages still held behavior the branch had changed (an Ansible gate's argv expecting the dropped --limit, and the runbook guide's async example naming a tag its gate's inventory lacks), and pr-check, which leaves container packages to Actions, passed (a repeat in kind of 756) (fixed before the pull request)
+
+**Symptom.** `make branch-containers` at `77303189` on `feat/c1-language`, 2026-11-01, run 41341971748: shard 5 failed
+`cmd/runner`'s `TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation`, whose wanted argv still held `--limit sw1`,
+which `d8c59440` stopped passing to ansible-playbook on purpose (the Controller applies the limit before it dispatches).
+Shard 1 failed `cmd/pleiades`'s `TestCLI_WritingRunbooksPageExamplesValidate`: the guide's async example, added in
+`fe9c4d62`, used `hosts: search`, and the gate validates every example against an inventory with only the `web` tag, so
+validate warned. A local `make pr-check` had passed at the same commit.
+
+**Root cause.** 756's class: pr-check leaves container packages to Actions by default, and both tests live in container
+packages (`cmd/runner`, `cmd/pleiades`). The commits that changed the behavior ran the gates they wrote, not the older
+tests in the same packages that read the same behavior.
+
+**Fix.** The Ansible gate's wanted argv drops `--limit`, keeps the launch's `limit` field in the payload, and its comment
+says why no limit reaches ansible-playbook; the guide's example runs on `hosts: web`. Both pass locally against real
+containers.
+
+**Why 756 did not prevent it.** 756 kept `internal/archtest` in pr-check; it did not make pr-check run a changed
+container package's other tests, and `make branch-containers` exists for exactly this. It caught both before a pull
+request, as designed.
+
+**Lesson.** A change to a behavior other tests read (a breaking flag, a documented example) runs the whole package those
+tests live in before the push, container package or not: `go test -run . ./cmd/runner` is minutes, a CI round is an hour.
+
+## 791. Two detach tests dropped the connection when the job directory appeared, which the start script makes before it answers; reading the command from stdin widened that window, and fast-macos cut the start instead of a poll (a repeat of 211 and 788) (fixed in the pull request)
+
+**Symptom.** PR #99's advisory `fast-macos` job, 2026-11-01: `pkg/remoteexec`'s `TestDetached_OutlivesADroppedConnection`
+failed with "remote command exited without exit status or exit signal". It passed on Linux, in pr-check and in every
+other job.
+
+**Root cause.** The test (and `TestDetached_ALostConnectionThatCannotBeRedialedIsNamed`) dropped the server's
+connections as soon as a job directory existed. The start script makes that directory before it starts the job and
+before it answers, so a drop there cuts the start command itself, a different case from a dropped poll. `54c0cff4` added
+a read of the command from stdin between the two, which widened the window enough for a macOS runner to land in it.
+
+**Fix.** `866436fd`: both tests wait for the server to log the job's first poll (`cat .../rc`), which comes only after
+the start has answered, before dropping.
+
+**Why 211 and 788 did not prevent it.** 788 fixed the same shape in the release gates the same day; these two older
+tests waited for a mark that comes before the event they meant, and nothing read them for it when the script changed.
+
+**Lesson.** As 211's: wait for the event itself. When a change moves what happens between two marks, re-read every
+test that waits on the first one.

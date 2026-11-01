@@ -113,6 +113,11 @@ func runRollback(args []string) error {
 	if err != nil {
 		return err
 	}
+	// A rollback undoes what its run changed, on every device it changed;
+	// --leave is how a change is kept in place, by name.
+	if !opts.limit.IsZero() {
+		return errors.New("rollback: --limit is not taken: a rollback undoes the run on every device it changed; name a change to keep with --leave")
+	}
 	label := "rollback of " + runID
 
 	// Held for the whole rollback: the journals it reads to plan must not

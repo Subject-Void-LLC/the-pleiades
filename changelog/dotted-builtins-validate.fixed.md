@@ -1,0 +1,1 @@
+Fixed `validate` refusing the dotted spellings `pleiades.builtin.fail`, `pleiades.builtin.assert` and `pleiades.builtin.set_fact`, which the engine runs. Validation now reads the engine's own list of its actions, so the two cannot disagree again.

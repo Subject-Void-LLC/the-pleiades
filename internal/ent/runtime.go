@@ -459,6 +459,10 @@ func init() {
 	jobtaskDescSlot := jobtaskFields[9].Descriptor()
 	// jobtask.SlotValidator is a validator for the "slot" field. It is called by the builders before save.
 	jobtask.SlotValidator = jobtaskDescSlot.Validators[0].(func(int) error)
+	// jobtaskDescBatch is the schema descriptor for batch field.
+	jobtaskDescBatch := jobtaskFields[10].Descriptor()
+	// jobtask.BatchValidator is a validator for the "batch" field. It is called by the builders before save.
+	jobtask.BatchValidator = jobtaskDescBatch.Validators[0].(func(int) error)
 	journalentryMixin := schema.JournalEntry{}.Mixin()
 	journalentryMixinFields0 := journalentryMixin[0].Fields()
 	_ = journalentryMixinFields0

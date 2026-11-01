@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
@@ -54,6 +55,10 @@ type runOptions struct {
 	verbose bool
 	// asJSON prints the report as one JSON document instead of text.
 	asJSON bool
+	// limit is --limit, which of the runbook's devices the run may reach,
+	// and limitText the flag as written, for a message.
+	limit     engine.Limit
+	limitText string
 	// variables are run's --extra-vars, the vars root a runbook's
 	// conditions and rendered parameters read; nil when none were given.
 	variables map[string]any
@@ -151,6 +156,11 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// contacted, rather than at its task. The advice names --extra-vars only
 	// for the command that takes it.
 	world := validate.WorldView{Items: items, DAG: dag, Mode: mode, Variables: opts.variables, VariablesKnown: true, VariablesFlag: opts.variablesFlag}
+	// --limit narrows every target the run resolves, before validation, so
+	// what is checked, planned and run are the same devices (run_limit.go).
+	if world, err = applyLimit(world, dag, opts.limit, opts.limitText); err != nil {
+		return nil, err
+	}
 	rep := planReport(src.label, items, dag, mode, world)
 	if report := validate.Validate(world); report.HasErrors() {
 		rep.Validation = validationIssues(report, items)
@@ -229,7 +239,11 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		printPlan(rep)
 	}
 
-	executor, closeExecutor, err := newRunExecutor(opts, world, sink, mode)
+	// A runbook with serial: runs its hosts a batch at a time (run_serial.go):
+	// the executor is built once over a resolver limited to the batch
+	// running, after validation has seen every device.
+	runWorld, serial := planSerial(world, dag, mode)
+	executor, closeExecutor, err := newRunExecutor(opts, runWorld, sink, mode)
 	if err != nil {
 		return rep, err
 	}
@@ -239,7 +253,16 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// fresh background context is used here rather than threading one
 	// through every subcommand's flag parsing, mirroring loadWorld's own
 	// precedent (load.go).
-	result, err := executor.Run(context.Background(), dag)
+	var result engine.RunResult
+	if serial == nil {
+		result, err = executor.Run(context.Background(), dag)
+	} else {
+		var stopped *clireport.RunWarning
+		result, err, stopped = runBatches(context.Background(), executor, dag, serial, !opts.asJSON)
+		if stopped != nil {
+			rep.Warnings = append(rep.Warnings, *stopped)
+		}
+	}
 	sealRun(store, rep, result.RunID)
 	// What another run changed on these devices while this one worked, read
 	// from the journals once this run's own is complete.

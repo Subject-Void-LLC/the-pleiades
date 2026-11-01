@@ -191,6 +191,33 @@ func (_u *JobTaskUpdate) ClearSlot() *JobTaskUpdate {
 	return _u
 }
 
+// SetBatch sets the "batch" field.
+func (_u *JobTaskUpdate) SetBatch(v int) *JobTaskUpdate {
+	_u.mutation.ResetBatch()
+	_u.mutation.SetBatch(v)
+	return _u
+}
+
+// SetNillableBatch sets the "batch" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableBatch(v *int) *JobTaskUpdate {
+	if v != nil {
+		_u.SetBatch(*v)
+	}
+	return _u
+}
+
+// AddBatch adds value to the "batch" field.
+func (_u *JobTaskUpdate) AddBatch(v int) *JobTaskUpdate {
+	_u.mutation.AddBatch(v)
+	return _u
+}
+
+// ClearBatch clears the value of the "batch" field.
+func (_u *JobTaskUpdate) ClearBatch() *JobTaskUpdate {
+	_u.mutation.ClearBatch()
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdate) SetJobID(id int) *JobTaskUpdate {
 	_u.mutation.SetJobID(id)
@@ -271,6 +298,11 @@ func (_u *JobTaskUpdate) check() error {
 			return &ValidationError{Name: "slot", err: fmt.Errorf(`ent: validator failed for field "JobTask.slot": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Batch(); ok {
+		if err := jobtask.BatchValidator(v); err != nil {
+			return &ValidationError{Name: "batch", err: fmt.Errorf(`ent: validator failed for field "JobTask.batch": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -336,6 +368,15 @@ func (_u *JobTaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.SlotCleared() {
 		_spec.ClearField(jobtask.FieldSlot, field.TypeInt)
+	}
+	if value, ok := _u.mutation.Batch(); ok {
+		_spec.SetField(jobtask.FieldBatch, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBatch(); ok {
+		_spec.AddField(jobtask.FieldBatch, field.TypeInt, value)
+	}
+	if _u.mutation.BatchCleared() {
+		_spec.ClearField(jobtask.FieldBatch, field.TypeInt)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -548,6 +589,33 @@ func (_u *JobTaskUpdateOne) ClearSlot() *JobTaskUpdateOne {
 	return _u
 }
 
+// SetBatch sets the "batch" field.
+func (_u *JobTaskUpdateOne) SetBatch(v int) *JobTaskUpdateOne {
+	_u.mutation.ResetBatch()
+	_u.mutation.SetBatch(v)
+	return _u
+}
+
+// SetNillableBatch sets the "batch" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableBatch(v *int) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetBatch(*v)
+	}
+	return _u
+}
+
+// AddBatch adds value to the "batch" field.
+func (_u *JobTaskUpdateOne) AddBatch(v int) *JobTaskUpdateOne {
+	_u.mutation.AddBatch(v)
+	return _u
+}
+
+// ClearBatch clears the value of the "batch" field.
+func (_u *JobTaskUpdateOne) ClearBatch() *JobTaskUpdateOne {
+	_u.mutation.ClearBatch()
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdateOne) SetJobID(id int) *JobTaskUpdateOne {
 	_u.mutation.SetJobID(id)
@@ -641,6 +709,11 @@ func (_u *JobTaskUpdateOne) check() error {
 			return &ValidationError{Name: "slot", err: fmt.Errorf(`ent: validator failed for field "JobTask.slot": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Batch(); ok {
+		if err := jobtask.BatchValidator(v); err != nil {
+			return &ValidationError{Name: "batch", err: fmt.Errorf(`ent: validator failed for field "JobTask.batch": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -723,6 +796,15 @@ func (_u *JobTaskUpdateOne) sqlSave(ctx context.Context) (_node *JobTask, err er
 	}
 	if _u.mutation.SlotCleared() {
 		_spec.ClearField(jobtask.FieldSlot, field.TypeInt)
+	}
+	if value, ok := _u.mutation.Batch(); ok {
+		_spec.SetField(jobtask.FieldBatch, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBatch(); ok {
+		_spec.AddField(jobtask.FieldBatch, field.TypeInt, value)
+	}
+	if _u.mutation.BatchCleared() {
+		_spec.ClearField(jobtask.FieldBatch, field.TypeInt)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{

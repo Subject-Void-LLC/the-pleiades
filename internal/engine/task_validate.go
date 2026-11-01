@@ -41,6 +41,9 @@ func validateTask(task *Task, id string) error {
 		return fmt.Errorf("task %s sets more than one of fqcn, block, and parallel (%v): a task must be exactly one of a module call (fqcn), a block, or a parallel group, never more than one", taskLabel(id, task), set)
 	}
 
+	if err := validateAsyncKeys(task, "task "+taskLabel(id, task)); err != nil {
+		return err
+	}
 	if task.Kind() != TaskKindBlock && (len(task.Rescue) > 0 || len(task.Always) > 0) {
 		return fmt.Errorf("task %s sets rescue or always without a block: rescue/always only make sense guarding a block", taskLabel(id, task))
 	}

@@ -42,6 +42,8 @@ type JobTask struct {
 	Waiting bool `json:"waiting,omitempty"`
 	// Slot holds the value of the "slot" field.
 	Slot *int `json:"slot,omitempty"`
+	// Batch holds the value of the "batch" field.
+	Batch *int `json:"batch,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobTaskQuery when eager-loading is set.
 	Edges        JobTaskEdges `json:"edges"`
@@ -76,7 +78,7 @@ func (*JobTask) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case jobtask.FieldWaiting:
 			values[i] = new(sql.NullBool)
-		case jobtask.FieldID, jobtask.FieldUnchecked, jobtask.FieldSlot:
+		case jobtask.FieldID, jobtask.FieldUnchecked, jobtask.FieldSlot, jobtask.FieldBatch:
 			values[i] = new(sql.NullInt64)
 		case jobtask.FieldDeviceID, jobtask.FieldDeviceName, jobtask.FieldOutcome, jobtask.FieldReason, jobtask.FieldResult, jobtask.FieldResultReason:
 			values[i] = new(sql.NullString)
@@ -178,6 +180,13 @@ func (_m *JobTask) assignValues(columns []string, values []any) error {
 				_m.Slot = new(int)
 				*_m.Slot = int(value.Int64)
 			}
+		case jobtask.FieldBatch:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field batch", values[i])
+			} else if value.Valid {
+				_m.Batch = new(int)
+				*_m.Batch = int(value.Int64)
+			}
 		case jobtask.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field job_tasks", value)
@@ -261,6 +270,11 @@ func (_m *JobTask) String() string {
 	builder.WriteString(", ")
 	if v := _m.Slot; v != nil {
 		builder.WriteString("slot=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.Batch; v != nil {
+		builder.WriteString("batch=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteByte(')')

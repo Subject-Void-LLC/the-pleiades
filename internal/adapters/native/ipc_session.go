@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -57,6 +58,9 @@ type sessionChild struct {
 	stop           chan struct{}
 	exited         chan struct{}
 	stdout, stderr *cappedBuffer
+	// detach is set while the child runs a detached command, so ending it
+	// waits out that command's stop (killDelay).
+	detach bool
 }
 
 // sessionAnswer is one decoded response, or why none could be read.
@@ -92,6 +96,8 @@ func (s *ipcSession) invoke(ctx context.Context, desc collection.Descriptor, dev
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: %w", desc.Name, err)
 	}
 	req := childRequest(desc, mode, params, s.payload)
+	req.Detach = remoteexec.Detached(ctx)
+	child.detach = req.Detach
 	if err := child.enc.Encode(&req); err != nil {
 		stderr := s.end(true)
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to send to the session child: %w (stderr: %s)", desc.Name, err, stderr)
@@ -191,8 +197,8 @@ func (c *sessionChild) readResponses(r io.ReadCloser) {
 // end stops the child and returns its stderr, masked, for an error
 // message. Graceful closes its input, the ordinary end of a session, so
 // it closes its pool before exiting; otherwise it is sent SIGTERM at
-// once. Either way it is killed if it has not exited within
-// childWaitDelay. s.mu must be held.
+// once. Either way it is killed if it has not exited within killDelay.
+// s.mu must be held.
 func (s *ipcSession) end(kill bool) string {
 	c := s.child
 	if c == nil {
@@ -206,7 +212,7 @@ func (s *ipcSession) end(kill bool) string {
 	}
 	select {
 	case <-c.exited:
-	case <-time.After(childWaitDelay):
+	case <-time.After(killDelay(c.detach)):
 		_ = c.cmd.Process.Kill()
 		<-c.exited
 	}

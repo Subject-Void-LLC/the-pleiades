@@ -76,7 +76,7 @@ var manualModules = []Entry{
 	{Module: "ansible.builtin.fail", Aliases: []string{"fail"}, Rating: RatingManual, Code: "module.manual",
 		Reason: "no native method fails a run on purpose"},
 	{Module: "ansible.builtin.pause", Aliases: []string{"pause"}, Rating: RatingManual, Code: "module.manual",
-		Reason: "no native method waits for a person or a timer"},
+		Reason: "a timed pause is the native pause (seconds or minutes), written by hand until the converter maps it; a prompted pause waits for a person, which a run does not do"},
 	{Module: "ansible.builtin.script", Aliases: []string{"script"}, Rating: RatingManual, Code: "module.manual",
 		Reason: "copying a local script to the device and running it is two native steps a person should write"},
 	{Module: "ansible.builtin.add_host", Aliases: []string{"add_host"}, Rating: RatingManual, Code: "module.manual",

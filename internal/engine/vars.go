@@ -236,7 +236,7 @@ func usesSetFact(def WorkflowDef) bool {
 // carries its whole scope and the executor reads only Task.Vars. It runs
 // after resolveImportTasks, like propagateCheckMode.
 func propagateVars(def *WorkflowDef) {
-	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks} {
+	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks, def.Handlers} {
 		propagateVarsInto(list, nil)
 	}
 }

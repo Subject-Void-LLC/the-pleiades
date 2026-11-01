@@ -169,7 +169,7 @@ func TestAdapter_Execute_LaunchFieldsReachTheRealArgv(t *testing.T) {
 
 	want := []string{
 		"ansible-playbook", "-vv", "-i", "/run/pleiades/inventory.json",
-		"--limit", "sw1", "--forks", "1", "--tags", "deploy", "--skip-tags", "slow",
+		"--forks", "1", "--tags", "deploy", "--skip-tags", "slow",
 		"/run/pleiades/playbook.yml", "-e", "@/run/pleiades/extravars.json",
 	}
 	if !reflect.DeepEqual(orch.lastSpec.Argv, want) {

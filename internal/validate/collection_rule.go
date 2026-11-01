@@ -26,12 +26,13 @@ import (
 // legacy built-in, not a hand-maintained allowlist that a new keyword
 // could fall out of sync with.
 //
-// "set_metadata" is the one deliberate, named exception to that
-// closed-by-construction claim: it is also reachable as the dotted
-// "pleiades.builtin.set_metadata" (engine/action.go's switch dispatches
-// both spellings identically), so it needs an explicit entry in
-// dottedBuiltinExemptions below rather than falling out of
-// isCollectionName's dot check for free. It stays a hardcoded builtin
+// The engine's own actions are the deliberate exception to that
+// closed-by-construction claim: set_metadata, set_fact, assert, fail,
+// pause and async_status are also reachable with a dotted
+// "pleiades.builtin." spelling (engine/action.go's switch dispatches both
+// spellings identically), so dottedBuiltin below asks
+// engine.IsBuiltinAction rather than relying on isCollectionName's dot
+// check. Set_metadata stays a hardcoded builtin
 // rather than a real pkg/collection registration on purpose: no
 // dispatcher in this codebase invokes a registered pkg/collection method
 // today (every Descriptor's Go implementation is unreachable until a
@@ -52,19 +53,18 @@ import (
 // calls exists and is implemented, and this phase only answers the
 // second one.
 
-// dottedBuiltinExemptions names every dotted fqcn that is a hardcoded
-// engine builtin (internal/engine/action.go), not a real pkg/collection
-// registration, and must therefore be skipped by CollectionRule exactly
-// like an undotted legacy builtin, despite containing a dot.
-var dottedBuiltinExemptions = map[string]bool{
-	"pleiades.builtin.set_metadata": true,
-}
+// dottedBuiltin reports whether fqcn is one of the engine's own actions
+// (internal/engine/action.go), not a real pkg/collection registration, and
+// must therefore be skipped by the Collection rules exactly like an undotted
+// builtin, despite containing a dot. It reads the engine's own table
+// (engine.IsBuiltinAction), so the two cannot disagree.
+func dottedBuiltin(fqcn string) bool { return engine.IsBuiltinAction(fqcn) }
 
 func CollectionRule(world WorldView) []Finding {
 	var findings []Finding
 
 	for id, task := range world.DAG.Nodes {
-		if !isCollectionName(task.FQCN) || dottedBuiltinExemptions[task.FQCN] {
+		if !isCollectionName(task.FQCN) || dottedBuiltin(task.FQCN) {
 			continue
 		}
 

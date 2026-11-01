@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -57,6 +58,11 @@ type Conn struct {
 	// become, when set, runs every command this view sends as another
 	// account through sudo (WithBecome).
 	become *Become
+
+	// redial reconnects a detached command's polls (detach.go), and extra
+	// holds the clients it dialed, closed with this Conn.
+	redial redialer
+	extra  []*ssh.Client
 }
 
 // taint marks a borrowed connection as not to be reused. It does nothing
@@ -123,6 +129,10 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	}
 	if err := c.usable(); err != nil {
 		return Result{}, err
+	}
+	// An async task's command runs detached on the device (detach.go).
+	if stdin == nil && detached(ctx) {
+		return c.runDetached(ctx, command, limit)
 	}
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -224,7 +234,7 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	runErr := session.Start(c.elevate(command))
 	if runErr == nil {
 		startCopy()
-		runErr = session.Wait()
+		runErr = waitOrAbandon(ctx, session)
 	}
 
 	// A command cut off for writing past its bound has an unknown outcome on
@@ -235,17 +245,19 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w (%d bytes on one stream)", c.addr, ErrOutputTooLarge, limit)
 	}
 
-	result := Result{Stdout: stdout.buf.String(), Stderr: stderr.buf.String()}
-
+	// The buffers are read only once Wait has returned, in the two cases
+	// below: Wait is what joins x/crypto/ssh's goroutines copying the
+	// streams into them, and an abandoned command (waitOrAbandon gave up on
+	// it) may still be writing, so reading them then would race.
 	var exitErr *ssh.ExitError
 	switch {
 	case runErr == nil:
-		result.ExitCode = 0
+		return Result{Stdout: stdout.buf.String(), Stderr: stderr.buf.String()}, nil
 
 	case errors.As(runErr, &exitErr):
 		// A non-zero remote exit status is real information, not a Go
 		// error: the command ran to completion and reported failure.
-		result.ExitCode = exitErr.ExitStatus()
+		return Result{Stdout: stdout.buf.String(), Stderr: stderr.buf.String(), ExitCode: exitErr.ExitStatus()}, nil
 
 	default:
 		// The connection's state is now unknown (a command cut off
@@ -264,8 +276,33 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		// side is unknown, which is a genuine error and never an exit code.
 		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, runErr)
 	}
+}
 
-	return result, nil
+// abandonGrace is how long a cancelled command's session is waited on after
+// its SIGTERM and close before the call returns without it.
+const abandonGrace = 2 * time.Second
+
+// waitOrAbandon waits for session's command, or, once ctx ends, for at most
+// abandonGrace more. OpenSSH's sshd answers a client's close only when the
+// command's output ends, and may not deliver the signal (measured on Debian's
+// sshd: "sleep 60 & wait" ran its whole minute past a three-second limit and
+// reported success), so waiting on Wait alone let a task's limit pass
+// unnoticed. An abandoned Wait ends when the connection closes; run taints the
+// connection so it does.
+func waitOrAbandon(ctx context.Context, session *ssh.Session) error {
+	waited := make(chan error, 1)
+	go func() { waited <- session.Wait() }()
+	select {
+	case err := <-waited:
+		return err
+	case <-ctx.Done():
+	}
+	select {
+	case err := <-waited:
+		return err
+	case <-time.After(abandonGrace):
+		return ctx.Err()
+	}
 }
 
 // Close closes every connection in the chain that reaches this Conn's
@@ -278,6 +315,10 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 // closed regardless: a failure closing one connection must never leave
 // an earlier hop in the chain leaked.
 func (c *Conn) Close() error {
+	// Clients a detached command redialed are this Conn's alone.
+	for i := len(c.extra) - 1; i >= 0; i-- {
+		_ = c.extra[i].Close()
+	}
 	if c.lease != nil {
 		return c.lease.release()
 	}

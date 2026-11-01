@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -84,6 +85,26 @@ func TestInvokeRequest_Success(t *testing.T) {
 	}
 	if dev, ok := gotDevice.(*external.Device); !ok || dev.Payload().JobID != "job-1" {
 		t.Errorf("method's device is %T, want an *external.Device carrying job-1", gotDevice)
+	}
+}
+
+// TestInvokeRequest_AnAsyncCallRunsDetachedInTheChild: the detach marker, a
+// context value no process boundary carries, reaches the method in the child
+// exactly when the request says so (an async task's call on a Runner).
+func TestInvokeRequest_AnAsyncCallRunsDetachedInTheChild(t *testing.T) {
+	var got []bool
+	name := registerTestMethod(t, "detaches", collection.StatusImplemented,
+		func(ctx context.Context, _ sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+			got = append(got, remoteexec.Detached(ctx))
+			return collection.Result{}, nil
+		})
+	for _, detach := range []bool{true, false} {
+		if resp := external.InvokeRequest(context.Background(), collection.Lookup, wire.ChildRequest{FQCN: name, Detach: detach}); resp.Error != "" {
+			t.Fatalf("Detach %v: %s", detach, resp.Error)
+		}
+	}
+	if len(got) != 2 || !got[0] || got[1] {
+		t.Errorf("the method saw detached %v, want [true false]", got)
 	}
 }
 

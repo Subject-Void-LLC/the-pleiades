@@ -271,7 +271,26 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 
 	// windowed says whether this job runs its devices through a forks
 	// window (window.go) rather than dispatching each as it is reached.
-	windowed := windowOf(job) > 0
+	// A runbook with serial: queues every device the same way, and the pump
+	// runs them a batch at a time (serial.go).
+	windowed := windowOf(job) > 0 || len(prepared.Serial) > 0
+
+	// The launch's limit, read once: which of the job's devices it may
+	// dispatch (limit.go). One that cannot be read fails the job.
+	limit, reason, err := w.limitOf(ctx, job)
+	if err != nil {
+		return fmt.Errorf("job %s: reading its devices' groups for its limit: %w", job.JobID, err)
+	}
+	if reason != "" {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, reason); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+	limited := 0
 
 	// The streaming Next/Item/Error/Close loop shape, mirroring
 	// internal/api/dispatcher.go's CURRENT loop exactly. Devices are
@@ -285,6 +304,11 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		if !undo.admits(string(device.ID())) {
 			continue
 		}
+		// A device the limit excludes is not part of the job: no row.
+		if !limit.admits(device) {
+			continue
+		}
+		limited++
 
 		if _, done := alreadyRecorded[string(device.ID())]; done {
 			// This exact device was already admitted-or-skipped and
@@ -371,6 +395,16 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
+	if !limit.limit.IsZero() && limited == 0 {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, limit.noneMatched()); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
 	missing, err := w.recordMissing(ctx, job, fence, undo)
 	failed += missing
 	if err != nil {
@@ -414,6 +448,16 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	// change nothing (BeginFanOut refuses a settled job), and the leader's
 	// sweep pumps every running job that still has queued devices.
 	if queued > 0 {
+		// A serial: job's queued devices get their batches, by name, now
+		// that every one is known. A failure here is the pump's to repair
+		// (serialGate), so it is logged and the first pump still runs.
+		if len(prepared.Serial) > 0 {
+			if err := w.store.AssignBatches(ctx, job.JobID, prepared.Serial); err != nil {
+				slog.Error("a serial job's batches could not be assigned; its pump will retry",
+					slog.String("job_id", job.JobID),
+					slog.String("error", err.Error()))
+			}
+		}
 		if err := w.Pump(ctx, job.JobID); err != nil {
 			slog.Error("a windowed job's first pump failed; the leader's sweep will retry it",
 				slog.String("job_id", job.JobID),

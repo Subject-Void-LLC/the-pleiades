@@ -124,6 +124,15 @@ func (JobTask) Fields() []ent.Field {
 		// NULLs are distinct in a unique index on SQLite and PostgreSQL
 		// alike, so any number of rows may hold no slot.
 		field.Int("slot").Optional().Nillable().NonNegative(),
+
+		// batch is the serial: batch a device of a job whose runbook has
+		// serial: belongs to, 0 for the first, assigned once the fan-out has
+		// queued every admitted device (by device name, engine.Batches), and
+		// nil for every other row. The window's pump dispatches only the
+		// lowest batch with a device still to finish, and none after a batch
+		// with a failure (internal/dispatch's serial gate). Nullable and last,
+		// so the migration adding it only expands the schema.
+		field.Int("batch").Optional().Nillable().NonNegative(),
 	}
 }
 

@@ -109,7 +109,7 @@ func yamlKindName(k yaml.Kind) string {
 // children, at any depth. It must run after resolveImportTasks, and
 // before anything reads Task.CheckMode.
 func propagateCheckMode(def *WorkflowDef) {
-	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks} {
+	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks, def.Handlers} {
 		propagateCheckModeInto(list, bool(def.CheckMode))
 	}
 }
@@ -161,6 +161,10 @@ var builtinCheckable = map[string]bool{
 	"pleiades.builtin.assert":       true,
 	"fail":                          true,
 	"pleiades.builtin.fail":         true,
+	"pause":                         true,
+	"async_status":                  true,
+	"pleiades.builtin.async_status": true,
+	"pleiades.builtin.pause":        true,
 }
 
 // Checkable reports whether a task calling fqcn with params can run in
@@ -224,6 +228,8 @@ var RunbookKeys = map[string]bool{
 	"become_method": true,
 	"tags":          true,
 	"pretasks":      true,
+	"handlers":      true,
+	"serial":        true,
 	"tasks":         true,
 	"posttasks":     true,
 	"reversible":    true,

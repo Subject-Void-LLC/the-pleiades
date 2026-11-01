@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -389,5 +392,42 @@ func TestALaunchWithPromptedInputsCannotSetForks(t *testing.T) {
 	// The same launch without its inputs is an ordinary windowed launch.
 	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launchConfig(), nil); err != nil {
 		t.Errorf("LaunchTemplate without prompted inputs = %v, want it accepted", err)
+	}
+}
+
+// TestALaunchWithPromptedInputsCannotRunASerialRunbook is the same refusal
+// for a runbook with serial:, whose batches after the first are dispatched
+// once the fan-out has ended, so a prompted input would never reach them; the
+// same template naming a runbook without serial: launches.
+func TestALaunchWithPromptedInputsCannotRunASerialRunbook(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rolling.yaml"), []byte("id: rolling\nserial: 2\ntasks:\n  - name: step\n    noop: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeTestRunbook(t, dir, "pb-1", noopRunbookFQCN)
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		definition string
+		refused    bool
+	}{{"rolling", true}, {"pb-1", false}} {
+		jobs := newTestJobStore(t)
+		bus := newCapturingBus()
+		tmpl := promptableTemplate()
+		tmpl.Definition = tc.definition
+		tmpl.CredentialIDs = []int{18}
+		dispatcher := api.NewDispatcher(src, jobs, bus, api.WithTemplates(stubTemplates{tmpl: tmpl}))
+		_, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12,
+			launchConfig(), credtype.PromptedInputs{18: {"api_token": "typed-at-launch"}})
+		if got := errors.Is(err, api.ErrSerialPrompt); got != tc.refused {
+			t.Errorf("%s: LaunchTemplate = %v, refused %v, want %v", tc.definition, err, got, tc.refused)
+		}
+		if tc.refused {
+			if _, ok := bus.firstOnTopic(topology.JobRequestedSubject()); ok {
+				t.Error("a refused launch still published job.requested")
+			}
+		}
 	}
 }

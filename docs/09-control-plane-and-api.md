@@ -163,6 +163,23 @@ rows. Otherwise it moves to `running`, or straight to `completed` if no device w
 dispatched. A job stuck in `fanning_out` for ten minutes, because the replica doing it died,
 is picked up again by the leader.
 
+### `limit`: which devices run
+
+A launch's `limit` narrows the job to some of its inventory, before any device is admitted, with
+Ansible's `--limit` grammar: device names, tags and groups (a device in a child group is in its parent),
+globs such as `web-*`, comma separated, `!` to exclude and `&` to intersect, in any order. `pleiades run
+--limit` reads a pattern the same way, so a limit means the same devices on the CLI and the Controller.
+
+- A device the limit leaves out is not part of the job: it is not dispatched and has no row, as a device
+  outside the inventory has none.
+- A limit that matches none of the job's devices fails the job, saying so, and one that cannot be read
+  (a regular expression `~`, a file `@`) fails it naming why. So does one made only of separators (`,`,
+  as a script writing `"$HOSTS,"` with `HOSTS` empty would): it names no device, and must never be read as
+  no limit at all.
+- It applies to playbook jobs too, by the Controller, and is not passed on to ansible-playbook, so one
+  reader decides which devices run.
+- A rollback job ignores the limit: it undoes every device its plan names.
+
 ### `forks`: how many devices run at once
 
 With no `forks` launch field, every admitted device is dispatched during the fan-out, and
@@ -182,6 +199,13 @@ devices run at once:
   and is refused (422). Those inputs are held only while the job fans out and are never
   stored, so devices dispatched later could not have them. Bind a stored credential, or
   leave `forks` unset.
+
+A runbook with `serial:` runs through the same queue: every admitted device is queued, given its
+batch by device name once the fan-out ends, and only the lowest batch with a device still to report
+is dispatched, `forks` at a time when it is set and the whole batch when it is not. A batch in which a
+device failed finishes, then every later device is `skipped` with the reason naming the batch. A
+launch with credential inputs asked for at launch cannot run such a runbook, for the reason it cannot
+set `forks` (422).
 
 The limit holds across Controller replicas: each running device holds a numbered place, and
 the database refuses a second device in the same place. Two things can still make it

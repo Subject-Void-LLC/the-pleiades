@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -63,6 +64,7 @@ func (p *program) invoke(ctx context.Context, fqcn string, mode collection.Mode,
 	defer func() { _ = prog.Close() }()
 
 	req := buildRequest(fqcn, mode, params, device, rc.InjectSecrets(), filepath.Base(p.path))
+	req.Detach = remoteexec.Detached(ctx)
 	secrets := redact.MapValues(req.Secrets)
 	body, err := json.Marshal(&req)
 	if err != nil {

@@ -320,6 +320,7 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 		Required:      requiredCapabilities(dag),
 		Methods:       methods(dag),
 		Interruptible: dag.Metadata.IsInterruptible(),
+		Serial:        dag.Serial,
 		// Catalog metadata, read from the file rather than stored beside
 		// it. Name falls back to the id so a runbook that never set one is
 		// still listed by something a human can read.

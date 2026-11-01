@@ -122,7 +122,7 @@ func checkBecomeKeys(label string, become *bool, user, method string) error {
 // resolveImportTasks and before anything reads Task.Become.
 func propagateBecome(def *WorkflowDef) {
 	inherited := becomeScope{on: def.Become != nil && *def.Become, user: def.BecomeUser, method: def.BecomeMethod}
-	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks} {
+	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks, def.Handlers} {
 		propagateBecomeInto(list, inherited)
 	}
 }
@@ -174,7 +174,7 @@ func validateBecomeKeys(def *WorkflowDef) error {
 	if err := checkBecomeKeys("runbook", def.Become, def.BecomeUser, def.BecomeMethod); err != nil {
 		return err
 	}
-	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks} {
+	for _, list := range [][]Task{def.PreTasks, def.Tasks, def.PostTasks, def.Handlers} {
 		if err := validateBecomeIn(list); err != nil {
 			return err
 		}

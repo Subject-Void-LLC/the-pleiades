@@ -1,0 +1,1 @@
+Added `pause` (also `pleiades.builtin.pause`): a task holding the run for `seconds` or `minutes`, up to a day, once for the run rather than once per host, most often between `serial:` batches. A pause that waits for a person is refused.

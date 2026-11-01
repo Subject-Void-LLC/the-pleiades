@@ -70,10 +70,13 @@ const (
 	// WarnConcurrentUnknown is a part of that question this run could not
 	// answer: a record it could not write, or a journal it could not read.
 	WarnConcurrentUnknown = "concurrent_unknown"
+	// WarnSerialStopped is a serial: batch whose failure stopped the
+	// rollout: Devices names every device of the batches that did not run.
+	WarnSerialStopped = "serial_stopped"
 )
 
 // KnownWarningKinds are every RunWarning.Kind this producer writes.
-var KnownWarningKinds = []string{WarnConcurrentRun, WarnConcurrentChange, WarnConcurrentUnknown}
+var KnownWarningKinds = []string{WarnConcurrentRun, WarnConcurrentChange, WarnConcurrentUnknown, WarnSerialStopped}
 
 // RunReport is one run, as both views print it.
 type RunReport struct {
@@ -267,7 +270,8 @@ type RunOutcome struct {
 // RunWarning is something about the run as a whole that the person running
 // it has to know, shown in the text view and kept in --json.
 type RunWarning struct {
-	// Kind is concurrent_run, concurrent_change or concurrent_unknown.
+	// Kind is concurrent_run, concurrent_change, concurrent_unknown or
+	// serial_stopped.
 	Kind string `json:"kind"`
 	// When is "start" for what the run found as it began, "end" for what
 	// it found as it ended.

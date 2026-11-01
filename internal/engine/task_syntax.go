@@ -58,6 +58,10 @@ var ReservedTaskKeys = map[string]bool{
 	"changed_when":        true,
 	"failed_when":         true,
 	"ignore_errors":       true,
+	"notify":              true,
+	"async":               true,
+	"poll":                true,
+	"listen":              true,
 }
 
 // --- YAML path -------------------------------------------------------
@@ -111,7 +115,7 @@ func normalizeWorkflowYAML(payload []byte, def *WorkflowDef) error {
 			return fmt.Errorf("line %d: hosts: takes a device or tag name, or a list of them, not a mapping", hosts.Line)
 		}
 	}
-	for _, key := range []string{"pretasks", "tasks", "posttasks"} {
+	for _, key := range []string{"pretasks", "tasks", "posttasks", "handlers"} {
 		if seq := findMappingValue(root, key); seq != nil {
 			if err := normalizeTaskListNode(seq, key); err != nil {
 				return err

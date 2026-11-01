@@ -140,6 +140,12 @@ var ErrNotRelaunchable = errors.New("api: this job cannot be relaunched")
 var ErrWindowedPrompt = errors.New("api: a launch that supplies credential inputs cannot also set forks; " +
 	"those inputs are held only while the job fans out, and a forks window dispatches most devices after that")
 
+// ErrSerialPrompt is ErrWindowedPrompt's twin for a runbook with serial:,
+// which dispatches every batch after the first once the fan-out has ended,
+// so a prompted input, held only for the fan-out, would never reach them.
+var ErrSerialPrompt = errors.New("api: a launch that supplies credential inputs cannot run a runbook with serial:; " +
+	"those inputs are held only while the job fans out, and every batch after the first is dispatched after that")
+
 // NewDispatcher creates a new task dispatcher over runbooks, jobs, and
 // bus.
 //
@@ -498,6 +504,8 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, ErrWindowedPrompt):
 		RespondError(w, r, http.StatusUnprocessableEntity, ErrWindowedPrompt.Error())
+	case errors.Is(err, ErrSerialPrompt):
+		RespondError(w, r, http.StatusUnprocessableEntity, ErrSerialPrompt.Error())
 	case errors.Is(err, launch.ErrUnknownKind):
 		// The template names a kind this Controller no longer registers,
 		// which is a deployment fact rather than a caller's mistake, so it
@@ -566,6 +574,11 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 	}
 	if len(prompted) > 0 && resolved.Fields.Int(dispatch.ForksField) > 0 {
 		return "", ignored, ErrWindowedPrompt
+	}
+	if len(prompted) > 0 && launch.ResolveKind(resolved.Kind) == launch.DefaultKind {
+		if rb, err := d.runbooks.Get(ctx, resolved.Definition); err == nil && len(rb.Serial) > 0 {
+			return "", ignored, ErrSerialPrompt
+		}
 	}
 
 	// 2. Record what this launch was configured with, before the job, so

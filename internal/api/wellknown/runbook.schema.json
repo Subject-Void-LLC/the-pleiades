@@ -9,6 +9,19 @@
           },
           "type": "array"
         },
+        "async": {
+          "description": "A hard per-device limit in seconds; with poll: 0 the task runs in the background.",
+          "oneOf": [
+            {
+              "maximum": 86400,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
         "become": {
           "description": "Run this task's SSH commands as become_user through sudo -n. A block's covers its tasks; the narrowest key wins; false turns off one set above.",
           "type": "boolean"
@@ -84,6 +97,20 @@
           "description": "Go on past a failure of this task; it is still recorded as one.",
           "type": "boolean"
         },
+        "listen": {
+          "description": "On a handler: topics it also answers to.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
         "lock_acquisition": {
           "description": "When this task's device locks are acquired.",
           "enum": [
@@ -115,6 +142,20 @@
           "description": "Free-form label.",
           "type": "string"
         },
+        "notify": {
+          "description": "Handlers to run when this task changes something: a name or listen topic, or a list of them.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
         "parallel": {
           "items": {
             "$ref": "#/$defs/task"
@@ -124,6 +165,18 @@
         "params": {
           "description": "Arguments passed to fqcn. A string holding {{ }} renders when the task runs, reading vars, nodes and result.",
           "type": "object"
+        },
+        "poll": {
+          "description": "With async: seconds between progress reports, or 0 to run in the background.",
+          "oneOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "register": {
           "description": "Name to store this task's result under.",
@@ -325,6 +378,12 @@
         }
       ]
     },
+    "handlers": {
+      "items": {
+        "$ref": "#/$defs/task"
+      },
+      "type": "array"
+    },
     "hosts": {
       "description": "Default target for a task that does not set its own.",
       "type": "string"
@@ -383,6 +442,35 @@
     "reversible": {
       "description": "Promise that a rollback can undo every task that changes a device; validation refuses the runbook otherwise, naming each task that would break the promise.",
       "type": "boolean"
+    },
+    "serial": {
+      "description": "Batch sizes the runbook's hosts run in: a number, a percentage string, or a list of them.",
+      "oneOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "pattern": "^[0-9]+%$",
+          "type": "string"
+        },
+        {
+          "items": {
+            "oneOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "pattern": "^[0-9]+%$",
+                "type": "string"
+              }
+            ]
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      ]
     },
     "tags": {
       "description": "Tags every task in the runbook carries, as a play's tags do in Ansible.",

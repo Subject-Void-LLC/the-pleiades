@@ -140,7 +140,7 @@ func RollbackOnFailureRule(world WorldView) []Finding {
 // name nothing registers is CollectionRule's finding, not this rule's. A
 // method whose calls differ answers for this call through its UndoCall.
 func whyNotUndoable(fqcn string, params map[string]any) string {
-	if !isCollectionName(fqcn) || dottedBuiltinExemptions[fqcn] {
+	if !isCollectionName(fqcn) || dottedBuiltin(fqcn) {
 		if deviceUnchangingActions[fqcn] {
 			return ""
 		}

@@ -13111,6 +13111,8 @@ type JobTaskMutation struct {
 	waiting       *bool
 	slot          *int
 	addslot       *int
+	batch         *int
+	addbatch      *int
 	clearedFields map[string]struct{}
 	job           *int
 	clearedjob    bool
@@ -13755,6 +13757,76 @@ func (m *JobTaskMutation) ResetSlot() {
 	delete(m.clearedFields, jobtask.FieldSlot)
 }
 
+// SetBatch sets the "batch" field.
+func (m *JobTaskMutation) SetBatch(i int) {
+	m.batch = &i
+	m.addbatch = nil
+}
+
+// Batch returns the value of the "batch" field in the mutation.
+func (m *JobTaskMutation) Batch() (r int, exists bool) {
+	v := m.batch
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBatch returns the old "batch" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldBatch(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBatch is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBatch requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBatch: %w", err)
+	}
+	return oldValue.Batch, nil
+}
+
+// AddBatch adds i to the "batch" field.
+func (m *JobTaskMutation) AddBatch(i int) {
+	if m.addbatch != nil {
+		*m.addbatch += i
+	} else {
+		m.addbatch = &i
+	}
+}
+
+// AddedBatch returns the value that was added to the "batch" field in this mutation.
+func (m *JobTaskMutation) AddedBatch() (r int, exists bool) {
+	v := m.addbatch
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearBatch clears the value of the "batch" field.
+func (m *JobTaskMutation) ClearBatch() {
+	m.batch = nil
+	m.addbatch = nil
+	m.clearedFields[jobtask.FieldBatch] = struct{}{}
+}
+
+// BatchCleared returns if the "batch" field was cleared in this mutation.
+func (m *JobTaskMutation) BatchCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldBatch]
+	return ok
+}
+
+// ResetBatch resets all changes to the "batch" field.
+func (m *JobTaskMutation) ResetBatch() {
+	m.batch = nil
+	m.addbatch = nil
+	delete(m.clearedFields, jobtask.FieldBatch)
+}
+
 // SetJobID sets the "job" edge to the Job entity by id.
 func (m *JobTaskMutation) SetJobID(id int) {
 	m.job = &id
@@ -13828,7 +13900,7 @@ func (m *JobTaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobTaskMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, jobtask.FieldCreatedAt)
 	}
@@ -13865,6 +13937,9 @@ func (m *JobTaskMutation) Fields() []string {
 	if m.slot != nil {
 		fields = append(fields, jobtask.FieldSlot)
 	}
+	if m.batch != nil {
+		fields = append(fields, jobtask.FieldBatch)
+	}
 	return fields
 }
 
@@ -13897,6 +13972,8 @@ func (m *JobTaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Waiting()
 	case jobtask.FieldSlot:
 		return m.Slot()
+	case jobtask.FieldBatch:
+		return m.Batch()
 	}
 	return nil, false
 }
@@ -13930,6 +14007,8 @@ func (m *JobTaskMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldWaiting(ctx)
 	case jobtask.FieldSlot:
 		return m.OldSlot(ctx)
+	case jobtask.FieldBatch:
+		return m.OldBatch(ctx)
 	}
 	return nil, fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -14023,6 +14102,13 @@ func (m *JobTaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetSlot(v)
 		return nil
+	case jobtask.FieldBatch:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBatch(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -14037,6 +14123,9 @@ func (m *JobTaskMutation) AddedFields() []string {
 	if m.addslot != nil {
 		fields = append(fields, jobtask.FieldSlot)
 	}
+	if m.addbatch != nil {
+		fields = append(fields, jobtask.FieldBatch)
+	}
 	return fields
 }
 
@@ -14049,6 +14138,8 @@ func (m *JobTaskMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedUnchecked()
 	case jobtask.FieldSlot:
 		return m.AddedSlot()
+	case jobtask.FieldBatch:
+		return m.AddedBatch()
 	}
 	return nil, false
 }
@@ -14072,6 +14163,13 @@ func (m *JobTaskMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddSlot(v)
 		return nil
+	case jobtask.FieldBatch:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBatch(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask numeric field %s", name)
 }
@@ -14094,6 +14192,9 @@ func (m *JobTaskMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(jobtask.FieldSlot) {
 		fields = append(fields, jobtask.FieldSlot)
+	}
+	if m.FieldCleared(jobtask.FieldBatch) {
+		fields = append(fields, jobtask.FieldBatch)
 	}
 	return fields
 }
@@ -14123,6 +14224,9 @@ func (m *JobTaskMutation) ClearField(name string) error {
 		return nil
 	case jobtask.FieldSlot:
 		m.ClearSlot()
+		return nil
+	case jobtask.FieldBatch:
+		m.ClearBatch()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask nullable field %s", name)
@@ -14167,6 +14271,9 @@ func (m *JobTaskMutation) ResetField(name string) error {
 		return nil
 	case jobtask.FieldSlot:
 		m.ResetSlot()
+		return nil
+	case jobtask.FieldBatch:
+		m.ResetBatch()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)

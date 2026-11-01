@@ -109,11 +109,26 @@ var engineActionStatKeys = map[string][]string{
 	"pleiades.builtin.assert":       nil,
 	"fail":                          nil,
 	"pleiades.builtin.fail":         nil,
+	"pause":                         nil,
+	"async_status":                  nil,
+	"pleiades.builtin.async_status": nil,
+	"pleiades.builtin.pause":        nil,
 	"ssh_exec":                      transportExecStatKeys,
 	"serial_exec":                   transportExecStatKeys,
 	"serialtcp_exec":                transportExecStatKeys,
 	"telnet_exec":                   transportExecStatKeys,
 	"winrm_exec":                    transportExecStatKeys,
+}
+
+// IsBuiltinAction reports whether fqcn is one of the engine's own actions, in
+// either spelling (fail and pleiades.builtin.fail): run in process, not a
+// Collection method. Validation reads it rather than keeping a list of its
+// own, which drifted once and refused the dotted spellings of fail, assert
+// and set_fact that the engine runs.
+func IsBuiltinAction(fqcn string) bool {
+	// Membership in the stat-key table is what makes a name an engine action.
+	_, ok := engineActionStatKeys[fqcn]
+	return ok
 }
 
 // resolvedFQCN is what resolveFQCN made of one FQCN string, and it is the
@@ -365,7 +380,7 @@ func validFailureStage(stage FailureStage) bool {
 // validFailureStage does.
 func validSkipKind(kind SkipKind) bool {
 	switch kind {
-	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed:
+	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed, SkipKindNotNotified:
 		return true
 	case SkipKindNone:
 		return false
@@ -843,6 +858,12 @@ func (r *run) recordLevel(ctx context.Context, levelIndex int, outs [][]NodeResu
 	outs = slices.DeleteFunc(slices.Clone(outs), func(node []NodeResult) bool {
 		return len(node) > 0 && r.modeFor(r.taskFor(node[0].NodeID)) != collection.ModeExecute
 	})
+	// A background task's start is not journaled: nothing has happened yet.
+	// Its job's own result is, when collected (async.go).
+	for i := range outs {
+		outs[i] = slices.DeleteFunc(slices.Clone(outs[i]), func(n NodeResult) bool { return n.background })
+	}
+	outs = slices.DeleteFunc(outs, func(node []NodeResult) bool { return len(node) == 0 })
 	if len(outs) == 0 {
 		return
 	}

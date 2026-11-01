@@ -381,7 +381,9 @@ Things a real Ansible user will look for and not currently find:
   `until`, `failed_when`, `changed_when`, `ignore_errors`, `assert` and `fail`.
 - Loops are `loop` / `with_items` only, at most 1000 items; no other `with_*` form
   (`with_dict`, `with_fileglob`, ...) is supported.
-- No `handlers` / `notify`, no `serial`, no `roles`.
+- `handlers` / `notify` run a task only when something before it changed; see
+  [Writing runbooks](04-writing-runbooks.md#handlers-and-notify). `meta: flush_handlers` is not
+  supported. `serial:` rolls a runbook out a few devices at a time, on the CLI and a Controller. No `roles`.
 - `become:` works on the Crawl tier, for a method that reaches its device over SSH: `become: true`
   and `become_user:` (root by default) on a runbook, a block or a task, the narrowest winning,
   run every command the method sends as that account through `sudo -n`. There is no sudo
@@ -424,8 +426,7 @@ and useful for scripted, single-operator automation today. The distributed,
 multi-user control plane does dispatch real jobs to real devices, both native runbooks
 and unconverted Ansible playbooks; see [Implementation status](#implementation-status)
 above. What still stands between it and AWX is mostly the list under
-[Limitations](#limitations): a runbook has no handlers, privilege escalation,
-roles or `serial` yet, a runbook dispatched to a Runner runs every task against
+[Limitations](#limitations): a runbook has no roles yet, a runbook dispatched to a Runner runs every task against
 the one device it was dispatched to, and an unconverted playbook runs against one device
 per dispatch rather than across a whole play.
 

@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -29,6 +30,16 @@ import (
 // actually reach the subprocess promptly rather than leaving it running
 // past the ctx cancellation that was supposed to stop it.
 const childWaitDelay = 5 * time.Second
+
+// killDelay is how long a child is given after its SIGTERM before it is
+// killed: childWaitDelay, plus remoteexec.DetachStopBudget when it is
+// running a detached command, whose stop on the device must finish first.
+func killDelay(detach bool) time.Duration {
+	if detach {
+		return childWaitDelay + remoteexec.DetachStopBudget
+	}
+	return childWaitDelay
+}
 
 // ipcCollectionExecutor is the parent side of the per-task subprocess
 // boundary PLAN.md Section 17.5 requires: its invoke method satisfies
@@ -126,6 +137,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 	}
 
 	req := childRequest(desc, mode, params, payload)
+	req.Detach = remoteexec.Detached(ctx)
 	reqBytes, err := json.Marshal(&req)
 	if err != nil {
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)
@@ -172,11 +184,11 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 	cmd.ExtraFiles = []*os.File{responseWrite}
 	// Cancel + WaitDelay (Go 1.20+): ctx cancellation sends SIGTERM first,
 	// giving the child a chance to exit cleanly, and only escalates to a
-	// forced kill after childWaitDelay if it has not.
+	// forced kill after killDelay if it has not.
 	cmd.Cancel = func() error {
 		return cmd.Process.Signal(syscall.SIGTERM)
 	}
-	cmd.WaitDelay = childWaitDelay
+	cmd.WaitDelay = killDelay(req.Detach)
 
 	runErr := cmd.Run()
 	// This process's own copy of the write end must close for the reader

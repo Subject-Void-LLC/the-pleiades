@@ -89,7 +89,37 @@ func (w *Worker) Pump(ctx context.Context, jobID string) error {
 		}
 		return err
 	}
+	gate, def, err := w.serialGate(ctx, job)
+	if err != nil {
+		return err
+	}
+	if def != nil && def.reason != "" {
+		// The definition went away while devices waited: none of them can
+		// run, and none would ever be pumped (an unbatched serial job has no
+		// window), so each is failed with the reason.
+		if err := w.resolveAllQueued(ctx, jobID, OutcomeFailed, def.reason); err != nil {
+			return err
+		}
+		return w.store.CompleteIfDone(ctx, jobID)
+	}
 	forks := windowOf(job)
+	if gate.Batched {
+		switch {
+		case gate.StoppedBy >= 0:
+			// A batch had a failure: its own devices have finished, and every
+			// later one is skipped, naming it (serial.go).
+			if err := w.stopRollout(ctx, jobID, gate.StoppedBy); err != nil {
+				return err
+			}
+			return w.store.CompleteIfDone(ctx, jobID)
+		case gate.Done:
+			return w.store.CompleteIfDone(ctx, jobID)
+		}
+		// Without forks the whole batch runs at once; with it, forks of it.
+		if forks == 0 || forks > gate.Size {
+			forks = gate.Size
+		}
+	}
 	if forks == 0 {
 		return nil
 	}
@@ -98,10 +128,17 @@ func (w *Worker) Pump(ctx context.Context, jobID string) error {
 		return err
 	}
 	free := freeSlots(forks, held)
+	nextQueued := func(n int) ([]JobTask, error) {
+		if gate.Batched {
+			return w.store.QueuedInBatch(ctx, jobID, gate.Current, n)
+		}
+		return w.store.QueuedTasks(ctx, jobID, n)
+	}
 
-	var def *pumpDefinition
+	// def may already be read by the serial gate; otherwise it is read once,
+	// on the first device this pump dispatches.
 	for len(free) > 0 {
-		queued, err := w.store.QueuedTasks(ctx, jobID, len(free))
+		queued, err := nextQueued(len(free))
 		if err != nil {
 			return err
 		}

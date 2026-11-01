@@ -165,6 +165,20 @@ func (_c *JobTaskCreate) SetNillableSlot(v *int) *JobTaskCreate {
 	return _c
 }
 
+// SetBatch sets the "batch" field.
+func (_c *JobTaskCreate) SetBatch(v int) *JobTaskCreate {
+	_c.mutation.SetBatch(v)
+	return _c
+}
+
+// SetNillableBatch sets the "batch" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableBatch(v *int) *JobTaskCreate {
+	if v != nil {
+		_c.SetBatch(*v)
+	}
+	return _c
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_c *JobTaskCreate) SetJobID(id int) *JobTaskCreate {
 	_c.mutation.SetJobID(id)
@@ -282,6 +296,11 @@ func (_c *JobTaskCreate) check() error {
 			return &ValidationError{Name: "slot", err: fmt.Errorf(`ent: validator failed for field "JobTask.slot": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.Batch(); ok {
+		if err := jobtask.BatchValidator(v); err != nil {
+			return &ValidationError{Name: "batch", err: fmt.Errorf(`ent: validator failed for field "JobTask.batch": %w`, err)}
+		}
+	}
 	if len(_c.mutation.JobIDs()) == 0 {
 		return &ValidationError{Name: "job", err: errors.New(`ent: missing required edge "JobTask.job"`)}
 	}
@@ -358,6 +377,10 @@ func (_c *JobTaskCreate) createSpec() (*JobTask, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Slot(); ok {
 		_spec.SetField(jobtask.FieldSlot, field.TypeInt, value)
 		_node.Slot = &value
+	}
+	if value, ok := _c.mutation.Batch(); ok {
+		_spec.SetField(jobtask.FieldBatch, field.TypeInt, value)
+		_node.Batch = &value
 	}
 	if nodes := _c.mutation.JobIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
