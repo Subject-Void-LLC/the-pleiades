@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
@@ -57,7 +58,7 @@ func runSerial(t *testing.T, runbook string, log *batchLog) (engine.RunResult, *
 	if err != nil {
 		t.Fatal(err)
 	}
-	world, plan := planSerial(serialWorld(), dag)
+	world, plan := planSerial(serialWorld(), dag, collection.ModeExecute)
 	if plan == nil {
 		t.Fatal("a runbook with serial: has no batch plan")
 	}
@@ -143,4 +144,51 @@ func sortedLevels(order []string) []string {
 		}
 	}
 	return out
+}
+
+// TestSerial_APercentageCountsTheAdmittedHostsAsTheControllerDoes: serial:
+// 50% over five hosts of which one is archived batches the four the lifecycle
+// admits into 2 and 2, as the Controller does over the devices it queues,
+// with the archived host in the first batch to be skipped once.
+func TestSerial_APercentageCountsTheAdmittedHostsAsTheControllerDoes(t *testing.T) {
+	world := serialWorld()
+	world.Items[4].(*inventorytest.Stub).StubState = inventory.StateArchived
+	dag, err := engine.NewBuilder(mustCEL(t)).BuildFromYAML([]byte("id: s\nhosts: web\nserial: \"50%\"\ntasks:\n  - name: a\n    noop: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, plan := planSerial(world, dag, collection.ModeExecute)
+	var sizes []string
+	for _, batch := range plan.batches {
+		var names []string
+		for _, item := range batch {
+			names = append(names, item.Name())
+		}
+		sizes = append(sizes, strings.Join(names, "+"))
+	}
+	if got := strings.Join(sizes, " | "); got != "w1+w2+w5 | w3+w4" {
+		t.Errorf("batches %s, want w1+w2+w5 | w3+w4 (50%% of the 4 admitted, the archived w5 in the first)", got)
+	}
+}
+
+// TestSerial_NoHostsIsNoPlan: a serial: runbook whose hosts resolve to
+// nothing runs unbatched, so its device-less tasks still run once.
+func TestSerial_NoHostsIsNoPlan(t *testing.T) {
+	dag, err := engine.NewBuilder(mustCEL(t)).BuildFromYAML([]byte("id: s\nhosts: nothing\nserial: 2\ntasks:\n  - name: a\n    noop: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, plan := planSerial(serialWorld(), dag, collection.ModeExecute); plan != nil {
+		t.Errorf("a runbook with no hosts got %d batches; want no plan", len(plan.batches))
+	}
+}
+
+// mustCEL returns the CEL evaluator a builder needs.
+func mustCEL(t *testing.T) engine.Evaluator {
+	t.Helper()
+	eval, err := engine.NewCELEvaluator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return eval
 }

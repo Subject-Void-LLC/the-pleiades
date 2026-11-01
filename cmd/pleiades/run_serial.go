@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -44,19 +45,41 @@ type serialPlan struct {
 
 // planSerial splits world's hosts of dag into dag.Serial's batches and returns
 // world with its resolver limited to the batch running. A runbook without
-// serial: returns world unchanged and no plan.
-func planSerial(world validate.WorldView, dag *engine.DAG) (validate.WorldView, *serialPlan) {
+// serial:, or with no hosts to batch, returns world unchanged and no plan, so
+// a run with no hosts still runs its device-less tasks once.
+//
+// The batches are cut from the hosts whose lifecycle admits a run in mode,
+// the devices the Controller queues (its admission), so a percentage gives
+// the same batches on both tiers. A host the lifecycle does not admit joins
+// the first batch, where the engine skips it, naming why, once.
+func planSerial(world validate.WorldView, dag *engine.DAG, mode collection.Mode) (validate.WorldView, *serialPlan) {
 	if len(dag.Serial) == 0 {
 		return world, nil
 	}
 	all, _ := engine.ResolveTargets(world, dag.Hosts)
+	if len(all) == 0 {
+		return world, nil
+	}
 	b := &batchResolver{inner: world, hosts: map[inventory.DeviceID]bool{}}
+	var admitted, refused []inventory.InventoryItem
 	for _, item := range all {
 		b.hosts[item.ID()] = true
+		if ok, _ := engine.LifecycleAdmitsIn(mode, item); ok {
+			admitted = append(admitted, item)
+		} else {
+			refused = append(refused, item)
+		}
+	}
+	batches := engine.BatchDevices(admitted, dag.Serial)
+	if len(refused) > 0 {
+		if len(batches) == 0 {
+			batches = [][]inventory.InventoryItem{nil}
+		}
+		batches[0] = append(batches[0], refused...)
 	}
 	limited := world
 	limited.Resolver = b
-	return limited, &serialPlan{batches: engine.BatchDevices(all, dag.Serial), resolver: b}
+	return limited, &serialPlan{batches: batches, resolver: b}
 }
 
 // runBatches runs dag over each batch in turn as one run (RunAs, one run id,

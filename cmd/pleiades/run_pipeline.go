@@ -242,7 +242,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// A runbook with serial: runs its hosts a batch at a time (run_serial.go):
 	// the executor is built once over a resolver limited to the batch
 	// running, after validation has seen every device.
-	runWorld, serial := planSerial(world, dag)
+	runWorld, serial := planSerial(world, dag, mode)
 	executor, closeExecutor, err := newRunExecutor(opts, runWorld, sink, mode)
 	if err != nil {
 		return rep, err
