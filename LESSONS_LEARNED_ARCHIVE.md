@@ -6744,3 +6744,25 @@ chose the runners themselves for the first (2026-10-31): `make branch-containers
 job for the branch's changed container packages at the pushed commit, follows it, and writes
 `.git/pleiades-branch-ci.json`. The order is `make pr-check`, `git push`, `make branch-containers`, then the pull
 request. A failure there costs a branch run, never a pull request.
+
+## 366. When a record's field moves from what was asked to what happened, every path that writes the stats it is built from carries the field, the failure paths that keep something included; find the writers where the map is built, not only the readers (a repeat in kind of 348) (2026-11-01).
+
+**Why.** The journal's `Become` used to come from the task's request (`BecomeFor`), which said root even when the
+commands ran as the login (FAILURE_PATTERNS 757). The fix moved it to what happened: the executor records `StatBecome`
+only once a connection really ran as the account, and `ranAs` reads that stat for the journal, the in-run undo and a
+later `pleiades rollback`. Every reader was changed. One writer was not: when a failed task keeps its undo
+(`MayKeepOnFailure`), the executor builds a new `journalStats` map holding only the inverse and the diff, so the
+account was dropped and a root change was undone as the login (FAILURE_PATTERNS 758). Under the old source this map
+did not need the field, so no test of the old behavior could show the gap. It is 749's class again: two paths that
+handle one undo disagreeing on its account, this time because a new source of truth was wired into its readers only.
+The pre-push review found it, not a test.
+
+LESSONS 348 is the same shape (a copy that names its fields dropped a new one) and says to search the type's
+composite literals. It did not reach this because no type changed: `journalStats` is a map, and the key it lacked was
+already written elsewhere. What changed was which code depended on the key, and a search for a new field finds
+nothing when the field is not new.
+
+**Rule in practice.** When a field stops being computed from the input and starts being read from a record, list every
+place that record is built, by its construction sites (each map literal, each `make`, each copy that picks keys), and
+give each one the field. Failure paths that keep part of a result, such as a kept undo, are writers too. Then write a
+test through the failure path that keeps something, and check it fails without the field.

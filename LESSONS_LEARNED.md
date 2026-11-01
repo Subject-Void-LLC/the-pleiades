@@ -398,6 +398,7 @@ story, per `.AGENTS/AGENTS.md`.
 363. **A rule for a mechanism is checked along every route a method can take to a device (tier, how it runs, each path that runs an undo), not only along the first one it was written for (2026-10-31).**
 364. **A record that justifies an act is written after the act succeeds (2026-10-31).**
 365. **A feature's tests run first where CI runs them, not only where they pass: a container test on a native engine and every always-run guard, before the pull request (2026-10-31).**
+366. **When a record's field moves from what was asked to what happened, every path that writes the stats it is built from carries the field, the failure paths that keep something included; find the writers where the map is built, not only the readers (a repeat in kind of 348) (2026-11-01).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
