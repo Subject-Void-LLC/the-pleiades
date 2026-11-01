@@ -11,6 +11,8 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
 // sizesOf returns each batch's length.
@@ -128,4 +130,24 @@ func FuzzSerialList(f *testing.F) {
 			t.Fatalf("serial %q over %d placed %d devices", text, count, next)
 		}
 	})
+}
+
+// TestBatchDevices_OrdersByName: batches follow device names, whatever order
+// the resolver returned them in.
+func TestBatchDevices_OrdersByName(t *testing.T) {
+	var devices []inventory.InventoryItem
+	for _, pair := range [][2]string{{"id-c", "s3"}, {"id-a", "s4"}, {"id-d", "s1"}, {"id-b", "s2"}} {
+		devices = append(devices, &inventorytest.Stub{StubID: inventory.DeviceID(pair[0]), StubName: pair[1]})
+	}
+	var got []string
+	for _, batch := range engine.BatchDevices(devices, engine.SerialList{{N: 2}}) {
+		var names []string
+		for _, d := range batch {
+			names = append(names, d.Name())
+		}
+		got = append(got, strings.Join(names, "+"))
+	}
+	if strings.Join(got, ",") != "s1+s2,s3+s4" {
+		t.Errorf("batches %v, want s1+s2,s3+s4", got)
+	}
 }

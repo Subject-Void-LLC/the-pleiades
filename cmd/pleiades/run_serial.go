@@ -56,7 +56,7 @@ func planSerial(world validate.WorldView, dag *engine.DAG) (validate.WorldView, 
 	}
 	limited := world
 	limited.Resolver = b
-	return limited, &serialPlan{batches: engine.Batches(all, dag.Serial), resolver: b}
+	return limited, &serialPlan{batches: engine.BatchDevices(all, dag.Serial), resolver: b}
 }
 
 // runBatches runs dag over each batch in turn as one run (RunAs, one run id,

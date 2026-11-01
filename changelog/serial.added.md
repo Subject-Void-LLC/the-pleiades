@@ -1,0 +1,1 @@
+Added `serial:` on the CLI: a runbook runs over its hosts a batch at a time (a number, a percentage, or a list of them, as in Ansible), in device-name order, each batch finishing before the next starts and a failed batch stopping the rollout, all as one run that `pleiades rollback` undoes whole. A Controller refuses a runbook with `serial:` until it runs batches itself.

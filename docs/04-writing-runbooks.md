@@ -691,8 +691,39 @@ handlers:
 - Not supported yet: `meta: flush_handlers`, a handler that notifies another
   handler, and a block as a handler. Each is refused with its reason.
 
+## Rolling out a few devices at a time (`serial`)
+
+`serial:` runs the whole runbook over a few of its hosts at a time, finishing every task on one batch
+before the next batch starts, so a bad change stops after the first few devices instead of reaching all
+of them:
+
+```yaml
+# Rolls the new release marker out to the web tier, two hosts at a time.
+# Blast radius: every web host, two at a time; a failure stops the rollout.
+# Changes: /etc/app/release on each web host.
+# Undo: pleiades rollback restores the file.
+id: rolling-release
+hosts: web
+serial: 2
+tasks:
+  - name: Mark the new release
+    file.copy:
+      dest: /etc/app/release
+      content: "2.4.0\n"
+```
+
+- `serial:` takes a number of devices (`2`), a percentage (`"30%"`, rounded down, never less than one),
+  or a list of them (`[1, "50%"]`), the last size repeating for every later batch, as in Ansible.
+- Devices are batched in name order, so you can tell which devices go first.
+- A batch with a failure stops the rollout there: later batches do not start, and the run says which
+  devices it left alone. `max_fail_percentage` is not supported, since a failure already ends its batch's
+  run on every device.
+- The batches are one run: one journal, one report, and one `pleiades rollback`.
+- Handlers run at the end of each batch's sections, as in Ansible.
+- The CLI runs batches. A Controller does not yet, so it refuses a runbook with `serial:`.
+
 ## What is not supported
 
-`with_*` loops other than `with_items`, `meta: flush_handlers`, and `serial`
-are not supported. `pleiades forge migrate-playbook` reports them for a person
+`with_*` loops other than `with_items`, `meta: flush_handlers`, `max_fail_percentage`, and
+`serial` on a Controller are not supported. `pleiades forge migrate-playbook` reports them for a person
 to resolve. See [Migrating from Ansible](03-migrating-from-ansible.md).

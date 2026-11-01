@@ -75,7 +75,7 @@ different value after conversion, so `validate` warns when a name is set in more
 scope and says which setting is read.
 
 **Does not exist yet, and a runbook cannot express it:** `meta: flush_handlers`,
-`serial:`, `roles:`, and every `with_*` loop other than `with_items`. See the keyword map
+`max_fail_percentage:`, `roles:`, and every `with_*` loop other than `with_items`. See the keyword map
 below for the complete, itemized list.
 
 None of these are secret gaps. They are the honest distance between "what Ansible

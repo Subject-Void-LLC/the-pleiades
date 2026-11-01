@@ -12,10 +12,13 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // SerialSize is one batch size: N devices, or N percent of them.
@@ -181,4 +184,13 @@ func Batches[T any](items []T, sizes SerialList) [][]T {
 		}
 	}
 	return out
+}
+
+// BatchDevices splits a run's devices into sizes's batches, ordered by device
+// name: the order an author reads the hosts in, the same on every tier, where
+// the order a resolver returns them in follows device IDs nobody chose.
+func BatchDevices(devices []inventory.InventoryItem, sizes SerialList) [][]inventory.InventoryItem {
+	ordered := slices.Clone(devices)
+	slices.SortStableFunc(ordered, func(a, b inventory.InventoryItem) int { return strings.Compare(a.Name(), b.Name()) })
+	return Batches(ordered, sizes)
 }
