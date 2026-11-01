@@ -38,7 +38,7 @@ Contract (OpenAPI document): <https://github.com/srl-labs/clab-api-server/blob/a
 | `PUT /api/v1/labs/{labName}` | Redeploy lab | mapped | [virt.clab.lab.redeploy](../modules/virt/clab/lab/redeploy.md) | no |
 | `DELETE /api/v1/labs/{labName}` | Destroy lab | mapped | [virt.clab.lab.destroy](../modules/virt/clab/lab/destroy.md) | yes |
 | `POST /api/v1/labs/{labName}/apply` | Apply on-disk topology for lab | mapped | [virt.clab.lab.apply](../modules/virt/clab/lab/apply.md) | yes |
-| `POST /api/v1/labs/{labName}/capture/packetflix` | Build packetflix capture URI | mapped | [virt.clab.capture.packetflix](../modules/virt/clab/capture/packetflix.md) | yes |
+| `POST /api/v1/labs/{labName}/capture/packetflix` | Build packetflix capture URI | mapped | [virt.clab.capture.packetflix](../modules/virt/clab/capture/packetflix.md) | no |
 | `POST /api/v1/labs/{labName}/capture/wireshark-vnc-sessions` | Create Wireshark VNC capture session(s) | unmapped | - | - |
 | `POST /api/v1/labs/{labName}/deploy` | Deploy on-disk topology for lab | unmapped | - | - |
 | `POST /api/v1/labs/{labName}/exec` | Execute command in lab | mapped | [virt.clab.node.exec](../modules/virt/clab/node/exec.md) | yes |
@@ -52,7 +52,7 @@ Contract (OpenAPI document): <https://github.com/srl-labs/clab-api-server/blob/a
 | `POST /api/v1/labs/{labName}/nodes/{nodeName}/pause` | Pause node | mapped | [virt.clab.node.pause](../modules/virt/clab/node/pause.md) | yes |
 | `POST /api/v1/labs/{labName}/nodes/{nodeName}/restart` | Restart node | mapped | [virt.clab.node.restart](../modules/virt/clab/node/restart.md) | yes |
 | `POST /api/v1/labs/{labName}/nodes/{nodeName}/ssh` | Request temporary SSH access details | mapped | [virt.clab.node.ssh_access](../modules/virt/clab/node/ssh_access.md) | yes |
-| `POST /api/v1/labs/{labName}/nodes/{nodeName}/start` | Start node | mapped | [virt.clab.node.start](../modules/virt/clab/node/start.md) | no |
+| `POST /api/v1/labs/{labName}/nodes/{nodeName}/start` | Start node | mapped | [virt.clab.node.start](../modules/virt/clab/node/start.md) | yes |
 | `POST /api/v1/labs/{labName}/nodes/{nodeName}/stop` | Stop node | mapped | [virt.clab.node.stop](../modules/virt/clab/node/stop.md) | yes |
 | `POST /api/v1/labs/{labName}/nodes/{nodeName}/terminal-sessions` | Create browser terminal session | unmapped | - | - |
 | `POST /api/v1/labs/{labName}/nodes/{nodeName}/unpause` | Unpause node | mapped | [virt.clab.node.unpause](../modules/virt/clab/node/unpause.md) | yes |
@@ -117,7 +117,7 @@ Per OS: `live` is a test against the real thing, `fixture` one against a stand-i
 
 | Method | Operations | linux | freebsd | darwin | windows |
 | --- | --- | --- | --- | --- | --- |
-| [virt.clab.capture.packetflix](../modules/virt/clab/capture/packetflix.md) | `POST /api/v1/labs/{labName}/capture/packetflix` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
+| [virt.clab.capture.packetflix](../modules/virt/clab/capture/packetflix.md) | `POST /api/v1/labs/{labName}/capture/packetflix` | - | - | - | - |
 | [virt.clab.edgeshark.install](../modules/virt/clab/edgeshark/install.md) | `POST /api/v1/tools/edgeshark/install` | fixture (`TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove`) | - | - | - |
 | [virt.clab.edgeshark.status](../modules/virt/clab/edgeshark/status.md) | `GET /api/v1/tools/edgeshark/status` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
 | [virt.clab.edgeshark.uninstall](../modules/virt/clab/edgeshark/uninstall.md) | `POST /api/v1/tools/edgeshark/uninstall` | fixture (`TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove`) | - | - | - |
@@ -148,7 +148,7 @@ Per OS: `live` is a test against the real thing, `fixture` one against a stand-i
 | [virt.clab.node.ports](../modules/virt/clab/node/ports.md) | `GET /api/v1/labs/{labName}/nodes/{nodeName}/browser-ports` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
 | [virt.clab.node.restart](../modules/virt/clab/node/restart.md) | `POST /api/v1/labs/{labName}/nodes/{nodeName}/restart` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
 | [virt.clab.node.ssh_access](../modules/virt/clab/node/ssh_access.md) | `POST /api/v1/labs/{labName}/nodes/{nodeName}/ssh` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
-| [virt.clab.node.start](../modules/virt/clab/node/start.md) | `POST /api/v1/labs/{labName}/nodes/{nodeName}/start` | fixture (`TestNodeState_ActsOnlyOnTheStateItMovesAndRecordsTheExactUndo`) | - | - | - |
+| [virt.clab.node.start](../modules/virt/clab/node/start.md) | `POST /api/v1/labs/{labName}/nodes/{nodeName}/start` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
 | [virt.clab.node.stop](../modules/virt/clab/node/stop.md) | `POST /api/v1/labs/{labName}/nodes/{nodeName}/stop` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
 | [virt.clab.node.unpause](../modules/virt/clab/node/unpause.md) | `POST /api/v1/labs/{labName}/nodes/{nodeName}/unpause` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |
 | [virt.clab.server.health](../modules/virt/clab/server/health.md) | `GET /health` | live (`TestLive_ARealLabEndToEnd`) | - | - | - |

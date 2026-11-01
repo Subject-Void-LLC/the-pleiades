@@ -2,6 +2,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,8 +47,10 @@ func TestRun_RefreshesOpenAPIContractsOnly(t *testing.T) {
 			t.Errorf("contract.json %s does not hold %s", got, want)
 		}
 	}
-	if strings.Contains(string(got), `"sha256": ""`) {
-		t.Error("the digest was not written")
+	// The digest is the vendored file's, by value.
+	sum := sha256.Sum256([]byte(`{"paths": {"/a": {"get": {"summary": "read a & b"}}}}`))
+	if want := `"sha256": "` + hex.EncodeToString(sum[:]) + `"`; !strings.Contains(string(got), want) {
+		t.Errorf("contract.json %s does not hold the vendored file's digest %s", got, want)
 	}
 	// A second run finds nothing to change.
 	if changed, err := refresh(mustLoad(t, root, "x.api")); err != nil || changed {

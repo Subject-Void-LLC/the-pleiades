@@ -164,7 +164,9 @@ type FloorFile struct {
 	Comment string `json:"_comment"`
 	// Floors is, per collection, the least each percentage may be.
 	Floors map[string]Floor `json:"floors"`
-	// Exceptions records, per collection, why a floor was ever lowered.
+	// Exceptions records, per collection, why a floor was ever lowered. It is
+	// a record for a reader: nothing compares a floor with its earlier value,
+	// so a lowering is caught by review of this file's diff.
 	Exceptions map[string]string `json:"_exceptions,omitempty"`
 }
 
@@ -197,8 +199,7 @@ func LoadFloors(root string) (FloorFile, error) {
 }
 
 // Drops returns each way r reads under its floor in f, and whether f has a
-// floor for r at all: a collection with none is reported, not failed, as
-// coverage-floor.json treats a package with none.
+// floor for r at all (internal/archtest fails a ledger with none).
 func (f FloorFile) Drops(r Report) (drops []string, floored bool) {
 	floor, ok := f.Floors[r.Collection]
 	if !ok {
@@ -211,4 +212,21 @@ func (f FloorFile) Drops(r Report) (drops []string, floored bool) {
 		drops = append(drops, fmt.Sprintf("%s: live %.1f%% is under its floor %.1f%%", r.Collection, r.LivePercent, floor.Live))
 	}
 	return drops, true
+}
+
+// Orphans returns, in order, each collection f has a floor for that is not
+// among collections (the ledgers that exist), so deleting or renaming a
+// ledger cannot quietly take its floor out of the ratchet.
+func (f FloorFile) Orphans(collections []string) []string {
+	have := map[string]bool{}
+	for _, c := range collections {
+		have[c] = true
+	}
+	var out []string
+	for _, c := range sortedKeys(f.Floors) {
+		if !have[c] {
+			out = append(out, c)
+		}
+	}
+	return out
 }

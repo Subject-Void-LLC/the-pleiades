@@ -22,7 +22,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// ClabAPIImage is the containerlab API server the tests ask, pinned by digest.
+// ClabAPIImage is the containerlab API server the tests ask, pinned by digest:
+// release v0.9.0, upstream commit a70e099b481bb2be7c873cbad506bb40e234c43f, as
+// the image's own org.opencontainers.image.version and revision labels say.
+// coverage/collections/virt.clab/source/swagger.json is that commit's API
+// document, and internal/archtest fails when the two name different commits:
+// bump them together.
 const ClabAPIImage = "ghcr.io/srl-labs/clab-api-server/clab-api-server@sha256:8ac7e88f58e695ee2026a98368b10a24905c5afe412a8043dd2032a23ffeb585"
 
 // ClabAPIUser is the account StartClabServer makes.

@@ -123,3 +123,47 @@ func TestMethodsIn(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+// TestExtractOpenAPI_RefusesWhatItCannotCount: a path item it cannot read as
+// operations (a $ref, an upper-case method) is refused, never skipped, and a
+// Swagger 2 basePath is part of every operation's path.
+func TestExtractOpenAPI_RefusesWhatItCannotCount(t *testing.T) {
+	for name, doc := range map[string]string{
+		"a $ref path item":           `{"paths": {"/a": {"$ref": "#/x"}}}`,
+		"an upper-case GET":          `{"paths": {"/a": {"GET": {}}}}`,
+		"an unknown item key":        `{"paths": {"/a": {"get": {}, "callbacks": {}}}}`,
+		"Paths, not paths":           `{"paths": {"/a": {"get": {}}}, "Paths": {"/b": {"get": {}}}}`,
+		"a path listed twice":        `{"paths": {"/a": {"get": {}}, "/a": {"post": {}}}}`,
+		"no operations":              `{"paths": {"/a": {}}}`,
+		"a null path item":           `{"paths": {"/a": null}}`,
+		"truncated":                  `{"paths": {"/a": {"get": {}`,
+		"not an object":              `[1, 2]`,
+		"basePath not a text":        `{"basePath": 3, "paths": {"/a": {"get": {}}}}`,
+		"paths not an object":        `{"paths": [1]}`,
+		"BASEPATH":                   `{"BASEPATH": "/x", "paths": {"/a": {"get": {}}}}`,
+		"an operation not an object": `{"paths": {"/a": {"get": 3}}}`,
+	} {
+		if ops, err := coverageledger.ExtractOpenAPI([]byte(doc)); err == nil {
+			t.Errorf("%s: read as %v", name, ops)
+		}
+	}
+	for _, base := range []string{"/api/v1/", "/api/v1"} {
+		doc := `{"basePath": "` + base + `", "paths": {"/labs": {"get": {"summary": "list"}, "parameters": [], "servers": [], "summary": "s", "description": "d", "x-extra": {"a": [1, {"b": 2}]}}}}`
+		ops, err := coverageledger.ExtractOpenAPI([]byte(doc))
+		if err != nil || len(ops) != 1 || ops[0].ID != "GET /api/v1/labs" {
+			t.Errorf("basePath %q: ops %v, %v; want GET /api/v1/labs", base, ops, err)
+		}
+	}
+}
+
+// TestFloors_AFloorWithNoLedgerIsAnOrphan: a floor whose ledger was deleted
+// or renamed is named, so the ratchet cannot lose a collection quietly.
+func TestFloors_AFloorWithNoLedgerIsAnOrphan(t *testing.T) {
+	f := coverageledger.FloorFile{Floors: map[string]coverageledger.Floor{"a.x": {}, "b.y": {}, "c.z": {}}}
+	if got := f.Orphans([]string{"b.y"}); len(got) != 2 || got[0] != "a.x" || got[1] != "c.z" {
+		t.Errorf("Orphans = %v, want [a.x c.z]", got)
+	}
+	if got := f.Orphans([]string{"a.x", "b.y", "c.z"}); len(got) != 0 {
+		t.Errorf("Orphans with every ledger = %v", got)
+	}
+}

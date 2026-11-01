@@ -46,6 +46,11 @@ func generateCoverage(outDir string) error {
 	var reports []coverageledger.Report
 	measured := map[string]bool{}
 	for _, l := range ledgers {
+		// A ledger breaking its own rules is refused with them, not rendered
+		// (a proof's malformed test reference would otherwise be guessed at).
+		if problems := l.Problems(); len(problems) > 0 {
+			return fmt.Errorf("coverage ledger %s:\n  %s", l.Contract.Collection, strings.Join(problems, "\n  "))
+		}
 		methods := coverageledger.MethodsIn(l.Contract.Collection, names)
 		for _, m := range methods {
 			measured[m] = true
@@ -191,7 +196,10 @@ func proofCell(p coverageledger.Proof) string {
 	if p.Status == "" || p.Status == coverageledger.ProofNone {
 		return "-"
 	}
-	_, name := coverageledger.SplitTest(p.Test)
+	_, name, ok := coverageledger.SplitTest(p.Test)
+	if !ok {
+		return string(p.Status)
+	}
 	return fmt.Sprintf("%s (`%s`)", p.Status, name)
 }
 

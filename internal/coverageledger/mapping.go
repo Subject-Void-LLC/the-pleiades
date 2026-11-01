@@ -74,20 +74,30 @@ const (
 // Proof is how one method is proven on one OS.
 type Proof struct {
 	// Status is the strength of the proof.
-	Status ProofStatus `yaml:"status"`
+	Status ProofStatus `yaml:"status" json:"status"`
 	// Test names the test, as <module-relative package dir>.<TestName>, for
 	// example internal/catalog/virt/clab.TestLive_ARealLabEndToEnd. Required
 	// for live and fixture, refused for none.
-	Test string `yaml:"test"`
+	Test string `yaml:"test" json:"test,omitempty"`
 }
 
-// testRef is the shape of Proof.Test.
-var testRef = regexp.MustCompile(`^[a-z0-9_./-]+\.Test[A-Za-z0-9_]*$`)
+// testRef is the shape of Proof.Test. A name go test runs is Test, or Test
+// followed by anything but a lower-case letter (Testfoo is not a test).
+var testRef = regexp.MustCompile(`^[a-z0-9_./-]+\.Test([A-Z0-9_][A-Za-z0-9_]*)?$`)
 
-// SplitTest splits a Proof.Test into its package directory and test name.
-func SplitTest(ref string) (dir, name string) {
+// SplitTest splits a Proof.Test into its package directory and test name,
+// reporting false for a reference that is not written <dir>.<TestName> with
+// dir a path inside the module, so no caller slices, reads or lists outside it.
+func SplitTest(ref string) (dir, name string, ok bool) {
+	if !testRef.MatchString(ref) {
+		return "", "", false
+	}
 	i := strings.LastIndex(ref, ".")
-	return ref[:i], ref[i+1:]
+	dir, name = ref[:i], ref[i+1:]
+	if !filepath.IsLocal(dir) {
+		return "", "", false
+	}
+	return dir, name, true
 }
 
 // Problems returns every way l breaks the rules a ledger can be checked
@@ -151,14 +161,20 @@ func (l Ledger) Problems() []string {
 				add("proof for %s names OS %q", fqcn, os)
 			case p.Status == ProofNone && p.Test != "":
 				add("proof for %s on %s is none but names a test", fqcn, os)
-			case (p.Status == ProofLive || p.Status == ProofFixture) && !testRef.MatchString(p.Test):
-				add("proof for %s on %s is %s and needs a test written <package dir>.<TestName>, not %q", fqcn, os, p.Status, p.Test)
+			case (p.Status == ProofLive || p.Status == ProofFixture) && !validTest(p.Test):
+				add("proof for %s on %s is %s and needs a test written <package dir>.<TestName>, the dir inside the module, not %q", fqcn, os, p.Status, p.Test)
 			case p.Status != ProofLive && p.Status != ProofFixture && p.Status != ProofNone:
 				add("proof for %s on %s has status %q", fqcn, os, p.Status)
 			}
 		}
 	}
 	return out
+}
+
+// validTest reports whether ref is a Proof.Test SplitTest accepts.
+func validTest(ref string) bool {
+	_, _, ok := SplitTest(ref)
+	return ok
 }
 
 // sortedKeys returns m's keys in order.

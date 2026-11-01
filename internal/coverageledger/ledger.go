@@ -60,7 +60,9 @@ type Source struct {
 	Version string `json:"version"`
 	// Revision is the upstream commit or tag the file was taken from.
 	Revision string `json:"revision,omitempty"`
-	// SHA256 is the hex digest of the contract file's bytes.
+	// SHA256 is the hex digest of the contract file's bytes. internal/archtest
+	// checks it against a vendored file; for a contract that is not vendored
+	// (a CLI's man page) it is recorded, not verified.
 	SHA256 string `json:"sha256"`
 	// File is the vendored copy, relative to the collection's directory, or
 	// empty when the contract is not vendored.
@@ -131,9 +133,17 @@ func LoadAll(root string) ([]Ledger, error) {
 // Load reads one collection's ledger from dir. Both files are decoded
 // strictly: an unknown key is an error, since a misspelled "excluded" would
 // otherwise read as an unmapped operation and lower nothing anyone noticed.
+//
+// Both are read through a root opened on dir, as ReadSource reads the
+// vendored file, so neither can be a symbolic link to a file outside it.
 func Load(dir string) (Ledger, error) {
 	l := Ledger{Dir: dir}
-	raw, err := os.ReadFile(filepath.Join(dir, "contract.json")) // #nosec G304 -- a path under the repository's own coverage directory
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return l, fmt.Errorf("%s: %w", dir, err)
+	}
+	defer func() { _ = root.Close() }()
+	raw, err := root.ReadFile("contract.json")
 	if err != nil {
 		return l, fmt.Errorf("%s: %w", dir, err)
 	}
@@ -142,7 +152,7 @@ func Load(dir string) (Ledger, error) {
 	if err := dec.Decode(&l.Contract); err != nil {
 		return l, fmt.Errorf("%s/contract.json: %w", dir, err)
 	}
-	raw, err = os.ReadFile(filepath.Join(dir, "map.yaml")) // #nosec G304 -- a path under the repository's own coverage directory
+	raw, err = root.ReadFile("map.yaml")
 	if err != nil {
 		return l, fmt.Errorf("%s: %w", dir, err)
 	}

@@ -118,7 +118,9 @@ ops:
     excluded: "serves the containerlab web UI's own state (icons and node templates for its editor), not a lab, a node or the server a runbook acts on"
 proof:
   virt.clab.capture.packetflix:
-    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
+    # The live test reaches only the server's refusal with no Edgeshark
+    # running; a capture link it returns is not proven.
+    linux: {status: none}
   virt.clab.edgeshark.install:
     linux: {status: fixture, test: internal/catalog/virt/clab.TestEdgeshark_InstallAndUninstallActOnlyOnTheStateTheyMove}
   virt.clab.edgeshark.status:
@@ -180,7 +182,7 @@ proof:
   virt.clab.node.ssh_access:
     linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
   virt.clab.node.start:
-    linux: {status: fixture, test: internal/catalog/virt/clab.TestNodeState_ActsOnlyOnTheStateItMovesAndRecordsTheExactUndo}
+    linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
   virt.clab.node.stop:
     linux: {status: live, test: internal/catalog/virt/clab.TestLive_ARealLabEndToEnd}
   virt.clab.node.unpause:

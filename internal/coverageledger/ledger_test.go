@@ -108,11 +108,47 @@ proof:
 	}
 }
 
-// TestSplitTest splits a proof's test into its package directory and name.
+// TestSplitTest splits a proof's test into its package directory and name,
+// and refuses, without panicking, a reference that is not one or whose
+// directory leaves the module.
 func TestSplitTest(t *testing.T) {
-	dir, name := coverageledger.SplitTest("internal/catalog/virt/clab.TestLive_ARealLabEndToEnd")
-	if dir != "internal/catalog/virt/clab" || name != "TestLive_ARealLabEndToEnd" {
-		t.Errorf("got %q %q", dir, name)
+	dir, name, ok := coverageledger.SplitTest("internal/catalog/virt/clab.TestLive_ARealLabEndToEnd")
+	if !ok || dir != "internal/catalog/virt/clab" || name != "TestLive_ARealLabEndToEnd" {
+		t.Errorf("got %q %q %v", dir, name, ok)
+	}
+	for _, bad := range []string{"", "TestFoo", "a.", ".", ".TestA", "x.Foo", "a.Testfoo", "../../x.TestA", "/abs/dir.TestA", "a/../../b.TestA"} {
+		if dir, name, ok := coverageledger.SplitTest(bad); ok {
+			t.Errorf("SplitTest(%q) = %q %q, accepted", bad, dir, name)
+		}
+	}
+}
+
+// TestLoad_ReadsNeitherFileThroughALinkOut: contract.json and map.yaml are
+// read inside the ledger's directory, so a symbolic link to a file outside it
+// is refused, as ReadSource refuses one.
+func TestLoad_ReadsNeitherFileThroughALinkOut(t *testing.T) {
+	outside := t.TempDir()
+	for _, file := range []string{"contract.json", "map.yaml"} {
+		body := contractJSON
+		if file == "map.yaml" {
+			body = ""
+		}
+		if err := os.WriteFile(filepath.Join(outside, file), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, linked := range []string{"contract.json", "map.yaml"} {
+		root := writeLedger(t, t.TempDir(), "x.tool", contractJSON, "")
+		dir := filepath.Join(root, coverageledger.CollectionsDir, "x.tool")
+		if err := os.Remove(filepath.Join(dir, linked)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(outside, linked), filepath.Join(dir, linked)); err != nil {
+			t.Skipf("symbolic links unavailable here: %v", err)
+		}
+		if _, err := coverageledger.Load(dir); err == nil {
+			t.Errorf("a %s linked out of the directory was read", linked)
+		}
 	}
 }
 
