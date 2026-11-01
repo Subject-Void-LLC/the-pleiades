@@ -108,6 +108,11 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 	if err != nil {
 		return wire.ChildResponse{Error: fmt.Sprintf("collection method %q: %v", req.FQCN, err)}
 	}
+	// An async task's call: its SSH commands run detached here as in the
+	// parent (the context value did not cross the process boundary).
+	if req.Detach {
+		ctx = remoteexec.WithDetach(ctx)
+	}
 	method, err := desc.MethodFor(mode)
 	if err != nil {
 		return wire.ChildResponse{Error: err.Error()}

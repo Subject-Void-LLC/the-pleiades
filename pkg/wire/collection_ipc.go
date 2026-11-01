@@ -52,6 +52,13 @@ type ChildRequest struct {
 	// Params is the task's own params block, passed through unchanged.
 	Params map[string]any `json:"params"`
 
+	// Detach says the call is an async task's, whose SSH commands run
+	// detached on the device (pkg/remoteexec.WithDetach): a context value,
+	// which no process boundary carries, so the parent says it here and the
+	// child marks its own context. Absent from an older parent's request,
+	// which then runs as before.
+	Detach bool `json:"detach,omitempty"`
+
 	// JobID and DeviceID/DeviceName/DeviceHost/SSHPort/Capabilities mirror
 	// the fields of the same name on DispatchPayload: the child needs
 	// enough of the device's identity to build its own RunbookContext and

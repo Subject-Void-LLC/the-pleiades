@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -126,6 +127,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 	}
 
 	req := childRequest(desc, mode, params, payload)
+	req.Detach = remoteexec.Detached(ctx)
 	reqBytes, err := json.Marshal(&req)
 	if err != nil {
 		return collection.Result{}, nil, fmt.Errorf("failed to marshal child request: %w", err)

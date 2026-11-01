@@ -56,7 +56,13 @@ import (
 // resolves to this test binary under `go test`, not to a real
 // cmd/runner-built binary.
 func TestMain(m *testing.M) {
-	if code, ok := native.RunChildFor(context.Background(), os.Args[1:]); ok {
+	// The child's context is the real Runner's (native.ChildContext): with
+	// a bare Background a SIGTERM killed the test's child outright, so a
+	// stop the real child makes at a task's limit never ran here.
+	ctx, stop := native.ChildContext()
+	code, ok := native.RunChildFor(ctx, os.Args[1:])
+	stop()
+	if ok {
 		os.Exit(code)
 	}
 	os.Exit(m.Run())

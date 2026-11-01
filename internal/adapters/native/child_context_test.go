@@ -3,20 +3,22 @@
 // Tests for the collection child's context, which a SIGTERM from the Runner
 // ends. Windows delivers no SIGTERM to a process, and a Runner runs on
 // Linux.
-package main
+package native_test
 
 import (
 	"os"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
 )
 
 // TestChildContext_EndsOnSIGTERM: the SIGTERM the Runner sends a child whose
 // task's context ended cancels the method's context, rather than killing
 // the child before the method can stop what it started on the device.
 func TestChildContext_EndsOnSIGTERM(t *testing.T) {
-	ctx, stop := childContext()
+	ctx, stop := native.ChildContext()
 	defer stop()
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)

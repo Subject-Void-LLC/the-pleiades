@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -92,6 +93,7 @@ func (s *ipcSession) invoke(ctx context.Context, desc collection.Descriptor, dev
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: %w", desc.Name, err)
 	}
 	req := childRequest(desc, mode, params, s.payload)
+	req.Detach = remoteexec.Detached(ctx)
 	if err := child.enc.Encode(&req); err != nil {
 		stderr := s.end(true)
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to send to the session child: %w (stderr: %s)", desc.Name, err, stderr)

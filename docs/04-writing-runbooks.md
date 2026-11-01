@@ -808,7 +808,8 @@ tasks:
   A command started this way keeps running when the connection drops. The polls reconnect, up to five times
   in a row, and read its output and exit status when it ends. At the limit, its whole process group gets
   `SIGTERM` and, up to ten seconds later, `SIGKILL`, and its directory is removed. A device with no POSIX `sh`
-  runs the command where it stands, under the same limit. Commands that send input (a file upload) are
+  runs the command where it stands, under the same limit. The same holds on a Controller's Runner, whose
+  per-task process is told the task is async and stops the job itself at the limit. Commands that send input (a file upload) are
   never detached. A command's output is held in that directory until it is read back, which is the one
   place an async task's output touches the device's disk.
 - A plain task's `timeout:` ends the task at its time on every device. It sends the command `SIGTERM`, but

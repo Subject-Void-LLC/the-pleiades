@@ -134,8 +134,14 @@ var (
 // the mesh's behavior, not the subprocesses' internal race freedom, which
 // their own packages' -race tests cover.
 func TestMain(m *testing.M) {
-	if code, ok := native.RunChildFor(context.Background(), os.Args[1:]); ok {
-		os.Exit(code)
+	// The child's context is the real Runner's (native.ChildContext): with
+	// a bare Background a SIGTERM killed the test's child outright, so a
+	// stop the real child makes at a task's limit never ran here.
+	childCtx, stopChild := native.ChildContext()
+	childCode, isChild := native.RunChildFor(childCtx, os.Args[1:])
+	stopChild()
+	if isChild {
+		os.Exit(childCode)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "pleiades-e2e-bin")

@@ -31,6 +31,10 @@ func detached(ctx context.Context) bool {
 	return on
 }
 
+// Detached reports whether ctx was marked by WithDetach, so a caller handing
+// a call to another process can say so there (pkg/wire.ChildRequest.Detach).
+func Detached(ctx context.Context) bool { return detached(ctx) }
+
 // withoutDetach returns ctx with detaching turned off, for the commands that
 // start and poll a detached one.
 func withoutDetach(ctx context.Context) context.Context {
@@ -101,17 +105,25 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 	}
 	qdir := QuoteArg(dir)
 
+	// The limit can land between polls or inside one, whose command then
+	// fails with the context's error: either way the job is stopped.
+	stopped := func() (Result, error) {
+		c.stopDetached(qdir)
+		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctx.Err())
+	}
 	wait := detachFirstPoll
 	redials := 0
 	for {
 		select {
 		case <-ctx.Done():
-			c.stopDetached(qdir)
-			return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctx.Err())
+			return stopped()
 		case <-time.After(wait):
 		}
 		wait = min(wait*2, detachMaxPoll)
 		rc, err := c.run(plain, "cat "+qdir+"/rc 2>/dev/null", nil, 64)
+		if err != nil && ctx.Err() != nil {
+			return stopped()
+		}
 		if err != nil {
 			if redials >= detachRedials || !c.reconnect(plain, err) {
 				return Result{}, fmt.Errorf("remoteexec: lost a detached command on %s, which may still be running in %s: %w", c.addr, dir, err)
@@ -128,10 +140,16 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 			return Result{}, fmt.Errorf("remoteexec: a detached command on %s left an exit status that is not a number: %q", c.addr, rc.Stdout)
 		}
 		out, err := c.run(plain, "cat "+qdir+"/out", nil, limit)
+		if err != nil && ctx.Err() != nil {
+			return stopped()
+		}
 		if err != nil {
 			return Result{}, err
 		}
 		errOut, err := c.run(plain, "cat "+qdir+"/err", nil, limit)
+		if err != nil && ctx.Err() != nil {
+			return stopped()
+		}
 		if err != nil {
 			return Result{}, err
 		}
@@ -161,16 +179,28 @@ func (c *Conn) reconnect(ctx context.Context, err error) bool {
 // stopDetached ends a detached job that ran past its limit: SIGTERM to its
 // process group (or the process, with no setsid), SIGKILL after a grace,
 // then its directory removed. The group is named as -pid after the signal,
-// not after "--", which dash's kill refuses. It runs on a fresh context, the job's own
-// having ended, and a connection that is gone stops nothing here.
+// not after "--", which dash's kill refuses. It runs on a fresh context, the
+// job's own having ended, and on a fresh connection, as the same account,
+// when the job's own is already gone: a Runner's child is told to stop by
+// the same signal that closes its connections, so the one the job started on
+// is often closed by the time the stop runs.
 func (c *Conn) stopDetached(qdir string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	ctx = withoutDetach(ctx)
-	stop := `p=$(cat ` + qdir + `/pid 2>/dev/null) || exit 0
+	stop := QuoteCommand([]string{"sh", "-c", `p=$(cat ` + qdir + `/pid 2>/dev/null) || exit 0
 kill -TERM -"$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
-i=0; while [ $i -lt 10 ] && kill -0 "$p" 2>/dev/null; do sleep 1; i=$((i+1)); done
+i=0; while [ $i -lt 3 ] && kill -0 "$p" 2>/dev/null; do sleep 1; i=$((i+1)); done
 kill -KILL -"$p" 2>/dev/null || kill -KILL "$p" 2>/dev/null
-rm -rf ` + qdir
-	_, _ = c.run(ctx, QuoteCommand([]string{"sh", "-c", stop}), nil, 4096)
+rm -rf ` + qdir})
+	if _, err := c.run(ctx, stop, nil, 4096); err == nil || c.redial == nil {
+		return
+	}
+	fresh, err := c.redial(ctx)
+	if err != nil {
+		return
+	}
+	defer func() { _ = fresh.Close() }()
+	fresh.become = c.become
+	_, _ = fresh.run(ctx, stop, nil, 4096)
 }

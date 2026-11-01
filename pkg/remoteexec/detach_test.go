@@ -9,6 +9,7 @@ package remoteexec
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // detachedConn starts a server and connects to it with HOME set to a fresh
@@ -121,6 +124,9 @@ func TestDetached_TheLimitStopsEverythingTheJobStarted(t *testing.T) {
 }
 
 func TestDetached_OnlyUnderWithDetach(t *testing.T) {
+	if Detached(context.Background()) || !Detached(WithDetach(context.Background())) || Detached(withoutDetach(WithDetach(context.Background()))) {
+		t.Error("Detached does not report WithDetach's mark")
+	}
 	conn, _, _, home := detachedConn(t)
 	if _, err := conn.Run(context.Background(), "true"); err != nil {
 		t.Fatal(err)
@@ -158,4 +164,88 @@ func TestDetached_ADeviceThatCannotDetachRunsTheCommandWhereItStands(t *testing.
 	if string(raw) != "once\n" {
 		t.Fatalf("the command ran %q times' worth; want exactly once", raw)
 	}
+}
+
+func TestDetached_TheStopReconnectsWhenItsConnectionIsGone(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	started, err := conn.run(context.Background(), QuoteCommand([]string{"sh", "-c", detachStart, "start", `sleep 30 & echo $! >"$HOME/child"; wait`}), nil, 4096)
+	if err != nil || started.ExitCode != 0 {
+		t.Fatalf("start: %+v, %v", started, err)
+	}
+	dir := strings.TrimSpace(started.Stdout)
+	deadline := time.Now().Add(10 * time.Second)
+	var raw []byte
+	for len(raw) == 0 && time.Now().Before(deadline) {
+		raw, _ = os.ReadFile(filepath.Join(home, "child"))
+		time.Sleep(20 * time.Millisecond)
+	}
+	child, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	// What a Runner's child sees at the limit: the signal that tells it to
+	// stop has already closed the connection the job was started on.
+	_ = conn.client.Close()
+	conn.stopDetached(QuoteArg(dir))
+	if processAlive(child) {
+		t.Errorf("the job's child %d is still running after the stop", child)
+	}
+	if left := jobsLeft(t, home); len(left) != 0 {
+		t.Errorf("job directories left behind: %v", left)
+	}
+}
+
+func TestDetached_FailuresAreNamedAndNeverRunTwice(t *testing.T) {
+	// A connection already closed: the start itself fails.
+	conn, _, _, _ := detachedConn(t)
+	_ = conn.client.Close()
+	if _, err := conn.Run(WithDetach(context.Background()), "true"); err == nil {
+		t.Error("a detached run on a closed connection succeeded")
+	}
+
+	// A start that answers with something that is not a job directory (here
+	// a relative HOME) is refused, not polled, and not run a second time.
+	conn, _, _, home := detachedConn(t)
+	t.Setenv("HOME", "relative-home")
+	t.Chdir(home)
+	if _, err := conn.Run(WithDetach(context.Background()), "echo once >> count"); err == nil || !strings.Contains(err.Error(), "no job directory") {
+		t.Errorf("a start with no job directory: %v", err)
+	}
+}
+
+func TestDetached_ALostConnectionThatCannotBeRedialedIsNamed(t *testing.T) {
+	conn, _, drop, home := detachedConn(t)
+	conn.redial = func(context.Context) (*Conn, error) { return nil, errors.New("the device is gone") }
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.Run(WithDetach(context.Background()), "sleep 2")
+		done <- err
+	}()
+	for deadline := time.Now().Add(10 * time.Second); len(jobsLeft(t, home)) == 0; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the detached job never started")
+		}
+	}
+	drop()
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "may still be running") {
+		t.Errorf("a lost connection: %v, want one naming the job that may still run", err)
+	}
+}
+
+func TestDetached_ReconnectRefusesWhatIsNotADroppedConnection(t *testing.T) {
+	conn, _, _, _ := detachedConn(t)
+	for name, err := range map[string]error{"an exit status": &ssh.ExitError{}, "output too large": ErrOutputTooLarge} {
+		if conn.reconnect(context.Background(), err) {
+			t.Errorf("reconnect on %s redialed", name)
+		}
+	}
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	if conn.reconnect(ended, io.EOF) {
+		t.Error("reconnect redialed under an ended context")
+	}
+	conn.redial = func(context.Context) (*Conn, error) { return nil, errors.New("refused") }
+	if conn.reconnect(context.Background(), io.EOF) {
+		t.Error("reconnect reported a redial that failed")
+	}
+	// A stop that can neither run nor redial ends quietly.
+	_ = conn.client.Close()
+	conn.stopDetached(QuoteArg("/nowhere/.pleiades-async-0/job.x"))
 }

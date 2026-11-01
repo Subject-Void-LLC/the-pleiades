@@ -121,12 +121,12 @@ func main() {
 	// comment for why that distinction is not academic.
 	switch routeFor(os.Args[1:]) {
 	case routeCollectionChild:
-		ctx, stop := childContext()
+		ctx, stop := native.ChildContext()
 		code := native.RunCollectionChild(ctx)
 		stop()
 		os.Exit(code)
 	case routeCollectionSession:
-		ctx, stop := childContext()
+		ctx, stop := native.ChildContext()
 		code := native.RunCollectionSession(ctx)
 		stop()
 		os.Exit(code)
