@@ -26,12 +26,13 @@ import (
 // legacy built-in, not a hand-maintained allowlist that a new keyword
 // could fall out of sync with.
 //
-// "set_metadata" is the one deliberate, named exception to that
-// closed-by-construction claim: it is also reachable as the dotted
-// "pleiades.builtin.set_metadata" (engine/action.go's switch dispatches
-// both spellings identically), so it needs an explicit entry in
-// dottedBuiltinExemptions below rather than falling out of
-// isCollectionName's dot check for free. It stays a hardcoded builtin
+// The engine's own actions are the deliberate exception to that
+// closed-by-construction claim: set_metadata, set_fact, assert, fail,
+// pause and async_status are also reachable with a dotted
+// "pleiades.builtin." spelling (engine/action.go's switch dispatches both
+// spellings identically), so dottedBuiltin below asks
+// engine.IsBuiltinAction rather than relying on isCollectionName's dot
+// check. Set_metadata stays a hardcoded builtin
 // rather than a real pkg/collection registration on purpose: no
 // dispatcher in this codebase invokes a registered pkg/collection method
 // today (every Descriptor's Go implementation is unreachable until a
