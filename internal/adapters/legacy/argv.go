@@ -88,9 +88,10 @@ func buildArgv(fields launch.Fields, hasExtraVars bool, vaults []wire.InjectedVa
 
 	argv = append(argv, "-i", inventoryPath)
 
-	if limit := fields.String("limit"); limit != "" {
-		argv = append(argv, "--limit", limit)
-	}
+	// No --limit: the Controller applies the launch's limit before it
+	// dispatches (internal/dispatch/limit.go), with the one matcher both tiers
+	// share, so a pattern is never read twice by two readers that could
+	// disagree. A device a limit excludes never reaches this adapter.
 	if forks := fields.Int("forks"); forks > 0 {
 		argv = append(argv, "--forks", strconv.Itoa(forks))
 	}

@@ -464,6 +464,7 @@ build, validate, and run a runbook
 | --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000; the default is Ansible's own |
+| --limit | `string` | - | run on only these of the runbook's hosts: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit; a device a task names outside the hosts is not limited, and a limit matching none of the hosts is refused |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says |
 | --extra-vars | `string` | - | a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, a name given twice is refused, and a runbook reading one none of these gives is refused before any task runs |
 | --e | `string` | - | shorthand for --extra-vars |
@@ -479,6 +480,8 @@ build, validate, and run a runbook
 `pleiades run runbooks/site.yaml --mode check --allow-unchecked exec.command`
 
 `pleiades run runbooks/site.yaml --tags web --skip-tags slow`
+
+`pleiades run runbooks/site.yaml --limit 'web-*,!web-3'`
 
 `pleiades run runbooks/site.yaml --persist-connections=false`
 
@@ -499,6 +502,7 @@ run one method against a device, a tag or a comma list of devices, or with - (or
 | --json | `bool` | `false` | print the run as one JSON document on standard output, with the method's output; the exit status is the text view's |
 | --allow-unchecked | `string` | - | with --mode check, a method that may go unchecked without making the check incomplete |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
+| --limit | `string` | - | run on only these of the hosts given: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
 | --timeout | `seconds` | `0` | how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound) |
 

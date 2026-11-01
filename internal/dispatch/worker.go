@@ -275,6 +275,23 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 	// runs them a batch at a time (serial.go).
 	windowed := windowOf(job) > 0 || len(prepared.Serial) > 0
 
+	// The launch's limit, read once: which of the job's devices it may
+	// dispatch (limit.go). One that cannot be read fails the job.
+	limit, reason, err := w.limitOf(ctx, job)
+	if err != nil {
+		return fmt.Errorf("job %s: reading its devices' groups for its limit: %w", job.JobID, err)
+	}
+	if reason != "" {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, reason); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+	limited := 0
+
 	// The streaming Next/Item/Error/Close loop shape, mirroring
 	// internal/api/dispatcher.go's CURRENT loop exactly. Devices are
 	// never materialized into a slice: this streaming property is the
@@ -287,6 +304,11 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		if !undo.admits(string(device.ID())) {
 			continue
 		}
+		// A device the limit excludes is not part of the job: no row.
+		if !limit.admits(device) {
+			continue
+		}
+		limited++
 
 		if _, done := alreadyRecorded[string(device.ID())]; done {
 			// This exact device was already admitted-or-skipped and
@@ -365,6 +387,16 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 			slog.String("job_id", job.JobID),
 			slog.String("error", err.Error()))
 		if failErr := w.store.Fail(ctx, job.JobID, fence, "inventory iteration failed mid-dispatch"); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
+	if !limit.limit.IsZero() && limited == 0 {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, limit.noneMatched()); failErr != nil {
 			if fenced(job.JobID, failErr) {
 				return nil
 			}

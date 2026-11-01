@@ -42,7 +42,7 @@ func init() {
 			{
 				Name: "limit", Type: launch.TypeString,
 				Label: "LIMIT",
-				Help:  "Narrow this run to a subset of the inventory, by device name. Empty runs against everything the inventory holds.",
+				Help:  "Narrow this run to some of the inventory: device names, tags or groups (a group includes its child groups), globs such as web-*, comma separated, ! to exclude and & to intersect, as Ansible's --limit. Empty runs everything the inventory holds; a limit matching none of its devices fails the job.",
 			},
 			{
 				Name: "verbosity", Type: launch.TypeInt, Min: 0, Max: 4,

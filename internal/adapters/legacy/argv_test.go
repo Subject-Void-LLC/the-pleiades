@@ -48,9 +48,11 @@ func TestBuildArgv(t *testing.T) {
 			want:   []string{"ansible-playbook", "-i", "/inv.json", "/pb.yml"},
 		},
 		{
-			name:   "limit reaches --limit",
+			// The Controller applies the limit before dispatch, so it is
+			// never read a second time by ansible-playbook.
+			name:   "a limit is not passed on",
 			fields: launch.Fields{"limit": "core-switch-1"},
-			want:   []string{"ansible-playbook", "-i", "/inv.json", "--limit", "core-switch-1", "/pb.yml"},
+			want:   []string{"ansible-playbook", "-i", "/inv.json", "/pb.yml"},
 		},
 		{
 			name:   "forks reaches --forks",
@@ -127,7 +129,7 @@ func TestBuildArgv(t *testing.T) {
 			vaults:       []wire.InjectedVault{{Identifier: "prod", Path: "/run/pleiades/credentials/9.vault"}},
 			want: []string{
 				"ansible-playbook", "-v", "-i", "/inv.json",
-				"--limit", "core-switch-1", "--forks", "1", "--tags", "deploy", "--skip-tags", "slow",
+				"--forks", "1", "--tags", "deploy", "--skip-tags", "slow",
 				"--vault-id", "prod@/run/pleiades/credentials/9.vault",
 				"/pb.yml", "-e", "@/run/pleiades/extravars.json",
 			},
