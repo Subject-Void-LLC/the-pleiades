@@ -18198,3 +18198,108 @@ it in a minute. My gate change stopped the archtest running, with no check that 
 always runs.
 
 **Lesson.** See LESSONS 365.
+
+## 757. become was silently not applied on carriers sudo cannot reach (a device's CLI session, svc.* dispatched to WinRM, the engine's own actions), while the stat and the journal said root (a repeat of 748) (fixed before push)
+
+**Symptom.** Found while reconciling roadmap Phase 92 on branch `fix/become-honored-or-refused` (2026-10-31). A task
+with `become` ran as the login, with no error, on three kinds of route: a method that speaks a device's CLI through a
+session (`net.ios.*`, `net.cli.*`, over SSH, Telnet or a console line), a generic `svc.*` method that dispatched to a
+WinRM-only `svc.windows.*` method, and an engine fallback action (`ssh_exec` and its kin) reached at run time, such
+as an undo step that a block's in-run undo gives its task's account (`validate` already refused `become` written on one).
+The result's
+`stats["become"]` still named the account, and the journal's `Become` and a block's in-run undo used it, so the record
+said root for commands that ran as the login and a rollback would replay the undo as root.
+
+**Root cause.** Two halves. First, `BecomeRule` admitted `become` on any method whose `SupportedTransports` held `ssh`,
+and the elevated connection (`remoteexec.Conn.WithBecome`) is the only place that applies it. A CLI session types lines
+into the device's own shell, WinRM sends no command `sudo` can wrap, and an engine action does not read the account at
+all; none of them opened the elevated connection and none refused. Second, the engine wrote the stat from the task's
+request: `internal/engine/collection_action.go` set `StatBecome` whenever the task asked, and
+`internal/engine/journal_entry.go` set `entry.Become` from `BecomeFor(task)`. So the record followed what was asked,
+never what happened, and nothing could notice the gap.
+
+**Fix.** Commits `2680ad5a` and `04d1f0bd`. `sdk.BecomeApplied` (`pkg/sdk/connect.go`) is set only after the
+`WithBecome` probe (`sudo -n true`) succeeds on a connection the task opened, and `engine.recordBecome`
+(`internal/engine/become.go`) writes `StatBecome` only when it is set; a task that finished without it is warned about
+as having run as the login. `engine.ranAs` reads that stat and is the one source for the journal's `Become`, a block's
+in-run undo (`asAccountOf`) and so a later `pleiades rollback`. `sdk.RefuseBecome` refuses before contact in
+`sdk.OpenShell` and in svc's dispatch to a method with no SSH transport. `Manifest.NoBecomeReason` set to
+`sdk.NoBecomeCLISession` on the CLI-session methods lets `validate`'s `BecomeRule` refuse them at plan time.
+`refuseEngineActionBecome` refuses `become` on an engine action in both `Execute` and `Check`. Tests:
+`TestCollectionActionExecutor_BecomeIsRecordedOnlyWhenAConnectionRanAsIt` and
+`TestCollectionActionExecutor_BecomeWarnsOnlyAfterWorkThatFinished` (`internal/engine/become_applied_test.go`, a real
+in-process SSH server with a stand-in `sudo`), `TestBecomeRule_RefusesTheRealCLISessionMethods`,
+`TestOpenShell_RefusesBecomeBeforeReachingTheDevice`, `TestDispatch_BecomeIsRefusedForAMethodSpeakingWinRM`, and the
+release gate `TestCLI_BecomeRunsATaskAndItsUndoAsRoot` (`cmd/pleiades/become_release_gate_test.go`, commit `efcaf1a8`):
+a real Debian sshd, logged in as a `deploy` account with passwordless sudo, where the task writes a file under `/root`
+that the login alone cannot, the journal records root, and the undo removes the file.
+
+**Why 748's fix did not hold.** 748's fix closed one route, an external Collection's method, by refusing `become` there
+at plan time and at run time. It left the engine writing the stat from the request, so every other route that did not
+apply `become` still produced a record saying it had. LESSONS 358 (privilege fails closed) and LESSONS 363 (check the
+rule along every route) were applied route by route, as each was found, instead of at the one point every route
+passes: the carrier that actually runs the command, and the record of whether it did.
+
+**Lesson.** A stat or a journal field that says how a command ran is set by the code that ran it, after it ran, not by
+the engine from the task's settings. Then a route nobody listed records the truth instead of the request.
+
+## 758. A failed change that kept its undo dropped its become stat, so once the journal read the account from the stats a root change was undone as the login (a repeat of 749) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's review of this branch before push (2026-11-01). A task that ran as root,
+changed something, then failed and kept its undo through the failure (`MayKeepOnFailure`) was journaled with no
+account. A block's `rollback_on_failure` and a later `pleiades rollback` then ran its undo as the login. For
+`net.frr.config` the undo would be refused outright, leaving a router half-applied.
+
+**Root cause.** Introduced by this branch. 757's fix made `ranAs` read the account from the stats the executor records,
+and wired it into every reader: the journal, the in-run undo and so the replayed rollback. One writer of those stats
+was missed. The kept-undo branch of `runOne` in `internal/engine/executor.go` builds a fresh `journalStats` map for a
+failed task, copying only the inverse and the diff, so `StatBecome` never reached it. Before 757's fix the journal read
+the task's request and did not need the stat, so nothing showed the gap.
+
+**Fix.** Commit `830b0086`: the kept-undo branch carries `StatBecome` into `journalStats` beside the inverse and the
+diff. `TestKeptUndo_AFailedChangeIsUndoneAsTheAccountItRanAs` (`internal/engine/rollback_kept_test.go`) fails without
+the fix. In the same area, commit `04d1f0bd`: a task's `rollback:` steps refuse `become` keys of their own, since a step
+ran elevated inside the run but would run as the login in a later rollback, and `RollbackRule` now holds an elevated
+task's steps to `BecomeRule`; and `asAccountOf` clears a step's keys when the change ran as the login, so a change made
+as the login is never undone as root. Tests: `TestRollbackRule_HoldsAnElevatedTasksStepsToBecome`, and the "ran as the
+login" case added to `internal/engine/rollback_on_failure_test.go`.
+
+**Why 749's fix did not hold.** 749 found two paths that run an undo disagreeing on its account, and fixed it by making
+the in-run undo follow the change's account. This branch moved where that account comes from, from the task to the
+stats, and so made every place that writes the stats part of the contract. The writers were not listed. Only the
+readers were, and the one map built on a failure path dropped the field.
+
+**Lesson.** See LESSONS 366.
+
+## 759. Under become, gate.run reported a refused TCP precondition as a SKIP, and db.pg.* and net.netconf.config passed validate only to fail after the sudo probe (a repeat in kind of 557) (fixed before push; one gap open)
+
+**Symptom.** On this branch, after 757's fix (2026-11-01). Under `become`, a `gate.run` check with a TCP precondition
+was reported `SKIP`, with the reason "needs tcp host:port: remoteexec: become does not apply to a forwarded TCP
+connection". A refusal read as an unmet precondition, so the check never ran and the result looked like a closed port.
+Separately, every `db.pg.*` method and `net.netconf.config` passed `validate` with `become`, then failed at run time
+only after the `sudo -n true` probe had run on the device.
+
+**Root cause.** Plan time and run time checked different things. At run time the elevated connection refuses
+`DialTCP`, `DialUnix` and `Subsystem`, since they send no command `sudo` could wrap. At plan time `BecomeRule` reads a
+declaration, `Manifest.NoBecomeReason`, and the six `db.pg` methods (each reaches PostgreSQL through a forward the SSH
+login opens) and `net.netconf.config` (an SSH subsystem) did not carry one. `gate.run` saw the dial's refusal as any
+other failure to reach the port, which its precondition logic maps to a skip.
+
+**Fix.** Commit `e0956a12`. `NoBecomeReason` on the six `db.pg` methods (`noBecomeForward` in
+`internal/catalog/db/pg/pg.go`) and on `net.netconf.config`, published in `docs/reference/schemas/module-catalog.json`
+as `noBecomeReason`. `gate.run`'s TCP precondition (`internal/catalog/gate/preconditions.go`) calls `sdk.RefuseBecome`
+before any connect and returns a `FAIL` naming `become`. `TestRun_ATCPPreconditionUnderBecomeFailsAndDoesNotSkip`
+fails without the fix, showing the `SKIP`, and checks that the guarded command never ran.
+
+**Why 557's fix did not reach this.** 557 put the capability check in one function that plan time, admission and run
+time all call. `become` has no such shared check. Its plan-time rule reads a hand-set declaration and its run-time
+refusal sits in the connection, so a method that forwards or opens a subsystem passes the first and fails the second
+unless someone remembers to declare it. 605 has the same shape (validate passed what the run then refused).
+
+**Open.** `container.*` depends on the device's carrier and is not refused at plan time. A forwarded engine socket is
+refused at run time, after the sudo probe; `dial-stdio` runs elevated; a TLS or local carrier runs as the login with a
+warning (757's `recordBecome`).
+
+**Lesson.** A plan-time refusal that reads a declaration needs the run-time refusal it mirrors to be checked against
+it. Until one function decides both, list every method that reaches the refused calls (`DialTCP`, `DialUnix`,
+`Subsystem`) and declare each.

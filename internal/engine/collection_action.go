@@ -117,6 +117,9 @@ func NewCollectionActionExecutor(fallback ActionExecutor, newContext RunbookCont
 func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
 	desc, ok := collection.Lookup(task.FQCN)
 	if !ok {
+		if err := refuseEngineActionBecome(task); err != nil {
+			return ActionResult{}, err
+		}
 		return e.fallback.Execute(ctx, task, device)
 	}
 	return e.run(ctx, task, device, desc, collection.ModeExecute)
@@ -128,9 +131,24 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 func (e *collectionActionExecutor) Check(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
 	desc, ok := collection.Lookup(task.FQCN)
 	if !ok {
+		if err := refuseEngineActionBecome(task); err != nil {
+			return ActionResult{}, err
+		}
 		return checkThrough(ctx, e.fallback, task, device)
 	}
 	return e.run(ctx, task, device, desc, collection.ModeCheck)
+}
+
+// refuseEngineActionBecome refuses become on an engine action (ssh_exec and
+// its kin, noop): none reads the account, so it would run as the login while
+// the task said otherwise. validate refuses it first (BecomeRule, and
+// RollbackRule for an undo step); this is the backstop for a step a block's
+// rollback_on_failure gives its task's account at run time.
+func refuseEngineActionBecome(task *Task) error {
+	if user, on := BecomeFor(task); on {
+		return fmt.Errorf("%s is an engine action, which does not take become, so it would run as the login instead of %s: remove become, or undo the change with a method that runs over SSH", task.FQCN, user)
+	}
+	return nil
 }
 
 // run is the dispatch Execute and Check share: the same status, capability
@@ -214,6 +232,9 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 
 	if e.invoke != nil {
 		result, stats, err := e.invoke(ctx, desc, device, task.Params, mode)
+		// Only this executor says which account a task ran as; a child's
+		// stats never do (become is refused above for this path anyway).
+		delete(stats, StatBecome)
 		if err != nil {
 			return ActionResult{Stats: failedStats(task.FQCN, mode, stats)}, methodError(task.FQCN, mode, err)
 		}
@@ -292,11 +313,7 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if collector, isCollector := rc.(FactCollector); isCollector {
 		stats = collector.Facts()
 	}
-	if becomes {
-		// Said in the result, so a report, an event and a journal entry show
-		// that this task ran as another account, and which.
-		stats[StatBecome] = becomeUser
-	}
+	recordBecome(ctx, task.FQCN, becomeUser, becomes, err == nil, stats)
 	if err != nil {
 		return ActionResult{Stats: failedStats(task.FQCN, mode, stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
 	}

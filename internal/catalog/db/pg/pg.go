@@ -131,6 +131,12 @@ func intParam(params map[string]any, key string, def, max int) (int, error) {
 	return n, nil
 }
 
+// noBecomeForward is every db.pg method's Manifest.NoBecomeReason: the
+// database is reached through a forward the SSH login opens, and PostgreSQL
+// authenticates the stored connection's own login, so become has nothing to
+// elevate.
+const noBecomeForward = "it reaches PostgreSQL through a port forward or socket the SSH login opens, and the server authenticates the connection's own login, so a sudo prefix reaches nothing: name the login in the database connection instead"
+
 // open connects to database on conn's server through the device: a
 // direct-tcpip channel to its host and port, or a direct-streamlocal one
 // to its socket, and TLS negotiated here (pkg/pgclient) when the

@@ -41,6 +41,7 @@ package svc
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -144,6 +145,15 @@ func dispatch(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	// refused here rather than by a failed SSH dial.
 	if err := collection.CheckTransports(device, target, desc.Manifest); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// Become runs commands through sudo over SSH. A concrete method that
+	// speaks only WinRM (svc.windows.*) never opens such a connection, so a
+	// task asking for it is refused here, before the device is contacted,
+	// instead of running as the login while its result names the account.
+	if !slices.Contains(desc.Manifest.SupportedTransports, capability.TransportSSH) {
+		if err := sdk.RefuseBecome(ctx, fqcn+" (dispatched to "+target+")", "WinRM"); err != nil {
+			return collection.Result{}, err
+		}
 	}
 
 	method, err := desc.MethodFor(mode)

@@ -391,8 +391,44 @@ func TestConnect_RunsAsTheAccountTheContextAsksFor(t *testing.T) {
 		t.Errorf("as the login: %q", got)
 	}
 
-	_, err := sdk.Connect(sdk.WithBecome(context.Background(), "locked"), rc, device, params, "test.become")
+	// The context says the account was applied only once a connection ran as
+	// it, and a refused sudo leaves it saying not, so the engine never records
+	// an account the task did not run as.
+	applied := sdk.WithBecome(context.Background(), "svc")
+	if sdk.BecomeApplied(applied) {
+		t.Error("a context reads as applied before any connection")
+	}
+	_ = as(applied)
+	if !sdk.BecomeApplied(applied) {
+		t.Error("a connection that ran as svc left the context reading as not applied")
+	}
+
+	locked := sdk.WithBecome(context.Background(), "locked")
+	_, err := sdk.Connect(locked, rc, device, params, "test.become")
 	if err == nil || !strings.Contains(err.Error(), "NOPASSWD") || !strings.Contains(err.Error(), "a password is required") || !strings.Contains(err.Error(), "test.become") {
 		t.Errorf("an account sudo refuses: %v", err)
+	}
+	if sdk.BecomeApplied(locked) {
+		t.Error("an account sudo refused reads as applied")
+	}
+	if sdk.BecomeApplied(context.Background()) {
+		t.Error("an unmarked context reads as applied")
+	}
+}
+
+// TestRefuseBecome_NamesTheWayTheMethodAndTheAccount: nothing is refused for a
+// task that runs as its login, and a become is refused naming all three.
+func TestRefuseBecome_NamesTheWayTheMethodAndTheAccount(t *testing.T) {
+	if err := sdk.RefuseBecome(context.Background(), "svc.start", "WinRM"); err != nil {
+		t.Errorf("a task without become was refused: %v", err)
+	}
+	err := sdk.RefuseBecome(sdk.WithBecome(context.Background(), "admin"), "svc.start", "WinRM")
+	if err == nil {
+		t.Fatal("a become over WinRM was not refused")
+	}
+	for _, want := range []string{"svc.start", "WinRM", "admin", "remove become"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
 	}
 }

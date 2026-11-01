@@ -668,7 +668,7 @@ Every finding in a migration report carries one of these codes. The set is close
 | `include.role` | blocked | Roles convert through a Galaxy collection migration, not this one. | - |
 | `include.tasks` | blocked | include_tasks decides at run time what it includes. | import_tasks, which is static. |
 | `keyword.async` | blocked | async/poll has no native equivalent. | - |
-| `keyword.become` | review | become dropped: the task runs as the connecting user and fails if it needs root. | A method that needs root says so in its manifest; use a credential with the privilege. |
+| `keyword.become` | review | become dropped: the task runs as the connecting user and fails if it needs root. | Add become: true to the converted task (it runs sudo -n, so the login needs a NOPASSWD rule), or use a credential with the privilege. |
 | `keyword.become_user` | blocked | become_user names a user other than root. | - |
 | `keyword.changed_when` | blocked | changed_when could not be carried: it is templated, has no register to read, on a block, or its condition does not translate. | Write the condition as CEL over result.<register>. |
 | `keyword.check_mode` | blocked | check_mode: true on a method that cannot be checked. | - |

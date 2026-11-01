@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -120,12 +121,26 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 			return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 		}
 		conn = elevated
+		// Recorded only once sudo has proved the login can, so the engine's
+		// "ran as" stat follows what happened rather than what was asked.
+		if req, ok := ctx.Value(becomeKey{}).(*becomeRequest); ok {
+			req.applied.Store(true)
+		}
 	}
 	return conn, nil
 }
 
 // becomeKey is the context key for the account a task becomes.
 type becomeKey struct{}
+
+// becomeRequest is what WithBecome puts in a context: the account, and
+// whether any connection the task opened has run as it. The flag is shared by
+// every context derived from the one the engine made, so a connection a
+// method opens deep inside a helper still reports back.
+type becomeRequest struct {
+	user    string
+	applied atomic.Bool
+}
 
 // WithBecome returns ctx marked so that Connect and its kin hand a method a
 // connection whose commands run as user through sudo (root when user is
@@ -135,14 +150,39 @@ func WithBecome(ctx context.Context, user string) context.Context {
 	if user == "" {
 		user = "root"
 	}
-	return context.WithValue(ctx, becomeKey{}, user)
+	return context.WithValue(ctx, becomeKey{}, &becomeRequest{user: user})
 }
 
 // BecomeFrom returns the account ctx asks a connection to become, and whether
 // it asks for one.
 func BecomeFrom(ctx context.Context) (string, bool) {
-	user, ok := ctx.Value(becomeKey{}).(string)
-	return user, ok
+	req, ok := ctx.Value(becomeKey{}).(*becomeRequest)
+	if !ok {
+		return "", false
+	}
+	return req.user, true
+}
+
+// BecomeApplied reports whether a connection opened under ctx has run as the
+// account WithBecome asked for. The engine reads it after a method returns,
+// so a result says a task ran as another account only when one of its
+// connections really did, never because the task asked.
+func BecomeApplied(ctx context.Context) bool {
+	req, ok := ctx.Value(becomeKey{}).(*becomeRequest)
+	return ok && req.applied.Load()
+}
+
+// RefuseBecome returns an error when ctx asks to run as another account, for
+// a way of reaching a device that sends no command sudo could run (a CLI
+// session, WinRM, an API). what names that way in the message. It is called
+// before the device is contacted, so nothing runs as the login in the
+// account's place.
+func RefuseBecome(ctx context.Context, fqcn, what string) error {
+	user, ok := BecomeFrom(ctx)
+	if !ok {
+		return nil
+	}
+	return fmt.Errorf("%s: become does not apply to %s, which sends no command to run as %s, so it would run as the login: remove become from this task", fqcn, what, user)
 }
 
 // ConnectionPooler is implemented by a RunbookContext whose run keeps SSH

@@ -115,3 +115,41 @@ tasks:
 		}
 	}
 }
+
+// TestKeptUndo_AFailedChangeIsUndoneAsTheAccountItRanAs: a task run as root
+// that keeps its undo through its failure is journaled as root, and the
+// block's rollback_on_failure runs its undo as root, not as the login.
+func TestKeptUndo_AFailedChangeIsUndoneAsTheAccountItRanAs(t *testing.T) {
+	registerKeptFixture(t)
+	actions := &undoable{keepAndFail: map[string]bool{"k@web1": true}}
+	journal := &entriesJournal{}
+	runUndoable(t, `id: kept
+hosts: web
+tasks:
+  - name: guarded
+    rollback_on_failure: true
+    block:
+      - name: k
+        rbtest.keep: {name: one}
+        become: true
+    rescue:
+      - name: r0
+        noop: {}
+`, twoDevices(), actions, engine.WithJournal(journal))
+
+	if got := actions.became["unmake:one@web1"]; got != "root" {
+		t.Errorf("the kept undo ran as %q, want root (the account its change ran as)", got)
+	}
+	var found bool
+	for _, e := range journal.entries {
+		if e.Outcome == engine.OutcomeFailed && e.InverseFQCN == "rbtest.unmake" {
+			found = true
+			if e.Become != "root" {
+				t.Errorf("the failed change is journaled as %q, want root", e.Become)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no failed entry with a kept undo in %+v", journal.entries)
+	}
+}

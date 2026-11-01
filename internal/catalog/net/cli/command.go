@@ -40,6 +40,7 @@ func init() {
 				Device:            collection.DeviceRequired,
 			},
 			PlatformTargets: nil,
+			NoBecomeReason:  sdk.NoBecomeCLISession,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			// Mirrors exec.command's own reasoning verbatim: an

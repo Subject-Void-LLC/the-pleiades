@@ -82,6 +82,7 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
+			NoBecomeReason:  "it speaks NETCONF over an SSH subsystem, which no sudo prefix reaches, so it would run as the login",
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "An edit-config merge has no reliable inverse: deleting what was added is not the same as restoring what was replaced, and this method cannot know which of the two a given element did. Set backup: true to capture the prior configuration for a human-directed rollback. Note that rollback-on-error, which this method requests whenever the device supports it, covers a DIFFERENT case: it undoes a partially applied edit that the device itself rejected, not one that succeeded and was later regretted.",

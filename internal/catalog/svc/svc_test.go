@@ -297,6 +297,34 @@ func TestDispatchesToWindows(t *testing.T) {
 	}
 }
 
+// TestDispatch_BecomeIsRefusedForAMethodSpeakingWinRM: become runs commands
+// through sudo over SSH, which a windows_scm device's svc.windows.* methods
+// never open, so a task asking for it is refused naming WinRM before the
+// device is dialed, rather than run as the login while the journal says
+// otherwise. The address answers nothing, so a dial would fail differently.
+func TestDispatch_BecomeIsRefusedForAMethodSpeakingWinRM(t *testing.T) {
+	rc := &ctxStub{secrets: map[string]string{"username": "administrator", "password": "secret"}, stats: map[string]any{}}
+	dev := &device{
+		Stub:    &inventorytest.Stub{StubName: "win1", Caps: []capability.Name{capability.NameWindowsService, capability.NameWinRM}},
+		host:    "127.0.0.1",
+		port:    1,
+		manager: "windows_scm",
+	}
+	ctx := sdk.WithBecome(context.Background(), "root")
+	_, err := svc.Start(ctx, rc, dev, params())
+	if err == nil {
+		t.Fatal("a become on a Windows service was not refused")
+	}
+	for _, want := range []string{"svc.start", "svc.windows.start", "become", "WinRM", "root"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "refused") && strings.Contains(err.Error(), "127.0.0.1") {
+		t.Errorf("error %q is a dial failure: the device was contacted before become was refused", err)
+	}
+}
+
 // TestDispatchHoldsTheDeviceToTheConcreteTransport proves dispatch
 // checks the concrete method's transports, not only the generic one's.
 // svc.start declares ssh and winrm, because its concrete methods speak

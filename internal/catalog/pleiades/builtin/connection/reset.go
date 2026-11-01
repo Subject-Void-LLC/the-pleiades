@@ -49,6 +49,7 @@ func init() {
 				Device:            collection.DeviceRequired,
 			},
 			PlatformTargets: nil,
+			NoBecomeReason:  "it sends no command: it closes the connections the run keeps open, so there is nothing to run as another account",
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			Reversibility: collection.Reversibility{

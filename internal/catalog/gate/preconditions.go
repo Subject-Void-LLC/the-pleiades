@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gate"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // probeOutputLimit bounds what a precondition probe may answer.
@@ -84,6 +85,11 @@ func (d *deviceRunner) devicePreconditions(ctx context.Context, conn *remoteexec
 	}
 	if len(r.TCP) == 0 {
 		return gate.Result{}, false
+	}
+	// A TCP probe is a port forward the login opens, which become cannot
+	// elevate: refused as a failure, not reported as a missing port.
+	if err := sdk.RefuseBecome(ctx, fqcnRun, "a TCP precondition, a port forward the SSH login opens"); err != nil {
+		return failed(err.Error()), true
 	}
 	if conn == nil {
 		opened, err := d.connect(ctx)

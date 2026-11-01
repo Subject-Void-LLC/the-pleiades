@@ -22,6 +22,11 @@ import (
 // beside the task it applies to, where review sees it.
 const ParamInsecureTelnet = "insecure_telnet"
 
+// NoBecomeCLISession is the Manifest.NoBecomeReason of a method that speaks a
+// device's CLI through OpenShell and nothing else, so validate refuses become
+// on it before a run, as OpenShell refuses it at one.
+const NoBecomeCLISession = "it types lines into the device's own CLI session, which no sudo prefix reaches, so it would run as the login"
+
 // OpenShell opens an interactive CLI session on device for a method that
 // speaks a device's CLI through pkg/netcli: through its console server
 // when the device is reached by one (openConsole), over SSH when it is
@@ -32,6 +37,12 @@ const ParamInsecureTelnet = "insecure_telnet"
 func OpenShell(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (netcli.Shell, error) {
 	if device == nil {
 		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
+	}
+	// A CLI session types lines into the device's own shell, which no sudo
+	// prefix reaches, on every carrier: refused before any of them is tried,
+	// so a task that asked to become an account never runs as the login.
+	if err := RefuseBecome(ctx, fqcn, "a CLI session"); err != nil {
+		return nil, err
 	}
 	// A device behind a console server is reached only through it: it has
 	// no address of its own, and no other carrier is tried.

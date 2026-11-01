@@ -760,6 +760,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 754. net/linux's live test starts a container, so internal/catalog/net/linux was missing from DOCKER_DEPENDENT_PACKAGES and pr-check's devtools stage failed on TestEveryContainerPackageIsListed (a repeat of 239 and 447) (fixed before push)
 755. The containerlab live test passed under Docker Desktop and failed on CI's native engine, because a bridged server could not see the bridge its own deploy made (a repeat of 426 and 538) (fixed in the pull request)
 756. pr-check's new container opt-out dropped internal/archtest with the rest, so a released port reached CI that the archtest refuses in a minute here (a repeat of 123 and 478; a sibling of 631) (fixed in the pull request)
+757. become was silently not applied on carriers sudo cannot reach (a device's CLI session, svc.* dispatched to WinRM, the engine's own actions), while the stat and the journal said root (a repeat of 748) (fixed before push)
+758. A failed change that kept its undo dropped its become stat, so once the journal read the account from the stats a root change was undone as the login (a repeat of 749) (fixed before push)
+759. Under become, gate.run reported a refused TCP precondition as a SKIP, and db.pg.* and net.netconf.config passed validate only to fail after the sudo probe (a repeat in kind of 557) (fixed before push; one gap open)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -3,10 +3,12 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // BecomeMethodSudo is the only become_method: sudo, run without a password
@@ -38,6 +40,55 @@ func BecomeFor(task *Task) (user string, on bool) {
 		return DefaultBecomeUser, true
 	}
 	return task.BecomeUser, true
+}
+
+// recordBecome says in a method's stats which account its task ran as, from
+// what happened rather than what the task asked: StatBecome is set only when a
+// connection the method opened ran as the account (sdk.BecomeApplied), so a
+// report, an event, the journal and a later rollback never name an account
+// the commands did not run as. A task that asked and reached its device no
+// such way ran as the login, which is said as a warning every run shows. A
+// StatBecome the method set itself is dropped first: the engine is the only
+// one that says it.
+func recordBecome(ctx context.Context, fqcn, user string, becomes, succeeded bool, stats map[string]interface{}) {
+	delete(stats, StatBecome)
+	if !becomes {
+		return
+	}
+	if sdk.BecomeApplied(ctx) {
+		stats[StatBecome] = user
+		return
+	}
+	// A task that failed or was refused says why itself; only work that
+	// finished is said to have run as the login.
+	if !succeeded {
+		return
+	}
+	warning := fmt.Sprintf("become: %s opened no SSH connection that ran as %s, so whatever it did ran as the login", fqcn, user)
+	switch existing := stats[sdk.StatWarnings].(type) {
+	case []string:
+		stats[sdk.StatWarnings] = append(existing, warning)
+	case []interface{}:
+		stats[sdk.StatWarnings] = append(existing, warning)
+	default:
+		stats[sdk.StatWarnings] = []string{warning}
+	}
+}
+
+// ranAs returns the account task's commands ran as, from the stats its
+// executor recorded: the task's own account when a connection ran as it
+// (recordBecome), and "" otherwise, including a stat naming any other
+// account. The journal and a block's in-run undo both read it, so the two
+// replay an undo as the same account a later pleiades rollback does.
+func ranAs(task *Task, stats map[string]interface{}) string {
+	user, on := BecomeFor(task)
+	if !on {
+		return ""
+	}
+	if recorded, _ := stats[StatBecome].(string); recorded == user {
+		return user
+	}
+	return ""
 }
 
 // checkBecomeKeys refuses a become, become_user or become_method that cannot
@@ -137,6 +188,14 @@ func validateBecomeIn(tasks []Task) error {
 		t := &tasks[i]
 		if err := checkBecomeKeys(fmt.Sprintf("task %q", t.Name), t.Become, t.BecomeUser, t.BecomeMethod); err != nil {
 			return err
+		}
+		// A rollback step runs as the account its task's change ran as, in the
+		// run and in a later pleiades rollback alike (ranAs), so a key of its own
+		// could only mean one thing in one of them.
+		for _, step := range t.Rollback {
+			if step.Become != nil || step.BecomeUser != "" || step.BecomeMethod != "" {
+				return fmt.Errorf("task %q: a rollback step takes no become keys: it runs as the account the task's change ran as", t.Name)
+			}
 		}
 		for _, sub := range [][]Task{t.Block, t.Rescue, t.Always, t.Parallel} {
 			if err := validateBecomeIn(sub); err != nil {

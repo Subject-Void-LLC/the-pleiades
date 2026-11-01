@@ -622,11 +622,25 @@ What it is, and is not:
 - Every command the method sends over its connection is elevated, including the reads
   and file writes the method makes to decide what to change, so a check sees what the
   real run will see.
-- It applies to a method that uses SSH. `validate` refuses it on a built-in action, on a
-  method that reaches its device another way (an API, a container engine, a terminal), and
-  on `net.ssh.ping` and `wait.connection`, whose question is the login itself.
-- The journal records the account, and `pleiades rollback` runs the undo as the same
-  account. A method that keeps something under the login's home (`net.frr.config`'s
+- There is no `become_password`. The key is refused, so no sudo password is ever stored,
+  sent or logged.
+- It applies to a method that runs commands over SSH. `validate` refuses it on a built-in
+  action, on a method that reaches its device another way (an API, a container engine), on
+  a method that types into the device's CLI (`net.ios.*`, `net.cli.*`), on a method that
+  reaches its service through a forward or subsystem the login opens (`db.pg.*`,
+  `net.netconf.config`), and on `net.ssh.ping` and `wait.connection`, whose question is the
+  login itself. A method that picks its carrier per device is refused when the task runs,
+  on a carrier sudo cannot reach: a CLI session (`wait.routes` on Cisco IOS), WinRM (`svc.*`
+  on Windows), a `gate.run` check's TCP precondition, or a container engine's socket reached
+  through the login (`container.*`, after sudo has been checked). A method that reaches its
+  device no SSH way on that device (a container engine over TLS) runs as the login and says
+  so as a warning; nothing is refused there.
+- The result and the journal record the account only when a connection really ran as it.
+  A task that asked and was not run that way says so as a warning, and records no account.
+  `pleiades rollback`, and a block's `rollback_on_failure` inside the run, run an undo as the
+  account the change ran as. A task's `rollback:` steps run as its account too, so `validate`
+  holds each step to the same rule: a step that could not run as it (`ssh_exec`, a method
+  that does not use SSH) is refused before the run. A method that keeps something under the login's home (`net.frr.config`'s
   backups) records which account made it, and refuses an undo run as another.
 - A Controller and Runner refuse a task with `become` for now. It runs from the CLI.
 
