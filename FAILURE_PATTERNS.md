@@ -763,6 +763,14 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 757. become was silently not applied on carriers sudo cannot reach (a device's CLI session, svc.* dispatched to WinRM, the engine's own actions), while the stat and the journal said root (a repeat of 748) (fixed before push)
 758. A failed change that kept its undo dropped its become stat, so once the journal read the account from the stats a root change was undone as the login (a repeat of 749) (fixed before push)
 759. Under become, gate.run reported a refused TCP precondition as a SKIP, and db.pg.* and net.netconf.config passed validate only to fail after the sudo probe (a repeat in kind of 557) (fixed before push; one gap open)
+760. The collection coverage ratchet walked only the ledgers that exist, so deleting or renaming one took its floor out, and a ledger with no floor was only logged (a repeat of 403 and 397) (fixed before push)
+761. The coverage ledger confined one read of four, so contract.json, map.yaml and a proof's test directory could be read through a committed symbolic link outside the repository (a repeat of 260 and 321) (fixed before push)
+762. Untrusted ledger data panicked the archtest and the docs generator, and a proof naming a function go test never runs was accepted (a repeat in kind of 317) (fixed before push)
+763. The OpenAPI reader skipped what it could not count, matched keys in any case and kept the last of repeated keys, each of which would raise a collection's coverage (a repeat of 325) (fixed before push)
+764. A declared method could count an operation as mapped, and its proof skipped the reach check (the class of LESSONS 15) (fixed before push)
+765. The coverage ledger's first records said more than the code and upstream support: the changelog, the floor file's rule, the published schema's field names and the vendored contract's copyright and version (a repeat of 571 and 228) (fixed before push)
+766. Two "live" proofs rested on a refusal and on a log line, and node.start, which the live test runs, was declared fixture (a repeat of 467 and 491) (fixed before push)
+767. An fp-reviewer launched seconds after its definition gained the triad tools ran with the new instructions and the old tool list, and reported the triad unavailable (open: cause unknown; the agent now checks its tools first)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
