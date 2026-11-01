@@ -25,7 +25,7 @@ import (
 func ParamChoiceRule(world WorldView) []Finding {
 	var findings []Finding
 	for id, task := range world.DAG.Nodes {
-		if len(task.Params) == 0 || !isCollectionName(task.FQCN) || dottedBuiltinExemptions[task.FQCN] {
+		if len(task.Params) == 0 || !isCollectionName(task.FQCN) || dottedBuiltin(task.FQCN) {
 			continue
 		}
 		desc, ok := collection.Lookup(task.FQCN)

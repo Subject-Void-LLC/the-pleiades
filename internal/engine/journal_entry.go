@@ -99,6 +99,16 @@ var transportExecStatKeys = []string{"exit_code", "exit_status_unknown", "stderr
 // as deliberate. Its journal entry therefore reads FQCNUnregistered,
 // which is the accurate record of a name nothing in this process can
 // dispatch.
+// IsBuiltinAction reports whether fqcn is one of the engine's own actions, in
+// either spelling (fail and pleiades.builtin.fail): run in process, not a
+// Collection method. Validation reads it rather than keeping a list of its
+// own, which drifted once and refused the dotted spellings of fail, assert
+// and set_fact that the engine runs.
+func IsBuiltinAction(fqcn string) bool {
+	_, ok := engineActionStatKeys[fqcn]
+	return ok
+}
+
 var engineActionStatKeys = map[string][]string{
 	"noop":                          nil,
 	"set_metadata":                  nil,
@@ -109,6 +119,8 @@ var engineActionStatKeys = map[string][]string{
 	"pleiades.builtin.assert":       nil,
 	"fail":                          nil,
 	"pleiades.builtin.fail":         nil,
+	"pause":                         nil,
+	"pleiades.builtin.pause":        nil,
 	"ssh_exec":                      transportExecStatKeys,
 	"serial_exec":                   transportExecStatKeys,
 	"serialtcp_exec":                transportExecStatKeys,

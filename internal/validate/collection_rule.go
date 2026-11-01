@@ -52,19 +52,18 @@ import (
 // calls exists and is implemented, and this phase only answers the
 // second one.
 
-// dottedBuiltinExemptions names every dotted fqcn that is a hardcoded
-// engine builtin (internal/engine/action.go), not a real pkg/collection
-// registration, and must therefore be skipped by CollectionRule exactly
-// like an undotted legacy builtin, despite containing a dot.
-var dottedBuiltinExemptions = map[string]bool{
-	"pleiades.builtin.set_metadata": true,
-}
+// dottedBuiltin reports whether fqcn is one of the engine's own actions
+// (internal/engine/action.go), not a real pkg/collection registration, and
+// must therefore be skipped by the Collection rules exactly like an undotted
+// builtin, despite containing a dot. It reads the engine's own table
+// (engine.IsBuiltinAction), so the two cannot disagree.
+func dottedBuiltin(fqcn string) bool { return engine.IsBuiltinAction(fqcn) }
 
 func CollectionRule(world WorldView) []Finding {
 	var findings []Finding
 
 	for id, task := range world.DAG.Nodes {
-		if !isCollectionName(task.FQCN) || dottedBuiltinExemptions[task.FQCN] {
+		if !isCollectionName(task.FQCN) || dottedBuiltin(task.FQCN) {
 			continue
 		}
 

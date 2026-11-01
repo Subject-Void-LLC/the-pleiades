@@ -74,6 +74,10 @@ func TaskTarget(dag *DAG, task *Task) string {
 // segmenter (internal/segment) reads it to tell a device-less call from a
 // task under a runbook with no hosts:, which TaskTarget reports alike.
 func TaskNeedsDevice(task *Task) bool {
+	// A pause holds the run, not a device: it runs once, not once per host.
+	if isPause(task.FQCN) {
+		return false
+	}
 	desc, ok := collection.Lookup(task.FQCN)
 	if !ok {
 		return true
@@ -182,12 +186,19 @@ func NewBuiltinActionExecutor() ActionExecutor {
 // Execute gives it, since a check of something that cannot run is not
 // merely unchecked: a real run of it would fail too.
 func (b builtinActionExecutor) Check(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
+	// A pause's check holds for nothing: a check changes nothing, and waiting
+	// in it would only delay the answer.
+	if isPause(task.FQCN) {
+		return runPause(ctx, task, true)
+	}
 	return b.Execute(ctx, task, device)
 }
 
 // Execute implements ActionExecutor.
-func (builtinActionExecutor) Execute(_ context.Context, task *Task, _ inventory.InventoryItem) (ActionResult, error) {
+func (builtinActionExecutor) Execute(ctx context.Context, task *Task, _ inventory.InventoryItem) (ActionResult, error) {
 	switch task.FQCN {
+	case PauseName, PauseFQCN:
+		return runPause(ctx, task, false)
 	case "noop":
 		result := ActionResult{}
 		if changed, ok := task.Params["changed"].(bool); ok {

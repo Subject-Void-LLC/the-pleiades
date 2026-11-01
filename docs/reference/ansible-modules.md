@@ -638,7 +638,7 @@ Also written as `win_unzip`.
 | `community.windows.win_scheduled_task`, `win_scheduled_task` | win_scheduled_task takes lists of actions and triggers; win.schtask registers one of each, so a person chooses them (`module.manual`) |
 | `ansible.builtin.assert`, `assert` | no native method stops a run on a condition; express it as when on the tasks that must not run (`module.manual`) |
 | `ansible.builtin.fail`, `fail` | no native method fails a run on purpose (`module.manual`) |
-| `ansible.builtin.pause`, `pause` | no native method waits for a person or a timer (`module.manual`) |
+| `ansible.builtin.pause`, `pause` | a timed pause is the native pause (seconds or minutes), written by hand until the converter maps it; a prompted pause waits for a person, which a run does not do (`module.manual`) |
 | `ansible.builtin.script`, `script` | copying a local script to the device and running it is two native steps a person should write (`module.manual`) |
 | `ansible.builtin.add_host`, `add_host` | the inventory is not changed by a run (`module.manual`) |
 | `ansible.builtin.group_by`, `group_by` | the inventory is not changed by a run; tag the devices instead (`module.manual`) |

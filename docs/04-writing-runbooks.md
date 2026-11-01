@@ -722,6 +722,36 @@ tasks:
 - Handlers run at the end of each batch's sections, as in Ansible.
 - The CLI runs batches. A Controller does not yet, so it refuses a runbook with `serial:`.
 
+### Holding between steps (`pause`)
+
+`pause:` holds the run for a time, most often at the end of a batch so a change can settle, or be
+watched, before the next batch starts:
+
+```yaml
+# Rolls the release marker out two web hosts at a time, a minute apart.
+# Blast radius: every web host, two at a time; a failure stops the rollout.
+# Changes: /etc/app/release on each web host.
+# Undo: pleiades rollback restores the file.
+id: rolling-release-held
+hosts: web
+serial: 2
+tasks:
+  - name: Mark the new release
+    file.copy:
+      dest: /etc/app/release
+      content: "2.4.0\n"
+  - name: Let the batch settle before the next
+    pause:
+      minutes: 1
+```
+
+- `pause` takes `seconds` or `minutes`, a whole number, up to a day in all. It is also spelled
+  `pleiades.builtin.pause`.
+- It runs once for the run (once per batch under `serial:`), not once per host, and changes nothing.
+- A check does not wait: it reports the pause and moves on.
+- A pause that waits for a person (Ansible's `prompt`, or no duration) is refused, since a scheduled or
+  dispatched run has no one to answer it.
+
 ## What is not supported
 
 `with_*` loops other than `with_items`, `meta: flush_handlers`, `max_fail_percentage`, and

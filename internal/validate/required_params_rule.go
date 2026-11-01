@@ -25,7 +25,7 @@ import (
 func RequiredParamsRule(world WorldView) []Finding {
 	var findings []Finding
 	for id, task := range world.DAG.Nodes {
-		if !isCollectionName(task.FQCN) || dottedBuiltinExemptions[task.FQCN] {
+		if !isCollectionName(task.FQCN) || dottedBuiltin(task.FQCN) {
 			continue
 		}
 		desc, ok := collection.Lookup(task.FQCN)
