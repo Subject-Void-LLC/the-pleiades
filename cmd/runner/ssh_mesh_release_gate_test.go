@@ -144,6 +144,11 @@ type releaseGateHarness struct {
 	// adapter is the native Adapter the harness's own Agent runs, kept so
 	// a test can start a second Agent over it (startCheckAgent).
 	adapter *native.Adapter
+
+	// natsURL and dispatches are the NATS server and the dispatch consumer,
+	// kept so a test can run Runners of its own (newReleaseGateHarnessBare).
+	natsURL    string
+	dispatches jetstream.Consumer
 }
 
 // knownHostsSource says how a test makes the container's real host key
@@ -226,6 +231,23 @@ func newReleaseGateHarnessWith(t *testing.T, source knownHostsSource) *releaseGa
 // runbooks (file name to content) instead of the one ping runbook.
 func newReleaseGateHarnessFor(t *testing.T, source knownHostsSource, runbookFiles map[string]string) *releaseGateHarness {
 	t.Helper()
+	h := newReleaseGateHarnessBare(t, source, runbookFiles)
+	// Result reporting on, as the real Runner has it (cmd/runner's main):
+	// a Controller-side test needs to hear each device's result, and a
+	// harness Runner that stayed silent differed from the binary it stands
+	// for in exactly the way that hid it.
+	agent := runner.NewAgent(h.dispatches, h.adapter, h.js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil,
+		runner.WithResultReporting(h.bus))
+	agentCtx, cancelAgent := context.WithCancel(context.Background())
+	t.Cleanup(cancelAgent)
+	go func() { _ = agent.Run(agentCtx) }()
+	return h
+}
+
+// newReleaseGateHarnessBare is newReleaseGateHarnessFor with no Runner
+// pulling dispatches, for a test that runs Runners of its own.
+func newReleaseGateHarnessBare(t *testing.T, source knownHostsSource, runbookFiles map[string]string) *releaseGateHarness {
+	t.Helper()
 	ctx := context.Background()
 
 	sshd, sshHost, sshPort := startSSHContainer(t)
@@ -278,18 +300,8 @@ func newReleaseGateHarnessFor(t *testing.T, source knownHostsSource, runbookFile
 	if err != nil {
 		t.Fatalf("failed to init native adapter: %v", err)
 	}
-	// Result reporting on, as the real Runner has it (cmd/runner's main):
-	// a Controller-side test needs to hear each device's result, and a
-	// harness Runner that stayed silent differed from the binary it stands
-	// for in exactly the way that hid it.
-	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil,
-		runner.WithResultReporting(bus))
-
-	agentCtx, cancelAgent := context.WithCancel(ctx)
-	t.Cleanup(cancelAgent)
-	go func() { _ = agent.Run(agentCtx) }()
-
-	return &releaseGateHarness{sshd: sshd, sshHost: sshHost, sshPort: sshPort, bus: bus, js: js, adapter: adapter}
+	return &releaseGateHarness{sshd: sshd, sshHost: sshHost, sshPort: sshPort, bus: bus, js: js, adapter: adapter,
+		natsURL: url, dispatches: consumer}
 }
 
 // startCheckAgent adds the check pull loop a check-capable Runner runs
