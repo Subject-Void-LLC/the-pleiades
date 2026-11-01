@@ -1322,7 +1322,7 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 			go r.reportProgress(cmd, host, every, limit, stop)
 		}
 		if lease != nil {
-			go keepAlive(lease, defaultLockTTL, stop)
+			go keepAlive(execCtx, lease, defaultLockTTL, stop)
 		}
 	}
 

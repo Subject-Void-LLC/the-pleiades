@@ -191,10 +191,10 @@ func (h *heldLeases) join(device string) lock.Lease {
 }
 
 // adopt turns lease, which a starting background job took, into device's
-// held lease, keeping it alive every ttl/3 until it is released, and returns
-// the job's share. A lease already held for device (two jobs on one device)
-// is shared, and the new one released.
-func (h *heldLeases) adopt(device string, lease lock.Lease, ttl time.Duration) lock.Lease {
+// held lease, keeping it alive every ttl/3 until it is released or ctx (the
+// run's) ends, and returns the job's share. A lease already held for device
+// (two jobs on one device) is shared, and the new one released.
+func (h *heldLeases) adopt(ctx context.Context, device string, lease lock.Lease, ttl time.Duration) lock.Lease {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.byID == nil {
@@ -207,7 +207,7 @@ func (h *heldLeases) adopt(device string, lease lock.Lease, ttl time.Duration) l
 	}
 	held := &heldLease{lease: lease, refs: 1, stop: make(chan struct{})}
 	h.byID[device] = held
-	go keepAlive(lease, ttl, held.stop)
+	go keepAlive(ctx, lease, ttl, held.stop)
 	return &sharedLease{owner: h, device: device}
 }
 
@@ -231,9 +231,11 @@ func (h *heldLeases) release(ctx context.Context, device string) error {
 	return held.lease.Release(ctx)
 }
 
-// keepAlive renews lease every ttl/3 until stop closes, so a task running
-// longer than the lease's ttl keeps its device.
-func keepAlive(lease lock.Lease, ttl time.Duration, stop <-chan struct{}) {
+// keepAlive renews lease every ttl/3 until stop closes or ctx ends, so a
+// task running longer than the lease's ttl keeps its device. Each renewal is
+// bounded by the interval, so a lock backend that stalls cannot hold it past
+// the next one.
+func keepAlive(ctx context.Context, lease lock.Lease, ttl time.Duration, stop <-chan struct{}) {
 	every := max(ttl/3, time.Second)
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -241,8 +243,12 @@ func keepAlive(lease lock.Lease, ttl time.Duration, stop <-chan struct{}) {
 		select {
 		case <-stop:
 			return
+		case <-ctx.Done():
+			return
 		case <-t.C:
-			_ = lease.KeepAlive(context.Background())
+			renew, cancel := context.WithTimeout(ctx, every)
+			_ = lease.KeepAlive(renew)
+			cancel()
 		}
 	}
 }
@@ -269,7 +275,7 @@ func (r *run) startJob(ctx context.Context, cmd nodeExecution, result NodeResult
 		}
 	}
 	if lease != nil {
-		lease = r.leases.adopt(result.Device, lease, defaultLockTTL)
+		lease = r.leases.adopt(ctx, result.Device, lease, defaultLockTTL)
 	}
 	// The job's own run records nothing in the register: it holds the id,
 	// and async_status's register gets the result.
