@@ -94,6 +94,12 @@ func serialStopReason(batch int) string {
 // stopRollout skips every device of jobID still queued, the rollout having
 // stopped at batch.
 func (w *Worker) stopRollout(ctx context.Context, jobID string, batch int) error {
+	return w.resolveAllQueued(ctx, jobID, OutcomeSkipped, serialStopReason(batch))
+}
+
+// resolveAllQueued resolves every device of jobID still queued with outcome
+// and reason.
+func (w *Worker) resolveAllQueued(ctx context.Context, jobID string, outcome Outcome, reason string) error {
 	for {
 		queued, err := w.store.QueuedTasks(ctx, jobID, 100)
 		if err != nil {
@@ -104,7 +110,7 @@ func (w *Worker) stopRollout(ctx context.Context, jobID string, batch int) error
 		}
 		moved := false
 		for _, task := range queued {
-			did, err := w.store.ResolveQueued(ctx, jobID, task.DeviceID, OutcomeSkipped, serialStopReason(batch))
+			did, err := w.store.ResolveQueued(ctx, jobID, task.DeviceID, outcome, reason)
 			if err != nil {
 				return err
 			}
@@ -120,23 +126,30 @@ func (w *Worker) stopRollout(ctx context.Context, jobID string, batch int) error
 
 // serialGate reads job's gate, first batching its queued devices when the
 // fan-out queued them for serial: and did not get to batch them (a failure
-// between the two): an unwindowed job with queued devices is exactly that
-// job, and without its batches its pump would wait forever.
-func (w *Worker) serialGate(ctx context.Context, job *Job) (SerialGate, error) {
+// between the two). Whether the job is a serial: one is read from its
+// definition whenever queued devices carry no batch, whatever its forks: a
+// windowed job's pump would otherwise run a serial job's devices unbatched,
+// forks at a time, with no stop on a failed batch.
+//
+// It returns the definition it read, if it read one, for the pump to reuse;
+// a definition that could not be read carries its reason, and the pump fails
+// the queued devices with it rather than leaving them queued for ever.
+func (w *Worker) serialGate(ctx context.Context, job *Job) (SerialGate, *pumpDefinition, error) {
 	gate, err := w.store.SerialGate(ctx, job.JobID)
-	if err != nil || gate.Batched || windowOf(job) > 0 {
-		return gate, err
+	if err != nil || gate.Batched {
+		return gate, nil, err
 	}
 	queued, err := w.store.QueuedTasks(ctx, job.JobID, 1)
 	if err != nil || len(queued) == 0 {
-		return gate, err
+		return gate, nil, err
 	}
 	def := w.pumpDefinitionFor(ctx, job)
 	if def.reason != "" || len(def.prepared.Serial) == 0 {
-		return gate, nil
+		return gate, def, nil
 	}
 	if err := w.store.AssignBatches(ctx, job.JobID, def.prepared.Serial); err != nil {
-		return gate, err
+		return gate, nil, err
 	}
-	return w.store.SerialGate(ctx, job.JobID)
+	gate, err = w.store.SerialGate(ctx, job.JobID)
+	return gate, def, err
 }

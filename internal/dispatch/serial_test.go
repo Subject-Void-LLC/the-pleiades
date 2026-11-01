@@ -4,6 +4,8 @@
 package dispatch_test
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 )
@@ -151,5 +154,110 @@ func TestSerial_BatchesAreAssignedOnce(t *testing.T) {
 	}
 	if !before.Batched || before != after || before.Current != 0 || before.Size != 2 {
 		t.Errorf("gate before %+v, after %+v", before, after)
+	}
+}
+
+// failingAssign is a JobStore whose first AssignBatches fails, standing in
+// for a database that stumbled between a serial job's fan-out and its batches.
+type failingAssign struct {
+	dispatch.JobStore
+	failed bool
+}
+
+// AssignBatches fails once, then assigns as the real store does.
+func (s *failingAssign) AssignBatches(ctx context.Context, jobID string, sizes engine.SerialList) error {
+	if !s.failed {
+		s.failed = true
+		return errors.New("the database stumbled")
+	}
+	return s.JobStore.AssignBatches(ctx, jobID, sizes)
+}
+
+// newSerialFixtureOn is newSerialFixture over store and runbook source dir.
+func newSerialFixtureOn(t *testing.T, store dispatch.JobStore, dir string, forks int) *windowFixture {
+	t.Helper()
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := newCapturingBus()
+	repo := &namedRepository{}
+	for i, name := range []string{"n-e", "n-d", "n-c", "n-b", "n-a"} {
+		repo.Devices = append(repo.Devices, capableDevice("id-"+string(rune('0'+i)), name, "10.0.0.1"))
+	}
+	worker := dispatch.NewWorker(store, repo, src, bus, nil)
+	fields := launch.Fields{}
+	if forks > 0 {
+		fields[dispatch.ForksField] = forks
+	}
+	evt := requestJobWithLaunchFields(t, t.Context(), store, "rolling", "routers", fields, nil)
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested: %v", err)
+	}
+	return &windowFixture{store: store, bus: bus, repo: repo, worker: worker, jobID: jobIDFromEvent(t, evt)}
+}
+
+// serialRunbookDir writes the serial: 2 runbook into a fresh directory.
+func serialRunbookDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rolling.yaml"), []byte("id: rolling\nserial: 2\ntasks:\n  - name: step\n    fqcn: ios_backup\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// TestSerial_AFailedAssignmentIsRepairedWhateverTheForks: when the fan-out
+// could not assign a serial job's batches, the pump assigns them and runs
+// the first batch only, with forks set as much as without it, rather than
+// running every device unbatched.
+func TestSerial_AFailedAssignmentIsRepairedWhateverTheForks(t *testing.T) {
+	for _, forks := range []int{0, 2} {
+		store := &failingAssign{JobStore: newTestJobStore(t)}
+		f := newSerialFixtureOn(t, store, serialRunbookDir(t), forks)
+		if !store.failed {
+			t.Fatal("the fan-out never tried to assign batches")
+		}
+		if got := f.dispatchedDevices(t); !slices.Equal(got, []string{"id-4", "id-3"}) {
+			t.Fatalf("forks %d: after a failed assignment the pump dispatched %v, want the first batch by name: id-4 (n-a), id-3 (n-b)", forks, got)
+		}
+		gate, err := f.store.SerialGate(t.Context(), f.jobID)
+		if err != nil || !gate.Batched {
+			t.Fatalf("forks %d: gate %+v, %v; want the batches assigned", forks, gate, err)
+		}
+	}
+}
+
+// TestSerial_ADefinitionGoneBeforeItsBatchesFailsTheQueuedDevices: a serial
+// job whose batches were never assigned and whose runbook went away fails
+// its queued devices with the reason and ends, rather than sitting in
+// running while its pump finds nothing it may do.
+func TestSerial_ADefinitionGoneBeforeItsBatchesFailsTheQueuedDevices(t *testing.T) {
+	dir := serialRunbookDir(t)
+	store := &failingAssign{JobStore: newTestJobStore(t)}
+	// The fan-out's pump repairs at once, so this fixture fails the
+	// assignment twice: once in the fan-out and once in its first pump.
+	twice := &failingAssign{JobStore: store}
+	f := newSerialFixtureOn(t, twice, dir, 0)
+	if got := f.dispatchedDevices(t); len(got) != 0 {
+		t.Fatalf("dispatched %v before the batches existed", got)
+	}
+	if err := os.Remove(filepath.Join(dir, "rolling.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.worker.Pump(t.Context(), f.jobID); err != nil {
+		t.Fatalf("Pump: %v", err)
+	}
+	job, tasks, err := f.store.Get(t.Context(), f.jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		if task.Outcome != dispatch.OutcomeFailed {
+			t.Errorf("%s is %q, want failed with the definition's reason", task.DeviceName, task.Outcome)
+		}
+	}
+	if job.State == "running" {
+		t.Error("the job still reads running with nothing it can run")
 	}
 }

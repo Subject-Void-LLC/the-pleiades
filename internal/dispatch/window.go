@@ -89,9 +89,18 @@ func (w *Worker) Pump(ctx context.Context, jobID string) error {
 		}
 		return err
 	}
-	gate, err := w.serialGate(ctx, job)
+	gate, def, err := w.serialGate(ctx, job)
 	if err != nil {
 		return err
+	}
+	if def != nil && def.reason != "" {
+		// The definition went away while devices waited: none of them can
+		// run, and none would ever be pumped (an unbatched serial job has no
+		// window), so each is failed with the reason.
+		if err := w.resolveAllQueued(ctx, jobID, OutcomeFailed, def.reason); err != nil {
+			return err
+		}
+		return w.store.CompleteIfDone(ctx, jobID)
 	}
 	forks := windowOf(job)
 	if gate.Batched {
@@ -126,7 +135,8 @@ func (w *Worker) Pump(ctx context.Context, jobID string) error {
 		return w.store.QueuedTasks(ctx, jobID, n)
 	}
 
-	var def *pumpDefinition
+	// def may already be read by the serial gate; otherwise it is read once,
+	// on the first device this pump dispatches.
 	for len(free) > 0 {
 		queued, err := nextQueued(len(free))
 		if err != nil {
