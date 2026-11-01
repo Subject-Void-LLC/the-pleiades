@@ -3,6 +3,7 @@ package runner_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -360,3 +361,57 @@ func (l *fakeLease) KeepAlive(ctx context.Context) error {
 }
 
 func (l *fakeLease) Release(ctx context.Context) error { return nil }
+
+// tokenAdapter records the fencing token on the context Execute is called
+// with.
+type tokenAdapter struct {
+	token atomic.Uint64
+}
+
+// Execute implements runner.ExecutionAdapter, recording the context's token.
+func (a *tokenAdapter) Execute(ctx context.Context, _ wire.DispatchPayload) (wire.Outcome, error) {
+	if token, ok := lock.FencingTokenFrom(ctx); ok {
+		a.token.Store(token)
+	}
+	return wire.Outcome{}, nil
+}
+
+// TestAgent_ExecuteWithLease_HandsTheLeasesFencingTokenToTheRun: the run's
+// context carries the fencing token of the device lease the Runner took, for
+// its journal to stamp on every entry (Phase 40a).
+func TestAgent_ExecuteWithLease_HandsTheLeasesFencingTokenToTheRun(t *testing.T) {
+	locks := lock.NewInProcessManager()
+	// One acquisition first, so the dispatch's lease is not the manager's
+	// first and its token is plainly the lease's own.
+	earlier, err := locks.Acquire(context.Background(), "device-fence", time.Second, lock.AcquireOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := lock.FencingToken(earlier)
+	_ = earlier.Release(context.Background())
+
+	adapter := &tokenAdapter{}
+	msg := &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON("device-fence"))}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	agent := runner.NewAgent(consumer, adapter, nil, locks, 5, slog.Default(), nil)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
+
+	if got := adapter.token.Load(); got <= before {
+		t.Errorf("the run's context carried fencing token %d, want the dispatch lease's, after %d", got, before)
+	}
+}
+
+// TestAgent_ExecuteWithLease_ASharedLeaseHandsTheRunNoFencingToken: holders of
+// a shared lease overlap, so the order they acquired in is no order of their
+// changes, and the run's context carries no token.
+func TestAgent_ExecuteWithLease_ASharedLeaseHandsTheRunNoFencingToken(t *testing.T) {
+	adapter := &tokenAdapter{}
+	shared := fmt.Sprintf(`{"job_id":%q,"runbook_id":"pb-1","device_id":"device-shared","device_name":"cluster-1","device_host":"10.0.0.1","interruptible":true,"shared_device":true}`, testJobID)
+	msg := &MockMsg{data: wireWrapDispatchPayload(shared)}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	agent := runner.NewAgent(consumer, adapter, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
+	runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
+	if got := adapter.token.Load(); got != 0 {
+		t.Errorf("a run under a shared lease carried fencing token %d, want none", got)
+	}
+}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -333,5 +334,32 @@ func TestJournalPublisherKeepsTheDeviceTheRunResolved(t *testing.T) {
 
 	if got := decodeBatch(t, bus).Entries[0].DeviceID; got != "device-the-run-resolved" {
 		t.Errorf("entry carries device %q, want the one the run resolved", got)
+	}
+}
+
+// TestJournalPublisherStampsTheLeaseRevision: the fencing token the Runner put
+// on the dispatch's context is on every entry, so a rollback orders this
+// dispatch against other jobs on the device by it; with none, entries carry
+// none and order by clock.
+func TestJournalPublisherStampsTheLeaseRevision(t *testing.T) {
+	bus := &mockBus{}
+	ctx := lock.WithFencingToken(journal.WithAttempt(context.Background(), 1), 4242)
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	if err := p.Record(ctx, journalEntries("run-1", 1, 2)); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	for i, e := range decodeBatch(t, bus).Entries {
+		if e.LeaseRevision != 4242 {
+			t.Errorf("entry %d carries lease revision %d, want 4242", i, e.LeaseRevision)
+		}
+	}
+
+	bare := &mockBus{}
+	q := newJournalPublisher(journal.WithAttempt(context.Background(), 1), bare, quietLogger(), "job-1", "device-1")
+	if err := q.Record(context.Background(), journalEntries("run-1", 1)); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if got := decodeBatch(t, bare).Entries[0].LeaseRevision; got != 0 {
+		t.Errorf("with no token on the context, an entry carries revision %d", got)
 	}
 }

@@ -140,6 +140,17 @@ func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPaylo
 	}()
 
 	execCtx, cancelExec := context.WithCancel(detachedValueContext{parent: ctx})
+	// The lease's fencing token rides the run's context to the journal
+	// publisher, which stamps it on every entry, so a rollback orders this
+	// dispatch against other jobs on the device by it rather than by two
+	// Runners' clocks (Phase 40a). Only an exclusive lease's: holders of a
+	// shared one overlap, so a job that joined first can still change the
+	// device after a later one began, and the order of acquisitions says
+	// nothing about the order of changes. Such a job carries no token and is
+	// ordered by clock, which the rollback says.
+	if token, ok := lock.FencingToken(lease); ok && !payload.SharedDevice {
+		execCtx = lock.WithFencingToken(execCtx, token)
+	}
 	if payload.Interruptible {
 		go func() {
 			select {

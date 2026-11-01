@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -55,6 +56,11 @@ type journalPublisher struct {
 	// attempt is the delivery's redelivery count, read from the context
 	// once at construction rather than per Record.
 	attempt int
+
+	// leaseRevision is the fencing token of the device lease the Runner holds
+	// for this dispatch, read from the context once at construction, zero
+	// when the context carries none.
+	leaseRevision uint64
 }
 
 // newJournalPublisher builds the sink for one dispatch.
@@ -74,7 +80,13 @@ func newJournalPublisher(ctx context.Context, bus event.Bus, logger *slog.Logger
 		logger.Debug("no dispatch attempt on the context, journaling this run as attempt zero",
 			slog.String("job", jobID), slog.String("device", deviceID))
 	}
-	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, attempt: attempt}
+	// The device lease's fencing token, when the Runner put one there
+	// (lock.WithFencingToken): stamped on every entry, it orders this
+	// dispatch against other jobs on the device without a clock. A caller
+	// outside the Runner's delivery path has none, and its entries order by
+	// clock, as a journal from before lease revisions does.
+	revision, _ := lock.FencingTokenFrom(ctx)
+	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, attempt: attempt, leaseRevision: revision}
 }
 
 // Record implements engine.Journal by publishing one message per level.
@@ -101,6 +113,7 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 	for i, entry := range entries {
 		entry.JobID = p.jobID
 		entry.Attempt = p.attempt
+		entry.LeaseRevision = p.leaseRevision
 		// A node that resolved no device still ran inside a dispatch that
 		// names exactly one, so it is attributed to that device rather
 		// than left blank. A skipped task, a controller-side task and the
