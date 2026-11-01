@@ -189,6 +189,14 @@ func validateBecomeIn(tasks []Task) error {
 		if err := checkBecomeKeys(fmt.Sprintf("task %q", t.Name), t.Become, t.BecomeUser, t.BecomeMethod); err != nil {
 			return err
 		}
+		// A rollback step runs as the account its task's change ran as, in the
+		// run and in a later pleiades rollback alike (ranAs), so a key of its own
+		// could only mean one thing in one of them.
+		for _, step := range t.Rollback {
+			if step.Become != nil || step.BecomeUser != "" || step.BecomeMethod != "" {
+				return fmt.Errorf("task %q: a rollback step takes no become keys: it runs as the account the task's change ran as", t.Name)
+			}
+		}
 		for _, sub := range [][]Task{t.Block, t.Rescue, t.Always, t.Parallel} {
 			if err := validateBecomeIn(sub); err != nil {
 				return err

@@ -4,6 +4,7 @@ package engine_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -106,9 +107,11 @@ func TestBecome_RefusesWhatCannotMeanWhatItSays(t *testing.T) {
 		}
 	}
 	// A rollback step may not set it: it replays the account the task ran as.
-	_, err := buildYAML(t, "id: x\ntasks:\n  - name: a\n    noop: {}\n    rollback:\n      - name: r\n        noop: {}\n        become: true\n")
-	if err == nil || !strings.Contains(err.Error(), "become") {
-		t.Errorf("a rollback step with become: %v", err)
+	for _, key := range []string{"become: true", "become: false", "become_user: svc"} {
+		_, err := buildYAML(t, "id: x\ntasks:\n  - name: a\n    noop: {}\n    rollback:\n      - name: r\n        noop: {}\n        "+key+"\n")
+		if err == nil || !strings.Contains(err.Error(), "a rollback step takes no become keys") {
+			t.Errorf("a rollback step with %s: %v", key, err)
+		}
 	}
 }
 
@@ -196,16 +199,21 @@ func TestCollectionActionExecutor_BecomeIsRefusedOnARunner(t *testing.T) {
 func TestJournal_RecordsTheAccountATaskBecame(t *testing.T) {
 	sink := &journalSink{}
 	dev := &inventorytest.Stub{StubID: "sw1", StubName: "sw1", StubState: inventory.StateActive}
-	runJournaled(t, `{
+	// A method, not an engine action, which become is refused on.
+	m := registerTestMethod(t, "journaled", collection.StatusImplemented,
+		func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+			return collection.Result{}, nil
+		})
+	runJournaled(t, fmt.Sprintf(`{
 		"id": "journal-become",
 		"hosts": "sw1",
 		"tasks": [
-			{"name": "elevated", "fqcn": "noop", "become": true, "become_user": "svc"},
-			{"name": "asked, not applied", "fqcn": "noop", "become": true, "become_user": "svc"},
-			{"name": "claims another", "fqcn": "noop", "become": true, "become_user": "svc"},
-			{"name": "plain", "fqcn": "noop"}
+			{"name": "elevated", %[1]q: {}, "become": true, "become_user": "svc"},
+			{"name": "asked, not applied", %[1]q: {}, "become": true, "become_user": "svc"},
+			{"name": "claims another", %[1]q: {}, "become": true, "become_user": "svc"},
+			{"name": "plain", %[1]q: {}}
 		]
-	}`, mapResolver{"sw1": {dev}}, becomeStatExecutor{"elevated": "svc", "claims another": "root", "plain": "root"}, sink)
+	}`, m), mapResolver{"sw1": {dev}}, becomeStatExecutor{"elevated": "svc", "claims another": "root", "plain": "root"}, sink)
 	got := map[string]string{}
 	for _, e := range sink.flat() {
 		got[e.TaskName] = e.Become

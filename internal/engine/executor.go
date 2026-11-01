@@ -1271,6 +1271,11 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 			if diff, ok := actionResult.Stats[sdk.StatDiff]; ok {
 				result.journalStats[sdk.StatDiff] = diff
 			}
+			// The account the change ran as goes with it, so the undo runs as
+			// that account too (ranAs), in the run and in a later rollback.
+			if user, ok := actionResult.Stats[StatBecome]; ok {
+				result.journalStats[StatBecome] = user
+			}
 			result.journalChanged = true
 		}
 		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))

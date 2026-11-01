@@ -181,4 +181,12 @@ func TestCollectionActionExecutor_BecomeWarnsOnlyAfterWorkThatFinished(t *testin
 	if _, err := exec.Execute(context.Background(), &engine.Task{FQCN: "ssh_exec", Become: &on}, device); err == nil || !strings.Contains(err.Error(), "engine action, which does not take become") {
 		t.Errorf("an engine action with become: %v", err)
 	}
+	// A check of one is refused the same way, before the fallback is reached.
+	checker, ok := exec.(engine.CheckExecutor)
+	if !ok {
+		t.Fatal("the collection executor does not check")
+	}
+	if _, err := checker.Check(context.Background(), &engine.Task{FQCN: "ssh_exec", Become: &on}, device); err == nil || !strings.Contains(err.Error(), "engine action, which does not take become") {
+		t.Errorf("a check of an engine action with become: %v", err)
+	}
 }

@@ -204,7 +204,10 @@ func asAccountOf(step, task *Task, n NodeResult) {
 	if user := ranAs(task, n.journalStats); user != "" {
 		yes := true
 		step.Become, step.BecomeUser, step.BecomeMethod = &yes, user, BecomeMethodSudo
+		return
 	}
+	// A change that ran as the login is undone as the login.
+	step.Become, step.BecomeUser, step.BecomeMethod = nil, "", ""
 }
 
 // undoRefused is the failed result of a change undoBlock could not undo: it

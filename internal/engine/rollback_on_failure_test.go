@@ -92,9 +92,15 @@ func (u *undoable) Execute(_ context.Context, task *engine.Task, d inventory.Inv
 		return engine.ActionResult{}, errors.New("scripted failure of " + call + "@" + device)
 	}
 	if u.keepAndFail[call+"@"+device] {
-		return engine.ActionResult{Stats: map[string]any{
+		stats := map[string]any{
 			sdk.StatInverse: map[string]any{sdk.InverseFQCNKey: "rbtest.unmake", sdk.InverseParamsKey: map[string]any{"name": task.Params["name"]}, sdk.InverseKeepOnFailureKey: true},
-		}}, errors.New("scripted failure of " + call + "@" + device + " after its change")
+		}
+		// The real executor records the account on a failure too, once a
+		// connection ran as it (recordBecome).
+		if user, on := engine.BecomeFor(task); on && !u.asLogin[call+"@"+device] {
+			stats[engine.StatBecome] = user
+		}
+		return engine.ActionResult{Stats: stats}, errors.New("scripted failure of " + call + "@" + device + " after its change")
 	}
 	if strings.HasPrefix(task.Name, "bare") {
 		// A change that recorded no undo at all.
