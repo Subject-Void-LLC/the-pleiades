@@ -46,29 +46,72 @@ func withoutDetach(ctx context.Context) context.Context {
 // dropped.
 type redialer func(ctx context.Context) (*Conn, error)
 
-// detachStart starts "$1" in the background in a fresh private directory
-// under $HOME/.pleiades-async-<uid> (the account's id, since sudo may keep
-// the login's HOME, and a directory become made is not the login's), in its own session where setsid exists and
-// otherwise in its own process group through job control (so a stop reaches
-// everything it started), and prints the directory. The exit
-// status is written last, through a rename, so a poll never reads half of it.
-const detachStart = `umask 077
+// detachStart starts the command it reads on standard input in the
+// background, and prints the job's directory as its last line. It exits 70,
+// before starting anything, wherever it cannot do that safely, and the
+// caller then runs the command where it stands.
+//
+//   - The command goes into a 0600 file in the job's directory rather than
+//     an argument, so it never shows in a process listing, where an argument
+//     would for the job's whole life.
+//   - The directory is fresh and private, under $HOME/.pleiades-async-<uid>
+//     (the account's id, since sudo may keep the login's HOME). Both $HOME
+//     and that base must belong to the account running the job, the base
+//     must not be a link, and it is made 0700: under become, root polls and
+//     stops the job through these paths, so a directory the login owns would
+//     let the login point root's reads and kills anywhere.
+//   - The job runs under the caller's umask (the 077 is for the job's own
+//     files) and under "$1", or the account's login shell when "$1" is
+//     empty, the shell a plain run's command gets from sshd.
+//   - It runs in its own session where setsid exists, otherwise in its own
+//     process group through job control, so a stop reaches everything it
+//     started.
+//   - MSYS and Cygwin (Git's sh on a Windows OpenSSH server) are refused: a
+//     command written for cmd.exe would run under sh there.
+//
+// The exit status is written last, through a rename, so a poll never reads
+// half of it.
+const detachStart = `um=$(umask)
+umask 077
+case $(uname -s 2>/dev/null) in MINGW*|MSYS*|CYGWIN*) exit 70;; esac
+[ -n "$HOME" ] && [ -O "$HOME" ] || exit 70
 base="$HOME/.pleiades-async-$(id -u)"
 mkdir -p "$base" || exit 70
+[ -d "$base" ] && [ ! -L "$base" ] && [ -O "$base" ] || exit 70
+chmod 700 "$base" || exit 70
 d=$(mktemp -d "$base/job.XXXXXXXX") || exit 70
-job='sh -c "$1" >"$2/out" 2>"$2/err" </dev/null; echo $? >"$2/rc.tmp"; mv "$2/rc.tmp" "$2/rc"'
+cat >"$d/cmd" || exit 70
+shell=${1:-${SHELL:-sh}}
+job='umask "$2"; "$3" "$1/cmd" >"$1/out" 2>"$1/err" </dev/null; echo $? >"$1/rc.tmp"; mv "$1/rc.tmp" "$1/rc"'
 if command -v setsid >/dev/null 2>&1; then
-  setsid sh -c "$job" job "$1" "$d" >/dev/null 2>&1 &
+  setsid sh -c "$job" job "$d" "$um" "$shell" </dev/null >/dev/null 2>&1 &
 else
   set -m 2>/dev/null
-  sh -c "$job" job "$1" "$d" >/dev/null 2>&1 &
+  sh -c "$job" job "$d" "$um" "$shell" </dev/null >/dev/null 2>&1 &
 fi
 echo $! >"$d/pid"
 echo "$d"`
 
 // jobDir is what a started job's directory must look like before any later
-// command names it.
-var jobDir = regexp.MustCompile(`^/[^\x00]*/\.pleiades-async-[0-9]+/job\.[A-Za-z0-9]+$`)
+// command names it: one line, absolute, ending in the base and job names.
+var jobDir = regexp.MustCompile(`^/[^\x00\n]*/\.pleiades-async-[0-9]+/job\.[A-Za-z0-9]+$`)
+
+// lastLine returns the last non-empty line of text, trimmed: a start
+// script's own answer, after whatever a login shell's startup files printed.
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimRight(text, "\r\n\t "), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+// jobShell is the shell a detached command runs under, passed to detachStart
+// as "$1": sh under become, as elevate runs a plain command, and otherwise
+// empty, meaning the login shell sshd gives a plain command.
+func (c *Conn) jobShell() string {
+	if c.become != nil {
+		return "sh"
+	}
+	return ""
+}
 
 // Detached-command polling: the first poll soon, then backing off to a
 // steady interval.
@@ -80,6 +123,14 @@ const (
 	detachRedials = 5
 )
 
+// DetachStopBudget is the most the stop of a detached command takes once its
+// limit lands: a redial when its connection is gone, SIGTERM, a grace, then
+// SIGKILL. A parent that ends a process running a detached command (a
+// Runner's collection child, the loader's external program) gives it at
+// least this long after its SIGTERM before killing it, or the kill lands
+// before the stop reaches the device and the job runs on.
+const DetachStopBudget = 20 * time.Second
+
 // runDetached runs command detached: started in the background, polled for
 // its exit status (reconnecting once per drop through c.redial), its output
 // read back held to limit, and its directory removed. When ctx ends first,
@@ -87,18 +138,20 @@ const (
 // ctx's.
 func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Result, error) {
 	plain := withoutDetach(ctx)
-	started, err := c.run(plain, QuoteCommand([]string{"sh", "-c", detachStart, "start", command}), nil, limit)
+	// The command travels on standard input, never in an argument.
+	started, err := c.run(plain, QuoteCommand([]string{"sh", "-c", detachStart, "start", c.jobShell()}), strings.NewReader(command), limit)
 	if err != nil {
 		return Result{}, err
 	}
 	if started.ExitCode != 0 {
 		// The script ends with an echo, so a failure means it stopped before
-		// starting anything: no POSIX sh (a Windows OpenSSH device) or no
-		// private directory. The command runs where it stands instead, still
-		// under the async limit, which stops it with its connection.
+		// starting anything: no POSIX sh (a Windows OpenSSH device), no
+		// private directory it may safely use, or an MSYS shell. The command
+		// runs where it stands instead, still under the async limit, which
+		// stops it with its connection.
 		return c.run(plain, command, nil, limit)
 	}
-	dir := strings.TrimSpace(started.Stdout)
+	dir := lastLine(started.Stdout)
 	if !jobDir.MatchString(dir) {
 		// Started, maybe: never run it a second time.
 		return Result{}, fmt.Errorf("remoteexec: a detached command on %s answered with no job directory, and may be running: %q %s", c.addr, boundedText(dir), strings.TrimSpace(boundedText(started.Stderr)))
@@ -185,7 +238,7 @@ func (c *Conn) reconnect(ctx context.Context, err error) bool {
 // the same signal that closes its connections, so the one the job started on
 // is often closed by the time the stop runs.
 func (c *Conn) stopDetached(qdir string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DetachStopBudget)
 	defer cancel()
 	ctx = withoutDetach(ctx)
 	stop := QuoteCommand([]string{"sh", "-c", `p=$(cat ` + qdir + `/pid 2>/dev/null) || exit 0

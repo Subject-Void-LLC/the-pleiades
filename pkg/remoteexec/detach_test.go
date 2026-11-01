@@ -168,11 +168,11 @@ func TestDetached_ADeviceThatCannotDetachRunsTheCommandWhereItStands(t *testing.
 
 func TestDetached_TheStopReconnectsWhenItsConnectionIsGone(t *testing.T) {
 	conn, _, _, home := detachedConn(t)
-	started, err := conn.run(context.Background(), QuoteCommand([]string{"sh", "-c", detachStart, "start", `sleep 30 & echo $! >"$HOME/child"; wait`}), nil, 4096)
+	started, err := conn.run(context.Background(), QuoteCommand([]string{"sh", "-c", detachStart, "start", ""}), strings.NewReader(`sleep 30 & echo $! >"$HOME/child"; wait`), 4096)
 	if err != nil || started.ExitCode != 0 {
 		t.Fatalf("start: %+v, %v", started, err)
 	}
-	dir := strings.TrimSpace(started.Stdout)
+	dir := lastLine(started.Stdout)
 	deadline := time.Now().Add(10 * time.Second)
 	var raw []byte
 	for len(raw) == 0 && time.Now().Before(deadline) {
@@ -201,12 +201,26 @@ func TestDetached_FailuresAreNamedAndNeverRunTwice(t *testing.T) {
 	}
 
 	// A start that answers with something that is not a job directory (here
-	// a relative HOME) is refused, not polled, and not run a second time.
+	// a HOME holding a newline, so the last line is a relative path) is
+	// refused, not polled, and not run a second time.
 	conn, _, _, home := detachedConn(t)
-	t.Setenv("HOME", "relative-home")
+	broken := filepath.Join(home, "line\nbreak")
+	if err := os.Mkdir(broken, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", broken)
 	t.Chdir(home)
 	if _, err := conn.Run(WithDetach(context.Background()), "echo once >> count"); err == nil || !strings.Contains(err.Error(), "no job directory") {
 		t.Errorf("a start with no job directory: %v", err)
+	}
+	// The job did start; it must have run exactly once.
+	var raw []byte
+	for deadline := time.Now().Add(5 * time.Second); len(raw) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		raw, _ = os.ReadFile(filepath.Join(home, "count"))
+	}
+	time.Sleep(300 * time.Millisecond)
+	if raw, _ = os.ReadFile(filepath.Join(home, "count")); string(raw) != "once\n" {
+		t.Errorf("the command ran %q times' worth; want exactly once", raw)
 	}
 }
 
@@ -248,4 +262,111 @@ func TestDetached_ReconnectRefusesWhatIsNotADroppedConnection(t *testing.T) {
 	// A stop that can neither run nor redial ends quietly.
 	_ = conn.client.Close()
 	conn.stopDetached(QuoteArg("/nowhere/.pleiades-async-0/job.x"))
+}
+
+func TestDetached_TheJobKeepsTheCallersUmaskAndShell(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	// The start script's own umask 077 is for the job's files; the command
+	// creates its own under the umask a plain run would give it.
+	if _, err := conn.Run(context.Background(), `umask >"$HOME/plain-umask"`); err != nil {
+		t.Fatal(err)
+	}
+	// A login shell that leaves a mark, then runs the command as sh would.
+	loginShell := filepath.Join(home, "login-shell")
+	if err := os.WriteFile(loginShell, []byte("#!/bin/sh\n: >\"$HOME/login-shell-ran\"\nexec /bin/sh \"$@\"\n"), 0o700); err != nil { // #nosec G306 -- the test's own executable
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", loginShell)
+	res, err := conn.Run(WithDetach(context.Background()), `umask`)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	plain, _ := os.ReadFile(filepath.Join(home, "plain-umask"))
+	got := strings.TrimSpace(res.Stdout)
+	if got != strings.TrimSpace(string(plain)) {
+		t.Fatalf("the detached job's umask is %q; a plain run's is %q", got, plain)
+	}
+	if got == "0077" || got == "077" {
+		t.Fatal("the job ran under the start script's 077, not the caller's umask")
+	}
+	if _, err := os.Stat(filepath.Join(home, "login-shell-ran")); err != nil {
+		t.Fatal("the job did not run under the login shell ($SHELL), as a plain run's command does")
+	}
+}
+
+func TestDetached_TheCommandIsNeverAnArgument(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	const marker = "pleiades-argv-marker-7f3a"
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.Run(WithDetach(context.Background()), "sleep 2; : "+marker)
+		done <- err
+	}()
+	for deadline := time.Now().Add(10 * time.Second); len(jobsLeft(t, home)) == 0; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the detached job never started")
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	procs, _ := filepath.Glob("/proc/[0-9]*/cmdline")
+	for _, p := range procs {
+		raw, err := os.ReadFile(p)
+		if err == nil && strings.Contains(string(raw), marker) {
+			t.Errorf("the command shows in %s: %q", p, strings.ReplaceAll(string(raw), "\x00", " "))
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestDetached_ALoginBannerBeforeTheDirectoryIsSkipped(t *testing.T) {
+	if got := lastLine("Welcome to the device\n/home/u/.pleiades-async-1/job.ab12\n"); got != "/home/u/.pleiades-async-1/job.ab12" {
+		t.Errorf("lastLine = %q", got)
+	}
+	// A banner line starting with "/" joined to the directory by a newline is
+	// not one job directory.
+	if jobDir.MatchString("/banner\n/home/u/.pleiades-async-1/job.ab12") {
+		t.Error("jobDir matched across a newline")
+	}
+}
+
+func TestDetached_AHomeTheAccountDoesNotOwnRunsTheCommandWhereItStands(t *testing.T) {
+	conn, _, _, _ := detachedConn(t)
+	// A HOME owned by someone else is what become looks like under a sudo
+	// that keeps the login's HOME. /tmp (owned by root, yet writable, so the
+	// old script would have used it) stands in for it when the test does not
+	// run as root.
+	info, err := os.Stat("/tmp")
+	if os.Getuid() == 0 || err != nil || info.Sys().(*syscall.Stat_t).Uid == uint32(os.Getuid()) {
+		t.Skip("needs a writable /tmp the test's account does not own")
+	}
+	t.Setenv("HOME", "/tmp")
+	// A command run where it stands reads the session's pipe; a detached
+	// job's standard input is /dev/null.
+	res, err := conn.Run(WithDetach(context.Background()), `if [ -p /dev/stdin ]; then echo attached; else echo detached; fi`)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.TrimSpace(res.Stdout) != "attached" {
+		t.Fatalf("the command ran %s under a HOME the account does not own; want attached", strings.TrimSpace(res.Stdout))
+	}
+}
+
+func TestDetached_ALinkedBaseIsRefused(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(home, ".pleiades-async-"+strconv.Itoa(os.Getuid()))); err != nil {
+		t.Fatal(err)
+	}
+	// A finished job removes its directory, so whether one was made through
+	// the link is read from the command itself: a detached job's standard
+	// input is /dev/null, an attached command's the session's pipe.
+	res, err := conn.Run(WithDetach(context.Background()), `if [ -p /dev/stdin ]; then echo attached; else echo detached; fi`)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.TrimSpace(res.Stdout) != "attached" {
+		t.Fatalf("the command ran %s through a linked base; want attached", strings.TrimSpace(res.Stdout))
+	}
 }
