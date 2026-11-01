@@ -77,6 +77,10 @@ func runManagerConformance(t *testing.T, newManager func() lock.Manager) {
 		conformanceAcquireAllReleasesOnPartialFailure(t, newManager())
 	})
 
+	t.Run("FencingTokensOrderAcquisitions", func(t *testing.T) {
+		conformanceFencingTokensOrderAcquisitions(t, newManager())
+	})
+
 	t.Run("ContentionNamesOwners", func(t *testing.T) {
 		conformanceContentionNamesOwners(t, newManager())
 	})

@@ -155,6 +155,12 @@ type inProcessLease struct {
 	deadline time.Time     // this lease's own locally-computed deadline, from this process's own monotonic-carrying time.Now(); never read back from itemID's stored entry, and never compared against a value produced by another process
 }
 
+// FencingToken implements Fenced: the manager's holder counter at the
+// acquisition, which only grows for the life of the process.
+func (l *inProcessLease) FencingToken() uint64 {
+	return l.token
+}
+
 // ID returns the itemID this lease was acquired for. More than one lease
 // can share an itemID under ModeShared, so ID alone does not uniquely
 // identify a lease; it matches natsLease.ID's existing behavior.
