@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/google/uuid"
 )
@@ -1329,6 +1330,12 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 	var err error
 	mode := r.modeFor(cmd.Task)
 	result.Checked = mode == collection.ModeCheck
+	// A real async task's SSH commands run detached on the device, so they
+	// outlive a dropped connection and the limit stops what they started
+	// (pkg/remoteexec's detach.go). A check's reads are not detached.
+	if cmd.Task.Async > 0 && mode != collection.ModeCheck {
+		execCtx = remoteexec.WithDetach(execCtx)
+	}
 	if isAssert(cmd.Task.FQCN) && cmd.Task.progs != nil && cmd.Task.progs.assert != nil {
 		// An assert reads the run's state, which only the engine holds.
 		actionResult, err = r.runAssert(cmd, result.Device)

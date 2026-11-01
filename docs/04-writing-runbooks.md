@@ -758,8 +758,68 @@ tasks:
 - A pause that waits for a person (Ansible's `prompt`, or no duration) is refused, since a scheduled or
   dispatched run has no one to answer it.
 
+## Long tasks (`async` and `poll`)
+
+`async: N` gives a task a hard limit of N seconds on each device. Past it the task is stopped and fails,
+which a `rescue:` can answer. `poll:` says how the run waits for it:
+
+- `poll: M` (10 when `async` is set and `poll` is not): the task runs where it stands, and the run reports
+  it still running every M seconds.
+- `poll: 0`: the task runs in the background. Its `register` holds the job's id, `ansible_job_id`, and the
+  run goes on to later tasks while it runs. An `async_status` task collects it.
+
+```yaml
+# Rebuilds the search index in the background while the caches are cleared.
+# Blast radius: every search host, all at once.
+# Changes: the search index; the page cache.
+# Undo: none; a rebuild replaces the index, and a later rebuild restores it.
+id: reindex-in-the-background
+hosts: search
+tasks:
+  - name: Rebuild the index (up to an hour)
+    exec.command:
+      cmd: /usr/local/bin/reindex --full
+    async: 3600
+    poll: 0
+    register: reindex
+  - name: Clear the page cache meanwhile
+    exec.command:
+      cmd: /usr/local/bin/cache-clear
+  - name: Wait for the rebuild
+    async_status:
+      jid: "{{ result.reindex.ansible_job_id }}"
+```
+
+- `async_status` (also spelled `pleiades.builtin.async_status`) waits for the job and returns the job's
+  own result as its result: its change, its output, its failure. Ansible's version returns at once and is
+  polled with `until: result.finished`. Here the wait happens inside it, so such a loop is satisfied the
+  first time. A `timeout:` on the `async_status` task bounds the wait. A job that has not finished by then is
+  not lost: the run still waits for it at the end.
+- A device collects only its own job, and a job is collected once.
+- `validate` refuses a background task that no later `async_status` collects. A run that ends anyway with a
+  job nobody collected (a failure skipped the `async_status`) waits for it, up to its limit, before it
+  ends, so its change is always in the journal.
+- The job's change is journaled under its own task when it is collected, so `pleiades rollback` sees it.
+  Its start changes nothing and is not journaled.
+- A background job keeps its device's lock while it runs. Later tasks of the same run on that device go
+  ahead, and another run is kept out until the job ends.
+- On a device reached over SSH, an async task's commands run detached on the device: started in the
+  background under `~/.pleiades-async-<uid>`, readable only by that account, and polled until they end.
+  A command started this way keeps running when the connection drops. The polls reconnect, up to five times
+  in a row, and read its output and exit status when it ends. At the limit, its whole process group gets
+  `SIGTERM` and, up to ten seconds later, `SIGKILL`, and its directory is removed. A device with no POSIX `sh`
+  runs the command where it stands, under the same limit. Commands that send input (a file upload) are
+  never detached. A command's output is held in that directory until it is read back, which is the one
+  place an async task's output touches the device's disk.
+- A plain task's `timeout:` ends the task at its time on every device. It sends the command `SIGTERM`, but
+  on some devices it never reaches the command (measured on Debian's sshd), so the command, and anything it started, may
+  run on after the task has failed. When the work itself must stop, use `async:`.
+- `async` goes on a task that calls a method. It is refused on a block, on a loop or a retry, and on
+  `set_fact`, `assert`, `fail`, `pause` and `async_status`, which run in the engine at once. `poll:` needs
+  `async:` and cannot be longer than it.
+
 ## What is not supported
 
-`with_*` loops other than `with_items`, `meta: flush_handlers`, `max_fail_percentage`, and
-`serial` on a Controller are not supported. `pleiades forge migrate-playbook` reports them for a person
+`with_*` loops other than `with_items`, `meta: flush_handlers` and `max_fail_percentage` are not
+supported. `pleiades forge migrate-playbook` reports them for a person
 to resolve. See [Migrating from Ansible](03-migrating-from-ansible.md).

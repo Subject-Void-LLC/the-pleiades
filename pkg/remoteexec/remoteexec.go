@@ -403,7 +403,11 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 	if err != nil {
 		return nil, err
 	}
-	return &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr}, nil
+	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr}
+	// A detached command whose connection drops polls on a fresh one, dialed
+	// the same way (detach.go).
+	conn.redial = func(ctx context.Context) (*Conn, error) { return r.Connect(ctx, hops, target, auth) }
+	return conn, nil
 }
 
 // dialChain dials through legs, in order, completing an independent SSH
