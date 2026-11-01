@@ -662,12 +662,12 @@ Every finding in a migration report carries one of these codes. The set is close
 | `block.always` | review | always: converted. It runs on each device the block ran on, whatever happened, or once on its own target. | - |
 | `block.rescue` | review | rescue: converted. It runs on each device whose block failed, or once for a block one of whose tasks runs elsewhere (delegate_to becomes a target of its own, and such a block fails as one unit); Ansible's ansible_failed_task and ansible_failed_result are not translated, and the native rescue reads the failure as error. | - |
 | `debug.dropped` | info | A debug task only prints, so it was dropped. | - |
-| `handler.dropped` | review | A handler was not converted, since nothing native notifies it. | Run its task explicitly where it was notified. |
+| `handler.dropped` | review | A handler was not converted: this converter does not carry handlers yet. | A runbook has handlers: and notify: of its own: copy the handler under handlers:, or run its task explicitly where it was notified. |
 | `import.playbook` | blocked | import_playbook: convert the imported playbook on its own. | - |
 | `import.tasks_missing` | blocked | import_tasks names a file that cannot be read inside the playbook's directory. | - |
 | `include.role` | blocked | Roles convert through a Galaxy collection migration, not this one. | - |
 | `include.tasks` | blocked | include_tasks decides at run time what it includes. | import_tasks, which is static. |
-| `keyword.async` | blocked | async/poll has no native equivalent. | - |
+| `keyword.async` | blocked | async/poll: this converter does not carry them yet. | A runbook task takes async: and poll: of its own, and async_status collects a background job: write them on the converted task. |
 | `keyword.become` | review | become dropped: the task runs as the connecting user and fails if it needs root. | Add become: true to the converted task (it runs sudo -n, so the login needs a NOPASSWD rule), or use a credential with the privilege. |
 | `keyword.become_user` | blocked | become_user names a user other than root. | - |
 | `keyword.changed_when` | blocked | changed_when could not be carried: it is templated, has no register to read, on a block, or its condition does not translate. | Write the condition as CEL over result.<register>. |
@@ -683,7 +683,7 @@ Every finding in a migration report carries one of these codes. The set is close
 | `keyword.local_satisfied` | info | delegate_to: localhost, local_action or connection: local dropped: the native method already runs in the host process. | - |
 | `keyword.module_defaults` | blocked | module_defaults would change the call's arguments. | - |
 | `keyword.no_log` | blocked | no_log hides output; dropping it could show a secret. | Use register_mask or secret_mask on the fields that hold the secret. |
-| `keyword.notify` | review | notify dropped: the handler will not run. | Run the handler's task explicitly after the change, guarded by when. |
+| `keyword.notify` | review | notify dropped: this converter does not carry it yet, so the handler will not run. | A runbook has notify: and handlers: of its own: copy the handler under handlers: and add notify: to the task. |
 | `keyword.reporting` | info | A reporting-only keyword (diff, debugger) was dropped. | - |
 | `keyword.retries` | blocked | until, retries or delay could not be carried: no register to read, a templated or out-of-range count (retries 0 to 100, delay 0 to 3600), a condition that does not translate, or the keyword is on a block. | Write the condition as CEL over result.<register>. |
 | `keyword.run_once` | blocked | run_once: the native task would run on every device. | - |
@@ -711,7 +711,7 @@ Every finding in a migration report carries one of these codes. The set is close
 | `play.malformed` | blocked | A play that is not a map, or has no tasks. | - |
 | `play.order` | review | A play-level control (strategy, order, max_fail_percentage, force_handlers) was dropped: the run stops at the first failure. | - |
 | `play.roles` | blocked | roles: convert through a Galaxy collection migration. | - |
-| `play.serial` | blocked | serial: the runbook would change every device at once. | - |
+| `play.serial` | blocked | serial: this converter does not carry it yet, so the runbook would change every device at once. | A runbook takes serial: of its own: add it at the top of the converted runbook. |
 | `play.split` | review | This play's hosts differ from the play before it, so it starts a new runbook; run them in order. | - |
 | `play.vars_prompt` | blocked | vars_prompt asks at run time. | A survey on the job template. |
 | `set_fact.cacheable` | review | set_fact converted to the set_fact action; its cacheable option was dropped, since a runbook's facts last for the run only. | - |
