@@ -87,3 +87,45 @@ func TestSerialList_RefusesWhatIsNotABatchSize(t *testing.T) {
 		t.Errorf("written back as %s", out)
 	}
 }
+
+// FuzzSerialList holds any serial: text to one of two outcomes: refused, or
+// sizes every one of which is at least one device (and a percentage at most
+// 100), whose batches over any device count place every device exactly once,
+// in order, with no empty batch. Seeded with the shapes a parser most often
+// gets wrong: signs, exponents, hex, a full-width digit, a doubled or lone %,
+// overflow, and spaces around the %.
+func FuzzSerialList(f *testing.F) {
+	for _, seed := range []string{"3", `"30%"`, `" 5 %"`, "1e2", "0x10", "+3", `"３"`, `"50%%"`, `"%"`, `"2147483648%"`, "9223372036854775807", `[1, "50%"]`, "-0", `"01%"`} {
+		f.Add(seed, uint8(7))
+	}
+	f.Fuzz(func(t *testing.T, text string, count uint8) {
+		var sizes engine.SerialList
+		if err := yaml.Unmarshal([]byte(text), &sizes); err != nil {
+			return
+		}
+		for _, s := range sizes {
+			if s.N < 1 || (s.Percent && s.N > 100) {
+				t.Fatalf("serial %q gave size %v", text, s)
+			}
+		}
+		items := make([]int, int(count))
+		for i := range items {
+			items[i] = i
+		}
+		next := 0
+		for _, batch := range engine.Batches(items, sizes) {
+			if len(batch) == 0 {
+				t.Fatalf("serial %q over %d gave an empty batch", text, count)
+			}
+			for _, item := range batch {
+				if item != next {
+					t.Fatalf("serial %q over %d placed %d where %d belongs", text, count, item, next)
+				}
+				next++
+			}
+		}
+		if next != len(items) {
+			t.Fatalf("serial %q over %d placed %d devices", text, count, next)
+		}
+	})
+}
