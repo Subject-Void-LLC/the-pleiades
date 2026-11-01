@@ -18967,3 +18967,23 @@ request, as designed.
 
 **Lesson.** A change to a behavior other tests read (a breaking flag, a documented example) runs the whole package those
 tests live in before the push, container package or not: `go test -run . ./cmd/runner` is minutes, a CI round is an hour.
+
+## 791. Two detach tests dropped the connection when the job directory appeared, which the start script makes before it answers; reading the command from stdin widened that window, and fast-macos cut the start instead of a poll (a repeat of 211 and 788) (fixed in the pull request)
+
+**Symptom.** PR #99's advisory `fast-macos` job, 2026-11-01: `pkg/remoteexec`'s `TestDetached_OutlivesADroppedConnection`
+failed with "remote command exited without exit status or exit signal". It passed on Linux, in pr-check and in every
+other job.
+
+**Root cause.** The test (and `TestDetached_ALostConnectionThatCannotBeRedialedIsNamed`) dropped the server's
+connections as soon as a job directory existed. The start script makes that directory before it starts the job and
+before it answers, so a drop there cuts the start command itself, a different case from a dropped poll. `54c0cff4` added
+a read of the command from stdin between the two, which widened the window enough for a macOS runner to land in it.
+
+**Fix.** `866436fd`: both tests wait for the server to log the job's first poll (`cat .../rc`), which comes only after
+the start has answered, before dropping.
+
+**Why 211 and 788 did not prevent it.** 788 fixed the same shape in the release gates the same day; these two older
+tests waited for a mark that comes before the event they meant, and nothing read them for it when the script changed.
+
+**Lesson.** As 211's: wait for the event itself. When a change moves what happens between two marks, re-read every
+test that waits on the first one.
