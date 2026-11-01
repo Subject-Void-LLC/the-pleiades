@@ -690,6 +690,11 @@ handlers:
 - `--tags` does not filter handlers: a handler a selected task notified runs.
 - Not supported yet: `meta: flush_handlers`, a handler that notifies another
   handler, and a block as a handler. Each is refused with its reason.
+- A handler runs on the devices whose tasks notified it, so a handler with a
+  `target:` of its own, one whose call acts on no device (a `pause`, an
+  `http.request` to a full URL), and one with `lock_acquisition:
+  all_at_plan_time` are refused when the runbook is built: none of them could
+  ever run. Run such a call as an ordinary task with a `when:` instead.
 
 ## Rolling out a few devices at a time (`serial`)
 
@@ -715,6 +720,9 @@ tasks:
 - `serial:` takes a number of devices (`2`), a percentage (`"30%"`, rounded down, never less than one),
   or a list of them (`[1, "50%"]`), the last size repeating for every later batch, as in Ansible.
 - Devices are batched in name order, so you can tell which devices go first.
+- A percentage counts the hosts whose lifecycle admits the run, on the CLI and on a Controller alike. A
+  host it does not admit (an archived one, say) is in the first batch and skipped there, naming why. A
+  runbook whose hosts match nothing runs as if it had no `serial:`.
 - A batch with a failure stops the rollout there: later batches do not start, and the run says which
   devices it left alone. `max_fail_percentage` is not supported, since a failure already ends its batch's
   run on every device.
@@ -805,11 +813,19 @@ tasks:
   ahead, and another run is kept out until the job ends.
 - On a device reached over SSH, an async task's commands run detached on the device: started in the
   background under `~/.pleiades-async-<uid>`, readable only by that account, and polled until they end.
+  The command reaches the device on standard input and waits in a file there, never in a process's
+  arguments, and it runs under the login's own shell and umask, as it would without `async:` (under
+  `become:`, under `sh`, as a `become:` task always does). The directory is used only when the home
+  directory and the directory itself belong to the account the command runs as, which a `sudo` that
+  keeps the login's `HOME` does not give; the command then runs where it stands. So does a command on a
+  Windows server whose SSH shell is Git's or Cygwin's `sh`.
   A command started this way keeps running when the connection drops. The polls reconnect, up to five times
   in a row, and read its output and exit status when it ends. At the limit, its whole process group gets
-  `SIGTERM` and, up to ten seconds later, `SIGKILL`, and its directory is removed. A device with no POSIX `sh`
+  `SIGTERM` and, up to three seconds later, `SIGKILL`, and its directory is removed. A device with no POSIX `sh`
   runs the command where it stands, under the same limit. The same holds on a Controller's Runner, whose
-  per-task process is told the task is async and stops the job itself at the limit. Commands that send input (a file upload) are
+  per-task process is told the task is async and stops the job itself at the limit, and for an external
+  Collection, whose program does the same. Each is given the stop's own time (up to twenty seconds, to reach
+  the device again if its connection is gone) before it is killed. Commands that send input (a file upload) are
   never detached. A command's output is held in that directory until it is read back, which is the one
   place an async task's output touches the device's disk.
 - A plain task's `timeout:` ends the task at its time on every device. It sends the command `SIGTERM`, but
@@ -818,6 +834,9 @@ tasks:
 - `async` goes on a task that calls a method. It is refused on a block, on a loop or a retry, and on
   `set_fact`, `assert`, `fail`, `pause` and `async_status`, which run in the engine at once. `poll:` needs
   `async:` and cannot be longer than it.
+- A background task (`poll: 0`) inside a block with `rollback_on_failure: true` is refused: the block's
+  undo cannot undo a job still running. Poll the task, or move it out of the block.
+- Cancelling a run (an interrupt, or a cancelled job on a Controller) stops its background jobs too.
 
 ## What is not supported
 

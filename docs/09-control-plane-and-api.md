@@ -173,7 +173,9 @@ globs such as `web-*`, comma separated, `!` to exclude and `&` to intersect, in 
 - A device the limit leaves out is not part of the job: it is not dispatched and has no row, as a device
   outside the inventory has none.
 - A limit that matches none of the job's devices fails the job, saying so, and one that cannot be read
-  (a regular expression `~`, a file `@`) fails it naming why.
+  (a regular expression `~`, a file `@`) fails it naming why. So does one made only of separators (`,`,
+  as a script writing `"$HOSTS,"` with `HOSTS` empty would): it names no device, and must never be read as
+  no limit at all.
 - It applies to playbook jobs too, by the Controller, and is not passed on to ansible-playbook, so one
   reader decides which devices run.
 - A rollback job ignores the limit: it undoes every device its plan names.
