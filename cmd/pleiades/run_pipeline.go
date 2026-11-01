@@ -55,6 +55,10 @@ type runOptions struct {
 	verbose bool
 	// asJSON prints the report as one JSON document instead of text.
 	asJSON bool
+	// limit is --limit, which of the runbook's devices the run may reach,
+	// and limitText the flag as written, for a message.
+	limit     engine.Limit
+	limitText string
 	// variables are run's --extra-vars, the vars root a runbook's
 	// conditions and rendered parameters read; nil when none were given.
 	variables map[string]any
@@ -152,6 +156,11 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// contacted, rather than at its task. The advice names --extra-vars only
 	// for the command that takes it.
 	world := validate.WorldView{Items: items, DAG: dag, Mode: mode, Variables: opts.variables, VariablesKnown: true, VariablesFlag: opts.variablesFlag}
+	// --limit narrows every target the run resolves, before validation, so
+	// what is checked, planned and run are the same devices (run_limit.go).
+	if world, err = applyLimit(world, dag, opts.limit, opts.limitText); err != nil {
+		return nil, err
+	}
 	rep := planReport(src.label, items, dag, mode, world)
 	if report := validate.Validate(world); report.HasErrors() {
 		rep.Validation = validationIssues(report, items)

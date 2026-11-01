@@ -71,6 +71,7 @@ type runFlags struct {
 	persist         *bool
 	failOnRescue    *bool
 	forks           *int
+	limit           *string
 	allowUnchecked  map[string]bool
 }
 
@@ -94,6 +95,7 @@ func addRunFlags(fs *flag.FlagSet) *runFlags {
 	})
 	f.persist = fs.Bool("persist-connections", true, "keep one SSH connection per device open between its tasks; =false logs in afresh for every task")
 	f.forks = fs.Int("forks", engine.DefaultMaxConcurrency, "how many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default)")
+	f.limit = fs.String("limit", "", "run on only these of the runbook's devices: names, tags or globs, comma separated, ! to exclude and & to intersect (Ansible's --limit)")
 	f.failOnRescue = fs.Bool("fail-on-rescue", false, fmt.Sprintf("end with status %d when a block's rescue: answered a failure, so a gate never passes through a fallback", exitRescued))
 	return f
 }
@@ -111,8 +113,13 @@ func (f *runFlags) options() (runOptions, error) {
 	if *f.forks < 1 || *f.forks > maxForks {
 		return runOptions{}, fmt.Errorf("--forks must be between 1 and %d, got %d", maxForks, *f.forks)
 	}
+	limit, err := engine.ParseLimit(*f.limit)
+	if err != nil {
+		return runOptions{}, fmt.Errorf("--limit: %w", err)
+	}
 	return runOptions{
 		dir: *f.dir, mode: mode, forks: *f.forks, persist: *f.persist, failOnRescue: *f.failOnRescue,
 		allowUnchecked: f.allowUnchecked, verbose: *f.verbose, asJSON: *f.asJSON,
+		limit: limit, limitText: *f.limit,
 	}, nil
 }
