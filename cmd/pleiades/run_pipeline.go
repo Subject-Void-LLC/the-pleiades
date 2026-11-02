@@ -216,6 +216,9 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// a reasonable place to ask "what would this do" from.
 	var sink engine.Journal
 	var store *journal.FileStore
+	// runTick is the run's start tick on the project counter, which the
+	// end-of-run concurrency warning reads (run_concurrent.go).
+	var runTick uint64
 	if !checking {
 		store, err = journal.NewFileStore(opts.dir)
 		if err != nil {
@@ -226,7 +229,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		// the seal takes the end tick. A counter that cannot be ticked fails
 		// the run before it changes anything, as a journal that cannot be
 		// written does.
-		if _, err := store.BeginRun(); err != nil {
+		if runTick, err = store.BeginRun(); err != nil {
 			return rep, fmt.Errorf("failed to tick the project's run counter: %w", err)
 		}
 		sink = store
@@ -239,6 +242,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	var conc *concurrency
 	if !checking {
 		conc, rep.Warnings = beginConcurrency(opts.dir, src.label, validate.CalculateBlastRadius(world).Devices)
+		conc.startTick = runTick
 		defer conc.release()
 	}
 

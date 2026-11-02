@@ -294,14 +294,27 @@ type ConcurrentChange struct {
 	Changes int
 	// RollbackOf is set when it was a rollback, naming the run it undid.
 	RollbackOf string
+	// Overlapped says the run counter decided it (clock.go): the other run
+	// overlapped this one, which says nothing of when on that span its
+	// changes came. False when the journals' clock times decided it, which
+	// puts each change inside this run's span.
+	Overlapped bool
 }
 
 // ChangesDuring reads every journal in the project at root other than
 // self's and returns each run that journaled a change to one of deviceIDs
-// finishing between since and until, oldest first. A journal that cannot
-// be read (one still being written can end mid-line) is read once more,
-// and if it still cannot be, named in unread rather than failing the rest.
-func ChangesDuring(root, self string, deviceIDs []string, since, until time.Time) (changes []ConcurrentChange, unread []string, err error) {
+// while this run worked, oldest first. A journal that cannot be read (one
+// still being written can end mid-line) is read once more, and if it still
+// cannot be, named in unread rather than failing the rest.
+//
+// When this run took a start tick (ownTick, from FileStore.BeginRun) and
+// the other run carries one, the run counter decides, not the clock, which
+// can be stepped back while a run works: the other run overlapped this one
+// when it never recorded its end or ended after this run began, and then
+// every change it made to the devices counts (Overlapped). Otherwise each
+// change counts whose clock time falls between since and until, as before
+// the counter.
+func ChangesDuring(root, self string, deviceIDs []string, since, until time.Time, ownTick uint64) (changes []ConcurrentChange, unread []string, err error) {
 	dir := filepath.Join(root, pleiadesDirName, journalDirName)
 	names, err := readDirIfAny(dir)
 	if err != nil {
@@ -327,11 +340,18 @@ func ChangesDuring(root, self string, deviceIDs []string, since, until time.Time
 		}
 		var f found
 		devices := map[string]bool{}
+		// By the counter when both runs carry it; by each entry's clock time
+		// otherwise.
+		byTick := ownTick != 0 && startTick(run) != 0
+		if byTick && run.EndTick != 0 && run.EndTick <= ownTick {
+			continue
+		}
+		f.change.Overlapped = byTick
 		for _, entry := range run.Entries {
 			if !(entry.ActionChanged || entry.Outcome == engine.OutcomeChanged) || !slices.Contains(deviceIDs, entry.DeviceID) {
 				continue
 			}
-			if entry.FinishedAt.Before(since) || entry.FinishedAt.After(until) {
+			if !byTick && (entry.FinishedAt.Before(since) || entry.FinishedAt.After(until)) {
 				continue
 			}
 			if f.change.Changes == 0 || entry.FinishedAt.Before(f.first) {

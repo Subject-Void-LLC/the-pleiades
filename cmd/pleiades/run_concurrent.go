@@ -37,8 +37,12 @@ type concurrency struct {
 	dir     string
 	active  *journal.Active
 	started time.Time
-	ids     []string
-	names   map[string]string
+	// startTick is the run's own start tick on the project counter
+	// (journal.FileStore.BeginRun), zero for a run that took none; with it the
+	// end-of-run warning decides overlap by the counter, not the clock.
+	startTick uint64
+	ids       []string
+	names     map[string]string
 }
 
 // beginConcurrency records the run as active on devices and returns the
@@ -111,7 +115,7 @@ func (c *concurrency) end(self string) []runWarning {
 		return nil
 	}
 	var warnings []runWarning
-	changes, unread, err := journal.ChangesDuring(c.dir, self, c.ids, c.started, time.Now())
+	changes, unread, err := journal.ChangesDuring(c.dir, self, c.ids, c.started, time.Now(), c.startTick)
 	if err != nil {
 		warnings = append(warnings, runWarning{Kind: warnConcurrentUnknown, Message: fmt.Sprintf("could not read the journals to see whether another run changed this run's devices: %v", err)})
 	}
@@ -124,13 +128,20 @@ func (c *concurrency) end(self string) []runWarning {
 		if ch.RollbackOf != "" {
 			what = "a rollback of " + ch.RollbackOf
 		}
+		// The counter says the two runs overlapped, not when on that span the
+		// change came; the clock places each change inside this run.
+		when := "while this run worked"
+		if ch.Overlapped {
+			what += " that overlapped this one"
+			when = "(by the project's run counter)"
+		}
 		runbook := termsafe.EscapeLine(ch.Runbook)
 		warnings = append(warnings, runWarning{
 			Kind:    warnConcurrentChange,
 			RunID:   ch.RunID,
 			Runbook: runbook,
 			Devices: shared,
-			Message: fmt.Sprintf("%s changed %s while this run worked: run %s (%s), %d changed task(s); `pleiades journal show %s` lists them", what, strings.Join(shared, ", "), ch.RunID, runbook, ch.Changes, ch.RunID),
+			Message: fmt.Sprintf("%s changed %s %s: run %s (%s), %d changed task(s); `pleiades journal show %s` lists them", what, strings.Join(shared, ", "), when, ch.RunID, runbook, ch.Changes, ch.RunID),
 		})
 	}
 	for _, id := range unread {
