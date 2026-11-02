@@ -455,33 +455,31 @@ The engine marks every check result, and its diff, with `predicted: true`
 is refused.
 
 A check sees the device as it is, so a later task's check can be wrong about a path an
-earlier task's check only predicted it would remove or make. A built-in method that makes
-or removes paths can fix that for the tasks after it. When `sdk.PredictionsWanted(rc)`
-says the run keeps predictions for the device (only a run that is a check throughout does,
-and only until the device's are dropped), its `Check` locates each path it changes with
-`remotefile.Locate`, which reads the physical path and the identity of each directory along
-it, and records it with `sdk.RecordPredicted` (`wire.PredictedAbsent` or
-`wire.PredictedPresent`; an empty call when it changes nothing). A path it cannot locate, or
-one that resolves anywhere but where it is written (a link along it), is recorded with
-`sdk.RecordPredictionUnknown`. Its manifest sets `PredictsPaths`, which says the check
-records every path the method changes on every check and needs `SupportsCheck`; a method
-that makes links must not set it, since a link changes where later paths lead. A later
-check asks with the location it read: `sdk.PredictedAbsent`, `sdk.PredictedPresent` (the
-path itself), `sdk.PredictedFresh` (made where the real run had nothing, so holding only
-what was made in it), `sdk.PredictedPresentUnder` and `sdk.PredictedAbsentUnder` all answer
-false whenever the predictions cannot vouch for that location, so the device is then read
-as it is; where it cannot be (`sdk.PredictionsVouch` false, or a listing it cannot finish),
-answer `collection.CannotCheck`.
+earlier task's check only predicted it would remove. A built-in method that removes paths
+and makes none can fix that for the tasks after it. When `sdk.PredictionsWanted(rc)` says
+the run keeps predictions (only a run that is a check throughout does, and only until they
+are dropped), its `Check` locates each path it removes with `remotefile.Locate`, which reads
+the physical path and the identity of each directory along it, and records it with
+`sdk.RecordPredicted` (`wire.PredictedAbsent`; an empty call when it removes nothing). A path
+it cannot locate, or one that resolves anywhere but where it is written (a link along it), is
+recorded with `sdk.RecordPredictionUnknown`. Its manifest sets `PredictsPaths`, which says the
+check records every path the method changes on every check, makes nothing, and needs
+`SupportsCheck`. `file.remove` is the one method that sets it: a prediction that a path is
+gone is exactly what making a path can make false, so no method that makes one may. A later
+check asks with the location it read: `sdk.PredictedAbsent` and `sdk.PredictedAbsentUnder`
+answer false whenever the predictions cannot vouch for that location
+(`sdk.PredictionsVouch`), so the device is then read as it is; where earlier removals leave
+a question the device as it is cannot answer (a listing it cannot finish), answer
+`collection.CannotCheck`.
 
 The engine keeps the predictions per device and applies a level's only after the whole level
-returns. It keeps a device's only while every task on it is a successful check by a built-in
-method with `PredictsPaths` that recorded, or an in-process engine action such as
-`set_fact`. Anything else drops them for the rest of the run, whatever it reported: another
-method's task, a skipped, failed or unchecked task, a recorded unknown, siblings whose
-records overlap with different states, one directory identity met under two paths, two
-names in one directory differing only in case (or a name that is not ASCII), and a task with
-no device (every device's). The engine takes `predicted_paths` off the result, so it reaches
-neither `register:` nor a report, and a real run that records it fails the task. An external
+returns. It keeps them only while every task in the run, on every device, is a successful
+check by a built-in method with `PredictsPaths` that recorded, or an in-process engine action
+such as `set_fact` (a `pause` is not one: it hands the device to a person). Anything else
+drops every device's for the rest of the run, whatever it reported, since a device may share
+a filesystem with another. So do a recorded unknown, one directory identity met under two
+paths, and the bound. The engine takes `predicted_paths` off the result, so it reaches neither
+`register:` nor a report, and a real run that records it fails the task. An external
 Collection's records and declaration are not trusted, and its program is never handed the
 device's predictions.
 

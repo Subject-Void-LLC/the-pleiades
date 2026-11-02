@@ -58,7 +58,6 @@ func init() {
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
 			SupportsCheck:   true,
-			PredictsPaths:   true,
 			// Reversibility is file.copy's, because the write is: see the
 			// Notes there for what is and is not restored.
 			Reversibility: collection.Reversibility{
@@ -76,7 +75,7 @@ func init() {
 			Doc: templateDoc(),
 		},
 		Invoke: Template,
-		Check:  predictMade("file.template", CheckTemplate, copyParamDest),
+		Check:  CheckTemplate,
 	})
 }
 

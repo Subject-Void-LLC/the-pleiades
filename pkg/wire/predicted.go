@@ -3,17 +3,20 @@
 // what an earlier task in the same check only predicted would be answered
 // wrongly: a directory a check of its undo would find empty only once the
 // file inside was removed, which the check only predicted. The engine keeps,
-// per device, the paths earlier tasks predicted absent or present, and hands
-// a method this snapshot of them; on the Walk tier it rides ChildRequest to the
+// per device, the paths earlier tasks predicted removed, and hands a method
+// this snapshot of them; on the Walk tier it rides ChildRequest to the
 // per-task and session child.
 //
-// A path is keyed as the device resolves it, never as a runbook wrote it: its
-// physical path (every symbolic link above it resolved, pwd -P), together with
-// the identity (device and inode numbers, "dev:ino") of each directory along
-// it that exists. Two spellings of one directory that resolving links does
-// not join (a bind mount, a name a case-insensitive filesystem folds) show up
-// as one identity under two physical paths, and the engine then drops the
-// device's predictions rather than vouch for either: see Predictions.
+// Only removals are recorded. A claim that a path is gone can be made false
+// only by a task that makes something, and the engine keeps predictions only
+// while no task in the run could have (internal/engine's predicted.go), so a
+// claim is never vouched past one. A second spelling of a path (a bind mount,
+// a name a case-insensitive filesystem folds) can then only miss a record,
+// which reads the device as it is, never vouch for a path wrongly.
+//
+// A path is keyed as the device resolves it: its physical path, together
+// with the identity (device and inode numbers, "dev:ino") of each directory
+// along it that exists.
 package wire
 
 import (
@@ -22,17 +25,9 @@ import (
 	"sync"
 )
 
-// The two states a path can be predicted in.
-const (
-	// PredictedAbsent is a path an earlier task's check predicted gone.
-	PredictedAbsent = "absent"
-	// PredictedPresent is a path an earlier task's check predicted there.
-	PredictedPresent = "present"
-	// PredictedFresh is a path predicted there where the real run will have
-	// had nothing (removed, or never there), so it holds only what later
-	// records put under it. The engine records it; a method never does.
-	PredictedFresh = "fresh"
-)
+// PredictedAbsent is the one state a path is predicted in: gone, removed by
+// an earlier task's check.
+const PredictedAbsent = "absent"
 
 // Bounds on a snapshot, so a check that predicts a great many paths never
 // grows a request without limit: past them the engine drops the device's
@@ -71,7 +66,7 @@ type Location struct {
 type PredictedPath struct {
 	// Path is the physical path (Location.Path).
 	Path string `json:"path"`
-	// State is PredictedAbsent or PredictedPresent.
+	// State is PredictedAbsent.
 	State string `json:"state"`
 	// Dirs are the identities along Path as the recording task read them.
 	Dirs []DirID `json:"dirs,omitempty"`
@@ -96,10 +91,10 @@ type Predictions struct {
 }
 
 // ValidPredictedPath reports whether p is a path a method's prediction may
-// name: a physical path within the length bound with no NUL, absent or
-// present, whose identities are valid.
+// name: a physical path within the length bound with no NUL, absent, whose
+// identities are valid.
 func ValidPredictedPath(p PredictedPath) bool {
-	if p.State != PredictedAbsent && p.State != PredictedPresent {
+	if p.State != PredictedAbsent {
 		return false
 	}
 	return ValidLocation(Location{Path: p.Path, Dirs: p.Dirs})
@@ -191,43 +186,18 @@ func (p *Predictions) agrees(l Location) bool {
 
 // Absent reports whether the snapshot vouches that l will be gone by the time
 // the asking task runs: recorded absent itself, or under a directory recorded
-// absent with nothing recorded there on the way down. Anything else (a nil
-// snapshot, a location whose identities disagree with it, no record, a
-// present one) answers false, so the method reads the device as it is.
+// absent. Anything else (a nil snapshot, a location whose identities disagree
+// with it, no record) answers false, so the method reads the device as it is.
 func (p *Predictions) Absent(l Location) bool {
 	if !p.agrees(l) {
 		return false
 	}
-	state, ok := p.nearest(l.Path)
-	return ok && state == PredictedAbsent
-}
-
-// Present reports whether the snapshot records l itself as there: an earlier
-// task made it. A record above l says nothing of l, since making a directory
-// makes nothing inside it. A nil snapshot or a location whose identities
-// disagree with it answers false.
-func (p *Predictions) Present(l Location) bool {
-	if !p.agrees(l) {
-		return false
-	}
-	state := p.states[l.Path]
-	return state == PredictedPresent || state == PredictedFresh
-}
-
-// Fresh reports whether the snapshot records l itself as made where the real
-// run had nothing (PredictedFresh), so it holds only what is recorded under
-// it, whatever the device holds there now.
-func (p *Predictions) Fresh(l Location) bool {
-	if !p.agrees(l) {
-		return false
-	}
-	return p.states[l.Path] == PredictedFresh
+	_, ok := p.nearest(l.Path)
+	return ok
 }
 
 // Vouches reports whether the snapshot can answer for l at all: it is not nil
-// and every identity in l names the directory the snapshot knows it as. When
-// it cannot, a question whose answer the device as it is cannot give either
-// is one the asking method cannot check.
+// and every identity in l names the directory the snapshot knows it as.
 func (p *Predictions) Vouches(l Location) bool {
 	return p.agrees(l)
 }
@@ -250,26 +220,12 @@ func (p *Predictions) nearest(target string) (string, bool) {
 // so a caller asking that of each entry need not list them. A nil snapshot or
 // a location whose identities disagree with it answers false.
 func (p *Predictions) AbsentUnder(l Location) bool {
-	return p.anyUnder(l, PredictedAbsent)
-}
-
-// PresentUnder reports whether the snapshot records a path inside the
-// directory l as present: an earlier task predicted it made there, so l will
-// not be empty whatever the device holds now. A nil snapshot or a location
-// whose identities disagree with it answers false.
-func (p *Predictions) PresentUnder(l Location) bool {
-	return p.anyUnder(l, PredictedPresent)
-}
-
-// anyUnder reports whether the snapshot records a path strictly inside l in
-// state.
-func (p *Predictions) anyUnder(l Location, state string) bool {
 	if !p.agrees(l) {
 		return false
 	}
 	prefix := strings.TrimSuffix(l.Path, "/") + "/"
 	for _, pp := range p.Paths {
-		if strings.HasPrefix(pp.Path, prefix) && (pp.State == state || state == PredictedPresent && pp.State == PredictedFresh) {
+		if strings.HasPrefix(pp.Path, prefix) {
 			return true
 		}
 	}

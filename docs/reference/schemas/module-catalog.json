@@ -7478,7 +7478,6 @@
       ]
     },
     "supportsCheck": true,
-    "predictsPaths": true,
     "doc": {
       "summary": "Writes content, or a file from the project, to a file on the target, only when the bytes there differ.",
       "description": "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen goes to a temporary file in the destination's own directory, which is given the mode, owner and group the file is to have and only then renamed over it, so a reader of the path sees either the whole old file or the whole new one, and a write that cannot be finished leaves the destination as it was. The bytes are content, or src: a file in the project directory, read by the command line (pleiades run and adhoc), which holds the project. A Walk-tier Runner is a per-task container that cannot see the project, so there src is refused, naming content as the way to send the bytes. src is a path relative to the project directory that stays inside it, passes through no symbolic link, never reaches the project's .pleiades directory (its credentials and master key), and names a regular file of at most 64 MiB; it is read before anything is sent. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them. When the connecting account may not give a new file that owner or group (a login that is not root replacing a file another account owns), the bytes are copied into the existing file instead, which keeps everything it was, and the run warns that the write was not atomic; a file the account may not write is refused before anything changes. Ansible's atomic move would leave such a file owned by the connecting account: this method never changes an owner or group the task did not name. An owner or group the task names that the connecting account may not give is refused before anything is written, and a check refuses the same. A file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
@@ -7634,7 +7633,6 @@
       ]
     },
     "supportsCheck": true,
-    "predictsPaths": true,
     "doc": {
       "summary": "Makes sure a directory exists on the target, with the mode, owner and group the task asks for.",
       "description": "Ensures a directory exists at a path, creating any missing parents along the way exactly as mkdir -p does, and gives the directory, and every parent it creates, the mode, owner and group the task names, as Ansible does; a parent that already existed is never changed. This is ansible.builtin.file with state=directory; use file.remove to delete a directory and file.permissions to change attributes without creating anything. State is read before anything is written, so a run that finds the directory already correct reports no change, and only the attributes that actually differ are applied. If something that is not a directory already exists at the path, the task fails rather than replacing it: turning a file into a directory would destroy the file.",
@@ -8462,7 +8460,6 @@
       ]
     },
     "supportsCheck": true,
-    "predictsPaths": true,
     "doc": {
       "summary": "Renders a template with the run's variables and results and writes the result to a file on the target, only when the bytes there differ.",
       "description": "Renders a template and writes the result to a path on the device exactly as file.copy writes content: a SHA-256 of the rendered bytes is compared with one the device computes of what is already there, so a run that finds the same bytes sends no write and reports no change; a write goes to a temporary file in the destination's directory with the final mode, owner and group and is renamed over it; an existing file keeps its mode, owner and group unless the task names them; a new file without a mode gets 0600; anything at dest that is not a regular file is refused. The template is rendered by the platform's one template engine on the machine running the work, never on the device, with the same syntax as every other parameter: {{ vars.x }} reads a run variable, {{ result.name }} and {{ nodes.name }} read earlier tasks' registered results, and {{ device.name }} the device the task runs on. A variable or result that does not exist is an error, not an empty string, so a misspelled name never writes a half-filled file. The template is either content, written in the runbook, or src, a file in the project directory (relative, inside it, through no symbolic link, never .pleiades, a regular file of at most 64 MiB) that the command line reads; a Walk-tier Runner holds no project, so there src is refused and content is the way. The rendered text can hold a value a bound credential or a variable carried: it is sent to the device and is never written to the journal, the diff or the result, which hold the file's checksum and size only. In check mode it makes the same reads and refusals and predicts the write and its diff without sending one. Writing a file this way is undone like file.copy's: a created file is removed, and an overwritten file gets its former mode, owner and group back, while its former content is not restored.",
@@ -8628,7 +8625,6 @@
       ]
     },
     "supportsCheck": true,
-    "predictsPaths": true,
     "doc": {
       "summary": "Creates an empty file on the target, or updates its modification time.",
       "description": "Makes sure a regular file exists at a path, creating it empty when nothing is there and updating its modification time when it already is. This is ansible.builtin.file with state: touch, and it reports changed on every run for the same reason that module does: moving a modification time is a real change to the device, so a run that claimed otherwise would be wrong rather than tidy. The two kinds of change are told apart in the recorded diff, where a created file reads exists false then true and a re-stamped one reads true then true. Anything at the path that is not a regular file is refused rather than replaced.",

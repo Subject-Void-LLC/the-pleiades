@@ -342,18 +342,18 @@ Every result a check produces says `predicted: true`, and so does its diff, so a
 that is only a prediction cannot be mistaken for one that happened, wherever it is read
 later: a later task's condition, or a stored result.
 
-A check reads each device as it is, but when the whole run is a check, a later task on the
-same device also sees what the earlier tasks of the check predicted about its files. When
-one task would remove a file and a later one would remove the directory holding it, the
-second is predicted to succeed, as the real run would, rather than refused because the file
-is still there. The file methods that make or remove a path (`file.copy`, `file.template`,
-`file.directory`, `file.touch`, `file.remove`) record it. This stops for the device, for the
-rest of the run, at the first task that could change a file in a way the check cannot follow:
-any other method's task whatever it reports, a skipped, failed or unchecked task,
-`file.symlink`, a path that leads through a symbolic link (where it leads in the real run
-depends on what earlier tasks did to the link), a directory the device reaches under two
-paths, and two names that differ only in case. From there its tasks read the device as it
-is. Where the device as it is cannot answer for what earlier tasks change, the task is
+A check reads each device as it is, but when the whole run is a check and its tasks so far
+only remove files, a later task also sees what the earlier ones predicted removed. When one
+task would remove a file and a later one would remove the directory holding it, the second
+is predicted to succeed, as the real run would, rather than refused because the file is
+still there. This is how the check of a rollback that undoes "make a directory, copy a file
+into it" predicts success. It stops, for every device and for the rest of the run, at the
+first task that is anything but a `file.remove` the check could follow: any other method's
+task whatever it reports (making a file is what could undo a prediction that a path is
+gone), a skipped, failed or unchecked task, a pause, a `parallel:` group, and a path that
+leads through a symbolic link (where it leads in the real run depends on what earlier tasks
+did to the link). From there every task reads its device as it is. Where earlier removals
+make the device as it is unable to answer (a directory too large to list), the task is
 reported unchecked rather than guessed. A run that checks only some tasks (`check_mode:
 true` on a task) keeps no predictions, since its real tasks change the device in between.
 

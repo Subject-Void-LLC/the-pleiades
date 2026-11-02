@@ -229,13 +229,13 @@ type Manifest struct {
 	NoCheckReason string `json:"noCheckReason,omitempty"`
 
 	// PredictsPaths reports that this method's check records, through
-	// sdk.RecordPredicted, every path its real run would make or remove, on
-	// every check it is handed predictions for (an empty record when it
-	// changes nothing), so a later task in the same check can read what it
-	// predicted (Phase 46a). Any task by a method without it drops its
-	// device's predictions for the rest of the run, whatever it reported,
-	// since it may have changed a path nothing recorded. A method that makes
-	// links must not declare it: a link changes where later paths lead. The
+	// sdk.RecordPredicted, every path its real run would remove, on every
+	// check it is handed predictions for (an empty record when it removes
+	// nothing), and that it makes nothing, so a later task in the same check
+	// can read what it predicted removed (Phase 46a). A method that makes a
+	// path must not declare it: a prediction that a path is gone is what
+	// making one can make false. Any task by a method without it drops every
+	// device's predictions for the rest of the run, whatever it reported. The
 	// engine honors it only on a built-in method: an external program's
 	// records would change what a built-in method's check answers. Only a
 	// method that supports check may declare it.

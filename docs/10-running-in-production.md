@@ -658,10 +658,10 @@ ordinary run of ordinary tasks, journaled like any other.
   says to name the right file with `--runbook <file>`. Each such problem's `kind` is
   `no_runbook`.
 - **Checking a rollback.** `pleiades rollback <run-id> --mode check` checks each step
-  against the device as it is now, plus what the earlier steps of the same check
-  predicted about its files: undoing a file copied into a new directory, then the
-  directory, is predicted to succeed, as the real rollback does, on the command line
-  and in a rollback job checked through the Controller alike. A step
+  against the device as it is now, plus, while every step so far is a `file.remove`,
+  what those earlier steps predicted removed: undoing a file copied into a new
+  directory, then the directory, is predicted to succeed, as the real rollback does,
+  on the command line and in a rollback job checked through the Controller alike. A step
   that depends on any other change an earlier step makes first (starting a link the
   step before it stops) meets a device that step has not yet changed, so its check is
   provisional: the rollback names those steps, and one whose check fails is reported

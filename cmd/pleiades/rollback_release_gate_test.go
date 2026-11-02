@@ -667,9 +667,12 @@ tasks:
 
 	// Runbooks review found a ledger getting wrong: a link made or removed by
 	// an earlier task changes where a later path leads in the real run, which
-	// the device as it is during the check does not show; and a directory an
-	// earlier task only made sure of says nothing of what is in it. For each,
-	// the check's last task and its outcome must be the real run's.
+	// the device as it is during the check does not show; a directory an
+	// earlier task only made sure of says nothing of what is in it; and paths
+	// made between removals (directories made with their parents, a copy into
+	// a directory removed) are what a removal cannot see past. For each, a
+	// check never passes what the real run fails, and where both ran every
+	// task, the check's last task and outcome are the real run's.
 	t.Run("G9 a check agrees with the real run where earlier tasks change links", func(t *testing.T) {
 		g := newRollbackGate(t, container, host, port)
 		for _, tc := range []struct{ name, setup, tasks string }{
@@ -685,6 +688,20 @@ tasks:
 			{"a directory made sure of", "mkdir -p /tmp/g9/app",
 				"  - name: directory\n    file.directory:\n      path: /tmp/g9/app\n" +
 					"  - name: missing\n    file.remove:\n      path: /tmp/g9/app/old.conf\n"},
+			{"directories made between removals", "mkdir -p /tmp/g9/app/cache/tmp",
+				"  - name: reset\n    file.remove:\n      path: /tmp/g9/app\n      recurse: true\n" +
+					"  - name: cache\n    file.directory:\n      path: /tmp/g9/app/cache/tmp\n" +
+					"  - name: drop tmp\n    file.remove:\n      path: /tmp/g9/app/cache/tmp\n" +
+					"  - name: drop app\n    file.remove:\n      path: /tmp/g9/app\n"},
+			{"a copy into a directory removed", "mkdir -p /tmp/g9/app && touch /tmp/g9/app/x",
+				"  - name: reset\n    file.remove:\n      path: /tmp/g9/app\n      recurse: true\n" +
+					"  - name: copy\n    file.copy:\n      dest: /tmp/g9/app/x\n      content: \"y\\n\"\n" +
+					"  - name: drop x\n    file.remove:\n      path: /tmp/g9/app/x\n" +
+					"  - name: drop app\n    file.remove:\n      path: /tmp/g9/app\n"},
+			{"a directory made, then its parent removed", "mkdir -p /tmp/g9/d",
+				"  - name: make\n    file.directory:\n      path: /tmp/g9/d/a/b\n" +
+					"  - name: drop a\n    file.remove:\n      path: /tmp/g9/d/a\n      recurse: true\n" +
+					"  - name: drop d\n    file.remove:\n      path: /tmp/g9/d\n"},
 		} {
 			runbook := "# " + tc.name + ": a check of it must end as the real run does.\nid: g9\nhosts: container1\ntasks:\n" + tc.tasks
 			if err := os.WriteFile(filepath.Join(g.dir, "runbooks", "g9.yaml"), []byte(runbook), 0o600); err != nil {
@@ -695,8 +712,22 @@ tasks:
 			check := g.report(t, "run", "runbooks/g9.yaml", "--mode", "check")
 			g.device(t, reset)
 			real := g.report(t, "run", "runbooks/g9.yaml")
+			// A check never passes what the real run fails.
+			if real.Outcome.ExitCode != 0 && check.Outcome.ExitCode == 0 {
+				t.Errorf("%s: the check passed, the real run ended %d", tc.name, real.Outcome.ExitCode)
+				continue
+			}
+			// Where the real run stopped partway, the tasks after its failure
+			// have no answer to compare with.
 			if len(check.Tasks) == 0 || len(check.Tasks) != len(real.Tasks) {
-				t.Errorf("%s: the check ran %d tasks, the real run %d", tc.name, len(check.Tasks), len(real.Tasks))
+				t.Errorf("%s: the check reported %d tasks, the real run %d", tc.name, len(check.Tasks), len(real.Tasks))
+				continue
+			}
+			stopped := false
+			for _, task := range real.Tasks {
+				stopped = stopped || task.Status == "not_run"
+			}
+			if stopped {
 				continue
 			}
 			last := len(real.Tasks) - 1

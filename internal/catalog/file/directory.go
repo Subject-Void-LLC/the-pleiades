@@ -103,11 +103,10 @@ func init() {
 			// run would create the directory or change its attributes,
 			// sending nothing. See CheckDirectory.
 			SupportsCheck: true,
-			PredictsPaths: true,
 			Doc:           directoryDoc(),
 		},
 		Invoke: Directory,
-		Check:  predictMade("file.directory", CheckDirectory, dirParamPath),
+		Check:  CheckDirectory,
 	})
 }
 

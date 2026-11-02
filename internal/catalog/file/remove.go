@@ -235,17 +235,10 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	located := false
 	if mode == collection.ModeCheck {
 		loc, located = locate(ctx, conn, rc, path)
-		switch {
-		case located && before.Exists() && sdk.PredictedAbsent(rc, loc):
+		if located && before.Exists() && sdk.PredictedAbsent(rc, loc) {
 			// An earlier task removes the path first, so a real run finds
 			// nothing to do here, as it would for a path already gone.
 			before = remotefile.Info{Kind: remotefile.KindAbsent}
-		case located && !before.Exists() && sdk.PredictedPresent(rc, loc):
-			// An earlier task makes it, so a real run removes something
-			// this check cannot read yet. (A path an earlier task makes is
-			// recorded only where it resolves as written, so a path missing
-			// now but made there is this one.)
-			return collection.Result{}, collection.CannotCheck(fmt.Sprintf("an earlier task of this check makes %s, and what a real run would remove there cannot be read until it does", path))
 		}
 	}
 
@@ -287,7 +280,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		// The path is gone for the rest of this check (Phase 46a), which a
 		// later task's check reads. A path that could not be located drops
 		// the device's predictions instead.
-		if err := recordAt(rc, loc, located, wire.PredictedAbsent); err != nil {
+		if err := recordRemoved(rc, loc, located); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	} else if err := removeTarget(ctx, conn, path, before.Kind, recurse); err != nil {
@@ -375,34 +368,21 @@ func removeEmptyDirectory(ctx context.Context, conn *remoteexec.Conn, path strin
 const maxPredictedEntries = 1024
 
 // predictedEmpty reports whether the directory at dirPath will be empty when
-// a real run of this task reaches it. Without predictions (located false) it
-// is the device's own answer, as before Phase 46a. With them: a path an
-// earlier task made inside means not empty; a directory made fresh (where
-// the real run had nothing) is empty unless one was; and a directory whose
-// every entry earlier tasks predicted gone is empty. When the predictions
-// cannot vouch for the directory, or its entries cannot all be read, it
-// answers CannotCheck: the device as it is now is not what the real run
-// meets there, and a refusal could be as wrong as a pass.
+// a real run of this task reaches it. Without predictions it is the device's
+// own answer, as before Phase 46a. With them, a directory whose every entry
+// earlier tasks predicted removed is empty, since nothing in the run makes a
+// path while predictions are kept. When the entries cannot all be read (a
+// listing cut off or failed) it answers CannotCheck: the device as it is now
+// is not what the real run meets there, and a refusal could be as wrong as a
+// pass.
 func predictedEmpty(ctx context.Context, conn *remoteexec.Conn, rc sdk.RunbookContext, dirPath string, loc wire.Location, located bool) (bool, error) {
-	if !located {
-		return remotefile.DirectoryEmpty(ctx, conn, dirPath)
-	}
-	cannot := collection.CannotCheck(fmt.Sprintf("earlier tasks of this check change what %s holds, and whether a real run finds it empty cannot be read from the device as it is", dirPath))
-	switch {
-	case !sdk.PredictionsVouch(rc, loc):
-		return false, cannot
-	case sdk.PredictedPresentUnder(rc, loc):
-		return false, nil
-	case sdk.PredictedFresh(rc, loc):
-		return true, nil
-	}
 	empty, err := remotefile.DirectoryEmpty(ctx, conn, dirPath)
-	if err != nil || empty || !sdk.PredictedAbsentUnder(rc, loc) {
+	if err != nil || empty || !located || !sdk.PredictedAbsentUnder(rc, loc) {
 		return empty, err
 	}
 	names, truncated, err := remotefile.DirectoryEntries(ctx, conn, dirPath, maxPredictedEntries)
 	if err != nil || truncated || len(names) == 0 {
-		return false, cannot
+		return false, collection.CannotCheck(fmt.Sprintf("earlier tasks of this check remove what %s holds, and whether a real run finds it empty cannot be read from the device as it is", dirPath))
 	}
 	for _, name := range names {
 		if !sdk.PredictedAbsent(rc, wire.Location{Path: pathpkg.Join(loc.Path, name), Dirs: loc.Dirs}) {

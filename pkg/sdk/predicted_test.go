@@ -29,7 +29,7 @@ func TestRecordPredicted_RoundTripsInProcessAndAcrossJSON(t *testing.T) {
 	rc := &statContext{stats: map[string]any{}}
 	want := []wire.PredictedPath{
 		{Path: "/d/x", State: wire.PredictedAbsent, Dirs: rootDirs},
-		{Path: "/d/y", State: wire.PredictedPresent, Dirs: []wire.DirID{}},
+		{Path: "/d/y", State: wire.PredictedAbsent, Dirs: []wire.DirID{}},
 	}
 	if err := sdk.RecordPredicted(rc, want...); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestRecordPredicted_RefusesAPathItCouldNotKey(t *testing.T) {
 	for _, p := range []wire.PredictedPath{
 		{Path: "rel", State: wire.PredictedAbsent},
 		{Path: "/a/../b", State: wire.PredictedAbsent},
-		{Path: "/a", State: "maybe"},
+		{Path: "/a", State: "present"},
 		{Path: "/a", State: wire.PredictedAbsent, Dirs: []wire.DirID{{Path: "/b", ID: "1:2"}}},
 	} {
 		if err := sdk.RecordPredicted(rc, p); err == nil {
@@ -101,9 +101,7 @@ func TestParsePredicted_RefusesAnythingElse(t *testing.T) {
 }
 
 func TestPredicted_ReadsOnlyAContextThatKeepsPredictions(t *testing.T) {
-	snap := &wire.Predictions{Paths: []wire.PredictedPath{
-		{Path: "/d/x", State: wire.PredictedAbsent}, {Path: "/e/n", State: wire.PredictedPresent},
-	}, Dirs: rootDirs}
+	snap := &wire.Predictions{Paths: []wire.PredictedPath{{Path: "/d/x", State: wire.PredictedAbsent}}, Dirs: rootDirs}
 	loc := func(p string) wire.Location {
 		l := wire.Location{Path: p, Dirs: rootDirs[1:]}
 		if p == "/d" || len(p) > 3 && p[:3] == "/d/" {
@@ -112,17 +110,15 @@ func TestPredicted_ReadsOnlyAContextThatKeepsPredictions(t *testing.T) {
 		return l
 	}
 	rc := &statContext{stats: map[string]any{}, predicted: snap}
-	if !sdk.PredictionsWanted(rc) || !sdk.PredictedAbsent(rc, loc("/d/x")) || !sdk.PredictedPresent(rc, loc("/e/n")) ||
-		!sdk.PredictionsVouch(rc, loc("/d/x")) || sdk.PredictedFresh(rc, loc("/e/n")) || !sdk.PredictedPresentUnder(rc, loc("/e")) || !sdk.PredictedAbsentUnder(rc, loc("/d")) {
+	if !sdk.PredictionsWanted(rc) || !sdk.PredictedAbsent(rc, loc("/d/x")) || !sdk.PredictionsVouch(rc, loc("/d/x")) || !sdk.PredictedAbsentUnder(rc, loc("/d")) {
 		t.Error("a context with predictions did not answer")
 	}
-	if sdk.PredictedAbsent(rc, loc("/d/z")) || sdk.PredictedPresentUnder(rc, loc("/d")) || sdk.PredictedAbsentUnder(rc, loc("/e")) {
+	if sdk.PredictedAbsent(rc, loc("/d/z")) || sdk.PredictedAbsentUnder(rc, loc("/e")) {
 		t.Error("answered for a path nothing predicted")
 	}
 	type bare struct{ sdk.RunbookContext }
 	b := bare{rc}
-	if sdk.PredictionsWanted(b) || sdk.PredictedAbsent(b, loc("/d/x")) || sdk.PredictedPresent(b, loc("/e/n")) ||
-		sdk.PredictionsVouch(b, loc("/d/x")) || sdk.PredictedFresh(b, loc("/e/n")) || sdk.PredictedPresentUnder(b, loc("/e")) || sdk.PredictedAbsentUnder(b, loc("/d")) {
+	if sdk.PredictionsWanted(b) || sdk.PredictedAbsent(b, loc("/d/x")) || sdk.PredictionsVouch(b, loc("/d/x")) || sdk.PredictedAbsentUnder(b, loc("/d")) {
 		t.Error("a context without PredictedState answered")
 	}
 	if sdk.PredictionsWanted(&statContext{stats: map[string]any{}}) {

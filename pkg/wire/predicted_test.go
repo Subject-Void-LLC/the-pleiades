@@ -1,4 +1,4 @@
-// Tests for a device's predicted paths (predicted.go): which paths a
+// Tests for a device's predicted removals (predicted.go): which paths a
 // prediction may name, and what a snapshot vouches for.
 package wire
 
@@ -20,11 +20,11 @@ func TestValidPredictedPath(t *testing.T) {
 		want bool
 	}{
 		{PredictedPath{Path: "/tmp/a", State: PredictedAbsent, Dirs: dirs}, true},
-		{PredictedPath{Path: "/", State: PredictedPresent}, true},
+		{PredictedPath{Path: "/", State: PredictedAbsent}, true},
+		{PredictedPath{Path: "/tmp/a", State: "present"}, false},
 		{PredictedPath{Path: "tmp/a", State: PredictedAbsent}, false},
 		{PredictedPath{Path: "/tmp/../a", State: PredictedAbsent}, false},
 		{PredictedPath{Path: "/tmp/a/", State: PredictedAbsent}, false},
-		{PredictedPath{Path: "/tmp/a", State: "gone"}, false},
 		{PredictedPath{Path: "", State: PredictedAbsent}, false},
 		{PredictedPath{Path: "/tmp/\x00", State: PredictedAbsent}, false},
 		{PredictedPath{Path: "/" + strings.Repeat("a", MaxPredictedPathBytes), State: PredictedAbsent}, false},
@@ -40,69 +40,44 @@ func TestValidPredictedPath(t *testing.T) {
 	}
 }
 
-func TestPredictions_AbsentFollowsTheNearestRecord(t *testing.T) {
-	p := &Predictions{Paths: []PredictedPath{
-		{Path: "/d/gone", State: PredictedAbsent},
-		{Path: "/d/gone/kept", State: PredictedPresent},
-		{Path: "/d/f", State: PredictedAbsent},
-		{Path: "/d/g", State: PredictedPresent},
-	}, Dirs: []DirID{{Path: "/d", ID: "1:10"}, {Path: "/", ID: "1:2"}}}
+func TestPredictions_AbsentAtOrUnderARecord(t *testing.T) {
+	p := &Predictions{Paths: []PredictedPath{{Path: "/d/gone", State: PredictedAbsent}, {Path: "/d/f", State: PredictedAbsent}},
+		Dirs: []DirID{{Path: "/d", ID: "1:10"}, {Path: "/", ID: "1:2"}}}
 	for target, want := range map[string]bool{
-		"/d/f":           true,  // recorded gone
-		"/d/gone/x":      true,  // under a directory recorded gone
-		"/d/gone/kept":   false, // made again after
-		"/d/gone/kept/y": false, // under the path made again
-		"/d/g":           false, // recorded there
-		"/d/elsewhere":   false, // no record
-		"/d/../f":        false, // not a physical path
+		"/d/f":         true,  // recorded gone
+		"/d/gone/x":    true,  // under a directory recorded gone
+		"/d/elsewhere": false, // no record
+		"/d":           false, // above a record
+		"/d/../f":      false, // not a physical path
 	} {
 		if got := p.Absent(at(target)); got != want {
 			t.Errorf("Absent(%q) = %v, want %v", target, got, want)
 		}
 	}
-	// Present is the path's own record: making a directory makes nothing
-	// inside it.
-	if !p.Present(at("/d/gone/kept")) || !p.Present(at("/d/g")) || p.Present(at("/d/gone/kept/y")) || p.Present(at("/d/f")) {
-		t.Error("Present did not read the path's own record")
+	if !p.AbsentUnder(at("/d")) || !p.AbsentUnder(Location{Path: "/"}) || p.AbsentUnder(at("/d/f")) || p.AbsentUnder(Location{Path: "/e"}) {
+		t.Error("AbsentUnder answered wrongly")
 	}
 	var none *Predictions
-	if none.Absent(at("/d/f")) || none.Present(at("/d/g")) || none.Fresh(at("/d/g")) || none.Vouches(at("/d/f")) {
+	if none.Absent(at("/d/f")) || none.AbsentUnder(at("/d")) || none.Vouches(at("/d/f")) {
 		t.Error("a nil snapshot vouched for a path")
 	}
 }
 
 // TestPredictions_ADirectoryUnderTwoPathsVouchesForNothing: one identity
 // under a second path is a bind mount or a folded name, and a directory known
-// by another identity was replaced; either way the record cannot be trusted.
+// by another identity was replaced; either way the record is not applied.
 func TestPredictions_ADirectoryUnderTwoPathsVouchesForNothing(t *testing.T) {
-	p := &Predictions{Paths: []PredictedPath{{Path: "/d/f", State: PredictedAbsent}, {Path: "/d/new", State: PredictedPresent}},
+	p := &Predictions{Paths: []PredictedPath{{Path: "/d/f", State: PredictedAbsent}},
 		Dirs: []DirID{{Path: "/d", ID: "1:10"}, {Path: "/", ID: "1:2"}}}
 	alias := Location{Path: "/d/f", Dirs: []DirID{{Path: "/d", ID: "1:10"}, {Path: "/mnt", ID: "1:10"}}}
 	replaced := Location{Path: "/d/f", Dirs: []DirID{{Path: "/d", ID: "1:99"}}}
 	for name, l := range map[string]Location{"alias": alias, "replaced": replaced} {
-		if p.Absent(l) || p.PresentUnder(Location{Path: "/d", Dirs: l.Dirs}) || p.AbsentUnder(Location{Path: "/d", Dirs: l.Dirs}) {
-			t.Errorf("%s: a disagreeing location was vouched for", name)
-		}
-		if p.Vouches(l) || p.Fresh(l) || p.Present(Location{Path: "/d/new", Dirs: l.Dirs}) {
+		if p.Absent(l) || p.AbsentUnder(Location{Path: "/d", Dirs: l.Dirs}) || p.Vouches(l) {
 			t.Errorf("%s: a disagreeing location was vouched for", name)
 		}
 	}
-}
-
-func TestPredictions_Under(t *testing.T) {
-	p := &Predictions{Paths: []PredictedPath{
-		{Path: "/d/new", State: PredictedPresent}, {Path: "/e/old", State: PredictedAbsent}, {Path: "/f", State: PredictedAbsent},
-	}}
-	loc := func(p string) Location { return Location{Path: p} }
-	if !p.PresentUnder(loc("/d")) || p.PresentUnder(loc("/e")) || p.PresentUnder(loc("/dd")) || p.PresentUnder(loc("/d/new")) {
-		t.Error("PresentUnder answered wrongly")
-	}
-	if !p.AbsentUnder(loc("/e")) || !p.AbsentUnder(loc("/")) || p.AbsentUnder(loc("/d")) || p.AbsentUnder(loc("/f")) {
-		t.Error("AbsentUnder answered wrongly")
-	}
-	var none *Predictions
-	if none.PresentUnder(loc("/d")) || none.AbsentUnder(loc("/e")) {
-		t.Error("a nil snapshot answered")
+	if !p.Vouches(at("/d/f")) {
+		t.Error("an agreeing location was not vouched for")
 	}
 }
 
@@ -125,20 +100,5 @@ func TestChildRequest_CarriesPredictions(t *testing.T) {
 	var older ChildRequest
 	if err := json.Unmarshal([]byte(`{"fqcn":"file.remove","params":{}}`), &older); err != nil || older.Predicted != nil {
 		t.Errorf("an older request: %+v, %v", older.Predicted, err)
-	}
-}
-
-func TestPredictions_Fresh(t *testing.T) {
-	p := &Predictions{Paths: []PredictedPath{
-		{Path: "/d/remade", State: PredictedFresh}, {Path: "/d/remade/new", State: PredictedPresent}, {Path: "/d/kept", State: PredictedPresent},
-	}, Dirs: at("/d/x").Dirs}
-	if !p.Fresh(at("/d/remade")) || p.Fresh(at("/d/kept")) || p.Fresh(at("/d/remade/new")) {
-		t.Error("Fresh did not read the path's own record")
-	}
-	if !p.Present(at("/d/remade")) || !p.PresentUnder(at("/d")) || p.Absent(at("/d/remade/other")) {
-		t.Error("a fresh path is there, and vouches nothing gone beneath it")
-	}
-	if ValidPredictedPath(PredictedPath{Path: "/d/x", State: PredictedFresh}) {
-		t.Error("a method may record a path fresh, which only the engine knows")
 	}
 }

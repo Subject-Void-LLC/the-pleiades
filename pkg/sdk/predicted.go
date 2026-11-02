@@ -1,15 +1,14 @@
 // Package sdk: what a check predicts about paths, and what earlier tasks in
 // the same check predicted (Phase 46a, pkg/wire's predicted.go).
 //
-// A method's check that predicts a path gone or there records it with
-// RecordPredicted, as the device resolves it (pkg/remotefile's Locate); the
-// engine keeps those per device for the rest of the check, and hands a later
-// task's method the device's snapshot, which it reads through PredictedState.
-// A method declares collection.Manifest.PredictsPaths when its check records
-// every path it changes. The engine keeps a device's predictions only while
-// every task on it is such a check that succeeded: any other task, a skipped
-// one, a failure, or a check whose prediction could not be recorded drops
-// them, and the device is read as it is again.
+// A method's check that predicts paths removed records them with
+// RecordPredicted, as the device resolves them (pkg/remotefile's Locate); the
+// engine keeps those per device and hands a later task's method the device's
+// snapshot, which it reads through PredictedState. Only removals are
+// recorded, and the engine keeps predictions only while every task in the run
+// is a check that recorded them (or an engine action that touches no device):
+// any other task drops every device's for the rest of the run, and the
+// device is read as it is again.
 package sdk
 
 import (
@@ -24,16 +23,16 @@ import (
 // on a real run, which predicts nothing.
 const StatPredictedPaths = "predicted_paths"
 
-// RecordPredicted records, in a check, the paths this call predicts gone
-// (wire.PredictedAbsent) or there (wire.PredictedPresent), each as the device
-// resolves it. One that wire.ValidPredictedPath refuses is refused rather
+// RecordPredicted records, in a check, the paths this call predicts removed
+// (wire.PredictedAbsent), each as the device resolves it; with none, that it
+// changes nothing. One that wire.ValidPredictedPath refuses is refused rather
 // than recorded. Call it once per call, with every path: a second call
 // replaces the first.
 func RecordPredicted(rc RunbookContext, paths ...wire.PredictedPath) error {
 	record := make([]any, 0, len(paths))
 	for _, p := range paths {
 		if !wire.ValidPredictedPath(p) {
-			return fmt.Errorf("sdk: a predicted path must be a physical path, absent or present, with valid directory identities, not %q (%s)", p.Path, p.State)
+			return fmt.Errorf("sdk: a predicted path must be a physical path, absent, with valid directory identities, not %q (%s)", p.Path, p.State)
 		}
 		dirs := make([]any, 0, len(p.Dirs))
 		for _, d := range p.Dirs {
@@ -45,7 +44,7 @@ func RecordPredicted(rc RunbookContext, paths ...wire.PredictedPath) error {
 }
 
 // RecordPredictionUnknown records, in a check, that this call changes a path
-// it cannot name as the device resolves it, so the engine drops the device's
+// it cannot name as the device resolves it, so the engine drops the run's
 // predictions rather than vouch for a path the real run may meet differently.
 func RecordPredictionUnknown(rc RunbookContext) error {
 	return rc.SetStat(StatPredictedPaths, "unknown")
@@ -131,31 +130,11 @@ func PredictedAbsent(rc RunbookContext, l wire.Location) bool {
 	return predictions(rc).Absent(l)
 }
 
-// PredictedPresent reports whether an earlier task in this check made l
-// itself (wire.Predictions.Present), so the device as it is now lacks what
-// this task meets.
-func PredictedPresent(rc RunbookContext, l wire.Location) bool {
-	return predictions(rc).Present(l)
-}
-
-// PredictedFresh reports whether an earlier task in this check made l where
-// the real run had nothing (wire.Predictions.Fresh), so it holds only what
-// earlier tasks put under it.
-func PredictedFresh(rc RunbookContext, l wire.Location) bool {
-	return predictions(rc).Fresh(l)
-}
-
 // PredictionsVouch reports whether this check's predictions can answer for l
 // at all (wire.Predictions.Vouches): false when rc keeps none, or when l's
 // directories disagree with what earlier tasks read of them.
 func PredictionsVouch(rc RunbookContext, l wire.Location) bool {
 	return predictions(rc).Vouches(l)
-}
-
-// PredictedPresentUnder reports whether an earlier task in this check
-// predicted a path made inside the directory l (wire.Predictions.PresentUnder).
-func PredictedPresentUnder(rc RunbookContext, l wire.Location) bool {
-	return predictions(rc).PresentUnder(l)
 }
 
 // PredictedAbsentUnder reports whether an earlier task in this check
