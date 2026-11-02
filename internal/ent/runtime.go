@@ -331,10 +331,32 @@ func init() {
 	fact.DefaultUpdatedAt = factDescUpdatedAt.Default.(func() time.Time)
 	// fact.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	fact.UpdateDefaultUpdatedAt = factDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// factDescKey is the schema descriptor for key field.
+	factDescKey := factFields[0].Descriptor()
+	// fact.KeyValidator is a validator for the "key" field. It is called by the builders before save.
+	fact.KeyValidator = func() func(string) error {
+		validators := factDescKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(key string) error {
+			for _, fn := range fns {
+				if err := fn(key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	// factDescHash is the schema descriptor for hash field.
-	factDescHash := factFields[1].Descriptor()
+	factDescHash := factFields[2].Descriptor()
 	// fact.HashValidator is a validator for the "hash" field. It is called by the builders before save.
 	fact.HashValidator = factDescHash.Validators[0].(func(string) error)
+	// factDescLastSeenAt is the schema descriptor for last_seen_at field.
+	factDescLastSeenAt := factFields[3].Descriptor()
+	// fact.DefaultLastSeenAt holds the default value on creation for the last_seen_at field.
+	fact.DefaultLastSeenAt = factDescLastSeenAt.Default.(func() time.Time)
 	groupMixin := schema.Group{}.Mixin()
 	groupMixinFields0 := groupMixin[0].Fields()
 	_ = groupMixinFields0

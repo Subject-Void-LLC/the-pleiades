@@ -99,9 +99,16 @@ func (c *RunbookContext) SetStat(key string, value interface{}) error {
 	return nil
 }
 
-// EmitFact implements sdk.RunbookContext.
+// EmitFact implements sdk.RunbookContext: a stat as SetStat's is, and its
+// key named under sdk.StatFactKeys, which crosses to the parent with the rest
+// of the stats.
 func (c *RunbookContext) EmitFact(key string, value interface{}) error {
-	return c.SetStat(key, value)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.facts[key] = value
+	keys, _ := c.facts[sdk.StatFactKeys].([]any)
+	c.facts[sdk.StatFactKeys] = sdk.NoteFactKey(keys, key)
+	return nil
 }
 
 // Facts returns a snapshot copy of every SetStat and EmitFact call this

@@ -327,8 +327,10 @@ var (
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "key", Type: field.TypeString, Size: 256},
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "hash", Type: field.TypeString},
+		{Name: "last_seen_at", Type: field.TypeTime},
 		{Name: "device_facts", Type: field.TypeInt},
 	}
 	// FactsTable holds the schema information for the "facts" table.
@@ -339,9 +341,16 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "facts_devices_facts",
-				Columns:    []*schema.Column{FactsColumns[5]},
+				Columns:    []*schema.Column{FactsColumns[7]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "fact_key_device_facts",
+				Unique:  false,
+				Columns: []*schema.Column{FactsColumns[3], FactsColumns[7]},
 			},
 		},
 	}
