@@ -33,8 +33,8 @@ None. Next is the gate.
 
 ### Open
 
-- FAILURE_PATTERNS 805: `pleiades run`'s end-of-run concurrent-change warning (`journal.ChangesDuring`) still uses a
-  wall-clock window.
+- nats.go v1.54.0 has a data race between `kv.Status` and `kv.Get` on one KV handle (FAILURE_PATTERNS 800; v1.55.0
+  fixes it upstream). Our code avoids it; the owner chose to bump nats.go to v1.55.0 in its own PR right after C2a.
 - FAILURE_PATTERNS 804 is a suspected contention fix, not measured.
 - FAILURE_PATTERNS 551 stays open for its first reading (a later run that failed before acting).
 - Phase 40a: every item but "Provide Commit Message" is ticked.
@@ -43,6 +43,7 @@ None. Next is the gate.
 
 1. `make pr-check` through the monitor, then push, then `make branch-containers`, then one pull request naming the
    failure-pattern classes (793 to 806, and 551's update) in its body. Merge only when its checks are green.
+   805 (the end-of-run concurrent-change warning on a clock) is fixed on this branch too, at the owner's choice.
 2. After the merge: pull `main`, delete merged branches, prune.
 3. C2b: Phase 46a.
 

@@ -19227,12 +19227,17 @@ compare two numbers only when their lives match.
 **Symptom.** Found while building 799's fix, 2026-11-01, under `-race`: reading the bucket stream's creation time
 through `kv.Status` on the manager's shared KV handle raced with that handle's `Get` in another acquisition.
 
-**Root cause.** `kv.Status` refreshes state that the same handle's `Get` also reads, inside the NATS client library,
-and the lock manager shares one KV handle across goroutines.
+**Root cause.** A defect in the NATS client library, settled by reading its source. In nats.go v1.54.0 (the version
+this module pins), `kv.Status` calls the KV handle's `stream.Info`, which stores the answer in the stream's cached
+`s.info` pointer with no lock (`jetstream/stream.go:498`), and `kv.Get` reaches `stream.getMsg`, which reads
+`s.info.Config.AllowDirect` with no lock (`:577`). The library documents no limit on concurrent use of a KV handle;
+only some consumer methods say they cannot be used concurrently. v1.55.0 makes the field an `atomic.Pointer`
+(`stream.go:173`), which is the upstream fix.
 
 **Fix.** `43613be4`: `natsLockManager.epoch` (`internal/lock/nats.go`) reads through a stream handle of its own
-(`js.Stream`, then its `CachedInfo`, one round trip per acquisition); its doc comment records why. Whether the race
-is a defect in the library or a use it does not support was not settled here.
+(`js.Stream`, then its `CachedInfo`, one round trip per acquisition); its doc comment records why. That avoids the
+race whatever the version. The owner chose to bump nats.go to v1.55.0 in its own pull request after this one, which
+removes it at the source.
 
 **Lesson.** A shared client handle is safe for the calls already made on it concurrently, not for every method it
 has; a new call on one runs under `-race` with the old ones before it ships.
@@ -19315,7 +19320,7 @@ the counter, which is read under the lock.
 **Lesson.** Keep in a critical section only what needs the lock's guarantee; read the rest before it, and write down
 why the gap is safe.
 
-## 805. pleiades run's end-of-run warning that another run changed a device while this one worked still decides its window by wall clock (the class of 551, in a warning) (open)
+## 805. pleiades run's end-of-run warning that another run changed a device while this one worked still decided its window by wall clock (the class of 551, in a warning) (fixed before push)
 
 **Symptom.** Found by the fp-reviewer agent's review, 2026-11-01. `journal.ChangesDuring`
 (`internal/journal/active.go`), called from `cmd/pleiades/run_concurrent.go` with the run's start time and
@@ -19325,7 +19330,15 @@ drop a concurrent change from the warning or add an old one.
 **Root cause.** Phase 40a replaced clock order in the rollback planner only. This warning is not a rollback safety
 decision, but LESSONS 371 covers it.
 
-**Fix.** None yet. The run counter and the run markers could bound the window by ticks; not built here.
+**Fix.** The owner chose to fix it in the same pull request. `ChangesDuring` takes the run's own start tick
+(`journal.FileStore.BeginRun`, handed through `concurrency.startTick`): when both runs carry a tick, the other run
+counts when it overlapped this one (it never recorded its end, or ended after this run began, the run markers
+bounding a dead one), and every change it made to the shared devices is reported, its message saying it overlapped
+this one "by the project's run counter", since the counter says the runs overlapped, not when on that span the change
+came. The clock window stays for a pair either of which carries no tick. Test:
+`TestChangesDuring_TheCounterDecidesWhenBothRunsCarryIt`, a run overlapping under a clock stepped back a day found and
+an earlier run whose clock reads inside the window passed over, with the clock-only control showing the opposite.
+`TestCLI_ASecondRunOnTheSameDevicesIsNoticed` still passes against a real device.
 
 **Lesson.** As LESSONS 371. A rule found for one decision gets a search for every other decision of the same shape.
 

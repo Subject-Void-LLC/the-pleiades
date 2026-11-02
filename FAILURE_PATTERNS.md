@@ -808,7 +808,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 802. The run counter's rebuild read journals and seals with none of the strict reader's checks, and the counter's and the run lock's files were opened following links (a repeat of 395, 163 and 761) (fixed before push)
 803. A recorded tick of the largest uint64 made the next tick wrap to zero, the value that means "no tick", and stopped the counter silently (a repeat in kind of 154) (fixed before push)
 804. Every tick rescanned every journal while holding the counter's lock, so a large project made other runs wait, and a seal that timed out at the 10-second wait would have left a run with no end tick (fixed before push; suspected, not measured)
-805. pleiades run's end-of-run warning that another run changed a device while this one worked still decides its window by wall clock (the class of 551, in a warning) (open)
+805. pleiades run's end-of-run warning that another run changed a device while this one worked still decided its window by wall clock (the class of 551, in a warning) (fixed before push)
 806. internal/journal fell under its 94.1% floor again, at 93.0%, with the run marker code (a repeat of 796) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
