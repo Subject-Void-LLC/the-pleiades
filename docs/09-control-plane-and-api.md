@@ -135,16 +135,20 @@ publishes each task's facts on the job's own facts subject
 (`pleiades.jobs.facts.<job>`); the Controller checks them again (each fact's name,
 size and hash) and stores them only for a device it dispatched that job to. A
 value is stored again only when it changes, so a fact's stored values are its
-history, and each says when a run last confirmed it. A check stores nothing, and
-a value holding one of the run's secrets is never stored.
+history, and each says when a run last confirmed it. A check stores nothing. A
+fact named like a secret, or whose value holds one of the run's secrets or text
+shaped like one, is never stored: the Runner leaves it out and the Controller
+refuses it again. Two Controller replicas storing the same new value at the same
+moment can each write it once; nothing is lost, and the history shows it twice.
 
 | Route | Scope | Returns |
 |---|---|---|
 | `GET /inventory/devices/{name}/facts` | `inventory:read` | each fact's newest value, with `observed_at` and `last_seen_at` |
 | `GET /inventory/devices/{name}/facts/{key}` | `inventory:read` | every value one fact has had, oldest first |
 
-A stored value cannot be edited: its name, value and hash are immutable in the
-database schema, and only the time it was last confirmed moves. Fact values are
+A stored value is never edited: the Controller's store cannot change a fact's
+name, value or hash once written (they are immutable fields of its schema), and
+only the time it was last confirmed moves. No API route writes or deletes a fact. Fact values are
 stored as the device reported them, unencrypted, since they describe the device
 rather than grant access to it; a value that is a secret is kept out instead.
 

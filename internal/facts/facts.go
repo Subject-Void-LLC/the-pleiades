@@ -5,8 +5,8 @@
 //
 // This package holds what both tiers share: a fact's hash, the bounds a value
 // must keep (Prepare), and the Crawl CLI's file store under .pleiades/facts.
-// It imports only the standard library, so the engine prepares observations
-// with it; the engine reaches a store only through its own port
+// It imports no store and no ent, so the engine prepares observations with
+// it; the engine reaches a store only through its own port
 // (engine.FactRecorder). The Controller's store over the ent Fact table is
 // internal/facts/entstore.
 package facts
@@ -113,12 +113,26 @@ type Problem struct {
 	Reason string
 }
 
+// Guard is what keeps a secret out of storage: the values the run knows to be
+// secrets, and two checks a caller supplies from internal/redact (this package
+// imports only the standard library): Shaped, whether text holds something
+// shaped like a secret (a private key, a bearer token, a URL with a
+// password), and SecretName, whether a key is named like one (password,
+// token). Either may be nil. It is a strip list, never a proof: a secret the
+// run does not know, in a shape redact does not recognize, is not caught.
+type Guard struct {
+	Secrets    []string
+	Shaped     func(text string) bool
+	SecretName func(name string) bool
+}
+
 // Prepare checks an observation and returns the facts that may be stored,
 // each with its hash, and why each other key was not: a key that is not
-// ValidKey, a value that will not encode or is past MaxValueBytes, or one
-// holding any of secrets (a secret is never stored, masked or not). An
-// observation with more than MaxFactsPerObservation keys is refused whole.
-func Prepare(observed map[string]any, secrets []string) ([]Entry, []Problem, error) {
+// ValidKey or is named like a secret, a value that will not encode or is past
+// MaxValueBytes, or one holding a known secret or text shaped like one (a
+// secret is never stored, masked or not). An observation with more than
+// MaxFactsPerObservation keys is refused whole.
+func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 	if len(observed) > MaxFactsPerObservation {
 		return nil, nil, fmt.Errorf("%w: %d facts, more than %d", ErrInvalid, len(observed), MaxFactsPerObservation)
 	}
@@ -127,6 +141,10 @@ func Prepare(observed map[string]any, secrets []string) ([]Entry, []Problem, err
 	for key, value := range observed {
 		if !ValidKey(key) {
 			problems = append(problems, Problem{Key: key, Reason: "not a fact name: empty, too long, or holding a space, a slash or an unprintable character"})
+			continue
+		}
+		if guard.SecretName != nil && guard.SecretName(key) {
+			problems = append(problems, Problem{Key: key, Reason: "it is named like a secret, which is never stored"})
 			continue
 		}
 		canon, err := Canonical(value)
@@ -138,8 +156,12 @@ func Prepare(observed map[string]any, secrets []string) ([]Entry, []Problem, err
 			problems = append(problems, Problem{Key: key, Reason: fmt.Sprintf("its value is %d bytes, more than %d", len(canon), MaxValueBytes)})
 			continue
 		}
-		if holdsSecret(canon, secrets) {
+		if holdsSecret(canon, guard.Secrets) {
 			problems = append(problems, Problem{Key: key, Reason: "its value holds a secret of this run, which is never stored"})
+			continue
+		}
+		if guard.Shaped != nil && guard.Shaped(string(canon)) {
+			problems = append(problems, Problem{Key: key, Reason: "its value holds text shaped like a secret, which is never stored"})
 			continue
 		}
 		hash, err := Hash(key, value)

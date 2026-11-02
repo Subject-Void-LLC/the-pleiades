@@ -51,6 +51,14 @@ func registerFactMethods(t *testing.T) {
 				return collection.Result{}, err
 			}
 		}
+		if params["shaped"] == true {
+			if err := rc.EmitFact("banner", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU=\n-----END OPENSSH PRIVATE KEY-----"); err != nil {
+				return collection.Result{}, err
+			}
+			if err := rc.EmitFact("db_password", "hunter2"); err != nil {
+				return collection.Result{}, err
+			}
+		}
 		if params["fail"] == true {
 			return collection.Result{}, errors.New("refused")
 		}
@@ -106,6 +114,29 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a check_mode task in a real run", func(t *testing.T) {
+		sink := &factSink{got: map[string][]facts.Entry{}}
+		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "check_mode": true, "params": {"target": "fleet"}}]}`))
+		if err != nil || len(sink.got) != 0 {
+			t.Errorf("stored %v (%v)", sink.got, err)
+		}
+	})
+	t.Run("a secret by its shape or its name, with no secret known", func(t *testing.T) {
+		sink := &factSink{got: map[string][]facts.Entry{}}
+		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet", "shaped": true}}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored := map[string]bool{}
+		for _, e := range sink.got["dev-1"] {
+			stored[e.Key] = true
+		}
+		if stored["banner"] || stored["db_password"] || !stored["ansible_kernel"] {
+			t.Errorf("stored %v: want the kernel alone", stored)
+		}
+	})
 	t.Run("a secret", func(t *testing.T) {
 		sink := &factSink{got: map[string][]facts.Entry{}}
 		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink), engine.WithKnownSecrets([]string{"s3cr3t-pass"})).Run(

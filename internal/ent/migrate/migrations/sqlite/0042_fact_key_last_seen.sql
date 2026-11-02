@@ -5,5 +5,6 @@ INSERT INTO `new_facts` (`id`, `created_at`, `updated_at`, `payload`, `hash`, `d
 DROP TABLE `facts`;
 ALTER TABLE `new_facts` RENAME TO `facts`;
 CREATE INDEX `fact_key_device_facts` ON `facts` (`key`, `device_facts`);
+CREATE INDEX `fact_device_facts` ON `facts` (`device_facts`);
 PRAGMA foreign_keys = on;
 PRAGMA foreign_keys = on;

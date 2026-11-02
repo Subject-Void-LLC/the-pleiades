@@ -17,11 +17,12 @@ type Batch struct {
 }
 
 // Verify re-checks entries a Runner published, which the Controller treats
-// as untrusted input: each must pass Prepare's rules again (a valid key, a
-// bounded value) and carry the hash Prepare computes for its value, so a
+// as untrusted input: each must pass Prepare's rules again under guard (a
+// valid key, a bounded value, nothing shaped like a secret) and carry the
+// hash Prepare computes for its value, so a
 // published hash cannot vouch for a value it does not describe. It returns
 // the entries that pass, recomputed, and how many did not.
-func Verify(entries []Entry) ([]Entry, int, error) {
+func Verify(entries []Entry, guard Guard) ([]Entry, int, error) {
 	observed := make(map[string]any, len(entries))
 	claimed := make(map[string]string, len(entries))
 	refused := 0
@@ -33,7 +34,7 @@ func Verify(entries []Entry) ([]Entry, int, error) {
 		observed[e.Key] = e.Value
 		claimed[e.Key] = e.Hash
 	}
-	prepared, problems, err := Prepare(observed, nil)
+	prepared, problems, err := Prepare(observed, guard)
 	if err != nil {
 		return nil, len(entries), err
 	}

@@ -1,25 +1,30 @@
 // Package facts: the Crawl CLI's fact store, a directory of files under the
-// project's .pleiades/facts, one pair per device.
+// project's .pleiades/facts, one set per device.
 //
-// <device>.jsonl is append-only: one line per stored value, in the order they
-// were observed, so a key's lines are its history and its last line is its
-// current value. <device>.seen.json maps each key to when its current value
-// was last confirmed, rewritten whole through a temporary file and a rename,
-// since it changes on every observation and the history does not.
+// <device>.jsonl is append-only: one line per stored value, so a key's lines
+// are its history. <device>.seen.json maps each key and value hash to when
+// that value was last confirmed, rewritten whole through a uniquely named
+// temporary file and a rename, since it changes on every observation and the
+// history does not. A key's current value is the one most recently confirmed.
 //
 // Every file is opened through an os.Root on the directory, so a link planted
-// there cannot lead a write outside it; the directory and its files are
-// owner-only. Writers are one run at a time: the CLI holds .pleiades/run.lock
-// for a run.
+// there cannot lead a write outside it; the directory is refused when it is
+// itself a link, and made owner-only. Runs of the CLI share the project's run
+// lock rather than exclude each other, so each device's files are written
+// under a lock of their own (<device>.lock, flock or LockFileEx), and a line a
+// crash left unfinished is ignored by readers and cut off by the next writer.
 package facts
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"regexp"
@@ -37,19 +42,45 @@ const (
 // key, hash and times.
 const maxLineBytes = MaxValueBytes + 4<<10
 
-// deviceName is what a device's file is named after: its ID, a UUID or a
+// deviceName is what a device's files are named after: its ID, a UUID or a
 // name made of the characters inventory allows.
 var deviceName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// ErrNoStore marks a read of a project whose fact directory does not exist:
+// no run has stored a fact there yet.
+var ErrNoStore = errors.New("facts: no fact store in this project yet")
 
 // FileStore is the Crawl CLI's Store over a directory.
 type FileStore struct {
 	dir string
 }
 
-// NewFileStore returns a store over dir, made owner-only when missing.
+// NewFileStore returns a store over dir, made owner-only when missing or
+// looser, and refused when it is a symbolic link.
 func NewFileStore(dir string) (*FileStore, error) {
+	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("facts: %s is a symbolic link, not a directory", dir)
+	}
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, fmt.Errorf("facts: %w", err)
+	}
+	if err := os.Chmod(dir, dirMode); err != nil { // #nosec G302 -- 0o700 is a directory permission (owner rwx), as the journal's
+		return nil, fmt.Errorf("facts: %w", err)
+	}
+	return &FileStore{dir: dir}, nil
+}
+
+// OpenFileStore returns a store over dir for reading, creating nothing: a
+// missing directory is ErrNoStore, and a link is refused.
+func OpenFileStore(dir string) (*FileStore, error) {
+	info, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, ErrNoStore
+	case err != nil:
+		return nil, fmt.Errorf("facts: %w", err)
+	case !info.IsDir():
+		return nil, fmt.Errorf("facts: %s is not a directory", dir)
 	}
 	return &FileStore{dir: dir}, nil
 }
@@ -61,6 +92,10 @@ type line struct {
 	Hash       string    `json:"hash"`
 	ObservedAt time.Time `json:"observed_at"`
 }
+
+// seenTimes is when each key's each value was last confirmed, by key and then
+// hash.
+type seenTimes map[string]map[string]time.Time
 
 // root opens the directory as an os.Root, and checks device's name.
 func (s *FileStore) root(device string) (*os.Root, error) {
@@ -74,9 +109,9 @@ func (s *FileStore) root(device string) (*os.Root, error) {
 	return r, nil
 }
 
-// Record implements Store: each entry whose hash differs from its key's
-// newest line is appended, and every observed key's last-seen time is set to
-// at.
+// Record implements Store, under the device's lock: each entry whose hash
+// differs from the value its key held at at is appended, and every observed
+// value's last-seen time moves to at when later.
 func (s *FileStore) Record(_ context.Context, device string, entries []Entry, at time.Time) error {
 	if len(entries) == 0 {
 		return nil
@@ -86,7 +121,17 @@ func (s *FileStore) Record(_ context.Context, device string, entries []Entry, at
 		return err
 	}
 	defer func() { _ = r.Close() }()
-	current, err := readCurrent(r, device)
+	lock, err := r.OpenFile(device+".lock", os.O_CREATE|os.O_RDWR, fileMode)
+	if err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := lockFile(lock); err != nil {
+		return fmt.Errorf("facts: locking %s's facts: %w", device, err)
+	}
+	defer func() { _ = unlockFile(lock) }()
+
+	lines, complete, err := readLines(r, device)
 	if err != nil {
 		return err
 	}
@@ -94,43 +139,79 @@ func (s *FileStore) Record(_ context.Context, device string, entries []Entry, at
 	if err != nil {
 		return err
 	}
+	at = at.UTC()
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 	var appended []byte
 	for _, e := range entries {
-		seen[e.Key] = at.UTC()
-		if cur, ok := current[e.Key]; ok && cur.Hash == e.Hash {
+		if seen[e.Key] == nil {
+			seen[e.Key] = map[string]time.Time{}
+		}
+		if at.After(seen[e.Key][e.Hash]) {
+			seen[e.Key][e.Hash] = at
+		}
+		if cur, ok := valueAt(lines, e.Key, at); ok && cur.Hash == e.Hash {
 			continue
 		}
-		raw, err := json.Marshal(line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at.UTC()})
+		raw, err := json.Marshal(line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at})
 		if err != nil {
 			return fmt.Errorf("facts: %w", err)
 		}
 		appended = append(append(appended, raw...), '\n')
+		lines = append(lines, line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at})
 	}
 	if len(appended) > 0 {
-		f, err := r.OpenFile(device+".jsonl", os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
-		if err != nil {
-			return fmt.Errorf("facts: %w", err)
-		}
-		if _, err := f.Write(appended); err != nil {
-			_ = f.Close()
-			return fmt.Errorf("facts: %w", err)
-		}
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("facts: %w", err)
+		if err := appendLines(r, device, complete, appended); err != nil {
+			return err
 		}
 	}
 	return writeSeen(r, device, seen)
 }
 
-// Current implements Store.
+// valueAt is the line key held at at: the last line for key observed at or
+// before at.
+func valueAt(lines []line, key string, at time.Time) (line, bool) {
+	var found line
+	ok := false
+	for _, l := range lines {
+		if l.Key == key && !l.ObservedAt.After(at) {
+			found, ok = l, true
+		}
+	}
+	return found, ok
+}
+
+// appendLines appends to device's history, first cutting off an unfinished
+// line a crash left past complete bytes.
+func appendLines(r *os.Root, device string, complete int64, appended []byte) error {
+	f, err := r.OpenFile(device+".jsonl", os.O_CREATE|os.O_RDWR, fileMode)
+	if err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	if info.Size() > complete {
+		if err := f.Truncate(complete); err != nil {
+			return fmt.Errorf("facts: cutting an unfinished line off %s.jsonl: %w", device, err)
+		}
+	}
+	if _, err := f.WriteAt(appended, complete); err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	return nil
+}
+
+// Current implements Store: for each key, the value most recently confirmed
+// (the later line when two were confirmed at once).
 func (s *FileStore) Current(_ context.Context, device string) ([]Entry, error) {
 	r, err := s.root(device)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
-	current, err := readCurrent(r, device)
+	lines, _, err := readLines(r, device)
 	if err != nil {
 		return nil, err
 	}
@@ -138,32 +219,30 @@ func (s *FileStore) Current(_ context.Context, device string) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
+	current := map[string]Entry{}
+	for _, l := range lines {
+		e := Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, LastSeenAt: lastSeen(seen, l)}
+		if cur, ok := current[l.Key]; !ok || !e.LastSeenAt.Before(cur.LastSeenAt) {
+			current[l.Key] = e
+		}
+	}
 	out := make([]Entry, 0, len(current))
 	for _, e := range current {
-		e.LastSeenAt = seen[e.Key]
-		if e.LastSeenAt.IsZero() {
-			e.LastSeenAt = e.ObservedAt
-		}
 		out = append(out, e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out, nil
 }
 
-// History implements Store: every line for key, oldest first, each but the
-// newest last seen when the next was observed.
+// History implements Store: every line for key, oldest first, each with when
+// its value was last confirmed.
 func (s *FileStore) History(_ context.Context, device, key string) ([]Entry, error) {
 	r, err := s.root(device)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
-	var out []Entry
-	err = eachLine(r, device, func(l line) {
-		if l.Key == key {
-			out = append(out, Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, LastSeenAt: l.ObservedAt})
-		}
-	})
+	lines, _, err := readLines(r, device)
 	if err != nil {
 		return nil, err
 	}
@@ -171,58 +250,66 @@ func (s *FileStore) History(_ context.Context, device, key string) ([]Entry, err
 	if err != nil {
 		return nil, err
 	}
-	for i := range out {
-		if i+1 < len(out) {
-			out[i].LastSeenAt = out[i+1].ObservedAt
-		} else if t, ok := seen[key]; ok {
-			out[i].LastSeenAt = t
+	var out []Entry
+	for _, l := range lines {
+		if l.Key == key {
+			out = append(out, Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, LastSeenAt: lastSeen(seen, l)})
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ObservedAt.Before(out[j].ObservedAt) })
 	return out, nil
 }
 
-// readCurrent is the newest line of each key.
-func readCurrent(r *os.Root, device string) (map[string]Entry, error) {
-	current := map[string]Entry{}
-	err := eachLine(r, device, func(l line) {
-		current[l.Key] = Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt}
-	})
-	return current, err
+// lastSeen is when l's value was last confirmed, its own observation when no
+// later one is recorded.
+func lastSeen(seen seenTimes, l line) time.Time {
+	if t, ok := seen[l.Key][l.Hash]; ok && t.After(l.ObservedAt) {
+		return t
+	}
+	return l.ObservedAt
 }
 
-// eachLine reads device's history file line by line. A missing file is an
-// empty history; a line that does not decode is an error, never skipped.
-func eachLine(r *os.Root, device string, fn func(line)) error {
+// readLines reads device's history, and how many bytes of it are whole
+// lines. A missing file is an empty history; a final line with no newline
+// (a write a crash cut short) is left out; any other line that does not
+// decode is an error, never skipped.
+func readLines(r *os.Root, device string) ([]line, int64, error) {
 	f, err := r.Open(device + ".jsonl")
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, 0, nil
 	}
 	if err != nil {
-		return fmt.Errorf("facts: %w", err)
+		return nil, 0, fmt.Errorf("facts: %w", err)
 	}
 	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), maxLineBytes)
-	n := 0
-	for sc.Scan() {
-		n++
+	br := bufio.NewReaderSize(f, 64<<10)
+	var lines []line
+	var complete int64
+	for n := 1; ; n++ {
+		raw, err := br.ReadBytes('\n')
+		if errors.Is(err, io.EOF) {
+			return lines, complete, nil
+		}
+		if err != nil {
+			return nil, 0, fmt.Errorf("facts: %s.jsonl: %w", device, err)
+		}
+		if len(raw) > maxLineBytes {
+			return nil, 0, fmt.Errorf("facts: %s.jsonl line %d is longer than a stored fact can be", device, n)
+		}
 		var l line
-		dec := json.NewDecoder(bytes.NewReader(sc.Bytes()))
+		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber()
 		if err := dec.Decode(&l); err != nil || !ValidKey(l.Key) || l.Hash == "" {
-			return fmt.Errorf("facts: %s.jsonl line %d is not a stored fact", device, n)
+			return nil, 0, fmt.Errorf("facts: %s.jsonl line %d is not a stored fact", device, n)
 		}
-		fn(l)
+		lines = append(lines, l)
+		complete += int64(len(raw))
 	}
-	if err := sc.Err(); err != nil {
-		return fmt.Errorf("facts: %s.jsonl: %w", device, err)
-	}
-	return nil
 }
 
 // readSeen reads device's last-seen times; a missing file is none.
-func readSeen(r *os.Root, device string) (map[string]time.Time, error) {
-	seen := map[string]time.Time{}
+func readSeen(r *os.Root, device string) (seenTimes, error) {
+	seen := seenTimes{}
 	f, err := r.Open(device + ".seen.json")
 	if errors.Is(err, fs.ErrNotExist) {
 		return seen, nil
@@ -237,26 +324,33 @@ func readSeen(r *os.Root, device string) (map[string]time.Time, error) {
 	return seen, nil
 }
 
-// writeSeen rewrites device's last-seen times through a temporary file and a
-// rename, so a reader never meets half of one.
-func writeSeen(r *os.Root, device string, seen map[string]time.Time) error {
+// writeSeen rewrites device's last-seen times through a temporary file of its
+// own name and a rename, so a reader never meets half of one.
+func writeSeen(r *os.Root, device string, seen seenTimes) error {
 	raw, err := json.Marshal(seen)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	tmp := device + ".seen.json.tmp"
-	f, err := r.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fileMode)
+	suffix := make([]byte, 8)
+	if _, err := rand.Read(suffix); err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	tmp := device + ".seen." + hex.EncodeToString(suffix) + ".tmp"
+	f, err := r.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, fileMode)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
 	if _, err := f.Write(raw); err != nil {
 		_ = f.Close()
+		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
 	}
 	if err := f.Close(); err != nil {
+		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
 	}
 	if err := r.Rename(tmp, device+".seen.json"); err != nil {
+		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
 	}
 	return nil

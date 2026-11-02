@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 )
 
 // FactRecorder stores the facts a task observed on a device. It must be
@@ -59,7 +60,7 @@ func (r *run) recordFacts(ctx context.Context, results []NodeResult) {
 				observed[key] = v
 			}
 		}
-		entries, problems, err := facts.Prepare(observed, r.secrets.Snapshot())
+		entries, problems, err := facts.Prepare(observed, facts.Guard{Secrets: r.secrets.Snapshot(), Shaped: redact.SecretShaped, SecretName: redact.SecretName})
 		for _, p := range problems {
 			slog.Warn("a fact was not stored", "node", nr.NodeID, "device", nr.Device, "fact", p.Key, "reason", p.Reason)
 		}

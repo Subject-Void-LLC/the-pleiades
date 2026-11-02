@@ -179,9 +179,14 @@ the run:
 - One stored value per device and fact name. A value is stored again only when
   it changes, so a fact's stored values are its history, and the newest is its
   current value; each also says when a run last confirmed it.
-- A check stores nothing, nor does a task that failed or was skipped. A value
-  holding one of the run's secrets is never stored, and one over 64 KiB is left
-  out with a warning.
+- A check stores nothing, nor does a task that failed or was skipped. A fact
+  named like a secret (a password, a token), or whose value holds one of the
+  run's secrets or text shaped like one (a private key, a bearer token), is never
+  stored, and neither is a value over 64 KiB; each is named in the run's log with
+  the reason. That is a strip list, not a proof: a secret the run does not know,
+  in a shape it does not recognize, is not caught.
+- A value that changes on every run (an uptime, a free-memory figure) is stored
+  again on every run, so its history grows by one value a run.
 - On the command line they are under `.pleiades/facts` in the project, read with
   `pleiades facts <host>` (every fact's current value) or `pleiades facts <host>
   <name>` (one fact's history), each with `--json`. On the Controller they are

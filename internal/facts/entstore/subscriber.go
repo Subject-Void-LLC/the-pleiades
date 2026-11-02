@@ -5,6 +5,7 @@
 package entstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -53,12 +55,16 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 // redelivery would never change it. A database failure, or a dispatch not
 // recorded yet, is returned, so the bus redelivers.
 func (s *Subscriber) Handle(evt event.Event) error {
+	// Numbers as written, so a value hashes here as it did on the Runner
+	// (an integer past 2^53 would not survive float64).
 	var batch facts.Batch
-	if err := json.Unmarshal(evt.Data, &batch); err != nil || batch.JobID == "" || batch.DeviceID == "" {
+	dec := json.NewDecoder(bytes.NewReader(evt.Data))
+	dec.UseNumber()
+	if err := dec.Decode(&batch); err != nil || batch.JobID == "" || batch.DeviceID == "" {
 		s.logger.Error("dropping a malformed facts batch", slog.String("event", evt.ID))
 		return nil
 	}
-	entries, refused, err := facts.Verify(batch.Entries)
+	entries, refused, err := facts.Verify(batch.Entries, facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName})
 	if err != nil || refused > 0 {
 		s.logger.Warn("dropping facts a Runner published that do not pass the rules",
 			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Int("refused", refused), slog.Any("error", err))

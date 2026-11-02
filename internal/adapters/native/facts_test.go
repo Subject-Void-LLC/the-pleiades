@@ -11,11 +11,12 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 func factEntries(t *testing.T) []facts.Entry {
 	t.Helper()
-	entries, _, err := facts.Prepare(map[string]any{"ansible_kernel": "6.1"}, nil)
+	entries, _, err := facts.Prepare(map[string]any{"ansible_kernel": "6.1"}, facts.Guard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,5 +67,19 @@ func TestFactsPublisher_RefusesWhatItCannotPublish(t *testing.T) {
 	failing := newFactsPublisher(context.Background(), failingBus{}, "job-1", "device-1")
 	if err := failing.Record(context.Background(), "device-1", factEntries(t), time.Now()); err == nil {
 		t.Error("a failed publish was not reported")
+	}
+}
+
+// TestDispatchSecrets_HoldsTheCredentialAndWhatWasInjected: the values the
+// run knows from its start, which keep a secret out of its facts, are the
+// dispatch's credential and what a bound credential injected.
+func TestDispatchSecrets_HoldsTheCredentialAndWhatWasInjected(t *testing.T) {
+	got := dispatchSecrets(wire.DispatchPayload{Secrets: map[string]string{"username": "admin", "password": "p@ss"}, Injected: &wire.Injected{Mask: []string{"inj-token"}}})
+	held := map[string]bool{}
+	for _, s := range got {
+		held[s] = true
+	}
+	if !held["p@ss"] || !held["inj-token"] {
+		t.Errorf("dispatchSecrets = %q, want the password and the injected value", got)
 	}
 }

@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +53,7 @@ func TestPrepare_StoresOnlyWhatMayBeStored(t *testing.T) {
 		"unencodable":      make(chan int),
 		"count":            3,
 	}
-	entries, problems, err := facts.Prepare(observed, []string{"s3cr3t-value", ""})
+	entries, problems, err := facts.Prepare(observed, facts.Guard{Secrets: []string{"s3cr3t-value", ""}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,14 +83,14 @@ func TestPrepare_StoresOnlyWhatMayBeStored(t *testing.T) {
 	for i := range facts.MaxFactsPerObservation + 1 {
 		tooMany["k"+strings.Repeat("x", i%5)+string(rune('a'+i%26))+strings.Repeat("y", i/26)] = i
 	}
-	if _, _, err := facts.Prepare(tooMany, nil); !errors.Is(err, facts.ErrInvalid) {
+	if _, _, err := facts.Prepare(tooMany, facts.Guard{}); !errors.Is(err, facts.ErrInvalid) {
 		t.Errorf("an observation past the bound: %v, want ErrInvalid", err)
 	}
 }
 
 func prepared(t *testing.T, observed map[string]any) []facts.Entry {
 	t.Helper()
-	entries, problems, err := facts.Prepare(observed, nil)
+	entries, problems, err := facts.Prepare(observed, facts.Guard{})
 	if err != nil || len(problems) != 0 {
 		t.Fatalf("Prepare: %v, %v", problems, err)
 	}
@@ -141,16 +143,20 @@ func TestFileStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 	if m := byKey["mem"]; m.Value != json.Number("2048") || !m.ObservedAt.Equal(t0) || !m.LastSeenAt.Equal(t0.Add(time.Hour)) {
 		t.Errorf("mem = %+v, want observed at t0 and last seen an hour later", m)
 	}
+	// Each value's own last confirmation: 6.1 was seen at t0 and an hour
+	// later, never at the moment 6.2 was.
 	history, err := store.History(ctx, device, "kernel")
 	if err != nil || len(history) != 2 || history[0].Value != "6.1" || history[1].Value != "6.2" ||
-		!history[0].LastSeenAt.Equal(t0.Add(2*time.Hour)) {
+		!history[0].LastSeenAt.Equal(t0.Add(time.Hour)) {
 		t.Errorf("History(kernel) = %+v, %v", history, err)
 	}
 	if none, err := store.Current(ctx, "other-device"); err != nil || len(none) != 0 {
 		t.Errorf("a device with no facts: %+v, %v", none, err)
 	}
-	if info, err := os.Stat(filepath.Join(dir, device+".jsonl")); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("the history file's mode: %v, %v", info, err)
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(filepath.Join(dir, device+".jsonl")); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("the history file's mode: %v, %v", info, err)
+		}
 	}
 }
 
@@ -169,6 +175,9 @@ func TestFileStore_RefusesWhatItCannotTrust(t *testing.T) {
 		if err := store.Record(ctx, bad, entries, time.Now()); !errors.Is(err, facts.ErrInvalid) {
 			t.Errorf("device %q: %v, want ErrInvalid", bad, err)
 		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("needs symbolic links, which Windows grants only to an elevated or developer-mode account")
 	}
 	outside := filepath.Join(t.TempDir(), "outside")
 	if err := os.WriteFile(outside, nil, 0o600); err != nil {
@@ -202,7 +211,7 @@ func TestVerify_RechecksWhatARunnerPublished(t *testing.T) {
 		facts.Entry{Key: "bad key", Value: "x", Hash: "x"},
 		facts.Entry{Key: "forged", Value: "x", Hash: "0000"},
 	)
-	out, refused, err := facts.Verify(published)
+	out, refused, err := facts.Verify(published, facts.Guard{})
 	if err != nil || len(out) != 2 || refused != 3 {
 		t.Fatalf("Verify = %+v, refused %d, %v; want the two good entries and three refused", out, refused, err)
 	}
@@ -215,7 +224,137 @@ func TestVerify_RechecksWhatARunnerPublished(t *testing.T) {
 	for i := range facts.MaxFactsPerObservation + 1 {
 		many = append(many, facts.Entry{Key: "k" + strings.Repeat("x", i), Value: i})
 	}
-	if _, _, err := facts.Verify(many); !errors.Is(err, facts.ErrInvalid) {
+	if _, _, err := facts.Verify(many, facts.Guard{}); !errors.Is(err, facts.ErrInvalid) {
 		t.Errorf("a batch past the bound: %v", err)
+	}
+}
+
+// TestFileStore_ALateObservationDoesNotReplaceANewerOne: a value observed
+// earlier than the one confirmed after it, recorded late, joins the history
+// without becoming current.
+func TestFileStore_ALateObservationDoesNotReplaceANewerOne(t *testing.T) {
+	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	t0 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	_ = store.Record(ctx, "dev", prepared(t, map[string]any{"k": "A"}), t0)
+	_ = store.Record(ctx, "dev", prepared(t, map[string]any{"k": "A"}), t0.Add(5*time.Hour))
+	if err := store.Record(ctx, "dev", prepared(t, map[string]any{"k": "B"}), t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := store.Current(ctx, "dev")
+	if len(current) != 1 || current[0].Value != "A" {
+		t.Errorf("current = %+v, want A, confirmed after B was observed", current)
+	}
+	if history, _ := store.History(ctx, "dev", "k"); len(history) != 2 || history[1].Value != "B" {
+		t.Errorf("history = %+v, want A then B", history)
+	}
+}
+
+// TestFileStore_AnUnfinishedLineIsIgnoredAndCutOff: a crash in the middle of
+// an append leaves a last line with no newline, which readers leave out and
+// the next writer cuts off rather than refusing the file forever.
+func TestFileStore_AnUnfinishedLineIsIgnoredAndCutOff(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "facts")
+	store, err := facts.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := store.Record(ctx, "dev", prepared(t, map[string]any{"k": "A"}), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "dev.jsonl")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0) // #nosec G304 -- the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(`{"key":"k","value":"B","ha`)
+	_ = f.Close()
+	if current, err := store.Current(ctx, "dev"); err != nil || len(current) != 1 || current[0].Value != "A" {
+		t.Fatalf("with an unfinished line: %+v, %v", current, err)
+	}
+	if err := store.Record(ctx, "dev", prepared(t, map[string]any{"k": "C"}), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path) // #nosec G304 -- the test's own file
+	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	for _, l := range lines {
+		if !json.Valid([]byte(l)) {
+			t.Errorf("a line that is not whole JSON survived: %q", l)
+		}
+	}
+	if len(lines) != 2 {
+		t.Errorf("%d lines, want A and C: %q", len(lines), raw)
+	}
+}
+
+// TestFileStore_ConcurrentWritersTakeTurns: two stores over one directory,
+// as two CLI runs are, writing one device at once leave whole files with every
+// value.
+func TestFileStore_ConcurrentWritersTakeTurns(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "facts")
+	ctx := context.Background()
+	base := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	done := make(chan error, 2)
+	for w := range 2 {
+		go func() {
+			store, err := facts.NewFileStore(dir)
+			if err != nil {
+				done <- err
+				return
+			}
+			for i := range 50 {
+				key := fmt.Sprintf("w%d_%d", w, i)
+				if err := store.Record(ctx, "dev", prepared(t, map[string]any{key: i}), base.Add(time.Duration(i)*time.Second)); err != nil {
+					done <- err
+					return
+				}
+			}
+			done <- nil
+		}()
+	}
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, _ := facts.NewFileStore(dir)
+	current, err := store.Current(ctx, "dev")
+	if err != nil || len(current) != 100 {
+		t.Fatalf("after two writers: %d facts, %v; want 100", len(current), err)
+	}
+	for _, e := range current {
+		if e.LastSeenAt.IsZero() {
+			t.Errorf("%s lost its last-seen time", e.Key)
+		}
+	}
+}
+
+// TestFileStore_ReadingCreatesNothingAndRefusesALink: a read of a project no
+// run has stored facts in finds none without making the directory, and a
+// directory that is a link is refused for writing and reading alike.
+func TestFileStore_ReadingCreatesNothingAndRefusesALink(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "facts")
+	if _, err := facts.OpenFileStore(dir); !errors.Is(err, facts.ErrNoStore) {
+		t.Errorf("a missing store: %v, want ErrNoStore", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("a read made the directory")
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := facts.NewFileStore(dir); err == nil {
+		t.Error("a linked directory was accepted for writing")
+	}
+	if _, err := facts.OpenFileStore(dir); err == nil {
+		t.Error("a linked directory was accepted for reading")
 	}
 }

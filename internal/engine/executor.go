@@ -814,6 +814,8 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		r.predicted.dropAll()
 		result.Nodes = append(result.Nodes, drained...)
 		r.recordLevel(context.WithoutCancel(ctx), levelIndex+1, [][]NodeResult{drained})
+		// A drained job's facts are stored as a level's are (facts.go).
+		r.recordFacts(context.WithoutCancel(ctx), drained)
 	}()
 	// ending holds, once a failure has ended the run, the blocks the walk
 	// was inside then: their always: tasks still run (whileEnding).

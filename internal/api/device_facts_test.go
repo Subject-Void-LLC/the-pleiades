@@ -89,6 +89,11 @@ func TestDeviceFacts_ReadsByDeviceIDAndAnswersEachOutcome(t *testing.T) {
 	if rr := factsGet(router, "/inventory/devices/web1/facts/bad%20key"); rr.Code != http.StatusBadRequest || strings.Contains(rr.Body.String(), "bad key") {
 		t.Errorf("a key that is not a fact name: %d %s", rr.Code, rr.Body.String())
 	}
+	// One past the handler's 253-byte device name limit (a DNS name's).
+	long := strings.Repeat("d", 254)
+	if rr := factsGet(router, "/inventory/devices/"+long+"/facts"); rr.Code != http.StatusBadRequest || strings.Contains(rr.Body.String(), long) {
+		t.Errorf("a device name past the limit: %d, echoed: %v", rr.Code, strings.Contains(rr.Body.String(), long))
+	}
 	missing := factsRouter(t, &stubDeviceRepo{getErr: inventory.ErrItemNotFound}, reader)
 	if rr := factsGet(missing, "/inventory/devices/nope/facts"); rr.Code != http.StatusNotFound {
 		t.Errorf("a missing device: %d", rr.Code)

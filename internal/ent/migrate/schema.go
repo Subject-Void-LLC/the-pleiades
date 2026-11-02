@@ -352,6 +352,11 @@ var (
 				Unique:  false,
 				Columns: []*schema.Column{FactsColumns[3], FactsColumns[7]},
 			},
+			{
+				Name:    "fact_device_facts",
+				Unique:  false,
+				Columns: []*schema.Column{FactsColumns[7]},
+			},
 		},
 	}
 	// GroupsColumns holds the columns for the "groups" table.

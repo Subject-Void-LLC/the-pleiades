@@ -36,7 +36,8 @@ func (Fact) Fields() []ent.Field {
 		// build from before it, which writes no facts, still serves the
 		// table; NotEmpty refuses an empty key on every write.
 		field.String("key").Default("").NotEmpty().MaxLen(256).Immutable(),
-		// payload holds the value as {"value": <value>}.
+		// payload holds the value as {"json": <its canonical JSON text>}, so
+		// a number reads back exactly (internal/facts/entstore).
 		field.JSON("payload", map[string]interface{}{}).Immutable(),
 		// hash is SHA-256 over the canonical JSON of key and value
 		// (internal/facts.Hash), which is how a later observation is
@@ -50,10 +51,12 @@ func (Fact) Fields() []ent.Field {
 	}
 }
 
-// Indexes of the Fact: a device's facts by key, newest first.
+// Indexes of the Fact: one key across devices, and every fact of one device
+// (what the device's facts route reads).
 func (Fact) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("key").Edges("device"),
+		index.Edges("device"),
 	}
 }
 

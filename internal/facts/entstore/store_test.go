@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func open(t *testing.T) (*ent.Client, string) {
 
 func prepared(t *testing.T, observed map[string]any) []facts.Entry {
 	t.Helper()
-	entries, problems, err := facts.Prepare(observed, nil)
+	entries, problems, err := facts.Prepare(observed, facts.Guard{})
 	if err != nil || len(problems) != 0 {
 		t.Fatalf("Prepare: %v, %v", problems, err)
 	}
@@ -62,7 +63,7 @@ func TestStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 	if err != nil || len(current) != 2 || current[0].Key != "kernel" || current[0].Value != "6.2" || current[1].Key != "mem" {
 		t.Fatalf("Current = %+v, %v", current, err)
 	}
-	if m := current[1]; !m.ObservedAt.Equal(t0) || !m.LastSeenAt.Equal(t0.Add(time.Hour)) || m.Value != json.Number("2048") && m.Value != float64(2048) {
+	if m := current[1]; !m.ObservedAt.Equal(t0) || !m.LastSeenAt.Equal(t0.Add(time.Hour)) || m.Value != json.Number("2048") {
 		t.Errorf("mem = %+v, want observed at t0 and last seen an hour later", m)
 	}
 	history, err := store.History(ctx, device, "kernel")
@@ -141,5 +142,52 @@ func TestSubscriber_StoresOnlyWhatPassesAndWasDispatched(t *testing.T) {
 	unknown.DeviceID = "no-such-device"
 	if err := handle(t, sub, unknown); err != nil {
 		t.Errorf("a batch for a device the database lacks was not acknowledged: %v", err)
+	}
+}
+
+// TestStore_ALateBatchDoesNotReplaceANewerValue: a value observed before the
+// one confirmed after it, stored late (a redelivery, a Runner whose clock is
+// behind), joins the history without becoming current, and the same batch
+// stored twice writes one row.
+func TestStore_ALateBatchDoesNotReplaceANewerValue(t *testing.T) {
+	client, device := open(t)
+	store := entstore.New(client)
+	ctx := context.Background()
+	t0 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	_ = store.Record(ctx, device, prepared(t, map[string]any{"k": "A"}), t0)
+	_ = store.Record(ctx, device, prepared(t, map[string]any{"k": "A"}), t0.Add(5*time.Hour))
+	for range 2 {
+		if err := store.Record(ctx, device, prepared(t, map[string]any{"k": "B"}), t0.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, _ := store.Current(ctx, device)
+	if len(current) != 1 || current[0].Value != "A" {
+		t.Errorf("current = %+v, want A, confirmed after B was observed", current)
+	}
+	if n := client.Fact.Query().CountX(ctx); n != 2 {
+		t.Errorf("%d rows, want A and B once each", n)
+	}
+}
+
+// TestSubscriber_ABigIntegerCrossesTheWireWhole: an integer past 2^53, which
+// float64 would round, hashes on the Controller as it did on the Runner, so
+// the fact is stored rather than refused as forged.
+func TestSubscriber_ABigIntegerCrossesTheWireWhole(t *testing.T) {
+	client, device := open(t)
+	store := entstore.New(client)
+	var big any
+	_ = json.Unmarshal([]byte("9007199254740993"), &big) // a float64, as a careless decode would make it
+	dec := json.NewDecoder(strings.NewReader("9007199254740993"))
+	dec.UseNumber()
+	_ = dec.Decode(&big)
+	entries := prepared(t, map[string]any{"serial_counter": big})
+	sub := entstore.NewSubscriber(store, nil, nil)
+	if err := handle(t, sub, facts.Batch{JobID: "job-1", DeviceID: device, ObservedAt: time.Now(), Entries: entries}); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := store.Current(context.Background(), device)
+	if len(current) != 1 || fmt.Sprint(current[0].Value) != "9007199254740993" {
+		t.Errorf("stored %+v, want the big integer", current)
 	}
 }

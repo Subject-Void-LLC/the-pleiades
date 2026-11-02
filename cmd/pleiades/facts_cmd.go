@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -52,27 +53,32 @@ func runFacts(args []string) error {
 	if err != nil {
 		return fmt.Errorf("host %q: %w", positionals[0], err)
 	}
-	store, err := facts.NewFileStore(factsDir(*dir))
-	if err != nil {
-		return err
-	}
 	rep := factsReport{Host: item.Name(), DeviceID: string(item.ID())}
 	if len(positionals) == 2 {
 		rep.Key = positionals[1]
+	}
+	// A read creates nothing: a project no run has stored a fact in yet has
+	// no fact directory, and its hosts have no facts.
+	store, err := facts.OpenFileStore(factsDir(*dir))
+	switch {
+	case errors.Is(err, facts.ErrNoStore):
+	case err != nil:
+		return err
+	case rep.Key != "":
 		rep.Facts, err = store.History(ctx, rep.DeviceID, rep.Key)
-	} else {
+	default:
 		rep.Facts, err = store.Current(ctx, rep.DeviceID)
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, facts.ErrNoStore) {
 		return err
 	}
 	if rep.Facts == nil {
 		rep.Facts = []facts.Entry{}
 	}
 	if *asJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(rep)
+		// Through the CLI's JSON writer, which escapes what a terminal would
+		// act on: a fact value is the device's own text.
+		return writeJSON(os.Stdout, rep)
 	}
 	printFacts(rep)
 	return nil
