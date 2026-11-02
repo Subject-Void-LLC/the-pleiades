@@ -4,75 +4,61 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-01. Branch `feat/c1-language`, HEAD `56a42de4`, 27 commits on `main` at `1e97aa2e` (`git log main..HEAD`).
-C1 is complete, and the fp-reviewer's findings are fixed in `2e91d59d`..`56a42de4` (FAILURE_PATTERNS 778 to 789). Not
-through `make pr-check` yet, not pushed, no pull request.** Pull requests #96 to #98 merged
-without a handoff rewrite; the previous status (PR #95's branch) is in `HANDOFF_ARCHIVE.md`.
+**2026-11-01. Branch `feat/c2a-rollback-ordering`, HEAD `ee47be45`, 8 commits on `main` at `40a12dac` (`git log
+main..HEAD`). Phase 40a, "Rollback order without clocks", is committed. Not through the fp-reviewer or `make pr-check`
+yet, not pushed, no pull request.** C1 merged as PR #99 (`40a12dac`). The owner split C2 into four pull requests:
+40a (this one), 46a, the uncheckable methods, then 41, whose design decisions the owner makes first.
+
+The branch's first commit, `8c2ccadc`, is another agent's forge symlink fix (PR #100, FAILURE_PATTERNS 792, its own
+changelog fragment), folded in at the owner's request. PR #100 is still open; what happens to it is the owner's call.
+Its worktree `/home/noot/auto-roboto-fix-792` was removed clean; the branch
+`fix/generated-file-writes-no-symlink-follow` remains locally and on origin.
 
 ### What works (each proven by a test that ran)
 
-- **Params render from every source** on a real Debian device: `TestCLI_ParamsRenderEverySourceInItsOrder`; a value
-  holding braces is never rendered twice: `TestRenderedParams_AValueHoldingBracesIsNotRenderedAgain`.
-- **Handlers and `notify:`** (`internal/engine/notify.go`, `chain.go`): `TestCLI_HandlersRunOnceInTheirOrderOnlyWhenNotified`,
-  `FuzzNotify`, `TestNotify_ChangedWhenDecidesWhatNotifies`. `meta: flush_handlers` is refused (deferred).
-- **`serial:`** on both tiers, in device-name order (`engine.BatchDevices`): `TestCLI_SerialRunsTwoDevicesAtATime`,
-  `TestCLI_SerialStopsTheRolloutAtAFailedBatch`, `TestSerialReleaseGate_TwoAtATimeAndAFailedBatchStops` (real NATS,
-  Runner and sshd), `FuzzSerialList`. The Controller adds a nullable `job_task.batch` column with both migrations.
-- **Timed `pause`** (`internal/engine/timed_pause.go`; Phase 27's `pause.go` is untouched): `TestPause_HoldsOnceForTheWholeRun`.
-  The dotted `pleiades.builtin.fail`, `assert` and `set_fact` now validate (FAILURE_PATTERNS 768).
-- **`limit`**, one matcher (`engine.ParseLimit`) for `pleiades run --limit`, `adhoc --limit` and the Controller's
-  fan-out: `TestLimit_NarrowsWhatARunReaches`, `TestLimit_OnlyWhatItAdmitsIsPartOfTheJob`, `FuzzLimit`. A playbook job's
-  limit is applied by the Controller (`changelog/playbook-limit-read-by-controller.breaking.md`).
-- **`async:` and `poll:`** for every method, detached on SSH devices, on both tiers:
-  `TestCLI_AsyncRunsInTheBackgroundAndItsLimitStopsTheDevicesWork`, `TestAsyncReleaseGate_DetachedOnARunner`. A plain
-  `timeout:` now ends a command whose child holds its output (FAILURE_PATTERNS 774).
-- **The review's fixes**, each test failing on the old code: an abandoned command's output is not read
-  (`TestRun_ACommandWhoseServerNeverAnswersIsAbandoned`, under `-race`); a detached command runs as it would attached,
-  never as an argument, and only in a base its account owns (`TestDetached_*` in `pkg/remoteexec/detach_test.go`); the
-  stop's budget fits inside every kill and an external program ends its method on SIGTERM
-  (`TestProgram_SIGTERMEndsTheMethodsContext`); cancelling a run stops its background jobs
-  (`TestAsync_CancellingTheRunStopsABackgroundJob`); handlers and background tasks that could never run as written are
-  refused; a limit of only separators is refused; a Controller serial job repairs its batches whatever its forks; the
-  CLI cuts batches from the admitted hosts as the Controller does; the gates no longer race a fixed sleep;
-  `internal/engine/builtin_table_test.go` holds the engine's action table to its executor. Phase 90 and 91 items carry
-  this evidence now; no item changed state.
+- **A lease carries the fencing token of its acquisition** (`lock.Fenced`; the NATS manager's is the JetStream
+  sequence of the acquiring write, held in `natsLease.fence` because `revision` moves on every KeepAlive): conformance
+  subtest `FencingTokensOrderAcquisitions`, both managers.
+- **The Crawl run counter** (`.pleiades/clock`, `internal/journal/clock.go`): start tick on every entry, end tick in
+  the seal, rebuilt from the journals when missing or behind: `TestTickClock*`, `TestRunTicksAreStampedAndSealed`.
+- **The Runner stamps an exclusive lease's token on every journal row**, and none under a shared lease
+  (FAILURE_PATTERNS 793): `TestAgent_ExecuteWithLease_HandsTheLeasesFencingTokenToTheRun`,
+  `TestAgent_ExecuteWithLease_ASharedLeaseHandsTheRunNoFencingToken`, `TestJournalPublisherStampsTheLeaseRevision`.
+- **The planner orders by tick and token**, by clock only for older journals and shared-lease jobs, and finds an undo
+  step's latest attempt the same way (794): `TestOrder_*` in `internal/rollback/order_test.go`.
+- **RULE 0 proof:** `TestCLI_RollbackReleaseGate` G2 with the later run's journal times a day back, still refused;
+  `TestRollbackReleaseGate_ALaterJobFromASkewedRunnerStillRefuses` (two Runners, two NATS lock managers, later job's
+  rows a day behind), still refused. Both fail with the planner forced to order by clock alone.
+- `internal/journal` was under its 94.1% floor at 91.3% and was fixed before the gate (796).
 
 ### Current blocker
 
-None. Next is the gate.
+The fp-reviewer run waits on the triad MCP servers reconnecting.
 
 ### Open
 
-- Phase 91: `max_fail_percentage` refused by decision; the pause prompt on a terminal and the converter's mapping of
-  the timed pause; each batch accepted before the next (Part XVI); its Adversarial Pattern Justification and
-  Schema/Injection Hardening gates. Phase 87's `set_fact` item is the owner's call (built as `vars.<name>`).
-- No test lands an async limit inside a poll on purpose (FAILURE_PATTERNS 777, path 1).
-- The playbook converter does not carry `notify:`, `handlers:`, `async:` or `serial:` yet (its notes now say so).
-- Detach on FreeBSD and macOS (no `setsid`, the `set -m` path) is unproven, since the BSD leg is cut.
-- `internal/inventory/ent_group_names.go` recurses per group with a fresh seen-set (O(groups x depth)).
-- `internal/segment` (117b) knows neither spliced handler nodes nor a background job collected in a later segment.
-- The 781 attack (a login steering root's polls under a sudo that keeps `HOME`) was reasoned, not reproduced; the fix
-  refuses the shape.
-- **Triad finding (this session):** vuln-corpus `eae41a4`'s "skips constant joins" is live, but the sweep still flags a
-  join whose segment is another package's const or a range variable over a literal map: two known false positives in
-  `internal/archtest/coverage_ledger_test.go`. And argus `expand_seeds` wrote corpus files into the target repository's
-  `testdata/fuzz` despite `persist: false`; its record belongs in `~/argus`, not here.
+- Phase 40a is 7 of 8. "The planner orders by them" stays open: the Controller drops `Plan.OrderedByClock`, so an
+  accepted Walk rollback ordered by clock says nothing, and a shared-lease refusal's reason says one journal "predates
+  run ordering", which is not the cause there. The docs and the changelog fragment say "the rollback names each such
+  run", which holds for the CLI only. "Provide Commit Message" is unticked.
+- FAILURE_PATTERNS 551 stays open for its first reading (a later run that failed before acting); its wall-clock reading
+  is closed on this branch.
+- PR #100's fate (above).
 
 ### Next, in order
 
-1. `make pr-check` through the monitor, then push, then `make branch-containers`, then one pull request naming the
-   failure-pattern classes (768 to 789) in its body. Merge only when its checks are green.
-2. After the merge: pull `main`, delete merged branches, prune.
-3. The triad version handshake, in `~/argus`, `~/vuln-corpus` and `~/Groundconfig`, never committed there.
-4. Release 0.4.0. No tag until the owner says so.
+1. The fp-reviewer over `git diff main..HEAD` once the triad servers reconnect; fix what it finds.
+2. `make pr-check` through the monitor, then push, then `make branch-containers`, then one pull request naming the
+   failure-pattern classes (792 to 796, and 551's update) in its body. Merge only when its checks are green.
+3. After the merge: pull `main`, delete merged branches, prune.
+4. C2b: Phase 46a.
 
 ### Files changed this session
 
-See `git log main..HEAD`. Records: `FAILURE_PATTERNS.md` and `FAILURE_PATTERNS_ARCHIVE.md` (768 to 789),
-`LESSONS_LEARNED.md` and `LESSONS_LEARNED_ARCHIVE.md` (368 to 370), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
-Changelog fragments: `async-and-poll.added.md`, `dotted-builtins-validate.fixed.md`, `handlers-and-notify.added.md`,
-`limit.added.md`, `playbook-limit-read-by-controller.breaking.md`, `serial.added.md`,
-`ssh-timeout-ends-the-task.fixed.md`, `timed-pause.added.md`.
+See `git log main..HEAD`. Records (uncommitted): `FAILURE_PATTERNS.md` and `FAILURE_PATTERNS_ARCHIVE.md` (793 to 796,
+and an update to 551), `LESSONS_LEARNED.md` and `LESSONS_LEARNED_ARCHIVE.md` (371, 372), `HANDOFF_DOCUMENT.md`,
+`HANDOFF_ARCHIVE.md`, and Phase 40a in `.SPECIFICATION/IMPLEMENTATION.md`. Changelog fragment (committed):
+`rollback-order-without-clocks.fixed.md`.
 
 Lab: no change was reported this session. Last recorded: bsd-check and win-check powered off (shut down through ACPI,
 not saved).

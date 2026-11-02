@@ -6834,3 +6834,32 @@ where the path's one test runs it in another process.
 **Rule in practice.** When a fix exists for a server's behavior that only a gate reproduces, write a package test that
 reproduces the behavior in process (a proxy, a stand-in that withholds the same answer) and drives the same code with
 output flowing, so `-race` sees it. Do not count a gate's pass as race evidence for code inside the binary it built.
+
+## 371. A safety decision about which of two events came later, across processes or across time, reads a number the system itself orders (a run counter, a lease's fencing token), never a clock; and when a clock is taken out of a decision, every time comparison the decision reaches goes, not only the one a symptom pointed at (a repeat in kind of 83) (2026-11-01).
+
+**Why.** The rollback planner refuses to undo a run beneath a later run on the same device, and it read "later" off
+the journals' wall-clock times (FAILURE_PATTERNS 551). On the Crawl tier those are one machine's clock across runs,
+which can be stepped back; on the Walk tier they are two Runners' clocks, which can disagree. Nothing bounds either
+error, so NTP and a tolerance window on timestamps narrow the hole without closing it. Phase 40a orders runs by a
+project counter (`.pleiades/clock`) and by the exclusive device lease's fencing token (`lock.Fenced`), and its gates
+prove a stepped clock and a skewed Runner are still refused. Building it found a second comparison the phase had not
+listed, an undo step's latest attempt picked by `FinishedAt` (794), because the list came from reading the two
+functions 551's symptom pointed at. LESSONS 83 says a lease that reclaims by timestamp is not a fencing token; this is
+the same rule for ordering, which is reading rather than writing.
+
+**Rule in practice.** For any check that decides which of two records is later, where the answer gates a change, find
+a number that only grows in one place the system controls (a counter under a lock, a stream sequence) and journal it
+with each record. Fall back to clock times only for records made before it existed, and say so in the output. Before
+writing the phase, search everything the decision calls for `After`, `Before`, `Sub` and `Compare` on a time.
+
+## 372. An order of acquisitions is an order of changes only under exclusive holding: where holders overlap, a fencing token says who joined first, not who changed last (2026-11-01).
+
+**Why.** Phase 40a orders Walk jobs on a device by the fencing token of the lease each Runner held. A Kubernetes
+cluster takes a shared lease (`wire.DispatchPayload.SharedDevice`), and each joining holder gets a higher token, so a
+job that joined first and changed the cluster after a later job began would read as earlier, and a rollback of the
+later job would undo beneath that change (FAILURE_PATTERNS 793). The phase text had treated shared leases as a case
+with nothing to journal. It was found by reasoning through the edge-case list before push.
+
+**Rule in practice.** Before an acquisition order stands for anything about the work done under it, ask whether two
+holders can overlap. If they can, record no token for them and order them the old way, named as such
+(`Plan.OrderedByClock`); `TestAgent_ExecuteWithLease_ASharedLeaseHandsTheRunNoFencingToken` holds the Runner to it.

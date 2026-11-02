@@ -13746,6 +13746,24 @@ tier. Not built here, since it reaches the lock, the Runner, the journal schema 
 **Lesson.** A gate step whose outcome it ignores turns a flake in the setup into a wrong verdict on the product. And
 a safety check that compares two clocks is only as safe as their agreement, which nothing here bounds.
 
+**Update (2026-11-01, Phase 40a, on `feat/c2a-rollback-ordering`, not yet on `main`).** The second reading is closed:
+the planner no longer decides "later" by wall-clock times wherever the journals carry an order. On the Crawl tier,
+`.pleiades/clock` (`internal/journal/clock.go`) is ticked under a lock of its own as a run begins and as it ends; every
+entry carries the start tick (`RunTick`) and the seal the end tick, and another run is later when its end tick is above
+the target's start tick, or when it never recorded one. On the Walk tier, each entry carries the fencing token of the
+exclusive device lease its Runner held (`lock.Fenced`, the JetStream sequence of the acquiring write), stamped by the
+Runner's journal publisher (`internal/adapters/native/journal.go`, from the context `internal/runner/agent_exec.go`
+sets), and `EntStore.OnDevicesSince` and the planner compare it per device. Journals from before either, and jobs on a
+shared lease (793), are still ordered by clock, and the plan names them (`Plan.OrderedByClock`). Commits `e39172f2` to
+`4e107a28`; `internal/rollback/order.go`. The planner had a second clock comparison of its own, an undo step's latest
+attempt (794). Proof: `TestCLI_RollbackReleaseGate`'s G2 now rewrites the later run's journal times a day back, exactly as a
+clock stepped back would have written them, and is still refused without a word of clocks; the new
+`TestRollbackReleaseGate_ALaterJobFromASkewedRunnerStillRefuses` (`cmd/runner`) runs two jobs through two Runners, each
+with its own NATS lock manager, moves the later job's stored times a day behind, and the Controller still refuses. Both
+were checked to fail (exit 0, no refusal) with the planner forced to order by clock alone. The first reading, a later
+run that failed before it acted and so recorded no change, is unchanged: the gate still fails naming such a run with
+its journal. The entry stays open for that reading.
+
 ## 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
 
 **Symptom.** 2026-10-20 and 21, `make pr-check` on 27a440a1: every leg had passed once, then three reruns died at
@@ -19019,3 +19037,98 @@ temporary file renamed into place for "replace", and an `os.Root` on the directo
 **Class.** C4 (path traversal and confinement escape), CWE-59 and CWE-367
 **Portable.** yes: any generator, exporter or installer that checks a path and then writes it, or writes a fixed name into a directory someone else can write
 **Detector.** `os.Stat`/`os.Lstat` on a path followed by `os.WriteFile`/`os.Create` on the same path; `os.WriteFile` into a caller-chosen directory; plant a dangling symlink at the output name and run the command
+
+## 793. A lease's fencing token was about to order the jobs on a shared lease, whose holders overlap, so a job that joined first could change a device after a later one began and still read as earlier (fixed before push)
+
+**Symptom.** Found by reasoning through Phase 40a's edge-case list on 2026-11-01, on `feat/c2a-rollback-ordering`,
+before push. The phase orders Walk jobs on a device by the fencing token of the device lease
+each Runner held: the job with the higher token is later. A shared device (`wire.DispatchPayload.SharedDevice`, a
+Kubernetes cluster) takes `lock.ModeShared`, and each holder that joins gets a new, higher token (the conformance
+subtest `FencingTokensOrderAcquisitions` holds both managers to that). Job A joins, job B joins, both run at once, and A
+changes the cluster after B began. With tokens stamped, a rollback of B finds A's token lower, reads A as earlier, and
+undoes B beneath a change A made after it.
+
+**Root cause.** An order of acquisitions is an order of changes only when one holder ends before the next begins. The
+phase's edge-case list named shared leases only as "(a check journals nothing)", but a dispatch on a shared device
+journals like any other, through the Runner's journal publisher.
+
+**Fix.** `e5e1aed7`: the Runner puts the token on the run's context only for an exclusive lease
+(`internal/runner/agent_exec.go`, `lock.FencingToken(lease)` and `!payload.SharedDevice`), so a shared-lease job's rows
+carry no `lease_revision` and the planner orders that pair by the journals' clock times (`laterOn`'s `byClock` in
+`internal/rollback/order.go`, named in `Plan.OrderedByClock`). Tests: `TestAgent_ExecuteWithLease_ASharedLeaseHandsTheRunNoFencingToken`
+and, for the exclusive case, `TestAgent_ExecuteWithLease_HandsTheLeasesFencingTokenToTheRun`.
+
+**Lesson.** A fencing token says who acquired first. It says who changed last only where holding is exclusive; where
+holders overlap, record no token and say the order came from the clock.
+
+## 794. The rollback planner found an undo step's latest attempt by FinishedAt, a second clock comparison Phase 40a's text did not name (a repeat in kind of 551) (fixed before push)
+
+**Symptom.** Found while building Phase 40a, 2026-11-01. `fullyUndone` (`internal/rollback/history.go`) decides whether
+a later run is undone, so no longer blocks a rollback, from the latest attempt at each of that run's undo steps, and it
+picked the latest with `e.FinishedAt.After(prev.at)`. Two rollbacks of the same later run, written under a clock set
+back or by two Runners that disagree, could be read in the wrong order: an earlier attempt that succeeded under a fast
+clock would hide a later one that failed, the later run would read as undone, and the target's rollback would run
+beneath it.
+
+**Root cause.** The clock comparisons the phase set out to replace were the ones 551's update found by reading
+`laterRunProblems` and `EntStore.onDevicesSince`. Nobody searched the package for every time comparison a "later"
+decision reaches.
+
+**Fix.** `4e107a28`: `entryAfter` (`internal/rollback/order.go`) orders two entries by attempt and sequence within one
+run, by lease revision between two Walk jobs on one device, by start tick between two Crawl runs, and by `FinishedAt`
+only when an entry carries neither. `fullyUndone` keeps the entry, not its time. Test:
+`TestOrder_TheLatestUndoAttemptIsFoundWithoutAClock`, both ways round, with each attempt's clock set against its tick.
+
+**Why 551 did not prevent it.** 551's update listed the two comparisons that could explain its symptom, and the phase
+copied that list. A list read from two functions is not a search of the package.
+
+**Lesson.** When a fix takes a clock out of a decision, search everything the decision calls for `After`, `Before`,
+`Sub` and `Compare` on a time before writing the phase, not only the comparison the symptom pointed at.
+
+## 795. The NATS lease's revision moves on every KeepAlive, so the "NATS KV revision" the phase named as the fencing token was not the acquisition's; a separate fence field holds it (a repeat in kind of LESSONS 82) (fixed before push)
+
+**Symptom.** Found while building Phase 40a, 2026-11-01, reading `internal/lock/nats.go`. The phase item said a lease
+exposes "the revision of its acquisition ... (the NATS KV revision)". `natsLease.revision` is the key's current
+revision: `KeepAlive` republishes the key with compare-and-set and stores the new revision there, and the lease needs
+that value for its next compare-and-set and for its release. Read after any renewal, it names the renewal, not the
+acquisition, so a long job that renewed often could carry a higher number than a job that began after it. The Runner
+reads the token once, before the run starts, so that path would have read the acquisition's value by timing alone; any
+other reader would not.
+
+**Root cause.** The phase text named the value by the word the design used, and the field with that name holds a
+different value, one that must keep moving for the lease to work.
+
+**Fix.** `e39172f2`: `natsLease.fence` is set from the acquiring write's sequence (a create, or a shared holder's
+join) and never changed; `FencingToken` returns it. The in-process manager returns its holder counter. The conformance
+subtest `FencingTokensOrderAcquisitions`, run for both managers by `runManagerConformance`
+(`internal/lock/conformance_fencing_test.go`), fails if a KeepAlive moves the token, if a lease taken after a release
+holds a token no larger than the first, or if a later shared joiner's is no larger.
+
+**Why LESSONS 82 did not prevent it.** LESSONS 82 is about naming a field for the value it really holds. A phase item
+is written before the code is read, and nothing holds the field it names to that meaning; reading the code before using
+the field caught it here.
+
+**Lesson.** Before a field stands for a value in a design, read every write to it. A field the code must keep moving
+cannot also name a moment that is over.
+
+## 796. The run counter's failure paths went in untested, and internal/journal measured 91.3% against its 94.1% floor (a repeat of 731 and 744) (fixed before push)
+
+**Symptom.** 2026-11-01, on `feat/c2a-rollback-ordering`: measuring `internal/journal` against `coverage-floor.json`
+after `internal/journal/clock.go` was written, before any gate ran, gave 91.3% against a floor of 94.1%.
+
+**Root cause.** `clock.go` adds failure branches (the project directory, the counter's own lock, the rebuild's reads,
+the write and the rename) that the first tests did not drive, and `writeClock` had three separate branches for a
+temporary file's write, sync and close that no portable test can make fail.
+
+**Fix.** In `fe377bab`: `TestTickClockFailsLoudly` (a project directory that is a file, a lock held past the wait, a
+journal directory that is a file, a counter that is a directory, a read-only `.pleiades`) and
+`TestTickClockPassesOverWhatItCannotRead` (the rebuild passing over an empty journal, a line that is not JSON, a seal
+that is not JSON or is oversized, and a subdirectory). `writeClock` now joins its write, sync and close errors with
+`errors.Join` into one branch, which also reports every failure among the three rather than the first.
+
+**Why 731 and 744 did not prevent it.** They did their part: 744's rule, to measure each touched package against its
+floor before committing, is what found this before the gate. Neither reaches the step before, writing a new file's
+failure paths together with their tests.
+
+**Lesson.** As 744's. A new file with many failure branches gets its failure tests in the same sitting, and branches no
+portable test can reach are folded into one only where the fold reports at least as much as before.

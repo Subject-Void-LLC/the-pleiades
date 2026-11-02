@@ -403,6 +403,8 @@ story, per `.AGENTS/AGENTS.md`.
 368. **A test that proves a mechanism watches for a mark only that mechanism leaves, not an outcome another path also gives (a repeat in kind of 95, 180 and 338) (2026-11-01).**
 369. **A behavior carried as a context value stops at every process boundary: list each place a call leaves the process and give the request a field for it, tested through the child (a repeat in kind of 363) (2026-11-01).**
 370. **A race on a path only a release gate reaches is invisible to `-race`, because the gate's own binaries are not race builds: reproduce the server's behavior in a package test so the detector watches the path (a repeat in kind of 34) (2026-11-01).**
+371. **A safety decision about which of two events came later, across processes or across time, reads a number the system itself orders (a run counter, a lease's fencing token), never a clock; and when a clock is taken out of a decision, every time comparison the decision reaches goes, not only the one a symptom pointed at (a repeat in kind of 83) (2026-11-01).**
+372. **An order of acquisitions is an order of changes only under exclusive holding: where holders overlap, a fencing token says who joined first, not who changed last (2026-11-01).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

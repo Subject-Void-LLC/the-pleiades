@@ -553,7 +553,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 548. The upgrade_ios example validated clean and could not run past its first task (a repeat of 324) (fixed)
 549. netcli.IOS read IOS's "%Error ..." as output, so a failed save could report success (fixed)
 550. pleiades validate did not refuse a task missing a parameter its method marks required, and three runbooks left one out (fixed)
-551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open)
+551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open: its wall-clock reading is closed by Phase 40a on feat/c2a-rollback-ordering; a later run that failed before acting is still the gate's to name)
 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
 553. The Controller's result consumer shipped without its dead-letter grant (a repeat of 258) (fixed)
 554. Dead letters copied the whole message, so every dead-lettered dispatch put its secrets on the stream twice (fixed)
@@ -796,6 +796,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 790. Two tests in container packages still held behavior the branch had changed (an Ansible gate's argv expecting the dropped --limit, and the runbook guide's async example naming a tag its gate's inventory lacks), and pr-check, which leaves container packages to Actions, passed (a repeat in kind of 756) (fixed before the pull request)
 791. Two detach tests dropped the connection when the job directory appeared, which the start script makes before it answers; reading the command from stdin widened that window, and fast-macos cut the start instead of a poll (a repeat of 211 and 788) (fixed in the pull request)
 792. Generated files were written through a symlink at their name, and forge's "refuse to overwrite" was a check then a write (fixed in the pull request)
+793. A lease's fencing token was about to order the jobs on a shared lease, whose holders overlap, so a job that joined first could change a device after a later one began and still read as earlier (fixed before push)
+794. The rollback planner found an undo step's latest attempt by FinishedAt, a second clock comparison Phase 40a's text did not name (a repeat in kind of 551) (fixed before push)
+795. The NATS lease's revision moves on every KeepAlive, so the "NATS KV revision" the phase named as the fencing token was not the acquisition's; a separate fence field holds it (a repeat in kind of LESSONS 82) (fixed before push)
+796. The run counter's failure paths went in untested, and internal/journal measured 91.3% against its 94.1% floor (a repeat of 731 and 744) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
