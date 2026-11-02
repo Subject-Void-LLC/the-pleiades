@@ -221,6 +221,10 @@ type NodeResult struct {
 	predicted    any
 	predictedSet bool
 
+	// factKeys names which of Stats a real run's method emitted as facts
+	// (sdk.StatFactKeys), which the run stores as the device's (facts.go).
+	factKeys []string
+
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
 	// runNode for a result runNode produces itself, and once per device
@@ -485,6 +489,10 @@ type Executor struct {
 	taskTimeout    time.Duration
 	journal        Journal
 
+	// facts stores real runs' observed facts (WithFactRecorder, facts.go);
+	// nil stores none.
+	facts FactRecorder
+
 	// renderer renders a task's params that hold a template (WithRenderer,
 	// render_params.go); nil refuses such a task.
 	renderer render.Engine
@@ -672,6 +680,9 @@ type run struct {
 	sequence        int
 	journalFailures int
 
+	// factFailures counts the fact stores that failed this run (facts.go).
+	factFailures int
+
 	// mode is the run's own mode: the Executor's (WithMode), narrowed to
 	// collection.ModeCheck when the runbook itself carries check_mode.
 	// modeFor narrows it again per task.
@@ -803,6 +814,8 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		r.predicted.dropAll()
 		result.Nodes = append(result.Nodes, drained...)
 		r.recordLevel(context.WithoutCancel(ctx), levelIndex+1, [][]NodeResult{drained})
+		// A drained job's facts are stored as a level's are (facts.go).
+		r.recordFacts(context.WithoutCancel(ctx), drained)
 	}()
 	// ending holds, once a failure has ended the run, the blocks the walk
 	// was inside then: their always: tasks still run (whileEnding).
@@ -860,6 +873,8 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		// What a check predicted, read whole for the level so two siblings that
 		// disagree on a path are seen, and for the next level's tasks to read.
 		r.recordPredictions(slices.Concat(outs...))
+		// What the level's real tasks observed, stored as their devices' facts.
+		r.recordFacts(ctx, slices.Concat(outs...))
 
 		// A failure ends the walk unless a rescue: or an always: is left to
 		// run for it (handlers.go). A check never routes one: a failed check
@@ -1414,6 +1429,17 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 		default:
 			// Never treated as execute: see WithMode.
 			err = fmt.Errorf("unknown execution mode %q, so nothing was run", mode)
+		}
+	}
+	// Which stats are facts is the engine's to read, never a result's: the
+	// list is taken off every result, and kept only from a real run that
+	// succeeded, whose facts the run stores (facts.go).
+	if v, ok := actionResult.Stats[sdk.StatFactKeys]; ok {
+		delete(actionResult.Stats, sdk.StatFactKeys)
+		if mode == collection.ModeExecute && err == nil {
+			if keys, perr := sdk.ParseFactKeys(v); perr == nil {
+				result.factKeys = keys
+			}
 		}
 	}
 	if err != nil && limit > 0 && errors.Is(execCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {

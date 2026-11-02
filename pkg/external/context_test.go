@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 func TestRunbookContext_ZeroClearsSecrets(t *testing.T) {
@@ -120,8 +121,10 @@ func TestRunbookContext_ConcurrentUseIsSafe(t *testing.T) {
 	wg.Wait()
 
 	facts := rc.Facts()
-	if len(facts) != writers {
-		t.Fatalf("Facts() holds %d entries after %d concurrent writers, want %d", len(facts), writers, writers)
+	// Every value, plus the list naming the emitted half of them as facts.
+	keys, err := sdk.ParseFactKeys(facts[sdk.StatFactKeys])
+	if len(facts) != writers+1 || err != nil || len(keys) != writers/2 {
+		t.Fatalf("Facts() holds %d entries and %d fact keys (%v) after %d concurrent writers, want %d and %d", len(facts), len(keys), err, writers, writers+1, writers/2)
 	}
 	for i := 0; i < writers; i++ {
 		if got := facts[fmt.Sprintf("stat-%d", i)]; got != i {

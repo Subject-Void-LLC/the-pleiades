@@ -19792,3 +19792,182 @@ wrapper quotes was not traced for this record.
 
 **Lesson.** A test that needs a value from a node fetches the raw text and parses it in Go, rather than building a
 quoted shell pipeline through a wrapper whose quoting it does not control.
+
+## 829. The Runner's executor knew no secrets, so a fact holding a dispatched credential would have been stored in the Controller's database and served to inventory:read (a repeat of 394 and 578) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over C2d (Phase 41), before any push. `facts.Prepare` refuses a fact whose
+value holds one of the run's secrets, and the engine fed it the run's known-secret set. The Crawl CLI fills that set
+(`engine.WithKnownSecrets`). The Runner's executor (`internal/adapters/native/adapter.go`) was built without the
+option, so on the Walk tier the list was empty. A method that emitted a fact holding the dispatched credential (an API
+echoing its token, say) would have had the value published on the job's facts subject, stored as plaintext in the
+Controller's `facts` table, and served by `GET /inventory/devices/{name}/facts` to anyone holding `inventory:read`.
+
+**Root cause.** The Runner masks with the dispatch's secrets in its adapter, after the executor returns (394 says so:
+"The Walk tier was not affected: its adapter masks with the dispatch's own secrets"). Nothing before this branch needed
+the executor's own set on that tier. The fact guard was the first consumer of the set to run inside the executor on
+both tiers, and an empty list fails open without a sound. `WithKnownSecrets` is a functional option, the shape LESSONS
+154 says every caller but its author forgets.
+
+**Why 394 and 578 did not prevent it.** 394's lesson is that every path that hands a secret to code also hands it to the
+masking set; 578's is to mask where text comes in, not per output path. Both were applied to output masking. The new
+path here was storage, and it read an existing list that was checked on one tier only. Neither lesson says to check
+that each composition root fills a list a new guard starts to read.
+
+**Fix.** `5763c04f`: the Runner passes `engine.WithKnownSecrets(dispatchSecrets(payload))`, which holds the device
+credential's secret values and every injected value the dispatch masks. `facts.Guard` gains two checks that need no
+list: `redact.SecretName` on the key and `redact.SecretShaped` on the value. The engine applies them on both tiers, and
+the Controller applies them again when it verifies a Runner's batch (`facts.Verify`, in
+`internal/facts/entstore/subscriber.go`). Tests: `TestDispatchSecrets_HoldsTheCredentialAndWhatWasInjected`
+(`internal/adapters/native`); `TestFacts_NothingIsStoredFromACheckAFailureOrASecret` (`internal/engine`, including a
+secret caught by name and by shape with no secret known); `TestPrepare_StoresOnlyWhatMayBeStored` and
+`TestVerify_RechecksWhatARunnerPublished` (`internal/facts`). Recorded in the vuln corpus as class C7 (CWE-312),
+severity MEDIUM. `TestExecute_PublishesNoFactHoldingTheDispatchsSecret` (`internal/adapters/native`) drives the real
+`Adapter.Execute` with a task that reports its own password under an ordinary name, and fails if `adapter.go` stops
+passing the option (mutation-checked: the batch then carries the password). Residual: the name and shape checks are a
+strip list, not a proof. A secret the run
+does not know, in a shape `internal/redact` does not recognize, is still stored.
+
+**Lesson.** When a new guard reads a list that an existing option fills, check every composition root that builds the
+object for that option, and give the guard a check that needs no list (LESSONS 381).
+
+## 830. The CLI's fact file store read, compared and appended with no lock between processes, and wrote its side file through one fixed temporary name, so two runs at once lost facts (a repeat of 135, 528 and 566) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over C2d's first file store (`internal/facts/file.go`, `5e8f3c06`). Each
+device's history is an append-only JSON Lines file, `.pleiades/facts/<device id>.jsonl`. A write read it, compared each
+new value with the current one, and appended what changed. The last-seen times sat in a side file,
+`<device id>.seen.json`, written through one fixed temporary name and renamed. Runs of the CLI take the project's run
+lock shared, so two runs may write one device at once. Two writers over one directory
+(`TestFileStore_ConcurrentWritersTakeTurns`, two stores writing 50 facts each) kept 80 to 84 of the 100 facts without a
+lock. A crash in the middle of an append would leave a last line that is not whole JSON.
+
+**Root cause.** A read-compare-write on a shared file with nothing ordering the writers. A writer that read before
+another's append compared against a stale history and wrote its side file over the other's, and two writers sharing
+one temporary name wrote into each other's temporary file.
+
+**Why 135, 528 and 566 did not prevent it.** 135's lesson is that "two processes cannot lose one another's work" must
+hold for every file a design writes. 528 noted that two `pleiades` processes on one project are kept apart only by
+`.pleiades/run.lock`, and runs take that lock shared, so it orders nothing between them. 566's lesson is that new code
+making a file starts from the repository's existing solution. The file store was new code, written from the
+single-process case. 135's own fix (one file per writer, named by content) does not fit a history that must be one
+ordered file per device, and nothing pointed the author at the lock it needed instead.
+
+**Fix.** `5763c04f`: each device's write holds a lock of its own, `<device id>.lock`, taken with `flock(2)` on Unix and
+`LockFileEx` on Windows (`internal/facts/lock_unix.go`, `lock_windows.go`; other platforms take none, as
+`lock_other.go` says), across the read, the compare and both writes. Readers ignore a last line with no newline, and
+the next writer cuts it off before it appends. The side file is written to a temporary file created with `O_EXCL` under
+a random name, then renamed. Every file is opened through an `os.Root` on the directory. Tests:
+`TestFileStore_ConcurrentWritersTakeTurns` (all 100 facts, each with its last-seen time), which failed with the lock
+removed, and `TestFileStore_AnUnfinishedLineIsIgnoredAndCutOff`. The lock repeats the `flock` and `LockFileEx` calls of
+`internal/journal`'s run lock (`runlock_unix.go`, `runlock_windows.go`) rather than sharing them.
+
+**Lesson.** A store that reads, compares and writes a shared file takes one lock across all three. Its first test is
+two writers at once, run once with the lock removed to show it fails. An append-only file also decides, before
+anything reads it, what a torn last line means.
+
+## 831. A late observation replaced a newer current value in both fact stores, which compared with the newest row rather than with the value as of the observation's own time (a repeat in kind of LESSONS 371) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over C2d. Both stores (the CLI's file store and the Controller's
+`internal/facts/entstore`) decided whether a value had changed by comparing it with the device's newest row for that
+key, and kept one last-seen time per key. Take value A observed at 10:00 and confirmed at 15:00, then a batch that
+arrives late (a JetStream redelivery, or a Runner whose clock is behind) holding value B observed at 11:00. B was
+written as a new row and read as the current value, though A was confirmed after it, and the key's one last-seen time
+could move for the wrong value.
+
+**Root cause.** The stores assumed observations arrive in the order they were made. A row's place in the store said when
+it was written, not when its value was observed.
+
+**Why LESSONS 371 did not prevent it.** 371 says a decision about which of two events came later reads an order the
+system keeps, never arrival or a clock. It was written for rollback's "a later run on the same device". The fact stores
+were written as an append of what changed, which did not read as an ordering decision until a late batch was
+considered.
+
+**Fix.** `5763c04f`: each store compares an observation with the last value observed at or before the observation's
+own time (`valueAt` in `internal/facts/file.go`; `CreatedAtLTE(at)` in `internal/facts/entstore/store.go`). Each keeps
+a last-seen time per value (key and hash), and the current value is the one with the latest last-seen time. Tests:
+`TestFileStore_ALateObservationDoesNotReplaceANewerOne` and `TestStore_ALateBatchDoesNotReplaceANewerValue`, which
+also stores the late batch twice and finds one row. Residuals: the order is still the observation time, a clock
+reading from the machine that ran the task (the CLI's host, or each Runner), not a number the system orders as 371
+asks. Facts gate no change, so that is recorded here rather than fixed. Two Controller replicas storing the same new
+value at the same moment can each write a row; Phase 41's notes document it.
+
+**Lesson.** A store that keeps a history and a current value decides "current" by when each value was observed, never
+by when it arrived, and its tests include a batch that arrives late and one that arrives twice.
+
+## 832. A large integer came back rounded from the Controller's fact table, because ent's JSON column decodes a map's numbers as float64 (a repeat of 706) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over C2d. `internal/facts/entstore` first stored a fact's value inside the
+`payload` JSON column as a map. Read back, 9007199254740993 (2^53 + 1) came back changed, so the API would have served a
+value the device never reported.
+
+**Root cause.** ent decodes a `field.JSON` of type `map[string]interface{}` with `encoding/json`, which makes every
+number a `float64`. A whole number past 2^53 loses its low digits.
+
+**Why 706 did not prevent it.** 706's fix decodes with `UseNumber` where open maps cross the Runner's child pipe and the
+dispatch (`pkg/wire`), and its lesson names a process boundary. A database column is a boundary too, but its decode
+lives in ent's generated code, where no `UseNumber` can be passed, and nothing carried 706 there.
+
+**Fix.** `5763c04f`: the payload holds the value's canonical JSON as text (`{"json": "<text>"}`), which `entstore`
+decodes with `UseNumber`. The Controller also decodes a Runner's batch with `UseNumber` before it checks the hashes
+(`internal/facts/entstore/subscriber.go`). Test: `TestSubscriber_ABigIntegerCrossesTheWireWhole` (2^53 + 1 through the
+subscriber and the store, read back whole).
+
+**Lesson.** A value read back through an ORM's JSON column is decoded by code you do not control. When its numbers must
+survive, store it as text and decode it yourself.
+
+## 833. The fact table's new key and last_seen_at columns were first NOT NULL with no default, a contracting migration the compatibility check refused (a repeat of 389) (fixed before push)
+
+**Symptom.** 2026-11-02, building C2d. Adding `key` and `last_seen_at` to the existing `facts` table generated migrations
+that `internal/ent/migrate`'s compatibility check (`compat.go`) classed as contracting: an old Controller, which writes
+neither column, could not insert into a table where they are NOT NULL with no default.
+
+**Root cause.** ent makes a new field NOT NULL with no SQL default unless told otherwise. On an existing table that
+breaks a rolling upgrade.
+
+**Why 389 did not prevent it.** 389's lesson ("design schema changes as expand-only first") was not applied when the
+fields were written. As in 389, the classifier caught it before the branch was pushed.
+
+**Fix.** `key` has the SQL default `''` with `NotEmpty()`, so every write still refuses an empty key, and
+`last_seen_at` is `Optional()` (nullable; a reader falls back to `created_at`). Both dialects' migrations were
+regenerated in place: `internal/ent/migrate/migrations/sqlite/0042_fact_key_last_seen.sql` and
+`internal/ent/migrate/migrations/postgres/0039_fact_key_last_seen.sql`.
+
+**Lesson.** A column added to an existing table is nullable or has a default from its first line; `NotEmpty()` keeps
+the write rule where the SQL cannot.
+
+## 834. A Bash heredoc decoded a JSON-style escape for U+202E into a real RIGHT-TO-LEFT OVERRIDE inside a Go fuzz seed (a repeat of 256) (fixed before push)
+
+**Symptom.** 2026-11-02, writing `FuzzPrepare` (`internal/facts/facts_fuzz_test.go`). One seed was meant to hold JSON
+escape text for NUL, ESC and U+202E inside a Go raw string. Written through a Bash heredoc, the U+202E escape arrived
+in the file as the character itself, and `internal/archtest`'s `TestNoInvisibleControlCharactersInGoSource` failed.
+
+**Root cause.** 256's: the agent's shell tool decodes a backslash, "u" and four hex digits in its input before it runs
+the command.
+
+**Why 256 did not prevent it.** 256's check (the archtest) held and caught it before any commit. Its other half,
+LESSONS 202 (write byte escapes or build the characters in code, then check the bytes that landed), is a habit, and a
+JSON escape is the natural way to write such a seed.
+
+**Fix.** The seed was rewritten so the file holds the six-character escape text, built in code (`chr()`, or a
+`\xNN` byte escape) so no escape passed through the tool.
+
+**Lesson.** Text holding a backslash-u escape is built by code, never typed into a heredoc or a tool argument. The
+archtest is the backstop, not the method.
+
+## 835. A new architecture test, first written as "the engine must not reach internal/ent", failed on the engine's existing transitive dependency rather than on anything this phase added (fixed before push)
+
+**Symptom.** 2026-11-02, building C2d. The first version of the rule that the engine reaches facts only through its
+port refused any path from `internal/engine` to `internal/ent`. It failed at once: the engine already reaches
+`internal/ent` transitively (`go list -deps ./internal/engine` lists `internal/inventory`, `internal/credential` and
+`internal/transport/hopchain` beside it), from before this phase.
+
+**Root cause.** The rule was written about what the phase must not add, but measured against the whole dependency
+graph, which already held the edge.
+
+**Fix.** The rule is narrowed to what this phase adds: the engine may import `internal/facts` (the shared rules, which
+import no store) and must reach no package under `internal/facts/`, where the stores live
+(`TestEngineReachesFactsOnlyThroughItsPort`, `internal/archtest/facts_port_test.go`). Its comment says it leaves direct
+imports of persistence to `TestEngineNeverImportsPersistence`, and it fails if the engine stops reaching
+`internal/facts` at all, so it cannot pass while examining nothing.
+
+**Lesson.** Run a new architecture rule against main before relying on it, and scope it to the edge the phase adds. A
+rule that fails on main's existing graph is either a finding about main or written too wide.

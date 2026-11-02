@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
@@ -542,6 +543,19 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		return nil, nil, fmt.Errorf("reading the project's named secrets to mask them: %w", err)
 	}
 
+	// A real run keeps what its tasks observed as the devices' facts, under
+	// .pleiades/facts (internal/facts); a check keeps none, and so opens no
+	// store, as it opens no journal.
+	var recorder engine.FactRecorder
+	if mode == collection.ModeExecute {
+		store, err := facts.NewFileStore(factsDir(opts.dir))
+		if err != nil {
+			closeAll()
+			return nil, nil, fmt.Errorf("opening the project's fact store: %w", err)
+		}
+		recorder = store
+	}
+
 	executor := engine.NewExecutor(
 		world,
 		actionExecutor,
@@ -550,6 +564,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		engine.NewInProcessWorkflowContext(),
 		opts.forks,
 		engine.WithJournal(sink),
+		engine.WithFactRecorder(recorder),
 		engine.WithMode(mode),
 		// run's --extra-vars; the Controller's Runner passes a launch's own
 		// the same way (internal/adapters/native).

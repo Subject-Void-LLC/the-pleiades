@@ -125,6 +125,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
@@ -1204,6 +1205,14 @@ func main() {
 		fatal("failed to subscribe the run journal consumer", err)
 	}
 
+	// What Runners' tasks observed (Phase 41): stored in the Fact table when
+	// the batch names a device this Controller dispatched, the journal's
+	// admission rule, and read back through the device resource.
+	factStore := entstore.New(client)
+	if err := entstore.NewSubscriber(factStore, logger, journalAdmission(jobStore)).Subscribe(ctx, bus); err != nil {
+		fatal("failed to subscribe the facts consumer", err)
+	}
+
 	// The job result consumer, by the same mechanism and fatal for a
 	// sharper reason than the journal above. A job now stays "running"
 	// until every device it dispatched to has reported back, and this is
@@ -1425,6 +1434,7 @@ func main() {
 			return resolve.BorrowedKubernetesSecrets(ctx, credentialStore, credentialResolver, b)
 		})
 	devices.WithKubeconfigImport(credentialStore)
+	devices.WithFacts(factStore)
 	// A device behind a route of SSH hops (a cluster behind a bastion) is
 	// probed through it, resolved from the same records a dispatch reads.
 	onboardRoutes := onboard.WithRoutes(func(ctx context.Context, device pkginventory.InventoryItem) (sdk.RouteDial, error) {
@@ -1586,17 +1596,19 @@ func main() {
 		apispec.ListCredentialInputSources.Name: credentials.ListCredentialInputSources,
 		apispec.SetCredentialInputSources.Name:  credentials.SetCredentialInputSources,
 
-		apispec.ListDevices.Name:      devices.List,
-		apispec.CreateDevice.Name:     devices.Create,
-		apispec.GetDevice.Name:        devices.Get,
-		apispec.UpdateDevice.Name:     devices.Update,
-		apispec.DeleteDevice.Name:     devices.Delete,
-		apispec.OnboardDevice.Name:    devices.Onboard,
-		apispec.GrantCapability.Name:  devices.GrantCapability,
-		apispec.RevokeCapability.Name: devices.RevokeCapability,
-		apispec.ImportKubeconfig.Name: devices.ImportKubeconfig,
-		apispec.ListRunbooks.Name:     catalog.List,
-		apispec.GetRunbook.Name:       catalog.Get,
+		apispec.ListDevices.Name:          devices.List,
+		apispec.CreateDevice.Name:         devices.Create,
+		apispec.GetDevice.Name:            devices.Get,
+		apispec.ListDeviceFacts.Name:      devices.Facts,
+		apispec.GetDeviceFactHistory.Name: devices.FactHistory,
+		apispec.UpdateDevice.Name:         devices.Update,
+		apispec.DeleteDevice.Name:         devices.Delete,
+		apispec.OnboardDevice.Name:        devices.Onboard,
+		apispec.GrantCapability.Name:      devices.GrantCapability,
+		apispec.RevokeCapability.Name:     devices.RevokeCapability,
+		apispec.ImportKubeconfig.Name:     devices.ImportKubeconfig,
+		apispec.ListRunbooks.Name:         catalog.List,
+		apispec.GetRunbook.Name:           catalog.Get,
 
 		apispec.ListInventories.Name: inventories.List,
 		apispec.GetInventory.Name:    inventories.Get,

@@ -524,6 +524,16 @@ var Root = Command{
 			},
 		},
 		{
+			Name:       "facts",
+			Positional: "<host> [<key>]",
+			Synopsis:   "what this project's runs observed about a host: each fact's current value, or one fact's history",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+			},
+			Examples: []string{"pleiades facts web1", "pleiades facts web1 ansible_kernel --json"},
+		},
+		{
 			Name:     "journal",
 			Synopsis: "list this project's runs, or show one run's journal",
 			Subcommands: []Command{

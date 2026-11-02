@@ -6087,6 +6087,231 @@
         "x-link-relation": "grant"
       }
     },
+    "/inventory/devices/{name}/facts": {
+      "get": {
+        "description": "The newest value of each fact real runs observed on the device (what a method emitted, such as facts.gather's ansible_* keys), with when it was first observed and last confirmed. A value is stored only when it changes, so last_seen_at says how current it still is.",
+        "operationId": "list_device_facts",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "device": {
+                      "type": "string"
+                    },
+                    "facts": {
+                      "items": {
+                        "properties": {
+                          "hash": {
+                            "description": "SHA-256, hex, over the canonical JSON of key and value.",
+                            "type": "string"
+                          },
+                          "key": {
+                            "description": "The fact's name as the method emitted it, such as ansible_kernel.",
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "description": "When this value was last confirmed by a run.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "observed_at": {
+                            "description": "When this value was first observed.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "value": {
+                            "description": "The value observed, as the method emitted it."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "key": {
+                      "description": "The key whose history this is; absent for the current facts.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device's current facts, by key."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name is empty, too long, or contains a control character."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:read"
+            ]
+          }
+        ],
+        "summary": "List a device's facts",
+        "x-link-relation": "self"
+      }
+    },
+    "/inventory/devices/{name}/facts/{key}": {
+      "get": {
+        "description": "Every value the device's fact has had, oldest first: its drift, one entry per change.",
+        "operationId": "get_device_fact_history",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The fact's name.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "device": {
+                      "type": "string"
+                    },
+                    "facts": {
+                      "items": {
+                        "properties": {
+                          "hash": {
+                            "description": "SHA-256, hex, over the canonical JSON of key and value.",
+                            "type": "string"
+                          },
+                          "key": {
+                            "description": "The fact's name as the method emitted it, such as ansible_kernel.",
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "description": "When this value was last confirmed by a run.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "observed_at": {
+                            "description": "When this value was first observed.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "value": {
+                            "description": "The value observed, as the method emitted it."
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "key": {
+                      "description": "The key whose history this is; absent for the current facts.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The fact's values, oldest first; empty when the device never had it."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name or key is empty, too long, or not a fact name."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:read"
+            ]
+          }
+        ],
+        "summary": "Get one fact's history",
+        "x-link-relation": "self"
+      }
+    },
     "/inventory/devices/{name}/onboard": {
       "post": {
         "description": "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_http, generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored Kubernetes credential of the cluster's own organization whose host names its API server, refused for a cluster in no organization, one reached through a route, or one pinning an authority the credential does not carry), and records the capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an active device re-probes it and writes only what changed. It needs inventory:onboard, which inventory:write does not imply: this is the only way a device is granted a capability its Go type does not declare.",

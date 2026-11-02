@@ -147,9 +147,18 @@ func (c *runbookContext) SetStat(key string, value interface{}) error {
 	return c.record(key, value)
 }
 
-// EmitFact records a fact discovered about the device.
+// EmitFact records a fact discovered about the device: a stat as SetStat's
+// is, and its key named under sdk.StatFactKeys, so the engine stores it as
+// the device's fact after a real run (Phase 41).
 func (c *runbookContext) EmitFact(key string, value interface{}) error {
-	return c.record(key, value)
+	if err := c.record(key, value); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keys, _ := c.facts[sdk.StatFactKeys].([]any)
+	c.facts[sdk.StatFactKeys] = sdk.NoteFactKey(keys, key)
+	return nil
 }
 
 // record stores one emitted value, rejecting an empty key. An empty key

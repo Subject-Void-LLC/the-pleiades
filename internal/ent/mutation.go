@@ -8375,8 +8375,10 @@ type FactMutation struct {
 	id            *int
 	created_at    *time.Time
 	updated_at    *time.Time
+	key           *string
 	payload       *map[string]interface{}
 	hash          *string
+	last_seen_at  *time.Time
 	clearedFields map[string]struct{}
 	device        *int
 	cleareddevice bool
@@ -8555,6 +8557,42 @@ func (m *FactMutation) ResetUpdatedAt() {
 	m.updated_at = nil
 }
 
+// SetKey sets the "key" field.
+func (m *FactMutation) SetKey(s string) {
+	m.key = &s
+}
+
+// Key returns the value of the "key" field in the mutation.
+func (m *FactMutation) Key() (r string, exists bool) {
+	v := m.key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKey returns the old "key" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKey: %w", err)
+	}
+	return oldValue.Key, nil
+}
+
+// ResetKey resets all changes to the "key" field.
+func (m *FactMutation) ResetKey() {
+	m.key = nil
+}
+
 // SetPayload sets the "payload" field.
 func (m *FactMutation) SetPayload(value map[string]interface{}) {
 	m.payload = &value
@@ -8625,6 +8663,55 @@ func (m *FactMutation) OldHash(ctx context.Context) (v string, err error) {
 // ResetHash resets all changes to the "hash" field.
 func (m *FactMutation) ResetHash() {
 	m.hash = nil
+}
+
+// SetLastSeenAt sets the "last_seen_at" field.
+func (m *FactMutation) SetLastSeenAt(t time.Time) {
+	m.last_seen_at = &t
+}
+
+// LastSeenAt returns the value of the "last_seen_at" field in the mutation.
+func (m *FactMutation) LastSeenAt() (r time.Time, exists bool) {
+	v := m.last_seen_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastSeenAt returns the old "last_seen_at" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldLastSeenAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastSeenAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastSeenAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastSeenAt: %w", err)
+	}
+	return oldValue.LastSeenAt, nil
+}
+
+// ClearLastSeenAt clears the value of the "last_seen_at" field.
+func (m *FactMutation) ClearLastSeenAt() {
+	m.last_seen_at = nil
+	m.clearedFields[fact.FieldLastSeenAt] = struct{}{}
+}
+
+// LastSeenAtCleared returns if the "last_seen_at" field was cleared in this mutation.
+func (m *FactMutation) LastSeenAtCleared() bool {
+	_, ok := m.clearedFields[fact.FieldLastSeenAt]
+	return ok
+}
+
+// ResetLastSeenAt resets all changes to the "last_seen_at" field.
+func (m *FactMutation) ResetLastSeenAt() {
+	m.last_seen_at = nil
+	delete(m.clearedFields, fact.FieldLastSeenAt)
 }
 
 // SetDeviceID sets the "device" edge to the Device entity by id.
@@ -8700,18 +8787,24 @@ func (m *FactMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *FactMutation) Fields() []string {
-	fields := make([]string, 0, 4)
+	fields := make([]string, 0, 6)
 	if m.created_at != nil {
 		fields = append(fields, fact.FieldCreatedAt)
 	}
 	if m.updated_at != nil {
 		fields = append(fields, fact.FieldUpdatedAt)
 	}
+	if m.key != nil {
+		fields = append(fields, fact.FieldKey)
+	}
 	if m.payload != nil {
 		fields = append(fields, fact.FieldPayload)
 	}
 	if m.hash != nil {
 		fields = append(fields, fact.FieldHash)
+	}
+	if m.last_seen_at != nil {
+		fields = append(fields, fact.FieldLastSeenAt)
 	}
 	return fields
 }
@@ -8725,10 +8818,14 @@ func (m *FactMutation) Field(name string) (ent.Value, bool) {
 		return m.CreatedAt()
 	case fact.FieldUpdatedAt:
 		return m.UpdatedAt()
+	case fact.FieldKey:
+		return m.Key()
 	case fact.FieldPayload:
 		return m.Payload()
 	case fact.FieldHash:
 		return m.Hash()
+	case fact.FieldLastSeenAt:
+		return m.LastSeenAt()
 	}
 	return nil, false
 }
@@ -8742,10 +8839,14 @@ func (m *FactMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldCreatedAt(ctx)
 	case fact.FieldUpdatedAt:
 		return m.OldUpdatedAt(ctx)
+	case fact.FieldKey:
+		return m.OldKey(ctx)
 	case fact.FieldPayload:
 		return m.OldPayload(ctx)
 	case fact.FieldHash:
 		return m.OldHash(ctx)
+	case fact.FieldLastSeenAt:
+		return m.OldLastSeenAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown Fact field %s", name)
 }
@@ -8769,6 +8870,13 @@ func (m *FactMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetUpdatedAt(v)
 		return nil
+	case fact.FieldKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKey(v)
+		return nil
 	case fact.FieldPayload:
 		v, ok := value.(map[string]interface{})
 		if !ok {
@@ -8782,6 +8890,13 @@ func (m *FactMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetHash(v)
+		return nil
+	case fact.FieldLastSeenAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastSeenAt(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Fact field %s", name)
@@ -8812,7 +8927,11 @@ func (m *FactMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *FactMutation) ClearedFields() []string {
-	return nil
+	var fields []string
+	if m.FieldCleared(fact.FieldLastSeenAt) {
+		fields = append(fields, fact.FieldLastSeenAt)
+	}
+	return fields
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -8825,6 +8944,11 @@ func (m *FactMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *FactMutation) ClearField(name string) error {
+	switch name {
+	case fact.FieldLastSeenAt:
+		m.ClearLastSeenAt()
+		return nil
+	}
 	return fmt.Errorf("unknown Fact nullable field %s", name)
 }
 
@@ -8838,11 +8962,17 @@ func (m *FactMutation) ResetField(name string) error {
 	case fact.FieldUpdatedAt:
 		m.ResetUpdatedAt()
 		return nil
+	case fact.FieldKey:
+		m.ResetKey()
+		return nil
 	case fact.FieldPayload:
 		m.ResetPayload()
 		return nil
 	case fact.FieldHash:
 		m.ResetHash()
+		return nil
+	case fact.FieldLastSeenAt:
+		m.ResetLastSeenAt()
 		return nil
 	}
 	return fmt.Errorf("unknown Fact field %s", name)

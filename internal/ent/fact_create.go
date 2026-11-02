@@ -49,6 +49,20 @@ func (_c *FactCreate) SetNillableUpdatedAt(v *time.Time) *FactCreate {
 	return _c
 }
 
+// SetKey sets the "key" field.
+func (_c *FactCreate) SetKey(v string) *FactCreate {
+	_c.mutation.SetKey(v)
+	return _c
+}
+
+// SetNillableKey sets the "key" field if the given value is not nil.
+func (_c *FactCreate) SetNillableKey(v *string) *FactCreate {
+	if v != nil {
+		_c.SetKey(*v)
+	}
+	return _c
+}
+
 // SetPayload sets the "payload" field.
 func (_c *FactCreate) SetPayload(v map[string]interface{}) *FactCreate {
 	_c.mutation.SetPayload(v)
@@ -58,6 +72,20 @@ func (_c *FactCreate) SetPayload(v map[string]interface{}) *FactCreate {
 // SetHash sets the "hash" field.
 func (_c *FactCreate) SetHash(v string) *FactCreate {
 	_c.mutation.SetHash(v)
+	return _c
+}
+
+// SetLastSeenAt sets the "last_seen_at" field.
+func (_c *FactCreate) SetLastSeenAt(v time.Time) *FactCreate {
+	_c.mutation.SetLastSeenAt(v)
+	return _c
+}
+
+// SetNillableLastSeenAt sets the "last_seen_at" field if the given value is not nil.
+func (_c *FactCreate) SetNillableLastSeenAt(v *time.Time) *FactCreate {
+	if v != nil {
+		_c.SetLastSeenAt(*v)
+	}
 	return _c
 }
 
@@ -115,6 +143,14 @@ func (_c *FactCreate) defaults() {
 		v := fact.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.Key(); !ok {
+		v := fact.DefaultKey
+		_c.mutation.SetKey(v)
+	}
+	if _, ok := _c.mutation.LastSeenAt(); !ok {
+		v := fact.DefaultLastSeenAt()
+		_c.mutation.SetLastSeenAt(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -124,6 +160,14 @@ func (_c *FactCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Fact.updated_at"`)}
+	}
+	if _, ok := _c.mutation.Key(); !ok {
+		return &ValidationError{Name: "key", err: errors.New(`ent: missing required field "Fact.key"`)}
+	}
+	if v, ok := _c.mutation.Key(); ok {
+		if err := fact.KeyValidator(v); err != nil {
+			return &ValidationError{Name: "key", err: fmt.Errorf(`ent: validator failed for field "Fact.key": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.Payload(); !ok {
 		return &ValidationError{Name: "payload", err: errors.New(`ent: missing required field "Fact.payload"`)}
@@ -173,6 +217,10 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if value, ok := _c.mutation.Key(); ok {
+		_spec.SetField(fact.FieldKey, field.TypeString, value)
+		_node.Key = value
+	}
 	if value, ok := _c.mutation.Payload(); ok {
 		_spec.SetField(fact.FieldPayload, field.TypeJSON, value)
 		_node.Payload = value
@@ -180,6 +228,10 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Hash(); ok {
 		_spec.SetField(fact.FieldHash, field.TypeString, value)
 		_node.Hash = value
+	}
+	if value, ok := _c.mutation.LastSeenAt(); ok {
+		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
+		_node.LastSeenAt = value
 	}
 	if nodes := _c.mutation.DeviceIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

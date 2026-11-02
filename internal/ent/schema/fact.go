@@ -1,12 +1,19 @@
 package schema
 
 import (
+	"time"
+
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
+	"entgo.io/ent/schema/index"
 )
 
-// Fact holds the schema definition for the Fact entity.
+// Fact holds the schema definition for the Fact entity: one observed value of
+// one key on one device (Phase 41). A row is written only when a key's value
+// changes, so a device's rows for a key are the history of that value, and
+// the newest is its current value; last_seen_at says when it was last
+// confirmed, the one field a later observation of the same value updates.
 type Fact struct {
 	ent.Schema
 }
@@ -24,8 +31,32 @@ func (Fact) Fields() []ent.Field {
 		// was only a doc-comment claim ("to verify immutability" on hash)
 		// with nothing in the schema actually enforcing it; a caller could
 		// still build a FactUpdate that rewrote either field.
+		// key is the fact's name as the method emitted it (sdk.EmitFact).
+		// The SQL default only keeps the column an expand migration: a
+		// build from before it, which writes no facts, still serves the
+		// table; NotEmpty refuses an empty key on every write.
+		field.String("key").Default("").NotEmpty().MaxLen(256).Immutable(),
+		// payload holds the value as {"json": <its canonical JSON text>}, so
+		// a number reads back exactly (internal/facts/entstore).
 		field.JSON("payload", map[string]interface{}{}).Immutable(),
-		field.String("hash").NotEmpty().Immutable(), // To verify immutability
+		// hash is SHA-256 over the canonical JSON of key and value
+		// (internal/facts.Hash), which is how a later observation is
+		// compared with this one.
+		field.String("hash").NotEmpty().Immutable(),
+		// last_seen_at is when this value was last observed; a later
+		// observation of the same value moves it rather than writing a row.
+		// Nullable for the expand migration's sake, as key's default is; the
+		// store always sets it, and a reader falls back to created_at.
+		field.Time("last_seen_at").Optional().Default(time.Now),
+	}
+}
+
+// Indexes of the Fact: one key across devices, and every fact of one device
+// (what the device's facts route reads).
+func (Fact) Indexes() []ent.Index {
+	return []ent.Index{
+		index.Fields("key").Edges("device"),
+		index.Edges("device"),
 	}
 }
 

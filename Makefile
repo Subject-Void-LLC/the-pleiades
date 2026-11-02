@@ -509,7 +509,7 @@ test-repeat:
 	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
 		packages="$$(echo "$$packages" | grep -v "^$$pkg$$")"; \
 	done; \
-	go run ./tools/testgate -repeat 3 -strict $$packages
+	go run ./tools/testgate -repeat 3 -strict $(FAST_SHARD_FLAG) $$packages
 
 # test-integration runs everything behind the `integration` build tag:
 # the Grand Integration Test (the real controller and runner binaries
@@ -666,10 +666,19 @@ resources-record:
 # ci-fast is every container-free package, once through the full pass with
 # push-gate's tolerance and three times over with test-repeat. It needs no
 # Docker, so it is also the fast loop for a machine without one.
+#
+# FAST_SHARD=k/n tests only shard k of n of those packages in both passes,
+# dealt by tools/testgate -shard as the container shards are. CI's
+# fast-macos is three such jobs: a macOS runner's memory fits one package
+# at a time, and unsplit the job took 59 of its 60 minutes (2026-11-02).
+# Its own variable rather than SHARD, so a SHARD exported for the container
+# shards never narrows test-repeat inside ci or push-gate. Unset tests all.
+FAST_SHARD ?=
+FAST_SHARD_FLAG = $(if $(FAST_SHARD),-shard $(FAST_SHARD))
 ci-fast:
 	@$(SPLIT_PACKAGES); \
 	mkdir -p $(COVERAGE_DIR); \
-	go run ./tools/testgate -full -coverage-out $(COVERAGE_DIR)/fast.json $$fast
+	go run ./tools/testgate -full $(FAST_SHARD_FLAG) -coverage-out $(COVERAGE_DIR)/fast.json $$fast
 	$(MAKE) test-repeat
 
 # ci-containers runs one shard (SHARD=k/n) of the container packages, each

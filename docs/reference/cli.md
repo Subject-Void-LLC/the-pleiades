@@ -552,6 +552,21 @@ undo a run from its journal: every device it changed, newest change first
 
 `pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --leave 'tasks[3]' --json`
 
+## pleiades facts
+
+what this project's runs observed about a host: each fact's current value, or one fact's history
+
+`pleiades facts <host> [<key>] [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades facts web1`
+
+`pleiades facts web1 ansible_kernel --json`
+
 ## pleiades journal
 
 list this project's runs, or show one run's journal

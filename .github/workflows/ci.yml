@@ -197,10 +197,22 @@ jobs:
     # (Landlock, memfd) existed, so it is allowed to fail until it has
     # passed once, then made blocking. Its own job rather than a matrix leg
     # of fast, so a failure here cannot decide whether coverage runs.
+    #
+    # Three shards (make ci-fast FAST_SHARD=k/3, tools/testgate -shard):
+    # a macOS runner's free memory fits one package at a time under
+    # testgate's memory policy, so the tier unsplit took 59 of its 60
+    # minutes (2026-11-02). Three, with ci's macOS job, stay within the
+    # five macOS jobs an account runs at once.
     if: github.event_name != 'schedule' && inputs.packages == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: macos-latest
     continue-on-error: true
     timeout-minutes: 60
+    env:
+      FAST_SHARD: ${{ matrix.shard }}/3
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-go

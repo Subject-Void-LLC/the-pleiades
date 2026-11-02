@@ -24,6 +24,7 @@ import (
 var consumedSubjects = map[string]string{
 	"JobRequestedSubject": topology.JobRequestedSubject(),
 	"JournalSubjectAll":   topology.JournalSubjectAll(),
+	"FactsSubjectAll":     topology.FactsSubjectAll(),
 	"ResultSubjectAll":    topology.ResultSubjectAll(),
 }
 

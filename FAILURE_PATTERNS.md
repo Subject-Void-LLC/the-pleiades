@@ -832,6 +832,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 826. A gate's PowerShell setup failed on a missing path although it used Remove-Item -ErrorAction SilentlyContinue, and exec.winrm.shell reported exit 1 (fixed before push)
 827. On win-check, the Administrator login still read a file's attributes after icacls denied it Full Control on the file and its folder, so an ACL deny could not make an unreadable path for the gate (fixed before push)
 828. A live clab test's command with single quotes (cut -d' ') broke through virt.clab.node.exec's wrapper (fixed before push)
+829. The Runner's executor knew no secrets, so a fact holding a dispatched credential would have been stored in the Controller's database and served to inventory:read (a repeat of 394 and 578) (fixed before push)
+830. The CLI's fact file store read, compared and appended with no lock between processes, and wrote its side file through one fixed temporary name, so two runs at once lost facts (a repeat of 135, 528 and 566) (fixed before push)
+831. A late observation replaced a newer current value in both fact stores, which compared with the newest row rather than with the value as of the observation's own time (a repeat in kind of LESSONS 371) (fixed before push)
+832. A large integer came back rounded from the Controller's fact table, because ent's JSON column decodes a map's numbers as float64 (a repeat of 706) (fixed before push)
+833. The fact table's new key and last_seen_at columns were first NOT NULL with no default, a contracting migration the compatibility check refused (a repeat of 389) (fixed before push)
+834. A Bash heredoc decoded a JSON-style escape for U+202E into a real RIGHT-TO-LEFT OVERRIDE inside a Go fuzz seed (a repeat of 256) (fixed before push)
+835. A new architecture test, first written as "the engine must not reach internal/ent", failed on the engine's existing transitive dependency rather than on anything this phase added (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

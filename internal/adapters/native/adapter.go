@@ -267,6 +267,9 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// internal/dispatch's fan-out, where it belongs; that is recorded as an
 	// open item (FAILURE_PATTERNS.md #116's shape) rather than claimed.
 	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID)
+	// The facts its tasks observe (Phase 41), published for the Controller
+	// to store; declared as the interface for the journal's typed-nil reason.
+	var factSink engine.FactRecorder = newFactsPublisher(ctx, a.bus, payload.JobID, payload.DeviceID)
 
 	executor := engine.NewExecutor(
 		singleDeviceResolver{device: device},
@@ -297,6 +300,12 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// a typed nil, so a *journalPublisher variable holding nil would
 		// pass the guard and panic at the first level barrier.
 		engine.WithJournal(journalSink),
+		engine.WithFactRecorder(factSink),
+		// The dispatch's own secrets, known to the run from its start, so a
+		// value that echoes one is masked in the run and never stored as a
+		// fact (internal/engine's facts.go), as the CLI's run knows its
+		// device's credential.
+		engine.WithKnownSecrets(dispatchSecrets(payload)),
 		// A check writes no journal, whatever sink it is given
 		// (engine.WithMode), and admits a simulate-locked device.
 		engine.WithMode(mode),
@@ -329,9 +338,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// Plus every value a bound credential injected, which a task's output
 	// can echo back exactly as readily as one the Controller attached to
 	// Secrets.
-	secrets := append([]string{}, result.Secrets...)
-	secrets = append(secrets, childSecretValues(payload)...)
-	secrets = append(secrets, injectedSecretValues(payload.Injected)...)
+	secrets := append(append([]string{}, result.Secrets...), dispatchSecrets(payload)...)
 
 	// Each warning a task recorded (sdk.StatWarnings) reaches the job log
 	// once per dispatch, masked, before the completion that summarizes it.
@@ -451,4 +458,12 @@ func runWarnings(result engine.RunResult, secrets []string) []string {
 		}
 	}
 	return out
+}
+
+// dispatchSecrets is every secret value a dispatch carries: its device's
+// credential and what a bound credential injected. The run knows them from its
+// start (engine.WithKnownSecrets), so its facts and outputs are held to them
+// while it runs, and the job log is masked by them after it.
+func dispatchSecrets(payload wire.DispatchPayload) []string {
+	return append(childSecretValues(payload), injectedSecretValues(payload.Injected)...)
 }

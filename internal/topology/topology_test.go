@@ -275,6 +275,28 @@ func TestJournalSubject(t *testing.T) {
 	}
 }
 
+// TestFactsSubject pins the subject a Runner publishes a task's facts on
+// (Phase 41) and its wildcard: under the stream root, and apart from every
+// other subject of the same job, or one consumer would receive another's
+// messages.
+func TestFactsSubject(t *testing.T) {
+	if got, want := topology.FactsSubject("abc-123"), "pleiades.jobs.facts.abc-123-5942d94f"; got != want {
+		t.Errorf("FactsSubject = %q, want %q", got, want)
+	}
+	if got, want := topology.FactsSubjectAll(), "pleiades.jobs.facts.>"; got != want {
+		t.Errorf("FactsSubjectAll = %q, want %q", got, want)
+	}
+	facts := topology.FactsSubject("job-1")
+	for _, other := range []string{topology.LogSubject("job-1"), topology.ResultSubject("job-1"), topology.JournalSubject("job-1")} {
+		if facts == other {
+			t.Errorf("FactsSubject collides with %q", other)
+		}
+	}
+	if topology.JournalSubjectAll() == topology.FactsSubjectAll() {
+		t.Error("the facts and journal wildcards are one subject space")
+	}
+}
+
 // TestJournalSubjectAll pins the wildcard a permission grant and a
 // Controller-side consumer both need.
 func TestJournalSubjectAll(t *testing.T) {

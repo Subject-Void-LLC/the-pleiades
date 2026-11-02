@@ -127,6 +127,31 @@ numeric id for everything keyed on one. The page size is
 the server's to cap, so `?limit=100000` is not a supported way to ask it to hold an
 entire fleet in memory.
 
+## Device facts
+
+What a job's tasks observed about a device (a method's emitted facts, such as
+`facts.gather`'s `ansible_*` values) is kept as the device's facts. The Runner
+publishes each task's facts on the job's own facts subject
+(`pleiades.jobs.facts.<job>`); the Controller checks them again (each fact's name,
+size and hash) and stores them only for a device it dispatched that job to. A
+value is stored again only when it changes, so a fact's stored values are its
+history, and each says when a run last confirmed it. A check stores nothing. A
+fact named like a secret, or whose value holds one of the run's secrets or text
+shaped like one, is never stored: the Runner leaves it out and the Controller
+refuses it again. Two Controller replicas storing the same new value at the same
+moment can each write it once; nothing is lost, and the history shows it twice.
+
+| Route | Scope | Returns |
+|---|---|---|
+| `GET /inventory/devices/{name}/facts` | `inventory:read` | each fact's newest value, with `observed_at` and `last_seen_at` |
+| `GET /inventory/devices/{name}/facts/{key}` | `inventory:read` | every value one fact has had, oldest first |
+
+A stored value is never edited: the Controller's store cannot change a fact's
+name, value or hash once written (they are immutable fields of its schema), and
+only the time it was last confirmed moves. No API route writes or deletes a fact. Fact values are
+stored as the device reported them, unencrypted, since they describe the device
+rather than grant access to it; a value that is a secret is kept out instead.
+
 ## Dispatch: from a launch to a result
 
 Every way of starting work ends in one path: `POST /templates/{id}/launch`,

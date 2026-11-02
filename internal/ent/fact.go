@@ -23,10 +23,14 @@ type Fact struct {
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Key holds the value of the "key" field.
+	Key string `json:"key,omitempty"`
 	// Payload holds the value of the "payload" field.
 	Payload map[string]interface{} `json:"payload,omitempty"`
 	// Hash holds the value of the "hash" field.
 	Hash string `json:"hash,omitempty"`
+	// LastSeenAt holds the value of the "last_seen_at" field.
+	LastSeenAt time.Time `json:"last_seen_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the FactQuery when eager-loading is set.
 	Edges        FactEdges `json:"edges"`
@@ -63,9 +67,9 @@ func (*Fact) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case fact.FieldID:
 			values[i] = new(sql.NullInt64)
-		case fact.FieldHash:
+		case fact.FieldKey, fact.FieldHash:
 			values[i] = new(sql.NullString)
-		case fact.FieldCreatedAt, fact.FieldUpdatedAt:
+		case fact.FieldCreatedAt, fact.FieldUpdatedAt, fact.FieldLastSeenAt:
 			values[i] = new(sql.NullTime)
 		case fact.ForeignKeys[0]: // device_facts
 			values[i] = new(sql.NullInt64)
@@ -102,6 +106,12 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.UpdatedAt = value.Time
 			}
+		case fact.FieldKey:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field key", values[i])
+			} else if value.Valid {
+				_m.Key = value.String
+			}
 		case fact.FieldPayload:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field payload", values[i])
@@ -115,6 +125,12 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field hash", values[i])
 			} else if value.Valid {
 				_m.Hash = value.String
+			}
+		case fact.FieldLastSeenAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field last_seen_at", values[i])
+			} else if value.Valid {
+				_m.LastSeenAt = value.Time
 			}
 		case fact.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -170,11 +186,17 @@ func (_m *Fact) String() string {
 	builder.WriteString("updated_at=")
 	builder.WriteString(_m.UpdatedAt.Format(time.ANSIC))
 	builder.WriteString(", ")
+	builder.WriteString("key=")
+	builder.WriteString(_m.Key)
+	builder.WriteString(", ")
 	builder.WriteString("payload=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Payload))
 	builder.WriteString(", ")
 	builder.WriteString("hash=")
 	builder.WriteString(_m.Hash)
+	builder.WriteString(", ")
+	builder.WriteString("last_seen_at=")
+	builder.WriteString(_m.LastSeenAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

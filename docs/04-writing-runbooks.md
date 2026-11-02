@@ -167,6 +167,54 @@ A fact is a value, not a template: a fact whose text holds `{{` stays text when
 it is read later. A fact that holds a known secret is masked wherever it
 appears, as a registered result is.
 
+## Gathered facts: what a run keeps about a device
+
+`set_fact` values last for the run. A method can also report what it observed
+about a device, as `facts.gather` does (`ansible_kernel`, `ansible_hostname`,
+`ansible_memtotal_mb` and the rest) and `net.ios.facts` does for a Cisco device.
+In the run those are part of the task's result, read through `register:` like any
+other value. A real run also keeps them as the device's facts, and they outlast
+the run:
+
+- One stored value per device and fact name. A value is stored again only when
+  it changes, so a fact's stored values are its history, and the newest is its
+  current value; each also says when a run last confirmed it.
+- A check stores nothing, nor does a task that failed or was skipped. A fact
+  named like a secret (a password, a token), or whose value holds one of the
+  run's secrets or text shaped like one (a private key, a bearer token), is never
+  stored, and neither is a value over 64 KiB; each is named in the run's log with
+  the reason. That is a strip list, not a proof: a secret the run does not know,
+  in a shape it does not recognize, is not caught.
+- A value that changes on every run (an uptime, a free-memory figure) is stored
+  again on every run, so its history grows by one value a run.
+- On the command line they are under `.pleiades/facts` in the project, read with
+  `pleiades facts <host>` (every fact's current value) or `pleiades facts <host>
+  <name>` (one fact's history), each with `--json`. On the Controller they are
+  read through `GET /inventory/devices/{name}/facts` and
+  `/inventory/devices/{name}/facts/{key}`.
+
+A runbook does not read stored facts yet: a value from an earlier run can be
+stale, and reading one waits for a way to say how fresh it must be. A task reads
+facts gathered in the same run through `register:`:
+
+```yaml
+# Gathers a host's facts, which this run reads and the project keeps.
+# Blast radius: the web servers, read only.
+# Changes: nothing on the hosts.
+# Undo: nothing to undo.
+id: kernel-report
+hosts: web
+tasks:
+  - name: Gather
+    facts.gather: {}
+    register: gathered
+  - name: Refuse anything but Linux
+    assert:
+      that:
+        - "result.gathered.ansible_system == 'Linux'"
+      fail_msg: this runbook expects a Linux host
+```
+
 ## Loops
 
 `loop` runs a task once for each item of a list, in order, on each device.
