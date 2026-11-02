@@ -16,7 +16,7 @@ Creates a VxLAN interface on the server's host that carries the traffic of link 
 | Transports | `https` |
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since whether the tunnel comes up is known only once it is made |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

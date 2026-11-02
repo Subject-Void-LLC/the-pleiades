@@ -6,7 +6,7 @@ status: beta
 
 Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM.
 
-Runs a command on a Windows host over WinRM, naming how it runs. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. The task picks one of three modes. powershell runs a script through powershell.exe with -NoProfile and -NonInteractive, sent UTF-16LE and base64 encoded as -EncodedCommand requires, and keeps a failing native program's own exit code rather than flattening it to 1. cmd runs a one-line script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. none runs a Windows command line, reaching the program it names exactly as written, so that program parses its own arguments and nothing else acts on them. The WinRM service starts every command through cmd.exe and cannot be told not to, so every command line is escaped until that cmd.exe passes it through unchanged, and the parser that acts on the text is always the one the task named. Every mode shares cmd.exe's limit of 8191 characters, counted after escaping. Values the command needs go in env, never into its text. A command cannot be inspected, so this reports changed every time it runs.
+Runs a command on a Windows host over WinRM, naming how it runs. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. The task picks one of three modes. powershell runs a script through powershell.exe with -NoProfile and -NonInteractive, sent UTF-16LE and base64 encoded as -EncodedCommand requires, and keeps a failing native program's own exit code rather than flattening it to 1. cmd runs a one-line script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. none runs a Windows command line, reaching the program it names exactly as written, so that program parses its own arguments and nothing else acts on them. The WinRM service starts every command through cmd.exe and cannot be told not to, so every command line is escaped until that cmd.exe passes it through unchanged, and the parser that acts on the text is always the one the task named. Every mode shares cmd.exe's limit of 8191 characters, counted after escaping. Values the command needs go in env, never into its text. A command cannot be inspected, so this reports changed every time it runs; creates and removes, as in Ansible's win_shell, are how a task says what its work having already happened looks like, and a run they short-circuit reports no change. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the command would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.
 
 ## Attributes
 
@@ -16,7 +16,7 @@ Runs a command on a Windows host over WinRM, naming how it runs. This is exec.sh
 | Transports | `winrm` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since a PowerShell or cmd script can change anything the account can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read |
+| Check mode | Supported for some calls, named in the description: those report what they would change and change nothing, a check run names any other as unchecked, and validation refuses check_mode on one |
 | Engine version | `>=0.2.0` |
 
 ## Parameters
@@ -29,6 +29,8 @@ Runs a command on a Windows host over WinRM, naming how it runs. This is exec.sh
 | `timeout` | `int` | no | `60` | How many seconds to wait for the script to finish before giving up. This bounds the whole operation, including a device that accepts the connection and then never answers, which is what a host looks like after a script has reconfigured its own network. Raise it for an installer or an update run; the default is short because most work here is not. |
 | `expect_disconnect` | `bool` | no | `false` | Declare that this script is expected to destroy the connection carrying it, as an address change or a reboot does. The task then waits for the device to answer WinRM again instead of failing, and reports result_known false, because the script's exit status and output went down with the connection and are not recoverable. A device that never comes back is still a failure. |
 | `reconnect_timeout` | `int` | no | `300` | How many seconds to wait for the device to answer again after an expected disconnect. Only meaningful with expect_disconnect, and setting it without that is refused rather than silently ignored. |
+| `creates` | `string` | no | - | An absolute Windows path (C:\... or a UNC share). When something exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text. |
+| `removes` | `string` | no | - | An absolute Windows path (C:\... or a UNC share). When nothing exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text. |
 
 ## Returns
 
@@ -38,6 +40,7 @@ Runs a command on a Windows host over WinRM, naming how it runs. This is exec.sh
 | `stderr` | `string` | always | Everything the script wrote to standard error. PowerShell progress output is suppressed before the script runs, so this carries real errors rather than progress records. |
 | `exit_code` | `int` | always | The command's exit status. Under powershell a failing native program's own code survives, and a failed cmdlet reports 1. A non-zero status fails the task. |
 | `result_known` | `bool` | always | Whether this task actually saw the script finish. False only after an expected disconnect, where stdout, stderr and the exit status are all unavailable. Check this before trusting the other three: an unreceived result and a silent success are otherwise indistinguishable. |
+| `skipped` | `bool` | always | True when creates or removes short-circuited this task, so no command ran. |
 
 ## Undoing this
 
@@ -91,5 +94,15 @@ Run a program with no shell:
   exec.winrm.shell:
     shell: none
     command: w32tm /query /status
+```
+
+Run once, and check it:
+
+```yaml
+- name: Unpack the agent unless it is there
+  exec.winrm.shell:
+    shell: powershell
+    command: Expand-Archive -Path C:\Temp\agent.zip -DestinationPath C:\Agent
+    creates: C:\Agent\agent.exe
 ```
 

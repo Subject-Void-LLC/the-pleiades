@@ -410,9 +410,13 @@ func (l *natsLease) FencingEpoch() string {
 // process. Empty when it cannot be read, and such a lease's token is then
 // never compared (FencingToken).
 //
-// It reads through a stream handle of its own, never m.kv's: kv.Status
-// refreshes state the shared handle's Get also reads, which raced between
-// concurrent acquisitions (measured under -race).
+// It reads through a stream handle of its own, looked up for this call, never
+// m.kv's. In nats.go v1.54.0, kv.Status refreshed stream state that the shared
+// handle's Get read unlocked, which raced between concurrent acquisitions
+// (measured under -race; FAILURE_PATTERNS 800). v1.55.0 fixed that upstream
+// with an atomic pointer. The handle of its own stays: it costs the same one
+// round trip kv.Status would, and does not rest on how the library locks its
+// internals.
 func (m *natsLockManager) epoch(ctx context.Context) string {
 	stream, err := m.js.Stream(ctx, "KV_"+m.kv.Bucket())
 	if err != nil {

@@ -16,7 +16,7 @@ Restarts every node of the lab through the server. It always changes the lab. A 
 | Transports | `https` |
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since a restart always changes the lab, and how the nodes come back is known only once it has run |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

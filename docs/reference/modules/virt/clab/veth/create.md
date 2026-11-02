@@ -16,7 +16,7 @@ Creates a virtual Ethernet pair whose ends are in the two endpoints, each writte
 | Transports | `https` |
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since whether the endpoints can be joined is known only once the pair is made |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

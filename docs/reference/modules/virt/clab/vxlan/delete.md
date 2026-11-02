@@ -16,7 +16,7 @@ Removes every VxLAN interface on the server's host whose name starts with prefix
 | Transports | `https` |
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since which interfaces carry the prefix is not read first |
+| Check mode | Not supported: a check run names this task as unchecked, since the server has no call that lists the VxLAN interfaces a prefix names, so which ones it removes is known only once it has run |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

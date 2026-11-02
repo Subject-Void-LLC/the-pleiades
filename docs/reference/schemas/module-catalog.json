@@ -6946,11 +6946,10 @@
       "reversible": false,
       "notes": "This platform cannot see what a script did, so it cannot say what would undo it. The same reasoning exec.command and exec.shell record: an arbitrary script's effect is opaque, and a guessed inverse is worse than none because a rollback would run it believing it was true. A task whose effect must be reversible should use a method that models the change it is making."
     },
-    "supportsCheck": false,
-    "noCheckReason": "a PowerShell or cmd script can change anything the account can reach, and what it changes is known only once it has run; this method has no creates or removes guard for a check to read",
+    "supportsCheck": true,
     "doc": {
       "summary": "Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM.",
-      "description": "Runs a command on a Windows host over WinRM, naming how it runs. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. The task picks one of three modes. powershell runs a script through powershell.exe with -NoProfile and -NonInteractive, sent UTF-16LE and base64 encoded as -EncodedCommand requires, and keeps a failing native program's own exit code rather than flattening it to 1. cmd runs a one-line script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. none runs a Windows command line, reaching the program it names exactly as written, so that program parses its own arguments and nothing else acts on them. The WinRM service starts every command through cmd.exe and cannot be told not to, so every command line is escaped until that cmd.exe passes it through unchanged, and the parser that acts on the text is always the one the task named. Every mode shares cmd.exe's limit of 8191 characters, counted after escaping. Values the command needs go in env, never into its text. A command cannot be inspected, so this reports changed every time it runs.",
+      "description": "Runs a command on a Windows host over WinRM, naming how it runs. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. The task picks one of three modes. powershell runs a script through powershell.exe with -NoProfile and -NonInteractive, sent UTF-16LE and base64 encoded as -EncodedCommand requires, and keeps a failing native program's own exit code rather than flattening it to 1. cmd runs a one-line script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. none runs a Windows command line, reaching the program it names exactly as written, so that program parses its own arguments and nothing else acts on them. The WinRM service starts every command through cmd.exe and cannot be told not to, so every command line is escaped until that cmd.exe passes it through unchanged, and the parser that acts on the text is always the one the task named. Every mode shares cmd.exe's limit of 8191 characters, counted after escaping. Values the command needs go in env, never into its text. A command cannot be inspected, so this reports changed every time it runs; creates and removes, as in Ansible's win_shell, are how a task says what its work having already happened looks like, and a run they short-circuit reports no change. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the command would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.",
       "params": [
         {
           "name": "command",
@@ -6993,6 +6992,16 @@
           "type": "int",
           "default": "300",
           "description": "How many seconds to wait for the device to answer again after an expected disconnect. Only meaningful with expect_disconnect, and setting it without that is refused rather than silently ignored."
+        },
+        {
+          "name": "creates",
+          "type": "string",
+          "description": "An absolute Windows path (C:\\... or a UNC share). When something exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."
+        },
+        {
+          "name": "removes",
+          "type": "string",
+          "description": "An absolute Windows path (C:\\... or a UNC share). When nothing exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."
         }
       ],
       "returns": [
@@ -7019,6 +7028,12 @@
           "type": "bool",
           "returned": "always",
           "description": "Whether this task actually saw the script finish. False only after an expected disconnect, where stdout, stderr and the exit status are all unavailable. Check this before trusting the other three: an unreceived result and a silent success are otherwise indistinguishable."
+        },
+        {
+          "name": "skipped",
+          "type": "bool",
+          "returned": "always",
+          "description": "True when creates or removes short-circuited this task, so no command ran."
         }
       ],
       "examples": [
@@ -7037,6 +7052,10 @@
         {
           "name": "Run a program with no shell",
           "runbookYaml": "- name: Query the time service\n  exec.winrm.shell:\n    shell: none\n    command: w32tm /query /status\n"
+        },
+        {
+          "name": "Run once, and check it",
+          "runbookYaml": "- name: Unpack the agent unless it is there\n  exec.winrm.shell:\n    shell: powershell\n    command: Expand-Archive -Path C:\\Temp\\agent.zip -DestinationPath C:\\Agent\n    creates: C:\\Agent\\agent.exe\n"
         }
       ],
       "seeAlso": [
@@ -16363,8 +16382,7 @@
       "reversible": false,
       "notes": "Every node is recreated, so what was inside the containers is gone."
     },
-    "supportsCheck": false,
-    "noCheckReason": "it recreates every node, and whether the new lab comes up is known only once it has run",
+    "supportsCheck": true,
     "doc": {
       "summary": "Destroys and deploys a lab again from a topology.",
       "description": "Replaces the lab with a new one from the topology, through the server. Every node is recreated, so what was inside the containers is lost; it cannot be undone. Use virt.clab.lab.apply to change a running lab by the difference instead. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -16466,8 +16484,7 @@
       "reversible": false,
       "notes": "A restart cannot be put back."
     },
-    "supportsCheck": false,
-    "noCheckReason": "a restart always changes the lab, and how the nodes come back is known only once it has run",
+    "supportsCheck": true,
     "doc": {
       "summary": "Makes a lab's nodes restarted.",
       "description": "Restarts every node of the lab through the server. It always changes the lab. A lab-wide restart cannot say which nodes were in which state before, so it records no undo; virt.clab.node.restart records an exact one for one node. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -16516,8 +16533,7 @@
       "reversible": false,
       "notes": "It overwrites each node's saved configuration, which this method does not read first."
     },
-    "supportsCheck": false,
-    "noCheckReason": "saving overwrites configurations the server does not show beforehand",
+    "supportsCheck": true,
     "doc": {
       "summary": "Saves each node's running configuration to its startup configuration.",
       "description": "Runs containerlab's save for the lab, so a node that reads a startup configuration comes back with what it runs now. It overwrites those saved configurations, which this method does not read first, so it cannot be undone. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -17045,8 +17061,7 @@
       "reversible": false,
       "notes": "The offload setting it found is not read, so it cannot be put back."
     },
-    "supportsCheck": false,
-    "noCheckReason": "the offload setting is not read first, so what it changes is known only once it has run",
+    "supportsCheck": true,
     "doc": {
       "summary": "Disables TX checksum offload on a lab node's interfaces.",
       "description": "Runs containerlab's disable-tx-offload for the node's container, as some images need before their packets leave a veth correctly. It cannot be undone: the offload setting it found is not read. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -17402,8 +17417,7 @@
       "reversible": false,
       "notes": "A restart cannot be put back."
     },
-    "supportsCheck": false,
-    "noCheckReason": "a restart always changes the node, and how it comes back is known only once it has run",
+    "supportsCheck": true,
     "doc": {
       "summary": "Restarts one lab node.",
       "description": "Restarts the node through the server. It always changes the node, and records no undo: a restart cannot be put back. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -17473,8 +17487,7 @@
         }
       ]
     },
-    "supportsCheck": false,
-    "noCheckReason": "it opens a session on the server, which a check must not",
+    "supportsCheck": true,
     "doc": {
       "summary": "Opens a temporary SSH door to a lab node through the server.",
       "description": "Asks the server for time-limited SSH access to the node: a port on the server that reaches it. The access is a session on the server, which this method's undo, virt.clab.ssh_session.terminate, closes; left alone it ends at its expiry. It returns the host, port, account and the command, never a password. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18135,8 +18148,7 @@
       "reversible": false,
       "notes": "The server has no call that removes a vEth pair."
     },
-    "supportsCheck": false,
-    "noCheckReason": "whether the endpoints can be joined is known only once the pair is made",
+    "supportsCheck": true,
     "doc": {
       "summary": "Creates a vEth pair between two endpoints.",
       "description": "Creates a virtual Ethernet pair whose ends are in the two endpoints, each written node:interface (for a node in a lab) or kind:name (a host or bridge interface). The server has no call that removes one, so it cannot be undone. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18197,8 +18209,7 @@
         }
       ]
     },
-    "supportsCheck": false,
-    "noCheckReason": "whether the tunnel comes up is known only once it is made",
+    "supportsCheck": true,
     "doc": {
       "summary": "Creates a VxLAN tunnel between a host interface and a remote VTEP.",
       "description": "Creates a VxLAN interface on the server's host that carries the traffic of link to remote. Its undo is virt.clab.vxlan.delete with the prefix vx-, which removes every VxLAN interface containerlab made with that prefix, so it is partial when others exist. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18266,7 +18277,7 @@
       "notes": "The tunnels' settings are not read first, so they cannot be put back."
     },
     "supportsCheck": false,
-    "noCheckReason": "which interfaces carry the prefix is not read first",
+    "noCheckReason": "the server has no call that lists the VxLAN interfaces a prefix names, so which ones it removes is known only once it has run",
     "doc": {
       "summary": "Deletes the VxLAN interfaces containerlab made with a prefix.",
       "description": "Removes every VxLAN interface on the server's host whose name starts with prefix. It cannot be undone: the tunnels' settings are not read first. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",

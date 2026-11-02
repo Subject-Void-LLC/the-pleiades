@@ -8,12 +8,17 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-// vethCreate creates a vEth pair.
-func vethCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// vethCreate creates a vEth pair. It always makes one, so a check, having held
+// the parameters to what the method declares, predicts it; the server has no
+// call that would show whether the endpoints can be joined first.
+func vethCreate(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	ea, eb := a.str("a_endpoint"), a.str("b_endpoint")
 	mtu, hasMTU := a.integer("mtu")
 	if a.err != nil {
 		return false, a.err
+	}
+	if check {
+		return true, nil
 	}
 	body := map[string]any{"aEndpoint": ea, "bEndpoint": eb}
 	if hasMTU {
@@ -23,8 +28,9 @@ func vethCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error) 
 }
 
 // vxlanCreate creates a VxLAN tunnel; its undo removes the interfaces with
-// containerlab's prefix, which is partial when others carry it.
-func vxlanCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// containerlab's prefix, which is partial when others carry it. It always
+// makes one, so a check predicts it, recording no undo.
+func vxlanCreate(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	remote, link, dev := a.str("remote"), a.ident("link"), a.ident("dev")
 	vni, hasVNI := a.integer("vni")
 	port, hasPort := a.integer("port")
@@ -43,6 +49,9 @@ func vxlanCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error)
 		if v.ok {
 			body[key] = v.n
 		}
+	}
+	if check {
+		return true, nil
 	}
 	if err := s.undo(sdk.Inverse{FQCN: "virt.clab.vxlan.delete", Params: map[string]any{"prefix": "vx-"}, Partial: true, KeepOnFailure: true,
 		Description: "Removes the VxLAN interfaces named vx-*, which includes the one this run made and any other made with that prefix."}); err != nil {

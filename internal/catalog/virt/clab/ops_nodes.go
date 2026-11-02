@@ -84,8 +84,10 @@ func nodeState(verb string) handler {
 	}
 }
 
-// nodeRestart restarts a node. It always changes it, and has no undo.
-func nodeRestart(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// nodeRestart restarts a node. It always changes it, and has no undo. A check
+// reads the node and predicts the restart: what it changes is known, and only
+// whether the node comes back is not, as for any restart.
+func nodeRestart(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	lab, name := a.ident("lab"), a.ident("node")
 	if a.err != nil {
 		return false, a.err
@@ -93,6 +95,9 @@ func nodeRestart(ctx context.Context, s *session, a *args, _ bool) (bool, error)
 	n, err := s.node(ctx, lab, name)
 	if err != nil {
 		return false, err
+	}
+	if check {
+		return true, s.stats(map[string]any{"state": "running", "name": n.Name})
 	}
 	if err := s.call(ctx, http.MethodPost, labPath(lab, "nodes", url.PathEscape(n.Name), "restart"), nil, nil, nil); err != nil {
 		return false, err
@@ -251,8 +256,9 @@ func nodePorts(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 	return false, s.stats(map[string]any{"ports": out.Ports, "name": n.Name})
 }
 
-// nodeSSHAccess opens a temporary SSH door to a node. Its undo closes it.
-func nodeSSHAccess(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// nodeSSHAccess opens a temporary SSH door to a node. Its undo closes it. A
+// check reads the node and predicts the door, opening nothing.
+func nodeSSHAccess(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	lab, name := a.ident("lab"), a.ident("node")
 	duration, user := a.str("duration"), a.ident("ssh_username")
 	if a.err != nil {
@@ -261,6 +267,9 @@ func nodeSSHAccess(ctx context.Context, s *session, a *args, _ bool) (bool, erro
 	n, err := s.node(ctx, lab, name)
 	if err != nil {
 		return false, err
+	}
+	if check {
+		return true, s.stat("name", n.Name)
 	}
 	body := map[string]string{}
 	if duration != "" {
@@ -288,8 +297,10 @@ func nodeSSHAccess(ctx context.Context, s *session, a *args, _ bool) (bool, erro
 	return true, s.stats(map[string]any{"host": out.Host, "port": out.Port, "username": out.Username, "expiration": out.Expiration, "command": out.Command})
 }
 
-// nodeDisableTxOffload disables TX checksum offload on a node's container.
-func nodeDisableTxOffload(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// nodeDisableTxOffload disables TX checksum offload on a node's container. The
+// server shows no offload setting to read, so a run always reports a change,
+// and a check, having read the node, predicts the same.
+func nodeDisableTxOffload(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	lab, name := a.ident("lab"), a.ident("node")
 	if a.err != nil {
 		return false, a.err
@@ -297,6 +308,9 @@ func nodeDisableTxOffload(ctx context.Context, s *session, a *args, _ bool) (boo
 	n, err := s.node(ctx, lab, name)
 	if err != nil {
 		return false, err
+	}
+	if check {
+		return true, s.stat("name", n.Name)
 	}
 	if err := s.call(ctx, http.MethodPost, "/api/v1/tools/disable-tx-offload", nil, map[string]string{"containerName": n.Name}, nil); err != nil {
 		return false, err

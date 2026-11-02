@@ -165,7 +165,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 198 of the 210 implemented methods (Phase 46).** `pleiades run --mode
+- **Check mode is real for 244 of the 257 implemented methods (Phase 46; counts from the generated catalog, 2026-11-02).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -176,8 +176,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The twelve methods with no check (`exec.winrm.shell`, `container.exec`,
-  `net.cli.*`, `net.ios.command`, `net.netconf.config`, the six waits, `http.wait` among them) each carry
+  call. The thirteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
+  `net.netconf.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the six waits, `http.wait` among them; each
+  re-confirmed in C2c, 2026-11-02, when nine others gained a check) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
   Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a

@@ -410,3 +410,60 @@ func TestClab_TheLoginTokenIsMaskedInAnError(t *testing.T) {
 		t.Errorf("an error that quoted the token: %v", err)
 	}
 }
+
+// TestChecks_PredictWhatAlwaysChangesAndSendOnlyReads: the methods whose effect
+// is known in kind (a restart, a redeploy, a save, a session, an offload
+// setting, a link made) are checked by reading what the run reads and
+// predicting the change: no call but reads reaches the server, no undo is
+// recorded, and a lab or node that is not there is refused as the run would be.
+func TestChecks_PredictWhatAlwaysChangesAndSendOnlyReads(t *testing.T) {
+	topo := map[string]any{"name": "lab1", "topology": map[string]any{"nodes": map[string]any{"n1": map[string]any{"kind": "linux", "image": "alpine"}}}}
+	for fqcn, params := range map[string]map[string]any{
+		"virt.clab.lab.restart":             {"lab": "lab1"},
+		"virt.clab.lab.redeploy":            {"lab": "lab1", "topology": topo},
+		"virt.clab.lab.save":                {"lab": "lab1"},
+		"virt.clab.node.restart":            {"lab": "lab1", "node": "n1"},
+		"virt.clab.node.ssh_access":         {"lab": "lab1", "node": "n1"},
+		"virt.clab.node.disable_tx_offload": {"lab": "lab1", "node": "n1"},
+		"virt.clab.veth.create":             {"a_endpoint": "clab-lab1-n1:eth9", "b_endpoint": "host:veth-n1"},
+		"virt.clab.vxlan.create":            {"remote": "192.0.2.1", "link": "eth0"},
+	} {
+		t.Run(fqcn, func(t *testing.T) {
+			srv := newServer(t)
+			labOf(srv, "lab1")
+			dev := device(t, srv.URL, true)
+			d, _ := collection.Lookup(fqcn)
+			if !d.Manifest.SupportsCheck || d.Manifest.NoCheckReason != "" {
+				t.Fatalf("%s declares check support %v with reason %q", fqcn, d.Manifest.SupportsCheck, d.Manifest.NoCheckReason)
+			}
+			c := login()
+			res, err := run(t, fqcn, dev, c, params, true)
+			if err != nil || !res.Changed {
+				t.Fatalf("check = %+v, %v; want a predicted change", res, err)
+			}
+			srv.mu.Lock()
+			for _, call := range srv.calls {
+				if !strings.HasPrefix(call, "GET ") {
+					t.Errorf("a check sent %s", call)
+				}
+			}
+			srv.mu.Unlock()
+			if fqcnUndo, _, ok := recorded(c); ok {
+				t.Errorf("a check recorded the undo %s", fqcnUndo)
+			}
+			if _, ok := params["lab"]; ok {
+				missing := map[string]any{}
+				for k, v := range params {
+					missing[k] = v
+				}
+				missing["lab"] = "nolab"
+				if fqcn == "virt.clab.lab.redeploy" {
+					return // a redeploy of a lab not deployed is the server's to decide
+				}
+				if _, err := run(t, fqcn, dev, login(), missing, true); err == nil {
+					t.Errorf("a check of a lab that is not there passed")
+				}
+			}
+		})
+	}
+}

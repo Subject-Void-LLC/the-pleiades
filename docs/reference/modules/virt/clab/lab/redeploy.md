@@ -16,7 +16,7 @@ Replaces the lab with a new one from the topology, through the server. Every nod
 | Transports | `https` |
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since it recreates every node, and whether the new lab comes up is known only once it has run |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

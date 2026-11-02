@@ -25,6 +25,7 @@ package winrm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -44,11 +45,14 @@ const (
 	paramTimeout          = "timeout"
 	paramExpectDisconnect = "expect_disconnect"
 	paramReconnectTimeout = "reconnect_timeout"
+	paramCreates          = "creates"
+	paramRemoves          = "removes"
 
 	statStdout      = "stdout"
 	statStderr      = "stderr"
 	statExitCode    = "exit_code"
 	statResultKnown = "result_known"
+	statSkipped     = "skipped"
 )
 
 // defaultReconnectTimeout is how long a task that expects to lose its
@@ -77,11 +81,14 @@ func init() {
 					"guessed inverse is worse than none because a rollback would run it believing it was true. A " +
 					"task whose effect must be reversible should use a method that models the change it is making.",
 			},
-			NoCheckReason: "a PowerShell or cmd script can change anything the account can reach, and what it changes " +
-				"is known only once it has run; this method has no creates or removes guard for a check to read",
-			Doc: shellDoc(),
+			// Only a call guarded by creates or removes can be checked
+			// (CheckShell), as for exec.command and Ansible's win_shell.
+			SupportsCheck: true,
+			Doc:           shellDoc(),
 		},
-		Invoke: Shell,
+		Invoke:    Shell,
+		Check:     CheckShell,
+		CheckCall: unguardedCheck,
 	})
 }
 
@@ -91,7 +98,7 @@ func init() {
 func shellDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM.",
-		Description: "Runs a command on a Windows host over WinRM, naming how it runs. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. The task picks one of three modes. powershell runs a script through powershell.exe with -NoProfile and -NonInteractive, sent UTF-16LE and base64 encoded as -EncodedCommand requires, and keeps a failing native program's own exit code rather than flattening it to 1. cmd runs a one-line script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. none runs a Windows command line, reaching the program it names exactly as written, so that program parses its own arguments and nothing else acts on them. The WinRM service starts every command through cmd.exe and cannot be told not to, so every command line is escaped until that cmd.exe passes it through unchanged, and the parser that acts on the text is always the one the task named. Every mode shares cmd.exe's limit of 8191 characters, counted after escaping. Values the command needs go in env, never into its text. A command cannot be inspected, so this reports changed every time it runs.",
+		Description: "Runs a command on a Windows host over WinRM, naming how it runs. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. The task picks one of three modes. powershell runs a script through powershell.exe with -NoProfile and -NonInteractive, sent UTF-16LE and base64 encoded as -EncodedCommand requires, and keeps a failing native program's own exit code rather than flattening it to 1. cmd runs a one-line script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. none runs a Windows command line, reaching the program it names exactly as written, so that program parses its own arguments and nothing else acts on them. The WinRM service starts every command through cmd.exe and cannot be told not to, so every command line is escaped until that cmd.exe passes it through unchanged, and the parser that acts on the text is always the one the task named. Every mode shares cmd.exe's limit of 8191 characters, counted after escaping. Values the command needs go in env, never into its text. A command cannot be inspected, so this reports changed every time it runs; creates and removes, as in Ansible's win_shell, are how a task says what its work having already happened looks like, and a run they short-circuit reports no change. Only a call with creates or removes can be checked: a check reads the guard's path and reports whether the command would run, running nothing. Any other call is named as unchecked, and check_mode on one is refused when the runbook is validated.",
 		Params: []collection.Param{
 			{Name: paramCommand, Type: "string", Required: true, Description: "The script to run, or with shell none the command line: a program and its arguments, quoted the way that program expects. It is passed on verbatim, so every metacharacter the named shell understands is syntax and any runbook value interpolated into it is code. Pass values in env instead.", Format: collection.ParamFormatCommand},
 			{Name: paramShell, Type: "string", Required: true, Choices: []string{"powershell", "cmd", "none"}, ChoicesIgnoreCase: true, Description: "How the command runs: powershell, cmd or none. powershell and cmd name the interpreter that reads a script, and none runs a command line directly with no interpreter. Required rather than defaulted silently, because the three read the same text three different ways and a command written for one is not safe in another. Which programs run is the device's own setting (cmd_path, powershell_path)."},
@@ -99,18 +106,22 @@ func shellDoc() collection.Doc {
 			{Name: paramTimeout, Type: "int", Default: "60", Description: "How many seconds to wait for the script to finish before giving up. This bounds the whole operation, including a device that accepts the connection and then never answers, which is what a host looks like after a script has reconfigured its own network. Raise it for an installer or an update run; the default is short because most work here is not."},
 			{Name: paramExpectDisconnect, Type: "bool", Default: "false", Description: "Declare that this script is expected to destroy the connection carrying it, as an address change or a reboot does. The task then waits for the device to answer WinRM again instead of failing, and reports result_known false, because the script's exit status and output went down with the connection and are not recoverable. A device that never comes back is still a failure."},
 			{Name: paramReconnectTimeout, Type: "int", Default: "300", Description: "How many seconds to wait for the device to answer again after an expected disconnect. Only meaningful with expect_disconnect, and setting it without that is refused rather than silently ignored."},
+			{Name: "creates", Type: "string", Description: "An absolute Windows path (C:\\... or a UNC share). When something exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."},
+			{Name: "removes", Type: "string", Description: "An absolute Windows path (C:\\... or a UNC share). When nothing exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."},
 		},
 		Returns: []collection.ReturnField{
 			{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the script wrote to standard output."},
 			{Name: statStderr, Type: "string", Returned: "always", Description: "Everything the script wrote to standard error. PowerShell progress output is suppressed before the script runs, so this carries real errors rather than progress records."},
 			{Name: statExitCode, Type: "int", Returned: "always", Description: "The command's exit status. Under powershell a failing native program's own code survives, and a failed cmdlet reports 1. A non-zero status fails the task."},
 			{Name: statResultKnown, Type: "bool", Returned: "always", Description: "Whether this task actually saw the script finish. False only after an expected disconnect, where stdout, stderr and the exit status are all unavailable. Check this before trusting the other three: an unreceived result and a silent success are otherwise indistinguishable."},
+			{Name: "skipped", Type: "bool", Returned: "always", Description: "True when creates or removes short-circuited this task, so no command ran."},
 		},
 		Examples: []collection.Example{
 			{Name: "Read a fact from a Windows host", RunbookYAML: "- name: Report the OS caption\n  exec.winrm.shell:\n    shell: powershell\n    command: (Get-CimInstance Win32_OperatingSystem).Caption\n  register: os_caption\n"},
 			{Name: "Use a cmd builtin", RunbookYAML: "- name: Show the environment cmd sees\n  exec.winrm.shell:\n    shell: cmd\n    command: set\n"},
 			{Name: "Pass a value as data, not script text", RunbookYAML: "- name: Create the deployment folder\n  exec.winrm.shell:\n    shell: powershell\n    command: New-Item -ItemType Directory -Force -Path $env:PLEIADES_DIR\n    env:\n      DIR: C:\\Deploy\n"},
 			{Name: "Run a program with no shell", RunbookYAML: "- name: Query the time service\n  exec.winrm.shell:\n    shell: none\n    command: w32tm /query /status\n"},
+			{Name: "Run once, and check it", RunbookYAML: "- name: Unpack the agent unless it is there\n  exec.winrm.shell:\n    shell: powershell\n    command: Expand-Archive -Path C:\\Temp\\agent.zip -DestinationPath C:\\Agent\n    creates: C:\\Agent\\agent.exe\n"},
 		},
 		SeeAlso: []string{"exec.shell", "exec.command"},
 	}
@@ -129,6 +140,21 @@ func shellDoc() collection.Doc {
 // script's own answer, and it is here that the caller's intent ("run
 // this and succeed") makes it a failure.
 func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return shell(ctx, rc, device, params, collection.ModeExecute)
+}
+
+// CheckShell is exec.winrm.shell's check: a call guarded by creates or removes
+// reads the guard exactly as Shell does and reports the skip the real run
+// would make, or predicts that the script would run, without running it; an
+// unguarded call answers that it cannot be checked, since what a script
+// changes is not knowable without running it. This is Ansible's own check
+// behavior for win_shell and win_command.
+func CheckShell(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return shell(ctx, rc, device, params, collection.ModeCheck)
+}
+
+// shell is Shell's and CheckShell's one body; mode says which.
+func shell(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "exec.winrm.shell"
 
 	// Both reads happen before anything is dialed, so a runbook mistake
@@ -141,9 +167,18 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	shell, err := winrmexec.ParseShell(shellName)
+	interpreter, err := winrmexec.ParseShell(shellName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	creates, removes, err := guardParams(params)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if mode == collection.ModeCheck {
+		if err := unguardedCheck(params); err != nil {
+			return collection.Result{}, err
+		}
 	}
 	env, err := sdk.EnvParam(params, paramEnv)
 	if err != nil {
@@ -194,7 +229,30 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		opts.WorkingDirectory = dev.WorkingDirectory()
 	}
 
-	result, runErr := winrmexec.Execute(ctx, target, auth, winrmexec.Command{Shell: shell, Script: script, Env: env}, opts)
+	// The guard is read before anything runs, over the same connection
+	// settings, and a run it short-circuits reports no change.
+	if creates != "" || removes != "" {
+		skip, err := guardSkips(ctx, target, auth, opts, creates, removes)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if skip {
+			if err := recordOutcome(rc, fqcn, winrmexec.Result{}, true, true); err != nil {
+				return collection.Result{}, err
+			}
+			return collection.Result{Changed: false}, nil
+		}
+	}
+	if mode == collection.ModeCheck {
+		// The script would run. Its output and exit status are not known
+		// without running it, so they are left out rather than guessed.
+		if err := rc.SetStat(statSkipped, false); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
+	}
+
+	result, runErr := winrmexec.Execute(ctx, target, auth, winrmexec.Command{Shell: interpreter, Script: script, Env: env}, opts)
 	if runErr != nil {
 		if !expectDisconnect {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, runErr)
@@ -202,7 +260,7 @@ func Shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return handleExpectedDisconnect(ctx, rc, fqcn, target, auth, opts, reconnectTimeout, runErr)
 	}
 
-	if err := recordOutcome(rc, fqcn, result, true); err != nil {
+	if err := recordOutcome(rc, fqcn, result, true, false); err != nil {
 		return collection.Result{}, err
 	}
 
@@ -254,7 +312,7 @@ func handleExpectedDisconnect(
 			fqcn, reconnectTimeout, err, runErr)
 	}
 
-	if err := recordOutcome(rc, fqcn, winrmexec.Result{}, false); err != nil {
+	if err := recordOutcome(rc, fqcn, winrmexec.Result{}, false, false); err != nil {
 		return collection.Result{}, err
 	}
 	return collection.Result{Changed: true}, nil
@@ -269,11 +327,12 @@ func handleExpectedDisconnect(
 // silently. result_known says which of those two happened, so a later
 // task's when_cel can tell them apart instead of trusting an exit code
 // that was never received.
-func recordOutcome(rc sdk.RunbookContext, fqcn string, result winrmexec.Result, resultKnown bool) error {
+func recordOutcome(rc sdk.RunbookContext, fqcn string, result winrmexec.Result, resultKnown, skipped bool) error {
 	stats := []struct {
 		key   string
 		value any
 	}{
+		{statSkipped, skipped},
 		{statResultKnown, resultKnown},
 		{statStdout, result.Stdout},
 		{statStderr, result.Stderr},
@@ -361,4 +420,90 @@ func secondsParam(params map[string]any, key string) (time.Duration, error) {
 			key, value, maxSeconds)
 	}
 	return time.Duration(value) * time.Second, nil
+}
+
+// guardScript reports whether a guard short-circuits the script: "skip"
+// when the creates path exists or the removes path does not, "run"
+// otherwise. Both paths arrive as environment values, never as script text,
+// and Test-Path -LiteralPath reads them as paths, never as wildcard patterns.
+const guardScript = `$c = $env:PLEIADES_CREATES; $r = $env:PLEIADES_REMOVES; ` +
+	`if ($c -and (Test-Path -LiteralPath $c)) { 'skip' } elseif ($r -and -not (Test-Path -LiteralPath $r)) { 'skip' } else { 'run' }`
+
+// guardSkips reads the guard on the device, through PowerShell over the same
+// connection settings the script uses.
+func guardSkips(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth, opts winrmexec.Options, creates, removes string) (bool, error) {
+	env := map[string]string{sdk.EnvPrefix + "CREATES": creates, sdk.EnvPrefix + "REMOVES": removes}
+	opts.LeaveRunningOnTimeout = false
+	result, err := winrmexec.Execute(ctx, target, auth, winrmexec.Command{Shell: winrmexec.ShellPowerShell, Script: guardScript, Env: env}, opts)
+	if err != nil {
+		return false, fmt.Errorf("reading the creates or removes guard: %w", err)
+	}
+	return guardAnswer(result)
+}
+
+// guardAnswer reads guardScript's answer: skip, run, or anything else as an
+// error, so a guard that could not be read never passes for one that says run.
+func guardAnswer(result winrmexec.Result) (bool, error) {
+	switch out := strings.TrimSpace(result.Stdout); {
+	case result.ExitCode == 0 && out == "skip":
+		return true, nil
+	case result.ExitCode == 0 && out == "run":
+		return false, nil
+	default:
+		return false, fmt.Errorf("reading the creates or removes guard: exited %d: %s", result.ExitCode, farside.OutputTail(result.Stderr+result.Stdout))
+	}
+}
+
+// guardParams reads creates and removes, each an absolute Windows path (a
+// drive letter, or a UNC share) when set: a relative one would be resolved
+// against wherever the WinRM session starts, which is the device's setting,
+// not the task's, and a guard read in the wrong place never fires.
+func guardParams(params map[string]any) (creates, removes string, err error) {
+	for _, key := range []string{paramCreates, paramRemoves} {
+		raw, present := params[key]
+		if !present || raw == nil {
+			continue
+		}
+		value, ok := raw.(string)
+		if !ok || value == "" {
+			return "", "", fmt.Errorf("%s must be a non-empty path", key)
+		}
+		if !windowsAbsolute(value) {
+			return "", "", fmt.Errorf("%s %q is not an absolute Windows path (C:\\... or \\\\server\\share\\...)", key, value)
+		}
+		if key == paramCreates {
+			creates = value
+		} else {
+			removes = value
+		}
+	}
+	return creates, removes, nil
+}
+
+// windowsAbsolute reports whether p is a drive-letter path (C:\ or C:/) or a
+// UNC path (\\server\share), with no NUL.
+func windowsAbsolute(p string) bool {
+	if strings.ContainsRune(p, 0) {
+		return false
+	}
+	if len(p) >= 3 && (p[0]|0x20) >= 'a' && (p[0]|0x20) <= 'z' && p[1] == ':' && (p[2] == '\\' || p[2] == '/') {
+		return true
+	}
+	if !strings.HasPrefix(p, `\\`) {
+		return false
+	}
+	server, rest, ok := strings.Cut(p[2:], `\`)
+	return ok && server != "" && strings.Trim(rest, `\`) != ""
+}
+
+// unguardedCheck is the check-time refusal of a call no guard makes
+// checkable, set as Descriptor.CheckCall so validation refuses check_mode on
+// one before anything runs, and called by CheckShell for the same answer at
+// run time.
+func unguardedCheck(params map[string]any) error {
+	if params[paramCreates] != nil || params[paramRemoves] != nil {
+		return nil
+	}
+	return collection.CannotCheck("what a script changes cannot be known without running it; " +
+		"a creates or removes guard would say what its having run looks like, and a check would read that")
 }
