@@ -8367,7 +8367,6 @@
       ]
     },
     "supportsCheck": true,
-    "predictsPaths": true,
     "doc": {
       "summary": "Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory.",
       "description": "Makes path be a symbolic link pointing at src, which is ansible.builtin.file with state=link. It reads the path before it acts and only sends a command when the answer differs, so a run that finds the link already pointing at src reports no change and sends no ln at all. A link pointing somewhere else is repointed. A path with nothing at it gets a new link. Anything else already there, a regular file, a directory, a socket, is refused rather than replaced, because ln would delete it and this method could not put it back; Ansible's force parameter is deliberately not implemented for that reason. src does not have to exist, which is ln's own behavior: a link to a path that is not there yet is a dangling link, and creating one is a real change like any other.",

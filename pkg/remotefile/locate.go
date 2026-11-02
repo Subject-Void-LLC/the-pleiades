@@ -24,22 +24,18 @@ import (
 // each, through GNU stat (busybox's too) or BSD stat, whichever answers. The
 // flavor is chosen once, up front: a GNU stat that failed partway must not
 // fall through to "stat -f", which GNU reads as filesystem status and whose
-// output could pass for identities.
-const locateScript = `d=$1; name=$2; tail=
-while [ ! -d "$d" ]; do
-  [ "$d" = / ] && exit 3
-  tail=/${d##*/}$tail; d=${d%/*}; [ -n "$d" ] || d=/
-done
-cd -P -- "$d" || exit 3
-phys=$(pwd -P) || exit 3
-case $phys in /) base= ;; *) base=$phys ;; esac
-set --
-self=-
-if [ -z "$tail" ] && [ -n "$name" ] && [ -d "$base/$name" ] && [ ! -L "$base/$name" ]; then self=d; set -- "$base/$name"; fi
-printf '%s\0%s\0%s\0' "$phys" "$tail" "$self"
-p=$phys
-while :; do set -- "$@" "$p"; [ "$p" = / ] && break; p=${p%/*}; [ -n "$p" ] || p=/; done
-if stat -L -c %d / >/dev/null 2>&1; then stat -L -c '%d:%i' -- "$@"; else stat -L -f '%d:%i' -- "$@"; fi`
+// output could pass for identities. It is one line, since the account's login
+// shell parses the quoted command before /bin/sh runs it, and csh refuses a
+// newline inside quotes.
+const locateScript = `d=$1; name=$2; tail=; ` +
+	`while [ ! -d "$d" ]; do [ "$d" = / ] && exit 3; tail=/${d##*/}$tail; d=${d%/*}; [ -n "$d" ] || d=/; done; ` +
+	`cd -P -- "$d" || exit 3; phys=$(pwd -P) || exit 3; ` +
+	`case $phys in /) base= ;; *) base=$phys ;; esac; ` +
+	`set --; self=-; ` +
+	`if [ -z "$tail" ] && [ -n "$name" ] && [ -d "$base/$name" ] && [ ! -L "$base/$name" ]; then self=d; set -- "$base/$name"; fi; ` +
+	`printf '%s\0%s\0%s\0' "$phys" "$tail" "$self"; ` +
+	`p=$phys; while :; do set -- "$@" "$p"; [ "$p" = / ] && break; p=${p%/*}; [ -n "$p" ] || p=/; done; ` +
+	`if stat -L -c %d / >/dev/null 2>&1; then stat -L -c '%d:%i' -- "$@"; else stat -L -f '%d:%i' -- "$@"; fi`
 
 // Locate reads where target, an absolute and cleaned path, resolves on the
 // device: its physical path (each link above it resolved; a link at target
@@ -47,7 +43,7 @@ if stat -L -c %d / >/dev/null 2>&1; then stat -L -c '%d:%i' -- "$@"; else stat -
 // each directory along it that exists, target among them when it is a
 // directory and not a link. The part of target below the deepest directory
 // that exists is kept as written, since only a real run makes it. It only
-// reads, in one command run by /bin/sh.
+// reads, in one command run by /bin/sh (the login shell only passes it on).
 //
 // A path that is not absolute and cleaned is refused: what "a/../b" or a
 // relative path names depends on links and the login's directory, and a

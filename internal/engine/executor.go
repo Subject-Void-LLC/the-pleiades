@@ -215,6 +215,12 @@ type NodeResult struct {
 	fromJob    bool
 	collected  *NodeResult
 
+	// predicted is what a check recorded under sdk.StatPredictedPaths, taken
+	// off Stats so it reaches neither register nor a report, and
+	// predictedSet says it recorded one at all (predicted.go).
+	predicted    any
+	predictedSet bool
+
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
 	// runNode for a result runNode produces itself, and once per device
@@ -1376,6 +1382,10 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 			checkCtx := sdk.WithPredictions(execCtx, r.predicted.snapshot(result.Device))
 			actionResult, err = r.checkAction(checkCtx, cmd)
 			r.recordActionSecrets(actionResult)
+			if v, ok := actionResult.Stats[sdk.StatPredictedPaths]; ok {
+				result.predicted, result.predictedSet = v, true
+				delete(actionResult.Stats, sdk.StatPredictedPaths)
+			}
 			// An action that cannot be checked is reported by name and the
 			// walk carries on (check.go's second rule). It is not a failure,
 			// so it gets no failure stage, and nothing is registered for it:

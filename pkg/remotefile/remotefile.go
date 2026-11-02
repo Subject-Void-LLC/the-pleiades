@@ -269,10 +269,10 @@ func DirectoryEmpty(ctx context.Context, conn *remoteexec.Conn, dirPath string) 
 // It exists for a check that has to know which entries a directory holds, not
 // only whether it holds any (file.remove, Phase 46a: a directory whose every
 // entry an earlier task predicted gone is predicted empty). The names come
-// back NUL-separated from a glob that /bin/sh runs, never the account's login
+// back NUL-separated from a glob that /bin/sh expands, not the account's login
 // shell, which may not be POSIX (fish, csh) or may treat a glob that matches
-// nothing as an error (zsh, bash with failglob); a name holding a newline is
-// one name. A directory the account cannot read is an error rather than an
+// nothing as an error (zsh, bash with failglob): the login shell only parses
+// the quoted command and passes it on. A name holding a newline is one name. A directory the account cannot read is an error rather than an
 // empty list, since a glob over one matches nothing. The device stops printing
 // past limit, so a directory of millions of entries never crosses the
 // connection whole; a limit under one is one.

@@ -113,7 +113,7 @@ func TestPredicted_ReadsOnlyAContextThatKeepsPredictions(t *testing.T) {
 	}
 	rc := &statContext{stats: map[string]any{}, predicted: snap}
 	if !sdk.PredictionsWanted(rc) || !sdk.PredictedAbsent(rc, loc("/d/x")) || !sdk.PredictedPresent(rc, loc("/e/n")) ||
-		!sdk.PredictedRecorded(rc, loc("/d/x")) || !sdk.PredictedPresentUnder(rc, loc("/e")) || !sdk.PredictedAbsentUnder(rc, loc("/d")) {
+		!sdk.PredictionsVouch(rc, loc("/d/x")) || sdk.PredictedFresh(rc, loc("/e/n")) || !sdk.PredictedPresentUnder(rc, loc("/e")) || !sdk.PredictedAbsentUnder(rc, loc("/d")) {
 		t.Error("a context with predictions did not answer")
 	}
 	if sdk.PredictedAbsent(rc, loc("/d/z")) || sdk.PredictedPresentUnder(rc, loc("/d")) || sdk.PredictedAbsentUnder(rc, loc("/e")) {
@@ -122,7 +122,7 @@ func TestPredicted_ReadsOnlyAContextThatKeepsPredictions(t *testing.T) {
 	type bare struct{ sdk.RunbookContext }
 	b := bare{rc}
 	if sdk.PredictionsWanted(b) || sdk.PredictedAbsent(b, loc("/d/x")) || sdk.PredictedPresent(b, loc("/e/n")) ||
-		sdk.PredictedRecorded(b, loc("/d/x")) || sdk.PredictedPresentUnder(b, loc("/e")) || sdk.PredictedAbsentUnder(b, loc("/d")) {
+		sdk.PredictionsVouch(b, loc("/d/x")) || sdk.PredictedFresh(b, loc("/e/n")) || sdk.PredictedPresentUnder(b, loc("/e")) || sdk.PredictedAbsentUnder(b, loc("/d")) {
 		t.Error("a context without PredictedState answered")
 	}
 	if sdk.PredictionsWanted(&statContext{stats: map[string]any{}}) {

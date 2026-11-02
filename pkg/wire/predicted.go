@@ -28,6 +28,10 @@ const (
 	PredictedAbsent = "absent"
 	// PredictedPresent is a path an earlier task's check predicted there.
 	PredictedPresent = "present"
+	// PredictedFresh is a path predicted there where the real run will have
+	// had nothing (removed, or never there), so it holds only what later
+	// records put under it. The engine records it; a method never does.
+	PredictedFresh = "fresh"
 )
 
 // Bounds on a snapshot, so a check that predicts a great many paths never
@@ -91,9 +95,9 @@ type Predictions struct {
 	dirs   map[string]string
 }
 
-// ValidPredictedPath reports whether p is a path a prediction may name: a
-// physical path within the length bound with no NUL, in one of the two
-// states, whose identities are valid.
+// ValidPredictedPath reports whether p is a path a method's prediction may
+// name: a physical path within the length bound with no NUL, absent or
+// present, whose identities are valid.
 func ValidPredictedPath(p PredictedPath) bool {
 	if p.State != PredictedAbsent && p.State != PredictedPresent {
 		return false
@@ -187,7 +191,7 @@ func (p *Predictions) agrees(l Location) bool {
 
 // Absent reports whether the snapshot vouches that l will be gone by the time
 // the asking task runs: recorded absent itself, or under a directory recorded
-// absent with nothing recorded present on the way down. Anything else (a nil
+// absent with nothing recorded there on the way down. Anything else (a nil
 // snapshot, a location whose identities disagree with it, no record, a
 // present one) answers false, so the method reads the device as it is.
 func (p *Predictions) Absent(l Location) bool {
@@ -198,31 +202,34 @@ func (p *Predictions) Absent(l Location) bool {
 	return ok && state == PredictedAbsent
 }
 
-// Present reports whether the snapshot's nearest record at or above l says
-// there: an earlier task made l or a directory it is under. A nil snapshot or
-// a location whose identities disagree with it answers false.
+// Present reports whether the snapshot records l itself as there: an earlier
+// task made it. A record above l says nothing of l, since making a directory
+// makes nothing inside it. A nil snapshot or a location whose identities
+// disagree with it answers false.
 func (p *Predictions) Present(l Location) bool {
 	if !p.agrees(l) {
 		return false
 	}
-	state, ok := p.nearest(l.Path)
-	return ok && state == PredictedPresent
+	state := p.states[l.Path]
+	return state == PredictedPresent || state == PredictedFresh
 }
 
-// Recorded reports whether the snapshot holds a record at l or above it: an
-// earlier task made or removed l or a directory holding it, so what the device
-// holds now under l need not be what the asking task will meet. A location
-// whose identities disagree with the snapshot answers true, for the same
-// reason.
-func (p *Predictions) Recorded(l Location) bool {
-	if p == nil {
+// Fresh reports whether the snapshot records l itself as made where the real
+// run had nothing (PredictedFresh), so it holds only what is recorded under
+// it, whatever the device holds there now.
+func (p *Predictions) Fresh(l Location) bool {
+	if !p.agrees(l) {
 		return false
 	}
-	if !p.agrees(l) {
-		return true
-	}
-	_, ok := p.nearest(l.Path)
-	return ok
+	return p.states[l.Path] == PredictedFresh
+}
+
+// Vouches reports whether the snapshot can answer for l at all: it is not nil
+// and every identity in l names the directory the snapshot knows it as. When
+// it cannot, a question whose answer the device as it is cannot give either
+// is one the asking method cannot check.
+func (p *Predictions) Vouches(l Location) bool {
+	return p.agrees(l)
 }
 
 // nearest returns the state of the record nearest target on the way up: the
@@ -262,7 +269,7 @@ func (p *Predictions) anyUnder(l Location, state string) bool {
 	}
 	prefix := strings.TrimSuffix(l.Path, "/") + "/"
 	for _, pp := range p.Paths {
-		if pp.State == state && strings.HasPrefix(pp.Path, prefix) {
+		if strings.HasPrefix(pp.Path, prefix) && (pp.State == state || state == PredictedPresent && pp.State == PredictedFresh) {
 			return true
 		}
 	}

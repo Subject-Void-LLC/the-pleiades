@@ -347,15 +347,15 @@ same device also sees what the earlier tasks of the check predicted about its fi
 one task would remove a file and a later one would remove the directory holding it, the
 second is predicted to succeed, as the real run would, rather than refused because the file
 is still there. The file methods that make or remove a path (`file.copy`, `file.template`,
-`file.directory`, `file.touch`, `file.symlink`, `file.remove`) record it where the device
-resolves it, following symbolic links, so two spellings of one path count as one. Any other
-task on the device, whatever it reports, and a skipped, failed or unchecked one, clears
-those predictions, and the tasks after it read the device as it is again. A directory the
-device reaches under two paths (a bind mount, a name a case-insensitive filesystem folds)
-clears them too. Where the device as it is cannot answer for what earlier tasks change, the
-task is reported unchecked rather than guessed. A run that checks only some tasks
-(`check_mode: true` on a task) keeps no predictions, since its real tasks change the device
-in between.
+`file.directory`, `file.touch`, `file.remove`) record it. This stops for the device, for the
+rest of the run, at the first task that could change a file in a way the check cannot follow:
+any other method's task whatever it reports, a skipped, failed or unchecked task,
+`file.symlink`, a path that leads through a symbolic link (where it leads in the real run
+depends on what earlier tasks did to the link), a directory the device reaches under two
+paths, and two names that differ only in case. From there its tasks read the device as it
+is. Where the device as it is cannot answer for what earlier tasks change, the task is
+reported unchecked rather than guessed. A run that checks only some tasks (`check_mode:
+true` on a task) keeps no predictions, since its real tasks change the device in between.
 
 The first task read the device and predicted exactly what it would do; its diff's
 `after` half leaves out the owner and group, because a new directory gets those from

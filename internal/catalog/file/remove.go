@@ -242,7 +242,9 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			before = remotefile.Info{Kind: remotefile.KindAbsent}
 		case located && !before.Exists() && sdk.PredictedPresent(rc, loc):
 			// An earlier task makes it, so a real run removes something
-			// this check cannot read yet.
+			// this check cannot read yet. (A path an earlier task makes is
+			// recorded only where it resolves as written, so a path missing
+			// now but made there is this one.)
 			return collection.Result{}, collection.CannotCheck(fmt.Sprintf("an earlier task of this check makes %s, and what a real run would remove there cannot be read until it does", path))
 		}
 	}
@@ -255,6 +257,15 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		// over.
 		if err := sdk.RecordDiff(rc, sdk.Unchanged(before.Map())); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		// Nothing changes, which a check keeping predictions records as an
+		// empty list (a declaring method records on every check), or as
+		// unknown when the path could not be located: whether the real run
+		// finds something there depends on what it resolves to.
+		if mode == collection.ModeCheck {
+			if err := recordNone(rc, located); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
 		}
 		return collection.Result{Changed: false}, nil
 	}
@@ -365,26 +376,29 @@ const maxPredictedEntries = 1024
 
 // predictedEmpty reports whether the directory at dirPath will be empty when
 // a real run of this task reaches it. Without predictions (located false) it
-// is the device's own answer, as before Phase 46a. With them, an earlier
-// task's path made inside means not empty, and a directory whose every entry
-// earlier tasks predicted gone is empty. When earlier tasks made or removed
-// the directory or one above it and neither can be shown, or the entries
-// cannot all be read, it answers CannotCheck: the device as it is now is not
-// what the real run meets, and a refusal could be as wrong as a pass.
+// is the device's own answer, as before Phase 46a. With them: a path an
+// earlier task made inside means not empty; a directory made fresh (where
+// the real run had nothing) is empty unless one was; and a directory whose
+// every entry earlier tasks predicted gone is empty. When the predictions
+// cannot vouch for the directory, or its entries cannot all be read, it
+// answers CannotCheck: the device as it is now is not what the real run
+// meets there, and a refusal could be as wrong as a pass.
 func predictedEmpty(ctx context.Context, conn *remoteexec.Conn, rc sdk.RunbookContext, dirPath string, loc wire.Location, located bool) (bool, error) {
-	if located && sdk.PredictedPresentUnder(rc, loc) {
-		return false, nil
-	}
-	empty, err := remotefile.DirectoryEmpty(ctx, conn, dirPath)
-	if err != nil || empty || !located {
-		return empty, err
+	if !located {
+		return remotefile.DirectoryEmpty(ctx, conn, dirPath)
 	}
 	cannot := collection.CannotCheck(fmt.Sprintf("earlier tasks of this check change what %s holds, and whether a real run finds it empty cannot be read from the device as it is", dirPath))
-	if !sdk.PredictedAbsentUnder(rc, loc) {
-		if sdk.PredictedRecorded(rc, loc) {
-			return false, cannot
-		}
+	switch {
+	case !sdk.PredictionsVouch(rc, loc):
+		return false, cannot
+	case sdk.PredictedPresentUnder(rc, loc):
 		return false, nil
+	case sdk.PredictedFresh(rc, loc):
+		return true, nil
+	}
+	empty, err := remotefile.DirectoryEmpty(ctx, conn, dirPath)
+	if err != nil || empty || !sdk.PredictedAbsentUnder(rc, loc) {
+		return empty, err
 	}
 	names, truncated, err := remotefile.DirectoryEntries(ctx, conn, dirPath, maxPredictedEntries)
 	if err != nil || truncated || len(names) == 0 {

@@ -60,14 +60,13 @@ func TestPredictions_AbsentFollowsTheNearestRecord(t *testing.T) {
 			t.Errorf("Absent(%q) = %v, want %v", target, got, want)
 		}
 	}
-	if !p.Present(at("/d/gone/kept/y")) || p.Present(at("/d/f")) || p.Present(at("/d/none")) {
-		t.Error("Present did not follow the nearest record")
-	}
-	if !p.Recorded(at("/d/f")) || !p.Recorded(at("/d/gone/x")) || p.Recorded(at("/d/none")) {
-		t.Error("Recorded did not follow the records at or above")
+	// Present is the path's own record: making a directory makes nothing
+	// inside it.
+	if !p.Present(at("/d/gone/kept")) || !p.Present(at("/d/g")) || p.Present(at("/d/gone/kept/y")) || p.Present(at("/d/f")) {
+		t.Error("Present did not read the path's own record")
 	}
 	var none *Predictions
-	if none.Absent(at("/d/f")) || none.Present(at("/d/g")) || none.Recorded(at("/d/f")) {
+	if none.Absent(at("/d/f")) || none.Present(at("/d/g")) || none.Fresh(at("/d/g")) || none.Vouches(at("/d/f")) {
 		t.Error("a nil snapshot vouched for a path")
 	}
 }
@@ -84,8 +83,8 @@ func TestPredictions_ADirectoryUnderTwoPathsVouchesForNothing(t *testing.T) {
 		if p.Absent(l) || p.PresentUnder(Location{Path: "/d", Dirs: l.Dirs}) || p.AbsentUnder(Location{Path: "/d", Dirs: l.Dirs}) {
 			t.Errorf("%s: a disagreeing location was vouched for", name)
 		}
-		if !p.Recorded(l) {
-			t.Errorf("%s: a disagreeing location did not read as recorded", name)
+		if p.Vouches(l) || p.Fresh(l) || p.Present(Location{Path: "/d/new", Dirs: l.Dirs}) {
+			t.Errorf("%s: a disagreeing location was vouched for", name)
 		}
 	}
 }
@@ -126,5 +125,20 @@ func TestChildRequest_CarriesPredictions(t *testing.T) {
 	var older ChildRequest
 	if err := json.Unmarshal([]byte(`{"fqcn":"file.remove","params":{}}`), &older); err != nil || older.Predicted != nil {
 		t.Errorf("an older request: %+v, %v", older.Predicted, err)
+	}
+}
+
+func TestPredictions_Fresh(t *testing.T) {
+	p := &Predictions{Paths: []PredictedPath{
+		{Path: "/d/remade", State: PredictedFresh}, {Path: "/d/remade/new", State: PredictedPresent}, {Path: "/d/kept", State: PredictedPresent},
+	}, Dirs: at("/d/x").Dirs}
+	if !p.Fresh(at("/d/remade")) || p.Fresh(at("/d/kept")) || p.Fresh(at("/d/remade/new")) {
+		t.Error("Fresh did not read the path's own record")
+	}
+	if !p.Present(at("/d/remade")) || !p.PresentUnder(at("/d")) || p.Absent(at("/d/remade/other")) {
+		t.Error("a fresh path is there, and vouches nothing gone beneath it")
+	}
+	if ValidPredictedPath(PredictedPath{Path: "/d/x", State: PredictedFresh}) {
+		t.Error("a method may record a path fresh, which only the engine knows")
 	}
 }

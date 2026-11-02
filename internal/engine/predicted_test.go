@@ -36,7 +36,13 @@ func registerPredictingMethods(t *testing.T, declares bool) {
 		if err := rc.SetStat("absent", sdk.PredictedAbsent(rc, locOf(params))); err != nil {
 			return collection.Result{}, err
 		}
-		return collection.Result{}, rc.SetStat("snapshot", sdk.PredictionsWanted(rc))
+		if err := rc.SetStat("snapshot", sdk.PredictionsWanted(rc)); err != nil {
+			return collection.Result{}, err
+		}
+		if sdk.PredictionsWanted(rc) {
+			return collection.Result{}, sdk.RecordPredicted(rc)
+		}
+		return collection.Result{}, nil
 	}
 	for _, d := range []collection.Descriptor{
 		{Name: "enginepredict.remove", Invoke: remove, Check: remove, Manifest: collection.Manifest{
@@ -90,6 +96,9 @@ func TestCheckPredictions_ReachALaterTaskOnEachDevice(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	for _, device := range []string{"dev-1", "dev-2"} {
+		if stat(t, result, "tasks[0]", device, sdk.StatPredictedPaths) != nil {
+			t.Errorf("%s: what the check recorded for the ledger reached its result's stats", device)
+		}
 		if stat(t, result, "tasks[1]", device, "absent") != true {
 			t.Errorf("%s: the later task did not see /d/x predicted gone", device)
 		}
@@ -108,8 +117,8 @@ func TestCheckPredictions_AnUndeclaredMethodDropsTheDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if stat(t, result, "tasks[1]", "dev-1", "absent") != false || stat(t, result, "tasks[1]", "dev-1", "snapshot") != true {
-		t.Error("an undeclared method's prediction was vouched for, or the check kept no predictions at all")
+	if stat(t, result, "tasks[1]", "dev-1", "absent") != false || stat(t, result, "tasks[1]", "dev-1", "snapshot") != false {
+		t.Error("an undeclared method's prediction was vouched for, or the device kept predictions after it")
 	}
 }
 

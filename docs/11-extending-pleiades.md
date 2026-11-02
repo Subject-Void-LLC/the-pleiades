@@ -457,25 +457,33 @@ is refused.
 A check sees the device as it is, so a later task's check can be wrong about a path an
 earlier task's check only predicted it would remove or make. A built-in method that makes
 or removes paths can fix that for the tasks after it. When `sdk.PredictionsWanted(rc)`
-says the run keeps predictions (only a run that is a check throughout does), its `Check`
-locates each path it changes with `remotefile.Locate`, which reads the physical path and
-the identity of each directory along it, and records it with `sdk.RecordPredicted`
-(`wire.PredictedAbsent` or `wire.PredictedPresent`), or `sdk.RecordPredictionUnknown` when
-it cannot locate one. Its manifest sets `PredictsPaths`, which says the check records every
-path the method changes and needs `SupportsCheck`. A later check asks with the location it
-read: `sdk.PredictedAbsent`, `sdk.PredictedPresent`, `sdk.PredictedRecorded`,
-`sdk.PredictedPresentUnder` and `sdk.PredictedAbsentUnder` all answer false (`Recorded`
-true) whenever the predictions cannot vouch for that location, so the device is then read
-as it is, and where it cannot be, answer `collection.CannotCheck`.
+says the run keeps predictions for the device (only a run that is a check throughout does,
+and only until the device's are dropped), its `Check` locates each path it changes with
+`remotefile.Locate`, which reads the physical path and the identity of each directory along
+it, and records it with `sdk.RecordPredicted` (`wire.PredictedAbsent` or
+`wire.PredictedPresent`; an empty call when it changes nothing). A path it cannot locate, or
+one that resolves anywhere but where it is written (a link along it), is recorded with
+`sdk.RecordPredictionUnknown`. Its manifest sets `PredictsPaths`, which says the check
+records every path the method changes on every check and needs `SupportsCheck`; a method
+that makes links must not set it, since a link changes where later paths lead. A later
+check asks with the location it read: `sdk.PredictedAbsent`, `sdk.PredictedPresent` (the
+path itself), `sdk.PredictedFresh` (made where the real run had nothing, so holding only
+what was made in it), `sdk.PredictedPresentUnder` and `sdk.PredictedAbsentUnder` all answer
+false whenever the predictions cannot vouch for that location, so the device is then read
+as it is; where it cannot be (`sdk.PredictionsVouch` false, or a listing it cannot finish),
+answer `collection.CannotCheck`.
 
 The engine keeps the predictions per device and applies a level's only after the whole level
-returns, so a sibling never reads another's. It keeps a device's only while every task on it
-is a successful check by a built-in method with `PredictsPaths`, or an in-process engine
-action such as `set_fact`. Any other task clears them, whatever it reported, and so do a
-skipped, failed or unchecked task, a task with no device (every device's), siblings that
-disagree, and one directory identity met under two paths. A real run that records predicted
-paths fails the task. An external Collection's records and declaration are not trusted, and
-its program is never handed the device's predictions.
+returns. It keeps a device's only while every task on it is a successful check by a built-in
+method with `PredictsPaths` that recorded, or an in-process engine action such as
+`set_fact`. Anything else drops them for the rest of the run, whatever it reported: another
+method's task, a skipped, failed or unchecked task, a recorded unknown, siblings whose
+records overlap with different states, one directory identity met under two paths, two
+names in one directory differing only in case (or a name that is not ASCII), and a task with
+no device (every device's). The engine takes `predicted_paths` off the result, so it reaches
+neither `register:` nor a report, and a real run that records it fails the task. An external
+Collection's records and declaration are not trusted, and its program is never handed the
+device's predictions.
 
 A method whose effect cannot be known without running it (a script, an arbitrary
 command) leaves `SupportsCheck` false and says why in `Manifest.NoCheckReason`, in words

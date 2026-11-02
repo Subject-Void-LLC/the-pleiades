@@ -664,6 +664,52 @@ tasks:
 			t.Errorf("the check predicted %+v, the real run did %+v", check, real)
 		}
 	})
+
+	// Runbooks review found a ledger getting wrong: a link made or removed by
+	// an earlier task changes where a later path leads in the real run, which
+	// the device as it is during the check does not show; and a directory an
+	// earlier task only made sure of says nothing of what is in it. For each,
+	// the check's last task and its outcome must be the real run's.
+	t.Run("G9 a check agrees with the real run where earlier tasks change links", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		for _, tc := range []struct{ name, setup, tasks string }{
+			{"a link made earlier", "mkdir -p /tmp/g9/d/x /tmp/g9/a",
+				"  - name: remove\n    file.remove:\n      path: /tmp/g9/d/x\n" +
+					"  - name: link\n    file.symlink:\n      path: /tmp/g9/a/l\n      src: /tmp/g9/d\n" +
+					"  - name: through the link\n    file.directory:\n      path: /tmp/g9/a/l/x\n" +
+					"  - name: again\n    file.remove:\n      path: /tmp/g9/d/x\n"},
+			{"a link removed earlier", "mkdir -p /tmp/g9/d /tmp/g9/a && touch /tmp/g9/d/f && ln -s /tmp/g9/d /tmp/g9/a/l",
+				"  - name: link\n    file.remove:\n      path: /tmp/g9/a/l\n" +
+					"  - name: through the link\n    file.remove:\n      path: /tmp/g9/a/l/f\n" +
+					"  - name: directory\n    file.remove:\n      path: /tmp/g9/d\n"},
+			{"a directory made sure of", "mkdir -p /tmp/g9/app",
+				"  - name: directory\n    file.directory:\n      path: /tmp/g9/app\n" +
+					"  - name: missing\n    file.remove:\n      path: /tmp/g9/app/old.conf\n"},
+		} {
+			runbook := "# " + tc.name + ": a check of it must end as the real run does.\nid: g9\nhosts: container1\ntasks:\n" + tc.tasks
+			if err := os.WriteFile(filepath.Join(g.dir, "runbooks", "g9.yaml"), []byte(runbook), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reset := "rm -rf /tmp/g9 && " + tc.setup
+			g.device(t, reset)
+			check := g.report(t, "run", "runbooks/g9.yaml", "--mode", "check")
+			g.device(t, reset)
+			real := g.report(t, "run", "runbooks/g9.yaml")
+			if len(check.Tasks) == 0 || len(check.Tasks) != len(real.Tasks) {
+				t.Errorf("%s: the check ran %d tasks, the real run %d", tc.name, len(check.Tasks), len(real.Tasks))
+				continue
+			}
+			last := len(real.Tasks) - 1
+			predicted := check.Tasks[last].Status
+			if predicted == "would_change" {
+				predicted = "changed"
+			}
+			if check.Outcome.ExitCode != real.Outcome.ExitCode || predicted != real.Tasks[last].Status {
+				t.Errorf("%s: the check ended %d with %s last, the real run %d with %s", tc.name,
+					check.Outcome.ExitCode, check.Tasks[last].Status, real.Outcome.ExitCode, real.Tasks[last].Status)
+			}
+		}
+	})
 }
 
 // runListEntry is one run in `journal list --json`.

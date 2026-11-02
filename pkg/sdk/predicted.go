@@ -131,18 +131,25 @@ func PredictedAbsent(rc RunbookContext, l wire.Location) bool {
 	return predictions(rc).Absent(l)
 }
 
-// PredictedPresent reports whether an earlier task in this check made l or a
-// directory it is under (wire.Predictions.Present), so the device as it is now
-// lacks what this task meets.
+// PredictedPresent reports whether an earlier task in this check made l
+// itself (wire.Predictions.Present), so the device as it is now lacks what
+// this task meets.
 func PredictedPresent(rc RunbookContext, l wire.Location) bool {
 	return predictions(rc).Present(l)
 }
 
-// PredictedRecorded reports whether an earlier task in this check made or
-// removed l or a directory holding it (wire.Predictions.Recorded), so the
-// device as it is now may not be what this task meets.
-func PredictedRecorded(rc RunbookContext, l wire.Location) bool {
-	return predictions(rc).Recorded(l)
+// PredictedFresh reports whether an earlier task in this check made l where
+// the real run had nothing (wire.Predictions.Fresh), so it holds only what
+// earlier tasks put under it.
+func PredictedFresh(rc RunbookContext, l wire.Location) bool {
+	return predictions(rc).Fresh(l)
+}
+
+// PredictionsVouch reports whether this check's predictions can answer for l
+// at all (wire.Predictions.Vouches): false when rc keeps none, or when l's
+// directories disagree with what earlier tasks read of them.
+func PredictionsVouch(rc RunbookContext, l wire.Location) bool {
+	return predictions(rc).Vouches(l)
 }
 
 // PredictedPresentUnder reports whether an earlier task in this check

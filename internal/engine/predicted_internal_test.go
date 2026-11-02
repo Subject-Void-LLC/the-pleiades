@@ -88,7 +88,7 @@ func predictedOn(device string, paths ...wire.PredictedPath) NodeResult {
 		}
 		record = append(record, map[string]any{"path": p.Path, "state": p.State, "dirs": dirs})
 	}
-	return NodeResult{NodeID: "n", Device: device, Checked: true, Changed: true, Stats: map[string]any{sdk.StatPredictedPaths: record}}
+	return NodeResult{NodeID: "n", Device: device, Checked: true, Changed: true, predicted: record, predictedSet: true}
 }
 
 func predicted(paths ...wire.PredictedPath) NodeResult { return predictedOn("dev-1", paths...) }
@@ -119,32 +119,37 @@ func TestLedger_RecordsAcrossLevelsPerDevice(t *testing.T) {
 	}
 }
 
-// TestLedger_AnythingButARecordingCheckDropsTheDevice: each result that is
-// not a successful check by a built-in method recording its paths may stand
-// for a change nothing recorded, whatever it reported, so the device is read
-// as it is again; a later record starts it over.
-func TestLedger_AnythingButARecordingCheckDropsTheDevice(t *testing.T) {
+// TestLedger_AnythingButARecordingCheckDropsTheDeviceForGood: each result
+// that is not a successful, recorded check by a built-in method recording its
+// paths may stand for a change nothing recorded, whatever it reported, so the
+// device is read as it is for the rest of the run: a later path is located
+// against a device that change is missing from.
+func TestLedger_AnythingButARecordingCheckDropsTheDeviceForGood(t *testing.T) {
 	for name, nr := range map[string]NodeResult{
-		"failed":                       {NodeID: "n", Device: "dev-1", Checked: true, Err: errors.New("refused")},
+		"failed":                       {NodeID: "n", Device: "dev-1", Checked: true, Err: errors.New("refused"), predictedSet: true, predicted: []any{}},
 		"unchecked":                    {NodeID: "n", Device: "dev-1", Unchecked: true},
 		"skipped":                      {NodeID: "n", Device: "dev-1", Checked: true, Skipped: true},
 		"a real task":                  {NodeID: "n", Device: "dev-1"},
-		"unparsed":                     {NodeID: "n", Device: "dev-1", Checked: true, Stats: map[string]any{sdk.StatPredictedPaths: "unknown"}},
-		"undeclared, no change":        {NodeID: "plain", Device: "dev-1", Checked: true},
+		"unparsed":                     {NodeID: "n", Device: "dev-1", Checked: true, predictedSet: true, predicted: "unknown"},
+		"declaring, recording nothing": {NodeID: "n", Device: "dev-1", Checked: true},
+		"undeclared, no change":        {NodeID: "plain", Device: "dev-1", Checked: true, predictedSet: true, predicted: []any{}},
 		"undeclared change":            {NodeID: "plain", Device: "dev-1", Checked: true, Changed: true},
-		"external, declaring":          {NodeID: "ext", Device: "dev-1", Checked: true, Changed: true},
+		"external, declaring":          {NodeID: "ext", Device: "dev-1", Checked: true, Changed: true, predictedSet: true, predicted: []any{}},
 		"a node the DAG does not hold": {NodeID: "gone", Device: "dev-1", Checked: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := ledgerRun(t)
 			r.recordPredictions([]NodeResult{predicted(absent("/f"))})
 			r.recordPredictions([]NodeResult{nr})
-			if snap := r.predicted.snapshot("dev-1"); len(snap.Paths) != 0 || len(snap.Dirs) != 0 {
-				t.Fatalf("snapshot = %+v, want it dropped", snap)
+			if snap := r.predicted.snapshot("dev-1"); snap != nil {
+				t.Fatalf("snapshot = %+v, want the device dropped", snap)
 			}
 			r.recordPredictions([]NodeResult{predicted(absent("/g"))})
-			if snap := r.predicted.snapshot("dev-1"); snap.Absent(loc("/f")) || !snap.Absent(loc("/g")) {
-				t.Errorf("after a later record: %+v, want only /g", snap.Paths)
+			if snap := r.predicted.snapshot("dev-1"); snap != nil {
+				t.Errorf("a later record started the device again: %+v", snap)
+			}
+			if r.predicted.snapshot("dev-2") == nil {
+				t.Error("dropping dev-1 dropped dev-2")
 			}
 		})
 	}
@@ -156,15 +161,16 @@ func TestLedger_KeepsThroughWhatTouchesNoDevice(t *testing.T) {
 	r.recordPredictions([]NodeResult{
 		{NodeID: "fact", Device: "dev-1", Checked: true},
 		{NodeID: "fact", Checked: true},
-		{NodeID: "n", Device: "dev-1", Checked: true},
+		{NodeID: "n", Device: "dev-1", Checked: true, predictedSet: true, predicted: []any{}},
 	})
-	if !r.predicted.snapshot("dev-1").Absent(loc("/f")) {
-		t.Error("an engine action that touches no device, or a recording method with nothing to record, dropped the device")
+	if snap := r.predicted.snapshot("dev-1"); snap == nil || !snap.Absent(loc("/f")) {
+		t.Error("an engine action that touches no device, or a recording method that changes nothing, dropped the device")
 	}
 }
 
 // TestLedger_ADevicelessTaskDropsEveryDevice: a task with no device, or a skip
-// decided for a whole node, may stand for a change on any device.
+// decided for a whole node, may stand for a change on any device, including
+// one no task has reached yet.
 func TestLedger_ADevicelessTaskDropsEveryDevice(t *testing.T) {
 	for name, nr := range map[string]NodeResult{
 		"a node-level skip":      {NodeID: "n", Skipped: true},
@@ -175,37 +181,43 @@ func TestLedger_ADevicelessTaskDropsEveryDevice(t *testing.T) {
 			r := ledgerRun(t)
 			r.recordPredictions([]NodeResult{predictedOn("dev-1", absent("/f")), predictedOn("dev-2", absent("/f"))})
 			r.recordPredictions([]NodeResult{nr, predictedOn("dev-3", absent("/f"))})
-			for _, d := range []string{"dev-1", "dev-2", "dev-3"} {
-				if r.predicted.snapshot(d).Absent(loc("/f")) {
-					t.Errorf("%s kept its predictions", d)
+			r.recordPredictions([]NodeResult{predictedOn("dev-4", absent("/f"))})
+			for _, d := range []string{"dev-1", "dev-2", "dev-3", "dev-4", "dev-5"} {
+				if r.predicted.snapshot(d) != nil {
+					t.Errorf("%s kept predictions", d)
 				}
 			}
 		})
 	}
 }
 
-// TestLedger_SiblingsThatDisagreeLeaveTheDeviceDropped: two nodes of one level
-// ran in no order the ledger knows, so a path they predict differently is
-// neither, and a sibling that drops the device takes the level's records.
-func TestLedger_SiblingsThatDisagreeLeaveTheDeviceDropped(t *testing.T) {
+// TestLedger_SiblingsThatMayOrderEitherWayDropTheDevice: two nodes of one
+// level ran in no order the ledger knows, so records that overlap (one path at
+// or under the other's) with different states could leave either answer.
+func TestLedger_SiblingsThatMayOrderEitherWayDropTheDevice(t *testing.T) {
+	for name, level := range map[string][]NodeResult{
+		"one path":              {predicted(absent("/f")), predicted(present("/f"))},
+		"a path under another":  {predicted(present("/d/x/y")), predicted(absent("/d/x"))},
+		"a sibling dropping it": {predicted(absent("/f")), {NodeID: "plain", Device: "dev-1", Checked: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := ledgerRun(t)
+			r.recordPredictions(level)
+			if r.predicted.snapshot("dev-1") != nil {
+				t.Error("siblings that may order either way were recorded")
+			}
+		})
+	}
 	r := ledgerRun(t)
-	r.recordPredictions([]NodeResult{predicted(absent("/f")), predicted(present("/f"))})
-	if len(r.predicted.snapshot("dev-1").Paths) != 0 {
-		t.Error("siblings that disagree were recorded")
-	}
-	r.recordPredictions([]NodeResult{predicted(absent("/f")), {NodeID: "plain", Device: "dev-1", Checked: true}})
-	if len(r.predicted.snapshot("dev-1").Paths) != 0 {
-		t.Error("a sibling that drops the device left the level's records")
-	}
-	r.recordPredictions([]NodeResult{predicted(absent("/f")), predicted(absent("/f"), absent("/g"))})
-	if snap := r.predicted.snapshot("dev-1"); !snap.Absent(loc("/g")) {
-		t.Errorf("siblings that agree: %+v", snap.Paths)
+	r.recordPredictions([]NodeResult{predicted(absent("/f")), predicted(absent("/f"), absent("/g")), predicted(present("/h/x"))})
+	if snap := r.predicted.snapshot("dev-1"); snap == nil || !snap.Absent(loc("/g")) || !snap.Present(loc("/h/x")) {
+		t.Errorf("siblings that agree: %+v", snap)
 	}
 }
 
 // TestLedger_ADirectoryUnderTwoPathsDropsTheDevice: one identity met under a
-// second path is a bind mount or a folded name, and one path met with a
-// second identity was replaced, so nothing on the device can be vouched for.
+// second path is a bind mount, and one path met with a second identity was
+// replaced, so nothing on the device can be vouched for.
 func TestLedger_ADirectoryUnderTwoPathsDropsTheDevice(t *testing.T) {
 	for name, second := range map[string]wire.PredictedPath{
 		"an identity under a second path": {Path: "/mnt/x", State: wire.PredictedPresent, Dirs: []wire.DirID{{Path: "/mnt", ID: dirsOf("/d/f")[0].ID}}},
@@ -215,10 +227,36 @@ func TestLedger_ADirectoryUnderTwoPathsDropsTheDevice(t *testing.T) {
 			r := ledgerRun(t)
 			r.recordPredictions([]NodeResult{predicted(absent("/d/f"))})
 			r.recordPredictions([]NodeResult{predicted(second)})
-			if snap := r.predicted.snapshot("dev-1"); len(snap.Paths) != 0 {
-				t.Errorf("snapshot = %+v, want it dropped", snap.Paths)
+			if snap := r.predicted.snapshot("dev-1"); snap != nil {
+				t.Errorf("snapshot = %+v, want the device dropped", snap.Paths)
 			}
 		})
+	}
+}
+
+// TestLedger_NamesAFilesystemCouldFoldDropTheDevice: on a filesystem that
+// folds case (macOS's by default) two names differing only in case are one
+// file, and a name that is not ASCII may fold or normalize in ways the ledger
+// does not model.
+func TestLedger_NamesAFilesystemCouldFoldDropTheDevice(t *testing.T) {
+	for name, second := range map[string]wire.PredictedPath{
+		"case":      present("/a/FOO"),
+		"not ASCII": absent("/a/caf\xc3\xa9"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := ledgerRun(t)
+			r.recordPredictions([]NodeResult{predicted(absent("/a/foo"))})
+			r.recordPredictions([]NodeResult{predicted(second)})
+			if r.predicted.snapshot("dev-1") != nil {
+				t.Error("a name that could fold was recorded")
+			}
+		})
+	}
+	r := ledgerRun(t)
+	r.recordPredictions([]NodeResult{predicted(absent("/a/foo"))})
+	r.recordPredictions([]NodeResult{predicted(present("/b/FOO"), present("/a/foo"))})
+	if r.predicted.snapshot("dev-1") == nil {
+		t.Error("the same name again, or a folding name elsewhere, dropped the device")
 	}
 }
 
@@ -229,38 +267,32 @@ func TestLedger_PastItsBoundIsDropped(t *testing.T) {
 		paths = append(paths, absent("/p/"+strconv.Itoa(i)))
 	}
 	r.recordPredictions([]NodeResult{predicted(paths...)})
-	if snap := r.predicted.snapshot("dev-1"); len(snap.Paths) != 0 {
+	if snap := r.predicted.snapshot("dev-1"); snap != nil {
 		t.Errorf("a ledger past its bound kept %d paths", len(snap.Paths))
 	}
 }
 
-// TestLedger_APathMadeVouchesForNothingRemovedBesideIt: a path made in a
-// directory may be another spelling of a name removed there (a filesystem
-// that folds case) or a link to where something removed still is, so every
-// absent record in that directory is read from the device again; paths made
-// there before stay made.
-func TestLedger_APathMadeVouchesForNothingRemovedBesideIt(t *testing.T) {
+// TestLedger_APathMadeWhereNothingWasIsFresh: a path made where the real run
+// has nothing (removed earlier, or inside a directory made fresh) holds only
+// what is recorded under it, and the directories above a path made are there.
+func TestLedger_APathMadeWhereNothingWasIsFresh(t *testing.T) {
 	r := ledgerRun(t)
-	r.recordPredictions([]NodeResult{predicted(present("/a/kept"))})
-	r.recordPredictions([]NodeResult{predicted(absent("/a/foo"), absent("/a/dir/x"), absent("/b/other"))})
-	r.recordPredictions([]NodeResult{predicted(present("/a/FOO"))})
+	r.recordPredictions([]NodeResult{predicted(absent("/a"), present("/k"))})
+	r.recordPredictions([]NodeResult{predicted(present("/a/b/c"), present("/k"), present("/e"))})
+	r.recordPredictions([]NodeResult{predicted(present("/a/b/c/d"))})
 	snap := r.predicted.snapshot("dev-1")
-	if snap.Absent(loc("/a/foo")) || snap.Absent(loc("/a/dir/x")) {
-		t.Errorf("a name removed beside a path made is still vouched gone: %+v", snap.Paths)
+	for p, want := range map[string]string{"/a": "fresh", "/a/b/c": "fresh", "/a/b/c/d": "fresh", "/k": "present", "/e": "present"} {
+		got := "none"
+		for _, pp := range snap.Paths {
+			if pp.Path == p {
+				got = pp.State
+			}
+		}
+		if got != want {
+			t.Errorf("%s is %s, want %s", p, got, want)
+		}
 	}
-	if !snap.Absent(loc("/b/other")) || !snap.PresentUnder(loc("/a")) {
-		t.Errorf("records elsewhere were dropped: %+v", snap.Paths)
-	}
-}
-
-// TestLedger_APathMadeBringsItsParentsBack: a directory made with its missing
-// parents (file.directory, as mkdir -p) means each parent is there again.
-func TestLedger_APathMadeBringsItsParentsBack(t *testing.T) {
-	r := ledgerRun(t)
-	r.recordPredictions([]NodeResult{predicted(absent("/a"))})
-	r.recordPredictions([]NodeResult{predicted(present("/a/b/c"))})
-	snap := r.predicted.snapshot("dev-1")
-	if snap.Absent(loc("/a")) || snap.Absent(loc("/a/b")) {
-		t.Errorf("a parent of a path made is vouched gone: %+v", snap.Paths)
+	if snap.Absent(loc("/a/b")) || !snap.PresentUnder(loc("/a/b")) {
+		t.Errorf("a parent of a path made is vouched gone, or empty: %+v", snap.Paths)
 	}
 }
