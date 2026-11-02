@@ -30,12 +30,16 @@ security section covers the current threat model and credential handling in deta
 
 Pleiades is licensed under GPLv3 (see [`LICENSE`](../LICENSE) at the repository
 root). Every new source file must be GPLv3-compatible; an Apache 2.0 dependency is
-fine, a proprietary or more restrictive one is not. Because there is no out-of-tree
-extension loading mechanism today (see
-[Extending The Pleiades](11-extending-pleiades.md)), extending The Pleiades means
-contributing to this repository or maintaining a fork, and GPLv3's copyleft applies
-to the whole binary either way: a distributed modified build must itself be GPLv3,
-with source available to whoever receives it.
+fine, a proprietary or more restrictive one is not.
+
+There are two ways to extend The Pleiades (see
+[Extending The Pleiades](11-extending-pleiades.md)). A device type, a sync plugin or
+a built-in method means contributing to this repository or maintaining a fork, and
+GPLv3's copyleft applies to the whole binary: a distributed modified build must
+itself be GPLv3, with source available to whoever receives it. A Collection method
+can also ship as an external Collection, a separate program The Pleiades runs beside
+itself. It is built from this repository's `pkg/` packages, which are GPLv3 too, so
+if you distribute one, ask your counsel what that license means for it.
 
 ## Third-party licenses
 
