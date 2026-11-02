@@ -7,7 +7,6 @@ package clab
 import (
 	"context"
 	"fmt"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"net/http"
 	"net/url"
 	"sort"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/clabapi"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"

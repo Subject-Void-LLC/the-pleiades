@@ -6948,3 +6948,53 @@ the same holds for a primary.
 BusyBox, FreeBSD's sh, and macOS's), and measure the builtin's answer on each at the edge it decides: root, a read-only
 mount, an ACL. Where one answers differently, detect that shell in the script and refuse what it cannot vouch for, and
 keep the measurement as a test (`TestRemovableScript_RefusesWhatItCannotVouchFor`).
+
+## 378. A check of a method that always changes still reads, and refuses, everything the server would refuse before acting (whether the object exists, whether the login may call, the shape of each identifier); "always changes" makes the answer yes only for a call the server would take (a repeat in kind of 376 and 307) (2026-11-02).
+
+**Why.** Phase 46b (C2c) gave checks to nine methods under one rule: a method whose effect is known in kind, with only
+its success unknown, is checked by reading what the run reads and predicting the change. The fp-reviewer pass found
+several `virt.clab` checks predicting a change the server refuses (FAILURE_PATTERNS 819): a redeploy of a lab that is
+not deployed (the contract's 404), host tools by a login that is not a superuser, `veth.create` endpoints not in
+`x:y` form, and two checks that never logged in at all. Each passed a check where the run would fail. LESSONS 376 sets
+the standard ("never passes what the real run fails") and 307 says a check never predicts through what it cannot
+know. They did not hold here because both were written about device state, and these methods have none to read:
+the refusals live in the server's own rules, which the phrase "always changes" made easy to skip.
+
+**Rule in practice.** For each method given a check, list the server's refusals from its contract: authentication,
+the object's existence and state, the caller's rights, and each identifier's form. The check makes the reads that
+decide each one (`s.inspect`, `session.superuser`'s `GET /api/v1/users/{username}`) and refuses as the run would;
+where it cannot read one (a bearer token names no user), it answers `CannotCheck`. Test it against a stub that refuses
+each way (`TestChecks_RefuseWhatTheServerWouldRefuse`) and once against the real server (`TestLive_ARealLabEndToEnd`).
+
+## 379. An existence guard decides only on a definite answer: present when the platform answers, absent only when it says not found, and anything else fails the task; the primitive it uses is measured on the real target for a path it cannot read before anything is built on it (a repeat of 138; a repeat in kind of 377) (2026-11-02).
+
+**Why.** `exec.winrm.shell` gained Ansible `win_shell`'s `creates` and `removes`. The first guard used `Test-Path`, which
+answers `False` with exit 0 for a path it cannot read. Measured on the lab's win-check VM through pleiades:
+`Test-Path` said `False` for `\\localhost\pleiades-no-such-share\stamp`, where `[System.IO.File]::GetAttributes`
+threw an `IOException` (FAILURE_PATTERNS 818). A `removes` guard would then skip the task's work and report no change.
+LESSONS 138 already says "I could not look" is a third answer, from the POSIX guard in `exec.command` (FAILURE_PATTERNS
+147). It did not hold because that fix lives in one shell script, and this guard was written fresh in another shell,
+whose usual primitive gives two answers where three are needed. LESSONS 377, from the same day, says to measure a shell
+builtin a safety answer rests on, but it named the POSIX shells and the edges root, a read-only mount and an ACL, not
+PowerShell and not "cannot look at all".
+
+**Rule in practice.** Before a guard is built on an existence primitive, on any platform, measure what it answers for a
+path that exists, one that does not, and one it cannot read (a missing share, access denied), on the real target.
+Decide present and absent from definite answers only, as Ansible's `Test-AnsiblePath` does (`GetAttributes`;
+`FileNotFoundException` or `DirectoryNotFoundException` is absent), and fail on anything else. Read the guard's own
+output strictly too (`guardAnswer`: exit 0 and `skip` or `run`, nothing else). Keep the unreadable case in the gate
+(`TestWinRMGate_ShellGuards`), so it fails if the primitive is swapped back.
+
+## 380. A count stated by hand in two files is updated in both in the same edit, starting with the one a test reads; and any change to a counted property (check support, status), not only a new method, runs tools/gendocs' tests before the commit, since pr-check does not select an unchanged tools/gendocs (a repeat of 336) (2026-11-02).
+
+**Why.** Phase 46b moved the number of methods with a check from 235 to 244 of 257. CLAUDE.md's check-mode line was
+updated; README.md's "235 of the 257", which `tools/gendocs`' `TestStatusCounts_MatchTheRegistry` reads, was not, and
+CLAUDE.md's own module count still said 210 beside its new 257 (FAILURE_PATTERNS 817). The fp-reviewer caught both
+before push. LESSONS 336 says the `tools/gendocs` and `internal/archtest` tests run in the commit that adds or changes a
+method. It did not hold because it was read as being about a new method or its `Doc`, while this change was to
+`SupportsCheck`, which moves a count just as well. And `make pr-check` would not have caught it: `tools/gendocs` imports
+`internal/catalog` but was not changed, and prscope does not add reverse dependents (FAILURE_PATTERNS 631, open).
+
+**Rule in practice.** When a change moves a number the docs state (methods, implemented, checked, any status), search
+README.md, CLAUDE.md and `docs/01-start-here.md` for the old number and update every one in the same edit, README's
+first. Then run `go test ./tools/gendocs/ ./internal/archtest/` before the commit, whatever pr-check would select.

@@ -820,6 +820,18 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 814. Locate's script ran set -- before reading $2, so a directory never listed its own identity (fixed before push)
 815. filepath.Join cleaned away the `..` a test meant to pass (a sibling of 813) (fixed before push)
 816. Two internal/engine test fixtures stood for something other than what they modeled: parallel branches on one device, and directory identities numbered by path length (fixed before push)
+817. README's check-mode count stayed at "235 of the 257" while CLAUDE.md's was updated, and CLAUDE.md's own module count still said 210 beside its new 257; pr-check would not have run tools/gendocs, which reads the changed catalog but was not itself changed (a repeat of 678; 631's class) (fixed before push)
+818. exec.winrm.shell's first creates/removes guard used PowerShell's Test-Path, which answers False with exit 0 for a path it cannot read, so a removes guard would have skipped the task's work (a repeat of 147 and 451; LESSONS 138) (fixed before push)
+819. Several new virt.clab checks predicted a change the server refuses: a redeploy of a lab that is not deployed, host tools by a login that is not a superuser, veth endpoints not in x:y form, and veth and vxlan checks that never logged in (a repeat in kind of 811 and 564) (fixed before push)
+820. TestGuards_RefusedBeforeAnythingDials could not fail: it asserted only that the error mentioned "creates", which the dial error after a missing refusal also did (a repeat of 467) (fixed before push)
+821. windowsAbsolute accepted the device-namespace forms \\?\ and \\.\ and a UNC server named "..", so a guard path no one had measured reached the device (fixed before push)
+822. exec.winrm.shell's timeout was documented as bounding the whole operation, while a guarded run made two operations, each given the full timeout (LESSONS 182's class) (fixed before push)
+823. An empty creates was refused at run time but admitted by CheckCall, so validation and the run disagreed on one call (the sibling-guard class, LESSONS 244) (fixed before push)
+824. The Windows guard gate used a fixed folder on the shared lab host (fixed before push)
+825. A new test closed a listener and then used its port, and the released-port guard refused it (a repeat of 607, 123 and 478) (fixed before push)
+826. A gate's PowerShell setup failed on a missing path although it used Remove-Item -ErrorAction SilentlyContinue, and exec.winrm.shell reported exit 1 (fixed before push)
+827. On win-check, the Administrator login still read a file's attributes after icacls denied it Full Control on the file and its folder, so an ACL deny could not make an unreadable path for the gate (fixed before push)
+828. A live clab test's command with single quotes (cut -d' ') broke through virt.clab.node.exec's wrapper (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
