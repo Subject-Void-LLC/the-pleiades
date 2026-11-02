@@ -249,8 +249,9 @@ func labDestroy(ctx context.Context, s *session, a *args, check bool) (bool, err
 	return true, s.stat("exists", false)
 }
 
-// labRedeploy replaces a lab with a new one from a topology.
-func labRedeploy(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// labRedeploy replaces a lab with a new one from a topology. A check reads the
+// topology and the lab and predicts the redeploy, which always recreates.
+func labRedeploy(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	lab := a.ident("lab")
 	body, err := s.topologyBody(a, lab)
 	if err != nil {
@@ -265,6 +266,16 @@ func labRedeploy(ctx context.Context, s *session, a *args, _ bool) (bool, error)
 	if a.err != nil {
 		return false, a.err
 	}
+	if check {
+		// The server answers a redeploy of a lab that is not deployed with
+		// 404, as save and restart refuse one.
+		if _, exists, err := s.inspect(ctx, lab); err != nil {
+			return false, err
+		} else if !exists {
+			return false, fmt.Errorf("%s: lab %q is not deployed", s.fqcn, lab)
+		}
+		return true, nil
+	}
 	if err := s.call(ctx, http.MethodPut, labPath(lab), q, body, nil); err != nil {
 		return false, err
 	}
@@ -278,8 +289,9 @@ func labRedeploy(ctx context.Context, s *session, a *args, _ bool) (bool, error)
 	return true, s.stat("nodes", nodeMaps(nodes))
 }
 
-// labSave saves each node's running configuration.
-func labSave(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// labSave saves each node's running configuration. A save always writes, so
+// a check, having read the lab (and the node it is narrowed to), predicts it.
+func labSave(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	lab := a.ident("lab")
 	filter := a.ident("node_filter")
 	if a.err != nil {
@@ -291,6 +303,15 @@ func labSave(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 			return false, err
 		}
 		filter = n.Name
+	} else if check {
+		if _, exists, err := s.inspect(ctx, lab); err != nil {
+			return false, err
+		} else if !exists {
+			return false, fmt.Errorf("%s: lab %q is not deployed", s.fqcn, lab)
+		}
+	}
+	if check {
+		return true, nil
 	}
 	var out struct {
 		Message string `json:"message"`

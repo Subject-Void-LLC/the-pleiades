@@ -410,3 +410,96 @@ func TestClab_TheLoginTokenIsMaskedInAnError(t *testing.T) {
 		t.Errorf("an error that quoted the token: %v", err)
 	}
 }
+
+// TestChecks_PredictWhatAlwaysChangesAndSendOnlyReads: the methods whose effect
+// is known in kind (a restart, a redeploy, a save, a session, an offload
+// setting, a link made) are checked by reading what the run reads and
+// predicting the change: no call but reads reaches the server, no undo is
+// recorded, and a lab or node that is not there is refused as the run would be.
+func TestChecks_PredictWhatAlwaysChangesAndSendOnlyReads(t *testing.T) {
+	topo := map[string]any{"name": "lab1", "topology": map[string]any{"nodes": map[string]any{"n1": map[string]any{"kind": "linux", "image": "alpine"}}}}
+	for fqcn, params := range map[string]map[string]any{
+		"virt.clab.lab.restart":             {"lab": "lab1"},
+		"virt.clab.lab.redeploy":            {"lab": "lab1", "topology": topo},
+		"virt.clab.lab.save":                {"lab": "lab1"},
+		"virt.clab.node.restart":            {"lab": "lab1", "node": "n1"},
+		"virt.clab.node.ssh_access":         {"lab": "lab1", "node": "n1"},
+		"virt.clab.node.disable_tx_offload": {"lab": "lab1", "node": "n1"},
+		"virt.clab.veth.create":             {"a_endpoint": "clab-lab1-n1:eth9", "b_endpoint": "host:veth-n1"},
+		"virt.clab.vxlan.create":            {"remote": "192.0.2.1", "link": "eth0"},
+	} {
+		t.Run(fqcn, func(t *testing.T) {
+			srv := newServer(t)
+			labOf(srv, "lab1")
+			dev := device(t, srv.URL, true)
+			d, _ := collection.Lookup(fqcn)
+			if !d.Manifest.SupportsCheck || d.Manifest.NoCheckReason != "" {
+				t.Fatalf("%s declares check support %v with reason %q", fqcn, d.Manifest.SupportsCheck, d.Manifest.NoCheckReason)
+			}
+			c := login()
+			res, err := run(t, fqcn, dev, c, params, true)
+			if err != nil || !res.Changed {
+				t.Fatalf("check = %+v, %v; want a predicted change", res, err)
+			}
+			srv.mu.Lock()
+			for _, call := range srv.calls {
+				if !strings.HasPrefix(call, "GET ") {
+					t.Errorf("a check sent %s", call)
+				}
+			}
+			srv.mu.Unlock()
+			if fqcnUndo, _, ok := recorded(c); ok {
+				t.Errorf("a check recorded the undo %s", fqcnUndo)
+			}
+			if _, ok := params["lab"]; ok {
+				missing := map[string]any{}
+				for k, v := range params {
+					missing[k] = v
+				}
+				missing["lab"] = "nolab"
+				if topo, ok := missing["topology"].(map[string]any); ok {
+					named := map[string]any{}
+					for k, v := range topo {
+						named[k] = v
+					}
+					named["name"] = "nolab"
+					missing["topology"] = named
+				}
+				if _, err := run(t, fqcn, dev, login(), missing, true); err == nil {
+					t.Errorf("a check of a lab that is not there passed")
+				}
+			}
+		})
+	}
+}
+
+// TestChecks_RefuseWhatTheServerWouldRefuse: the host tools are the server's
+// superusers' alone, so a check by an ordinary login is refused as the run
+// would be, and a vEth endpoint not in its documented form is refused before
+// the server is asked, in a run and a check alike.
+func TestChecks_RefuseWhatTheServerWouldRefuse(t *testing.T) {
+	srv := newServer(t)
+	labOf(srv, "lab1")
+	srv.notSuperuser = true
+	dev := device(t, srv.URL, true)
+	for fqcn, params := range map[string]map[string]any{
+		"virt.clab.veth.create":             {"a_endpoint": "clab-lab1-n1:eth9", "b_endpoint": "host:veth-n1"},
+		"virt.clab.vxlan.create":            {"remote": "192.0.2.1", "link": "eth0"},
+		"virt.clab.node.disable_tx_offload": {"lab": "lab1", "node": "n1"},
+	} {
+		if res, err := run(t, fqcn, dev, login(), params, true); err == nil || res.Changed || !strings.Contains(err.Error(), "superuser") {
+			t.Errorf("%s by an ordinary login: %+v, %v; want refused as not a superuser", fqcn, res, err)
+		}
+	}
+	srv.notSuperuser = false
+	for _, check := range []bool{true, false} {
+		before := len(srv.calls)
+		_, err := run(t, "virt.clab.veth.create", dev, login(), map[string]any{"a_endpoint": "eth9", "b_endpoint": "host:veth-n1"}, check)
+		if err == nil || !strings.Contains(err.Error(), "node:interface") {
+			t.Errorf("check %v: an endpoint with no colon: %v", check, err)
+		}
+		if len(srv.calls) != before {
+			t.Errorf("check %v: the server was asked about an endpoint the method refuses", check)
+		}
+	}
+}

@@ -222,6 +222,43 @@ func TestLive_ARealLabEndToEnd(t *testing.T) {
 		t.Errorf("n2 is %s after pause", st)
 	}
 	l.must("virt.clab.node.unpause", map[string]any{"lab": lab, "node": "n2"})
+	// The checks of what always changes predict it against the real server and
+	// change nothing: no session opened, every node as it was, and no node's
+	// first process started again (its start time, field 22 of /proc/1/stat).
+	started := map[string]string{}
+	for _, n := range []string{"n1", "n2"} {
+		started[n] = startTime(t, l.sh(lab, n, "cat /proc/1/stat"))
+	}
+	for fqcn, params := range map[string]map[string]any{
+		"virt.clab.node.restart":            {"lab": lab, "node": "n2"},
+		"virt.clab.lab.restart":             {"lab": lab},
+		"virt.clab.lab.redeploy":            {"lab": lab, "topology": topo},
+		"virt.clab.lab.save":                {"lab": lab},
+		"virt.clab.node.ssh_access":         {"lab": lab, "node": "n1"},
+		"virt.clab.node.disable_tx_offload": {"lab": lab, "node": "n1"},
+		"virt.clab.veth.create":             {"a_endpoint": "clab-" + lab + "-n1:eth9", "b_endpoint": "host:veth-" + lab},
+		"virt.clab.vxlan.create":            {"remote": "192.0.2.1", "link": "eth0"},
+	} {
+		if c, res, err := l.call(fqcn, params, true); err != nil || !res.Changed {
+			t.Errorf("check of %s: changed %v, err %v, %v", fqcn, res.Changed, err, c.stats)
+		}
+	}
+	if sessions, _ := l.must("virt.clab.ssh_session.list", map[string]any{"all": true}).stats["sessions"].([]any); len(sessions) != 0 {
+		t.Errorf("a check opened an SSH session: %v", sessions)
+	}
+	// A redeploy of a lab that is not deployed is refused by the check, as the
+	// server refuses the run.
+	if _, res, err := l.call("virt.clab.lab.redeploy", map[string]any{"lab": "nolab" + lab, "topology": map[string]any{"name": "nolab" + lab, "topology": topo["topology"]}}, true); err == nil || res.Changed {
+		t.Errorf("check of a redeploy of a lab not deployed: changed %v, err %v", res.Changed, err)
+	}
+	for _, n := range []string{"n1", "n2"} {
+		if st := nodeState(t, l, lab, n); st != "running" {
+			t.Errorf("%s is %s after the checks", n, st)
+		}
+		if again := startTime(t, l.sh(lab, n, "cat /proc/1/stat")); again != started[n] {
+			t.Errorf("%s's first process started again during the checks: %q then %q", n, started[n], again)
+		}
+	}
 	l.must("virt.clab.node.restart", map[string]any{"lab": lab, "node": "n2"})
 	if st := nodeState(t, l, lab, "n2"); st != "running" {
 		t.Errorf("n2 is %s after restart", st)
@@ -319,4 +356,15 @@ func contains(list []string, v string) bool {
 func toText(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// startTime is a process's start time, field 22 of its /proc/<pid>/stat. A
+// node's first process is sleep, whose name holds no space.
+func startTime(t *testing.T, stat string) string {
+	t.Helper()
+	fields := strings.Fields(stat)
+	if len(fields) < 22 {
+		t.Fatalf("not a /proc stat line: %q", stat)
+	}
+	return fields[21]
 }

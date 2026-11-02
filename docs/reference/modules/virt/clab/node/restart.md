@@ -16,7 +16,7 @@ Restarts the node through the server. It always changes the node, and records no
 | Transports | `https` |
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since a restart always changes the node, and how it comes back is known only once it has run |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

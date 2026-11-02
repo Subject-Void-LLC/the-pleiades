@@ -72,6 +72,9 @@ type server struct {
 	refuseFirstToken bool
 	// edgeshark is whether the stub's Edgeshark runs.
 	edgeshark bool
+	// notSuperuser makes the login an ordinary user, whom the real server
+	// refuses its host tools.
+	notSuperuser bool
 }
 
 // newServer starts the stub on plain HTTP, which the device allows.
@@ -242,6 +245,15 @@ func newServer(t *testing.T) *server {
 		}
 		s.netem[key] = kept
 		reply(w, 200, map[string]string{"message": "reset"})
+	}))
+	mux.HandleFunc("GET /api/v1/users/{username}", authed(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if r.PathValue("username") != testUser {
+			reply(w, 404, map[string]string{"error": "user not found"})
+			return
+		}
+		reply(w, 200, map[string]any{"username": testUser, "isSuperuser": !s.notSuperuser, "isApiUser": true})
 	}))
 	mux.HandleFunc("GET /api/v1/tools/edgeshark/status", authed(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()

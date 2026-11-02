@@ -19573,3 +19573,222 @@ to be unique to stand for one.
 
 **Lesson.** A fixture that stands for a device or a filesystem keeps the property the code relies on: one device is
 locked by one task at a time, and an identity is unique.
+
+## 817. README's check-mode count stayed at "235 of the 257" while CLAUDE.md's was updated, and CLAUDE.md's own module count still said 210 beside its new 257; pr-check would not have run tools/gendocs, which reads the changed catalog but was not itself changed (a repeat of 678; 631's class) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e` (Phase 46b, C2c). Nine methods gained a check, so 244 of the
+257 implemented methods check. CLAUDE.md's check-mode line was edited to say so; README.md still said "235 of the 257
+can predict". `tools/gendocs`' `TestStatusCounts_MatchTheRegistry` holds README's counts to the registry, so CI would
+have failed. The same review found CLAUDE.md's module catalog line still saying "212 registered FQCNs; 210 implemented"
+beside its own edited check line naming 257.
+
+**Root cause.** The counts are written by hand in more than one file and more than one sentence. The edit updated the
+file in view, not the one a test reads. `make pr-check` runs the packages a branch changes, plus the census
+(`tools/prscope/census.go`), whose packages are `cmd/pleiades`, `cmd/runner`, `internal/adapters/native` and
+`internal/forge/playbook`. `tools/gendocs` imports `internal/catalog` but was not changed, so it is a reverse dependent,
+which prscope does not select (631). The local gate would not have run the test that catches this.
+
+**Fix.** `e7caa208`: README says "244 of the 257"; CLAUDE.md's module line says "259 registered FQCNs; 257
+implemented, 2 declared-not-implemented (2026-11-02)".
+
+**Why 678 did not prevent it.** 678's lesson is to run `go test ./tools/gendocs/ ./internal/archtest/` before the commit
+that adds a method. This branch added no method. It changed which methods support check mode, which moves a counted
+number just as surely, and the rule was read as being about new methods. 631's gap (no reverse dependents in prscope)
+is still open, so nothing mechanical ran the test either.
+
+**Lesson.** LESSONS 380: a count stated by hand in two files is updated in both in the same edit, starting with the one
+a test reads, and any change to a counted property (check support, status), not only a new method, runs
+`tools/gendocs`' tests before the commit.
+
+## 818. exec.winrm.shell's first creates/removes guard used PowerShell's Test-Path, which answers False with exit 0 for a path it cannot read, so a removes guard would have skipped the task's work (a repeat of 147 and 451; LESSONS 138) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e`. The guard added to `exec.winrm.shell` (Ansible `win_shell`'s
+`creates` and `removes`) decided existence with `Test-Path`. Measured on the lab's win-check VM through pleiades:
+`Test-Path` returned `False` for `\\localhost\pleiades-no-such-share\stamp`, where
+`[System.IO.File]::GetAttributes` threw an `IOException`. So a path the guard could not read counted as absent: a
+`removes` guard would skip the task and report no change, and a `creates` guard would run the script again. Recorded
+in the vuln-corpus as C9_auto-roboto_2026-11-02.
+
+**Root cause.** `Test-Path` returns a boolean and folds "I could not look" into "it is not there". Nobody measured its
+answer for an unreadable path before building the guard on it.
+
+**Fix.** `e7caa208`: `guardScript` (`internal/catalog/exec/winrm/shell.go`) decides as Ansible's `Test-AnsiblePath`
+does. `GetAttributes` answering means present; `FileNotFoundException` or `DirectoryNotFoundException` means absent;
+anything else (access denied, a share that does not answer) fails the task. `guardAnswer` accepts only exit 0 with
+`skip` or `run` and fails on anything else. Tests: `TestGuard_AGuardThatCannotBeReadFails`,
+`TestGuard_AnswerIsReadStrictly`, and `TestWinRMGate_ShellGuards` on win-check, which fails when the guard reads
+through `Test-Path` (its missing-share step) and when the guard never skips.
+
+**Why 147 and 451 did not prevent it.** 147 fixed the POSIX guard in `exec.command` with a distinct exit status for "could
+not look", and 451 fixed one docker predicate. LESSONS 138 states the rule. Each fix lives in its own code, and this
+guard was written fresh in another shell, whose usual existence primitive quietly answers two ways where three are
+needed. LESSONS 377, written the same day, says to measure a shell builtin a safety answer rests on, but it listed the
+POSIX shells and the edges root, read-only mount and ACL, not PowerShell and not "cannot look at all".
+
+**Lesson.** LESSONS 379: an existence guard decides only on a definite answer, and the primitive it uses is measured on
+the real target for a path it cannot read before anything is built on it.
+
+## 819. Several new virt.clab checks predicted a change the server refuses: a redeploy of a lab that is not deployed, host tools by a login that is not a superuser, veth endpoints not in x:y form, and veth and vxlan checks that never logged in (a repeat in kind of 811 and 564) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e`. The branch's rule was that a method whose effect is known in
+kind is checked by reading what the run reads and predicting the change. Several checks predicted without reading
+what the server checks first. `virt.clab.lab.redeploy`'s check predicted a redeploy of a lab that is not deployed,
+which the server's contract answers with 404. `veth.create`, `vxlan.create` and `node.disable_tx_offload` predicted a
+change for any login, while the contract keeps those calls for superusers. `veth.create` accepted endpoints not in
+`x:y` form. The `veth.create` and `vxlan.create` checks returned before logging in at all, so a refused login also
+passed the check.
+
+**Root cause.** "Always changes" was read as "a check needs nothing but the parameters". The refusals that decide
+whether a run gets anywhere are the server's: whether the object exists, whether the login may call, and whether each
+identifier has the shape the server takes. None of them is device state, so none was in view of a rule written about
+predicting the change.
+
+**Fix.** `e7caa208`: the redeploy check reads the lab (`s.inspect`) and refuses one not deployed, as save and restart
+already did. `session.superuser` reads `GET /api/v1/users/{username}` and refuses a login whose `isSuperuser` is
+false; a bearer token names no user, so its check answers `CannotCheck`. `veth.create` holds both endpoints to `x:y`
+in the run and the check. Tests: `TestChecks_RefuseWhatTheServerWouldRefuse` (stub server),
+`TestChecks_PredictWhatAlwaysChangesAndSendOnlyReads`, and `TestLive_ARealLabEndToEnd` against a real containerlab
+server, where the superuser read works for the live login and a redeploy check of a missing lab is refused.
+
+**Why 811 and 564 did not prevent it.** Both say a check must not pass where the run fails. 564 was about missing device
+state (a group), and 811 about a removal the parent forbids; both were about what the device holds. Here the refusal
+was the server's own rule about who may call and what exists, and the methods had no device state to read, so the
+rule looked satisfied.
+
+**Lesson.** LESSONS 378: a check of a method that always changes still reads, and refuses, everything the server would
+refuse before acting.
+
+## 820. TestGuards_RefusedBeforeAnythingDials could not fail: it asserted only that the error mentioned "creates", which the dial error after a missing refusal also did (a repeat of 467) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e`. The test meant to prove that a bad `creates` or `removes` is
+refused before anything dials. It asserted only that the error contained "creates". With the refusal removed, the
+method dialed, failed, and returned an error that named the guard too, so the test still passed.
+
+**Root cause.** The assertion matched a word the failure path shares with the success path. It never showed the
+refusal happened, or that nothing dialed.
+
+**Fix.** `e7caa208`: the test asserts the refusal's own words, points the device at a refusing port
+(`internal/testsupport/refusing.Port`), and asserts the stats are empty. It was mutation-checked: removing the refusal
+fails it.
+
+**Why 467 did not prevent it.** 467's lesson is that a test of a mode that must not act asserts the answer as well as the
+absence of action. This test did assert an answer, but one loose enough that the wrong path gave it too. LESSONS 338
+(prove a hazard with a control that must fail without the fix) was not applied when the test was written.
+
+**Lesson.** An assertion on an error matches words only the intended refusal can produce, and the test is run once with
+the refusal removed to see it fail.
+
+## 821. windowsAbsolute accepted the device-namespace forms \\?\ and \\.\ and a UNC server named "..", so a guard path no one had measured reached the device (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e`, from argus `expand_seeds`. `windowsAbsolute`
+(`internal/catalog/exec/winrm/shell.go`), which holds `creates` and `removes` to an absolute Windows path, accepted
+`\\?\...`, `\\.\...` and `\\..\...`. How the guard's `GetAttributes` reads those forms was never measured, and a guard
+read as absent fails open for `removes`.
+
+**Root cause.** The check accepted any text after `\\` with a server and a share, so it took the device-namespace
+prefixes and a dot-named server as a UNC path.
+
+**Fix.** `e7caa208`: `windowsAbsolute` refuses a NUL, the `\\?\` and `\\.\` forms, and a server named empty, `.`, `..` or
+`?`. The parameter docs say the device forms are refused. Test: `TestWindowsAbsolute`, a direct table test.
+
+**Lesson.** A path check that guards an existence test admits only the forms someone has measured, and is tested
+directly with the prefixes the platform treats specially.
+
+## 822. exec.winrm.shell's timeout was documented as bounding the whole operation, while a guarded run made two operations, each given the full timeout (LESSONS 182's class) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e`. The `timeout` parameter says it "bounds the whole
+operation". With a guard, the method ran the guard's PowerShell and then the script, and each `winrmexec.Execute` got
+the whole timeout, so a task could take twice what it promised.
+
+**Root cause.** Adding a second remote call under one parameter did not revisit what the parameter promised.
+
+**Fix.** `e7caa208`: the guard and the script share one deadline. The script gets what the guard left, and a guard that
+used it all fails the task with that reason.
+
+**Lesson.** LESSONS 182: a timeout is a promise about the whole operation. When a method gains a second call, its
+timeout is split, not repeated.
+
+## 823. An empty creates was refused at run time but admitted by CheckCall, so validation and the run disagreed on one call (the sibling-guard class, LESSONS 244) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e`. `exec.winrm.shell` refused `creates: ""` when it ran, while
+its `CheckCall`, which validation uses to refuse `check_mode` on an unguarded call, treated the empty value one way and
+the run another.
+
+**Root cause.** Two readers of one parameter (the run's `guardParams` and the check's `unguardedCheck`) each decided what
+empty means.
+
+**Fix.** `e7caa208`: empty is unset in both, as `exec.command` reads it, so a template that renders no guard runs
+unguarded and is named unchecked.
+
+**Lesson.** Where a parameter is read in two places, both read empty the same way, and the way the sibling method
+already reads it.
+
+## 824. The Windows guard gate used a fixed folder on the shared lab host (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass on `1a342c7e`. `TestWinRMGate_ShellGuards`
+(`cmd/pleiades/winrm_shell_guard_release_gate_test.go`) worked in one fixed folder on the win-check VM, which other
+runs and other gates share.
+
+**Root cause.** The folder name was a constant, so two runs, or a run after one that stopped early, would meet each
+other's files and could pass or fail on them.
+
+**Fix.** `e7caa208`: the gate makes a folder per run.
+
+**Lesson.** A gate on a shared lab host works in a folder named for its own run, never a fixed one.
+
+## 825. A new test closed a listener and then used its port, and the released-port guard refused it (a repeat of 607, 123 and 478) (fixed before push)
+
+**Symptom.** 2026-11-02, while writing this branch's tests: `internal/archtest`'s `TestNoReleasedPortIsUsedAsAnAddress`
+refused a test that closed a listener and then used its address as one nothing answers.
+
+**Root cause.** 123's construction: a released port is anyone's, so another test can take it before it is used.
+
+**Fix.** The test uses `internal/testsupport/refusing.Port`.
+
+**Why 607 did not prevent it.** As in 607, the guard (478's) did its job and caught it before any commit. The construction
+is still the first one a test author reaches for.
+
+**Lesson.** For an address nothing answers, use `refusing.Port`; never release a port.
+
+## 826. A gate's PowerShell setup failed on a missing path although it used Remove-Item -ErrorAction SilentlyContinue, and exec.winrm.shell reported exit 1 (fixed before push)
+
+**Symptom.** 2026-11-02, building `TestWinRMGate_ShellGuards` on win-check. A setup step removed a path that might not
+exist with `Remove-Item -ErrorAction SilentlyContinue`. On a missing path the task failed with exit 1.
+
+**Root cause.** `SilentlyContinue` hides the error record but the cmdlet still fails. When it is the last cmdlet,
+`exec.winrm.shell` reports a failed cmdlet as exit 1, as its `exit_code` documentation says.
+
+**Fix.** The gate's setup and cleanup remove a path only when `Test-Path -LiteralPath` finds it (`if (Test-Path ...) {
+Remove-Item ... }`), so no failed cmdlet ends the script (`cmd/pleiades/winrm_shell_guard_release_gate_test.go`).
+
+**Lesson.** In a script `exec.winrm.shell` runs, `-ErrorAction SilentlyContinue` silences the message, not the failure.
+Test for the path first, or end on a command that succeeds.
+
+## 827. On win-check, the Administrator login still read a file's attributes after icacls denied it Full Control on the file and its folder, so an ACL deny could not make an unreadable path for the gate (fixed before push)
+
+**Symptom.** 2026-11-02, building `TestWinRMGate_ShellGuards`. To show the guard fails on a path it cannot read, the gate
+first denied the login Full Control with `icacls` on a file and its folder. The Administrator login (high integrity)
+still read the file's attributes, so the step did not produce the case it was for.
+
+**Root cause.** Not measured. An ACL deny for that login did not stop `GetAttributes` on this host; why was not
+established.
+
+**Fix.** The gate uses a share that does not exist (`\\localhost\pleiades-no-such-share\stamp`), for which
+`GetAttributes` throws and `Test-Path` answers False (818).
+
+**Lesson.** A fixture meant to be unreadable is checked to be unreadable, by the same call the code makes, before a
+test relies on it. On Windows, an ACL deny is not a reliable way to do that for an administrator login; a missing
+share is.
+
+## 828. A live clab test's command with single quotes (cut -d' ') broke through virt.clab.node.exec's wrapper (fixed before push)
+
+**Symptom.** 2026-11-02, writing `TestLive_ARealLabEndToEnd`, which checks that no node's first process starts again. A
+shell command reading the start time with `cut -d' '` failed when run through `virt.clab.node.exec`.
+
+**Root cause.** The single quotes did not survive the wrapper the command passes through on its way to the node. How the
+wrapper quotes was not traced for this record.
+
+**Fix.** The test reads `/proc/1/stat` through the node and parses it in Go.
+
+**Lesson.** A test that needs a value from a node fetches the raw text and parses it in Go, rather than building a
+quoted shell pipeline through a wrapper whose quoting it does not control.

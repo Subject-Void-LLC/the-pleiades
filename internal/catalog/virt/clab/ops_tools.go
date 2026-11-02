@@ -3,17 +3,33 @@ package clab
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-// vethCreate creates a vEth pair.
-func vethCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// vethCreate creates a vEth pair. It always makes one. The server keeps it for
+// superusers, so a check reads the login's details and, the endpoints held to
+// their documented form, predicts it; the server has no call that would show
+// whether the endpoints can be joined first.
+func vethCreate(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	ea, eb := a.str("a_endpoint"), a.str("b_endpoint")
 	mtu, hasMTU := a.integer("mtu")
 	if a.err != nil {
 		return false, a.err
+	}
+	for name, end := range map[string]string{"a_endpoint": ea, "b_endpoint": eb} {
+		if left, right, ok := strings.Cut(end, ":"); !ok || left == "" || right == "" {
+			return false, fmt.Errorf("%s: %s %q is not node:interface or kind:name", s.fqcn, name, end)
+		}
+	}
+	if check {
+		if err := s.superuser(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	body := map[string]any{"aEndpoint": ea, "bEndpoint": eb}
 	if hasMTU {
@@ -23,8 +39,10 @@ func vethCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error) 
 }
 
 // vxlanCreate creates a VxLAN tunnel; its undo removes the interfaces with
-// containerlab's prefix, which is partial when others carry it.
-func vxlanCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+// containerlab's prefix, which is partial when others carry it. It always
+// makes one, and the server keeps it for superusers, so a check reads the
+// login's details and predicts it, recording no undo.
+func vxlanCreate(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	remote, link, dev := a.str("remote"), a.ident("link"), a.ident("dev")
 	vni, hasVNI := a.integer("vni")
 	port, hasPort := a.integer("port")
@@ -43,6 +61,12 @@ func vxlanCreate(ctx context.Context, s *session, a *args, _ bool) (bool, error)
 		if v.ok {
 			body[key] = v.n
 		}
+	}
+	if check {
+		if err := s.superuser(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	if err := s.undo(sdk.Inverse{FQCN: "virt.clab.vxlan.delete", Params: map[string]any{"prefix": "vx-"}, Partial: true, KeepOnFailure: true,
 		Description: "Removes the VxLAN interfaces named vx-*, which includes the one this run made and any other made with that prefix."}); err != nil {

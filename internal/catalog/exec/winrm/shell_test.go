@@ -7,9 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
+	"errors"
 	"math/big"
 	"net"
 	"net/http"
@@ -19,10 +17,15 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec/winrm"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec/winrm"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // There is no in-process WinRM server to test against, and a stub one
@@ -405,5 +408,126 @@ func TestUsesTheDevicesPinnedAuthority(t *testing.T) {
 	_, err = desc.Invoke(context.Background(), rc, &tlsDevice{winrmDevice: base}, params)
 	if err == nil || !strings.Contains(err.Error(), "unknown authority") {
 		t.Errorf("unpinned: err = %v, want an unknown-authority failure", err)
+	}
+}
+
+// TestGuards_RefusedBeforeAnythingDials: creates and removes are absolute
+// Windows paths, each refused otherwise in its own words before the device is
+// dialed: the device is a port nothing listens on, so a dial would fail with
+// other words, and a refusal records nothing.
+func TestGuards_RefusedBeforeAnythingDials(t *testing.T) {
+	dev := device()
+	dev.host, dev.port = "127.0.0.1", refusing.Port(t)
+	desc, _ := collection.Lookup("exec.winrm.shell")
+	base := func(extra map[string]any) map[string]any {
+		p := map[string]any{"shell": "powershell", "command": "Write-Output hi"}
+		for k, v := range extra {
+			p[k] = v
+		}
+		return p
+	}
+	for name, tc := range map[string]struct {
+		params map[string]any
+		want   string
+	}{
+		"a relative creates":     {base(map[string]any{"creates": `Agent\agent.exe`}), "is not an absolute Windows path"},
+		"a rooted but driveless": {base(map[string]any{"removes": `\Agent\agent.exe`}), "is not an absolute Windows path"},
+		"a drive with no root":   {base(map[string]any{"creates": `C:agent.exe`}), "is not an absolute Windows path"},
+		"a UNC with no share":    {base(map[string]any{"creates": `\\server`}), "is not an absolute Windows path"},
+		"a device path":          {base(map[string]any{"creates": `\\?\C:\x`}), "is not an absolute Windows path"},
+		"a creates not a string": {base(map[string]any{"creates": 7}), "must be a path"},
+		"a NUL inside":           {base(map[string]any{"removes": "C:\\a\x00b"}), "is not an absolute Windows path"},
+	} {
+		for mode, fn := range map[string]collection.Method{"run": desc.Invoke, "check": desc.Check} {
+			c := &ctxStub{stats: map[string]any{}}
+			_, err := fn(context.Background(), c, dev, tc.params)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%s, %s: %v, want %q", name, mode, err, tc.want)
+			}
+			if len(c.stats) != 0 {
+				t.Errorf("%s, %s: recorded %v", name, mode, c.stats)
+			}
+		}
+	}
+}
+
+// TestWindowsAbsolute holds the path rule to its near misses.
+func TestWindowsAbsolute(t *testing.T) {
+	for p, want := range map[string]bool{
+		`C:\`: true, `c:\Agent\a.exe`: true, `D:/agent`: true, `\\fs01\share`: true, `\\fs01\share\dir\f`: true,
+		`C:`: false, `C:agent`: false, `\\agent`: false, `agent`: false, `\\fs01`: false, `\\fs01\`: false, `\\fs01\\`: false,
+		`\\?\C:\x`: false, `\\.\pipe\x`: false, `\\..\C:\`: false, `\\?\UNC\fs01\share`: false, "C:\\a\x00": false, `1:\x`: false,
+	} {
+		if got := winrm.WindowsAbsolute(p); got != want {
+			t.Errorf("WindowsAbsolute(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// TestCheck_AnUnguardedCallCannotBeChecked: a check of a script no guard
+// describes answers CannotCheck, at run time and through CheckCall at
+// validation, without dialing; a guarded call is admitted by CheckCall.
+func TestCheck_AnUnguardedCallCannotBeChecked(t *testing.T) {
+	desc, _ := collection.Lookup("exec.winrm.shell")
+	if !desc.Manifest.SupportsCheck || desc.Manifest.NoCheckReason != "" || desc.Check == nil || desc.CheckCall == nil {
+		t.Fatalf("exec.winrm.shell: supports check %v, reason %q, a check %v, a call rule %v",
+			desc.Manifest.SupportsCheck, desc.Manifest.NoCheckReason, desc.Check != nil, desc.CheckCall != nil)
+	}
+	unguarded := map[string]any{"shell": "powershell", "command": "Write-Output hi"}
+	var cannot *collection.CannotCheckError
+	if _, err := desc.Check(context.Background(), &ctxStub{stats: map[string]any{}}, device(), unguarded); !errors.As(err, &cannot) {
+		t.Errorf("Check of an unguarded call = %v, want CannotCheck", err)
+	}
+	if err := desc.CheckCall(unguarded); !errors.As(err, &cannot) {
+		t.Errorf("CheckCall of an unguarded call = %v, want CannotCheck", err)
+	}
+	for _, guard := range []map[string]any{{"creates": `C:\Agent\agent.exe`}, {"removes": `\\fs01\share\stamp`}, {"creates": "D:/agent"}} {
+		params := map[string]any{"shell": "cmd", "command": "echo hi"}
+		for k, v := range guard {
+			params[k] = v
+		}
+		if err := desc.CheckCall(params); err != nil {
+			t.Errorf("CheckCall(%v) = %v, want a guarded call admitted", guard, err)
+		}
+	}
+}
+
+// TestGuard_AnswerIsReadStrictly: only "skip" and "run" with exit status 0 are
+// answers; anything else is an error, never a run.
+func TestGuard_AnswerIsReadStrictly(t *testing.T) {
+	for _, tc := range []struct {
+		result winrmexec.Result
+		skip   bool
+		ok     bool
+	}{
+		{winrmexec.Result{Stdout: "skip\r\n"}, true, true},
+		{winrmexec.Result{Stdout: "run\n"}, false, true},
+		{winrmexec.Result{Stdout: "run", ExitCode: 1}, false, false},
+		{winrmexec.Result{Stdout: "", Stderr: "Test-Path : access denied"}, false, false},
+		{winrmexec.Result{Stdout: "skipped"}, false, false},
+	} {
+		skip, err := winrm.GuardAnswer(tc.result)
+		if skip != tc.skip || (err == nil) != tc.ok {
+			t.Errorf("GuardAnswer(%+v) = %v, %v; want %v, ok %v", tc.result, skip, err, tc.skip, tc.ok)
+		}
+	}
+}
+
+// TestGuard_AGuardThatCannotBeReadFails: a guarded call whose device cannot be
+// reached fails reading the guard, in a run and in a check, rather than run
+// the script or predict anything.
+func TestGuard_AGuardThatCannotBeReadFails(t *testing.T) {
+	dev := device()
+	dev.host, dev.port = "127.0.0.1", refusing.Port(t)
+	desc, _ := collection.Lookup("exec.winrm.shell")
+	params := map[string]any{"shell": "powershell", "command": "Write-Output hi", "creates": `C:\Agent\agent.exe`, "removes": `C:\Agent\stamp`, "timeout": 5}
+	for name, fn := range map[string]collection.Method{"run": desc.Invoke, "check": desc.Check} {
+		c := &ctxStub{stats: map[string]any{}}
+		if _, err := fn(context.Background(), c, dev, params); err == nil || !strings.Contains(err.Error(), "guard") {
+			t.Errorf("%s: %v, want the guard named as unreadable", name, err)
+		}
+		if len(c.stats) != 0 {
+			t.Errorf("%s recorded %v for a call it never made", name, c.stats)
+		}
 	}
 }

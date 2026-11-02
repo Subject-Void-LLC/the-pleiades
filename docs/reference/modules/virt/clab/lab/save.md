@@ -16,7 +16,7 @@ Runs containerlab's save for the lab, so a node that reads a startup configurati
 | Transports | `https` |
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
-| Check mode | Not supported: a check run names this task as unchecked, since saving overwrites configurations the server does not show beforehand |
+| Check mode | Supported: reports what it would change and changes nothing |
 | Engine version | `>=0.3.0` |
 
 ## Parameters
