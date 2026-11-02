@@ -12,3 +12,6 @@ func lockFile(*os.File, bool) error { return nil }
 
 // unlockFile releases nothing on this platform.
 func unlockFile(*os.File) error { return nil }
+
+// noFollow is nothing on this platform.
+const noFollow = 0

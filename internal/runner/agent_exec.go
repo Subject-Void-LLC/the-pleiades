@@ -140,6 +140,21 @@ func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPaylo
 	}()
 
 	execCtx, cancelExec := context.WithCancel(detachedValueContext{parent: ctx})
+	// The lease's fencing token rides the run's context to the journal
+	// publisher, which stamps it on every entry, so a rollback orders this
+	// dispatch against other jobs on the device by it rather than by two
+	// Runners' clocks (Phase 40a). Only an exclusive lease's: holders of a
+	// shared one overlap, so a job that joined first can still change the
+	// device after a later one began, and the order of acquisitions says
+	// nothing about the order of changes. Such a job carries no token and is
+	// ordered by clock, which the rollback says.
+	// The heartbeat marks it lost when a renewal fails, so entries recorded
+	// after that carry no token (the device may be another's by then).
+	var fence *lock.Fence
+	if token, epoch, ok := lock.FencingToken(lease); ok && !payload.SharedDevice {
+		fence = lock.NewFence(token, epoch)
+		execCtx = lock.WithFence(execCtx, fence)
+	}
 	if payload.Interruptible {
 		go func() {
 			select {
@@ -179,7 +194,7 @@ func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPaylo
 	}
 
 	done := make(chan struct{})
-	go a.heartbeat(execCtx, lease, cancelExec, payload.Interruptible, done)
+	go a.heartbeat(execCtx, lease, fence, cancelExec, payload.Interruptible, done)
 
 	// Runs on every exit from this point on, normal return and a panic
 	// unwind alike, so the heartbeat goroutine is always fully stopped
@@ -241,7 +256,11 @@ func (d detachedValueContext) Value(key any) any { return d.parent.Value(key) }
 // codebase yet and is deliberately not built here -- a future phase's
 // work, once a real execution (Phase 16) exists for the Controller to
 // quarantine a device away from.
-func (a *Agent) heartbeat(execCtx context.Context, lease lock.Lease, cancel context.CancelFunc, interruptible bool, done chan<- struct{}) {
+//
+// Either way the lease is no longer proven this run's alone, so fence (nil for
+// a run with none) is marked lost before anything else: whatever the run
+// records from then on carries no fencing token.
+func (a *Agent) heartbeat(execCtx context.Context, lease lock.Lease, fence *lock.Fence, cancel context.CancelFunc, interruptible bool, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(a.heartbeatEvery)
 	defer ticker.Stop()
@@ -257,6 +276,7 @@ func (a *Agent) heartbeat(execCtx context.Context, lease lock.Lease, cancel cont
 					// shutdown race, not a real heartbeat loss.
 					return
 				}
+				fence.Lose()
 				if interruptible {
 					a.logger.Warn("lost device lease heartbeat, self-aborting execution",
 						slog.String("device_id", lease.ID()), slog.String("error", err.Error()))

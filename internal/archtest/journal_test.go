@@ -453,6 +453,10 @@ var journalStringFields = map[string]journalStringField{
 		kind: journalKindPlatformID,
 		why:  "the inventory item's own stored id field, never a device property the platform read back",
 	},
+	"LeaseEpoch": {
+		kind: journalKindPlatformID,
+		why:  "the Runner's journal publisher stamps it from the device lease it acquired (lock.Fenced): nats: and the lock bucket stream's creation time as the NATS server reports it, or process: and a random id the in-process manager minted, never anything the run or a device reports",
+	},
 	"ProviderProgram": {
 		kind: journalKindPlatformID,
 		why:  "the path the loader resolved itself (checkDir's resolved directory joined with the directory entry's name) and set on the descriptor when it registered the method, read back at write time through collection.Lookup as FQCN is; a program's description carries only a name and a manifest, so nothing the program, the runbook or a device says can reach it",

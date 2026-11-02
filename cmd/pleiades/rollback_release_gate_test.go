@@ -124,6 +124,43 @@ func (g *rollbackGate) journals(t *testing.T) int {
 	return len(files)
 }
 
+// stepJournalClock rewrites run's journal so every time in it reads d away
+// from what was written, as a clock set back (or ahead) by d while the run
+// ran would have written it. Everything else, its ticks included, is kept.
+func (g *rollbackGate) stepJournalClock(t *testing.T, run string, d time.Duration) {
+	t.Helper()
+	path := filepath.Join(g.dir, ".pleiades", "journal", run+".jsonl")
+	raw, err := os.ReadFile(path) // #nosec G304 -- a journal under the test's own project
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []byte
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("journal line: %v", err)
+		}
+		for _, key := range []string{"started_at", "finished_at"} {
+			at, err := time.Parse(time.RFC3339Nano, entry[key].(string))
+			if err != nil {
+				t.Fatalf("%s: %v", key, err)
+			}
+			entry[key] = at.Add(d).Format(time.RFC3339Nano)
+		}
+		if entry["run_tick"] == nil {
+			t.Fatalf("the later run's journal carries no run tick: %s", line)
+		}
+		b, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(append(out, b...), '\n')
+	}
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // noLoginSince fails when sshd has logged a login since it had logged
 // before: a refused rollback must not have reached the device at all. The
 // log is written asynchronously, so it is read after it has had time to
@@ -317,10 +354,15 @@ tasks:
 			out, _ := g.pleiades(t, "journal", "show", later)
 			t.Fatalf("the later run failed (exit %d), so it is no later change:\n%s", laterCode, out)
 		}
+		// The clock was stepped back a day before the later run (Phase 40a):
+		// its journal's times read as before the run being undone, exactly as
+		// a clock set back would have written them. The run counter still
+		// orders it later, so the refusal stands, and says nothing of clocks.
+		g.stepJournalClock(t, later, -24*time.Hour)
 		logins = sshdLogins(t, container)
 		out, code = g.pleiades(t, "rollback", runID, "--leave", "tasks[1]")
-		if code != 1 || !strings.Contains(out, later) || !strings.Contains(out, "--despite-run "+later) {
-			t.Fatalf("a rollback beneath a later run: exit %d\n%s", code, out)
+		if code != 1 || !strings.Contains(out, later) || !strings.Contains(out, "--despite-run "+later) || strings.Contains(out, "clock") {
+			t.Fatalf("a rollback beneath a later run, its journal written under a clock stepped back: exit %d\n%s", code, out)
 		}
 		g.noLoginSince(t, logins)
 		if got := g.device(t, "test -d /tmp/rb-g2 && echo dir"); got != "dir" {

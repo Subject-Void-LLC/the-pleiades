@@ -51,6 +51,11 @@ type Run struct {
 	// Crawl tier's <run-id>.end), or every device's result is in (the Walk
 	// tier). An unsealed journal may be missing its last level.
 	Sealed bool
+
+	// EndTick is the Crawl tier's project counter as the run ended, from its
+	// seal (order.go); zero on the Walk tier, for a run with no seal, and for
+	// one sealed before the counter existed.
+	EndTick uint64
 }
 
 // Request is what a rollback was asked to do.
@@ -177,6 +182,12 @@ type Plan struct {
 	// empty: its runbook says undoing them means doing nothing, so no step
 	// runs and none is refused.
 	NothingToUndo []Gap `json:"nothing_to_undo,omitempty"`
+
+	// OrderedByClock names the other runs whose order against this one was
+	// read from the journals' clock times, because one of the two journals
+	// predates run ordering (order.go). Every other run was ordered by the
+	// project's run counter or by lease revisions.
+	OrderedByClock []string `json:"ordered_by_clock,omitempty"`
 }
 
 // Steps returns every step of the plan in the order it runs.
@@ -250,7 +261,9 @@ func Build(req Request) (Plan, error) {
 	}
 
 	done := undoneSteps(req.Target, req.Others)
-	problems = append(problems, laterRunProblems(req, changed)...)
+	later, byClockRuns := laterRunProblems(req, changed)
+	problems = append(problems, later...)
+	plan.OrderedByClock = byClockRuns
 
 	type levelKey struct {
 		order int

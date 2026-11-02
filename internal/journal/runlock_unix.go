@@ -27,3 +27,7 @@ func lockFile(f *os.File, exclusive bool) error {
 func unlockFile(f *os.File) error {
 	return unix.Flock(int(f.Fd()), unix.LOCK_UN) // #nosec G115 -- an open file's descriptor fits an int
 }
+
+// noFollow makes an open refuse a symbolic link at the name, so a lock or
+// marker file is never one a link put elsewhere.
+const noFollow = unix.O_NOFOLLOW

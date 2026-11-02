@@ -14413,6 +14413,11 @@ type JournalEntryMutation struct {
 	undoes_node                       *string
 	undoes_step                       *int
 	addundoes_step                    *int
+	run_tick                          *uint64
+	addrun_tick                       *int64
+	lease_revision                    *uint64
+	addlease_revision                 *int64
+	lease_epoch                       *string
 	clearedFields                     map[string]struct{}
 	done                              bool
 	oldValue                          func(context.Context) (*JournalEntry, error)
@@ -16513,6 +16518,167 @@ func (m *JournalEntryMutation) ResetUndoesStep() {
 	m.addundoes_step = nil
 }
 
+// SetRunTick sets the "run_tick" field.
+func (m *JournalEntryMutation) SetRunTick(u uint64) {
+	m.run_tick = &u
+	m.addrun_tick = nil
+}
+
+// RunTick returns the value of the "run_tick" field in the mutation.
+func (m *JournalEntryMutation) RunTick() (r uint64, exists bool) {
+	v := m.run_tick
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRunTick returns the old "run_tick" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldRunTick(ctx context.Context) (v uint64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRunTick is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRunTick requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRunTick: %w", err)
+	}
+	return oldValue.RunTick, nil
+}
+
+// AddRunTick adds u to the "run_tick" field.
+func (m *JournalEntryMutation) AddRunTick(u int64) {
+	if m.addrun_tick != nil {
+		*m.addrun_tick += u
+	} else {
+		m.addrun_tick = &u
+	}
+}
+
+// AddedRunTick returns the value that was added to the "run_tick" field in this mutation.
+func (m *JournalEntryMutation) AddedRunTick() (r int64, exists bool) {
+	v := m.addrun_tick
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRunTick resets all changes to the "run_tick" field.
+func (m *JournalEntryMutation) ResetRunTick() {
+	m.run_tick = nil
+	m.addrun_tick = nil
+}
+
+// SetLeaseRevision sets the "lease_revision" field.
+func (m *JournalEntryMutation) SetLeaseRevision(u uint64) {
+	m.lease_revision = &u
+	m.addlease_revision = nil
+}
+
+// LeaseRevision returns the value of the "lease_revision" field in the mutation.
+func (m *JournalEntryMutation) LeaseRevision() (r uint64, exists bool) {
+	v := m.lease_revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseRevision returns the old "lease_revision" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldLeaseRevision(ctx context.Context) (v uint64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseRevision: %w", err)
+	}
+	return oldValue.LeaseRevision, nil
+}
+
+// AddLeaseRevision adds u to the "lease_revision" field.
+func (m *JournalEntryMutation) AddLeaseRevision(u int64) {
+	if m.addlease_revision != nil {
+		*m.addlease_revision += u
+	} else {
+		m.addlease_revision = &u
+	}
+}
+
+// AddedLeaseRevision returns the value that was added to the "lease_revision" field in this mutation.
+func (m *JournalEntryMutation) AddedLeaseRevision() (r int64, exists bool) {
+	v := m.addlease_revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetLeaseRevision resets all changes to the "lease_revision" field.
+func (m *JournalEntryMutation) ResetLeaseRevision() {
+	m.lease_revision = nil
+	m.addlease_revision = nil
+}
+
+// SetLeaseEpoch sets the "lease_epoch" field.
+func (m *JournalEntryMutation) SetLeaseEpoch(s string) {
+	m.lease_epoch = &s
+}
+
+// LeaseEpoch returns the value of the "lease_epoch" field in the mutation.
+func (m *JournalEntryMutation) LeaseEpoch() (r string, exists bool) {
+	v := m.lease_epoch
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseEpoch returns the old "lease_epoch" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldLeaseEpoch(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseEpoch is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseEpoch requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseEpoch: %w", err)
+	}
+	return oldValue.LeaseEpoch, nil
+}
+
+// ClearLeaseEpoch clears the value of the "lease_epoch" field.
+func (m *JournalEntryMutation) ClearLeaseEpoch() {
+	m.lease_epoch = nil
+	m.clearedFields[journalentry.FieldLeaseEpoch] = struct{}{}
+}
+
+// LeaseEpochCleared returns if the "lease_epoch" field was cleared in this mutation.
+func (m *JournalEntryMutation) LeaseEpochCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldLeaseEpoch]
+	return ok
+}
+
+// ResetLeaseEpoch resets all changes to the "lease_epoch" field.
+func (m *JournalEntryMutation) ResetLeaseEpoch() {
+	m.lease_epoch = nil
+	delete(m.clearedFields, journalentry.FieldLeaseEpoch)
+}
+
 // Where appends a list predicates to the JournalEntryMutation builder.
 func (m *JournalEntryMutation) Where(ps ...predicate.JournalEntry) {
 	m.predicates = append(m.predicates, ps...)
@@ -16547,7 +16713,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 42)
+	fields := make([]string, 0, 45)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -16674,6 +16840,15 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.undoes_step != nil {
 		fields = append(fields, journalentry.FieldUndoesStep)
 	}
+	if m.run_tick != nil {
+		fields = append(fields, journalentry.FieldRunTick)
+	}
+	if m.lease_revision != nil {
+		fields = append(fields, journalentry.FieldLeaseRevision)
+	}
+	if m.lease_epoch != nil {
+		fields = append(fields, journalentry.FieldLeaseEpoch)
+	}
 	return fields
 }
 
@@ -16766,6 +16941,12 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.UndoesNode()
 	case journalentry.FieldUndoesStep:
 		return m.UndoesStep()
+	case journalentry.FieldRunTick:
+		return m.RunTick()
+	case journalentry.FieldLeaseRevision:
+		return m.LeaseRevision()
+	case journalentry.FieldLeaseEpoch:
+		return m.LeaseEpoch()
 	}
 	return nil, false
 }
@@ -16859,6 +17040,12 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldUndoesNode(ctx)
 	case journalentry.FieldUndoesStep:
 		return m.OldUndoesStep(ctx)
+	case journalentry.FieldRunTick:
+		return m.OldRunTick(ctx)
+	case journalentry.FieldLeaseRevision:
+		return m.OldLeaseRevision(ctx)
+	case journalentry.FieldLeaseEpoch:
+		return m.OldLeaseEpoch(ctx)
 	}
 	return nil, fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -17162,6 +17349,27 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetUndoesStep(v)
 		return nil
+	case journalentry.FieldRunTick:
+		v, ok := value.(uint64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRunTick(v)
+		return nil
+	case journalentry.FieldLeaseRevision:
+		v, ok := value.(uint64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseRevision(v)
+		return nil
+	case journalentry.FieldLeaseEpoch:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseEpoch(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -17194,6 +17402,12 @@ func (m *JournalEntryMutation) AddedFields() []string {
 	if m.addundoes_step != nil {
 		fields = append(fields, journalentry.FieldUndoesStep)
 	}
+	if m.addrun_tick != nil {
+		fields = append(fields, journalentry.FieldRunTick)
+	}
+	if m.addlease_revision != nil {
+		fields = append(fields, journalentry.FieldLeaseRevision)
+	}
 	return fields
 }
 
@@ -17218,6 +17432,10 @@ func (m *JournalEntryMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedUndeclaredInverseParamCount()
 	case journalentry.FieldUndoesStep:
 		return m.AddedUndoesStep()
+	case journalentry.FieldRunTick:
+		return m.AddedRunTick()
+	case journalentry.FieldLeaseRevision:
+		return m.AddedLeaseRevision()
 	}
 	return nil, false
 }
@@ -17282,6 +17500,20 @@ func (m *JournalEntryMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddUndoesStep(v)
+		return nil
+	case journalentry.FieldRunTick:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRunTick(v)
+		return nil
+	case journalentry.FieldLeaseRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLeaseRevision(v)
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry numeric field %s", name)
@@ -17350,6 +17582,9 @@ func (m *JournalEntryMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(journalentry.FieldUndoesNode) {
 		fields = append(fields, journalentry.FieldUndoesNode)
+	}
+	if m.FieldCleared(journalentry.FieldLeaseEpoch) {
+		fields = append(fields, journalentry.FieldLeaseEpoch)
 	}
 	return fields
 }
@@ -17424,6 +17659,9 @@ func (m *JournalEntryMutation) ClearField(name string) error {
 		return nil
 	case journalentry.FieldUndoesNode:
 		m.ClearUndoesNode()
+		return nil
+	case journalentry.FieldLeaseEpoch:
+		m.ClearLeaseEpoch()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry nullable field %s", name)
@@ -17558,6 +17796,15 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldUndoesStep:
 		m.ResetUndoesStep()
+		return nil
+	case journalentry.FieldRunTick:
+		m.ResetRunTick()
+		return nil
+	case journalentry.FieldLeaseRevision:
+		m.ResetLeaseRevision()
+		return nil
+	case journalentry.FieldLeaseEpoch:
+		m.ResetLeaseEpoch()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)

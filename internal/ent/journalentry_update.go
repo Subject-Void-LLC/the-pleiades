@@ -147,6 +147,9 @@ func (_u *JournalEntryUpdate) sqlSave(ctx context.Context) (_node int, err error
 	if _u.mutation.UndoesNodeCleared() {
 		_spec.ClearField(journalentry.FieldUndoesNode, field.TypeString)
 	}
+	if _u.mutation.LeaseEpochCleared() {
+		_spec.ClearField(journalentry.FieldLeaseEpoch, field.TypeString)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{journalentry.Label}
@@ -315,6 +318,9 @@ func (_u *JournalEntryUpdateOne) sqlSave(ctx context.Context) (_node *JournalEnt
 	}
 	if _u.mutation.UndoesNodeCleared() {
 		_spec.ClearField(journalentry.FieldUndoesNode, field.TypeString)
+	}
+	if _u.mutation.LeaseEpochCleared() {
+		_spec.ClearField(journalentry.FieldLeaseEpoch, field.TypeString)
 	}
 	_node = &JournalEntry{config: _u.config}
 	_spec.Assign = _node.assignValues

@@ -298,7 +298,7 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 		// mechanism for the common, uncontended case.
 		rev, err := m.kv.Create(ctx, string(key), data, createOpts...)
 		if err == nil {
-			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, owner: opts.Owner, mode: opts.Mode, revision: rev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
+			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, owner: opts.Owner, mode: opts.Mode, revision: rev, fence: rev, epoch: m.epoch(ctx), ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 		}
 		if !errors.Is(err, jetstream.ErrKeyExists) {
 			return nil, fmt.Errorf("failed to acquire lock for %s: %w", itemID, err)
@@ -344,7 +344,7 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 
 		newRev, updateErr := m.publishWithTTL(ctx, key, joinedData, entry.Revision(), maxHolderTTL(joined))
 		if updateErr == nil {
-			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, owner: opts.Owner, mode: ModeShared, revision: newRev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
+			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, owner: opts.Owner, mode: ModeShared, revision: newRev, fence: newRev, epoch: m.epoch(ctx), ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 		}
 		if !errors.Is(updateErr, jetstream.ErrKeyExists) {
 			return nil, fmt.Errorf("failed to join shared lock for %s: %w", itemID, updateErr)
@@ -381,8 +381,50 @@ type natsLease struct {
 	owner    string
 	mode     Mode
 	revision uint64
+	// fence is the JetStream sequence of the acquisition itself, the lease's
+	// fencing token (fencing.go). revision moves with every KeepAlive; fence
+	// never does. epoch names the bucket stream's life the sequence comes
+	// from (natsLockManager.epoch).
+	fence    uint64
+	epoch    string
 	ttl      time.Duration
 	deadline time.Time // this lease's own locally-computed deadline, from this process's own monotonic-carrying time.Now(); never read back from the stored value, and never compared against a timestamp produced by another process
+}
+
+// FencingToken implements Fenced: the stream sequence of the write that
+// acquired the lease, which only grows for every key in the bucket.
+func (l *natsLease) FencingToken() uint64 {
+	return l.fence
+}
+
+// FencingEpoch implements Fenced: the bucket stream's creation time, read as
+// the lease was acquired.
+func (l *natsLease) FencingEpoch() string {
+	return l.epoch
+}
+
+// epoch reads the life of the bucket's stream, its creation time, which a
+// restart keeps and a re-creation changes, so a sequence that counted from
+// one again is never compared with the one before it. Read at each
+// acquisition, not once, since the bucket can be re-created under a running
+// process. Empty when it cannot be read, and such a lease's token is then
+// never compared (FencingToken).
+//
+// It reads through a stream handle of its own, never m.kv's: kv.Status
+// refreshes state the shared handle's Get also reads, which raced between
+// concurrent acquisitions (measured under -race).
+func (m *natsLockManager) epoch(ctx context.Context) string {
+	stream, err := m.js.Stream(ctx, "KV_"+m.kv.Bucket())
+	if err != nil {
+		return ""
+	}
+	// Stream looked the stream up, so its info is already here: one round
+	// trip per acquisition, not two.
+	info := stream.CachedInfo()
+	if info == nil {
+		return ""
+	}
+	return "nats:" + info.Created.UTC().Format(time.RFC3339Nano)
 }
 
 func (l *natsLease) ID() string {

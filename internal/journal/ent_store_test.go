@@ -737,6 +737,8 @@ func TestEntStoreRoundTripsEveryFieldByReflection(t *testing.T) {
 			f.SetBool(true)
 		case f.Kind() == reflect.Int:
 			f.SetInt(int64(i + 1))
+		case f.Kind() == reflect.Uint64:
+			f.SetUint(uint64(1000 + i))
 		case field.Type == reflect.TypeOf([]string{}):
 			f.Set(reflect.ValueOf([]string{"k-" + field.Name}))
 		default:

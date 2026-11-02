@@ -307,6 +307,10 @@ type RollbackReport struct {
 	// NothingToUndo are changes whose task's rollback: list is empty: its
 	// runbook says undoing them means doing nothing.
 	NothingToUndo []rollback.Gap `json:"nothing_to_undo,omitempty"`
+	// OrderedByClock names the other runs whose order against the one undone
+	// was read from the journals' clock times, because a journal predates the
+	// project's run counter; every other run was ordered by the counter.
+	OrderedByClock []string `json:"ordered_by_clock,omitempty"`
 	// Problems are why the rollback was refused, when it was.
 	Problems []rollback.Problem `json:"problems,omitempty"`
 	// Provisional are, in a check, the steps on a device an earlier step of

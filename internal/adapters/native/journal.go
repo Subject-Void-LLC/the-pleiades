@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -55,6 +56,11 @@ type journalPublisher struct {
 	// attempt is the delivery's redelivery count, read from the context
 	// once at construction rather than per Record.
 	attempt int
+
+	// fence is the device lease's fencing token as the Runner holds it, read
+	// on every Record rather than once, since the Runner marks it lost when a
+	// renewal fails; nil when the context carries none.
+	fence *lock.Fence
 }
 
 // newJournalPublisher builds the sink for one dispatch.
@@ -74,7 +80,12 @@ func newJournalPublisher(ctx context.Context, bus event.Bus, logger *slog.Logger
 		logger.Debug("no dispatch attempt on the context, journaling this run as attempt zero",
 			slog.String("job", jobID), slog.String("device", deviceID))
 	}
-	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, attempt: attempt}
+	// The device lease's fencing token, when the Runner put one there
+	// (lock.WithFence): stamped on every entry, it orders this
+	// dispatch against other jobs on the device without a clock. A caller
+	// outside the Runner's delivery path has none, and its entries order by
+	// clock, as a journal from before lease revisions does.
+	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, attempt: attempt, fence: lock.FenceFrom(ctx)}
 }
 
 // Record implements engine.Journal by publishing one message per level.
@@ -97,10 +108,14 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 		return nil
 	}
 
+	// The token as it stands now: none once the lease was lost, since the
+	// device may have been another job's by the time these ran.
+	revision, epoch, _ := p.fence.Token()
 	stamped := make([]engine.JournalEntry, len(entries))
 	for i, entry := range entries {
 		entry.JobID = p.jobID
 		entry.Attempt = p.attempt
+		entry.LeaseRevision, entry.LeaseEpoch = revision, epoch
 		// A node that resolved no device still ran inside a dispatch that
 		// names exactly one, so it is attributed to that device rather
 		// than left blank. A skipped task, a controller-side task and the

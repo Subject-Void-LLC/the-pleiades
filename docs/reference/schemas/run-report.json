@@ -279,6 +279,16 @@
           "description": "Of is the run undone.",
           "type": "string"
         },
+        "ordered_by_clock": {
+          "description": "OrderedByClock names the other runs whose order against the one undone was read from the journals' clock times, because a journal predates the project's run counter; every other run was ordered by the counter.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "problems": {
           "description": "Problems are why the rollback was refused, when it was.",
           "items": {

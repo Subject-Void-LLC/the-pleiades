@@ -566,6 +566,14 @@ func init() {
 	journalentry.DefaultUndoesStep = journalentryDescUndoesStep.Default.(int)
 	// journalentry.UndoesStepValidator is a validator for the "undoes_step" field. It is called by the builders before save.
 	journalentry.UndoesStepValidator = journalentryDescUndoesStep.Validators[0].(func(int) error)
+	// journalentryDescRunTick is the schema descriptor for run_tick field.
+	journalentryDescRunTick := journalentryFields[40].Descriptor()
+	// journalentry.DefaultRunTick holds the default value on creation for the run_tick field.
+	journalentry.DefaultRunTick = journalentryDescRunTick.Default.(uint64)
+	// journalentryDescLeaseRevision is the schema descriptor for lease_revision field.
+	journalentryDescLeaseRevision := journalentryFields[41].Descriptor()
+	// journalentry.DefaultLeaseRevision holds the default value on creation for the lease_revision field.
+	journalentry.DefaultLeaseRevision = journalentryDescLeaseRevision.Default.(uint64)
 	launchableMixin := schema.Launchable{}.Mixin()
 	launchableMixinFields0 := launchableMixin[0].Fields()
 	_ = launchableMixinFields0

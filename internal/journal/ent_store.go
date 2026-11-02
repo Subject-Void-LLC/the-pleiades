@@ -130,6 +130,9 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		SetAuthoredRollback(entry.AuthoredRollback).
 		SetAuthoredRollbackEmpty(entry.AuthoredRollbackEmpty).
 		SetBecome(entry.Become).
+		SetRunTick(entry.RunTick).
+		SetLeaseRevision(entry.LeaseRevision).
+		SetLeaseEpoch(entry.LeaseEpoch).
 		SetRollbackOf(entry.RollbackOf).
 		SetUndoesNode(entry.UndoesNode).
 		SetUndoesStep(entry.UndoesStep)
@@ -306,6 +309,9 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		AuthoredRollback:            row.AuthoredRollback,
 		AuthoredRollbackEmpty:       row.AuthoredRollbackEmpty,
 		Become:                      row.Become,
+		RunTick:                     row.RunTick,
+		LeaseRevision:               row.LeaseRevision,
+		LeaseEpoch:                  row.LeaseEpoch,
 		RollbackOf:                  row.RollbackOf,
 		UndoesNode:                  row.UndoesNode,
 		UndoesStep:                  row.UndoesStep,

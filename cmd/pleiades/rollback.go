@@ -133,7 +133,8 @@ func runRollback(args []string) error {
 
 	plan, err := planRollback(opts.dir, runID, rf)
 	report := &rollbackReport{Of: runID, Levels: plan.Levels, Left: plan.Left, Unknown: plan.Unknown,
-		UnacceptedUnknown: plan.UnacceptedUnknown, AlreadyUndone: plan.AlreadyUndone, NothingToUndo: plan.NothingToUndo}
+		UnacceptedUnknown: plan.UnacceptedUnknown, AlreadyUndone: plan.AlreadyUndone, NothingToUndo: plan.NothingToUndo,
+		OrderedByClock: plan.OrderedByClock}
 	var refused *rollback.RefusedError
 	switch {
 	case errors.As(err, &refused):
@@ -190,7 +191,7 @@ func planRollback(dir, runID string, rf rollbackFlags) (rollback.Plan, error) {
 	var others []rollback.Run
 	for _, r := range all {
 		if r.ID != runID {
-			others = append(others, rollback.Run{ID: r.ID, Entries: r.Entries, Sealed: r.Sealed})
+			others = append(others, rollback.Run{ID: r.ID, Entries: r.Entries, Sealed: r.Sealed, EndTick: r.EndTick})
 		}
 	}
 	devices, err := inventoryNames(dir)
@@ -198,7 +199,7 @@ func planRollback(dir, runID string, rf rollbackFlags) (rollback.Plan, error) {
 		return rollback.Plan{}, err
 	}
 	req := rollback.Request{
-		Target: rollback.Run{ID: target.ID, Entries: target.Entries, Sealed: target.Sealed},
+		Target: rollback.Run{ID: target.ID, Entries: target.Entries, Sealed: target.Sealed, EndTick: target.EndTick},
 		Others: others, Devices: devices,
 		Leave: rf.leave, AllowPartial: rf.allowPartial, AllowUnknown: rf.allowUnknown, DespiteRuns: rf.despite,
 	}
@@ -397,6 +398,9 @@ func printGaps(plan rollback.Plan) {
 			}
 			fmt.Printf("%s: %s: %s\n", list.title, termsafe.EscapeLine(where), termsafe.EscapeLine(g.Reason))
 		}
+	}
+	for _, id := range plan.OrderedByClock {
+		fmt.Printf("ordered by clock: run %s's journal, or this run's, predates the project's run counter, so whether it came later was read from the journals' clock times\n", termsafe.EscapeLine(id))
 	}
 	if len(plan.Unknown) > 0 && plan.UnacceptedUnknown > 0 {
 		fmt.Println(strings.TrimSpace(`

@@ -488,7 +488,8 @@ run as a whole: each has a `kind`, `when` (`start` or `end`), a `message` (the l
 prints after `WARNING:`), and, as they apply, the other run's `run_id`, `runbook` and `pid`, and the
 shared `devices` by name. `concurrent_run` is another live run changing some of the same devices as
 this one started (or still changing them as it ended), `concurrent_change` another run whose journal
-records a change to one of them while this one worked, and `concurrent_unknown` a part of that
+records a change to one of them while this one worked (decided by the project's run counter when both runs
+carry it: the other run overlapped this one, and its message says so), and `concurrent_unknown` a part of that
 question the run could not answer. Nothing stops either run; a check, which changes nothing, has none. Everything in the document is masked as the text view is,
 and a stat whose name says it holds a secret (`password`, `token`, `private_key` and
 the like) reads `$encrypted$` in both. Characters a terminal would act on are written

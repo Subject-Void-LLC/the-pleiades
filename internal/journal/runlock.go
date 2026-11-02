@@ -35,8 +35,8 @@ func LockRuns(root string, exclusive bool) (func() error, error) {
 	}
 	path := filepath.Join(dir, runLockName)
 	// #nosec G304 -- path is the project directory the caller names joined
-	// with this package's own fixed names.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, fileMode)
+	// with this package's own fixed names; noFollow refuses a link there.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|noFollow, fileMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the run lock %s: %w", path, err)
 	}

@@ -174,7 +174,7 @@ func TestChangesDuring_FindsAnotherRunsChangeToTheSameDevices(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	changes, unread, err := journal.ChangesDuring(root, self, []string{"d1", "d2"}, start, start.Add(time.Minute))
+	changes, unread, err := journal.ChangesDuring(root, self, []string{"d1", "d2"}, start, start.Add(time.Minute), 0)
 	if err != nil || len(unread) != 0 || len(changes) != 1 {
 		t.Fatalf("ChangesDuring = %+v, %v, %v; want the one other run", changes, unread, err)
 	}
@@ -186,10 +186,10 @@ func TestChangesDuring_FindsAnotherRunsChangeToTheSameDevices(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".pleiades", "journal", broken+".jsonl"), []byte("{not json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if changes, unread, err := journal.ChangesDuring(root, self, []string{"d1"}, start, start.Add(time.Minute)); err != nil || len(changes) != 1 || len(unread) != 1 || unread[0] != broken {
+	if changes, unread, err := journal.ChangesDuring(root, self, []string{"d1"}, start, start.Add(time.Minute), 0); err != nil || len(changes) != 1 || len(unread) != 1 || unread[0] != broken {
 		t.Errorf("with an unreadable journal: %+v, %v, %v", changes, unread, err)
 	}
-	if changes, unread, err := journal.ChangesDuring(t.TempDir(), self, []string{"d1"}, start, start); err != nil || changes != nil || unread != nil {
+	if changes, unread, err := journal.ChangesDuring(t.TempDir(), self, []string{"d1"}, start, start, 0); err != nil || changes != nil || unread != nil {
 		t.Errorf("a project with no journal: %v, %v, %v", changes, unread, err)
 	}
 }
@@ -227,7 +227,7 @@ func TestActive_FailuresSayWhatFailed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".pleiades", "journal"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := journal.ChangesDuring(root, "x", []string{"d1"}, time.Now(), time.Now()); err == nil {
+	if _, _, err := journal.ChangesDuring(root, "x", []string{"d1"}, time.Now(), time.Now(), 0); err == nil {
 		t.Error("a journal directory that is a file was read")
 	}
 
@@ -288,5 +288,67 @@ func TestActive_SkipsWhatIsNotARecord(t *testing.T) {
 	}
 	if got, err := journal.OtherActive(root, "x", []string{"d1"}); err != nil || len(got) != 0 {
 		t.Errorf("OtherActive = %v, %v; want nothing live", got, err)
+	}
+}
+
+// TestChangesDuring_TheCounterDecidesWhenBothRunsCarryIt: with this run's
+// start tick given, a run that overlapped it is found though the clock was
+// stepped back a day while it ran, and a run that ended before this one began
+// is not, though its clock times fall inside this run's window.
+func TestChangesDuring_TheCounterDecidesWhenBothRunsCarryIt(t *testing.T) {
+	root := t.TempDir()
+	start := time.Now().UTC()
+	const (
+		earlier = "00000000-0000-4000-8000-0000000000e1"
+		self    = "00000000-0000-4000-8000-0000000000e2"
+		stepped = "00000000-0000-4000-8000-0000000000e3"
+	)
+	run := func(id string, at time.Time) *journal.FileStore {
+		t.Helper()
+		store, err := journal.NewFileStore(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.BeginRun(); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Record(context.Background(), []engine.JournalEntry{{RunID: id, DAGID: "inject", Sequence: 1, NodeID: "tasks[0]",
+			DAGVersion: digest, DeviceID: "d1", Outcome: engine.OutcomeChanged, StartedAt: at, FinishedAt: at}}); err != nil {
+			t.Fatal(err)
+		}
+		return store
+	}
+	// Ended before this run began, yet its clock reads inside the window.
+	if err := run(earlier, start.Add(time.Second)).Seal(earlier, start); err != nil {
+		t.Fatal(err)
+	}
+	mine, err := journal.NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownTick, err := mine.BeginRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Overlapped this run, its clock a day back.
+	if err := run(stepped, start.Add(-24*time.Hour)).Seal(stepped, start); err != nil {
+		t.Fatal(err)
+	}
+
+	changes, _, err := journal.ChangesDuring(root, self, []string{"d1"}, start, start.Add(time.Minute), ownTick)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].RunID != stepped || !changes[0].Overlapped {
+		t.Fatalf("ChangesDuring = %+v; want only the overlapping run, by the counter", changes)
+	}
+	// The control: by clock alone, the stepped run is missed and the earlier
+	// one is reported.
+	byClock, _, err := journal.ChangesDuring(root, self, []string{"d1"}, start, start.Add(time.Minute), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byClock) != 1 || byClock[0].RunID != earlier || byClock[0].Overlapped {
+		t.Errorf("by clock: %+v; want the control to show the clock's mistake (only the earlier run)", byClock)
 	}
 }

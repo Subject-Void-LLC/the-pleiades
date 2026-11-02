@@ -101,7 +101,13 @@ type JournalEntry struct {
 	// UndoesNode holds the value of the "undoes_node" field.
 	UndoesNode string `json:"undoes_node,omitempty"`
 	// UndoesStep holds the value of the "undoes_step" field.
-	UndoesStep   int `json:"undoes_step,omitempty"`
+	UndoesStep int `json:"undoes_step,omitempty"`
+	// RunTick holds the value of the "run_tick" field.
+	RunTick uint64 `json:"run_tick,omitempty"`
+	// LeaseRevision holds the value of the "lease_revision" field.
+	LeaseRevision uint64 `json:"lease_revision,omitempty"`
+	// LeaseEpoch holds the value of the "lease_epoch" field.
+	LeaseEpoch   string `json:"lease_epoch,omitempty"`
 	selectValues sql.SelectValues
 }
 
@@ -114,9 +120,9 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case journalentry.FieldFqcnUnresolved, journalentry.FieldInverseFqcnUnresolved, journalentry.FieldDiffRecorded, journalentry.FieldInverseComplete, journalentry.FieldInversePartial, journalentry.FieldActionChanged, journalentry.FieldAuthoredRollback, journalentry.FieldAuthoredRollbackEmpty:
 			values[i] = new(sql.NullBool)
-		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount, journalentry.FieldUndoesStep:
+		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount, journalentry.FieldUndoesStep, journalentry.FieldRunTick, journalentry.FieldLeaseRevision:
 			values[i] = new(sql.NullInt64)
-		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldBecome, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode:
+		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldBecome, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode, journalentry.FieldLeaseEpoch:
 			values[i] = new(sql.NullString)
 		case journalentry.FieldCreatedAt, journalentry.FieldUpdatedAt, journalentry.FieldStartedAt, journalentry.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -401,6 +407,24 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.UndoesStep = int(value.Int64)
 			}
+		case journalentry.FieldRunTick:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field run_tick", values[i])
+			} else if value.Valid {
+				_m.RunTick = uint64(value.Int64)
+			}
+		case journalentry.FieldLeaseRevision:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field lease_revision", values[i])
+			} else if value.Valid {
+				_m.LeaseRevision = uint64(value.Int64)
+			}
+		case journalentry.FieldLeaseEpoch:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field lease_epoch", values[i])
+			} else if value.Valid {
+				_m.LeaseEpoch = value.String
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -562,6 +586,15 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("undoes_step=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UndoesStep))
+	builder.WriteString(", ")
+	builder.WriteString("run_tick=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RunTick))
+	builder.WriteString(", ")
+	builder.WriteString("lease_revision=")
+	builder.WriteString(fmt.Sprintf("%v", _m.LeaseRevision))
+	builder.WriteString(", ")
+	builder.WriteString("lease_epoch=")
+	builder.WriteString(_m.LeaseEpoch)
 	builder.WriteByte(')')
 	return builder.String()
 }
