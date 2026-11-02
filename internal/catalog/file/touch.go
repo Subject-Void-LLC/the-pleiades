@@ -101,7 +101,7 @@ func init() {
 			Doc: touchDoc(),
 		},
 		Invoke: Touch,
-		Check:  predictMade(CheckTouch, touchParamPath),
+		Check:  predictMade("file.touch", CheckTouch, touchParamPath),
 	})
 }
 

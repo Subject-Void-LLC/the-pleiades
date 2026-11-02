@@ -420,4 +420,10 @@ func TestDirectoryEmpty_ReportsATransportFailure(t *testing.T) {
 	if _, err := remotefile.DirectoryEmpty(context.Background(), conn, t.TempDir()); err == nil {
 		t.Fatal("a probe that never ran was reported as an answer")
 	}
+	if _, _, err := remotefile.DirectoryEntries(context.Background(), conn, t.TempDir(), 5); err == nil {
+		t.Fatal("a listing that never ran was reported as an answer")
+	}
+	if _, err := remotefile.Locate(context.Background(), conn, t.TempDir()); err == nil {
+		t.Fatal("a location that was never read was reported as an answer")
+	}
 }

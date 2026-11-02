@@ -455,20 +455,27 @@ The engine marks every check result, and its diff, with `predicted: true`
 is refused.
 
 A check sees the device as it is, so a later task's check can be wrong about a path an
-earlier task's check only predicted it would remove or make. A method that makes or
-removes paths can fix that for the tasks after it: its `Check` records each such path
-with `sdk.RecordPredicted` (absolute and cleaned, `wire.PredictedAbsent` or
-`wire.PredictedPresent`), and its manifest sets `PredictsPaths`, which says the check
-records every path the method changes and needs `SupportsCheck`. A later check reads
-them with `sdk.PredictedAbsent(rc, path)` and `sdk.PredictedPresentUnder(rc, dir)`,
-which answer false whenever nothing was predicted, so the device is then read as it is.
-The engine keeps the predictions per device and applies a level's only after the whole
-level returns, so a sibling never reads another's. A device's predictions become unknown
-for the rest of the check when a task on it fails, cannot be checked, records a path it
-cannot name (`sdk.RecordPredictionUnknown`, for a path that is relative or not cleaned),
-or predicts a change from a method without `PredictsPaths`. A real run that records
-predicted paths fails the task. An external Collection's check may record them, but its
-program is never handed the device's predictions.
+earlier task's check only predicted it would remove or make. A built-in method that makes
+or removes paths can fix that for the tasks after it. When `sdk.PredictionsWanted(rc)`
+says the run keeps predictions (only a run that is a check throughout does), its `Check`
+locates each path it changes with `remotefile.Locate`, which reads the physical path and
+the identity of each directory along it, and records it with `sdk.RecordPredicted`
+(`wire.PredictedAbsent` or `wire.PredictedPresent`), or `sdk.RecordPredictionUnknown` when
+it cannot locate one. Its manifest sets `PredictsPaths`, which says the check records every
+path the method changes and needs `SupportsCheck`. A later check asks with the location it
+read: `sdk.PredictedAbsent`, `sdk.PredictedPresent`, `sdk.PredictedRecorded`,
+`sdk.PredictedPresentUnder` and `sdk.PredictedAbsentUnder` all answer false (`Recorded`
+true) whenever the predictions cannot vouch for that location, so the device is then read
+as it is, and where it cannot be, answer `collection.CannotCheck`.
+
+The engine keeps the predictions per device and applies a level's only after the whole level
+returns, so a sibling never reads another's. It keeps a device's only while every task on it
+is a successful check by a built-in method with `PredictsPaths`, or an in-process engine
+action such as `set_fact`. Any other task clears them, whatever it reported, and so do a
+skipped, failed or unchecked task, a task with no device (every device's), siblings that
+disagree, and one directory identity met under two paths. A real run that records predicted
+paths fails the task. An external Collection's records and declaration are not trusted, and
+its program is never handed the device's predictions.
 
 A method whose effect cannot be known without running it (a script, an arbitrary
 command) leaves `SupportsCheck` false and says why in `Manifest.NoCheckReason`, in words

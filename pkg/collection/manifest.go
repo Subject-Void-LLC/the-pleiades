@@ -230,11 +230,12 @@ type Manifest struct {
 
 	// PredictsPaths reports that this method's check records, through
 	// sdk.RecordPredicted, every path its real run would make or remove, so a
-	// later task in the same check can read what it predicted (Phase 46a). A
-	// method whose check predicts a change without declaring it leaves the
-	// device's predictions unknown for the rest of the check, since it may
-	// have changed a path nothing recorded. Only a method that supports check
-	// may declare it.
+	// later task in the same check can read what it predicted (Phase 46a).
+	// Any task by a method without it clears its device's predictions,
+	// whatever it reported, since it may have changed a path nothing
+	// recorded. The engine honors it only on a built-in method: an external
+	// program's records would change what a built-in method's check answers.
+	// Only a method that supports check may declare it.
 	PredictsPaths bool `json:"predictsPaths,omitempty"`
 
 	// NoBecomeReason says why a task calling this method cannot run as

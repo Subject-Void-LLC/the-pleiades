@@ -76,7 +76,7 @@ func init() {
 			Doc: templateDoc(),
 		},
 		Invoke: Template,
-		Check:  predictMade(CheckTemplate, copyParamDest),
+		Check:  predictMade("file.template", CheckTemplate, copyParamDest),
 	})
 }
 

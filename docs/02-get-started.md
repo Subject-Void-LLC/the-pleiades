@@ -342,14 +342,20 @@ Every result a check produces says `predicted: true`, and so does its diff, so a
 that is only a prediction cannot be mistaken for one that happened, wherever it is read
 later: a later task's condition, or a stored result.
 
-A check reads each device as it is, but a later task on the same device also sees what
-the earlier tasks of the check predicted about its files. When one task would remove a
-file and a later one would remove the directory holding it, the second is predicted to
-succeed, as the real run would, rather than refused because the file is still there. The
-file methods that make or remove a path (`file.copy`, `file.template`, `file.directory`,
-`file.touch`, `file.symlink`, `file.remove`) record it. A task that would change something
-without saying which paths, or that fails or cannot be checked, ends that for the device:
-its later tasks read the device as it is.
+A check reads each device as it is, but when the whole run is a check, a later task on the
+same device also sees what the earlier tasks of the check predicted about its files. When
+one task would remove a file and a later one would remove the directory holding it, the
+second is predicted to succeed, as the real run would, rather than refused because the file
+is still there. The file methods that make or remove a path (`file.copy`, `file.template`,
+`file.directory`, `file.touch`, `file.symlink`, `file.remove`) record it where the device
+resolves it, following symbolic links, so two spellings of one path count as one. Any other
+task on the device, whatever it reports, and a skipped, failed or unchecked one, clears
+those predictions, and the tasks after it read the device as it is again. A directory the
+device reaches under two paths (a bind mount, a name a case-insensitive filesystem folds)
+clears them too. Where the device as it is cannot answer for what earlier tasks change, the
+task is reported unchecked rather than guessed. A run that checks only some tasks
+(`check_mode: true` on a task) keeps no predictions, since its real tasks change the device
+in between.
 
 The first task read the device and predicted exactly what it would do; its diff's
 `after` half leaves out the owner and group, because a new directory gets those from

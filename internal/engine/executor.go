@@ -752,7 +752,11 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		items:     map[string]inventory.InventoryItem{},
 		facts:     newFactStore(),
 		notified:  newNotifiedHandlers(),
-		predicted: newPredictionLedger(),
+	}
+	// Predictions are kept only when the whole run is a check: the real tasks
+	// of a run that checks only some would change what they vouch for.
+	if r.mode == collection.ModeCheck {
+		r.predicted = newPredictionLedger()
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
@@ -790,6 +794,7 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		if len(drained) == 0 {
 			return
 		}
+		r.predicted.dropAll()
 		result.Nodes = append(result.Nodes, drained...)
 		r.recordLevel(context.WithoutCancel(ctx), levelIndex+1, [][]NodeResult{drained})
 	}()
@@ -871,6 +876,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		// and settling the frames alternate, since settling can hand a
 		// failure on to an enclosing block that undoes in turn.
 		r.handlers.finished(level)
+		// An undo run below reaches the run outside a level, so the ledger
+		// never reads it: what it changed drops every device's predictions.
+		beforeUndo := len(result.Nodes)
 		for {
 			if r.rollBack(ctx, levelIndex, &result) {
 				failed = true
@@ -881,6 +889,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 			if len(r.handlers.pending) == 0 {
 				break
 			}
+		}
+		if len(result.Nodes) != beforeUndo {
+			r.predicted.dropAll()
 		}
 		markRescued(result.Nodes, r.handlers)
 		if failed && ending == nil {

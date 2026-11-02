@@ -115,7 +115,7 @@ func TestInvokeRequest_PredictionsReachTheMethodInTheChild(t *testing.T) {
 	var got []bool
 	name := registerTestMethod(t, "predicted", collection.StatusImplemented,
 		func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
-			got = append(got, sdk.PredictedAbsent(rc, "/d/x"))
+			got = append(got, sdk.PredictedAbsent(rc, wire.Location{Path: "/d/x"}))
 			return collection.Result{}, nil
 		})
 	for _, snap := range []*wire.Predictions{{Paths: []wire.PredictedPath{{Path: "/d", State: wire.PredictedAbsent}}}, nil} {

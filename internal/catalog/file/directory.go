@@ -107,7 +107,7 @@ func init() {
 			Doc:           directoryDoc(),
 		},
 		Invoke: Directory,
-		Check:  predictMade(CheckDirectory, dirParamPath),
+		Check:  predictMade("file.directory", CheckDirectory, dirParamPath),
 	})
 }
 

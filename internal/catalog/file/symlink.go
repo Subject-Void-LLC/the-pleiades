@@ -98,7 +98,7 @@ func init() {
 			Doc: symlinkDoc(),
 		},
 		Invoke: Symlink,
-		Check:  predictMade(CheckSymlink, symlinkParamPath, symlinkParamDest),
+		Check:  predictMade("file.symlink", CheckSymlink, symlinkParamPath, symlinkParamDest),
 	})
 }
 

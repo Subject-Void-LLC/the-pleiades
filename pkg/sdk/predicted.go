@@ -2,12 +2,14 @@
 // the same check predicted (Phase 46a, pkg/wire's predicted.go).
 //
 // A method's check that predicts a path gone or there records it with
-// RecordPredicted; the engine keeps those per device for the rest of the
-// check, and hands a later task's method the device's snapshot, which it reads
-// through PredictedState. A method declares collection.Manifest.PredictsPaths
-// when it records every path it changes: any other method whose check
-// predicts a change leaves the device's snapshot unknown, since it may have
-// changed a path nothing recorded.
+// RecordPredicted, as the device resolves it (pkg/remotefile's Locate); the
+// engine keeps those per device for the rest of the check, and hands a later
+// task's method the device's snapshot, which it reads through PredictedState.
+// A method declares collection.Manifest.PredictsPaths when its check records
+// every path it changes. The engine keeps a device's predictions only while
+// every task on it is such a check that succeeded: any other task, a skipped
+// one, a failure, or a check whose prediction could not be recorded drops
+// them, and the device is read as it is again.
 package sdk
 
 import (
@@ -18,31 +20,33 @@ import (
 )
 
 // StatPredictedPaths is the stat key RecordPredicted writes: a list of
-// {path, state}. The engine reads it only from a check, and refuses it on a
-// real run, which predicts nothing.
+// {path, state, dirs}. The engine reads it only from a check, and refuses it
+// on a real run, which predicts nothing.
 const StatPredictedPaths = "predicted_paths"
 
 // RecordPredicted records, in a check, the paths this call predicts gone
-// (wire.PredictedAbsent) or there (wire.PredictedPresent). Each path must be
-// absolute and cleaned; one that is not is refused rather than recorded,
-// since the engine could not match it to another task's path. Call it once
-// per call, with every path: a second call replaces the first.
+// (wire.PredictedAbsent) or there (wire.PredictedPresent), each as the device
+// resolves it. One that wire.ValidPredictedPath refuses is refused rather
+// than recorded. Call it once per call, with every path: a second call
+// replaces the first.
 func RecordPredicted(rc RunbookContext, paths ...wire.PredictedPath) error {
 	record := make([]any, 0, len(paths))
 	for _, p := range paths {
 		if !wire.ValidPredictedPath(p) {
-			return fmt.Errorf("sdk: a predicted path must be absolute, cleaned and absent or present, not %q (%s)", p.Path, p.State)
+			return fmt.Errorf("sdk: a predicted path must be a physical path, absent or present, with valid directory identities, not %q (%s)", p.Path, p.State)
 		}
-		record = append(record, map[string]any{"path": p.Path, "state": p.State})
+		dirs := make([]any, 0, len(p.Dirs))
+		for _, d := range p.Dirs {
+			dirs = append(dirs, map[string]any{"path": d.Path, "id": d.ID})
+		}
+		record = append(record, map[string]any{"path": p.Path, "state": p.State, "dirs": dirs})
 	}
 	return rc.SetStat(StatPredictedPaths, record)
 }
 
 // RecordPredictionUnknown records, in a check, that this call changes a path
-// it cannot name as the ledger keys paths (one not absolute, or not cleaned,
-// whose real target only the device knows), so the device's predictions
-// become unknown for the rest of the check rather than vouch for a path the
-// real run may resolve differently.
+// it cannot name as the device resolves it, so the engine drops the device's
+// predictions rather than vouch for a path the real run may meet differently.
 func RecordPredictionUnknown(rc RunbookContext) error {
 	return rc.SetStat(StatPredictedPaths, "unknown")
 }
@@ -51,7 +55,7 @@ func RecordPredictionUnknown(rc RunbookContext) error {
 // reads back in process ([]any of map[string]any, which RecordPredicted
 // writes) and across a child process boundary (the same, through JSON). A
 // value of any other shape, or a path ValidPredictedPath refuses, is an
-// error: the engine then treats the device's predictions as unknown.
+// error: the engine then drops the device's predictions.
 func ParsePredicted(v any) ([]wire.PredictedPath, error) {
 	list, ok := v.([]any)
 	if !ok {
@@ -60,13 +64,17 @@ func ParsePredicted(v any) ([]wire.PredictedPath, error) {
 	out := make([]wire.PredictedPath, 0, len(list))
 	for _, item := range list {
 		m, ok := item.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("sdk: a %s entry is a %T, not a map", StatPredictedPaths, item)
+		if !ok || len(m) != 3 {
+			return nil, fmt.Errorf("sdk: a %s entry is not a map of path, state and dirs", StatPredictedPaths)
 		}
 		p, _ := m["path"].(string)
 		state, _ := m["state"].(string)
-		pp := wire.PredictedPath{Path: p, State: state}
-		if len(m) != 2 || !wire.ValidPredictedPath(pp) {
+		dirs, err := parseDirs(m["dirs"])
+		if err != nil {
+			return nil, err
+		}
+		pp := wire.PredictedPath{Path: p, State: state, Dirs: dirs}
+		if !wire.ValidPredictedPath(pp) {
 			return nil, fmt.Errorf("sdk: %q (%s) is not a predicted path", p, state)
 		}
 		out = append(out, pp)
@@ -74,48 +82,81 @@ func ParsePredicted(v any) ([]wire.PredictedPath, error) {
 	return out, nil
 }
 
+// parseDirs reads a record's directory identities.
+func parseDirs(v any) ([]wire.DirID, error) {
+	list, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("sdk: a %s entry's dirs is a %T, not a list", StatPredictedPaths, v)
+	}
+	out := make([]wire.DirID, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		p, pathOK := m["path"].(string)
+		id, idOK := m["id"].(string)
+		if !ok || len(m) != 2 || !pathOK || !idOK {
+			return nil, fmt.Errorf("sdk: a %s directory is not a map of path and id", StatPredictedPaths)
+		}
+		out = append(out, wire.DirID{Path: p, ID: id})
+	}
+	return out, nil
+}
+
 // PredictedState is a RunbookContext that knows what earlier tasks in a check
-// predicted for this device. A method reads it through PredictedAbsent, never
-// by type assertion of its own, so a context without it answers as before.
+// predicted for this device. A method reads it through the functions below,
+// never by type assertion of its own, so a context without it answers as
+// before.
 type PredictedState interface {
-	// Predictions returns the device's snapshot, nil when there is none (a
-	// real run, the first task, or a context that keeps none).
+	// Predictions returns the device's snapshot, nil when the run keeps none
+	// (a real run, or a context that keeps none).
 	Predictions() *wire.Predictions
 }
 
-// PredictedAbsent reports whether an earlier task in this check predicted
-// target gone (wire.Predictions.Absent): false whenever rc keeps no
-// predictions, they are unknown, or none names target, so the method then
-// reads the device as it is.
-func PredictedAbsent(rc RunbookContext, target string) bool {
-	state, ok := rc.(PredictedState)
-	if !ok {
-		return false
+// predictions returns rc's snapshot, nil when it keeps none.
+func predictions(rc RunbookContext) *wire.Predictions {
+	if state, ok := rc.(PredictedState); ok {
+		return state.Predictions()
 	}
-	return state.Predictions().Absent(target)
+	return nil
+}
+
+// PredictionsWanted reports whether this call runs in a check that keeps
+// predictions, so a method should read where its paths resolve and record
+// them. Outside one, a method need not pay for that read.
+func PredictionsWanted(rc RunbookContext) bool { return predictions(rc) != nil }
+
+// PredictedAbsent reports whether an earlier task in this check predicted l
+// gone (wire.Predictions.Absent): false whenever rc keeps no predictions or
+// none vouches for l, so the method then reads the device as it is.
+func PredictedAbsent(rc RunbookContext, l wire.Location) bool {
+	return predictions(rc).Absent(l)
+}
+
+// PredictedPresent reports whether an earlier task in this check made l or a
+// directory it is under (wire.Predictions.Present), so the device as it is now
+// lacks what this task meets.
+func PredictedPresent(rc RunbookContext, l wire.Location) bool {
+	return predictions(rc).Present(l)
+}
+
+// PredictedRecorded reports whether an earlier task in this check made or
+// removed l or a directory holding it (wire.Predictions.Recorded), so the
+// device as it is now may not be what this task meets.
+func PredictedRecorded(rc RunbookContext, l wire.Location) bool {
+	return predictions(rc).Recorded(l)
 }
 
 // PredictedPresentUnder reports whether an earlier task in this check
-// predicted a path made inside the directory dir
-// (wire.Predictions.PresentUnder).
-func PredictedPresentUnder(rc RunbookContext, dir string) bool {
-	state, ok := rc.(PredictedState)
-	if !ok {
-		return false
-	}
-	return state.Predictions().PresentUnder(dir)
+// predicted a path made inside the directory l (wire.Predictions.PresentUnder).
+func PredictedPresentUnder(rc RunbookContext, l wire.Location) bool {
+	return predictions(rc).PresentUnder(l)
 }
 
 // PredictedAbsentUnder reports whether an earlier task in this check
-// predicted any path inside the directory dir gone
-// (wire.Predictions.AbsentUnder): when none did, no entry of dir can be, so a
+// predicted any path inside the directory l gone
+// (wire.Predictions.AbsentUnder): when none did, no entry of l can be, so a
 // method need not list them to ask.
-func PredictedAbsentUnder(rc RunbookContext, dir string) bool {
-	state, ok := rc.(PredictedState)
-	if !ok {
-		return false
-	}
-	return state.Predictions().AbsentUnder(dir)
+func PredictedAbsentUnder(rc RunbookContext, l wire.Location) bool {
+	return predictions(rc).AbsentUnder(l)
 }
 
 // predictionsKey marks a context carrying a device's predictions.

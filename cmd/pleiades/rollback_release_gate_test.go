@@ -638,6 +638,32 @@ tasks:
 			t.Errorf("after the rollback /tmp/rb-g7 is %s", got)
 		}
 	})
+
+	// A check through a second name for one directory: the file removed by
+	// one name and the file made by the other are the same directory's, which
+	// the check sees because it keys a path where the device resolves it, so
+	// it refuses the directory's removal as the real run does, rather than
+	// read the directory as empty once its one old entry is gone.
+	t.Run("G8 a check sees a path made through a link", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		g.device(t, "rm -rf /tmp/rb-g8 /tmp/rb-g8l && mkdir /tmp/rb-g8 && touch /tmp/rb-g8/old && ln -s /tmp/rb-g8 /tmp/rb-g8l")
+		runbook := "# Removes a file, makes one through a link to its directory, then removes the directory.\n" +
+			"id: g8\nhosts: container1\ntasks:\n" +
+			"  - name: old\n    file.remove:\n      path: /tmp/rb-g8/old\n" +
+			"  - name: new\n    file.touch:\n      path: /tmp/rb-g8l/new\n" +
+			"  - name: directory\n    file.remove:\n      path: /tmp/rb-g8\n"
+		if err := os.WriteFile(filepath.Join(g.dir, "runbooks", "g8.yaml"), []byte(runbook), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		check := g.report(t, "run", "runbooks/g8.yaml", "--mode", "check")
+		real := g.report(t, "run", "runbooks/g8.yaml")
+		if real.Outcome.ExitCode == 0 || !strings.Contains(g.device(t, "ls -A /tmp/rb-g8"), "new") {
+			t.Fatalf("the real run was meant to refuse the directory: %+v", real)
+		}
+		if check.Outcome.ExitCode != real.Outcome.ExitCode || len(check.Tasks) != 3 || check.Tasks[2].Status != real.Tasks[2].Status {
+			t.Errorf("the check predicted %+v, the real run did %+v", check, real)
+		}
+	})
 }
 
 // runListEntry is one run in `journal list --json`.

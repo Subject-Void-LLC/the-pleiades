@@ -132,7 +132,7 @@ func init() {
 			Doc: copyDoc(),
 		},
 		Invoke: Copy,
-		Check:  predictMade(CheckCopy, copyParamDest),
+		Check:  predictMade("file.copy", CheckCopy, copyParamDest),
 	})
 }
 

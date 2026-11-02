@@ -23,19 +23,20 @@ import (
 func registerPredictingMethods(t *testing.T, declares bool) {
 	t.Helper()
 	t.Cleanup(collection.SnapshotForTest())
-	pathOf := func(params map[string]any) string { p, _ := params["path"].(string); return p }
+	root := []wire.DirID{{Path: "/", ID: "1:2"}}
+	locOf := func(params map[string]any) wire.Location {
+		p, _ := params["path"].(string)
+		return wire.Location{Path: p, Dirs: root}
+	}
 	remove := func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-		return collection.Result{Changed: true}, sdk.RecordPredicted(rc, wire.PredictedPath{Path: pathOf(params), State: wire.PredictedAbsent})
+		l := locOf(params)
+		return collection.Result{Changed: true}, sdk.RecordPredicted(rc, wire.PredictedPath{Path: l.Path, State: wire.PredictedAbsent, Dirs: l.Dirs})
 	}
 	observe := func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-		state, ok := rc.(sdk.PredictedState)
-		if err := rc.SetStat("absent", sdk.PredictedAbsent(rc, pathOf(params))); err != nil {
+		if err := rc.SetStat("absent", sdk.PredictedAbsent(rc, locOf(params))); err != nil {
 			return collection.Result{}, err
 		}
-		if err := rc.SetStat("unknown", ok && state.Predictions() != nil && state.Predictions().Unknown); err != nil {
-			return collection.Result{}, err
-		}
-		return collection.Result{}, rc.SetStat("snapshot", ok && state.Predictions() != nil)
+		return collection.Result{}, rc.SetStat("snapshot", sdk.PredictionsWanted(rc))
 	}
 	for _, d := range []collection.Descriptor{
 		{Name: "enginepredict.remove", Invoke: remove, Check: remove, Manifest: collection.Manifest{
@@ -98,17 +99,17 @@ func TestCheckPredictions_ReachALaterTaskOnEachDevice(t *testing.T) {
 	}
 }
 
-// TestCheckPredictions_AnUndeclaredChangeLeavesTheDeviceUnknown: a method that
-// does not declare it records every path it changes may have changed one it
-// did not name, so what it did name is not vouched for either.
-func TestCheckPredictions_AnUndeclaredChangeLeavesTheDeviceUnknown(t *testing.T) {
+// TestCheckPredictions_AnUndeclaredMethodDropsTheDevice: a method that does
+// not declare it records every path it changes may have changed one it did
+// not name, so what it did name is not vouched for either.
+func TestCheckPredictions_AnUndeclaredMethodDropsTheDevice(t *testing.T) {
 	registerPredictingMethods(t, false)
 	result, err := newCheckExecutor(predictionFleet(), engine.WithMode(collection.ModeCheck)).Run(context.Background(), predictionDAG(t))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if stat(t, result, "tasks[1]", "dev-1", "absent") != false || stat(t, result, "tasks[1]", "dev-1", "unknown") != true {
-		t.Error("an undeclared method's prediction was vouched for")
+	if stat(t, result, "tasks[1]", "dev-1", "absent") != false || stat(t, result, "tasks[1]", "dev-1", "snapshot") != true {
+		t.Error("an undeclared method's prediction was vouched for, or the check kept no predictions at all")
 	}
 }
 
@@ -132,6 +133,23 @@ func TestCheckPredictions_ARealRunHasNoneAndMayRecordNone(t *testing.T) {
 	n := nodeByDevice(t, result, "tasks[0]", "dev-1")
 	if n.Err == nil || !strings.Contains(n.Err.Error(), sdk.StatPredictedPaths) {
 		t.Errorf("a real run recording predicted paths: %v, want a refusal naming %q", n.Err, sdk.StatPredictedPaths)
+	}
+}
+
+// TestCheckPredictions_ARealRunCheckingSomeTasksKeepsNone: the real tasks
+// between a run's check_mode tasks change the device, so check tasks in a
+// real run are handed no snapshot and read the device as it is.
+func TestCheckPredictions_ARealRunCheckingSomeTasksKeepsNone(t *testing.T) {
+	registerPredictingMethods(t, true)
+	result, err := newCheckExecutor(predictionFleet()).Run(context.Background(), buildDAG(t, `{"id": "mixed", "tasks": [
+		{"name": "remove", "fqcn": "enginepredict.remove", "check_mode": true, "params": {"target": "fleet", "path": "/d/x"}},
+		{"name": "gone", "fqcn": "enginepredict.observe", "check_mode": true, "params": {"target": "fleet", "path": "/d/x"}}
+	]}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stat(t, result, "tasks[1]", "dev-1", "snapshot") != false || stat(t, result, "tasks[1]", "dev-1", "absent") != false {
+		t.Error("a check task in a real run was handed predictions")
 	}
 }
 

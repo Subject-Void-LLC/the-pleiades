@@ -268,10 +268,12 @@ func DirectoryEmpty(ctx context.Context, conn *remoteexec.Conn, dirPath string) 
 //
 // It exists for a check that has to know which entries a directory holds, not
 // only whether it holds any (file.remove, Phase 46a: a directory whose every
-// entry an earlier task predicted gone is predicted empty). Names come back
-// NUL-separated from a POSIX shell glob, so a name holding a newline is one
-// name. A directory the account cannot read is an error rather than an empty
-// list, since a glob over one matches nothing. The device stops printing
+// entry an earlier task predicted gone is predicted empty). The names come
+// back NUL-separated from a glob that /bin/sh runs, never the account's login
+// shell, which may not be POSIX (fish, csh) or may treat a glob that matches
+// nothing as an error (zsh, bash with failglob); a name holding a newline is
+// one name. A directory the account cannot read is an error rather than an
+// empty list, since a glob over one matches nothing. The device stops printing
 // past limit, so a directory of millions of entries never crosses the
 // connection whole; a limit under one is one.
 func DirectoryEntries(ctx context.Context, conn *remoteexec.Conn, dirPath string, limit int) ([]string, bool, error) {
@@ -282,9 +284,9 @@ func DirectoryEntries(ctx context.Context, conn *remoteexec.Conn, dirPath string
 	// own pattern, which -e and -L then pass over. One name past the limit is
 	// printed, so the caller can tell a directory of exactly limit names from
 	// a larger one.
-	cmd := "cd -- " + remoteexec.QuoteArg(dirPath) + " && [ -r . ] || exit " + strconv.Itoa(statusUnreadable) + "; n=0; " +
-		`for f in * .[!.]* ..?*; do if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; n=$((n+1)); [ "$n" -gt ` + strconv.Itoa(limit) + ` ] && break; fi; done; exit 0`
-	result, err := conn.Run(ctx, cmd)
+	script := `cd -- "$1" && [ -r . ] || exit ` + strconv.Itoa(statusUnreadable) + `; n=0; ` +
+		`for f in * .[!.]* ..?*; do if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; n=$((n+1)); [ "$n" -gt "$2" ] && break; fi; done; exit 0`
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", script, "sh", dirPath, strconv.Itoa(limit)}))
 	if err != nil {
 		return nil, false, fmt.Errorf("list %s: %w", dirPath, err)
 	}
