@@ -636,19 +636,22 @@ ordinary run of ordinary tasks, journaled like any other.
   between two runs, and two Runners' clocks can disagree, and either would hide a later
   run. On the CLI, every run ticks a counter in `.pleiades/clock` as it begins and as it
   ends, and its journal records both. Another run is later when it ended after this one
-  began, so a run that overlapped this one counts. A run that never recorded its end (it
-  was killed, or is still running) may have changed the device at any time, so it counts
-  as later too, and `--despite-run` accepts it. A deleted or damaged counter is rebuilt
-  from the journals, never restarted. On a Controller, each job's journal records the
-  revision of the device lease its Runner held, a number that only grows for a device,
-  and another job is later on a device when its revision there is higher. A job on a
-  device that takes a shared lease (a Kubernetes cluster), whose holders run at once,
-  records none. Journals written before this existed, and those shared-lease jobs, are
-  ordered by the times they hold, as before. A refusal decided that way says so. The
-  CLI also names each such run that changed a device it undoes on, refused or not
-  (`ordered_by_clock` in `--json`). A Controller reads such a job only when its times
-  fall after the job being undone began, so one whose clock places it earlier is not
-  considered at all, as before this.
+  began, so a run that overlapped this one counts. A run that was killed before it ended
+  is bounded by the next run to begin after it, which records that it was gone by then
+  (`.pleiades/clock.d`); one with no such record was still going after this run began,
+  so it counts as later, and `--despite-run` accepts it. A deleted or damaged counter is
+  rebuilt from the journals, never restarted. On a Controller, each job's journal records
+  the revision of the device lease its Runner held, a number that only grows for a device
+  within one life of the lock store (its epoch, which a re-created NATS lock bucket
+  changes), and another job is later on a device when its revision there is higher. A job
+  on a device that takes a shared lease (a Kubernetes cluster), whose holders run at once,
+  records none, and so does what a job records after its Runner lost its lease. Journals
+  written before this, those jobs, and revisions from another epoch are ordered by the
+  times they hold, as before. A refusal decided that way says so. The CLI also names each
+  such run that changed a device it undoes on, refused or not (`ordered_by_clock` in
+  `--json`). A Controller reads such a job only when its times fall after the job being
+  undone began, so one whose clock places it earlier is not considered at all, as before
+  this.
 - **A runbook edited since the run.** A `rollback:` list is read from the runbook the
   run ran, found under `runbooks/` by its id and version. When it was edited (a task
   added, a name changed) it is no longer that runbook, and the refusal's first line
