@@ -28,7 +28,7 @@ require (
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.5.0
 	github.com/nats-io/jwt/v2 v2.8.2
-	github.com/nats-io/nats.go v1.54.0
+	github.com/nats-io/nats.go v1.55.0
 	github.com/nats-io/nkeys v0.4.16
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pin/tftp/v3 v3.2.0

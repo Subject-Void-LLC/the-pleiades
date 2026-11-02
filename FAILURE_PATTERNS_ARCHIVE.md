@@ -19237,7 +19237,8 @@ only some consumer methods say they cannot be used concurrently. v1.55.0 makes t
 **Fix.** `43613be4`: `natsLockManager.epoch` (`internal/lock/nats.go`) reads through a stream handle of its own
 (`js.Stream`, then its `CachedInfo`, one round trip per acquisition); its doc comment records why. That avoids the
 race whatever the version. The owner chose to bump nats.go to v1.55.0 in its own pull request after this one, which
-removes it at the source.
+removes it at the source: on `chore/nats-go-1.55`, a probe running `kv.Status` and `kv.Get` at once on one handle
+against a real NATS server raced under `-race` on v1.54.0 and ran clean on v1.55.0 (measured, 2026-11-02).
 
 **Lesson.** A shared client handle is safe for the calls already made on it concurrently, not for every method it
 has; a new call on one runs under `-race` with the old ones before it ships.
