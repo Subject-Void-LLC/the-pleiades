@@ -34,13 +34,13 @@ func writeCoverage(path string, m flakegate.Measurement) error {
 	return nil
 }
 
-// summarize prints the skip ledger and, when the run is on GitHub Actions,
-// appends to the job's summary page the failures that failed the run, the
-// tolerated ones and the ledger, each failure with its own output. That page
-// is where a reviewer reads a run without opening its log, and on a public
-// repository it is all a reader without admin rights can read: job logs
-// need them. A failed run is the one that most needs it, so every outcome
-// writes it.
+// summarize prints the skip ledger and the tests' notes and, when the run is
+// on GitHub Actions, appends to the job's summary page the failures that
+// failed the run, the tolerated ones, the notes and the ledger, each failure
+// with its own output. That page is where a reviewer reads a run without
+// opening its log, and on a public repository it is all a reader without
+// admin rights can read: job logs need them. A failed run is the one that
+// most needs it, so every outcome writes it.
 //
 // GITHUB_STEP_SUMMARY is a file path GitHub hands the step. It is only
 // ever opened for appending text this tool wrote, never executed or
@@ -49,6 +49,12 @@ func summarize(label string, skips []flakegate.Skip, contention, failed []flakeg
 	ledger := flakegate.SkipLedger(skips, ledgerLimit)
 	if ledger != "" {
 		fmt.Printf("\ntestgate: %s", scrub(ledger))
+	}
+	// A note is what a test measured and chose to report (t.Log("note: ...")),
+	// printed here because a passing test's log is otherwise never shown.
+	notes := flakegate.Notes(events)
+	for _, n := range notes {
+		fmt.Printf("testgate: note: %s\n", scrub(flakegate.NoteLine(n)))
 	}
 
 	path := os.Getenv("GITHUB_STEP_SUMMARY")
@@ -78,6 +84,13 @@ func summarize(label string, skips []flakegate.Skip, contention, failed []flakeg
 			if out := flakegate.FailureOutput(events, f, failureLines); out != "" {
 				fmt.Fprintf(&b, "\n  <details><summary>its output</summary>\n\n```\n%s\n```\n\n  </details>\n\n", out)
 			}
+		}
+		b.WriteString("\n")
+	}
+	if len(notes) > 0 {
+		fmt.Fprintf(&b, "**%d note(s) the tests logged:**\n\n", len(notes))
+		for _, n := range notes {
+			fmt.Fprintf(&b, "- `%s`\n", flakegate.NoteLine(n))
 		}
 		b.WriteString("\n")
 	}

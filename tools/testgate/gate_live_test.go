@@ -39,7 +39,7 @@ func throwawayModule(t *testing.T, broken bool) {
 	write("go.mod", "module gateproof\n\ngo 1.22\n")
 	write("flaky-packages.json", "{}\n")
 	write("good/good.go", "package good\n\n// One returns 1.\nfunc One() int { return 1 }\n")
-	write("good/good_test.go", "package good\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n\tif One() != 1 {\n\t\tt.Fatal(\"wrong\")\n\t}\n}\n")
+	write("good/good_test.go", "package good\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n\tif One() != 1 {\n\t\tt.Fatal(\"wrong\")\n\t}\n\tt.Log(\"note: measured one\")\n}\n")
 	write("skipper/skipper_test.go", "package skipper\n\nimport \"testing\"\n\nfunc TestHost(t *testing.T) { t.Skip(\"needs a real Windows host\") }\n\n"+
 		"func TestCloud(t *testing.T) { t.Skip(\"needs localstack: set LOCALSTACK_AUTH_TOKEN\") }\n")
 	if broken {
@@ -83,7 +83,7 @@ func raceOff(t *testing.T) bool {
 
 // TestRun_TheOnePassMeasuresAndReports runs -full over a passing module:
 // it passes, writes each measured package's coverage, and writes the skip
-// to the job summary when one is set.
+// and the passing test's note to the job summary when one is set.
 func TestRun_TheOnePassMeasuresAndReports(t *testing.T) {
 	throwawayModule(t, false)
 	summary := filepath.Join(t.TempDir(), "summary.md")
@@ -117,6 +117,10 @@ func TestRun_TheOnePassMeasuresAndReports(t *testing.T) {
 	}
 	if !strings.Contains(string(page), "needs a real Windows host") || !strings.Contains(string(page), "skipper TestHost") {
 		t.Errorf("the job summary does not report the skip:\n%s", page)
+	} // A passing test's note reaches the page, which is how a CI runner's
+	// measurement (a retry count on macOS) is read without its log.
+	if !strings.Contains(string(page), "gateproof/good TestOne: measured one") {
+		t.Errorf("the job summary does not carry the passing test's note:\n%s", page)
 	}
 }
 
