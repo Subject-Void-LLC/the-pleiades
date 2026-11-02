@@ -8,7 +8,9 @@ package main_test
 
 import (
 	"os"
+	"strconv"
 	"testing"
+	"time"
 )
 
 // winrmGuardTarget returns the project and device the gate runs against,
@@ -30,12 +32,15 @@ func winrmGuardTarget(t *testing.T) (dir, host string) {
 
 func TestWinRMGate_ShellGuards(t *testing.T) {
 	dir, host := winrmGuardTarget(t)
-	const folder, stamp = `C:\pleiades-guard-gate`, `C:\pleiades-guard-gate\stamp`
+	// A folder of this run's own, so two runs against one host never meet.
+	folder := `C:\pleiades-guard-gate-` + strconv.FormatInt(time.Now().UnixNano(), 36)
+	stamp := folder + `\stamp`
 	exists := func() string { return winrmRead(t, dir, host, "Test-Path -LiteralPath '"+stamp+"'") }
 	winrmAdhoc(t, dir, host, "exec.winrm.shell", "shell=powershell",
 		"command=New-Item -ItemType Directory -Force -Path '"+folder+"' | Out-Null; if (Test-Path -LiteralPath '"+stamp+"') { Remove-Item -Force -LiteralPath '"+stamp+"' }")
 	t.Cleanup(func() {
-		winrmAdhoc(t, dir, host, "exec.winrm.shell", "shell=powershell", "command=if (Test-Path -LiteralPath '"+folder+"') { Remove-Item -Recurse -Force -LiteralPath '"+folder+"' }")
+		winrmAdhoc(t, dir, host, "exec.winrm.shell", "shell=powershell",
+			"command=if (Test-Path -LiteralPath '"+folder+"') { Remove-Item -Recurse -Force -LiteralPath '"+folder+"' }")
 	})
 	makeStamp := []string{"exec.winrm.shell", "shell=powershell", "command=New-Item -ItemType File -Path '" + stamp + "' | Out-Null", "creates=" + stamp}
 	unmake := []string{"exec.winrm.shell", "shell=powershell", "command=Remove-Item -Force -LiteralPath '" + stamp + "'", "removes=" + stamp}
@@ -65,5 +70,21 @@ func TestWinRMGate_ShellGuards(t *testing.T) {
 	rep, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "exec.winrm.shell", "shell=powershell", "command=Write-Output hi", "--mode", "check")
 	if code != 3 || len(rep.Tasks) != 1 || rep.Tasks[0].Status != "unchecked" {
 		t.Fatalf("an unguarded check: exit %d, want 3 and unchecked:\n%s", code, raw)
+	}
+
+	// A guard on a path the device cannot read is not read as absent:
+	// Test-Path answers false for a share that does not exist (measured on
+	// win-check), and a removes would then skip the task. Both the run and
+	// the check fail instead.
+	const unreadable = `\\localhost\pleiades-no-such-share\stamp`
+	if got := winrmRead(t, dir, host, "Test-Path -LiteralPath '"+unreadable+"'"); got != "False" {
+		t.Fatalf("Test-Path reads the missing share as %s; the gate meant it to answer False", got)
+	}
+	for _, mode := range [][]string{nil, {"--mode", "check"}} {
+		args := append([]string{"adhoc", host, "exec.winrm.shell", "shell=powershell", "command=Write-Output ran", "removes=" + unreadable}, mode...)
+		rep, raw, code := runPleiadesJSONWithHome(t, dir, "", args...)
+		if code == 0 || len(rep.Tasks) != 1 || rep.Tasks[0].Status != "failed" {
+			t.Errorf("a removes on a share that does not exist %v: exit %d, want the task failed:\n%s", mode, code, raw)
+		}
 	}
 }

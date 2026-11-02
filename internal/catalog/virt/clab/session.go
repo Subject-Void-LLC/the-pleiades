@@ -7,6 +7,7 @@ package clab
 import (
 	"context"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"net/http"
 	"net/url"
 	"sort"
@@ -158,6 +159,26 @@ func (s *session) stats(pairs map[string]any) error {
 		if err := s.stat(k, pairs[k]); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// superuser is a check's read of what the server keeps for superusers (its
+// host tools): the login's own details, refused unless it is one, as the run
+// would be with a 403. A bearer token names no user to read, so its check
+// cannot say.
+func (s *session) superuser(ctx context.Context) error {
+	if s.user == "" {
+		return collection.CannotCheck("the server keeps this for superusers, and a bearer token names no user whose details a check could read")
+	}
+	var out struct {
+		IsSuperuser bool `json:"isSuperuser"`
+	}
+	if err := s.call(ctx, http.MethodGet, "/api/v1/users/"+url.PathEscape(s.user), nil, nil, &out); err != nil {
+		return err
+	}
+	if !out.IsSuperuser {
+		return fmt.Errorf("%s: the server keeps this for superusers, and the login %q is not one", s.fqcn, s.user)
 	}
 	return nil
 }

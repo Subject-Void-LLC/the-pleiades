@@ -106,8 +106,8 @@ func shellDoc() collection.Doc {
 			{Name: paramTimeout, Type: "int", Default: "60", Description: "How many seconds to wait for the script to finish before giving up. This bounds the whole operation, including a device that accepts the connection and then never answers, which is what a host looks like after a script has reconfigured its own network. Raise it for an installer or an update run; the default is short because most work here is not."},
 			{Name: paramExpectDisconnect, Type: "bool", Default: "false", Description: "Declare that this script is expected to destroy the connection carrying it, as an address change or a reboot does. The task then waits for the device to answer WinRM again instead of failing, and reports result_known false, because the script's exit status and output went down with the connection and are not recoverable. A device that never comes back is still a failure."},
 			{Name: paramReconnectTimeout, Type: "int", Default: "300", Description: "How many seconds to wait for the device to answer again after an expected disconnect. Only meaningful with expect_disconnect, and setting it without that is refused rather than silently ignored."},
-			{Name: "creates", Type: "string", Description: "An absolute Windows path (C:\\... or a UNC share). When something exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."},
-			{Name: "removes", Type: "string", Description: "An absolute Windows path (C:\\... or a UNC share). When nothing exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."},
+			{Name: "creates", Type: "string", Description: "An absolute Windows path (C:\\... or a UNC share; the \\\\?\\ and \\\\.\\ device forms are refused). When something exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text. A path that cannot be read (access denied, a share that does not answer) fails the task rather than counting as absent, as Ansible decides it. Empty is the same as unset."},
+			{Name: "removes", Type: "string", Description: "An absolute Windows path (C:\\... or a UNC share; the \\\\?\\ and \\\\.\\ device forms are refused). When nothing exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text. A path that cannot be read (access denied, a share that does not answer) fails the task rather than counting as absent, as Ansible decides it. Empty is the same as unset."},
 		},
 		Returns: []collection.ReturnField{
 			{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the script wrote to standard output."},
@@ -232,10 +232,22 @@ func shell(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	// The guard is read before anything runs, over the same connection
 	// settings, and a run it short-circuits reports no change.
 	if creates != "" || removes != "" {
+		// timeout bounds the whole task, so the guard's read and the
+		// script share one deadline rather than each getting all of it.
+		whole := opts.Timeout
+		if whole == 0 {
+			whole = winrmexec.DefaultTimeout
+		}
+		started := time.Now()
 		skip, err := guardSkips(ctx, target, auth, opts, creates, removes)
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
+		left := whole - time.Since(started)
+		if left <= 0 {
+			return collection.Result{}, fmt.Errorf("%s: reading the creates or removes guard used the whole timeout of %s", fqcn, whole)
+		}
+		opts.Timeout = left
 		if skip {
 			if err := recordOutcome(rc, fqcn, winrmexec.Result{}, true, true); err != nil {
 				return collection.Result{}, err
@@ -425,9 +437,17 @@ func secondsParam(params map[string]any, key string) (time.Duration, error) {
 // guardScript reports whether a guard short-circuits the script: "skip"
 // when the creates path exists or the removes path does not, "run"
 // otherwise. Both paths arrive as environment values, never as script text,
-// and Test-Path -LiteralPath reads them as paths, never as wildcard patterns.
-const guardScript = `$c = $env:PLEIADES_CREATES; $r = $env:PLEIADES_REMOVES; ` +
-	`if ($c -and (Test-Path -LiteralPath $c)) { 'skip' } elseif ($r -and -not (Test-Path -LiteralPath $r)) { 'skip' } else { 'run' }`
+// and are read as literal paths, never wildcard patterns. Existence is
+// decided as Ansible's Test-AnsiblePath decides it: GetAttributes answering
+// is there, FileNotFound or DirectoryNotFound is not, and anything else (an
+// access denied, a share that does not answer) is left to fail the script,
+// never read as absence. Test-Path is not used: it answers false for a path
+// it could not read, which would make a removes skip and a creates rerun.
+const guardScript = `$ErrorActionPreference = 'Stop'; ` +
+	`function Test-Exists([string]$p) { try { [void][System.IO.File]::GetAttributes($p); $true } ` +
+	`catch [System.IO.FileNotFoundException], [System.IO.DirectoryNotFoundException] { $false } }; ` +
+	`$c = $env:PLEIADES_CREATES; $r = $env:PLEIADES_REMOVES; ` +
+	`if ($c -and (Test-Exists $c)) { 'skip' } elseif ($r -and -not (Test-Exists $r)) { 'skip' } else { 'run' }`
 
 // guardSkips reads the guard on the device, through PowerShell over the same
 // connection settings the script uses.
@@ -465,8 +485,13 @@ func guardParams(params map[string]any) (creates, removes string, err error) {
 			continue
 		}
 		value, ok := raw.(string)
-		if !ok || value == "" {
-			return "", "", fmt.Errorf("%s must be a non-empty path", key)
+		if !ok {
+			return "", "", fmt.Errorf("%s must be a path, not %T", key, raw)
+		}
+		// Empty is unset, as exec.command reads it, so a template that
+		// renders no guard runs unguarded rather than failing.
+		if value == "" {
+			continue
 		}
 		if !windowsAbsolute(value) {
 			return "", "", fmt.Errorf("%s %q is not an absolute Windows path (C:\\... or \\\\server\\share\\...)", key, value)
@@ -481,7 +506,9 @@ func guardParams(params map[string]any) (creates, removes string, err error) {
 }
 
 // windowsAbsolute reports whether p is a drive-letter path (C:\ or C:/) or a
-// UNC path (\\server\share), with no NUL.
+// UNC path (\\server\share\...), with no NUL. The device-namespace forms
+// (\\?\ and \\.\) and a server named ".", ".." or "?" are refused: nothing
+// has shown how they are read, and a guard read as absent fails open.
 func windowsAbsolute(p string) bool {
 	if strings.ContainsRune(p, 0) {
 		return false
@@ -493,7 +520,11 @@ func windowsAbsolute(p string) bool {
 		return false
 	}
 	server, rest, ok := strings.Cut(p[2:], `\`)
-	return ok && server != "" && strings.Trim(rest, `\`) != ""
+	switch server {
+	case "", ".", "..", "?":
+		return false
+	}
+	return ok && strings.Trim(rest, `\`) != ""
 }
 
 // unguardedCheck is the check-time refusal of a call no guard makes
@@ -501,7 +532,7 @@ func windowsAbsolute(p string) bool {
 // one before anything runs, and called by CheckShell for the same answer at
 // run time.
 func unguardedCheck(params map[string]any) error {
-	if params[paramCreates] != nil || params[paramRemoves] != nil {
+	if sdk.StringParam(params, paramCreates) != "" || sdk.StringParam(params, paramRemoves) != "" {
 		return nil
 	}
 	return collection.CannotCheck("what a script changes cannot be known without running it; " +

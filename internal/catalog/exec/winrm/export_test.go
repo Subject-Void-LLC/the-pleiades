@@ -3,3 +3,6 @@ package winrm
 
 // GuardAnswer is guardAnswer, for its tests of what a device may print.
 var GuardAnswer = guardAnswer
+
+// WindowsAbsolute is windowsAbsolute, for its table test.
+var WindowsAbsolute = windowsAbsolute

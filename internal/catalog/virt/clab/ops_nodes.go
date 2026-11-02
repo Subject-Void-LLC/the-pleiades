@@ -299,7 +299,8 @@ func nodeSSHAccess(ctx context.Context, s *session, a *args, check bool) (bool, 
 
 // nodeDisableTxOffload disables TX checksum offload on a node's container. The
 // server shows no offload setting to read, so a run always reports a change,
-// and a check, having read the node, predicts the same.
+// and a check, having read the node and the login's details (the server keeps
+// this for superusers), predicts the same.
 func nodeDisableTxOffload(ctx context.Context, s *session, a *args, check bool) (bool, error) {
 	lab, name := a.ident("lab"), a.ident("node")
 	if a.err != nil {
@@ -310,6 +311,9 @@ func nodeDisableTxOffload(ctx context.Context, s *session, a *args, check bool) 
 		return false, err
 	}
 	if check {
+		if err := s.superuser(ctx); err != nil {
+			return false, err
+		}
 		return true, s.stat("name", n.Name)
 	}
 	if err := s.call(ctx, http.MethodPost, "/api/v1/tools/disable-tx-offload", nil, map[string]string{"containerName": n.Name}, nil); err != nil {

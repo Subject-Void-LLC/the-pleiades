@@ -412,9 +412,13 @@ func TestUsesTheDevicesPinnedAuthority(t *testing.T) {
 }
 
 // TestGuards_RefusedBeforeAnythingDials: creates and removes are absolute
-// Windows paths, each refused otherwise with the runbook named, before the
-// device (an address nothing answers on) is dialed.
+// Windows paths, each refused otherwise in its own words before the device is
+// dialed: the device is a port nothing listens on, so a dial would fail with
+// other words, and a refusal records nothing.
 func TestGuards_RefusedBeforeAnythingDials(t *testing.T) {
+	dev := device()
+	dev.host, dev.port = "127.0.0.1", refusing.Port(t)
+	desc, _ := collection.Lookup("exec.winrm.shell")
 	base := func(extra map[string]any) map[string]any {
 		p := map[string]any{"shell": "powershell", "command": "Write-Output hi"}
 		for k, v := range extra {
@@ -422,18 +426,40 @@ func TestGuards_RefusedBeforeAnythingDials(t *testing.T) {
 		}
 		return p
 	}
-	for name, params := range map[string]map[string]any{
-		"a relative creates":     base(map[string]any{"creates": `Agent\agent.exe`}),
-		"a rooted but driveless": base(map[string]any{"removes": `\Agent\agent.exe`}),
-		"a drive with no root":   base(map[string]any{"creates": `C:agent.exe`}),
-		"a UNC with no share":    base(map[string]any{"creates": `\\server`}),
-		"an empty creates":       base(map[string]any{"creates": ""}),
-		"a creates not a string": base(map[string]any{"creates": 7}),
-		"a NUL inside":           base(map[string]any{"removes": "C:\\a\x00b"}),
+	for name, tc := range map[string]struct {
+		params map[string]any
+		want   string
+	}{
+		"a relative creates":     {base(map[string]any{"creates": `Agent\agent.exe`}), "is not an absolute Windows path"},
+		"a rooted but driveless": {base(map[string]any{"removes": `\Agent\agent.exe`}), "is not an absolute Windows path"},
+		"a drive with no root":   {base(map[string]any{"creates": `C:agent.exe`}), "is not an absolute Windows path"},
+		"a UNC with no share":    {base(map[string]any{"creates": `\\server`}), "is not an absolute Windows path"},
+		"a device path":          {base(map[string]any{"creates": `\\?\C:\x`}), "is not an absolute Windows path"},
+		"a creates not a string": {base(map[string]any{"creates": 7}), "must be a path"},
+		"a NUL inside":           {base(map[string]any{"removes": "C:\\a\x00b"}), "is not an absolute Windows path"},
 	} {
-		err := invoke(t, params)
-		if err == nil || !strings.Contains(err.Error(), "creates") && !strings.Contains(err.Error(), "removes") {
-			t.Errorf("%s: %v, want the guard refused by name", name, err)
+		for mode, fn := range map[string]collection.Method{"run": desc.Invoke, "check": desc.Check} {
+			c := &ctxStub{stats: map[string]any{}}
+			_, err := fn(context.Background(), c, dev, tc.params)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%s, %s: %v, want %q", name, mode, err, tc.want)
+			}
+			if len(c.stats) != 0 {
+				t.Errorf("%s, %s: recorded %v", name, mode, c.stats)
+			}
+		}
+	}
+}
+
+// TestWindowsAbsolute holds the path rule to its near misses.
+func TestWindowsAbsolute(t *testing.T) {
+	for p, want := range map[string]bool{
+		`C:\`: true, `c:\Agent\a.exe`: true, `D:/agent`: true, `\\fs01\share`: true, `\\fs01\share\dir\f`: true,
+		`C:`: false, `C:agent`: false, `\\agent`: false, `agent`: false, `\\fs01`: false, `\\fs01\`: false, `\\fs01\\`: false,
+		`\\?\C:\x`: false, `\\.\pipe\x`: false, `\\..\C:\`: false, `\\?\UNC\fs01\share`: false, "C:\\a\x00": false, `1:\x`: false,
+	} {
+		if got := winrm.WindowsAbsolute(p); got != want {
+			t.Errorf("WindowsAbsolute(%q) = %v, want %v", p, got, want)
 		}
 	}
 }

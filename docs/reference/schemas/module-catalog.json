@@ -6996,12 +6996,12 @@
         {
           "name": "creates",
           "type": "string",
-          "description": "An absolute Windows path (C:\\... or a UNC share). When something exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."
+          "description": "An absolute Windows path (C:\\... or a UNC share; the \\\\?\\ and \\\\.\\ device forms are refused). When something exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text. A path that cannot be read (access denied, a share that does not answer) fails the task rather than counting as absent, as Ansible decides it. Empty is the same as unset."
         },
         {
           "name": "removes",
           "type": "string",
-          "description": "An absolute Windows path (C:\\... or a UNC share). When nothing exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text."
+          "description": "An absolute Windows path (C:\\... or a UNC share; the \\\\?\\ and \\\\.\\ device forms are refused). When nothing exists there, the command does not run and the task reports no change. Read as a literal path, never a wildcard pattern, and passed to the device as data, never as script text. A path that cannot be read (access denied, a share that does not answer) fails the task rather than counting as absent, as Ansible decides it. Empty is the same as unset."
         }
       ],
       "returns": [

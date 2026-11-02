@@ -72,7 +72,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
   and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
   (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
-- **Module catalog: 212 registered FQCNs; 210 implemented, 2 declared-not-implemented.** These counts
+- **Module catalog: 259 registered FQCNs; 257 implemented, 2 declared-not-implemented (2026-11-02).** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting

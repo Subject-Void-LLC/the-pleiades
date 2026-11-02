@@ -246,6 +246,11 @@ func TestLive_ARealLabEndToEnd(t *testing.T) {
 	if sessions, _ := l.must("virt.clab.ssh_session.list", map[string]any{"all": true}).stats["sessions"].([]any); len(sessions) != 0 {
 		t.Errorf("a check opened an SSH session: %v", sessions)
 	}
+	// A redeploy of a lab that is not deployed is refused by the check, as the
+	// server refuses the run.
+	if _, res, err := l.call("virt.clab.lab.redeploy", map[string]any{"lab": "nolab" + lab, "topology": map[string]any{"name": "nolab" + lab, "topology": topo["topology"]}}, true); err == nil || res.Changed {
+		t.Errorf("check of a redeploy of a lab not deployed: changed %v, err %v", res.Changed, err)
+	}
 	for _, n := range []string{"n1", "n2"} {
 		if st := nodeState(t, l, lab, n); st != "running" {
 			t.Errorf("%s is %s after the checks", n, st)

@@ -267,11 +267,14 @@ func labRedeploy(ctx context.Context, s *session, a *args, check bool) (bool, er
 		return false, a.err
 	}
 	if check {
-		_, exists, err := s.inspect(ctx, lab)
-		if err != nil {
+		// The server answers a redeploy of a lab that is not deployed with
+		// 404, as save and restart refuse one.
+		if _, exists, err := s.inspect(ctx, lab); err != nil {
 			return false, err
+		} else if !exists {
+			return false, fmt.Errorf("%s: lab %q is not deployed", s.fqcn, lab)
 		}
-		return true, s.stat("exists", exists)
+		return true, nil
 	}
 	if err := s.call(ctx, http.MethodPut, labPath(lab), q, body, nil); err != nil {
 		return false, err
