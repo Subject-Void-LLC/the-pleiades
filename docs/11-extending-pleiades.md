@@ -462,7 +462,11 @@ are dropped), its `Check` locates each path it removes with `remotefile.Locate`,
 the physical path and the identity of each directory along it, and records it with
 `sdk.RecordPredicted` (`wire.PredictedAbsent`; an empty call when it removes nothing). A path
 it cannot locate, or one that resolves anywhere but where it is written (a link along it), is
-recorded with `sdk.RecordPredictionUnknown`. Its manifest sets `PredictsPaths`, which says the
+recorded with `sdk.RecordPredictionUnknown`, and so is a removal the real run may not be able
+to make: `file.remove` records one only when `remotefile.Removable` says the device allows it
+and it is not a whole tree, and a directory it found empty only through earlier predictions,
+in a parent that does not allow its removal, answers `collection.CannotCheck`. Its manifest
+sets `PredictsPaths`, which says the
 check records every path the method changes on every check, makes nothing, and needs
 `SupportsCheck`. `file.remove` is the one method that sets it: a prediction that a path is
 gone is exactly what making a path can make false, so no method that makes one may. A later
@@ -475,7 +479,8 @@ a question the device as it is cannot answer (a listing it cannot finish), answe
 The engine keeps the predictions per device and applies a level's only after the whole level
 returns. It keeps them only while every task in the run, on every device, is a successful
 check by a built-in method with `PredictsPaths` that recorded, or an in-process engine action
-such as `set_fact` (a `pause` is not one: it hands the device to a person). Anything else
+such as `set_fact` (a `pause` is not one: it hands the device to a person), and none carries
+`ignore_errors` (its author expects its real run may fail). Anything else
 drops every device's for the rest of the run, whatever it reported, since a device may share
 a filesystem with another. So do a recorded unknown, one directory identity met under two
 paths, and the bound. The engine takes `predicted_paths` off the result, so it reaches neither

@@ -111,3 +111,37 @@ func TestLocate_RefusesWhatItCannotRead(t *testing.T) {
 		}
 	}
 }
+
+// TestRemovable asks of real entries: in a directory the login may write, in
+// one it may not, in one with the sticky bit that it owns, and in one that is
+// not there.
+func TestRemovable(t *testing.T) {
+	conn := connect(t)
+	root := t.TempDir()
+	dirs := map[string]os.FileMode{"open": 0o700, "sealed": 0o555, "sticky": 0o777 | os.ModeSticky}
+	for name, mode := range dirs {
+		dir := filepath.Join(root, name)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "f"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, mode); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	}
+	// The login owns the sticky directory and the entry, as the owner of a
+	// file in /tmp does.
+	want := map[string]bool{"open": true, "sticky": true, "missing": false}
+	if os.Geteuid() != 0 {
+		want["sealed"] = false
+	}
+	for name, allowed := range want {
+		got, err := remotefile.Removable(context.Background(), conn, filepath.Join(root, name, "f"))
+		if err != nil || got != allowed {
+			t.Errorf("Removable(%s/f) = %v, %v; want %v", name, got, err, allowed)
+		}
+	}
+}

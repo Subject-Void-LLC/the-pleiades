@@ -26,8 +26,16 @@
 //     recorded, or an in-process engine action that touches no device. The
 //     first anything else (another method's task whatever it reported, a
 //     skipped, failed or unchecked task, a task with no device, a pause that
-//     hands the device to a person, a result reaching the run outside a level)
-//     drops every device's predictions for the rest of the run.
+//     hands the device to a person, a result reaching the run outside a level,
+//     a task allowed to fail) drops every device's predictions for the rest of
+//     the run.
+//   - A claim rests on the real run doing the removal its check predicted, and
+//     a check cannot see every refusal coming, so file.remove records one only
+//     when the directory holding the path allows it (pkg/remotefile's
+//     Removable) and it is not a whole tree. What refuses a removal only when
+//     it is tried (an immutable flag, a busy mount point) is the one thing left
+//     that a later task can inherit: the same thing a check of that removal
+//     alone already could not see.
 //   - It is kept only when the whole run is a check. In a real run with a few
 //     check_mode tasks, the real tasks between them change the device.
 //   - It is written only at the level barrier, after every node of a level has
@@ -162,6 +170,11 @@ func (r *run) recordPredictions(results []NodeResult) {
 // false when it drops the run's instead.
 func (r *run) predictionsOf(nr NodeResult) ([]wire.PredictedPath, bool) {
 	if nr.Device == "" || nr.Err != nil || nr.Skipped || nr.Unchecked || !nr.Checked {
+		return nil, false
+	}
+	// A task its author lets fail (ignore_errors) is one whose real run may
+	// not do what its check predicted, and the run goes on past it.
+	if task := r.dag.Nodes[BaseNodeID(nr.NodeID)]; task == nil || task.IgnoreErrors {
 		return nil, false
 	}
 	// A declaring method records on every check it is handed a snapshot for,

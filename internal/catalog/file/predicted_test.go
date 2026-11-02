@@ -285,3 +285,75 @@ func TestCheckRemove_FailsWhenRemovingNothingCannotBeRecorded(t *testing.T) {
 		t.Errorf("check = %v, want the recording failure", err)
 	}
 }
+
+// TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake: a check cannot see a
+// refused removal coming, so a removal in a directory that does not allow it,
+// or of a whole tree, records the predictions unknown rather than gone; and a
+// directory found empty only through earlier predictions, in a parent that
+// does not allow its removal, cannot be checked.
+func TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes from any directory, so none refuses it here")
+	}
+	server := startRemoveServer(t, -1)
+	sealed := filepath.Join(tempDir(t), "sealed")
+	dir := filepath.Join(sealed, "full")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o700) })
+
+	// A file in a directory that allows its removal is recorded gone.
+	_, rc, err := checkRemove(t, server, snapshotOf(), filepath.Join(dir, "f"))
+	if got := predictedRecord(t, rc); err != nil || len(got) != 1 {
+		t.Errorf("a removable file: %v, recorded %+v", err, got)
+	}
+	// A directory in one that does not is not.
+	empty := filepath.Join(sealed, "empty")
+	if err := os.Chmod(sealed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if _, rc, err := checkRemove(t, server, snapshotOf(), empty); err != nil || rc.stats[sdk.StatPredictedPaths] != "unknown" {
+		t.Errorf("a directory its parent does not let go: %v, recorded %#v; want unknown", err, rc.stats[sdk.StatPredictedPaths])
+	}
+	// Nor is one found empty only through predictions: that cannot be checked.
+	_, _, err = checkRemove(t, server, snapshotOf(gone(locateOn(t, server, filepath.Join(dir, "f")))), dir)
+	var cannot *collection.CannotCheckError
+	if !errors.As(err, &cannot) {
+		t.Errorf("a directory empty only through predictions, in a parent that does not let it go: %v, want CannotCheck", err)
+	}
+	// A whole tree is not recorded, wherever it is.
+	tree := fullDirectory(t)
+	params := removeParams(tree, map[string]any{"recurse": true})
+	prc := &predictingContext{removeContext: newRemoveContext(server), snap: snapshotOf()}
+	if _, err := checkOf(t, "file.remove")(context.Background(), prc, newRemoveDevice(server), params); err != nil || prc.stats[sdk.StatPredictedPaths] != "unknown" {
+		t.Errorf("a whole tree: %v, recorded %#v; want unknown", err, prc.stats[sdk.StatPredictedPaths])
+	}
+}
+
+// TestCheckRemove_AnUnansweredRemovalQuestionRecordsUnknown: when the device
+// cannot be asked whether the removal is allowed (the session after the stat
+// and the location is refused), the removal is not recorded gone.
+func TestCheckRemove_AnUnansweredRemovalQuestionRecordsUnknown(t *testing.T) {
+	server := startRemoveServer(t, 2)
+	target := filepath.Join(tempDir(t), "doomed")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, rc, err := checkRemove(t, server, snapshotOf(), target)
+	if err != nil || !result.Changed || rc.stats[sdk.StatPredictedPaths] != "unknown" {
+		t.Errorf("check = %+v, %v, recorded %#v; want a predicted removal recorded unknown", result, err, rc.stats[sdk.StatPredictedPaths])
+	}
+}

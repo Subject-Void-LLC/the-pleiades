@@ -267,8 +267,10 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		// The one refusal a real run makes after this point, predicted
 		// rather than provoked: a directory the task may not recurse into
 		// is removed only when it is already empty.
+		leaned := false
 		if before.Kind == remotefile.KindDirectory && !recurse {
-			empty, err := predictedEmpty(ctx, conn, rc, path, loc, located)
+			var empty bool
+			empty, leaned, err = predictedEmpty(ctx, conn, rc, path, loc, located)
 			if err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
@@ -278,9 +280,26 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			}
 		}
 		// The path is gone for the rest of this check (Phase 46a), which a
-		// later task's check reads. A path that could not be located drops
-		// the device's predictions instead.
-		if err := recordRemoved(rc, loc, located); err != nil {
+		// later task's check reads, but only when the real run can be expected
+		// to remove it: a check cannot see a refused removal coming, and a
+		// later task leaning on one the real run never makes would be wrong
+		// where the device as it is would not. So a removal is recorded only
+		// when the directory holding the path allows it (remotefile.Removable) and it
+		// is not a whole tree, whose subdirectories could refuse partway;
+		// anything else drops the predictions. A directory this task found
+		// empty only through earlier predictions, in a parent that does not
+		// allow its removal, cannot be checked.
+		removable := located && !(before.Kind == remotefile.KindDirectory && recurse)
+		if removable {
+			removable, err = remotefile.Removable(ctx, conn, path)
+			if err != nil {
+				removable = false
+			}
+		}
+		if leaned && !removable {
+			return collection.Result{}, collection.CannotCheck(fmt.Sprintf("%s is empty only once earlier tasks of this check remove what it holds, and whether a real run may then remove it cannot be read from the device as it is", path))
+		}
+		if err := recordRemoved(rc, loc, removable); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	} else if err := removeTarget(ctx, conn, path, before.Kind, recurse); err != nil {
@@ -368,26 +387,25 @@ func removeEmptyDirectory(ctx context.Context, conn *remoteexec.Conn, path strin
 const maxPredictedEntries = 1024
 
 // predictedEmpty reports whether the directory at dirPath will be empty when
-// a real run of this task reaches it. Without predictions it is the device's
-// own answer, as before Phase 46a. With them, a directory whose every entry
-// earlier tasks predicted removed is empty, since nothing in the run makes a
-// path while predictions are kept. When the entries cannot all be read (a
-// listing cut off or failed) it answers CannotCheck: the device as it is now
-// is not what the real run meets there, and a refusal could be as wrong as a
-// pass.
-func predictedEmpty(ctx context.Context, conn *remoteexec.Conn, rc sdk.RunbookContext, dirPath string, loc wire.Location, located bool) (bool, error) {
-	empty, err := remotefile.DirectoryEmpty(ctx, conn, dirPath)
+// a real run of this task reaches it, and whether that answer leans on
+// earlier predictions. Without predictions it is the device's own answer, as
+// before Phase 46a. With them, a directory whose every entry earlier tasks
+// predicted removed is empty. When the entries cannot all be read (a listing
+// cut off or failed) it answers CannotCheck: the device as it is now is not
+// what the real run meets there, and a refusal could be as wrong as a pass.
+func predictedEmpty(ctx context.Context, conn *remoteexec.Conn, rc sdk.RunbookContext, dirPath string, loc wire.Location, located bool) (empty, leaned bool, err error) {
+	empty, err = remotefile.DirectoryEmpty(ctx, conn, dirPath)
 	if err != nil || empty || !located || !sdk.PredictedAbsentUnder(rc, loc) {
-		return empty, err
+		return empty, false, err
 	}
 	names, truncated, err := remotefile.DirectoryEntries(ctx, conn, dirPath, maxPredictedEntries)
 	if err != nil || truncated || len(names) == 0 {
-		return false, collection.CannotCheck(fmt.Sprintf("earlier tasks of this check remove what %s holds, and whether a real run finds it empty cannot be read from the device as it is", dirPath))
+		return false, false, collection.CannotCheck(fmt.Sprintf("earlier tasks of this check remove what %s holds, and whether a real run finds it empty cannot be read from the device as it is", dirPath))
 	}
 	for _, name := range names {
 		if !sdk.PredictedAbsent(rc, wire.Location{Path: pathpkg.Join(loc.Path, name), Dirs: loc.Dirs}) {
-			return false, nil
+			return false, false, nil
 		}
 	}
-	return true, nil
+	return true, true, nil
 }

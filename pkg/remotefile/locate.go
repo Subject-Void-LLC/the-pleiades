@@ -103,3 +103,39 @@ func parseLocation(out, name string) (wire.Location, error) {
 	}
 	return loc, nil
 }
+
+// removableScript exits 0 when the login may remove $2, an entry of the
+// directory $1, as far as the device's rules can say before trying: $1 is a
+// directory it may write and search (test -w and -x, which is access(2): the
+// mode bits, an ACL, a read-only mount, root), and when $1 has the sticky bit,
+// the login is root or owns $1 or $2 (POSIX find -user, since test -O is not
+// in every sh). It exits 1 when it may not, anything else when it could not
+// ask.
+const removableScript = `d=$1; e=$2; ` +
+	`[ -d "$d" ] && [ -w "$d" ] && [ -x "$d" ] || exit 1; ` +
+	`[ -k "$d" ] || exit 0; ` +
+	`u=$(id -u) || exit 2; [ "$u" = 0 ] && exit 0; ` +
+	`[ -n "$(find "$d" -prune -user "$u")" ] && exit 0; ` +
+	`[ -n "$(find "$e" -prune -user "$u")" ] && exit 0; exit 1`
+
+// Removable reports whether the login may remove target, an absolute path,
+// as far as the device's rules can say before trying: the directory holding
+// it is writable and searchable for the login and, when it has the sticky
+// bit, the login is root or owns that directory or target. It only reads, in
+// one command run by /bin/sh. It cannot see what refuses a removal only when
+// it is tried (an immutable flag, a busy mount point), so a caller leaning on
+// its answer for a later task's prediction says so.
+func Removable(ctx context.Context, conn *remoteexec.Conn, target string) (bool, error) {
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", removableScript, "sh", path.Dir(target), target}))
+	if err != nil {
+		return false, fmt.Errorf("ask whether %s may be removed: %w", target, err)
+	}
+	switch result.ExitCode {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("ask whether %s may be removed: exited %d: %s", target, result.ExitCode, farside.Output(result.Stderr))
+	}
+}

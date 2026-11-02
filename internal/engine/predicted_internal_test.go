@@ -43,6 +43,7 @@ func ledgerRun(t *testing.T) *run {
 		"ext":   {FQCN: "enginetest.external"},
 		"fact":  {FQCN: "set_fact"},
 		"pause": {FQCN: "pause"},
+		"lax":   {FQCN: "enginetest.predicts", IgnoreErrors: true},
 	}}}
 }
 
@@ -137,6 +138,7 @@ func TestLedger_AnythingButARecordedRemovalDropsEveryDeviceForGood(t *testing.T)
 		"a deviceless task":            {NodeID: "plain", Checked: true},
 		"a node-level skip":            {NodeID: "n", Skipped: true},
 		"a pause":                      {NodeID: "pause", Device: "dev-1", Checked: true},
+		"a task allowed to fail":       {NodeID: "lax", Device: "dev-1", Checked: true, predictedSet: true, predicted: []any{}},
 		"a failed engine action":       {NodeID: "fact", Device: "dev-1", Checked: true, Err: errors.New("assert")},
 		"a record that is not removal": {NodeID: "n", Device: "dev-1", Checked: true, predictedSet: true, predicted: []any{map[string]any{"path": "/x", "state": "present", "dirs": []any{}}}},
 	} {

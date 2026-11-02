@@ -426,4 +426,7 @@ func TestDirectoryEmpty_ReportsATransportFailure(t *testing.T) {
 	if _, err := remotefile.Locate(context.Background(), conn, t.TempDir()); err == nil {
 		t.Fatal("a location that was never read was reported as an answer")
 	}
+	if _, err := remotefile.Removable(context.Background(), conn, filepath.Join(t.TempDir(), "f")); err == nil {
+		t.Fatal("a removal that was never asked about was reported as allowed or not")
+	}
 }

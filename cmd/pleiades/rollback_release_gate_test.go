@@ -698,6 +698,12 @@ tasks:
 					"  - name: copy\n    file.copy:\n      dest: /tmp/g9/app/x\n      content: \"y\\n\"\n" +
 					"  - name: drop x\n    file.remove:\n      path: /tmp/g9/app/x\n" +
 					"  - name: drop app\n    file.remove:\n      path: /tmp/g9/app\n"},
+			{"a directory whose parent refuses its removal", "mkdir -p /tmp/g9/p/d && touch /tmp/g9/p/d/f && chmod 555 /tmp/g9/p",
+				"  - name: file\n    file.remove:\n      path: /tmp/g9/p/d/f\n" +
+					"  - name: dir\n    file.remove:\n      path: /tmp/g9/p/d\n"},
+			{"a removal allowed to fail", "mkdir -p /tmp/g9/d && touch /tmp/g9/d/f && chmod 555 /tmp/g9/d",
+				"  - name: file\n    file.remove:\n      path: /tmp/g9/d/f\n    ignore_errors: true\n" +
+					"  - name: dir\n    file.remove:\n      path: /tmp/g9/d\n"},
 			{"a directory made, then its parent removed", "mkdir -p /tmp/g9/d",
 				"  - name: make\n    file.directory:\n      path: /tmp/g9/d/a/b\n" +
 					"  - name: drop a\n    file.remove:\n      path: /tmp/g9/d/a\n      recurse: true\n" +
@@ -707,7 +713,7 @@ tasks:
 			if err := os.WriteFile(filepath.Join(g.dir, "runbooks", "g9.yaml"), []byte(runbook), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			reset := "rm -rf /tmp/g9 && " + tc.setup
+			reset := "chmod -R u+w /tmp/g9 2>/dev/null; rm -rf /tmp/g9 && " + tc.setup
 			g.device(t, reset)
 			check := g.report(t, "run", "runbooks/g9.yaml", "--mode", "check")
 			g.device(t, reset)
@@ -734,6 +740,10 @@ tasks:
 			predicted := check.Tasks[last].Status
 			if predicted == "would_change" {
 				predicted = "changed"
+			}
+			// An unchecked task claims nothing, so it agrees with any answer.
+			if predicted == "unchecked" {
+				continue
 			}
 			if check.Outcome.ExitCode != real.Outcome.ExitCode || predicted != real.Tasks[last].Status {
 				t.Errorf("%s: the check ended %d with %s last, the real run %d with %s", tc.name,
