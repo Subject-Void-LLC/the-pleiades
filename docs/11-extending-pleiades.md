@@ -464,7 +464,9 @@ the physical path and the identity of each directory along it, and records it wi
 it cannot locate, or one that resolves anywhere but where it is written (a link along it), is
 recorded with `sdk.RecordPredictionUnknown`, and so is a removal the real run may not be able
 to make: `file.remove` records one only when `remotefile.Removable` says the device allows it
-and it is not a whole tree, and a directory it found empty only through earlier predictions,
+and it is not a whole tree (under a BusyBox shell, whose `test` answers neither for root nor for
+a read-only mount, only for another login on a mount listed read-write), and a directory it
+found empty only through earlier predictions,
 in a parent that does not allow its removal, answers `collection.CannotCheck`. Its manifest
 sets `PredictsPaths`, which says the
 check records every path the method changes on every check, makes nothing, and needs

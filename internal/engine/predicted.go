@@ -33,9 +33,10 @@
 //     a check cannot see every refusal coming, so file.remove records one only
 //     when the directory holding the path allows it (pkg/remotefile's
 //     Removable) and it is not a whole tree. What refuses a removal only when
-//     it is tried (an immutable flag, a busy mount point) is the one thing left
-//     that a later task can inherit: the same thing a check of that removal
-//     alone already could not see.
+//     it is tried (an immutable flag, a busy mount point, an access list that
+//     denies deleting while allowing writing) is the one thing left that a
+//     later task can inherit: the same thing a check of that removal alone
+//     already could not see.
 //   - It is kept only when the whole run is a check. In a real run with a few
 //     check_mode tasks, the real tasks between them change the device.
 //   - It is written only at the level barrier, after every node of a level has

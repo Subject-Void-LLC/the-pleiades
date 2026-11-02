@@ -106,25 +106,44 @@ func parseLocation(out, name string) (wire.Location, error) {
 
 // removableScript exits 0 when the login may remove $2, an entry of the
 // directory $1, as far as the device's rules can say before trying: $1 is a
-// directory it may write and search (test -w and -x, which is access(2): the
-// mode bits, an ACL, a read-only mount, root), and when $1 has the sticky bit,
-// the login is root or owns $1 or $2 (POSIX find -user, since test -O is not
-// in every sh). It exits 1 when it may not, anything else when it could not
-// ask.
-const removableScript = `d=$1; e=$2; ` +
+// directory it may write and search, and when $1 has the sticky bit, the
+// login is root or owns $1 or $2 (POSIX find -user, since test -O is not in
+// every sh). It exits 1 when it may not or cannot be told, anything else when
+// it could not ask.
+//
+// test -w and -x answer through access(2) (the mode bits, an ACL, a read-only
+// mount, root) in dash, bash and FreeBSD's sh. BusyBox's test reads the mode
+// bits itself: for root it says writable to anything, and for anyone it does
+// not see a read-only mount. Under BusyBox (the running shell's /proc/$$/exe,
+// or sh --help naming it) a root login is therefore answered 1, and another
+// login only when the mount holding $1 (the longest mount point above it in
+// mountinfo, $3 or /proc/self/mountinfo) is read-write; an ACL it still cannot
+// see. $1 must be a physical path, as Locate gives.
+const removableScript = `d=$1; e=$2; mi=${3:-/proc/self/mountinfo}; bb=; ` +
+	`case "$(readlink /proc/$$/exe 2>/dev/null)" in */busybox*) bb=1 ;; esac; ` +
+	`case "$(sh --help 2>&1)" in *BusyBox*) bb=1 ;; esac; ` +
 	`[ -d "$d" ] && [ -w "$d" ] && [ -x "$d" ] || exit 1; ` +
+	`u=$(id -u) || exit 2; ` +
+	`if [ -n "$bb" ]; then ` +
+	`[ "$u" = 0 ] && exit 1; ` +
+	`o=$(D=$d awk '{ d = ENVIRON["D"]; m = $5; gsub(/\\040/, " ", m); gsub(/\\134/, "\\", m); ` +
+	`if ((d == m || m == "/" || index(d, m "/") == 1) && length(m) >= n) { n = length(m); o = $6 } } END { print o }' "$mi") || exit 2; ` +
+	`case ",$o," in *,rw,*) ;; *) exit 1 ;; esac; fi; ` +
 	`[ -k "$d" ] || exit 0; ` +
-	`u=$(id -u) || exit 2; [ "$u" = 0 ] && exit 0; ` +
+	`[ "$u" = 0 ] && exit 0; ` +
 	`[ -n "$(find "$d" -prune -user "$u")" ] && exit 0; ` +
 	`[ -n "$(find "$e" -prune -user "$u")" ] && exit 0; exit 1`
 
 // Removable reports whether the login may remove target, an absolute path,
 // as far as the device's rules can say before trying: the directory holding
 // it is writable and searchable for the login and, when it has the sticky
-// bit, the login is root or owns that directory or target. It only reads, in
-// one command run by /bin/sh. It cannot see what refuses a removal only when
-// it is tried (an immutable flag, a busy mount point), so a caller leaning on
-// its answer for a later task's prediction says so.
+// bit, the login is root or owns that directory or target; under a BusyBox
+// shell, whose test cannot say for root or for a read-only mount, it answers
+// false for root and reads the mount table for anyone else. It only reads, in one
+// command run by /bin/sh. It cannot see what refuses a removal only when it is
+// tried (an immutable flag, a busy mount point, an ACL that denies deleting
+// while allowing writing, as macOS and ZFS can), so a caller leaning on its
+// answer for a later task's prediction says so.
 func Removable(ctx context.Context, conn *remoteexec.Conn, target string) (bool, error) {
 	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", removableScript, "sh", path.Dir(target), target}))
 	if err != nil {

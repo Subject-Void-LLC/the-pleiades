@@ -354,9 +354,12 @@ gone), a skipped, failed or unchecked task, a pause, a `parallel:` group, and a 
 leads through a symbolic link (where it leads in the real run depends on what earlier tasks
 did to the link). A removal is carried forward only when the device says it is allowed
 (the directory holding the path is writable for the login, and its sticky bit, if any, does
-not stand in the way), not for a whole tree, and not from a task with `ignore_errors`; what
-refuses a removal only when it is tried (an immutable flag, a busy mount point) is the one
-thing a check cannot see coming, here as for any single removal. From there every task
+not stand in the way; on a device whose shell is BusyBox, only for a login other than root,
+on a mount listed read-write), not for a whole tree, and not from a task with
+`ignore_errors`. A prediction rests on the earlier removal's own check being right, so what
+refuses a removal only when it is tried (an immutable flag, a busy mount point, an access
+list that denies deleting while allowing writing, as macOS and ZFS can) is carried into the
+later task's answer too: the same refusal a check of that one removal could not see. From there every task
 reads its device as it is. Where earlier removals
 make the device as it is unable to answer (a directory too large to list), the task is
 reported unchecked rather than guessed. A run that checks only some tasks (`check_mode:
