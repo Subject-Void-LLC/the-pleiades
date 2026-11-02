@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -98,6 +99,9 @@ func (s *ipcSession) invoke(ctx context.Context, desc collection.Descriptor, dev
 	req := childRequest(desc, mode, params, s.payload)
 	req.Detach = remoteexec.Detached(ctx)
 	child.detach = req.Detach
+	// Only a built-in method reaches here (an external one took the one-shot
+	// path above), so the snapshot goes to code this binary carries.
+	req.Predicted = sdk.PredictionsFrom(ctx)
 	if err := child.enc.Encode(&req); err != nil {
 		stderr := s.end(true)
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to send to the session child: %w (stderr: %s)", desc.Name, err, stderr)

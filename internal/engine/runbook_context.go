@@ -80,6 +80,16 @@ type runbookContext struct {
 	// adds them to the run's masking set once the method returns. Guarded by
 	// mu.
 	registered []string
+
+	// predicted is what earlier tasks of a check predicted for this device
+	// (sdk.PredictedState), lent by the Collection executor; nil outside a
+	// check.
+	predicted *wire.Predictions
+}
+
+// Predictions implements sdk.PredictedState.
+func (c *runbookContext) Predictions() *wire.Predictions {
+	return c.predicted
 }
 
 // compile-time proof this satisfies both the SDK contract and the engine's
@@ -93,6 +103,7 @@ var (
 	_ sdk.NamedSecrets        = (*runbookContext)(nil)
 	_ sdk.AIProject           = (*runbookContext)(nil)
 	_ sdk.Reviewer            = (*runbookContext)(nil)
+	_ sdk.PredictedState      = (*runbookContext)(nil)
 )
 
 // NewRunbookContext builds a context carrying secrets for one device.

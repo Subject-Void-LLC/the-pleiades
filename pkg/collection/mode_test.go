@@ -228,3 +228,20 @@ func TestCannotCheck_IsFoundThroughWrapping(t *testing.T) {
 		t.Error("an ordinary error was taken for a CannotCheckError")
 	}
 }
+
+// TestRegister_RefusesPredictsPathsWithoutCheck: predicted paths come only
+// from a check, so a method with none cannot declare it records them.
+func TestRegister_RefusesPredictsPathsWithoutCheck(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	err := collection.Register(collection.Descriptor{
+		Name: "modetest.predicts",
+		Invoke: func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+			return collection.Result{}, nil
+		},
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, PredictsPaths: true,
+			NoCheckReason: "a test fixture", Reversibility: collection.Reversibility{Notes: "a test fixture"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "predicts paths") {
+		t.Errorf("Register = %v, want a refusal naming predicted paths", err)
+	}
+}

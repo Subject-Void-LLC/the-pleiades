@@ -44,6 +44,15 @@ type RunbookContext struct {
 	// method only by name (DatabaseConnection). Like registry, the Runner
 	// sets them for its own built-in methods only.
 	databases []wire.DatabaseConnection
+	// predicted is what earlier tasks of a check predicted for this device
+	// (sdk.PredictedState). The Runner sends it for its own built-in methods
+	// only; an external program never receives it.
+	predicted *wire.Predictions
+}
+
+// Predictions implements sdk.PredictedState.
+func (c *RunbookContext) Predictions() *wire.Predictions {
+	return c.predicted
 }
 
 var (
@@ -51,6 +60,7 @@ var (
 	_ sdk.ConnectionPooler    = (*RunbookContext)(nil)
 	_ sdk.RegistryCredentials = (*RunbookContext)(nil)
 	_ sdk.DatabaseConnections = (*RunbookContext)(nil)
+	_ sdk.PredictedState      = (*RunbookContext)(nil)
 )
 
 // ConnectionPool implements sdk.ConnectionPooler: the pool this call's

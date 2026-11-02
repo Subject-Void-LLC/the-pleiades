@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"fmt"
+	pathpkg "path"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -86,6 +87,7 @@ func init() {
 			// A check reads the path and reports whether a real run would
 			// remove it, removing nothing. See CheckRemove.
 			SupportsCheck: true,
+			PredictsPaths: true,
 			Doc:           removeDoc(),
 		},
 		Invoke: Remove,
@@ -225,6 +227,12 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// An earlier task of this check removes the path first (Phase 46a), so a
+	// real run finds nothing to do here, as it would for a path already gone.
+	if mode == collection.ModeCheck && before.Exists() && sdk.PredictedAbsent(rc, path) {
+		before = remotefile.Info{Kind: remotefile.KindAbsent}
+	}
+
 	if !before.Exists() {
 		// Recorded even though nothing happened. An absent diff and a diff
 		// whose halves match are different statements: the first says this
@@ -242,7 +250,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		// rather than provoked: a directory the task may not recurse into
 		// is removed only when it is already empty.
 		if before.Kind == remotefile.KindDirectory && !recurse {
-			empty, err := remotefile.DirectoryEmpty(ctx, conn, path)
+			empty, err := predictedEmpty(ctx, conn, rc, path)
 			if err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
@@ -250,6 +258,13 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 				return collection.Result{}, fmt.Errorf("%s: refusing to remove directory %s: it is not empty. Set %s: true to remove a directory and everything inside it",
 					fqcn, path, removeParamRecurse)
 			}
+		}
+		// The path is gone for the rest of this check (Phase 46a), which a
+		// later task's check reads. A path the ledger cannot key as written
+		// (not absolute, or not cleaned) makes the device's predictions
+		// unknown instead, since only the device knows what it resolves to.
+		if err := recordRemoved(rc, path); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 	} else if err := removeTarget(ctx, conn, path, before.Kind, recurse); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -329,4 +344,34 @@ func removeEmptyDirectory(ctx context.Context, conn *remoteexec.Conn, path strin
 			path, strings.TrimSpace(result.Stderr), removeParamRecurse)
 	}
 	return nil
+}
+
+// maxPredictedEntries bounds how many entries a check lists to see whether
+// every one was predicted gone; a directory holding more keeps today's
+// predicted refusal.
+const maxPredictedEntries = 1024
+
+// predictedEmpty reports whether the directory at dirPath will be empty when
+// a real run of this task reaches it (Phase 46a): no entry is left once every
+// entry an earlier task of this check predicted gone is gone, and no earlier
+// task predicted one made inside it. With no predictions this is the
+// device's own answer, as before.
+func predictedEmpty(ctx context.Context, conn *remoteexec.Conn, rc sdk.RunbookContext, dirPath string) (bool, error) {
+	if sdk.PredictedPresentUnder(rc, dirPath) {
+		return false, nil
+	}
+	empty, err := remotefile.DirectoryEmpty(ctx, conn, dirPath)
+	if err != nil || empty || !sdk.PredictedAbsentUnder(rc, dirPath) {
+		return empty, err
+	}
+	names, truncated, err := remotefile.DirectoryEntries(ctx, conn, dirPath, maxPredictedEntries)
+	if err != nil || truncated {
+		return false, err
+	}
+	for _, name := range names {
+		if !sdk.PredictedAbsent(rc, pathpkg.Join(dirPath, name)) {
+			return false, nil
+		}
+	}
+	return true, nil
 }

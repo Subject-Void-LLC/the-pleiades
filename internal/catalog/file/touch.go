@@ -79,6 +79,7 @@ func init() {
 			// It reads the path before it writes, so a check can predict
 			// through the same code (CheckTouch).
 			SupportsCheck: true,
+			PredictsPaths: true,
 			// True, but only in part, which is the honest answer here and
 			// the reason Notes says what it says. One thing this method
 			// changes on every single run, the modification time, cannot
@@ -100,7 +101,7 @@ func init() {
 			Doc: touchDoc(),
 		},
 		Invoke: Touch,
-		Check:  CheckTouch,
+		Check:  predictMade(CheckTouch, touchParamPath),
 	})
 }
 

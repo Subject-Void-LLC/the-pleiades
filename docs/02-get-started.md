@@ -342,6 +342,15 @@ Every result a check produces says `predicted: true`, and so does its diff, so a
 that is only a prediction cannot be mistaken for one that happened, wherever it is read
 later: a later task's condition, or a stored result.
 
+A check reads each device as it is, but a later task on the same device also sees what
+the earlier tasks of the check predicted about its files. When one task would remove a
+file and a later one would remove the directory holding it, the second is predicted to
+succeed, as the real run would, rather than refused because the file is still there. The
+file methods that make or remove a path (`file.copy`, `file.template`, `file.directory`,
+`file.touch`, `file.symlink`, `file.remove`) record it. A task that would change something
+without saying which paths, or that fails or cannot be checked, ends that for the device:
+its later tasks read the device as it is.
+
 The first task read the device and predicted exactly what it would do; its diff's
 `after` half leaves out the owner and group, because a new directory gets those from
 the device and a prediction does not guess. The second task runs an arbitrary command,

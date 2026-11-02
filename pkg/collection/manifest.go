@@ -228,6 +228,15 @@ type Manifest struct {
 	// method, which gets the bare answer without it.
 	NoCheckReason string `json:"noCheckReason,omitempty"`
 
+	// PredictsPaths reports that this method's check records, through
+	// sdk.RecordPredicted, every path its real run would make or remove, so a
+	// later task in the same check can read what it predicted (Phase 46a). A
+	// method whose check predicts a change without declaring it leaves the
+	// device's predictions unknown for the rest of the check, since it may
+	// have changed a path nothing recorded. Only a method that supports check
+	// may declare it.
+	PredictsPaths bool `json:"predictsPaths,omitempty"`
+
 	// NoBecomeReason says why a task calling this method cannot run as
 	// another account (become), when it uses SSH but must not: its question
 	// is about the login itself, so a sudo in front of it would answer a

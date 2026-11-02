@@ -110,6 +110,7 @@ func init() {
 			// It reads the path and its checksum before it writes, so a
 			// check can predict through the same code (CheckCopy).
 			SupportsCheck: true,
+			PredictsPaths: true,
 			// True, and the Notes carry the half that is NOT restored. The
 			// run decides which inverse it actually emits: a created file
 			// undoes to a removal, an existing one undoes to its former
@@ -131,7 +132,7 @@ func init() {
 			Doc: copyDoc(),
 		},
 		Invoke: Copy,
-		Check:  CheckCopy,
+		Check:  predictMade(CheckCopy, copyParamDest),
 	})
 }
 

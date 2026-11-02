@@ -612,6 +612,32 @@ tasks:
 			t.Error("a checked rollback changed the device")
 		}
 	})
+
+	// The check of a rollback whose later undo depends on an earlier one: the
+	// directory is not empty when its undo's check asks, since removing the
+	// copy inside was only predicted. The copy's prediction reaches the
+	// directory's check (Phase 46a), so the check predicts what the real
+	// rollback does rather than refusing the directory as not empty.
+	t.Run("G7 a check predicts an undo that depends on an earlier one", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		g.device(t, "rm -rf /tmp/rb-g7")
+		runID, _ := g.run(t, "g7", "id: g7\nhosts: container1\ntasks:\n  - name: make\n    file.directory:\n      path: /tmp/rb-g7\n  - name: fill\n    file.copy:\n      dest: /tmp/rb-g7/new\n      content: \"new\\n\"\n")
+		rep := g.report(t, "rollback", runID, "--mode", "check")
+		if rep.Outcome.ExitCode != 0 || !slices.Equal(rep.methods(), []string{"file.remove tasks[1]", "file.remove tasks[0]"}) || len(rep.Tasks) != 2 ||
+			rep.Tasks[0].Status != "would_change" || rep.Tasks[1].Status != "would_change" {
+			t.Fatalf("a check of the rollback: %+v", rep)
+		}
+		if got := g.device(t, "ls -A /tmp/rb-g7"); got != "new" {
+			t.Errorf("a checked rollback changed the device: %q", got)
+		}
+		rep = g.report(t, "rollback", runID)
+		if rep.Outcome.ExitCode != 0 {
+			t.Fatalf("the rollback the check predicted: %+v", rep)
+		}
+		if got := g.device(t, "test -e /tmp/rb-g7 && echo present || echo gone"); got != "gone" {
+			t.Errorf("after the rollback /tmp/rb-g7 is %s", got)
+		}
+	})
 }
 
 // runListEntry is one run in `journal list --json`.

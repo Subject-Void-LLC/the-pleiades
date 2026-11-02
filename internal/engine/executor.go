@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -695,6 +696,10 @@ type run struct {
 	// notified is, per device, which handlers wait to run (notify.go).
 	notified *notifiedHandlers
 
+	// predicted is, per device, what this check's earlier tasks predicted
+	// (predicted.go), which a later task's method reads.
+	predicted *predictionLedger
+
 	// jobs are the run's background tasks, and leases the device leases they
 	// hold for the rest of the run to join (async.go).
 	jobs   asyncJobs
@@ -747,6 +752,7 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		items:     map[string]inventory.InventoryItem{},
 		facts:     newFactStore(),
 		notified:  newNotifiedHandlers(),
+		predicted: newPredictionLedger(),
 	}
 	result.Mode = r.mode
 	result.RunID = r.runID
@@ -840,6 +846,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		// comment for why an audit write must not become an execution
 		// failure on the Walk tier.
 		r.recordLevel(ctx, levelIndex, outs)
+		// What a check predicted, read whole for the level so two siblings that
+		// disagree on a path are seen, and for the next level's tasks to read.
+		r.recordPredictions(slices.Concat(outs...))
 
 		// A failure ends the walk unless a rescue: or an always: is left to
 		// run for it (handlers.go). A check never routes one: a failed check
@@ -1351,7 +1360,10 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 				err = refusePrediction(cmd.Task.FQCN, actionResult.Stats)
 			}
 		case collection.ModeCheck:
-			actionResult, err = r.checkAction(execCtx, cmd)
+			// What earlier tasks of this check predicted for the device, for the
+			// method to read (predicted.go, sdk.PredictedState).
+			checkCtx := sdk.WithPredictions(execCtx, r.predicted.snapshot(result.Device))
+			actionResult, err = r.checkAction(checkCtx, cmd)
 			r.recordActionSecrets(actionResult)
 			// An action that cannot be checked is reported by name and the
 			// walk carries on (check.go's second rule). It is not a failure,

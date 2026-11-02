@@ -79,6 +79,7 @@ func init() {
 			// It reads the path before it links, so a check can predict
 			// through the same code (CheckSymlink).
 			SupportsCheck: true,
+			PredictsPaths: true,
 			// Which inverse this is depends on what the run found, so the
 			// run emits it and this field answers only whether one can
 			// exist. See symlinkRecordInverse, and permRecordInverse for
@@ -97,7 +98,7 @@ func init() {
 			Doc: symlinkDoc(),
 		},
 		Invoke: Symlink,
-		Check:  CheckSymlink,
+		Check:  predictMade(CheckSymlink, symlinkParamPath, symlinkParamDest),
 	})
 }
 

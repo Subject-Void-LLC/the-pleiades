@@ -141,6 +141,9 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 	rc.registry = req.Registry
 	rc.databases = req.Databases
 	rc.pool = pool
+	// Only the Runner's own child is sent this (wire.ChildRequest.Predicted);
+	// the loader never puts it on an external program's request.
+	rc.predicted = req.Predicted
 	// PLAN.md Section 17.5: zero the secret memory this process holds the
 	// instant after use, success or failure. Best-effort against this
 	// type's own storage; see RunbookContext's own doc comment for why a

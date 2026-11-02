@@ -111,6 +111,10 @@ func checkCheckSupport(d Descriptor) error {
 		return fmt.Errorf("collection: %q declares check support and also a reason it cannot be checked", d.Name)
 	case d.CheckCall != nil && !d.Manifest.SupportsCheck:
 		return fmt.Errorf("collection: %q carries a CheckCall function but its manifest does not declare check support", d.Name)
+	case d.Manifest.PredictsPaths && !d.Manifest.SupportsCheck:
+		// Predicted paths come only from a check; a method with none has
+		// nothing to record them in.
+		return fmt.Errorf("collection: %q declares that its check predicts paths but does not declare check support", d.Name)
 	}
 	return nil
 }

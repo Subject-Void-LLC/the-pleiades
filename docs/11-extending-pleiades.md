@@ -454,6 +454,22 @@ The engine marks every check result, and its diff, with `predicted: true`
 (`sdk.StatPredicted`); a method never sets it, and a real run's result that carries it
 is refused.
 
+A check sees the device as it is, so a later task's check can be wrong about a path an
+earlier task's check only predicted it would remove or make. A method that makes or
+removes paths can fix that for the tasks after it: its `Check` records each such path
+with `sdk.RecordPredicted` (absolute and cleaned, `wire.PredictedAbsent` or
+`wire.PredictedPresent`), and its manifest sets `PredictsPaths`, which says the check
+records every path the method changes and needs `SupportsCheck`. A later check reads
+them with `sdk.PredictedAbsent(rc, path)` and `sdk.PredictedPresentUnder(rc, dir)`,
+which answer false whenever nothing was predicted, so the device is then read as it is.
+The engine keeps the predictions per device and applies a level's only after the whole
+level returns, so a sibling never reads another's. A device's predictions become unknown
+for the rest of the check when a task on it fails, cannot be checked, records a path it
+cannot name (`sdk.RecordPredictionUnknown`, for a path that is relative or not cleaned),
+or predicts a change from a method without `PredictsPaths`. A real run that records
+predicted paths fails the task. An external Collection's check may record them, but its
+program is never handed the device's predictions.
+
 A method whose effect cannot be known without running it (a script, an arbitrary
 command) leaves `SupportsCheck` false and says why in `Manifest.NoCheckReason`, in words
 an operator planning a dry run can act on. A check run then names its task as "could not

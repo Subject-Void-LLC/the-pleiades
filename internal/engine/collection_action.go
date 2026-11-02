@@ -300,6 +300,11 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	}
 
 	e.lendPool(ctx, rc, device)
+	// What earlier tasks of a check predicted for this device, when the
+	// engine put it on ctx (executor.go, predicted.go).
+	if lent, ok := rc.(*runbookContext); ok {
+		lent.predicted = sdk.PredictionsFrom(ctx)
+	}
 	e.lendAIProject(rc)
 	result, err := method(ctx, rc, device, task.Params)
 	e.endLoginSession(desc, device, mode)
