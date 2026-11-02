@@ -29,6 +29,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -97,6 +98,44 @@ type line struct {
 // hash.
 type seenTimes map[string]map[string]time.Time
 
+// lockOpenAttempts bounds how often openLock tries again; lockOpenRetries
+// counts the tries again, so a test can see whether a platform needed one.
+const lockOpenAttempts = 20
+
+var lockOpenRetries atomic.Int64
+
+// openLock opens (creating it when missing) a device's lock file. Opening one
+// with O_CREATE was seen to fail with "no such file or directory" on macOS
+// while another store created the same file at the same moment, in a
+// directory that still existed (fast-macos, 2026-11-02). Such a failure is
+// tried again, a bounded number of times and only while the directory itself
+// is still there, so a directory that really is gone still fails at once.
+func openLock(r *os.Root, name string) (*os.File, error) {
+	for attempt := 1; ; attempt++ {
+		f, err := r.OpenFile(name, os.O_CREATE|os.O_RDWR, fileMode)
+		if err == nil || !errors.Is(err, fs.ErrNotExist) || attempt == lockOpenAttempts {
+			return f, err
+		}
+		if !stillThere(r) {
+			return nil, err
+		}
+		lockOpenRetries.Add(1)
+		time.Sleep(time.Duration(attempt) * time.Millisecond)
+	}
+}
+
+// stillThere reports whether r's directory is still at its path: a handle to
+// a removed directory still answers a stat of ".", so the path is compared
+// with the handle.
+func stillThere(r *os.Root) bool {
+	held, err := r.Stat(".")
+	if err != nil {
+		return false
+	}
+	named, err := os.Stat(r.Name())
+	return err == nil && os.SameFile(held, named)
+}
+
 // root opens the directory as an os.Root, and checks device's name.
 func (s *FileStore) root(device string) (*os.Root, error) {
 	if !deviceName.MatchString(device) {
@@ -121,7 +160,7 @@ func (s *FileStore) Record(_ context.Context, device string, entries []Entry, at
 		return err
 	}
 	defer func() { _ = r.Close() }()
-	lock, err := r.OpenFile(device+".lock", os.O_CREATE|os.O_RDWR, fileMode)
+	lock, err := openLock(r, device+".lock")
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}

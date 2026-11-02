@@ -358,8 +358,9 @@ suite three and a half times in one job (test-race, test-repeat, test-integratio
 reran every ordinary test under the tag, and a fourth run inside `tools/coverage-check`),
 pulled every image anonymously from Docker Hub, and ran on two cores. Now `ci.yml` has
 jobs `ci` (`make ci-remote` on three operating systems), `fast` (`make ci-fast` on Ubuntu)
-and `fast-macos` (the same, advisory until it has passed once, and a job of its own so it
-cannot decide whether `coverage` runs), `containers` (`make ci-containers`,
+and `fast-macos` (the same, in three shards through `make ci-fast FAST_SHARD=k/3`, since a
+macOS runner fits one package at a time and the tier unsplit took 59 of its 60 minutes; advisory
+until it has passed once, and jobs of its own so they cannot decide whether `coverage` runs), `containers` (`make ci-containers`,
 six shards, images restored from a cache keyed on `tools/testimages`' list, with an
 optional read-only `DOCKERHUB_TOKEN` and no LocalStack, whose tests skip there as
 `needs localstack`; `tests/e2e` is timed in `tools/testgate/durations.json` test by test and

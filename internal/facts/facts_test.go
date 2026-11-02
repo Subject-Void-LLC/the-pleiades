@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -330,6 +331,85 @@ func TestFileStore_ConcurrentWritersTakeTurns(t *testing.T) {
 		if e.LastSeenAt.IsZero() {
 			t.Errorf("%s lost its last-seen time", e.Key)
 		}
+	}
+}
+
+// TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce: eight stores, as eight
+// CLI runs, each start writing the same forty new devices at the same moment,
+// so each device's lock file is created by several at once. On macOS one such
+// create failed with "no such file or directory" (fast-macos, 2026-11-02); the
+// store tries that again, and the log says how often it had to here.
+func TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "facts")
+	if _, err := facts.NewFileStore(dir); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	const stores, devices = 8, 40
+	before := facts.LockOpenRetries()
+	start := make(chan struct{})
+	errs := make(chan error, stores)
+	for w := range stores {
+		go func() {
+			store, err := facts.NewFileStore(dir)
+			if err != nil {
+				errs <- err
+				return
+			}
+			<-start
+			for d := range devices {
+				if err := store.Record(ctx, fmt.Sprintf("dev%d", d), prepared(t, map[string]any{fmt.Sprintf("w%d", w): d}), at); err != nil {
+					errs <- err
+					return
+				}
+			}
+			errs <- nil
+		}()
+	}
+	close(start)
+	for range stores {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("lock opens tried again on %s: %d", runtime.GOOS, facts.LockOpenRetries()-before)
+	store, _ := facts.NewFileStore(dir)
+	for d := range devices {
+		current, err := store.Current(ctx, fmt.Sprintf("dev%d", d))
+		if err != nil || len(current) != stores {
+			t.Fatalf("dev%d: %d facts, %v; want %d", d, len(current), err, stores)
+		}
+	}
+}
+
+// TestOpenLock_ADirectoryThatIsGoneFailsAtOnce: the retry is only for a
+// directory that is still there.
+func TestOpenLock_ADirectoryThatIsGoneFailsAtOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not remove a directory a handle holds open")
+	}
+	dir := filepath.Join(t.TempDir(), "gone")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	before := facts.LockOpenRetries()
+	if f, err := facts.OpenLock(r, "dev.lock"); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		if f != nil {
+			_ = f.Close()
+		}
+		t.Fatalf("a lock in a removed directory: %v, want not exist", err)
+	}
+	if n := facts.LockOpenRetries() - before; n != 0 {
+		t.Errorf("tried again %d times for a directory that is gone", n)
 	}
 }
 
