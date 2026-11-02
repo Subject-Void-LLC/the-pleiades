@@ -173,3 +173,34 @@ func nodeByDevice(t *testing.T, result engine.RunResult, nodeID, device string) 
 	t.Fatalf("no result for %s on %s", nodeID, device)
 	return engine.NodeResult{}
 }
+
+// TestCheckPredictions_AParallelGroupDropsThem: branches of a parallel group
+// run in no order the ledger can know, and the group's own markers stand for
+// no device, so a task after the group reads its device as it is.
+func TestCheckPredictions_AParallelGroupDropsThem(t *testing.T) {
+	registerPredictingMethods(t, true)
+	fleet := predictionFleet()
+	fleet["one"], fleet["two"] = fleet["fleet"][:1], fleet["fleet"][1:]
+	result, err := newCheckExecutor(fleet, engine.WithMode(collection.ModeCheck)).Run(context.Background(), buildDAG(t, `{"id": "parallel", "tasks": [
+		{"name": "fanout", "parallel": [
+			{"name": "a", "fqcn": "enginepredict.remove", "params": {"target": "one", "path": "/d/x"}},
+			{"name": "b", "fqcn": "enginepredict.remove", "params": {"target": "two", "path": "/d/x"}}
+		]},
+		{"name": "after", "fqcn": "enginepredict.observe", "params": {"target": "fleet", "path": "/d/x"}}
+	]}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var after *engine.NodeResult
+	for i := range result.Nodes {
+		if result.Nodes[i].Device == "dev-1" && result.Nodes[i].Stats["snapshot"] != nil {
+			after = &result.Nodes[i]
+		}
+	}
+	if after == nil {
+		t.Fatalf("the task after the group did not run: %+v", result.Nodes)
+	}
+	if after.Stats["snapshot"] != false || after.Stats["absent"] != false {
+		t.Errorf("a task after a parallel group read predictions: %+v", after.Stats)
+	}
+}

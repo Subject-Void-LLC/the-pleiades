@@ -639,6 +639,24 @@ tasks:
 		}
 	})
 
+	// A rollback whose steps a runbook's rollback: lists give in place of the
+	// recorded undos is checked the same way: the removal of the copy reaches
+	// the check of the directory's removal.
+	t.Run("G7b a check predicts a rollback the runbook's own rollback lists write", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		g.device(t, "rm -rf /tmp/rb-g7b")
+		runID, _ := g.run(t, "g7b", "id: g7b\nhosts: container1\ntasks:\n"+
+			"  - name: make\n    file.directory:\n      path: /tmp/rb-g7b\n    rollback:\n      - name: unmake\n        file.remove:\n          path: /tmp/rb-g7b\n"+
+			"  - name: fill\n    file.copy:\n      dest: /tmp/rb-g7b/new\n      content: \"new\\n\"\n    rollback:\n      - name: unfill\n        file.remove:\n          path: /tmp/rb-g7b/new\n")
+		rep := g.report(t, "rollback", runID, "--mode", "check")
+		if rep.Outcome.ExitCode != 0 || len(rep.Tasks) != 2 || rep.Tasks[0].Status != "would_change" || rep.Tasks[1].Status != "would_change" {
+			t.Fatalf("a check of the rollback: %+v", rep)
+		}
+		if got := g.device(t, "ls -A /tmp/rb-g7b"); got != "new" {
+			t.Errorf("a checked rollback changed the device: %q", got)
+		}
+	})
+
 	// A check through a second name for one directory: the file removed by
 	// one name and the file made by the other are the same directory's, which
 	// the check sees because it keys a path where the device resolves it, so
