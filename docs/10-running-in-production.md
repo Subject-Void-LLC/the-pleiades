@@ -658,12 +658,16 @@ ordinary run of ordinary tasks, journaled like any other.
   says to name the right file with `--runbook <file>`. Each such problem's `kind` is
   `no_runbook`.
 - **Checking a rollback.** `pleiades rollback <run-id> --mode check` checks each step
-  against the device as it is now. A step on a device that an earlier step of the same
-  rollback changes first (starting a link the step before it stops) meets a device
-  that step has not yet changed, so its check is provisional: the rollback names those
-  steps, and one whose check fails is reported unchecked with the reason rather than
-  failed, so the check ends incomplete (exit 3) instead of wrong. This is the CLI's;
-  a rollback job checked through the Controller holds every step to its check as it is.
+  against the device as it is now, plus, while every step so far is a `file.remove`,
+  what those earlier steps predicted removed: undoing a file copied into a new
+  directory, then the directory, is predicted to succeed, as the real rollback does,
+  on the command line and in a rollback job checked through the Controller alike. A step
+  that depends on any other change an earlier step makes first (starting a link the
+  step before it stops) meets a device that step has not yet changed, so its check is
+  provisional: the rollback names those steps, and one whose check fails is reported
+  unchecked with the reason rather than failed, so the check ends incomplete (exit 3)
+  instead of wrong. Naming steps as provisional is the CLI's; a rollback job checked
+  through the Controller holds every other step to its check as it is.
 - **What it cannot know.** A task that failed partway may have changed part of what
   it meant to, and a run whose process was killed has no seal on its journal, so its
   last level may be missing. Neither is guessed at. The CLI runs everything else and

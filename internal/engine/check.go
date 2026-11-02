@@ -178,6 +178,11 @@ func refusePrediction(fqcn string, stats map[string]any) error {
 	if claimed {
 		return fmt.Errorf("%s: its real run's result says it is a prediction (the %q stat), which only the engine sets, and only on a check", fqcn, sdk.StatPredicted)
 	}
+	// Predicted paths are a check's alone: a real run that records them is
+	// claiming a prediction it did not make.
+	if _, ok := stats[sdk.StatPredictedPaths]; ok {
+		return fmt.Errorf("%s: its real run's result records predicted paths (the %q stat), which only a check records", fqcn, sdk.StatPredictedPaths)
+	}
 	return nil
 }
 

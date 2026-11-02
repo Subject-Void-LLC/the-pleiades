@@ -108,6 +108,26 @@ func TestInvokeRequest_AnAsyncCallRunsDetachedInTheChild(t *testing.T) {
 	}
 }
 
+// TestInvokeRequest_PredictionsReachTheMethodInTheChild: the snapshot of what
+// earlier tasks in a check predicted, which in process rides the context,
+// reaches the method's RunbookContext in the child from the request.
+func TestInvokeRequest_PredictionsReachTheMethodInTheChild(t *testing.T) {
+	var got []bool
+	name := registerTestMethod(t, "predicted", collection.StatusImplemented,
+		func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+			got = append(got, sdk.PredictedAbsent(rc, wire.Location{Path: "/d/x"}))
+			return collection.Result{}, nil
+		})
+	for _, snap := range []*wire.Predictions{{Paths: []wire.PredictedPath{{Path: "/d", State: wire.PredictedAbsent}}}, nil} {
+		if resp := external.InvokeRequest(context.Background(), collection.Lookup, wire.ChildRequest{FQCN: name, Predicted: snap}); resp.Error != "" {
+			t.Fatalf("Predicted %+v: %s", snap, resp.Error)
+		}
+	}
+	if len(got) != 2 || !got[0] || got[1] {
+		t.Errorf("the method saw /d/x predicted gone %v, want [true false]", got)
+	}
+}
+
 func TestInvokeRequest_UnregisteredFQCN(t *testing.T) {
 	resp := external.InvokeRequest(context.Background(), collection.Lookup, wire.ChildRequest{FQCN: "does.not.exist"})
 	if resp.Error == "" {

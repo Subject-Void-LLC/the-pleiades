@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"syscall"
 	"testing"
@@ -342,6 +343,59 @@ func TestDirectoryEmpty(t *testing.T) {
 	}
 }
 
+// TestDirectoryEntries lists real directories: every kind of name a glob can
+// miss (hidden, two leading dots, a newline inside, a dangling link), none of
+// "." and "..", the limit with and without a name past it, and a directory
+// this account cannot read or that is not there as errors, never as empty.
+func TestDirectoryEntries(t *testing.T) {
+	conn := connect(t)
+	root := t.TempDir()
+	full := filepath.Join(root, "full")
+	if err := os.Mkdir(full, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"plain", ".hidden", "..double", "new\nline"}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(full, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(root, "nowhere"), filepath.Join(full, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	want := append(slices.Clone(names), "dangling")
+	slices.Sort(want)
+
+	got, more, err := remotefile.DirectoryEntries(context.Background(), conn, full, 5)
+	slices.Sort(got)
+	if err != nil || more || !slices.Equal(got, want) {
+		t.Errorf("DirectoryEntries(limit 5) = %q, more %v, %v; want %q and no more", got, more, err, want)
+	}
+	if got, more, err := remotefile.DirectoryEntries(context.Background(), conn, full, 2); err != nil || !more || len(got) != 2 {
+		t.Errorf("DirectoryEntries(limit 2) = %q, more %v, %v; want two and more", got, more, err)
+	}
+	empty := filepath.Join(root, "empty")
+	if err := os.Mkdir(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, more, err := remotefile.DirectoryEntries(context.Background(), conn, empty, 0); err != nil || more || len(got) != 0 {
+		t.Errorf("an empty directory: %q, more %v, %v", got, more, err)
+	}
+	if _, _, err := remotefile.DirectoryEntries(context.Background(), conn, filepath.Join(root, "missing"), 5); err == nil {
+		t.Error("a missing directory listed as empty")
+	}
+	if os.Geteuid() != 0 {
+		sealed := filepath.Join(root, "sealed")
+		if err := os.Mkdir(sealed, 0o300); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(sealed, 0o700) })
+		if _, _, err := remotefile.DirectoryEntries(context.Background(), conn, sealed, 5); err == nil {
+			t.Error("an unreadable directory listed as empty")
+		}
+	}
+}
+
 // TestDirectoryEmpty_ReportsATransportFailure covers the branch where the
 // probe cannot run at all: a server that authenticates and then refuses
 // every session.
@@ -365,5 +419,14 @@ func TestDirectoryEmpty_ReportsATransportFailure(t *testing.T) {
 
 	if _, err := remotefile.DirectoryEmpty(context.Background(), conn, t.TempDir()); err == nil {
 		t.Fatal("a probe that never ran was reported as an answer")
+	}
+	if _, _, err := remotefile.DirectoryEntries(context.Background(), conn, t.TempDir(), 5); err == nil {
+		t.Fatal("a listing that never ran was reported as an answer")
+	}
+	if _, err := remotefile.Locate(context.Background(), conn, t.TempDir()); err == nil {
+		t.Fatal("a location that was never read was reported as an answer")
+	}
+	if _, err := remotefile.Removable(context.Background(), conn, filepath.Join(t.TempDir(), "f")); err == nil {
+		t.Fatal("a removal that was never asked about was reported as allowed or not")
 	}
 }

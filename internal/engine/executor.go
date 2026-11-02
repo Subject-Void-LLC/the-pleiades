@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -213,6 +214,12 @@ type NodeResult struct {
 	background bool
 	fromJob    bool
 	collected  *NodeResult
+
+	// predicted is what a check recorded under sdk.StatPredictedPaths, taken
+	// off Stats so it reaches neither register nor a report, and
+	// predictedSet says it recorded one at all (predicted.go).
+	predicted    any
+	predictedSet bool
 
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
@@ -695,6 +702,10 @@ type run struct {
 	// notified is, per device, which handlers wait to run (notify.go).
 	notified *notifiedHandlers
 
+	// predicted is, per device, what this check's earlier tasks predicted
+	// (predicted.go), which a later task's method reads.
+	predicted *predictionLedger
+
 	// jobs are the run's background tasks, and leases the device leases they
 	// hold for the rest of the run to join (async.go).
 	jobs   asyncJobs
@@ -748,6 +759,11 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		facts:     newFactStore(),
 		notified:  newNotifiedHandlers(),
 	}
+	// Predictions are kept only when the whole run is a check: the real tasks
+	// of a run that checks only some would change what they vouch for.
+	if r.mode == collection.ModeCheck {
+		r.predicted = newPredictionLedger()
+	}
 	result.Mode = r.mode
 	result.RunID = r.runID
 	for _, s := range x.knownSecrets {
@@ -784,6 +800,7 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		if len(drained) == 0 {
 			return
 		}
+		r.predicted.dropAll()
 		result.Nodes = append(result.Nodes, drained...)
 		r.recordLevel(context.WithoutCancel(ctx), levelIndex+1, [][]NodeResult{drained})
 	}()
@@ -840,6 +857,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		// comment for why an audit write must not become an execution
 		// failure on the Walk tier.
 		r.recordLevel(ctx, levelIndex, outs)
+		// What a check predicted, read whole for the level so two siblings that
+		// disagree on a path are seen, and for the next level's tasks to read.
+		r.recordPredictions(slices.Concat(outs...))
 
 		// A failure ends the walk unless a rescue: or an always: is left to
 		// run for it (handlers.go). A check never routes one: a failed check
@@ -862,6 +882,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		// and settling the frames alternate, since settling can hand a
 		// failure on to an enclosing block that undoes in turn.
 		r.handlers.finished(level)
+		// An undo run below reaches the run outside a level, so the ledger
+		// never reads it: what it changed drops every device's predictions.
+		beforeUndo := len(result.Nodes)
 		for {
 			if r.rollBack(ctx, levelIndex, &result) {
 				failed = true
@@ -872,6 +895,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 			if len(r.handlers.pending) == 0 {
 				break
 			}
+		}
+		if len(result.Nodes) != beforeUndo {
+			r.predicted.dropAll()
 		}
 		markRescued(result.Nodes, r.handlers)
 		if failed && ending == nil {
@@ -1351,8 +1377,15 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 				err = refusePrediction(cmd.Task.FQCN, actionResult.Stats)
 			}
 		case collection.ModeCheck:
-			actionResult, err = r.checkAction(execCtx, cmd)
+			// What earlier tasks of this check predicted for the device, for the
+			// method to read (predicted.go, sdk.PredictedState).
+			checkCtx := sdk.WithPredictions(execCtx, r.predicted.snapshot(result.Device))
+			actionResult, err = r.checkAction(checkCtx, cmd)
 			r.recordActionSecrets(actionResult)
+			if v, ok := actionResult.Stats[sdk.StatPredictedPaths]; ok {
+				result.predicted, result.predictedSet = v, true
+				delete(actionResult.Stats, sdk.StatPredictedPaths)
+			}
 			// An action that cannot be checked is reported by name and the
 			// walk carries on (check.go's second rule). It is not a failure,
 			// so it gets no failure stage, and nothing is registered for it:

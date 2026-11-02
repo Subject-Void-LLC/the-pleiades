@@ -454,6 +454,42 @@ The engine marks every check result, and its diff, with `predicted: true`
 (`sdk.StatPredicted`); a method never sets it, and a real run's result that carries it
 is refused.
 
+A check sees the device as it is, so a later task's check can be wrong about a path an
+earlier task's check only predicted it would remove. A built-in method that removes paths
+and makes none can fix that for the tasks after it. When `sdk.PredictionsWanted(rc)` says
+the run keeps predictions (only a run that is a check throughout does, and only until they
+are dropped), its `Check` locates each path it removes with `remotefile.Locate`, which reads
+the physical path and the identity of each directory along it, and records it with
+`sdk.RecordPredicted` (`wire.PredictedAbsent`; an empty call when it removes nothing). A path
+it cannot locate, or one that resolves anywhere but where it is written (a link along it), is
+recorded with `sdk.RecordPredictionUnknown`, and so is a removal the real run may not be able
+to make: `file.remove` records one only when `remotefile.Removable` says the device allows it
+and it is not a whole tree (under a BusyBox shell, whose `test` answers neither for root nor for
+a read-only mount, only for another login on a mount listed read-write), and a directory it
+found empty only through earlier predictions,
+in a parent that does not allow its removal, answers `collection.CannotCheck`. Its manifest
+sets `PredictsPaths`, which says the
+check records every path the method changes on every check, makes nothing, and needs
+`SupportsCheck`. `file.remove` is the one method that sets it: a prediction that a path is
+gone is exactly what making a path can make false, so no method that makes one may. A later
+check asks with the location it read: `sdk.PredictedAbsent` and `sdk.PredictedAbsentUnder`
+answer false whenever the predictions cannot vouch for that location
+(`sdk.PredictionsVouch`), so the device is then read as it is; where earlier removals leave
+a question the device as it is cannot answer (a listing it cannot finish), answer
+`collection.CannotCheck`.
+
+The engine keeps the predictions per device and applies a level's only after the whole level
+returns. It keeps them only while every task in the run, on every device, is a successful
+check by a built-in method with `PredictsPaths` that recorded, or an in-process engine action
+such as `set_fact` (a `pause` is not one: it hands the device to a person), and none carries
+`ignore_errors` (its author expects its real run may fail). Anything else
+drops every device's for the rest of the run, whatever it reported, since a device may share
+a filesystem with another. So do a recorded unknown, one directory identity met under two
+paths, and the bound. The engine takes `predicted_paths` off the result, so it reaches neither
+`register:` nor a report, and a real run that records it fails the task. An external
+Collection's records and declaration are not trusted, and its program is never handed the
+device's predictions.
+
 A method whose effect cannot be known without running it (a script, an arbitrary
 command) leaves `SupportsCheck` false and says why in `Manifest.NoCheckReason`, in words
 an operator planning a dry run can act on. A check run then names its task as "could not

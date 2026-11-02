@@ -19359,3 +19359,217 @@ were written as fixes, not as a new file. The pre-gate measurement 744 asks for 
 
 **Lesson.** As 796's. A review fix that adds a file is new code, and its failure paths get tests before it is
 measured.
+
+## 807. The first predicted-state ledger keyed a path as the runbook wrote it, so a symbolic link, a merged /usr, a bind mount or a case-folding filesystem gave one place two keys (a repeat in kind of 313, and of LESSONS 229 and 367) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's first review of Phase 46a, 2026-11-02. The first design (`68c25da5`) kept,
+per device, the paths a check predicted removed or made, keyed by the path as written. A later task that named the same
+place another way (through a symbolic link, `/bin` against `/usr/bin` on a merged-/usr system, a bind mount, or another
+case on a case-folding filesystem) missed the record, or met a record that did not describe where its real run would
+land. The ledger vouched for paths the real run meets differently.
+
+**Root cause.** LESSONS 229's class: a lexical path names a spelling, not a place on the device. A ledger of predicted
+state is a map from place to state, and it took the place from text.
+
+**Fix.** `71242adb` keys each prediction where the device resolves it: `remotefile.Locate` reads the physical path and
+each existing directory's `dev:ino` in one `sh` command, and one directory identity met under two paths drops the
+predictions. `d57b0f73` records a path only where it resolves as written (a link along it records unknown, since where
+the link leads in the real run depends on earlier tasks) and also dropped on names a case-folding filesystem could
+join. Since `4a1ccaf8` the ledger records removals only (808), so a second spelling of a path can only miss a record,
+which reads the device as it is. Tests: `TestLocate` (compared with `syscall.Stat`),
+`TestLedger_ADirectoryUnderTwoPathsDropsTheLedger`, `TestCheckRemove_APathThroughALinkDropsThePredictions`, and
+`TestCLI_RollbackReleaseGate`'s G8 ("a check sees a path made through a link").
+
+**Why 313, 229 and 367 did not prevent it.** Each was written about confinement: whether a path stays inside a root.
+The ledger confines nothing, so nobody read those rules as applying to it. But a key says "this is the same file",
+which is the same question about the filesystem asked another way.
+
+**Lesson.** A map keyed by path claims identity, and is held to LESSONS 229: key it by what the device says the place
+is, and treat a second spelling as a reason to stop trusting the map, not as a new key.
+
+## 808. The predicted-state ledger held claims that later tasks could make false, and three reviews of two designs kept finding more: each hole a "this is gone or empty" undone by something made (fixed before push, by recording removals only)
+
+**Symptom.** Found by the fp-reviewer agent's three reviews of Phase 46a, 2026-11-02, besides 807's keys. Pass 1 (on
+`68c25da5`): a method without `PredictsPaths` reporting "no change" was trusted, though its answer was read against the
+device as it is; real tasks between `check_mode` tasks in a mixed run changed the device the ledger described; a task
+skipped by its condition was not accounted for. Pass 2 (on `71242adb`): a later path was located against links an
+earlier task made or removed; predictions restarted after a drop; a "present" record was wider than the path it named;
+sibling tasks overlapped on an ancestor directory. Pass 3 (on `d57b0f73`, whose "fresh" state recorded paths made where
+nothing was): directories `mkdir -p` makes went unrecorded; a copy into a removed directory was treated as making it;
+and devices sharing a filesystem each kept a ledger that the other's tasks could falsify. Each let a later task's check
+answer differently from its real run, which includes passing where the run fails (the outcome 564 and 739 record).
+
+**Root cause.** The ledger made two kinds of claim, that a path is gone and that a path is present, and admitted tasks
+whose effects it could not see in full. A claim that a path is gone, or a directory empty, is made false by anything
+that creates a path, and a path can be created by many routes the ledger never saw: a parent made by `mkdir -p`, a copy,
+a link, a real task in a mixed run, another device's task on a shared filesystem. Each fix closed the routes its review
+named and kept the design, so the next review found another route.
+
+**Fix.** `4a1ccaf8`: record removals only. `file.remove` is the one method declaring
+`collection.Manifest.PredictsPaths`, and the first task in the run that is anything else, on any device (another
+method whatever it reported, a skip, a failed or unchecked task, a deviceless task, a `parallel:` marker, a recorded
+unknown, an external program's records, the bound), drops every device's predictions for the rest of the run. A drop
+lasts for the run (`d57b0f73`), and only a run that is a check throughout keeps a ledger (`71242adb`). Tests:
+`TestLedger_AnythingButARecordedRemovalDropsEveryDeviceForGood`, `TestLedger_SiblingsRemovingInEitherOrderAgree`,
+`TestLedger_PastItsBoundIsDropped`, `TestCheckPredictions_AnUndeclaredMethodDropsTheDevice`,
+`TestCheckPredictions_ARealRunCheckingSomeTasksKeepsNone`, `TestCheckPredictions_AParallelGroupDropsThem`,
+`TestMethodsThatMakePathsDoNotPredict`, and `TestCLI_RollbackReleaseGate`'s G9, which runs each review's runbooks and
+asserts that a check never passes what the real run fails; mutation checks showed each rule is needed.
+
+**Why the earlier fixes did not hold.** `71242adb` and `d57b0f73` each fixed what their review named and kept recording
+paths made. A design that admits claims something made can falsify has to see every way a thing is made, and no list of
+routes was ever complete. LESSONS 374 and 375.
+
+**Lesson.** See LESSONS 374 (what a cache of predicted state may hold) and 375 (narrow the scope before the third
+patch).
+
+## 809. A check's directory listing ran through the account's login shell, so a POSIX script met zsh, fish or csh (a sibling of 779) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's first review of Phase 46a, 2026-11-02. The directory listing
+`file.remove`'s check reads, to see whether every entry is predicted gone, was sent as a command for the account's login
+shell. A login shell of zsh, fish or csh parses a POSIX script differently, or refuses it.
+
+**Root cause.** sshd hands the command string to the account's login shell. A script written for POSIX `sh` is POSIX
+only when `sh` runs it.
+
+**Fix.** `71242adb`: the listing runs under `sh -c`. `Locate` and `Removable` (`pkg/remotefile/locate.go`) do the same,
+and each script is one line, because the login shell still parses the quoted command before `sh` runs it and csh refuses
+a newline inside quotes (the comment on `locateScript`).
+
+**Why 779 did not prevent it.** 779 is the other half: a user's command goes to the login shell, as an attached run
+sends it. It said nothing about the platform's own scripts.
+
+**Lesson.** Decide for each remote command whose language it is. A user's command goes to the login shell; the
+platform's own script goes to `sh -c`, on one line.
+
+## 810. The predicted_paths stat reached register: and reports (a sibling of 507) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer agent's second review of Phase 46a, 2026-11-02. The stat a check records its
+predictions in (`sdk.StatPredictedPaths`) stayed on the node's result, so it reached a task's `register:` and every
+report, where it is engine bookkeeping rather than a result.
+
+**Root cause.** The record rode the ordinary stats map, and nothing took it off once the engine had read it.
+
+**Fix.** `d57b0f73`: the engine takes the stat off the result when it reads it, and a real run that records it fails
+the task. Test: `TestCheckPredictions_ReachALaterTaskOnEachDevice` asserts the stat is not on the result;
+`TestCheckPredictions_ARealRunHasNoneAndMayRecordNone` holds the real run.
+
+**Why 507 did not prevent it.** 507 is about the same shape (what an outcome may carry, enforced where every outcome
+passes) for the undo stat. A new engine-only stat was added without asking that question.
+
+**Lesson.** A stat the engine reads for itself is taken off the result where it is read, in the same change that adds
+it.
+
+## 811. A removal the real run cannot make (a parent the login may not write) was carried into a later task's check, which then passed where main's failed (a repeat in kind of 564 and 739) (fixed before push)
+
+**Symptom.** Found by the claim-refuter agent, 2026-11-02, on `4a1ccaf8`. A `file.remove` of a file in a directory the
+login could not write was predicted, and recorded as gone. A later `file.remove` of a directory holding it read that
+prediction, found the directory empty, and its check passed. The real run fails at the first removal with EACCES. On
+main the same check failed too, but at the later task, refused as "not empty": it agreed with the real run by
+coincidence.
+
+**Root cause.** A prediction rests on the real run making the removal its check predicted. `file.remove`'s check does
+not ask whether the directory holding the path allows the removal, and the ledger took every predicted removal as one
+the real run makes. (Read in the code on this branch, not changed by it: `file.remove`'s own check of that one removal
+still predicts success where the parent refuses, as on main. Only carrying it forward is fixed.)
+
+**Fix.** `a32ad8f6`: `file.remove` records a removal only when `remotefile.Removable` says the device allows it
+(`test -w` and `-x` on the parent; under a sticky bit, root or the owner of the parent or the entry, by POSIX
+`find -user`) and it is not a recursive directory removal, whose subdirectories could refuse partway. A directory found
+empty only through predictions, in a parent that refuses its removal, is `CannotCheck`. A task with `ignore_errors`
+drops the ledger, since its author expects its real run may fail. The first version of `Removable` had no sticky rule,
+and G7 failed, because `/tmp` is sticky; the sticky rule was added before the commit. Tests:
+`TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake`, `TestCheckRemove_AnUnansweredRemovalQuestionRecordsUnknown`,
+`TestRemovable`, and `TestCLI_RollbackReleaseGate`'s G7 and G9.
+
+**Residual, by the owner's decision (2026-11-02).** What refuses a removal only when it is tried (an immutable flag, a
+busy mount point, a delete-deny ACL on macOS or ZFS, an ACL under BusyBox) is not visible to a check, so such a refusal
+carries into a later task's answer: the same refusal a check of that one removal cannot see. It is documented in
+`docs/02-get-started.md` and `docs/11-extending-pleiades.md`. LESSONS 376.
+
+**Why 564 and 739 did not prevent it.** Both say a check must not pass where the run fails, and 739 says a check asks
+the write's own prediction rather than a stand-in. The ledger made one check's answer the input of another, and the
+first check's blind spot (no question about the parent) had been harmless until a later check leaned on it.
+
+**Lesson.** When one check's answer feeds another, the first check's blind spots become the second's. Before leaning on
+a prediction, ask what its check does not look at.
+
+## 812. BusyBox's test -w says writable to root on a read-only mount, because it reads the mode bits itself where dash, bash and FreeBSD's sh ask access(2); the project's own sshd test image runs BusyBox (a repeat in kind of 248 and 375) (fixed before push)
+
+**Symptom.** Measured by the claim-refuter agent's second pass, 2026-11-02, on `a32ad8f6`. `remotefile.Removable` asked
+`test -w` and `test -x` of the parent directory, on the understanding that `test` answers through access(2), which
+counts the mode bits, an ACL, a read-only mount and root. BusyBox's `test` reads the mode bits itself: for root it says
+writable to anything, and for any login it does not see a read-only mount. So `Removable` said yes to a removal the
+real run cannot make, and 811's fix did not hold on BusyBox. The project's own sshd test image is Alpine, whose `sh` is
+BusyBox.
+
+**Root cause.** "`test -w` is access(2)" is true of dash, bash and FreeBSD's sh, and was assumed of every `sh`.
+
+**Fix.** `bd024a25`: `removableScript` finds BusyBox (`readlink /proc/$$/exe`, or `sh --help` naming it). Under BusyBox,
+root is answered no, and another login is answered yes only when the mount holding the directory (the longest mount
+point above it in `/proc/self/mountinfo`) is listed `rw`. An ACL it still cannot see, which is part of 811's residual.
+Test: `TestRemovableScript_RefusesWhatItCannotVouchFor` (BusyBox, mountinfo, root in a user namespace). `pkg/remotefile`
+passed on the FreeBSD lab VM (bsd-check) at `bd024a25`.
+
+**Why 248 and 375 did not prevent it.** 248 found GNU and BusyBox `chmod` reading one argument differently, and 375 a
+BSD fallback never run on BSD. Each lesson named its own tool. Nothing asks, of a shell builtin a decision rests on,
+which shells the project meets and whether each answers the same.
+
+**Lesson.** LESSONS 377: a shell test a safety answer rests on is measured on every shell the project meets, starting
+with its own test images.
+
+## 813. A Go test's os.FileMode(0o1777) was never sticky: Go's sticky bit is os.ModeSticky, and the octal 01000 bit maps to nothing (a sibling of 375) (fixed before push)
+
+**Symptom.** 2026-11-02, writing `Removable`'s tests (`pkg/remotefile/locate_test.go`). A fixture made its directory with
+`os.FileMode(0o1777)`, expecting the sticky bit. The directory was made `0777`, so the sticky case tested a plain
+directory.
+
+**Root cause.** `os.FileMode` keeps the permission bits in its low nine bits and the special bits as its own flags
+(`os.ModeSticky`, `os.ModeSetuid`, `os.ModeSetgid`). The octal 01000 bit is not one of them, and the conversion to a
+system mode drops it.
+
+**Fix.** The fixture uses `0o777 | os.ModeSticky` (`TestRemovable`, `TestRemovableScript_RefusesWhatItCannotVouchFor`).
+
+**Lesson.** In Go, write a special mode bit as its `os.Mode*` flag, never as an octal digit, and have a fixture assert
+the bit it needs before the test relies on it.
+
+## 814. Locate's script ran set -- before reading $2, so a directory never listed its own identity (fixed before push)
+
+**Symptom.** 2026-11-02. `remotefile.Locate` should print the `dev:ino` of the path itself when it is a directory. It
+never did. `TestLocate`, which compares each identity with `syscall.Stat`, caught it.
+
+**Root cause.** `locateScript` cleared the positional parameters with `set --`, to build the list of directories, before
+it read `$2`, the path's last name. `$2` was then empty, so the "is this path a directory" test never held.
+
+**Fix.** In `d57b0f73`: the script copies `$1` and `$2` into variables first (`d=$1; name=$2`) and only then runs
+`set --`.
+
+**Lesson.** In a shell script that reuses `"$@"` as a list, copy every argument into a named variable on the first line.
+
+## 815. filepath.Join cleaned away the `..` a test meant to pass (a sibling of 813) (fixed before push)
+
+**Symptom.** 2026-11-02, `TestLocate`. The test meant to hand `Locate` a path holding `..`, which it must refuse, and
+built it with `filepath.Join`. `Join` cleans its result, so the `..` was gone before `Locate` saw it.
+
+**Root cause.** The fixture used a helper that normalizes, for an input whose point is that it is not normal.
+
+**Fix.** The test builds the path by concatenation (`root + "/a/../b"`).
+
+**Lesson.** As 813's: a fixture whose point is an unusual input is built without a helper that could normalize it, and
+the test checks the input it built.
+
+## 816. Two internal/engine test fixtures stood for something other than what they modeled: parallel branches on one device, and directory identities numbered by path length (fixed before push)
+
+**Symptom.** 2026-11-02, writing Phase 46a's engine tests. A test of a `parallel:` group put both branches on one device,
+where they contended for the device lock. A fixture numbered each directory's identity by the length of its path, so
+two directories whose paths were the same length shared one, which the ledger reads as one directory under two paths.
+What each failure looked like when it was hit was not recorded.
+
+**Root cause.** Each fixture modeled the case loosely: one device cannot run two branches at once, and an identity has
+to be unique to stand for one.
+
+**Fix.** `TestCheckPredictions_AParallelGroupDropsThem` puts its branches on different devices. `dirsOf`
+(`internal/engine/predicted_internal_test.go`) numbers each directory by a hash of its path.
+
+**Lesson.** A fixture that stands for a device or a filesystem keeps the property the code relies on: one device is
+locked by one task at a time, and an identity is unique.

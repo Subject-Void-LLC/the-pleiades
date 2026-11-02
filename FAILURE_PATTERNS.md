@@ -810,6 +810,16 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 804. Every tick rescanned every journal while holding the counter's lock, so a large project made other runs wait, and a seal that timed out at the 10-second wait would have left a run with no end tick (fixed before push; suspected, not measured)
 805. pleiades run's end-of-run warning that another run changed a device while this one worked still decided its window by wall clock (the class of 551, in a warning) (fixed before push)
 806. internal/journal fell under its 94.1% floor again, at 93.0%, with the run marker code (a repeat of 796) (fixed before push)
+807. The first predicted-state ledger keyed a path as the runbook wrote it, so a symbolic link, a merged /usr, a bind mount or a case-folding filesystem gave one place two keys (a repeat in kind of 313, and of LESSONS 229 and 367) (fixed before push)
+808. The predicted-state ledger held claims that later tasks could make false, and three reviews of two designs kept finding more: each hole a "this is gone or empty" undone by something made (fixed before push, by recording removals only)
+809. A check's directory listing ran through the account's login shell, so a POSIX script met zsh, fish or csh (a sibling of 779) (fixed before push)
+810. The predicted_paths stat reached register: and reports (a sibling of 507) (fixed before push)
+811. A removal the real run cannot make (a parent the login may not write) was carried into a later task's check, which then passed where main's failed (a repeat in kind of 564 and 739) (fixed before push)
+812. BusyBox's test -w says writable to root on a read-only mount, because it reads the mode bits itself where dash, bash and FreeBSD's sh ask access(2); the project's own sshd test image runs BusyBox (a repeat in kind of 248 and 375) (fixed before push)
+813. A Go test's os.FileMode(0o1777) was never sticky: Go's sticky bit is os.ModeSticky, and the octal 01000 bit maps to nothing (a sibling of 375) (fixed before push)
+814. Locate's script ran set -- before reading $2, so a directory never listed its own identity (fixed before push)
+815. filepath.Join cleaned away the `..` a test meant to pass (a sibling of 813) (fixed before push)
+816. Two internal/engine test fixtures stood for something other than what they modeled: parallel branches on one device, and directory identities numbered by path length (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

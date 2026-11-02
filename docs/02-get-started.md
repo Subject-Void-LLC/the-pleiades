@@ -342,6 +342,29 @@ Every result a check produces says `predicted: true`, and so does its diff, so a
 that is only a prediction cannot be mistaken for one that happened, wherever it is read
 later: a later task's condition, or a stored result.
 
+A check reads each device as it is, but when the whole run is a check and its tasks so far
+only remove files, a later task also sees what the earlier ones predicted removed. When one
+task would remove a file and a later one would remove the directory holding it, the second
+is predicted to succeed, as the real run would, rather than refused because the file is
+still there. This is how the check of a rollback that undoes "make a directory, copy a file
+into it" predicts success. It stops, for every device and for the rest of the run, at the
+first task that is anything but a `file.remove` the check could follow: any other method's
+task whatever it reports (making a file is what could undo a prediction that a path is
+gone), a skipped, failed or unchecked task, a pause, a `parallel:` group, and a path that
+leads through a symbolic link (where it leads in the real run depends on what earlier tasks
+did to the link). A removal is carried forward only when the device says it is allowed
+(the directory holding the path is writable for the login, and its sticky bit, if any, does
+not stand in the way; on a device whose shell is BusyBox, only for a login other than root,
+on a mount listed read-write), not for a whole tree, and not from a task with
+`ignore_errors`. A prediction rests on the earlier removal's own check being right, so what
+refuses a removal only when it is tried (an immutable flag, a busy mount point, an access
+list that denies deleting while allowing writing, as macOS and ZFS can) is carried into the
+later task's answer too: the same refusal a check of that one removal could not see. From there every task
+reads its device as it is. Where earlier removals
+make the device as it is unable to answer (a directory too large to list), the task is
+reported unchecked rather than guessed. A run that checks only some tasks (`check_mode:
+true` on a task) keeps no predictions, since its real tasks change the device in between.
+
 The first task read the device and predicted exactly what it would do; its diff's
 `after` half leaves out the owner and group, because a new directory gets those from
 the device and a prediction does not guess. The second task runs an arbitrary command,

@@ -6883,3 +6883,68 @@ in-process manager's random id) and treat a pair from different epochs as unorde
 each record (`lock.Fence`), which the heartbeat marks lost and nothing marks found again. Test both: a second manager
 never shares an epoch (`TestFencingEpoch_TwoInProcessManagersNeverShareOne`), and a lost fence stamps nothing
 (`TestFence_CarriesATokenUntilLost`).
+
+## 374. A cache of predicted state is safe only when every claim it holds stays true under every operation it admits, and it is dropped for good at the first operation outside that set: a ledger of removals admits only removals, because removing more never makes "this is gone" false (extends 255 and 307) (2026-11-02).
+
+**Why.** Phase 46a lets a check carry what an earlier task predicted into a later task's check, so the check of a
+rollback that removes a copied file and then its directory predicts success, as the real rollback does. LESSONS 255 and
+307 say a check reads the device as it is and answers "could not check" for what an earlier task may change; a ledger
+is the first thing that answers instead. Its first two designs recorded paths removed and paths made, and admitted
+other methods' tasks, real tasks in a mixed run and skips. Three fp-reviewer passes broke them (FAILURE_PATTERNS 807 and
+808): every hole was a claim that something is gone or empty, made false by something made through a route the ledger
+did not see (`mkdir -p`, a copy, a link, a real task, another device on a shared filesystem). The design that held
+records removals only, and drops every device's predictions, for the rest of the run, at the first task that is
+anything else. Under that rule a second spelling of a path can only miss a record, and a missed record reads the device
+as it is, which is where a check started.
+
+**Rule in practice.** Before a cache of predicted or derived state answers anything, write down its claims and the
+operations it admits, and check each pair: can this operation make that claim false? Admit only operations under which
+every claim is monotone. Anything else drops the cache for good, not until the next admitted operation, since what was
+made in between is not known. A key that can be spelled two ways must make a miss the failure, never a false hit. Prove
+it with a gate that runs each reviewer's counterexample and asserts the cached answer never passes what the real run
+fails (`TestCLI_RollbackReleaseGate` G9).
+
+## 375. When adversarial reviews keep finding holes of one family, narrow what the design claims before writing the third patch: removing a kind of claim closes the family, and guarding one route closes one hole (2026-11-02).
+
+**Why.** Phase 46a's ledger was patched twice (`71242adb`, `d57b0f73`), each patch closing what its review named, and
+each next review found more of the same family (FAILURE_PATTERNS 808). The third review broke the second patch's "fresh"
+state the same way the first two had been broken. Only then was the design narrowed to removals (`4a1ccaf8`), which is
+what the rollback pair needed and what the roadmap item asked for first. After that, the remaining findings were of a
+different kind (811, 812): whether a single removal could really be made. LESSONS 163 makes a like point about shared
+infrastructure: removing an ability is cheaper than guarding who may use it.
+
+**Rule in practice.** After the second review finds a new hole of the same kind, stop patching. Name the family in one
+sentence (here: "a claim that something is gone, made false by something made"), list which of the design's claims
+the family attacks, and drop those claims unless the owner needs them now. Check what the roadmap item and the
+motivating case actually need; a design is often wider than either. Record the narrowing and why in the design note, so
+the next session does not widen it again without the reviews' list in hand.
+
+## 376. A guarantee stated against main can hold in main by coincidence: when a change turns main's failing check into a passing one, ask whether main failed for the right reason, hold the change to the real run, and take the gap that remains to the owner as a decision about the contract (2026-11-02).
+
+**Why.** A claim-refuter pass on Phase 46a (FAILURE_PATTERNS 811) found a runbook whose real run fails at a removal the
+login may not make (EACCES on the parent). Main's check failed it too, but at a later task, refusing a directory as "not
+empty": the right verdict for the wrong reason. The branch's ledger made that later check pass, so it was worse than
+main, but only because main had been right by coincidence. Measuring the branch against main would have been the wrong
+standard in either direction; the standard is the real run. Fixing it (`a32ad8f6`, `bd024a25`) closed what a check can
+see, and left what it cannot: refusals seen only when tried (an immutable flag, a busy mount point, a delete-deny ACL
+on macOS or ZFS, an ACL under BusyBox). That is a choice about what a check promises, so it went to the owner, who
+decided on 2026-11-02 to ship with the residual documented.
+
+**Rule in practice.** For a change to what a check predicts, the test is "never passes what the real run fails", run
+against the real run (G9), not "no worse than main". When the change does make some case worse than main, find out why
+main got it right before deciding anything. When a gap remains that the check cannot close, state it in one sentence,
+put it in the user docs, and ask the owner whether it is acceptable before calling the work done.
+
+## 377. A shell test that a safety answer rests on is measured on every shell the project meets, starting with its own test images: BusyBox's test -w reads the mode bits, not access(2) (a repeat in kind of 343 and 333) (2026-11-02).
+
+**Why.** `remotefile.Removable` decides whether a removal's prediction may be carried forward, and it asked `test -w` of
+the parent on the understanding that `test` answers through access(2), as dash, bash and FreeBSD's sh do. A claim-refuter
+pass measured BusyBox's `test` saying writable to root on a read-only mount (FAILURE_PATTERNS 812), and the project's
+own sshd test image is Alpine, whose `sh` is BusyBox. LESSONS 343 says detect a capability by asking for it, not a proxy; here the
+question was right and the answerer was a proxy on one shell. LESSONS 333 says measure a fallback on the case it is for;
+the same holds for a primary.
+
+**Rule in practice.** For each shell builtin a decision rests on, list the shells the project meets (dash, bash,
+BusyBox, FreeBSD's sh, and macOS's), and measure the builtin's answer on each at the edge it decides: root, a read-only
+mount, an ACL. Where one answers differently, detect that shell in the script and refuse what it cannot vouch for, and
+keep the measurement as a test (`TestRemovableScript_RefusesWhatItCannotVouchFor`).

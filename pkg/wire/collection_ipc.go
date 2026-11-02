@@ -59,6 +59,13 @@ type ChildRequest struct {
 	// which then runs as before.
 	Detach bool `json:"detach,omitempty"`
 
+	// Predicted is, in a check, what earlier tasks in it predicted for this
+	// device (predicted.go), which the method reads through
+	// sdk.PredictedState. Sent only for a built-in method, never to an
+	// external Collection's program, and absent from an older parent's
+	// request, whose child then reads the device as it is.
+	Predicted *Predictions `json:"predicted,omitempty"`
+
 	// JobID and DeviceID/DeviceName/DeviceHost/SSHPort/Capabilities mirror
 	// the fields of the same name on DispatchPayload: the child needs
 	// enough of the device's identity to build its own RunbookContext and

@@ -612,6 +612,163 @@ tasks:
 			t.Error("a checked rollback changed the device")
 		}
 	})
+
+	// The check of a rollback whose later undo depends on an earlier one: the
+	// directory is not empty when its undo's check asks, since removing the
+	// copy inside was only predicted. The copy's prediction reaches the
+	// directory's check (Phase 46a), so the check predicts what the real
+	// rollback does rather than refusing the directory as not empty.
+	t.Run("G7 a check predicts an undo that depends on an earlier one", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		g.device(t, "rm -rf /tmp/rb-g7")
+		runID, _ := g.run(t, "g7", "id: g7\nhosts: container1\ntasks:\n  - name: make\n    file.directory:\n      path: /tmp/rb-g7\n  - name: fill\n    file.copy:\n      dest: /tmp/rb-g7/new\n      content: \"new\\n\"\n")
+		rep := g.report(t, "rollback", runID, "--mode", "check")
+		if rep.Outcome.ExitCode != 0 || !slices.Equal(rep.methods(), []string{"file.remove tasks[1]", "file.remove tasks[0]"}) || len(rep.Tasks) != 2 ||
+			rep.Tasks[0].Status != "would_change" || rep.Tasks[1].Status != "would_change" {
+			t.Fatalf("a check of the rollback: %+v", rep)
+		}
+		if got := g.device(t, "ls -A /tmp/rb-g7"); got != "new" {
+			t.Errorf("a checked rollback changed the device: %q", got)
+		}
+		rep = g.report(t, "rollback", runID)
+		if rep.Outcome.ExitCode != 0 {
+			t.Fatalf("the rollback the check predicted: %+v", rep)
+		}
+		if got := g.device(t, "test -e /tmp/rb-g7 && echo present || echo gone"); got != "gone" {
+			t.Errorf("after the rollback /tmp/rb-g7 is %s", got)
+		}
+	})
+
+	// A rollback whose steps a runbook's rollback: lists give in place of the
+	// recorded undos is checked the same way: the removal of the copy reaches
+	// the check of the directory's removal.
+	t.Run("G7b a check predicts a rollback the runbook's own rollback lists write", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		g.device(t, "rm -rf /tmp/rb-g7b")
+		runID, _ := g.run(t, "g7b", "id: g7b\nhosts: container1\ntasks:\n"+
+			"  - name: make\n    file.directory:\n      path: /tmp/rb-g7b\n    rollback:\n      - name: unmake\n        file.remove:\n          path: /tmp/rb-g7b\n"+
+			"  - name: fill\n    file.copy:\n      dest: /tmp/rb-g7b/new\n      content: \"new\\n\"\n    rollback:\n      - name: unfill\n        file.remove:\n          path: /tmp/rb-g7b/new\n")
+		rep := g.report(t, "rollback", runID, "--mode", "check")
+		if rep.Outcome.ExitCode != 0 || len(rep.Tasks) != 2 || rep.Tasks[0].Status != "would_change" || rep.Tasks[1].Status != "would_change" {
+			t.Fatalf("a check of the rollback: %+v", rep)
+		}
+		if got := g.device(t, "ls -A /tmp/rb-g7b"); got != "new" {
+			t.Errorf("a checked rollback changed the device: %q", got)
+		}
+	})
+
+	// A check through a second name for one directory: the file removed by
+	// one name and the file made by the other are the same directory's, which
+	// the check sees because it keys a path where the device resolves it, so
+	// it refuses the directory's removal as the real run does, rather than
+	// read the directory as empty once its one old entry is gone.
+	t.Run("G8 a check sees a path made through a link", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		g.device(t, "rm -rf /tmp/rb-g8 /tmp/rb-g8l && mkdir /tmp/rb-g8 && touch /tmp/rb-g8/old && ln -s /tmp/rb-g8 /tmp/rb-g8l")
+		runbook := "# Removes a file, makes one through a link to its directory, then removes the directory.\n" +
+			"id: g8\nhosts: container1\ntasks:\n" +
+			"  - name: old\n    file.remove:\n      path: /tmp/rb-g8/old\n" +
+			"  - name: new\n    file.touch:\n      path: /tmp/rb-g8l/new\n" +
+			"  - name: directory\n    file.remove:\n      path: /tmp/rb-g8\n"
+		if err := os.WriteFile(filepath.Join(g.dir, "runbooks", "g8.yaml"), []byte(runbook), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		check := g.report(t, "run", "runbooks/g8.yaml", "--mode", "check")
+		real := g.report(t, "run", "runbooks/g8.yaml")
+		if real.Outcome.ExitCode == 0 || !strings.Contains(g.device(t, "ls -A /tmp/rb-g8"), "new") {
+			t.Fatalf("the real run was meant to refuse the directory: %+v", real)
+		}
+		if check.Outcome.ExitCode != real.Outcome.ExitCode || len(check.Tasks) != 3 || check.Tasks[2].Status != real.Tasks[2].Status {
+			t.Errorf("the check predicted %+v, the real run did %+v", check, real)
+		}
+	})
+
+	// Runbooks review found a ledger getting wrong: a link made or removed by
+	// an earlier task changes where a later path leads in the real run, which
+	// the device as it is during the check does not show; a directory an
+	// earlier task only made sure of says nothing of what is in it; and paths
+	// made between removals (directories made with their parents, a copy into
+	// a directory removed) are what a removal cannot see past. For each, a
+	// check never passes what the real run fails, and where both ran every
+	// task, the check's last task and outcome are the real run's.
+	t.Run("G9 a check agrees with the real run where earlier tasks change links", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		for _, tc := range []struct{ name, setup, tasks string }{
+			{"a link made earlier", "mkdir -p /tmp/g9/d/x /tmp/g9/a",
+				"  - name: remove\n    file.remove:\n      path: /tmp/g9/d/x\n" +
+					"  - name: link\n    file.symlink:\n      path: /tmp/g9/a/l\n      src: /tmp/g9/d\n" +
+					"  - name: through the link\n    file.directory:\n      path: /tmp/g9/a/l/x\n" +
+					"  - name: again\n    file.remove:\n      path: /tmp/g9/d/x\n"},
+			{"a link removed earlier", "mkdir -p /tmp/g9/d /tmp/g9/a && touch /tmp/g9/d/f && ln -s /tmp/g9/d /tmp/g9/a/l",
+				"  - name: link\n    file.remove:\n      path: /tmp/g9/a/l\n" +
+					"  - name: through the link\n    file.remove:\n      path: /tmp/g9/a/l/f\n" +
+					"  - name: directory\n    file.remove:\n      path: /tmp/g9/d\n"},
+			{"a directory made sure of", "mkdir -p /tmp/g9/app",
+				"  - name: directory\n    file.directory:\n      path: /tmp/g9/app\n" +
+					"  - name: missing\n    file.remove:\n      path: /tmp/g9/app/old.conf\n"},
+			{"directories made between removals", "mkdir -p /tmp/g9/app/cache/tmp",
+				"  - name: reset\n    file.remove:\n      path: /tmp/g9/app\n      recurse: true\n" +
+					"  - name: cache\n    file.directory:\n      path: /tmp/g9/app/cache/tmp\n" +
+					"  - name: drop tmp\n    file.remove:\n      path: /tmp/g9/app/cache/tmp\n" +
+					"  - name: drop app\n    file.remove:\n      path: /tmp/g9/app\n"},
+			{"a copy into a directory removed", "mkdir -p /tmp/g9/app && touch /tmp/g9/app/x",
+				"  - name: reset\n    file.remove:\n      path: /tmp/g9/app\n      recurse: true\n" +
+					"  - name: copy\n    file.copy:\n      dest: /tmp/g9/app/x\n      content: \"y\\n\"\n" +
+					"  - name: drop x\n    file.remove:\n      path: /tmp/g9/app/x\n" +
+					"  - name: drop app\n    file.remove:\n      path: /tmp/g9/app\n"},
+			{"a directory whose parent refuses its removal", "mkdir -p /tmp/g9/p/d && touch /tmp/g9/p/d/f && chmod 555 /tmp/g9/p",
+				"  - name: file\n    file.remove:\n      path: /tmp/g9/p/d/f\n" +
+					"  - name: dir\n    file.remove:\n      path: /tmp/g9/p/d\n"},
+			{"a removal allowed to fail", "mkdir -p /tmp/g9/d && touch /tmp/g9/d/f && chmod 555 /tmp/g9/d",
+				"  - name: file\n    file.remove:\n      path: /tmp/g9/d/f\n    ignore_errors: true\n" +
+					"  - name: dir\n    file.remove:\n      path: /tmp/g9/d\n"},
+			{"a directory made, then its parent removed", "mkdir -p /tmp/g9/d",
+				"  - name: make\n    file.directory:\n      path: /tmp/g9/d/a/b\n" +
+					"  - name: drop a\n    file.remove:\n      path: /tmp/g9/d/a\n      recurse: true\n" +
+					"  - name: drop d\n    file.remove:\n      path: /tmp/g9/d\n"},
+		} {
+			runbook := "# " + tc.name + ": a check of it must end as the real run does.\nid: g9\nhosts: container1\ntasks:\n" + tc.tasks
+			if err := os.WriteFile(filepath.Join(g.dir, "runbooks", "g9.yaml"), []byte(runbook), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reset := "chmod -R u+w /tmp/g9 2>/dev/null; rm -rf /tmp/g9 && " + tc.setup
+			g.device(t, reset)
+			check := g.report(t, "run", "runbooks/g9.yaml", "--mode", "check")
+			g.device(t, reset)
+			real := g.report(t, "run", "runbooks/g9.yaml")
+			// A check never passes what the real run fails.
+			if real.Outcome.ExitCode != 0 && check.Outcome.ExitCode == 0 {
+				t.Errorf("%s: the check passed, the real run ended %d", tc.name, real.Outcome.ExitCode)
+				continue
+			}
+			// Where the real run stopped partway, the tasks after its failure
+			// have no answer to compare with.
+			if len(check.Tasks) == 0 || len(check.Tasks) != len(real.Tasks) {
+				t.Errorf("%s: the check reported %d tasks, the real run %d", tc.name, len(check.Tasks), len(real.Tasks))
+				continue
+			}
+			stopped := false
+			for _, task := range real.Tasks {
+				stopped = stopped || task.Status == "not_run"
+			}
+			if stopped {
+				continue
+			}
+			last := len(real.Tasks) - 1
+			predicted := check.Tasks[last].Status
+			if predicted == "would_change" {
+				predicted = "changed"
+			}
+			// An unchecked task claims nothing, so it agrees with any answer.
+			if predicted == "unchecked" {
+				continue
+			}
+			if check.Outcome.ExitCode != real.Outcome.ExitCode || predicted != real.Tasks[last].Status {
+				t.Errorf("%s: the check ended %d with %s last, the real run %d with %s", tc.name,
+					check.Outcome.ExitCode, check.Tasks[last].Status, real.Outcome.ExitCode, real.Tasks[last].Status)
+			}
+		}
+	})
 }
 
 // runListEntry is one run in `journal list --json`.
