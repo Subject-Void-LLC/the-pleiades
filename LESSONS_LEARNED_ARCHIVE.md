@@ -6863,3 +6863,23 @@ with nothing to journal. It was found by reasoning through the edge-case list be
 **Rule in practice.** Before an acquisition order stands for anything about the work done under it, ask whether two
 holders can overlap. If they can, record no token for them and order them the old way, named as such
 (`Plan.OrderedByClock`); `TestAgent_ExecuteWithLease_ASharedLeaseHandsTheRunNoFencingToken` holds the Runner to it.
+
+**Update (2026-11-01, the same day).** As written, this rule is incomplete, and FAILURE_PATTERNS 798 broke it: exclusive
+holding is not enough once the lease is lost while the work goes on. A non-interruptible job whose renewal failed kept
+stamping its old token after another job could have taken the device, so its later changes read as earlier. The rule
+holds for exclusive holding that is still held; LESSONS 373 states the full condition.
+
+## 373. A fencing token orders work only within the life of the sequence it came from and only while its lease is held: carry the sequence's epoch with the token, compare two only when their epochs match, and stop stamping it the moment the lease is lost (a repeat in kind of 372 and 83) (2026-11-01).
+
+**Why.** The fp-reviewer agent's review of Phase 40a found two ways a token that was right when taken read wrong
+later. The lock bucket's stream sequence counts from one again when the stream is re-created, while the Controller's
+journal keeps the old rows, so a token from the old life compared as later than one from the new (FAILURE_PATTERNS
+799). And a job that lost its lease but ran on kept its old token on what it did after (798), which broke LESSONS 372
+as written. LESSONS 83 puts a token on writes so a stale holder is refused; a token that only labels work for a later
+reader is refused by nothing, so a stale one is silent.
+
+**Rule in practice.** Journal the token with its epoch (`lease_epoch`: the bucket stream's creation time, or the
+in-process manager's random id) and treat a pair from different epochs as unordered. Hand the work a handle it reads at
+each record (`lock.Fence`), which the heartbeat marks lost and nothing marks found again. Test both: a second manager
+never shares an epoch (`TestFencingEpoch_TwoInProcessManagersNeverShareOne`), and a lost fence stamps nothing
+(`TestFence_CarriesATokenUntilLost`).
