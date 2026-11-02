@@ -32,7 +32,10 @@ func (Fact) Fields() []ent.Field {
 		// with nothing in the schema actually enforcing it; a caller could
 		// still build a FactUpdate that rewrote either field.
 		// key is the fact's name as the method emitted it (sdk.EmitFact).
-		field.String("key").NotEmpty().MaxLen(256).Immutable(),
+		// The SQL default only keeps the column an expand migration: a
+		// build from before it, which writes no facts, still serves the
+		// table; NotEmpty refuses an empty key on every write.
+		field.String("key").Default("").NotEmpty().MaxLen(256).Immutable(),
 		// payload holds the value as {"value": <value>}.
 		field.JSON("payload", map[string]interface{}{}).Immutable(),
 		// hash is SHA-256 over the canonical JSON of key and value
@@ -41,7 +44,9 @@ func (Fact) Fields() []ent.Field {
 		field.String("hash").NotEmpty().Immutable(),
 		// last_seen_at is when this value was last observed; a later
 		// observation of the same value moves it rather than writing a row.
-		field.Time("last_seen_at").Default(time.Now),
+		// Nullable for the expand migration's sake, as key's default is; the
+		// store always sets it, and a reader falls back to created_at.
+		field.Time("last_seen_at").Optional().Default(time.Now),
 	}
 }
 

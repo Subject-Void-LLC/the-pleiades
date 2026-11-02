@@ -77,7 +77,8 @@ func TestGraphTraversal(t *testing.T) {
 
 	// 3. Create an immutable Fact for the child device
 	_, err = client.Fact.Create().
-		SetPayload(map[string]interface{}{"firmware": "v1.2", "drift_detected": false}).
+		SetKey("firmware").
+		SetPayload(map[string]interface{}{"value": "v1.2"}).
 		SetHash("sha256:abcd1234efgh5678").
 		SetDevice(accessSwitch).
 		Save(ctx)

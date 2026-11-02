@@ -327,10 +327,10 @@ var (
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
-		{Name: "key", Type: field.TypeString, Size: 256},
+		{Name: "key", Type: field.TypeString, Size: 256, Default: ""},
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "hash", Type: field.TypeString},
-		{Name: "last_seen_at", Type: field.TypeTime},
+		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true},
 		{Name: "device_facts", Type: field.TypeInt},
 	}
 	// FactsTable holds the schema information for the "facts" table.

@@ -49,6 +49,12 @@ func (_u *FactUpdate) SetNillableLastSeenAt(v *time.Time) *FactUpdate {
 	return _u
 }
 
+// ClearLastSeenAt clears the value of the "last_seen_at" field.
+func (_u *FactUpdate) ClearLastSeenAt() *FactUpdate {
+	_u.mutation.ClearLastSeenAt()
+	return _u
+}
+
 // SetDeviceID sets the "device" edge to the Device entity by ID.
 func (_u *FactUpdate) SetDeviceID(id int) *FactUpdate {
 	_u.mutation.SetDeviceID(id)
@@ -133,6 +139,9 @@ func (_u *FactUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.LastSeenAt(); ok {
 		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
 	}
+	if _u.mutation.LastSeenAtCleared() {
+		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
+	}
 	if _u.mutation.DeviceCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -199,6 +208,12 @@ func (_u *FactUpdateOne) SetNillableLastSeenAt(v *time.Time) *FactUpdateOne {
 	if v != nil {
 		_u.SetLastSeenAt(*v)
 	}
+	return _u
+}
+
+// ClearLastSeenAt clears the value of the "last_seen_at" field.
+func (_u *FactUpdateOne) ClearLastSeenAt() *FactUpdateOne {
+	_u.mutation.ClearLastSeenAt()
 	return _u
 }
 
@@ -315,6 +330,9 @@ func (_u *FactUpdateOne) sqlSave(ctx context.Context) (_node *Fact, err error) {
 	}
 	if value, ok := _u.mutation.LastSeenAt(); ok {
 		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
+	}
+	if _u.mutation.LastSeenAtCleared() {
+		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
 	}
 	if _u.mutation.DeviceCleared() {
 		edge := &sqlgraph.EdgeSpec{

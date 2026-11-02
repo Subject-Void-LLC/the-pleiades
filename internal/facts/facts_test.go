@@ -190,3 +190,32 @@ func TestFileStore_RefusesWhatItCannotTrust(t *testing.T) {
 		t.Errorf("a corrupt history: %v, want line 2 named", err)
 	}
 }
+
+// TestVerify_RechecksWhatARunnerPublished: a published entry is held to the
+// rules again, a hash that does not describe its value is dropped, and a key
+// given twice counts once.
+func TestVerify_RechecksWhatARunnerPublished(t *testing.T) {
+	good := prepared(t, map[string]any{"kernel": "6.1", "mem": 2048})
+	published := append([]facts.Entry{}, good...)
+	published = append(published,
+		facts.Entry{Key: "kernel", Value: "6.9", Hash: good[0].Hash},
+		facts.Entry{Key: "bad key", Value: "x", Hash: "x"},
+		facts.Entry{Key: "forged", Value: "x", Hash: "0000"},
+	)
+	out, refused, err := facts.Verify(published)
+	if err != nil || len(out) != 2 || refused != 3 {
+		t.Fatalf("Verify = %+v, refused %d, %v; want the two good entries and three refused", out, refused, err)
+	}
+	for _, e := range out {
+		if e.Key != "kernel" && e.Key != "mem" {
+			t.Errorf("Verify passed %+v", e)
+		}
+	}
+	many := make([]facts.Entry, 0, facts.MaxFactsPerObservation+1)
+	for i := range facts.MaxFactsPerObservation + 1 {
+		many = append(many, facts.Entry{Key: "k" + strings.Repeat("x", i), Value: i})
+	}
+	if _, _, err := facts.Verify(many); !errors.Is(err, facts.ErrInvalid) {
+		t.Errorf("a batch past the bound: %v", err)
+	}
+}

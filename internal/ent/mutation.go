@@ -8696,9 +8696,22 @@ func (m *FactMutation) OldLastSeenAt(ctx context.Context) (v time.Time, err erro
 	return oldValue.LastSeenAt, nil
 }
 
+// ClearLastSeenAt clears the value of the "last_seen_at" field.
+func (m *FactMutation) ClearLastSeenAt() {
+	m.last_seen_at = nil
+	m.clearedFields[fact.FieldLastSeenAt] = struct{}{}
+}
+
+// LastSeenAtCleared returns if the "last_seen_at" field was cleared in this mutation.
+func (m *FactMutation) LastSeenAtCleared() bool {
+	_, ok := m.clearedFields[fact.FieldLastSeenAt]
+	return ok
+}
+
 // ResetLastSeenAt resets all changes to the "last_seen_at" field.
 func (m *FactMutation) ResetLastSeenAt() {
 	m.last_seen_at = nil
+	delete(m.clearedFields, fact.FieldLastSeenAt)
 }
 
 // SetDeviceID sets the "device" edge to the Device entity by id.
@@ -8914,7 +8927,11 @@ func (m *FactMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *FactMutation) ClearedFields() []string {
-	return nil
+	var fields []string
+	if m.FieldCleared(fact.FieldLastSeenAt) {
+		fields = append(fields, fact.FieldLastSeenAt)
+	}
+	return fields
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -8927,6 +8944,11 @@ func (m *FactMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *FactMutation) ClearField(name string) error {
+	switch name {
+	case fact.FieldLastSeenAt:
+		m.ClearLastSeenAt()
+		return nil
+	}
 	return fmt.Errorf("unknown Fact nullable field %s", name)
 }
 

@@ -77,6 +77,9 @@ func FleetRunnerGrant(name string) Grant {
 			// succeeds. That is exactly the shape that looks like "the
 			// journal is broken" rather than "the Runner is not allowed".
 			topology.JournalSubjectAll(),
+			// The facts a run's tasks observed (Phase 41), denied the same
+			// silent way the journal would be.
+			topology.FactsSubjectAll(),
 			topology.DeadLetterSubject(topology.DispatchSubjectAll()),
 			topology.DeadLetterSubject(topology.CheckSubjectAll()),
 			topology.DeadLetterSubject(topology.RollbackSubjectAll()),
@@ -231,6 +234,9 @@ func ControllerGrant(name string) Grant {
 			// the consumer received, so it is the wildcard over every
 			// job's journal, not one job's.
 			topology.DeadLetterSubject(topology.JournalSubjectAll()),
+
+			// And the facts consumer's (Phase 41), for the same reason.
+			topology.DeadLetterSubject(topology.FactsSubjectAll()),
 
 			// And the result consumer's, the third Bus.Subscribe the
 			// Controller makes, which shipped without it: a result it

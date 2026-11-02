@@ -78,6 +78,8 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultKey holds the default value on creation for the "key" field.
+	DefaultKey string
 	// KeyValidator is a validator for the "key" field. It is called by the builders before save.
 	KeyValidator func(string) error
 	// HashValidator is a validator for the "hash" field. It is called by the builders before save.

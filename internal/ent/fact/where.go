@@ -330,6 +330,16 @@ func LastSeenAtLTE(v time.Time) predicate.Fact {
 	return predicate.Fact(sql.FieldLTE(FieldLastSeenAt, v))
 }
 
+// LastSeenAtIsNil applies the IsNil predicate on the "last_seen_at" field.
+func LastSeenAtIsNil() predicate.Fact {
+	return predicate.Fact(sql.FieldIsNull(FieldLastSeenAt))
+}
+
+// LastSeenAtNotNil applies the NotNil predicate on the "last_seen_at" field.
+func LastSeenAtNotNil() predicate.Fact {
+	return predicate.Fact(sql.FieldNotNull(FieldLastSeenAt))
+}
+
 // HasDevice applies the HasEdge predicate on the "device" edge.
 func HasDevice() predicate.Fact {
 	return predicate.Fact(func(s *sql.Selector) {

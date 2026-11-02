@@ -267,6 +267,9 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// internal/dispatch's fan-out, where it belongs; that is recorded as an
 	// open item (FAILURE_PATTERNS.md #116's shape) rather than claimed.
 	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID)
+	// The facts its tasks observe (Phase 41), published for the Controller
+	// to store; declared as the interface for the journal's typed-nil reason.
+	var factSink engine.FactRecorder = newFactsPublisher(ctx, a.bus, payload.JobID, payload.DeviceID)
 
 	executor := engine.NewExecutor(
 		singleDeviceResolver{device: device},
@@ -297,6 +300,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// a typed nil, so a *journalPublisher variable holding nil would
 		// pass the guard and panic at the first level barrier.
 		engine.WithJournal(journalSink),
+		engine.WithFactRecorder(factSink),
 		// A check writes no journal, whatever sink it is given
 		// (engine.WithMode), and admits a simulate-locked device.
 		engine.WithMode(mode),

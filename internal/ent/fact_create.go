@@ -55,6 +55,14 @@ func (_c *FactCreate) SetKey(v string) *FactCreate {
 	return _c
 }
 
+// SetNillableKey sets the "key" field if the given value is not nil.
+func (_c *FactCreate) SetNillableKey(v *string) *FactCreate {
+	if v != nil {
+		_c.SetKey(*v)
+	}
+	return _c
+}
+
 // SetPayload sets the "payload" field.
 func (_c *FactCreate) SetPayload(v map[string]interface{}) *FactCreate {
 	_c.mutation.SetPayload(v)
@@ -135,6 +143,10 @@ func (_c *FactCreate) defaults() {
 		v := fact.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.Key(); !ok {
+		v := fact.DefaultKey
+		_c.mutation.SetKey(v)
+	}
 	if _, ok := _c.mutation.LastSeenAt(); !ok {
 		v := fact.DefaultLastSeenAt()
 		_c.mutation.SetLastSeenAt(v)
@@ -167,9 +179,6 @@ func (_c *FactCreate) check() error {
 		if err := fact.HashValidator(v); err != nil {
 			return &ValidationError{Name: "hash", err: fmt.Errorf(`ent: validator failed for field "Fact.hash": %w`, err)}
 		}
-	}
-	if _, ok := _c.mutation.LastSeenAt(); !ok {
-		return &ValidationError{Name: "last_seen_at", err: errors.New(`ent: missing required field "Fact.last_seen_at"`)}
 	}
 	if len(_c.mutation.DeviceIDs()) == 0 {
 		return &ValidationError{Name: "device", err: errors.New(`ent: missing required edge "Fact.device"`)}

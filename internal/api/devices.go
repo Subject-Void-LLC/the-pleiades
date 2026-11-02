@@ -84,6 +84,9 @@ type DeviceHandler struct {
 	// kubeconfigCredentials keeps what ImportKubeconfig imports; nil
 	// leaves the route refusing (WithKubeconfigImport).
 	kubeconfigCredentials KubeconfigCredentials
+	// facts reads a device's stored facts (WithFacts, device_facts.go); nil
+	// leaves those routes answering 501.
+	facts FactReader
 }
 
 // NewDeviceHandler builds the device resource's handlers over repo.

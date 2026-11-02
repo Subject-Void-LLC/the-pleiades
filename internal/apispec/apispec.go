@@ -512,6 +512,71 @@ var GetDevice = Endpoint{
 	},
 }
 
+// factEntrySchema is one stored fact.
+var factEntrySchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"key":          map[string]any{"type": "string", "description": "The fact's name as the method emitted it, such as ansible_kernel."},
+		"value":        map[string]any{"description": "The value observed, as the method emitted it."},
+		"hash":         map[string]any{"type": "string", "description": "SHA-256, hex, over the canonical JSON of key and value."},
+		"observed_at":  map[string]any{"type": "string", "format": "date-time", "description": "When this value was first observed."},
+		"last_seen_at": map[string]any{"type": "string", "format": "date-time", "description": "When this value was last confirmed by a run."},
+	},
+}
+
+// factsResponseSchema is a device's facts, current or one key's history.
+var factsResponseSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"device": map[string]any{"type": "string"},
+		"key":    map[string]any{"type": "string", "description": "The key whose history this is; absent for the current facts."},
+		"facts":  map[string]any{"type": "array", "items": factEntrySchema},
+	},
+}
+
+// ListDeviceFacts is GET /inventory/devices/{name}/facts: a device's current
+// facts.
+var ListDeviceFacts = Endpoint{
+	Name:    "list_device_facts",
+	Method:  http.MethodGet,
+	Pattern: "/inventory/devices/{name}/facts",
+	Scope:   auth.ScopeInventoryRead,
+	Rel:     auth.RelSelf,
+	Summary: "List a device's facts",
+	Description: "The newest value of each fact real runs observed on the device (what a method emitted, such as " +
+		"facts.gather's ansible_* keys), with when it was first observed and last confirmed. A value is stored " +
+		"only when it changes, so last_seen_at says how current it still is.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The device's current facts, by key.", Schema: factsResponseSchema},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+	},
+}
+
+// GetDeviceFactHistory is GET /inventory/devices/{name}/facts/{key}: every
+// value one fact has had.
+var GetDeviceFactHistory = Endpoint{
+	Name:        "get_device_fact_history",
+	Method:      http.MethodGet,
+	Pattern:     "/inventory/devices/{name}/facts/{key}",
+	Scope:       auth.ScopeInventoryRead,
+	Rel:         auth.RelSelf,
+	Summary:     "Get one fact's history",
+	Description: "Every value the device's fact has had, oldest first: its drift, one entry per change.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+		{Name: "key", In: "path", Required: true, Type: "string", Description: "The fact's name."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The fact's values, oldest first; empty when the device never had it.", Schema: factsResponseSchema},
+		{Status: http.StatusBadRequest, Description: "name or key is empty, too long, or not a fact name.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+	},
+}
+
 // DeleteDevice is DELETE /inventory/devices/{name}: retire one inventory
 // device.
 var DeleteDevice = Endpoint{
@@ -1034,6 +1099,8 @@ var Endpoints = []Endpoint{
 	ListDevices,
 	CreateDevice,
 	GetDevice,
+	ListDeviceFacts,
+	GetDeviceFactHistory,
 	UpdateDevice,
 	DeleteDevice,
 	OnboardDevice,

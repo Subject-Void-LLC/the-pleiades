@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -129,8 +130,12 @@ func TestRunbookContext_ConcurrentEmit(t *testing.T) {
 	}
 	wg.Wait()
 
-	if got := len(rc.(factReader).Facts()); got != writers {
-		t.Errorf("recorded %d facts, want %d", got, writers)
+	recorded := rc.(factReader).Facts()
+	keys, err := sdk.ParseFactKeys(recorded[sdk.StatFactKeys])
+	// Every value, plus the one list naming them as facts, with no write lost
+	// from either.
+	if got := len(recorded); got != writers+1 || err != nil || len(keys) != writers {
+		t.Errorf("recorded %d values and %d fact keys (%v), want %d of each", got-1, len(keys), err, writers)
 	}
 }
 

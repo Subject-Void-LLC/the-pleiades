@@ -76,6 +76,9 @@ const (
 	// outcome, and a journal entry is a per-task audit record with its
 	// own durable consumer and its own table.
 	journalSubjectPrefix = "pleiades.jobs.journal."
+	// factsSubjectPrefix is where a Runner publishes the facts its tasks
+	// observed (Phase 41), one subject per job, under the stream root.
+	factsSubjectPrefix = "pleiades.jobs.facts."
 	// controlSubjectPrefix carries per-job control signals, of which there
 	// is one today: stop. It sits beside the log, result and journal
 	// prefixes rather than under any of them because it is the only
@@ -364,6 +367,19 @@ func JournalSubject(jobID string) string {
 // see its doc comment for why these are declared rather than derived.
 func JournalSubjectAll() string {
 	return journalSubjectPrefix + ">"
+}
+
+// FactsSubject returns the subject a given job's observed facts publish to
+// (Phase 41), under StreamSubjectRoot as the journal's is, the job id through
+// SubjectToken.
+func FactsSubject(jobID string) string {
+	return factsSubjectPrefix + SubjectToken(jobID)
+}
+
+// FactsSubjectAll is FactsSubject over every job, the Controller consumer's
+// filter and the fleet's publish grant.
+func FactsSubjectAll() string {
+	return factsSubjectPrefix + ">"
 }
 
 // ControlSubject returns the subject a running job's control signals are

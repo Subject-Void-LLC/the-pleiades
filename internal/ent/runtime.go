@@ -333,6 +333,8 @@ func init() {
 	fact.UpdateDefaultUpdatedAt = factDescUpdatedAt.UpdateDefault.(func() time.Time)
 	// factDescKey is the schema descriptor for key field.
 	factDescKey := factFields[0].Descriptor()
+	// fact.DefaultKey holds the default value on creation for the key field.
+	fact.DefaultKey = factDescKey.Default.(string)
 	// fact.KeyValidator is a validator for the "key" field. It is called by the builders before save.
 	fact.KeyValidator = func() func(string) error {
 		validators := factDescKey.Validators
