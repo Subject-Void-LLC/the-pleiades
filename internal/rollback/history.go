@@ -155,10 +155,12 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 			}
 		}
 		later, basis := laterOn(req.Target, r, devices)
-		if basis == byClock {
+		theirs, _ := changesOf(r)
+		// A run ordered by clock is named only when the order decided
+		// something: it changed one of the devices this rollback undoes on.
+		if basis == byClock && slices.ContainsFunc(theirs, func(e engine.JournalEntry) bool { return devices[e.DeviceID] }) {
 			byClockRuns = append(byClockRuns, r.ID)
 		}
-		theirs, _ := changesOf(r)
 		var shared, irreversible []string
 		undoable := false
 		for _, e := range theirs {
@@ -190,7 +192,7 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 		case byUnfinished:
 			p.Reason += "; it never recorded its end on the project's run counter (it was stopped, or is still running), so it may have changed them at any time after it began"
 		case byClock:
-			p.Reason += "; one of the two journals predates run ordering, so this was decided by the journals' clock times"
+			p.Reason += "; one of the two carries no run order (its journal predates run ordering, or it ran under a shared device lease, whose holders overlap), so this was decided by the journals' clock times"
 		}
 		problems = append(problems, p)
 	}

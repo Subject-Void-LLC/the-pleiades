@@ -126,8 +126,15 @@ func TestOrder_AJournalFromBeforeTheCounterIsOrderedByClockAndNamed(t *testing.T
 	}
 	laterLegacy := stopsH1("run-L", 20) // later, by clock
 	_, err = rollback.Build(rollback.Request{Target: target, Others: []rollback.Run{laterLegacy}, Devices: inventoryOf("h1")})
-	if problems := refused(t, err); !strings.Contains(problems[0].Reason, "decided by the journals' clock times") {
+	if problems := refused(t, err); !strings.Contains(problems[0].Reason, "decided by the journals' clock times") || !strings.Contains(problems[0].Reason, "shared device lease") {
 		t.Errorf("a refusal decided by clock does not say so: %q", problems[0].Reason)
+	}
+	// A run that only read the device changed nothing the order could
+	// decide about, so it is not named either.
+	reader := rollback.Run{ID: "run-R", Sealed: true, Entries: []engine.JournalEntry{entry("run-R", "tasks[0]", "h1", 20, "rb.read", engine.OutcomeRan)}}
+	plan, err = rollback.Build(rollback.Request{Target: target, Others: []rollback.Run{reader}, Devices: inventoryOf("h1")})
+	if err != nil || len(plan.OrderedByClock) != 0 {
+		t.Errorf("a run that only read h1: plan %v, err %v; want no clock ordering named", plan.OrderedByClock, err)
 	}
 	// A run on another device needs no order at all, so it is not named.
 	elsewhere := rollback.Run{ID: "run-X", Sealed: true, Entries: []engine.JournalEntry{entry("run-X", "tasks[0]", "h2", 20, "rb.read", engine.OutcomeRan)}}

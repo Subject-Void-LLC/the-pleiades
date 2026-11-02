@@ -644,8 +644,11 @@ ordinary run of ordinary tasks, journaled like any other.
   and another job is later on a device when its revision there is higher. A job on a
   device that takes a shared lease (a Kubernetes cluster), whose holders run at once,
   records none. Journals written before this existed, and those shared-lease jobs, are
-  ordered by the times they hold, as before: the rollback names each such run
-  (`ordered_by_clock` in `--json`), and a refusal decided that way says so.
+  ordered by the times they hold, as before. A refusal decided that way says so. The
+  CLI also names each such run that changed a device it undoes on, refused or not
+  (`ordered_by_clock` in `--json`). A Controller reads such a job only when its times
+  fall after the job being undone began, so one whose clock places it earlier is not
+  considered at all, as before this.
 - **A runbook edited since the run.** A `rollback:` list is read from the runbook the
   run ran, found under `runbooks/` by its id and version. When it was edited (a task
   added, a name changed) it is no longer that runbook, and the refusal's first line
