@@ -108,6 +108,16 @@ func (s *FileStore) Seal(runID string, at time.Time) (err error) {
 	if _, err := f.Write(append(body, '\n')); err != nil {
 		return fmt.Errorf("failed to write the seal for run %s: %w", runID, err)
 	}
+	// The run is sealed, so its marker goes: no later run should find it.
+	// Released after the seal is synced, below, by the deferred call, so a
+	// crash between the two leaves a sealed run with a stale marker, which
+	// the reader ignores for a sealed run.
+	defer func() {
+		if err == nil {
+			_ = releaseLive(s.live, s.livePath)
+			s.live, s.livePath = nil, ""
+		}
+	}()
 	// Synced for the same reason every journal append is: a seal still in
 	// the page cache when the machine loses power would leave a complete
 	// run reading as one that was cut off, which is the safe direction to

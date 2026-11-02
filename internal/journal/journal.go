@@ -80,6 +80,11 @@ type FileStore struct {
 	// every entry Record writes and zero until BeginRun is called.
 	runTick uint64
 
+	// live and livePath are the run's marker (clock_live.go), held locked
+	// from BeginRun until Seal.
+	live     *os.File
+	livePath string
+
 	// mu serializes Record calls. It is held across the whole call
 	// rather than per file, because the cost is one short append and the
 	// simpler rule is the one a reader can check.
@@ -157,13 +162,26 @@ func NewFileStore(root string) (*FileStore, error) {
 // and stamps that tick on every entry it writes from now on, so the rollback
 // planner can tell this run's order from other runs' without a clock. Call it
 // once, before the run starts; Seal ticks the counter again as the run ends.
+//
+// It also marks the run live until Seal, and records every earlier run whose
+// marker nobody holds as gone by this tick (clock_live.go), so a run that
+// died before its seal is bounded rather than counted as later forever.
 func (s *FileStore) BeginRun() (uint64, error) {
 	tick, err := TickClock(s.root)
 	if err != nil {
 		return 0, err
 	}
+	dir := filepath.Join(s.root, pleiadesDirName)
+	live, livePath, err := holdLive(dir, tick)
+	if err != nil {
+		return 0, err
+	}
+	if err := markEndedRuns(dir, tick); err != nil {
+		_ = releaseLive(live, livePath)
+		return 0, err
+	}
 	s.mu.Lock()
-	s.runTick = tick
+	s.runTick, s.live, s.livePath = tick, live, livePath
 	s.mu.Unlock()
 	return tick, nil
 }

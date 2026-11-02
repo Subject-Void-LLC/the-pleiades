@@ -28,3 +28,10 @@ func SetClockLockWait(t interface{ Cleanup(func()) }, d time.Duration) {
 	clockLockWait = d
 	t.Cleanup(func() { clockLockWait = old })
 }
+
+// DieForTest drops a store's hold on its run marker without removing it, as
+// the OS does when the process running it dies.
+func DieForTest(s *FileStore) {
+	_ = s.live.Close()
+	s.live = nil
+}

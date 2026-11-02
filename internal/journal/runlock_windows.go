@@ -29,3 +29,7 @@ func unlockFile(f *os.File) error {
 	var o windows.Overlapped
 	return windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &o)
 }
+
+// noFollow is nothing on Windows, whose open has no such flag; the journal
+// directory's ACL is what keeps another user from putting a link there.
+const noFollow = 0

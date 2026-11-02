@@ -53,8 +53,9 @@ type RunJournal struct {
 	Entries []engine.JournalEntry
 	// Sealed says the run returned and its journal is complete (seal.go).
 	Sealed bool
-	// EndTick is the run counter as the run ended, from its seal; zero for a
-	// run with no seal or one sealed before the counter existed.
+	// EndTick is the run counter as the run ended, from its seal, or for a
+	// run that died before its seal, the tick by which a later run found it
+	// gone (clock_live.go); zero when neither is known.
 	EndTick uint64
 }
 
@@ -83,7 +84,15 @@ func ReadRun(root, runID string) (RunJournal, error) {
 	if err != nil {
 		return RunJournal{}, err
 	}
-	return RunJournal{ID: runID, Entries: entries, Sealed: sealed, EndTick: endTick}, nil
+	run := RunJournal{ID: runID, Entries: entries, Sealed: sealed, EndTick: endTick}
+	// A run with no end tick may have died; a later run that found it gone
+	// recorded by when (clock_live.go), which bounds it as well.
+	if run.EndTick == 0 {
+		if start := startTick(run); start != 0 {
+			run.EndTick = endedTick(filepath.Join(root, pleiadesDirName), start)
+		}
+	}
+	return run, nil
 }
 
 // ListRuns reads every run's journal in the project at root, oldest first:

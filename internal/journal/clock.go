@@ -10,8 +10,15 @@
 // seal carries its end tick, and the planner compares those.
 //
 // A counter that is missing, unreadable or behind the journals is rebuilt
-// from them (the highest tick any journal or seal records), never restarted
-// at zero: a restart would make every new run look older than the last.
+// from them (the highest tick any journal, seal or run marker records), never
+// restarted at zero: a restart would make every new run look older than the
+// last. The journals are read for that outside the counter's lock, so a large
+// project never holds other runs' ticks waiting; a tick taken meanwhile is in
+// the counter itself, which is read under the lock.
+//
+// A run that dies before its seal records no end tick. clock_live.go is what
+// bounds it anyway: every run holds a lock while it lives, and the next run
+// to begin after it died records that it was gone by then.
 package journal
 
 import (
@@ -21,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -41,16 +49,31 @@ const (
 var clockLockWait = 10 * time.Second
 
 // clockScanLineBytes bounds how much of a journal's first line the rebuild
-// reads to find its tick.
-const clockScanLineBytes = 1 << 20
+// reads to find its tick: the strict reader's own line bound.
+const clockScanLineBytes = maxLineBytes
+
+// maxSealBytes bounds a seal file, as the strict reader does.
+const maxSealBytes = 4 << 10
+
+// ErrClockExhausted is returned when the counter cannot go higher: a journal,
+// seal or marker records the largest tick there is, which no run writes, so
+// it was put there by hand.
+var ErrClockExhausted = errors.New("the project's run counter is at its largest value")
 
 // TickClock advances the project counter of the project at root and returns
 // its new value: one more than the highest of the counter and every tick the
-// project's journals and seals record.
+// project's journals, seals and run markers record.
 func TickClock(root string) (uint64, error) {
 	dir := filepath.Join(root, pleiadesDirName)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return 0, fmt.Errorf("failed to create %s: %w", dir, err)
+	}
+	// Read before the lock: only what the counter does not already hold
+	// (a deleted or restored counter's past) can come from here, and any
+	// tick taken while this reads is in the counter, read under the lock.
+	recorded, err := highestRecordedTick(dir)
+	if err != nil {
+		return 0, err
 	}
 	unlock, err := lockClock(dir)
 	if err != nil {
@@ -59,11 +82,11 @@ func TickClock(root string) (uint64, error) {
 	defer func() { _ = unlock() }()
 
 	current := readClock(filepath.Join(dir, clockName))
-	recorded, err := highestRecordedTick(filepath.Join(dir, journalDirName))
-	if err != nil {
-		return 0, err
+	floor := max(current, recorded)
+	if floor == math.MaxUint64 {
+		return 0, ErrClockExhausted
 	}
-	next := max(current, recorded) + 1
+	next := floor + 1
 	if err := writeClock(dir, next); err != nil {
 		return 0, err
 	}
@@ -75,8 +98,8 @@ func TickClock(root string) (uint64, error) {
 func lockClock(dir string) (func() error, error) {
 	path := filepath.Join(dir, clockLockName)
 	// #nosec G304 -- the project directory joined with this package's own
-	// fixed names.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, fileMode)
+	// fixed names; noFollow refuses a link put at the name.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|noFollow, fileMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the counter's lock %s: %w", path, err)
 	}
@@ -103,13 +126,27 @@ func lockClock(dir string) (func() error, error) {
 // readClock returns the counter's value, or zero when the file is missing or
 // does not hold one, which the rebuild then answers.
 func readClock(path string) uint64 {
-	f, err := openPrivate(path, 64)
+	return readNumber(path)
+}
+
+// readPrivate reads the whole of a small file at path, opened as the strict
+// reader opens one (no link, owner-only, no larger than limit), and reports
+// false when it cannot.
+func readPrivate(path string, limit int64) ([]byte, bool) {
+	f, err := openPrivate(path, limit)
 	if err != nil {
-		return 0
+		return nil, false
 	}
 	defer func() { _ = f.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(f, 64))
-	if err != nil {
+	raw, err := io.ReadAll(io.LimitReader(f, limit))
+	return raw, err == nil
+}
+
+// readNumber reads the one number a counter or marker file holds, zero when
+// it holds none or cannot be read as the strict reader would.
+func readNumber(path string) uint64 {
+	raw, ok := readPrivate(path, maxMarkerBytes)
+	if !ok {
 		return 0
 	}
 	value, err := strconv.ParseUint(strings.TrimSpace(string(raw)), 10, 64)
@@ -146,46 +183,48 @@ func writeClock(dir string, value uint64) error {
 	return nil
 }
 
-// highestRecordedTick returns the highest tick the journals in dir record:
-// each journal's first entry's RunTick (every entry of a run holds the same)
-// and each seal's EndTick. Files that are not regular, or that do not decode,
-// are passed over: the strict reader refuses them when it reads them, and the
-// counter only needs a floor.
+// highestRecordedTick returns the highest tick the project under dir (its
+// .pleiades) records: each journal's first entry's RunTick (every entry of a
+// run holds the same), each seal's EndTick, and each run marker's tick
+// (clock_live.go). Every file is read as the strict reader reads it (no
+// link, owner-only, bounded); one it would refuse, or that does not decode,
+// is passed over, since the counter only needs a floor.
 func highestRecordedTick(dir string) (uint64, error) {
-	names, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to list %s: %w", dir, err)
-	}
 	var highest uint64
+	journals := filepath.Join(dir, journalDirName)
+	names, err := os.ReadDir(journals)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return 0, fmt.Errorf("failed to list %s: %w", journals, err)
+	}
 	for _, e := range names {
 		if !e.Type().IsRegular() {
 			continue
 		}
-		var tick uint64
+		path := filepath.Join(journals, e.Name())
 		switch {
 		case strings.HasSuffix(e.Name(), fileExtension):
-			tick = firstEntryTick(filepath.Join(dir, e.Name()))
+			highest = max(highest, firstEntryTick(path))
 		case strings.HasSuffix(e.Name(), sealExtension):
-			tick = sealTick(filepath.Join(dir, e.Name()))
+			highest = max(highest, sealTick(path))
 		}
-		highest = max(highest, tick)
 	}
-	return highest, nil
+	marked, err := highestMarkerTick(filepath.Join(dir, liveDirName))
+	if err != nil {
+		return 0, err
+	}
+	return max(highest, marked), nil
 }
 
 // firstEntryTick returns the RunTick of the journal at path's first entry,
-// zero when it has none.
+// zero when it has none or cannot be read as the strict reader would.
 func firstEntryTick(path string) uint64 {
-	f, err := os.Open(path) // #nosec G304 -- a regular file listed in the journal directory
+	f, err := openPrivate(path, maxJournalBytes)
 	if err != nil {
 		return 0
 	}
 	defer func() { _ = f.Close() }()
-	scanner := bufio.NewScanner(io.LimitReader(f, clockScanLineBytes))
-	scanner.Buffer(make([]byte, 64<<10), clockScanLineBytes)
+	scanner := bufio.NewScanner(io.LimitReader(f, clockScanLineBytes+1))
+	scanner.Buffer(make([]byte, 4<<10), clockScanLineBytes)
 	if !scanner.Scan() {
 		return 0
 	}
@@ -198,10 +237,11 @@ func firstEntryTick(path string) uint64 {
 	return first.RunTick
 }
 
-// sealTick returns the EndTick of the seal at path, zero when it has none.
+// sealTick returns the EndTick of the seal at path, zero when it has none or
+// cannot be read as the strict reader would.
 func sealTick(path string) uint64 {
-	raw, err := os.ReadFile(path) // #nosec G304 -- a regular file listed in the journal directory
-	if err != nil || len(raw) > 4<<10 {
+	raw, ok := readPrivate(path, maxSealBytes)
+	if !ok {
 		return 0
 	}
 	var seal Seal
