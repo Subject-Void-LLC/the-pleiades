@@ -249,6 +249,11 @@ func LeaseRevision(v uint64) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldLeaseRevision, v))
 }
 
+// LeaseEpoch applies equality check predicate on the "lease_epoch" field. It's identical to LeaseEpochEQ.
+func LeaseEpoch(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldLeaseEpoch, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldCreatedAt, v))
@@ -2212,6 +2217,81 @@ func LeaseRevisionLT(v uint64) predicate.JournalEntry {
 // LeaseRevisionLTE applies the LTE predicate on the "lease_revision" field.
 func LeaseRevisionLTE(v uint64) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldLTE(FieldLeaseRevision, v))
+}
+
+// LeaseEpochEQ applies the EQ predicate on the "lease_epoch" field.
+func LeaseEpochEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochNEQ applies the NEQ predicate on the "lease_epoch" field.
+func LeaseEpochNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochIn applies the In predicate on the "lease_epoch" field.
+func LeaseEpochIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldLeaseEpoch, vs...))
+}
+
+// LeaseEpochNotIn applies the NotIn predicate on the "lease_epoch" field.
+func LeaseEpochNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldLeaseEpoch, vs...))
+}
+
+// LeaseEpochGT applies the GT predicate on the "lease_epoch" field.
+func LeaseEpochGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochGTE applies the GTE predicate on the "lease_epoch" field.
+func LeaseEpochGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochLT applies the LT predicate on the "lease_epoch" field.
+func LeaseEpochLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochLTE applies the LTE predicate on the "lease_epoch" field.
+func LeaseEpochLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochContains applies the Contains predicate on the "lease_epoch" field.
+func LeaseEpochContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochHasPrefix applies the HasPrefix predicate on the "lease_epoch" field.
+func LeaseEpochHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochHasSuffix applies the HasSuffix predicate on the "lease_epoch" field.
+func LeaseEpochHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochIsNil applies the IsNil predicate on the "lease_epoch" field.
+func LeaseEpochIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldLeaseEpoch))
+}
+
+// LeaseEpochNotNil applies the NotNil predicate on the "lease_epoch" field.
+func LeaseEpochNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldLeaseEpoch))
+}
+
+// LeaseEpochEqualFold applies the EqualFold predicate on the "lease_epoch" field.
+func LeaseEpochEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldLeaseEpoch, v))
+}
+
+// LeaseEpochContainsFold applies the ContainsFold predicate on the "lease_epoch" field.
+func LeaseEpochContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldLeaseEpoch, v))
 }
 
 // And groups predicates with the AND operator between them.

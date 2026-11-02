@@ -190,7 +190,7 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 		p := laterRun(r.ID, strings.Join(shared, ", "), undoable, irreversible)
 		switch basis {
 		case byUnfinished:
-			p.Reason += "; it never recorded its end on the project's run counter (it was stopped, or is still running), so it may have changed them at any time after it began"
+			p.Reason += "; it never recorded its end on the project's run counter, and no run began after it stopped to record that it was gone, so it may have changed them at any time after this run began"
 		case byClock:
 			p.Reason += "; one of the two carries no run order (its journal predates run ordering, or it ran under a shared device lease, whose holders overlap), so this was decided by the journals' clock times"
 		}

@@ -51,7 +51,7 @@ func (j journalStub) AllForJob(_ context.Context, jobID string) ([]engine.Journa
 	return j.entries[jobID], nil
 }
 
-func (j journalStub) OnDevicesSince(_ context.Context, jobID string, devices []string, since time.Time, fromRevision uint64) ([]engine.JournalEntry, error) {
+func (j journalStub) OnDevicesSince(_ context.Context, jobID string, devices []string, since time.Time, fromRevision uint64, epoch string) ([]engine.JournalEntry, error) {
 	var out []engine.JournalEntry
 	for id, entries := range j.entries {
 		if id == jobID {
@@ -61,7 +61,7 @@ func (j journalStub) OnDevicesSince(_ context.Context, jobID string, devices []s
 			// As the store selects: by revision where both carry one, by
 			// clock otherwise.
 			later := e.FinishedAt.After(since)
-			if fromRevision != 0 && e.LeaseRevision != 0 {
+			if fromRevision != 0 && epoch != "" && e.LeaseRevision != 0 && e.LeaseEpoch == epoch {
 				later = e.LeaseRevision > fromRevision
 			}
 			for _, d := range devices {
@@ -409,7 +409,7 @@ func (j failingJournal) AllForJob(context.Context, string) ([]engine.JournalEntr
 	return j.entries, j.all
 }
 
-func (j failingJournal) OnDevicesSince(context.Context, string, []string, time.Time, uint64) ([]engine.JournalEntry, error) {
+func (j failingJournal) OnDevicesSince(context.Context, string, []string, time.Time, uint64, string) ([]engine.JournalEntry, error) {
 	return nil, j.others
 }
 

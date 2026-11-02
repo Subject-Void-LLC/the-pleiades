@@ -14417,6 +14417,7 @@ type JournalEntryMutation struct {
 	addrun_tick                       *int64
 	lease_revision                    *uint64
 	addlease_revision                 *int64
+	lease_epoch                       *string
 	clearedFields                     map[string]struct{}
 	done                              bool
 	oldValue                          func(context.Context) (*JournalEntry, error)
@@ -16629,6 +16630,55 @@ func (m *JournalEntryMutation) ResetLeaseRevision() {
 	m.addlease_revision = nil
 }
 
+// SetLeaseEpoch sets the "lease_epoch" field.
+func (m *JournalEntryMutation) SetLeaseEpoch(s string) {
+	m.lease_epoch = &s
+}
+
+// LeaseEpoch returns the value of the "lease_epoch" field in the mutation.
+func (m *JournalEntryMutation) LeaseEpoch() (r string, exists bool) {
+	v := m.lease_epoch
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseEpoch returns the old "lease_epoch" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldLeaseEpoch(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseEpoch is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseEpoch requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseEpoch: %w", err)
+	}
+	return oldValue.LeaseEpoch, nil
+}
+
+// ClearLeaseEpoch clears the value of the "lease_epoch" field.
+func (m *JournalEntryMutation) ClearLeaseEpoch() {
+	m.lease_epoch = nil
+	m.clearedFields[journalentry.FieldLeaseEpoch] = struct{}{}
+}
+
+// LeaseEpochCleared returns if the "lease_epoch" field was cleared in this mutation.
+func (m *JournalEntryMutation) LeaseEpochCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldLeaseEpoch]
+	return ok
+}
+
+// ResetLeaseEpoch resets all changes to the "lease_epoch" field.
+func (m *JournalEntryMutation) ResetLeaseEpoch() {
+	m.lease_epoch = nil
+	delete(m.clearedFields, journalentry.FieldLeaseEpoch)
+}
+
 // Where appends a list predicates to the JournalEntryMutation builder.
 func (m *JournalEntryMutation) Where(ps ...predicate.JournalEntry) {
 	m.predicates = append(m.predicates, ps...)
@@ -16663,7 +16713,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 44)
+	fields := make([]string, 0, 45)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -16796,6 +16846,9 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.lease_revision != nil {
 		fields = append(fields, journalentry.FieldLeaseRevision)
 	}
+	if m.lease_epoch != nil {
+		fields = append(fields, journalentry.FieldLeaseEpoch)
+	}
 	return fields
 }
 
@@ -16892,6 +16945,8 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.RunTick()
 	case journalentry.FieldLeaseRevision:
 		return m.LeaseRevision()
+	case journalentry.FieldLeaseEpoch:
+		return m.LeaseEpoch()
 	}
 	return nil, false
 }
@@ -16989,6 +17044,8 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldRunTick(ctx)
 	case journalentry.FieldLeaseRevision:
 		return m.OldLeaseRevision(ctx)
+	case journalentry.FieldLeaseEpoch:
+		return m.OldLeaseEpoch(ctx)
 	}
 	return nil, fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -17306,6 +17363,13 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetLeaseRevision(v)
 		return nil
+	case journalentry.FieldLeaseEpoch:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseEpoch(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -17519,6 +17583,9 @@ func (m *JournalEntryMutation) ClearedFields() []string {
 	if m.FieldCleared(journalentry.FieldUndoesNode) {
 		fields = append(fields, journalentry.FieldUndoesNode)
 	}
+	if m.FieldCleared(journalentry.FieldLeaseEpoch) {
+		fields = append(fields, journalentry.FieldLeaseEpoch)
+	}
 	return fields
 }
 
@@ -17592,6 +17659,9 @@ func (m *JournalEntryMutation) ClearField(name string) error {
 		return nil
 	case journalentry.FieldUndoesNode:
 		m.ClearUndoesNode()
+		return nil
+	case journalentry.FieldLeaseEpoch:
+		m.ClearLeaseEpoch()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry nullable field %s", name)
@@ -17732,6 +17802,9 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldLeaseRevision:
 		m.ResetLeaseRevision()
+		return nil
+	case journalentry.FieldLeaseEpoch:
+		m.ResetLeaseEpoch()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)

@@ -106,7 +106,9 @@ type JournalEntry struct {
 	RunTick uint64 `json:"run_tick,omitempty"`
 	// LeaseRevision holds the value of the "lease_revision" field.
 	LeaseRevision uint64 `json:"lease_revision,omitempty"`
-	selectValues  sql.SelectValues
+	// LeaseEpoch holds the value of the "lease_epoch" field.
+	LeaseEpoch   string `json:"lease_epoch,omitempty"`
+	selectValues sql.SelectValues
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -120,7 +122,7 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount, journalentry.FieldUndoesStep, journalentry.FieldRunTick, journalentry.FieldLeaseRevision:
 			values[i] = new(sql.NullInt64)
-		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldBecome, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode:
+		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldBecome, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode, journalentry.FieldLeaseEpoch:
 			values[i] = new(sql.NullString)
 		case journalentry.FieldCreatedAt, journalentry.FieldUpdatedAt, journalentry.FieldStartedAt, journalentry.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -417,6 +419,12 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.LeaseRevision = uint64(value.Int64)
 			}
+		case journalentry.FieldLeaseEpoch:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field lease_epoch", values[i])
+			} else if value.Valid {
+				_m.LeaseEpoch = value.String
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -584,6 +592,9 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("lease_revision=")
 	builder.WriteString(fmt.Sprintf("%v", _m.LeaseRevision))
+	builder.WriteString(", ")
+	builder.WriteString("lease_epoch=")
+	builder.WriteString(_m.LeaseEpoch)
 	builder.WriteByte(')')
 	return builder.String()
 }

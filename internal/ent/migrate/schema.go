@@ -530,6 +530,7 @@ var (
 		{Name: "undoes_step", Type: field.TypeInt, Default: 0},
 		{Name: "run_tick", Type: field.TypeUint64, Default: 0},
 		{Name: "lease_revision", Type: field.TypeUint64, Default: 0},
+		{Name: "lease_epoch", Type: field.TypeString, Nullable: true},
 	}
 	// JournalEntriesTable holds the schema information for the "journal_entries" table.
 	JournalEntriesTable = &schema.Table{

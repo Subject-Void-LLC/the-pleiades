@@ -370,7 +370,7 @@ type tokenAdapter struct {
 
 // Execute implements runner.ExecutionAdapter, recording the context's token.
 func (a *tokenAdapter) Execute(ctx context.Context, _ wire.DispatchPayload) (wire.Outcome, error) {
-	if token, ok := lock.FencingTokenFrom(ctx); ok {
+	if token, _, ok := lock.FenceFrom(ctx).Token(); ok {
 		a.token.Store(token)
 	}
 	return wire.Outcome{}, nil
@@ -387,7 +387,7 @@ func TestAgent_ExecuteWithLease_HandsTheLeasesFencingTokenToTheRun(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ := lock.FencingToken(earlier)
+	before, _, _ := lock.FencingToken(earlier)
 	_ = earlier.Release(context.Background())
 
 	adapter := &tokenAdapter{}

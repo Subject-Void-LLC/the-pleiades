@@ -209,6 +209,9 @@ func (JournalEntry) Fields() []ent.Field {
 		// both tiers. Zero means a row written before either existed.
 		field.Uint64("run_tick").Immutable().Default(0),
 		field.Uint64("lease_revision").Immutable().Default(0),
+		// lease_epoch names the life of the lock bucket's sequence that
+		// lease_revision comes from; revisions compare only within one.
+		field.String("lease_epoch").Immutable().Optional(),
 	}
 }
 

@@ -11,16 +11,21 @@
 //     device lease the Runner held, which only grows for a device. Another
 //     job is later on a device when its highest revision there is above the
 //     target's lowest, so a target redelivered under a new lease is still
-//     ordered from its first attempt, as its first start was. Only an
+//     ordered from its first attempt, as its first start was. Revisions are
+//     compared only within one epoch of the lock bucket (lock.Fenced), since
+//     a re-created bucket counts from one again. Only an
 //     exclusive lease's token is recorded: holders of a shared lease (a
 //     Kubernetes cluster's) overlap, so their entries carry none and order
 //     by clock.
 //   - On the Crawl tier, each run's start tick on the project counter
 //     (RunTick, on every entry) and its end tick (in its seal). Another run
 //     is later when it ended after the target began: its end tick is above
-//     the target's start tick. A run that never recorded its end tick (it was
-//     killed, or is still running) may have changed the device at any time,
-//     so it counts as later, and --despite-run accepts it.
+//     the target's start tick. A run that died before its seal is bounded by
+//     the start tick of the first run that found it gone (internal/journal's
+//     clock_live.go); one with no end tick even so was still going after the
+//     target began, so it counts as later, and --despite-run accepts it. A
+//     target journaled before the counter existed is older than every run
+//     that carries a tick, so such a run counts as later than it.
 //
 // A pair of runs either of which predates this (no tick, no revision) is
 // ordered by its clock times as before, and the planner says so.
@@ -63,6 +68,16 @@ func laterOn(target, other Run, devices map[string]bool) (map[string]bool, order
 		}
 		return later, basis
 	}
+	// Every run with a tick came after every run without one: a target from
+	// before the counter is older than a run that carries one. The reverse
+	// (a ticked target, an unticked other) is left to the clock, since an
+	// older binary can still write an unticked run after a ticked one.
+	if startTick(target) == 0 && startTick(other) != 0 {
+		for d := range devices {
+			later[d] = true
+		}
+		return later, byLogical
+	}
 	basis := byLogical
 	clockLater := lastFinish(other).After(firstStart(target))
 	for d := range devices {
@@ -71,13 +86,15 @@ func laterOn(target, other Run, devices map[string]bool) (map[string]bool, order
 		if !touches(other, d) {
 			continue
 		}
-		t, tok := lowestRevision(target, d)
-		o, ook := highestRevision(other, d)
+		t, epoch, tok := lowestRevision(target, d)
+		o, ook := highestRevision(other, d, epoch)
 		if tok && ook {
 			later[d] = o > t
 			continue
 		}
-		// Either run's entries on d predate lease revisions.
+		// Either run's entries on d predate lease revisions, ran under a
+		// shared or a lost lease, or come from another epoch of the lock
+		// bucket: none of those orders by revision.
 		basis = byClock
 		later[d] = clockLater
 	}
@@ -106,25 +123,32 @@ func startTick(run Run) uint64 {
 }
 
 // lowestRevision is the lowest lease revision run's entries on device
-// record, and whether any does.
-func lowestRevision(run Run, device string) (uint64, bool) {
+// record, the epoch it belongs to, and whether any does.
+func lowestRevision(run Run, device string) (uint64, string, bool) {
 	var low uint64
+	var epoch string
 	for _, e := range run.Entries {
-		if e.DeviceID == device && e.LeaseRevision != 0 && (low == 0 || e.LeaseRevision < low) {
-			low = e.LeaseRevision
+		if e.DeviceID == device && e.LeaseRevision != 0 && e.LeaseEpoch != "" && (low == 0 || e.LeaseRevision < low) {
+			low, epoch = e.LeaseRevision, e.LeaseEpoch
 		}
 	}
-	return low, low != 0
+	return low, epoch, low != 0
 }
 
 // highestRevision is the highest lease revision run's entries on device
-// record, and whether any does.
-func highestRevision(run Run, device string) (uint64, bool) {
+// record within epoch, and whether any does. An entry with no revision, or
+// one from another epoch, cannot be ordered against it, so when run has any
+// such entry on device the answer is false and the pair is ordered by clock.
+func highestRevision(run Run, device, epoch string) (uint64, bool) {
 	var high uint64
 	for _, e := range run.Entries {
-		if e.DeviceID == device && e.LeaseRevision > high {
-			high = e.LeaseRevision
+		if e.DeviceID != device {
+			continue
 		}
+		if e.LeaseRevision == 0 || e.LeaseEpoch != epoch {
+			return 0, false
+		}
+		high = max(high, e.LeaseRevision)
 	}
 	return high, high != 0
 }
@@ -141,7 +165,7 @@ func entryAfter(a, b engine.JournalEntry) bool {
 			return a.Attempt > b.Attempt
 		}
 		return a.Sequence > b.Sequence
-	case a.LeaseRevision != 0 && b.LeaseRevision != 0 && a.DeviceID == b.DeviceID:
+	case a.LeaseRevision != 0 && b.LeaseRevision != 0 && a.DeviceID == b.DeviceID && a.LeaseEpoch != "" && a.LeaseEpoch == b.LeaseEpoch:
 		return a.LeaseRevision > b.LeaseRevision
 	case a.RunTick != 0 && b.RunTick != 0:
 		return a.RunTick > b.RunTick

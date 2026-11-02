@@ -31,7 +31,7 @@ func revised(run rollback.Run, rev uint64) rollback.Run {
 	out := run
 	out.Entries = slices.Clone(run.Entries)
 	for i := range out.Entries {
-		out.Entries[i].LeaseRevision = rev
+		out.Entries[i].LeaseRevision, out.Entries[i].LeaseEpoch = rev, "nats:e1"
 	}
 	return out
 }
@@ -103,7 +103,7 @@ func TestOrder_ARunThatNeverRecordedItsEndCountsAsLater(t *testing.T) {
 	killed.Sealed = false
 	_, err := rollback.Build(rollback.Request{Target: target, Others: []rollback.Run{killed}, Devices: inventoryOf("h1")})
 	problems := refused(t, err)
-	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "never recorded its end") || problems[0].Accept != "--despite-run run-K" {
+	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "never recorded its end") || !strings.Contains(problems[0].Reason, "no run began after it stopped") || problems[0].Accept != "--despite-run run-K" {
 		t.Fatalf("problems %+v, want run-K refused as possibly later, with its flag", problems)
 	}
 	if _, err := rollback.Build(rollback.Request{Target: target, Others: []rollback.Run{killed}, Devices: inventoryOf("h1"), DespiteRuns: map[string]bool{"run-K": true}}); err != nil {
@@ -201,5 +201,45 @@ func TestOrder_TheLatestUndoAttemptIsFoundWithoutAClock(t *testing.T) {
 	failedFirst := rollbackOfB("run-RB1", 30, engine.OutcomeFailed, 7, 8, 24*time.Hour)
 	if _, err := rollback.Build(rollback.Request{Target: target, Others: []rollback.Run{later, failedFirst, succeededLast}, Devices: inventoryOf("h1")}); err != nil {
 		t.Errorf("run-B, whose last rollback (by tick) succeeded, still refused: %v", err)
+	}
+}
+
+// TestOrder_ARunWithATickIsLaterThanATargetFromBeforeTheCounter: a target
+// journaled before the counter existed is older than any ticked run, whatever
+// the clock says (here, stepped back a day before the ticked run).
+func TestOrder_ARunWithATickIsLaterThanATargetFromBeforeTheCounter(t *testing.T) {
+	registerShapes(t)
+	legacyTarget := createRun()
+	ticked := ticked(shifted(stopsH1("run-T", 20), -24*time.Hour), 1, 2)
+	_, err := rollback.Build(rollback.Request{Target: legacyTarget, Others: []rollback.Run{ticked}, Devices: inventoryOf("h1")})
+	if problems := refused(t, err); len(problems) != 1 || !strings.Contains(problems[0].Reason, "run-T") || strings.Contains(problems[0].Reason, "clock") {
+		t.Fatalf("problems %+v, want run-T refused by the counter, not by clock", problems)
+	}
+}
+
+// TestOrder_RevisionsFromAnotherEpochOrderByClock: a lock bucket re-created
+// counts from one again, so a revision from another epoch says nothing, and
+// the pair is ordered by clock; so is a job whose rows on the device mix a
+// revision with none (its lease was lost part way).
+func TestOrder_RevisionsFromAnotherEpochOrderByClock(t *testing.T) {
+	registerShapes(t)
+	target := revised(createRun(), 90000)
+	// After a reset: a low revision, a later clock.
+	reset := revised(stopsH1("job-R", 20), 12)
+	for i := range reset.Entries {
+		reset.Entries[i].LeaseEpoch = "nats:e2"
+	}
+	_, err := rollback.Build(rollback.Request{Target: target, Others: []rollback.Run{reset}, Devices: inventoryOf("h1")})
+	if problems := refused(t, err); !strings.Contains(problems[0].Reason, "job-R") || !strings.Contains(problems[0].Reason, "clock times") {
+		t.Fatalf("a job from a re-created bucket: %+v, want it refused by clock, saying so", problems)
+	}
+	lost := revised(stopsH1("job-L", 20), 5)
+	lost.Entries = append(lost.Entries, func() engine.JournalEntry {
+		e := entry("job-L", "tasks[1]", "h1", 21, "rb.stop", engine.OutcomeChanged)
+		return undo(e, "rb.start", map[string]any{"name": "bsd"})
+	}())
+	_, err = rollback.Build(rollback.Request{Target: target, Others: []rollback.Run{lost}, Devices: inventoryOf("h1")})
+	if problems := refused(t, err); !strings.Contains(problems[0].Reason, "job-L") {
+		t.Fatalf("a job that lost its lease part way, later by clock: %+v, want it refused", problems)
 	}
 }

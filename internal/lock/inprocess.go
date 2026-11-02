@@ -2,6 +2,8 @@ package lock
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"sync"
@@ -21,6 +23,7 @@ type inProcessManager struct {
 	mu        *sync.Mutex                    // guards locks and nextToken together
 	locks     map[string]*inProcessLockEntry // itemID to the entry currently holding it
 	nextToken uint64                         // monotonically increasing, never reused, identifies a holder
+	epoch     string                         // this manager's own random id: its tokens' epoch (fencing.go)
 }
 
 // inProcessLockEntry tracks every current holder of a single itemID.
@@ -53,9 +56,13 @@ func (entry *inProcessLockEntry) heldError() *HeldError {
 // this process; it does not coordinate locks across multiple runner
 // instances the way natsLockManager does.
 func NewInProcessManager() Manager {
+	// crypto/rand's Read never fails; it ends the program first.
+	var id [8]byte
+	_, _ = rand.Read(id[:])
 	return &inProcessManager{
 		mu:    &sync.Mutex{},
 		locks: make(map[string]*inProcessLockEntry),
+		epoch: "process:" + hex.EncodeToString(id[:]),
 	}
 }
 
@@ -156,9 +163,15 @@ type inProcessLease struct {
 }
 
 // FencingToken implements Fenced: the manager's holder counter at the
-// acquisition, which only grows for the life of the process.
+// acquisition, which only grows for the life of the manager.
 func (l *inProcessLease) FencingToken() uint64 {
 	return l.token
+}
+
+// FencingEpoch implements Fenced: the manager's own random id, since its
+// counter starts again with every manager.
+func (l *inProcessLease) FencingEpoch() string {
+	return l.manager.epoch
 }
 
 // ID returns the itemID this lease was acquired for. More than one lease

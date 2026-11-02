@@ -57,10 +57,10 @@ type journalPublisher struct {
 	// once at construction rather than per Record.
 	attempt int
 
-	// leaseRevision is the fencing token of the device lease the Runner holds
-	// for this dispatch, read from the context once at construction, zero
-	// when the context carries none.
-	leaseRevision uint64
+	// fence is the device lease's fencing token as the Runner holds it, read
+	// on every Record rather than once, since the Runner marks it lost when a
+	// renewal fails; nil when the context carries none.
+	fence *lock.Fence
 }
 
 // newJournalPublisher builds the sink for one dispatch.
@@ -81,12 +81,11 @@ func newJournalPublisher(ctx context.Context, bus event.Bus, logger *slog.Logger
 			slog.String("job", jobID), slog.String("device", deviceID))
 	}
 	// The device lease's fencing token, when the Runner put one there
-	// (lock.WithFencingToken): stamped on every entry, it orders this
+	// (lock.WithFence): stamped on every entry, it orders this
 	// dispatch against other jobs on the device without a clock. A caller
 	// outside the Runner's delivery path has none, and its entries order by
 	// clock, as a journal from before lease revisions does.
-	revision, _ := lock.FencingTokenFrom(ctx)
-	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, attempt: attempt, leaseRevision: revision}
+	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, attempt: attempt, fence: lock.FenceFrom(ctx)}
 }
 
 // Record implements engine.Journal by publishing one message per level.
@@ -109,11 +108,14 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 		return nil
 	}
 
+	// The token as it stands now: none once the lease was lost, since the
+	// device may have been another job's by the time these ran.
+	revision, epoch, _ := p.fence.Token()
 	stamped := make([]engine.JournalEntry, len(entries))
 	for i, entry := range entries {
 		entry.JobID = p.jobID
 		entry.Attempt = p.attempt
-		entry.LeaseRevision = p.leaseRevision
+		entry.LeaseRevision, entry.LeaseEpoch = revision, epoch
 		// A node that resolved no device still ran inside a dispatch that
 		// names exactly one, so it is attributed to that device rather
 		// than left blank. A skipped task, a controller-side task and the

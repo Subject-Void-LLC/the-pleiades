@@ -343,20 +343,33 @@ func TestJournalPublisherKeepsTheDeviceTheRunResolved(t *testing.T) {
 // none and order by clock.
 func TestJournalPublisherStampsTheLeaseRevision(t *testing.T) {
 	bus := &mockBus{}
-	ctx := lock.WithFencingToken(journal.WithAttempt(context.Background(), 1), 4242)
+	fence := lock.NewFence(4242, "nats:epoch-1")
+	ctx := lock.WithFence(journal.WithAttempt(context.Background(), 1), fence)
 	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
 	if err := p.Record(ctx, journalEntries("run-1", 1, 2)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 	for i, e := range decodeBatch(t, bus).Entries {
-		if e.LeaseRevision != 4242 {
-			t.Errorf("entry %d carries lease revision %d, want 4242", i, e.LeaseRevision)
+		if e.LeaseRevision != 4242 || e.LeaseEpoch != "nats:epoch-1" {
+			t.Errorf("entry %d carries lease revision %d epoch %q, want 4242 in nats:epoch-1", i, e.LeaseRevision, e.LeaseEpoch)
 		}
 	}
 
+	// Once the lease is lost, what the run records after carries none: the
+	// device may be another job's by then.
+	fence.Lose()
+	after := &mockBus{}
+	q := newJournalPublisher(ctx, after, quietLogger(), "job-1", "device-1")
+	if err := q.Record(ctx, journalEntries("run-1", 3)); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if got := decodeBatch(t, after).Entries[0].LeaseRevision; got != 0 {
+		t.Errorf("an entry recorded after the lease was lost carries revision %d, want none", got)
+	}
+
 	bare := &mockBus{}
-	q := newJournalPublisher(journal.WithAttempt(context.Background(), 1), bare, quietLogger(), "job-1", "device-1")
-	if err := q.Record(context.Background(), journalEntries("run-1", 1)); err != nil {
+	r := newJournalPublisher(journal.WithAttempt(context.Background(), 1), bare, quietLogger(), "job-1", "device-1")
+	if err := r.Record(context.Background(), journalEntries("run-1", 1)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 	if got := decodeBatch(t, bare).Entries[0].LeaseRevision; got != 0 {

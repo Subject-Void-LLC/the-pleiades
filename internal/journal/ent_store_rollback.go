@@ -59,26 +59,29 @@ func (s *EntStore) allForJob(ctx context.Context, jobID string, limit int) ([]en
 // ErrTooMuchToPlan.
 //
 // fromRevision is the lowest lease revision jobID's own entries record
-// (lock.Fenced), zero when they record none. A row carrying a revision is
+// (lock.Fenced), in epoch, zero when they record none. A row of that epoch is
 // selected when its revision is above fromRevision, whatever its times say,
 // since two Runners' clocks can disagree; the planner then compares each
 // device's revisions exactly (internal/rollback's order.go). A row from
-// before revisions, and every row when jobID has none, is selected as it
-// always was: finished after since.
-func (s *EntStore) OnDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, fromRevision uint64) ([]engine.JournalEntry, error) {
-	return s.onDevicesSince(ctx, jobID, devices, since, fromRevision, MaxRollbackEntries, deviceChunk)
+// before revisions or from another epoch, and every row when jobID has none,
+// is selected as it always was: finished after since.
+func (s *EntStore) OnDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, fromRevision uint64, epoch string) ([]engine.JournalEntry, error) {
+	return s.onDevicesSince(ctx, jobID, devices, since, fromRevision, epoch, MaxRollbackEntries, deviceChunk)
 }
 
 // onDevicesSince is OnDevicesSince with its bound and IN-list size as
 // parameters.
-func (s *EntStore) onDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, fromRevision uint64, limit, size int) ([]engine.JournalEntry, error) {
-	// Which rows could be later than jobID: by revision where both carry one,
-	// by clock where either does not.
+func (s *EntStore) onDevicesSince(ctx context.Context, jobID string, devices []string, since time.Time, fromRevision uint64, epoch string, limit, size int) ([]engine.JournalEntry, error) {
+	// Which rows could be later than jobID: by revision where both carry one
+	// in the same epoch, by clock where either does not.
 	later := entjournal.FinishedAtGT(since)
-	if fromRevision != 0 {
+	if fromRevision != 0 && epoch != "" {
 		later = entjournal.Or(
-			entjournal.LeaseRevisionGT(fromRevision),
-			entjournal.And(entjournal.LeaseRevisionEQ(0), entjournal.FinishedAtGT(since)),
+			entjournal.And(entjournal.LeaseEpochEQ(epoch), entjournal.LeaseRevisionGT(fromRevision)),
+			entjournal.And(
+				entjournal.Or(entjournal.LeaseRevisionEQ(0), entjournal.LeaseEpochIsNil(), entjournal.LeaseEpochNEQ(epoch)),
+				entjournal.FinishedAtGT(since),
+			),
 		)
 	}
 	var entries []engine.JournalEntry

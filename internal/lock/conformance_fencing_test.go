@@ -17,11 +17,18 @@ import (
 func conformanceFencingTokensOrderAcquisitions(t *testing.T, mgr lock.Manager) {
 	ctx := context.Background()
 	const ttl = 5 * time.Second
+	var epoch string
 	token := func(t *testing.T, lease lock.Lease) uint64 {
 		t.Helper()
-		got, ok := lock.FencingToken(lease)
+		got, gotEpoch, ok := lock.FencingToken(lease)
 		if !ok {
 			t.Fatalf("a %T carries no fencing token", lease)
+		}
+		// One manager's leases share one epoch, so their tokens compare.
+		if epoch == "" {
+			epoch = gotEpoch
+		} else if gotEpoch != epoch {
+			t.Errorf("one manager's leases hold epochs %q and %q", epoch, gotEpoch)
 		}
 		return got
 	}
@@ -68,16 +75,49 @@ func conformanceFencingTokensOrderAcquisitions(t *testing.T, mgr lock.Manager) {
 	}
 }
 
-// TestFencingTokenFromContext: the context helpers carry a token and report
-// none when there is none.
-func TestFencingTokenFromContext(t *testing.T) {
-	if _, ok := lock.FencingTokenFrom(context.Background()); ok {
+// TestFence_CarriesATokenUntilLost: the context carries a Fence, whose token
+// stands until the lease is lost and never comes back; none, and a zero
+// token, report no token.
+func TestFence_CarriesATokenUntilLost(t *testing.T) {
+	if _, _, ok := lock.FenceFrom(context.Background()).Token(); ok {
 		t.Error("a bare context reported a fencing token")
 	}
-	if got, ok := lock.FencingTokenFrom(lock.WithFencingToken(context.Background(), 42)); !ok || got != 42 {
-		t.Errorf("FencingTokenFrom = %d, %v; want 42, true", got, ok)
+	fence := lock.NewFence(42, "e1")
+	if got, epoch, ok := lock.FenceFrom(lock.WithFence(context.Background(), fence)).Token(); !ok || got != 42 || epoch != "e1" {
+		t.Errorf("Token = %d, %q, %v; want 42, e1, true", got, epoch, ok)
 	}
-	if _, ok := lock.FencingTokenFrom(lock.WithFencingToken(context.Background(), 0)); ok {
+	fence.Lose()
+	if _, _, ok := fence.Token(); ok {
+		t.Error("a lost lease still reported its token")
+	}
+	if _, _, ok := lock.NewFence(0, "e1").Token(); ok {
 		t.Error("a zero token was reported as one")
+	}
+	if _, _, ok := lock.NewFence(42, "").Token(); ok {
+		t.Error("a token with no epoch was reported as one")
+	}
+	var none *lock.Fence
+	none.Lose()
+	if _, _, ok := none.Token(); ok {
+		t.Error("a nil Fence reported a token")
+	}
+}
+
+// TestFencingEpoch_TwoInProcessManagersNeverShareOne: each manager's counter
+// starts again, so two managers' tokens must never compare.
+func TestFencingEpoch_TwoInProcessManagersNeverShareOne(t *testing.T) {
+	ctx := context.Background()
+	a, err := lock.NewInProcessManager().Acquire(ctx, "item", time.Second, lock.AcquireOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := lock.NewInProcessManager().Acquire(ctx, "item", time.Second, lock.AcquireOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ea, _ := lock.FencingToken(a)
+	_, eb, _ := lock.FencingToken(b)
+	if ea == "" || ea == eb {
+		t.Errorf("two managers' epochs %q and %q; want two different, non-empty", ea, eb)
 	}
 }

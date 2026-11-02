@@ -102,6 +102,8 @@ const (
 	FieldRunTick = "run_tick"
 	// FieldLeaseRevision holds the string denoting the lease_revision field in the database.
 	FieldLeaseRevision = "lease_revision"
+	// FieldLeaseEpoch holds the string denoting the lease_epoch field in the database.
+	FieldLeaseEpoch = "lease_epoch"
 	// Table holds the table name of the journalentry in the database.
 	Table = "journal_entries"
 )
@@ -153,6 +155,7 @@ var Columns = []string{
 	FieldUndoesStep,
 	FieldRunTick,
 	FieldLeaseRevision,
+	FieldLeaseEpoch,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -460,4 +463,9 @@ func ByRunTick(opts ...sql.OrderTermOption) OrderOption {
 // ByLeaseRevision orders the results by the lease_revision field.
 func ByLeaseRevision(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLeaseRevision, opts...).ToFunc()
+}
+
+// ByLeaseEpoch orders the results by the lease_epoch field.
+func ByLeaseEpoch(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLeaseEpoch, opts...).ToFunc()
 }

@@ -51,8 +51,8 @@ import (
 //     synthesized graph id, see NodeResult.NodeID), DeviceID (the
 //     inventory item's own stored id field, internal/inventory/record/
 //     record.go:161, never a device property), JobID, Attempt, StartedAt,
-//     FinishedAt, RunTick, LeaseRevision, and a rollback's RollbackOf and
-//     UndoesNode.
+//     FinishedAt, RunTick, LeaseRevision, LeaseEpoch, and a rollback's
+//     RollbackOf and UndoesNode.
 //  2. A compile-time constant resolved through a registry at write time:
 //     FQCN and InverseFQCN after resolution through collection.Lookup,
 //     the stat and param key names a method's own Doc declares, and the
@@ -241,6 +241,12 @@ type JournalEntry struct {
 	// which the planner orders by clock instead, and says so.
 	RunTick       uint64 `json:"run_tick,omitempty"`
 	LeaseRevision uint64 `json:"lease_revision,omitempty"`
+
+	// LeaseEpoch names the life of the sequence LeaseRevision comes from
+	// (kind 1, lock.Fenced's epoch: the lock bucket stream's creation time).
+	// Two revisions are compared only within one epoch, since a re-created
+	// stream counts from one again. Empty with no revision.
+	LeaseEpoch string `json:"lease_epoch,omitempty"`
 
 	// Outcome is what this node did (kind 3).
 	Outcome Outcome `json:"outcome"`

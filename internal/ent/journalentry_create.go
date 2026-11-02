@@ -557,6 +557,20 @@ func (_c *JournalEntryCreate) SetNillableLeaseRevision(v *uint64) *JournalEntryC
 	return _c
 }
 
+// SetLeaseEpoch sets the "lease_epoch" field.
+func (_c *JournalEntryCreate) SetLeaseEpoch(v string) *JournalEntryCreate {
+	_c.mutation.SetLeaseEpoch(v)
+	return _c
+}
+
+// SetNillableLeaseEpoch sets the "lease_epoch" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableLeaseEpoch(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetLeaseEpoch(*v)
+	}
+	return _c
+}
+
 // Mutation returns the JournalEntryMutation object of the builder.
 func (_c *JournalEntryCreate) Mutation() *JournalEntryMutation {
 	return _c.mutation
@@ -1001,6 +1015,10 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.LeaseRevision(); ok {
 		_spec.SetField(journalentry.FieldLeaseRevision, field.TypeUint64, value)
 		_node.LeaseRevision = value
+	}
+	if value, ok := _c.mutation.LeaseEpoch(); ok {
+		_spec.SetField(journalentry.FieldLeaseEpoch, field.TypeString, value)
+		_node.LeaseEpoch = value
 	}
 	return _node, _spec
 }
