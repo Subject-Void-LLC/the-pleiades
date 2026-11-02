@@ -338,7 +338,7 @@ func TestFileStore_ConcurrentWritersTakeTurns(t *testing.T) {
 // CLI runs, each start writing the same forty new devices at the same moment,
 // so each device's lock file is created by several at once. On macOS one such
 // create failed with "no such file or directory" (fast-macos, 2026-11-02); the
-// store tries that again, and the log says how often it had to here.
+// store tries that again, and the note says how often it had to here.
 func TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "facts")
 	if _, err := facts.NewFileStore(dir); err != nil {
@@ -373,7 +373,9 @@ func TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Logf("lock opens tried again on %s: %d", runtime.GOOS, facts.LockOpenRetries()-before)
+	// A "note: " line reaches testgate's output and a CI job's summary
+	// even when the test passes (flakegate.Notes).
+	t.Logf("note: lock opens tried again on %s/%s: %d", runtime.GOOS, runtime.GOARCH, facts.LockOpenRetries()-before)
 	store, _ := facts.NewFileStore(dir)
 	for d := range devices {
 		current, err := store.Current(ctx, fmt.Sprintf("dev%d", d))

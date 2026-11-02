@@ -63,6 +63,8 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/ent": 13.1,
     "github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate": 86.5,
     "github.com/Subject-Void-LLC/the-pleiades/internal/event": 86.2,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/facts": 83.3,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore": 81.2,
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold": 89.9,
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/filterscaffold": 88.0,
