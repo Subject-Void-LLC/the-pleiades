@@ -6998,3 +6998,25 @@ method. It did not hold because it was read as being about a new method or its `
 **Rule in practice.** When a change moves a number the docs state (methods, implemented, checked, any status), search
 README.md, CLAUDE.md and `docs/01-start-here.md` for the old number and update every one in the same edit, README's
 first. Then run `go test ./tools/gendocs/ ./internal/archtest/` before the commit, whatever pr-check would select.
+
+## 381. A safety check fed by a functional option fails open on every composition root that does not pass it: when a new guard starts reading a list an option fills, check each root that builds the object, test that the root passes it, and give the guard a check that needs no list (a repeat of 154) (2026-11-02).
+
+**Why.** Phase 41 (C2d) made the engine refuse to store a fact whose value holds one of the run's secrets, reading the
+run's known-secret set, which `engine.WithKnownSecrets` fills. The Crawl CLI passed the option; the Runner's executor
+(`internal/adapters/native/adapter.go`) never had, because the Runner masked with the dispatch's secrets in its adapter
+after the run, and nothing inside its executor had needed the list before (FAILURE_PATTERNS 829, a repeat of 394 and
+578). On the Walk tier the list was empty, so a fact holding the dispatched credential would have reached the
+Controller's database and its API. LESSONS 154 already says a dependency a component cannot build for itself belongs in
+its constructor, not in an option, because an option is what every caller but its author forgets. It did not hold
+because the option was old and correct for its first use (masking on the CLI), and the new guard was a second consumer
+that inherited the option's gaps without anyone asking which roots set it. LESSONS 351 says a test harness copies every
+option the root passes; this is the reverse case, a root that never passed one.
+
+**Rule in practice.** When new code starts relying on state an existing option supplies, find every caller of the
+constructor that builds the object (`go_symbol_references` on the constructor and on the option) and confirm each
+composition root passes it. Add a test, in the package of each root, that fails when the root stops passing it; the
+fix for 829 has `TestDispatchSecrets_HoldsTheCredentialAndWhatWasInjected`, which checks the list but not that the
+Runner's executor receives it, so that test is still owed. Back a secret guard with checks that need no list (here
+`redact.SecretName` on the key and `redact.SecretShaped` on the value, applied on both tiers and again by the
+Controller in `facts.Verify`), and say in its doc that both together are a strip list, not a proof (LESSONS 337).
+Where the dependency is one the component cannot work safely without, move it into the constructor, as 154 says.

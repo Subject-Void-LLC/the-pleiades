@@ -5,14 +5,40 @@ package native
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
+
+// factsEchoMethod reports one ordinary fact and one whose value is the
+// dispatch's own password, under a name nothing would call a secret. It is
+// registered at init so the per-task child process, which re-runs this test
+// binary, has it too (ipc_parent_test.go's nativeIPCEchoMethod says why).
+const factsEchoMethod = "nativefactstest.echo_login"
+
+func init() {
+	collection.MustRegister(collection.Descriptor{
+		Name:     factsEchoMethod,
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"}},
+		Invoke: func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+			if err := rc.EmitFact("plain_note", "ok"); err != nil {
+				return collection.Result{}, err
+			}
+			if err := rc.EmitFact("login_note", rc.InjectSecrets()["password"]); err != nil {
+				return collection.Result{}, err
+			}
+			return collection.Result{}, nil
+		},
+	})
+}
 
 func factEntries(t *testing.T) []facts.Entry {
 	t.Helper()
@@ -81,5 +107,52 @@ func TestDispatchSecrets_HoldsTheCredentialAndWhatWasInjected(t *testing.T) {
 	}
 	if !held["p@ss"] || !held["inj-token"] {
 		t.Errorf("dispatchSecrets = %q, want the password and the injected value", got)
+	}
+}
+
+// TestExecute_PublishesNoFactHoldingTheDispatchsSecret drives the real
+// Adapter.Execute, per-task child and all: a task that reports its own
+// login password as a fact, under an ordinary name and in no secret's shape,
+// has that fact left out of what the Runner publishes, while its other fact
+// goes. Only the dispatch's secrets handed to the executor
+// (engine.WithKnownSecrets in adapter.go) can catch it, so this fails if that
+// wiring is dropped (FAILURE_PATTERNS 829).
+func TestExecute_PublishesNoFactHoldingTheDispatchsSecret(t *testing.T) {
+	const password = "Lattice7Harbor"
+	bus := &mockBus{}
+	runbooks := writeRunbook(t, "facts-echo", "# Reports a fact. Read only.\nid: facts-echo\ntasks:\n  - name: echo\n    "+factsEchoMethod+": {}\n")
+	adapter, err := NewAdapter(bus, runbooks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := wire.DispatchPayload{
+		JobID: "11111111-2222-3333-4444-666666666666", RunbookID: "facts-echo",
+		DeviceID: "device-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
+		Secrets: map[string]string{"username": "admin", "password": password},
+	}
+	if _, err := adapter.Execute(context.Background(), payload); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	stored := map[string]any{}
+	for _, p := range bus.published {
+		if p.topic != topology.FactsSubject(payload.JobID) {
+			continue
+		}
+		var batch facts.Batch
+		if err := json.Unmarshal(p.evt.Data, &batch); err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range batch.Entries {
+			stored[e.Key] = e.Value
+		}
+		if strings.Contains(string(p.evt.Data), password) {
+			t.Errorf("a published facts batch holds the dispatch's password: %s", p.evt.Data)
+		}
+	}
+	if stored["plain_note"] != "ok" {
+		t.Fatalf("the ordinary fact was not published: %v", stored)
+	}
+	if _, ok := stored["login_note"]; ok {
+		t.Errorf("the fact holding the dispatch's password was published: %v", stored)
 	}
 }
