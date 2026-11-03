@@ -10,7 +10,6 @@
 package facts
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 )
@@ -178,26 +177,21 @@ func parseWindowsObject(out string) []gatherFact {
 			return nil
 		}
 		key, _ := keyTok.(string)
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
+		var v any
+		if err := dec.Decode(&v); err != nil {
 			return nil
 		}
-		if value, ok := windowsValue(raw); ok && key != "" {
+		if value, ok := windowsValue(v); ok && key != "" {
 			facts = append(facts, gatherFact{key: key, value: value})
 		}
 	}
 	return facts
 }
 
-// windowsValue is raw as a fact's value: a string, a whole number as an int,
-// or a boolean. Anything else, an empty string or a null is not one.
-func windowsValue(raw json.RawMessage) (any, bool) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, false
-	}
+// windowsValue is v, as a decoder using numbers read it, as a fact's
+// value: a string, a whole number as an int, or a boolean. Anything else,
+// an empty string or a null is not one.
+func windowsValue(v any) (any, bool) {
 	switch t := v.(type) {
 	case string:
 		t = strings.TrimSpace(t)

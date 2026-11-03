@@ -219,8 +219,17 @@ type gatherProbe struct {
 	parse   func(stdout string) []gatherFact
 }
 
-// gatherProbes is the fixed set of things this method reads, in the order
-// it reads them.
+// The platforms facts.gather reads, by what uname -s answers.
+const (
+	platformLinux   = "Linux"
+	platformFreeBSD = "FreeBSD"
+	platformDarwin  = "Darwin"
+)
+
+// gatherProbesFor is the probes of platform, as uname -s names it (or
+// Windows, chosen by the transport): Linux's for Linux and for anything it
+// does not know, since its sources are the ones a device most often has and
+// a missing one only leaves facts out. They run in the order listed.
 //
 // # One command per source, not one command for all of them
 //
@@ -242,20 +251,6 @@ type gatherProbe struct {
 // Every command is also a compile-time constant with nothing from the
 // runbook in it, which is why no quoting of a task parameter appears
 // anywhere in this file.
-func gatherProbes() []gatherProbe {
-	return gatherProbesFor(platformLinux)
-}
-
-// The platforms facts.gather reads, by what uname -s answers.
-const (
-	platformLinux   = "Linux"
-	platformFreeBSD = "FreeBSD"
-	platformDarwin  = "Darwin"
-)
-
-// gatherProbesFor is the probes of platform, as uname -s names it: Linux's
-// for Linux and for anything it does not know, since its sources are the
-// ones a device most often has and a missing one only leaves facts out.
 func gatherProbesFor(platform string) []gatherProbe {
 	switch platform {
 	case platformFreeBSD:
@@ -387,10 +382,7 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, err
 	}
 	defer closeRun()
-	probes, err := choice.probesFor(platform)
-	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
+	probes := choice.probesFor(platform)
 
 	for _, probe := range probes {
 		stdout, err := run(ctx, probe.command)
@@ -461,9 +453,12 @@ type gatherChoice struct {
 	patterns []string
 }
 
-// probesFor is the probes choice runs on platform.
-func (choice gatherChoice) probesFor(platform string) ([]gatherProbe, error) {
-	return choice.narrow(gatherProbesFor(platform))
+// probesFor is the probes choice runs on platform. narrow refuses only a
+// malformed pattern, which gatherPlan has already refused over every
+// platform's probes, so it cannot refuse here.
+func (choice gatherChoice) probesFor(platform string) []gatherProbe {
+	probes, _ := choice.narrow(gatherProbesFor(platform))
+	return probes
 }
 
 // narrow keeps the probes of the chosen subsets that the filter can want,

@@ -85,6 +85,9 @@ func TestServer_HasCapability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	if g, ok := item.(capability.FactGathererCapable); !ok || g.FactSourceName() != "setup" {
+		t.Errorf("windows_server's fact source is not setup: %v", ok)
+	}
 
 	tests := []struct {
 		name       string
