@@ -22,6 +22,13 @@ func generateCLI(outDir string) error {
 		"--help` renders from (`internal/clispec`). Flags are listed in the order each command's own " +
 		"`flag.FlagSet` declares them; running `--help` against a real binary shows the identical set.\n\n")
 
+	// The options that come before any command and hold for all of them.
+	if len(clispec.Root.Flags) > 0 {
+		b.WriteString("## Options for every command\n\n")
+		b.WriteString("Written before the command: " + code("pleiades [options] <command> [flags]") + ".\n\n")
+		writeFlagsTable(&b, clispec.Root.Flags)
+	}
+
 	for _, cmd := range clispec.Root.Subcommands {
 		writeCommandSection(&b, "pleiades", cmd, 2)
 	}

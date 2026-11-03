@@ -1,0 +1,1 @@
+Added `pleiades --known-hosts FILE <command>`, which names the known_hosts file every SSH connection of that command verifies host keys against, in place of `~/.ssh/known_hosts`, as `PLEIADES_KNOWN_HOSTS` does.

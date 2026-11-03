@@ -79,6 +79,11 @@ type Flag struct {
 var Root = Command{
 	Name:     "pleiades",
 	Synopsis: "Crawl tier: no server, no database, no broker.",
+	// Flags here come before the command (pleiades --known-hosts FILE run
+	// ...) and hold for every command (cmd/pleiades/global.go).
+	Flags: []Flag{
+		{Name: "known-hosts", Type: "string", Default: "", Doc: "the known_hosts file every SSH connection of this command verifies host keys against, in place of ~/.ssh/known_hosts; it sets PLEIADES_KNOWN_HOSTS for the command and every process it starts, and wins over one already set"},
+	},
 	Subcommands: []Command{
 		{
 			Name:     "init",
