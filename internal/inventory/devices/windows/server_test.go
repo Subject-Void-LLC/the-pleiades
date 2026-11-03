@@ -48,6 +48,7 @@ func TestNewServer_BaselineCapabilities(t *testing.T) {
 		{name: "WindowsServiceCapable", capability: capability.Name("WindowsServiceCapable")},
 		{name: "WindowsFeatureCapable", capability: capability.Name("WindowsFeatureCapable")},
 		{name: "WindowsShellCapable", capability: capability.NameWindowsShell},
+		{name: "FactGathererCapable", capability: capability.NameFactGatherer},
 	}
 
 	for _, tt := range tests {
@@ -94,6 +95,7 @@ func TestServer_HasCapability(t *testing.T) {
 		{name: "WindowsServiceCapable", capability: capability.NameWindowsService},
 		{name: "WindowsFeatureCapable", capability: capability.NameWindowsFeature},
 		{name: "WindowsShellCapable", capability: capability.NameWindowsShell},
+		{name: "FactGathererCapable", capability: capability.NameFactGatherer},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

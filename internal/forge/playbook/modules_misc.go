@@ -98,8 +98,10 @@ var miscModules = []Entry{
 		},
 	},
 	{
-		Module:  "ansible.builtin.setup",
-		Aliases: []string{"setup", "ansible.builtin.gather_facts", "gather_facts"},
+		Module: "ansible.builtin.setup",
+		// ansible.windows.setup is the same module for a Windows host, which
+		// facts.gather reads over WinRM.
+		Aliases: []string{"setup", "ansible.builtin.gather_facts", "gather_facts", "ansible.windows.setup"},
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "gathering facts reads and changes nothing"},
 		Args: []Arg{
 			{Name: "filter", To: "filter"},
@@ -112,7 +114,7 @@ var miscModules = []Entry{
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "listing packages reads and changes nothing",
 			Fixed: map[string]any{"gather_subset": []any{"packages"}}, Note: packageFactsNote},
 		Args: []Arg{
-			{Name: "manager", Handling: ArgDrop, Code: "args.ignored", Reason: "facts.gather reads every package database the device has (dpkg, rpm, apk), so there is no manager to choose"},
+			{Name: "manager", Handling: ArgDrop, Code: "args.ignored", Reason: "facts.gather reads every package database the device has (dpkg, rpm, apk, pkg, Homebrew, pkgutil, the Windows registry), so there is no manager to choose"},
 			{Name: "strategy", Handling: ArgDrop, Code: "args.ignored", Reason: "facts.gather reads every package database the device has, as strategy: all would"},
 		},
 	},

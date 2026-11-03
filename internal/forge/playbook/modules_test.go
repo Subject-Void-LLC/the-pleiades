@@ -104,6 +104,7 @@ func TestModules_Map(t *testing.T) {
 		{name: "wait_for path", task: "{wait_for: {path: /x}}", code: "args.unmapped"},
 		{name: "wait_for sleep only", task: "{wait_for: {timeout: 5}}", code: "args.unmapped"},
 		{name: "setup subset", task: "{setup: {gather_subset: [min, packages]}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"min", "packages"}}},
+		{name: "windows setup", task: "{ansible.windows.setup: {gather_subset: [min]}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"min"}}, class: playbook.ClassObserve},
 		{name: "package_facts", task: "{package_facts: {manager: auto}}", fqcns: []string{"facts.gather"}, code: "args.ignored", params: map[string]any{"gather_subset": []any{"packages"}}, class: playbook.ClassObserve},
 		{name: "service_facts", task: "{service_facts: {}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"services"}}, class: playbook.ClassObserve},
 		{name: "firewalld service", task: "{firewalld: {service: http, state: enabled}}", fqcns: []string{"fw.firewalld.allow"}, params: map[string]any{"permanent": false, "immediate": true}},

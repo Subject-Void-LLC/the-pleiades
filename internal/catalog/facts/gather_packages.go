@@ -5,6 +5,7 @@
 package facts
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -49,8 +50,11 @@ type installedPackage struct {
 
 // packageFacts turns pkgs into one fact each. A name already taken (rpm's
 // multilib packages share one name across architectures) takes its
-// architecture after a colon, as dpkg names a foreign one, and a name still
-// taken its source after an at sign, so no package overwrites another.
+// architecture after a colon, as dpkg names a foreign one, a name still
+// taken its source after an at sign, and one taken even so (two of
+// Windows' Uninstall entries may share a display name) a number after a
+// hash, counted in the order the source lists them, so no package
+// overwrites another. A package its source gives no version has none.
 func packageFacts(pkgs []installedPackage) []gatherFact {
 	out := make([]gatherFact, 0, len(pkgs))
 	taken := map[string]bool{}
@@ -62,8 +66,14 @@ func packageFacts(pkgs []installedPackage) []gatherFact {
 		if taken[name] {
 			name += "@" + p.source
 		}
+		for n, base := 2, name; taken[name]; n++ {
+			name = base + "#" + strconv.Itoa(n)
+		}
 		taken[name] = true
-		value := map[string]any{"version": p.version, "source": p.source}
+		value := map[string]any{"source": p.source}
+		if p.version != "" {
+			value["version"] = p.version
+		}
 		if p.arch != "" {
 			value["arch"] = p.arch
 		}

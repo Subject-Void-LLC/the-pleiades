@@ -84,6 +84,7 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 			capability.Name("WindowsFeatureCapable"),
 			capability.NameWindowsShell,
 			capability.NameNetworkAddressable,
+			capability.NameFactGatherer,
 		},
 		rec.Capabilities,
 	)
@@ -141,6 +142,11 @@ func winrmPort(props inventory.Properties) int {
 func (w *Server) IPAddress() string {
 	return w.WinRMHost()
 }
+
+// FactSourceName names facts.gather's Windows probes as the fact source,
+// satisfying capability.FactGathererCapable: "setup", Ansible's word, as
+// linux.Server names it, since the same method gathers both.
+func (w *Server) FactSourceName() string { return "setup" }
 
 // WindowsEdition returns the detected Windows edition (e.g. "Server 2022
 // Datacenter"), satisfying capability.WindowsCapable.

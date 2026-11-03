@@ -75,6 +75,7 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
 				"ssh",
+				"winrm",
 			},
 			RequiredCapabilities: []capability.Name{
 				capability.NameFactGatherer,
@@ -97,13 +98,13 @@ func init() {
 			// fact that makes Changed unconditionally false below.
 			Reversibility: collection.Reversibility{
 				Reversible: false,
-				Notes: "Reading is not changing. This method runs uname and reads /etc/os-release and files under /proc, alters nothing " +
-					"on the device, and so has nothing an undo could restore.",
+				Notes: "Reading is not changing. This method runs fixed reads (uname, /etc/os-release, /proc, sysctl, package and service " +
+					"listings, CIM and the registry on Windows), alters nothing on the device, and so has nothing an undo could restore.",
 				ReadOnly: true,
 			},
 			Doc: gatherDoc(),
-			// Every command it sends is a fixed uname or cat (gatherProbes),
-			// so a check runs it for real: reading is all a real run does.
+			// Every command it sends is a fixed read (gatherProbesFor), so a
+			// check runs it for real: reading is all a real run does.
 			SupportsCheck: true,
 		},
 		Invoke: Gather,
@@ -147,7 +148,7 @@ func gatherFactNames() []string {
 func gatherDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Gathers system facts from the target: OS, kernel, distribution, and on request its packages and services.",
-		Description: "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm or apk); and services, one fact per service (service.<name>: state, enabled and status, from systemd). Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+		Description: "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); and services, one fact per service (service.<name>: state, enabled and status, from systemd, FreeBSD's rc, launchd, or the Windows service control manager). The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
 		Params: []collection.Param{
 			{Name: gatherParamFilter, Type: "list of string", Description: "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."},
 			{Name: gatherParamSubset, Type: "list of string", Description: "The subsets to gather, as ansible.builtin.setup names them: min, hardware, packages, services, or all; a name with a leading ! leaves that subset out, and a list of only such names starts from all. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. An unknown name is refused."},
@@ -169,8 +170,8 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactSwapTotalMB, Type: "int", Returned: "when /proc/meminfo reports it", Description: "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."},
 			{Name: gatherFactProcessorVCPUs, Type: "int", Returned: "when /proc/cpuinfo lists processors", Description: "The number of logical processors, counted as the processor entries in /proc/cpuinfo."},
 			{Name: gatherFactProcessorCores, Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
-			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm or apk). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source."},
-			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service systemd knows", Description: "One service by its unit name: state (running, exited, dead, failed or inactive), enabled, status (the unit file's state: enabled, disabled, static, masked) and source."},
+			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm, apk, pkg, brew, brew-cask, pkgutil or registry). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source, then #2 and on in the order the source lists them. A package its source gives no version has none."},
+			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is running, exited, dead, failed or inactive and status the unit file's state (enabled, disabled, static, masked); from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status the last exit status launchctl prints; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."},
 		},
 		Examples: []collection.Example{
 			{
@@ -261,6 +262,8 @@ func gatherProbesFor(platform string) []gatherProbe {
 		return append(append(bsdHostProbes(platform), freebsdPackageProbes()...), freebsdServiceProbes()...)
 	case platformDarwin:
 		return append(append(bsdHostProbes(platform), darwinPackageProbes()...), darwinServiceProbes()...)
+	case platformWindows:
+		return windowsProbes()
 	}
 	probes := gatherHostProbes()
 	probes = append(probes, linuxPackageProbes()...)
@@ -271,7 +274,7 @@ func gatherProbesFor(platform string) []gatherProbe {
 // against before the device is reached.
 func gatherEveryProbe() []gatherProbe {
 	var all []gatherProbe
-	for _, p := range []string{platformLinux, platformFreeBSD, platformDarwin} {
+	for _, p := range []string{platformLinux, platformFreeBSD, platformDarwin, platformWindows} {
 		all = append(all, gatherProbesFor(p)...)
 	}
 	return all
@@ -379,30 +382,23 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 	patterns := choice.patterns
 
-	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
+	run, platform, closeRun, err := gatherRunner(ctx, rc, device, params, fqcn)
 	if err != nil {
 		return collection.Result{}, err
 	}
-	defer func() { _ = conn.Close() }()
-
-	// Which platform's sources to read: uname -s answers on every system
-	// this method reaches, and an answer it does not know reads Linux's.
-	system, err := conn.Run(ctx, "uname -s")
-	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: uname -s: %w", fqcn, err)
-	}
-	probes, err := choice.probesFor(strings.TrimSpace(system.Stdout))
+	defer closeRun()
+	probes, err := choice.probesFor(platform)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
 	for _, probe := range probes {
-		result, err := conn.Run(ctx, probe.command)
+		stdout, err := run(ctx, probe.command)
 		if err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, probe.command, err)
+			return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, probe.name(), err)
 		}
 
-		for _, fact := range probe.parse(result.Stdout) {
+		for _, fact := range probe.parse(stdout) {
 			// A probe answering two facts can survive a filter that wants
 			// only one of them, so the keys are checked again here. Dropping
 			// this would emit ansible_distribution_version to a task that

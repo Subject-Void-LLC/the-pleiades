@@ -1,9 +1,10 @@
-// facts.gather's FreeBSD and macOS subsets through the real binary against
-// the lab's real machines (Phase 41c): each machine onboarded (which grants
-// FactGathererCapable), every subset gathered, and what was gathered held to
-// what the machine's own tools report. The file name names no platform,
-// since a _freebsd or _darwin suffix would build it only there (FAILURE
-// PATTERNS 374); each test skips unless its machine is configured.
+// facts.gather's FreeBSD, macOS and Windows subsets through the real binary
+// against the lab's real machines (Phase 41c): each machine onboarded where
+// its type is generic (which grants FactGathererCapable), every subset
+// gathered, and what was gathered held to what the machine's own tools
+// report. The file name names no platform, since a _freebsd, _darwin or
+// _windows suffix would build it only there (FAILURE PATTERNS 374); each
+// test skips unless its machine is configured.
 package main_test
 
 import (
@@ -44,6 +45,12 @@ func labGatherAll(t *testing.T, m labMachine) map[string]any {
 	if out, err := onboard.CombinedOutput(); err != nil {
 		t.Fatalf("onboarding %s: %v\n%s", m.host, err, out)
 	}
+	return labGather(t, m)
+}
+
+// labGather gathers every subset from m, returning the task's stats.
+func labGather(t *testing.T, m labMachine) map[string]any {
+	t.Helper()
 	rep, raw, code := runPleiadesJSONWithHome(t, m.dir, "", "adhoc", m.host, "facts.gather", "gather_subset:=[all]")
 	if code != 0 || len(rep.Tasks) != 1 {
 		t.Fatalf("facts.gather on %s (exit %d):\n%s", m.host, code, raw)
@@ -140,5 +147,77 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	daemons := labAtoi(t, labShell(t, m, `launchctl print system | awk '/^\tservices = \{/{f=1;next} f&&/^\t\}/{exit} f' | wc -l`))
 	if got := labCount(stats, "service.", "launchd"); got == 0 || got != daemons {
 		t.Errorf("%d launchd facts, launchd lists %d daemons", got, daemons)
+	}
+}
+
+// labPowerShell runs script on m through exec.winrm.shell and returns its
+// trimmed stdout.
+func labPowerShell(t *testing.T, m labMachine, script string) string {
+	t.Helper()
+	rep, raw, code := runPleiadesJSONWithHome(t, m.dir, "", "adhoc", m.host, "exec.winrm.shell", "shell=powershell", "command="+script)
+	if code != 0 || len(rep.Tasks) != 1 {
+		t.Fatalf("%q on %s (exit %d):\n%s", script, m.host, code, raw)
+	}
+	return strings.TrimSpace(stringStat(rep.Tasks[0].Stats, "stdout"))
+}
+
+// The machine's own Uninstall keys, both views.
+const labUninstallKeys = `'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'`
+
+func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
+	m := labMachine{os.Getenv(envWinRMProject), os.Getenv(envWinRMDevice)}
+	if m.dir == "" || m.host == "" {
+		t.Skipf("needs a Windows host managed as windows_server: set %s and %s", envWinRMProject, envWinRMDevice)
+	}
+	if strings.HasPrefix(m.dir, "~/") {
+		home, _ := os.UserHomeDir()
+		m.dir = home + m.dir[1:]
+	}
+	// Two programs registered as an installer registers one, in each view,
+	// sharing a name with a character outside ASCII, so the real script
+	// reads both views and the name survives the console; removed again
+	// when the test ends.
+	register := `$name = 'Pleiades facts gate ' + [char]0xe9; $i = 0; foreach ($k in @(` + labUninstallKeys + `)) { $i++; ` +
+		`$p = Join-Path $k 'PleiadesFactsGate'; New-Item -Path $p -Force | Out-Null; ` +
+		`New-ItemProperty -Path $p -Name DisplayName -Value $name -Force | Out-Null; ` +
+		`New-ItemProperty -Path $p -Name DisplayVersion -Value ('1.2.' + $i) -Force | Out-Null }; 'registered'`
+	t.Cleanup(func() {
+		labPowerShell(t, m, `foreach ($k in @(`+labUninstallKeys+`)) { Remove-Item -LiteralPath (Join-Path $k 'PleiadesFactsGate') -Recurse -Force -ErrorAction SilentlyContinue }; 'removed'`)
+	})
+	if got := labPowerShell(t, m, register); got != "registered" {
+		t.Fatalf("registering the gate's programs printed %q", got)
+	}
+
+	stats := labGather(t, m)
+	if stats["ansible_system"] != "Win32NT" || stats["ansible_hostname"] != labPowerShell(t, m, `$env:COMPUTERNAME`) {
+		t.Errorf("system %v, host name %v", stats["ansible_system"], stats["ansible_hostname"])
+	}
+	if want := labPowerShell(t, m, `[Environment]::OSVersion.Version.ToString()`); stats["ansible_kernel"] != want || stats["ansible_distribution_version"] != want {
+		t.Errorf("kernel %v, distribution version %v, the host says %s", stats["ansible_kernel"], stats["ansible_distribution_version"], want)
+	}
+	if want := labAtoi(t, labPowerShell(t, m, `[int64][math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)`)); numberStat(stats, "ansible_memtotal_mb") != want {
+		t.Errorf("ansible_memtotal_mb = %v, the host says %d", stats["ansible_memtotal_mb"], want)
+	}
+	if want := labAtoi(t, labPowerShell(t, m, `[Environment]::ProcessorCount`)); numberStat(stats, "ansible_processor_vcpus") != want {
+		t.Errorf("ansible_processor_vcpus = %v, the host says %d", stats["ansible_processor_vcpus"], want)
+	}
+
+	named := labAtoi(t, labPowerShell(t, m, `@(foreach ($k in @(`+labUninstallKeys+`)) { if (Test-Path $k) { Get-ItemProperty (Join-Path $k '*') -ErrorAction SilentlyContinue | Where-Object DisplayName } }).Count`))
+	if got := labCount(stats, "package.", "registry"); got != named || named < 2 {
+		t.Errorf("%d package facts, the registry names %d programs", got, named)
+	}
+	key := "package.Pleiades%20facts%20gate%20\u00e9"
+	if native, _ := stats[key].(map[string]any); native["version"] != "1.2.1" || native["arch"] != "amd64" {
+		t.Errorf("%s = %v, want 1.2.1 from the native view", key, native)
+	}
+	if wow, _ := stats[key+":x86"].(map[string]any); wow["version"] != "1.2.2" {
+		t.Errorf("%s:x86 = %v, want 1.2.2 from the 32-bit view", key, wow)
+	}
+
+	if want := labAtoi(t, labPowerShell(t, m, `@(Get-Service).Count`)); labCount(stats, "service.", "scm") != want {
+		t.Errorf("%d service facts, Get-Service lists %d", labCount(stats, "service.", "scm"), want)
+	}
+	if winrm, _ := stats["service.WinRM"].(map[string]any); winrm["state"] != "running" || winrm["enabled"] != true {
+		t.Errorf("service.WinRM = %v, want the running, enabled service this test came in through", winrm)
 	}
 }
