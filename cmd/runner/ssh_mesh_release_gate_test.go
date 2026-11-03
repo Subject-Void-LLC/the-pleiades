@@ -105,6 +105,9 @@ func startSSHContainer(t *testing.T) (testcontainers.Container, string, int) {
 		t.Fatalf("failed to start openssh-server container: %v", err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	if err := testsupport.SetLoginShell(ctx, container, releaseGateSSHUser); err != nil {
+		t.Fatal(err)
+	}
 
 	host, err := container.Host(ctx)
 	if err != nil {

@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/loader"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -73,7 +74,8 @@ func readOverSSH(t *testing.T, addr, command string) string {
 		t.Fatal(err)
 	}
 	defer func() { _ = session.Close() }()
-	out, _ := session.CombinedOutput(command)
+	// Through sh, as a connection sends a command, whatever the login shell.
+	out, _ := session.CombinedOutput(shline.For(command))
 	return strings.TrimSpace(string(out))
 }
 

@@ -116,6 +116,10 @@ func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
 		}
 		return nil, fmt.Errorf("starting the sshd container: %w", err)
 	}
+	if err := SetLoginShell(ctx, c, SSHDUser); err != nil {
+		_ = c.Terminate(context.Background())
+		return nil, err
+	}
 	host, err := c.Host(ctx)
 	if err != nil {
 		_ = c.Terminate(context.Background())
@@ -127,6 +131,49 @@ func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
 		return nil, fmt.Errorf("sshd container port: %w", err)
 	}
 	return &SSHD{Container: c, Host: host, Port: int(mapped.Num())}, nil
+}
+
+// EnvLoginShell names the login shell the sshd containers give their test
+// account (zsh, tcsh, fish, bash), so every test reaching a device over SSH
+// can be run again under a shell that is not the image's POSIX one. Unset,
+// the image's own shell stays. A method that sends its command for the login
+// shell to parse, rather than for sh, fails under one of them.
+const EnvLoginShell = "PLEIADES_TEST_LOGIN_SHELL"
+
+// SetLoginShell makes the shell EnvLoginShell names user's login shell in c,
+// as root and before any test connects (UseLoginShell). It does nothing when
+// the variable is unset.
+func SetLoginShell(ctx context.Context, c testcontainers.Container, user string) error {
+	shell := os.Getenv(EnvLoginShell)
+	if shell == "" {
+		return nil
+	}
+	return UseLoginShell(ctx, c, user, shell)
+}
+
+// UseLoginShell installs shell (zsh, tcsh, fish, bash, or ash, the image's
+// own) in c, an Alpine sshd container, and makes it user's login shell. sshd
+// reads it at each login, so a connection opened after this call gets it.
+func UseLoginShell(ctx context.Context, c testcontainers.Container, user, shell string) error {
+	if shell == "" || strings.Trim(shell, "abcdefghijklmnopqrstuvwxyz") != "" {
+		return fmt.Errorf("%q is not a shell's name", shell)
+	}
+	install := "apk add -q " + shell + " >/dev/null && "
+	if shell == "ash" {
+		install = ""
+	}
+	script := install + "path=$(command -v " + shell + ") && " +
+		"sed -i -E \"s#^(" + user + ":([^:]*:){5})[^:]*\\$#\\1$path#\" /etc/passwd && " +
+		"getent passwd " + user + " | cut -d: -f7"
+	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", script}, tcexec.Multiplexed())
+	if err != nil {
+		return fmt.Errorf("setting the login shell to %s: %w", shell, err)
+	}
+	out, _ := io.ReadAll(reader)
+	if got := strings.TrimSpace(string(out)); code != 0 || !strings.HasSuffix(got, "/"+shell) {
+		return fmt.Errorf("setting the login shell to %s: exit %d: %s", shell, code, got)
+	}
+	return nil
 }
 
 // Terminate stops and removes the container.
