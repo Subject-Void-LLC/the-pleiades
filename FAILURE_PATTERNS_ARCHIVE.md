@@ -20192,7 +20192,7 @@ error, only while the precondition still holds) and made measurable in CI, and i
 record until a run reproduces it. This one closed only when the machine came back and a minimal program separated the
 kernel's behaviour from the code's: the reproduction, not the CI count, named the cause.
 
-## 843. container.image.save's check predicted a digest the real save missed now and then, because classic Docker stamps the archive's blobs/sha256/ directory with the time of the save, and CI tolerated it three times as contention (a repeat in kind of 589) (fixed)
+## 843. container.image.save's check predicted a digest the real save missed now and then, because classic Docker stamps the archive's blobs/sha256/ directory with the time of the save and lists several images in any order, and CI tolerated it three times as contention (a repeat in kind of 589) (fixed)
 
 **Symptom.** `internal/catalog/container/image`'s `TestSaveAndLoad_OneArchiveByItsDigest` failed on GitHub's
 `containers` shards three times in ten days, each on a branch that did not touch it (2026-10-24 run 40047970897 on
@@ -20211,13 +20211,22 @@ byte-stable (30 saves of one image, and a freshly imported image saved twice 20 
 never failed here. The same stamp also made "saving again is no change" false across a second boundary, so a
 recorded archive's digest could churn between runs.
 
+**A second difference, found in review (2026-11-03).** With more than one image, classic Docker 28 also writes
+`manifest.json`'s and `index.json`'s lists in a different order from save to save (measured in `docker:28-dind`: three
+images saved twenty times gave three orders of each), which no time normalization reaches, since the bytes are in the
+files' contents. Every test had saved one image.
+
 **Why 589 did not prevent it.** 589's lesson was that a failure the re-run alone calls contention can still be a
 defect. The ledger (`tools/failures`) had this test three times; nobody read the ledger across pull requests until the
 third, when `record-actions` printed a new entry on a green run.
 
 **Fix.** `normalize.go` (`normalizedArchive`): `container.image.save` re-writes the engine's archive as it streams,
-entry by entry, with every entry's times at the Unix epoch (PAX time records dropped) and contents unchanged, before
-both the check's hash and the real store, so the same images give the same archive and digest on every engine.
+entry by entry, with every entry's times at the Unix epoch, its extended records reduced to the xattrs (an allowlist),
+the root `manifest.json`'s and `index.json`'s lists sorted by each entry's compact JSON, and every blob unchanged,
+before both the check's hash and the real store, so the same images give the same archive and digest on every engine.
+`TestSave_SeveralImagesGiveOneArchive` and the epoch-time assertion in `TestSaveAndLoad_OneArchiveByItsDigest` hold the
+wiring on a real engine; they can fail only on an engine that writes other times or orders (the classic one CI runs),
+since this machine's containerd-store engine already writes epoch times.
 `TestNormalizedArchive_TheSameImagesGiveTheSameBytes` (USTAR, PAX and GNU archives a second apart; mutation-checked),
 `TestNormalizedArchive_ABrokenArchiveFailsTheRead`. Proven on real classic-engine output: two saves 1.1 s apart differ
 raw and match normalized, and the classic engine loads a normalized archive. The method's documentation says the
