@@ -109,7 +109,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
@@ -1213,11 +1212,11 @@ func main() {
 	// read from the module catalog this binary serves, since a Controller
 	// links no Collection (Phase 41b).
 	factStore := entstore.New(client)
-	factIndex, err := entstore.CatalogIndex(wellknown.ModuleCatalog)
+	factsSubscriber, err := newFactsSubscriber(factStore, logger, journalAdmission(jobStore))
 	if err != nil {
 		fatal("failed to read the built-in fact declarations", err)
 	}
-	if err := entstore.NewSubscriber(factStore, logger, journalAdmission(jobStore), entstore.WithDeclarations(factIndex)).Subscribe(ctx, bus); err != nil {
+	if err := factsSubscriber.Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the facts consumer", err)
 	}
 

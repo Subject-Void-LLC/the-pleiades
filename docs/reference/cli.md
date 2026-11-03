@@ -6,6 +6,14 @@ status: beta
 
 Every pleiades subcommand, generated from the same command tree `pleiades <command> --help` renders from (`internal/clispec`). Flags are listed in the order each command's own `flag.FlagSet` declares them; running `--help` against a real binary shows the identical set.
 
+## Options for every command
+
+Written before the command: `pleiades [options] <command> [flags]`.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --known-hosts | `string` | - | the known_hosts file every SSH connection of this command verifies host keys against, in place of ~/.ssh/known_hosts; it sets PLEIADES_KNOWN_HOSTS for the command and every process it starts, and wins over one already set |
+
 ## pleiades init
 
 scaffold a new project in the current directory

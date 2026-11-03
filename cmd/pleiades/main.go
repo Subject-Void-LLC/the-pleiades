@@ -88,6 +88,11 @@ func run(args []string) int {
 	// whose engine onboarding found, so it alone may reach an engine
 	// through this machine's own socket (containerengine.AllowLocalCarrier).
 	containerengine.AllowLocalCarrier()
+	args, err := applyGlobalOptions(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pleiades: %v\n", err)
+		return 2
+	}
 	if len(args) == 0 {
 		printUsage()
 		return 2
@@ -155,7 +160,7 @@ type exitCoder interface {
 }
 
 func printUsage() {
-	fmt.Fprint(os.Stderr, "usage: pleiades <command> [flags]\n\ncommands:\n")
+	fmt.Fprint(os.Stderr, "usage: pleiades [--known-hosts FILE] <command> [flags]\n\ncommands:\n")
 	fmt.Fprint(os.Stderr, clispec.RenderList(clispec.Root.Subcommands))
 	fmt.Fprintln(os.Stderr, "\nCrawl tier: no server, no database, no broker. See docs/ in the repository\nfor the full documentation.")
 }

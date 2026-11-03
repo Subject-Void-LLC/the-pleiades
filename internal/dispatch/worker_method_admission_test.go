@@ -3,6 +3,7 @@
 package dispatch_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,5 +124,69 @@ func TestWorker_SkipsADeviceAMethodCannotReach(t *testing.T) {
 	}
 	if bus.count() != 0 {
 		t.Errorf("%d dispatches published, want none", bus.count())
+	}
+}
+
+// TestWorker_AdmitsFromTheInstalledCatalogInABinaryWithNoRegistry: the
+// shipped Controller registers no Collection, so its admission must read
+// the module catalog it installs (FAILURE_PATTERNS 841). The method here is
+// in the catalog only; a device lacking its capability is still skipped,
+// which with the registry alone it was not.
+func TestWorker_AdmitsFromTheInstalledCatalogInABinaryWithNoRegistry(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	t.Cleanup(collection.CatalogForTest())
+	if _, ok := collection.Lookup("test.catalog_unit"); ok {
+		t.Fatal("the method is registered, so this would not test the catalog")
+	}
+	catalog, err := json.Marshal(map[string]collection.Manifest{"test.catalog_unit": {
+		Status:               collection.StatusImplemented,
+		SupportedTransports:  []string{capability.TransportSSH},
+		RequiredCapabilities: []capability.Name{capability.NameSystemd},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := collection.InstallCatalog(catalog); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{
+		&inventorytest.Stub{StubID: "dev-linux", StubName: "web1", StubState: pkginventory.StateActive,
+			Caps: []capability.Name{capability.NameSSHTransport, capability.NameSystemd}, Props: map[string]pkginventory.PropertyValue{"host": "10.0.0.1"}},
+		&inventorytest.Stub{StubID: "dev-switch", StubName: "sw1", StubState: pkginventory.StateActive,
+			Caps: []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS}, Props: map[string]pkginventory.PropertyValue{"host": "10.0.0.2"}},
+	}}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "restart.yaml"), []byte("id: restart\ntasks:\n  - name: restart\n    test.catalog_unit:\n      unit: nginx\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runbooks, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evt := requestJob(t, ctx, store, "restart", "routers")
+	if err := dispatch.NewWorker(store, repo, runbooks, bus, nil).HandleJobRequested(evt); err != nil {
+		t.Fatal(err)
+	}
+	_, tasks, err := store.Get(ctx, jobIDFromEvent(t, evt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		switch task.DeviceName {
+		case "web1":
+			if task.Outcome != dispatch.OutcomeDispatched {
+				t.Errorf("web1: %q %q, want dispatched", task.Outcome, task.Reason)
+			}
+		case "sw1":
+			if task.Outcome != dispatch.OutcomeSkipped || !strings.Contains(task.Reason, "SystemdCapable") {
+				t.Errorf("sw1: %q %q, want skipped for lacking SystemdCapable", task.Outcome, task.Reason)
+			}
+		}
+	}
+	if len(tasks) != 2 || bus.count() != 1 {
+		t.Errorf("%d tasks, %d dispatches; want 2 and 1", len(tasks), bus.count())
 	}
 }

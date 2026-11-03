@@ -61,8 +61,8 @@ func changesNothing(fqcn string) bool {
 	case "noop", "set_metadata", "pleiades.builtin.set_metadata", "ios_backup":
 		return true
 	}
-	desc, ok := collection.Lookup(fqcn)
-	return ok && desc.Provider == nil && desc.Manifest.Reversibility.ReadOnly
+	manifest, ok := collection.BuiltinManifest(fqcn)
+	return ok && manifest.Reversibility.ReadOnly
 }
 
 // stepError is why one change cannot be undone, with the flag that
@@ -113,8 +113,8 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 	}
 	if e.InverseFQCN == "" {
 		reason := fmt.Sprintf("%s changed the device and recorded no undo", e.FQCN)
-		if desc, ok := collection.Lookup(e.FQCN); ok && !desc.Manifest.Reversibility.Reversible && desc.Manifest.Reversibility.Notes != "" {
-			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", e.FQCN, strings.TrimSuffix(desc.Manifest.Reversibility.Notes, "."))
+		if manifest, ok := collection.ManifestOf(e.FQCN); ok && !manifest.Reversibility.Reversible && manifest.Reversibility.Notes != "" {
+			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", e.FQCN, strings.TrimSuffix(manifest.Reversibility.Notes, "."))
 		}
 		reason += "; give the task a rollback: list in its runbook, or leave the change in place"
 		if notFound != nil {
@@ -219,11 +219,19 @@ func missingKeys(e engine.JournalEntry) []string {
 // checkRecorded holds a journaled undo to what its method declares,
 // rather than trusting the journal: a file an operator's account can
 // write, or a row a Runner published. The method must be a built-in one
-// this build knows, declaring an undo through the recorded method; every
+// this build knows, run by no external program, declaring an undo through
+// the recorded method; every
 // recorded value must sit under a key it declares recordable and the
 // target reads, and be a value the journal's own projection could have
 // written.
 func checkRecorded(e engine.JournalEntry) error {
+	// An external Collection's undo is never replayed, whatever the name
+	// reads as here: a Controller judges by its own catalog, and a method
+	// one build ran from a program could be built in to another
+	// (FAILURE_PATTERNS 841's review). The Runner holds every step again.
+	if e.ProviderProgram != "" {
+		return fmt.Errorf("the journal records %s as run by the external program %s, whose recorded undo is never replayed", e.FQCN, e.ProviderProgram)
+	}
 	spec, target, err := declaredUndo(e.FQCN, e.InverseFQCN)
 	if err != nil {
 		return err
@@ -231,7 +239,7 @@ func checkRecorded(e engine.JournalEntry) error {
 	if e.InversePartial && !spec.MayBePartial {
 		return fmt.Errorf("the journal marks %s's undo through %s partial, which %s never declares it can be, so it is not trusted", e.FQCN, e.InverseFQCN, e.FQCN)
 	}
-	declared := fragment.Declared(target)
+	declared := fragment.DeclaredIn(target)
 	seen := map[string]bool{}
 	for _, p := range e.InverseParams {
 		switch {

@@ -68,9 +68,10 @@ func TaskTarget(dag *DAG, task *Task) string {
 }
 
 // TaskNeedsDevice reports whether task's call acts on a device, by its
-// method's declared execution context. A name that is not a registered
-// Collection method (an engine builtin such as noop) keeps the behavior
-// every task had before the execution context existed: it needs one. The
+// method's declared execution context. A name that is neither a registered
+// Collection method nor in the installed built-in catalog (an engine builtin
+// such as noop) keeps the behavior every task had before the execution
+// context existed: it needs one. The
 // segmenter (internal/segment) reads it to tell a device-less call from a
 // task under a runbook with no hosts:, which TaskTarget reports alike.
 func TaskNeedsDevice(task *Task) bool {
@@ -78,11 +79,19 @@ func TaskNeedsDevice(task *Task) bool {
 	if isPause(task.FQCN) {
 		return false
 	}
-	desc, ok := collection.Lookup(task.FQCN)
-	if !ok {
-		return true
+	if desc, ok := collection.Lookup(task.FQCN); ok {
+		return desc.NeedsDevice(task.Params)
 	}
-	return desc.NeedsDevice(task.Params)
+	// A binary that registers no Collection (the Controller, which builds
+	// every runbook it dispatches) reads the built-in catalog
+	// (FAILURE_PATTERNS 841): a method that needs no device is known from
+	// its manifest. Whether an optional one does turns on its DeviceCall,
+	// which only a binary that runs it holds, so it is taken as needing one
+	// and that binary decides.
+	if m, ok := collection.ManifestOf(task.FQCN); ok && m.ExecutionContext.Device == collection.DeviceNone {
+		return false
+	}
+	return true
 }
 
 // ActionResult is what one fqcn action reports after running once,

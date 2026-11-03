@@ -153,3 +153,43 @@ func TestRollbackJob_AnUnreadablePlanFailsTheJob(t *testing.T) {
 		t.Error("a rollback job with no plan was stored")
 	}
 }
+
+// TestRollbackJob_APlannedDeviceIsHeldToItsUndoNotToTheRunbook: a rollback
+// job runs its plan's undo steps, so a planned device that no longer meets
+// the undone runbook's requirements (it lost CiscoIOS) is still dispatched,
+// for the Runner to hold each step to its own method; and a planned device
+// that cannot be dispatched at all (no address) is failed, its changes not
+// undone, never skipped as though there were nothing to undo.
+func TestRollbackJob_APlannedDeviceIsHeldToItsUndoNotToTheRunbook(t *testing.T) {
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	changed := capableDevice("id-0", "dev-0", "10.0.0.1")
+	changed.Caps = nil
+	unaddressed := capableDevice("id-2", "dev-2", "")
+	delete(unaddressed.Props, "host")
+	repo := &namedRepository{}
+	repo.Devices = append(repo.Devices, changed, capableDevice("id-1", "dev-1", "10.0.0.1"), unaddressed)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
+	job := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "user@example.com", RollbackOf: "job-x", Rollback: rollbackPlan()}
+	if err := store.Create(t.Context(), job); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(map[string]string{"job_id": job.JobID})
+	if err := worker.HandleJobRequested(event.Event{ID: uuid.New().String(), Type: "job.requested", Data: data}); err != nil {
+		t.Fatal(err)
+	}
+	_, tasks, err := store.Get(t.Context(), job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byDevice := map[string]dispatch.JobTask{}
+	for _, task := range tasks {
+		byDevice[task.DeviceID] = task
+	}
+	if got := byDevice["id-0"]; got.Outcome != dispatch.OutcomeDispatched {
+		t.Errorf("the device that lost CiscoIOS: %+v, want its undo dispatched", got)
+	}
+	if got := byDevice["id-2"]; got.Outcome != dispatch.OutcomeFailed || !strings.Contains(got.Reason, "not undone") {
+		t.Errorf("the device with no address: %+v, want failed, not undone", got)
+	}
+}

@@ -290,7 +290,9 @@ func TestCheckRemove_FailsWhenRemovingNothingCannotBeRecorded(t *testing.T) {
 // refused removal coming, so a removal in a directory that does not allow it,
 // or of a whole tree, records the predictions unknown rather than gone; and a
 // directory found empty only through earlier predictions, in a parent that
-// does not allow its removal, cannot be checked.
+// does not allow its removal, cannot be checked. A removal the parent does
+// not allow is also warned about in the check's own result, since the real
+// run will likely be refused.
 func TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root removes from any directory, so none refuses it here")
@@ -314,6 +316,9 @@ func TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake(t *testing.T) {
 	if got := predictedRecord(t, rc); err != nil || len(got) != 1 {
 		t.Errorf("a removable file: %v, recorded %+v", err, got)
 	}
+	if w, ok := rc.stats[sdk.StatWarnings]; ok {
+		t.Errorf("a removable file was warned about: %#v", w)
+	}
 	// A directory in one that does not is not.
 	empty := filepath.Join(sealed, "empty")
 	if err := os.Chmod(sealed, 0o700); err != nil {
@@ -325,8 +330,13 @@ func TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake(t *testing.T) {
 	if err := os.Chmod(sealed, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	if _, rc, err := checkRemove(t, server, snapshotOf(), empty); err != nil || rc.stats[sdk.StatPredictedPaths] != "unknown" {
+	_, rc, err = checkRemove(t, server, snapshotOf(), empty)
+	if err != nil || rc.stats[sdk.StatPredictedPaths] != "unknown" {
 		t.Errorf("a directory its parent does not let go: %v, recorded %#v; want unknown", err, rc.stats[sdk.StatPredictedPaths])
+	}
+	// And the check says so itself: the real run will likely be refused.
+	if warnings, _ := rc.stats[sdk.StatWarnings].([]string); len(warnings) != 1 || !strings.Contains(warnings[0], "may not remove "+empty) {
+		t.Errorf("the check's warnings = %#v, want one saying the login may not remove %s", rc.stats[sdk.StatWarnings], empty)
 	}
 	// Nor is one found empty only through predictions: that cannot be checked.
 	_, _, err = checkRemove(t, server, snapshotOf(gone(locateOn(t, server, filepath.Join(dir, "f")))), dir)
