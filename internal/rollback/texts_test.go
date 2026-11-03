@@ -107,3 +107,19 @@ func TestBuild_RefusesAListTheJournalWouldNeverHold(t *testing.T) {
 		}
 	}
 }
+
+// TestBuild_RefusesAnExternalProgramsRecordedUndo: a journal entry naming the
+// external program that ran its method is never replayed from the journal,
+// even under a name this build knows as built in.
+func TestBuild_RefusesAnExternalProgramsRecordedUndo(t *testing.T) {
+	registerInstall(t)
+	run := installRun([]string{"libjq1"})
+	run.Entries[0].ProviderProgram = "acme-collection"
+	problems := refused(t, func() error {
+		_, err := rollback.Build(rollback.Request{Target: run, Devices: inventoryOf("h1")})
+		return err
+	}())
+	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "external program acme-collection") {
+		t.Fatalf("problems = %+v, want the external program's undo refused", problems)
+	}
+}

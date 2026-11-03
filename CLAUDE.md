@@ -297,7 +297,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   (`CapabilityRule`, which also keeps the legacy `engine.ActionCapability` check for `ssh_exec`,
   `winrm_exec` and the other four transport actions), at a Controller's admission of each device
   (`dispatch.methodsAdmit`, with the transports, for every method the runbook names that the
-  Controller has registered), and by the engine before the method runs (Phase 117b). A task with a
+  Controller knows: it links no Collection, so it reads the module catalog it embeds through
+  `collection.ManifestOf`, as its rollback planner does through `BuiltinManifest`; not asked of a
+  rollback job's devices), and by the engine before the method runs (Phase 117b). A task with a
   `when:` of its own (`engine.DAG.Conditional`) is left out of the plan-time and admission checks,
   transports included, and checked by the engine where its condition holds. `WindowsShellCapable`
   is a child of `CommandExecCapable`; the transport check is what keeps SSH-only `exec.command` off

@@ -27,7 +27,7 @@ func applyGlobalOptions(args []string) ([]string, error) {
 		switch {
 		case arg == knownHostsFlag:
 			if len(args) < 2 || strings.HasPrefix(args[1], "-") {
-				return nil, fmt.Errorf("%s needs a file: pleiades %s FILE <command> ...", knownHostsFlag, knownHostsFlag)
+				return nil, fmt.Errorf("%s needs a file, as in pleiades %s FILE <command>", knownHostsFlag, knownHostsFlag)
 			}
 			value, args = args[1], args[2:]
 		case strings.HasPrefix(arg, knownHostsFlag+"="):

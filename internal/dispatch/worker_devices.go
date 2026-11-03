@@ -113,8 +113,10 @@ type admission struct {
 // admit decides whether device may be dispatched for job: the job's mode
 // must parse, the device's lifecycle must admit that mode, it must carry
 // every capability the definition requires, it must be reachable by and
-// carry the capabilities of every method the definition names, and it must
-// have an address.
+// carry the capabilities of every method the definition names (not asked of
+// a rollback job's devices, whose undo steps the Runner holds to their own
+// methods), and it must have an address. A rollback job's device that is
+// not admitted is failed, not skipped (notUndone).
 // The fan-out and a windowed job's pump both ask, through this one
 // function, so the two can never disagree about what admits a device.
 func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventory.InventoryItem) admission {
@@ -127,14 +129,21 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 	// device is for, and a real run never does (engine.LifecycleAdmitsIn,
 	// the one rule the CLI, validation and the engine share).
 	if ok, reason := engine.LifecycleAdmitsIn(mode, device); !ok {
-		return admission{mode: mode, outcome: OutcomeSkipped, reason: reason}
+		return notUndone(job, admission{mode: mode, outcome: OutcomeSkipped, reason: reason})
 	}
 
-	if ok, reason := engine.CapabilityAdmits(device, prepared.Required); !ok {
-		return admission{mode: mode, outcome: OutcomeSkipped, reason: reason}
-	}
-	if err := methodsAdmit(device, prepared.Methods); err != nil {
-		return admission{mode: mode, outcome: OutcomeSkipped, reason: err.Error()}
+	// A rollback job runs its plan's undo steps, not the runbook the undone
+	// job ran, so that runbook's requirements are not the device's to meet:
+	// the Runner holds each step to the method it calls (rollback.Verify and
+	// its build). A device that changed since (FRR removed, so no longer
+	// FRRCapable) still gets its undo tried rather than skipped.
+	if job.RollbackOf == "" {
+		if ok, reason := engine.CapabilityAdmits(device, prepared.Required); !ok {
+			return admission{mode: mode, outcome: OutcomeSkipped, reason: reason}
+		}
+		if err := methodsAdmit(device, prepared.Methods); err != nil {
+			return admission{mode: mode, outcome: OutcomeSkipped, reason: err.Error()}
+		}
 	}
 
 	// "host", never "ip": every concrete device type in this codebase
@@ -150,9 +159,22 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 		host, ok = declaredAddress(device)
 	}
 	if !ok {
-		return admission{mode: mode, outcome: OutcomeSkipped, reason: fmt.Sprintf("device %q has no host property", device.Name())}
+		return notUndone(job, admission{mode: mode, outcome: OutcomeSkipped, reason: fmt.Sprintf("device %q has no host property", device.Name())})
 	}
 	return admission{mode: mode, host: host}
+}
+
+// notUndone is a refusal of a rollback job's planned device as what it is:
+// a failure, since the device's changes stay in place, never a skip, which
+// reads as nothing to undo (recordMissing's rule for a device no longer in
+// the inventory). Any other job's refusal is returned as it is.
+func notUndone(job *Job, a admission) admission {
+	if job.RollbackOf == "" || a.outcome != OutcomeSkipped {
+		return a
+	}
+	a.outcome = OutcomeFailed
+	a.reason += ", so its changes were not undone"
+	return a
 }
 
 // methodsAdmit refuses device when a method in methods cannot run on it: a

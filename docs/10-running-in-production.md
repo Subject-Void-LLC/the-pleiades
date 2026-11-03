@@ -3157,6 +3157,17 @@ What no check can see: a column whose meaning changes while its shape does not, 
 shape of messages on the broker, and a new value in a field stored as text. Those are
 reviewed by hand.
 
+A controller and its runners of different builds each judge methods by their own
+build. The controller links no method: it reads the catalog of built-in methods it
+was built with, so admission skips a device that its build's manifest says cannot
+run a method, though a runner of another build might have run it (a skip, never a
+wrong run); and a rollback the controller plans from its catalog is checked again,
+step by step, by the runner against its own build, so an undo either build does not
+recognize is refused. One decision only the controller makes: whether a failed task
+changed nothing (its method declared read-only), which leaves it out of a
+rollback's list of unknown changes. Upgrade the controller and the runners
+together where you can.
+
 ### Rolling back
 
 - **Within the window**, start the previous build again: `helm rollback`, the previous
