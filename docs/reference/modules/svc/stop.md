@@ -39,7 +39,7 @@ Makes sure a service is not running right now, without caring which init system 
 
 The inverse is whatever the concrete method records, so on a systemd host a run that stopped a running service emits an svc.systemd.start and a run that found it already stopped emits nothing. Starting it again restores the service, never what it missed while it was down.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

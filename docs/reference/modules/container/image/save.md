@@ -43,7 +43,7 @@ Writes the images named, with their tags, as one archive at path, and returns th
 
 An archive this task wrote replaces whatever was at the path, which is not kept; file.remove removes the archive when it is no longer needed.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

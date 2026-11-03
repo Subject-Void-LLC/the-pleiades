@@ -41,7 +41,7 @@ Makes sure a package is removed, without caring which package manager the device
 
 The inverse is whatever the concrete method records, so on an APT host a run that removed a present package emits a pkg.apt.install pinned to the version it captured before removing, and a run that found the package already absent emits nothing. The instruction names the concrete method rather than pkg.install, for the same reason pkg.start's inverse names svc.systemd.stop rather than svc.stop.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

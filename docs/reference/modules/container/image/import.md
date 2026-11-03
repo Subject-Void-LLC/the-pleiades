@@ -45,7 +45,7 @@ Imports the filesystem archive at path (a tar of a root filesystem, as container
 
 A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial, since the imported image stays (container.image.prune removes it); one under a new tag records removing the imported image, by ID. An import that fails after reaching the engine puts the tag back or removes what it made, since a failed task records no undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

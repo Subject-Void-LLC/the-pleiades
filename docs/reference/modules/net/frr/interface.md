@@ -40,7 +40,7 @@ Reads the interface's administrative state through vtysh, and changes it only wh
 
 Its undo sets the administrative state the interface had before the run, recorded from the router, never simply the opposite of the change.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

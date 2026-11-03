@@ -42,7 +42,7 @@ Runs IOS's configure replace with a checkpoint file the device holds (net.ios.co
 
 It is the undo net.ios.config records; what it removes is the change that checkpoint was kept before, which running that change again puts back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

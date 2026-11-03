@@ -46,7 +46,7 @@ Disconnects the container named container from the network named network. A cont
 
 A run that disconnected the container records connecting it again, by both IDs, with the aliases and static IPv4 address it had; one that found it not connected records nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

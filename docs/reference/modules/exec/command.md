@@ -48,7 +48,7 @@ Runs a single command on the target over SSH and reports its exit status, stdout
 
 An arbitrary command's effect is unknown to this platform, so no undo can be derived from it. Pair the task with creates or removes to make re-running it safe, which is idempotence rather than rollback.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

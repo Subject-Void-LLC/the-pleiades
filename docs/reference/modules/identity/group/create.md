@@ -41,7 +41,7 @@ Makes sure a group is present on the target, creating it if absent. This is ansi
 
 A run that created an absent group emits an identity.group.remove naming it. A run that found the group already present but converged its gid emits an identity.group.modify pinned to the old gid, which is a real, restorable inverse. A run that found the group already at the requested gid emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

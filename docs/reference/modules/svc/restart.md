@@ -39,7 +39,7 @@ Restarts a service, starting it if it was not running. This is ansible.builtin.s
 
 A restart's effect is the interruption itself, and no instruction un-interrupts a service. Restarting a second time repeats this method rather than reversing it. The concrete method still records the service's state under diff, so a rollback reaching this task can see what was running and decide for itself.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

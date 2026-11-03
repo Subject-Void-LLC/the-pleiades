@@ -39,7 +39,7 @@ Makes sure a service is running right now, without caring which init system the 
 
 The inverse is whatever the concrete method records, so on a systemd host a run that started a stopped service emits an svc.systemd.stop and a run that found it already running emits nothing. The instruction names the concrete method rather than svc.stop, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

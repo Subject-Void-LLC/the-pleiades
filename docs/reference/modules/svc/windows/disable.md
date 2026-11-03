@@ -38,7 +38,7 @@ Makes sure a Windows service's start type is Disabled, refusing it from starting
 
 A run that disabled a service whose start type was Automatic emits an svc.windows.enable naming it. A run that found the start type already Disabled emits nothing. A run that changed a start type of Manual to Disabled emits no inverse at all, deliberately: this namespace's enable only sets Automatic, which is not what Manual was, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never starts a service, because disabling never stopped one running right now.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

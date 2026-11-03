@@ -45,7 +45,7 @@ Reads the bridge from /sys/class/net and changes only what differs: creates it, 
 
 Its undo puts back what it found: a created bridge is removed, attached ports are detached, detached ports are attached again, and a removed bridge is made again with the ports it held, which is partial: a port's own addresses and settings are not recorded.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

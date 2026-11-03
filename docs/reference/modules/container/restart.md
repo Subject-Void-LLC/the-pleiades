@@ -43,7 +43,7 @@ Restarts the container named name, running or stopped: SIGTERM, SIGKILL after ti
 
 A restart has no undo: the container runs before and after it, and the processes it ended cannot be brought back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

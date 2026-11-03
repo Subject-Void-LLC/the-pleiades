@@ -46,7 +46,7 @@ Makes sure a user account is present on the target, creating it if absent. This 
 
 A run that created an absent account emits an identity.user.remove naming it, which also removes the home directory the run made (none was there before) while that still holds only what useradd copied into it; a home in use since is kept, and the undo says so. A run that found the account already present but converged one or more attributes (uid, group, shell, home or comment) emits an identity.user.modify pinned to exactly the old values of the attributes it changed, which is a real, restorable inverse. A run that found the account already exactly as requested emits nothing. What no inverse here can restore is the account's password, or anything a login shell or profile script did while the account existed.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

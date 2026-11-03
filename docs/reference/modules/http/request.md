@@ -49,7 +49,7 @@ Calls a URL from wherever the task runs, not from the target device, and records
 
 One answer has to cover every verb, and no verb can produce an inverse. A read-only request (GET, HEAD, OPTIONS, TRACE) changed nothing, so there is nothing to undo. A writing request changed something inside a remote system this platform never observes: it cannot read what the state was before, cannot tell what the call altered, and cannot know which call would put it back, so any inverse would be a guess dressed as an instruction.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -46,7 +46,7 @@ Keeps a region of a text file, delimited by a begin and an end marker line, exac
 
 The strongest undo in the file namespace, and the markers are why: they delimit on the device the exact region this run replaced, so a run that changed a block emits an instruction restoring the previous body verbatim, and a run that added one emits a file.block.remove. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so a later edit can make that pattern match a different line and its undo cannot promise the text lands where it came from. What this still does not restore: anything outside the markers, the file's mode and owner (which this method never changes, and puts back after each rewrite), and a final newline added to a file that had none, which the emitted inverse says in its own description. A converged run emits nothing, because undoing a run that changed nothing means doing nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

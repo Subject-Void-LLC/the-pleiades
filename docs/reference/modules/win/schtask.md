@@ -54,7 +54,7 @@ Reads the task first (Get-ScheduledTask, its XML definition and its last and nex
 
 A task this run registered is removed by its undo. A task it changed or removed is registered again from the XML definition it had, read before the change; that XML is withheld from the journal, so a rollback replays it only from the task's own rollback: list. The task's run history is not restored.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

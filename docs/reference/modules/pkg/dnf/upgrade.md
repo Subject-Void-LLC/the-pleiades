@@ -40,7 +40,7 @@ Makes sure one named package is at the newest version DNF knows about, upgrading
 
 Downgrading a package is not something dnf reliably supports once the previous build has left the local cache and the repository's own metadata (a mirror generally keeps only the latest build of a package), so no safe inverse can be promised here, for the same reason pkg.apt.upgrade cannot promise one.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

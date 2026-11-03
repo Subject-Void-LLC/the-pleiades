@@ -176,22 +176,41 @@ In the run those are part of the task's result, read through `register:` like an
 other value. A real run also keeps them as the device's facts, and they outlast
 the run:
 
-- One stored value per device and fact name. A value is stored again only when
-  it changes, so a fact's stored values are its history, and the newest is its
-  current value; each also says when a run last confirmed it.
+- Every method declares each fact it may emit, with its type and its kind
+  (`pleiades doc <method>` lists them under "facts"). A **stable** fact, such as
+  `ansible_kernel`, is stored again only when it changes, so its stored values are
+  its history and the newest is its current value; a change is drift. A
+  **volatile** fact, such as `ansible_uptime_seconds`, moves on its own, so only
+  its latest value is kept and a change is never drift. A key the method did not
+  declare, or a value of another type, is not stored, and the run's log says so.
+- Each stored value says which run, task and method first observed it and which
+  run last confirmed it. Values are ordered by the run that observed them (the
+  project's run counter, or on the Controller the device lease's fencing token),
+  not by a clock, so a late result cannot replace a newer one. Where two runs'
+  orders do not compare (a value from the command line and one from the
+  Controller), the clock decides and the history says so.
+- Stored stable values form a hash chain per device: each carries the hash of the
+  value stored before it, so an edited or deleted value breaks the chain at the
+  value after it. `pleiades facts <host> --verify` checks it and exits non-zero on
+  a break. This is tamper-evident, not tamper-proof: whoever can write the files
+  can rewrite the chain from an edit onward, and values cut off the end leave a
+  shorter chain that still verifies, so keep the printed head somewhere else to
+  notice that.
 - A check stores nothing, nor does a task that failed or was skipped. A fact
   named like a secret (a password, a token), or whose value holds one of the
   run's secrets or text shaped like one (a private key, a bearer token), is never
-  stored, and neither is a value over 64 KiB; each is named in the run's log with
-  the reason. That is a strip list, not a proof: a secret the run does not know,
-  in a shape it does not recognize, is not caught.
-- A value that changes on every run (an uptime, a free-memory figure) is stored
-  again on every run, so its history grows by one value a run.
+  stored, and neither is a value over 64 KiB, nor a field a `secret_mask:` in the
+  same runbook marks secret; each is named in the run's log with the reason.
+  That is a strip list, not a proof: a secret the run does not know, in a shape
+  it does not recognize, is not caught.
+- Facts are what a method reported when it ran. What a device did between two
+  gathers is unknown.
 - On the command line they are under `.pleiades/facts` in the project, read with
   `pleiades facts <host>` (every fact's current value) or `pleiades facts <host>
   <name>` (one fact's history), each with `--json`. On the Controller they are
   read through `GET /inventory/devices/{name}/facts` and
-  `/inventory/devices/{name}/facts/{key}`.
+  `/inventory/devices/{name}/facts/{key}`, and the chain is checked through
+  `GET /inventory/devices/{name}/fact-chain`.
 
 A runbook does not read stored facts yet: a value from an earlier run can be
 stale, and reading one waits for a way to say how fresh it must be. A task reads

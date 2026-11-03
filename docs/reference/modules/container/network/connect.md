@@ -48,7 +48,7 @@ Connects the container named container to the network named network, with the de
 
 A run that connected the container records disconnecting it, by both IDs; one that found it connected as declared records nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

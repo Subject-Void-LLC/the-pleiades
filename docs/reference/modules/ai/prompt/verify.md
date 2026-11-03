@@ -47,7 +47,7 @@ Reads a document (inline as prompt with signature, or from the project as prompt
 
 It reads the document, its signature, the trusted keys and the version register, and records nothing: a version is recorded as used only by a call that sends it.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

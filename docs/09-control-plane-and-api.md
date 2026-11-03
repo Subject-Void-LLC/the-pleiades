@@ -138,17 +138,34 @@ value is stored again only when it changes, so a fact's stored values are its
 history, and each says when a run last confirmed it. A check stores nothing. A
 fact named like a secret, or whose value holds one of the run's secrets or text
 shaped like one, is never stored: the Runner leaves it out and the Controller
-refuses it again. Two Controller replicas storing the same new value at the same
-moment can each write it once; nothing is lost, and the history shows it twice.
+refuses it again. For a built-in method the Controller also holds each fact to the
+method's own declaration of its kind and type.
+
+Each value carries its kind (`stable`, history kept; `volatile`, latest value
+only) and its provenance: the job, attempt, run, task, method and Runner that
+observed it (`by`) and that last confirmed it (`last_by`), with the run's order,
+the device lease's fencing token. The Runner's name is the host name it reported,
+not an identity the Controller checked. A device's history is ordered by that
+token, not by a Runner's clock; where two values' orders do not compare (a
+dispatch on a shared lease has no token, or a value came from the command line),
+the clock decides and the entry says `ordered_by_clock`. Stable values form a hash
+chain per device, kept a line by a unique index, so two replicas cannot both
+extend the same value: the second's batch is redelivered against the new head.
 
 | Route | Scope | Returns |
 |---|---|---|
-| `GET /inventory/devices/{name}/facts` | `inventory:read` | each fact's newest value, with `observed_at` and `last_seen_at` |
-| `GET /inventory/devices/{name}/facts/{key}` | `inventory:read` | every value one fact has had, oldest first |
+| `GET /inventory/devices/{name}/facts` | `inventory:read` | each fact's current value, with `observed_at`, `last_seen_at`, `kind`, `by` and `last_by` |
+| `GET /inventory/devices/{name}/facts/{key}` | `inventory:read` | every value one fact has had, in run order |
+| `GET /inventory/devices/{name}/fact-chain` | `inventory:read` | whether the device's stable values still form an unbroken chain, the first break, and the chain's head |
 
-A stored value is never edited: the Controller's store cannot change a fact's
-name, value or hash once written (they are immutable fields of its schema), and
-only the time it was last confirmed moves. No API route writes or deletes a fact. Fact values are
+The chain is tamper-evident, not tamper-proof: whoever can write the database can
+rewrite it from an edit onward, and values cut off the end leave a shorter chain
+that still verifies, which comparing `head` with a copy kept elsewhere notices.
+
+A stored stable value is never edited: the Controller's store cannot change a
+fact's name, value, hash, kind, first provenance or chain once written (they are
+immutable fields of its schema), and only when and by which run it was last
+confirmed moves. A volatile value is replaced when it changes. No API route writes or deletes a fact. Fact values are
 stored as the device reported them, unencrypted, since they describe the device
 rather than grant access to it; a value that is a secret is kept out instead.
 

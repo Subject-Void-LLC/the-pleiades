@@ -42,7 +42,19 @@ Answers a different question than device_facts: device_facts describes what the 
 
 A read-only reachability check changes nothing on the device, so there is nothing to undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
+
+## Facts it keeps
+
+A real run stores each of these as the device's fact. A **stable** fact keeps every value it has had, and a change is drift; a **volatile** one keeps only its latest value and never counts as drift. A check stores none.
+
+| Fact | Kind | Type | Description |
+| --- | --- | --- | --- |
+| `reachability` | stable | list | One entry per device: hostname, management_ip, reachability_status, collection_status, reachable. |
+| `unreachable` | stable | list | Hostnames (or management IPs, if hostname is unset) of every unreachable device. |
+| `reachable_count` | stable | integer | Count of devices with reachability_status Reachable. |
+| `managed_count` | stable | integer | Count of devices with collection_status Managed. |
+| `total_device_count` | stable | integer | How many devices the controller listed, reachable or not. |
 
 ## See also
 

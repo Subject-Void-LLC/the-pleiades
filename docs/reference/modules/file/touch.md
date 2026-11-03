@@ -43,7 +43,7 @@ Makes sure a regular file exists at a path, creating it empty when nothing is th
 
 A run that created the file emits a file.remove naming it. A run that found the file already there and also changed its mode, owner or group emits a file.permissions carrying the old ones, which is a partial undo: the modification time this method moves on every run is NOT restored, because no method in this catalog can set one. A run that found the file already there and only re-stamped it emits nothing at all, since the modification time is then the single thing that moved and nothing here can put it back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

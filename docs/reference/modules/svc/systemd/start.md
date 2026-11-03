@@ -39,7 +39,7 @@ Makes sure a systemd unit is running right now. This is ansible.builtin.systemd 
 
 A run that started a stopped unit emits an svc.systemd.stop naming it. A run that found it already running emits nothing, since undoing it means doing nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the unit to where it was, not the system.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

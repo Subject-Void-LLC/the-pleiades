@@ -39,7 +39,7 @@ Makes sure a Windows optional feature or role is enabled. This is ansible.window
 
 A run that enabled a disabled feature emits a win.feature.remove naming it. A run that found it already enabled emits nothing. What the inverse cannot undo is anything the feature's own presence changed on the system while it was enabled, and either direction may need the restart reboot_required reports before it is complete.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -25,7 +25,7 @@ A run keeps one SSH connection per device open between tasks unless persist_conn
 
 It changes nothing on the device: it closes the platform's own connection, and the next task opens a new one, so the device is as it would have been had the task never run and there is nothing to undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -39,7 +39,7 @@ Makes sure a systemd unit is set to start at boot. This is ansible.builtin.syste
 
 A run that enabled a disabled unit emits an svc.systemd.disable naming it. A run that found it already enabled emits nothing. The undo restores the boot-time setting only; it never stops a unit that is running, because enabling never started one.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

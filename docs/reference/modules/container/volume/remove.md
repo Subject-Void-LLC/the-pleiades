@@ -42,7 +42,7 @@ Removes the volume named name and its data; an absent one is no change. A volume
 
 A removed volume's data is gone: container.volume.create makes an empty one, and nothing brings the data back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -37,7 +37,7 @@ Pulls the image the reference names into the server's runtime. An image already 
 
 Its undo removes the image, recorded when this task pulled it.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -38,7 +38,16 @@ Reads every site the targeted Catalyst Center manages. Emits the full site_name_
 
 A read-only fact gatherer changes nothing on the device, so there is nothing to undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
+
+## Facts it keeps
+
+A real run stores each of these as the device's fact. A **stable** fact keeps every value it has had, and a change is drift; a **volatile** one keeps only its latest value and never counts as drift. A check stores none.
+
+| Fact | Kind | Type | Description |
+| --- | --- | --- | --- |
+| `sites` | stable | list | One entry per site: id, name, site_name_hierarchy. |
+| `site_count` | stable | integer | The number of sites in the sites fact. |
 
 ## See also
 

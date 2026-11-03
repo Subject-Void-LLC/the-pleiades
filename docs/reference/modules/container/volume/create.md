@@ -43,7 +43,7 @@ Makes the volume named name exist on the device's engine, with the local driver 
 
 A run that created the volume records its removal, pinned to the moment the engine made it, and records nothing where the engine gives no creation time, since an unpinned removal could delete another volume made under the name since; one that found it as declared records nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

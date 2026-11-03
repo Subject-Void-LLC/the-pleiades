@@ -42,7 +42,7 @@ For each repository on the engine whose name matches repositories, orders its ta
 
 A pruned tag, and an image whose last tag it was, is gone from the engine; container.image.pull brings an image back from its registry.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

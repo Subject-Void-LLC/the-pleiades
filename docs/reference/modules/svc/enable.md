@@ -39,7 +39,7 @@ Makes sure a service is set to start at boot, without caring which init system t
 
 The inverse is whatever the concrete method records, so on a systemd host a run that enabled a disabled service emits an svc.systemd.disable and a run that found it already enabled emits nothing. The undo restores the boot-time setting only, never stopping a service that is running.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

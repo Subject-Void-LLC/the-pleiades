@@ -38,7 +38,7 @@ Makes sure a Windows service's start type is Automatic. This is ansible.windows.
 
 A run that enabled a service whose start type was Disabled emits an svc.windows.disable naming it. A run that found the start type already Automatic emits nothing. A run that changed a start type of Manual to Automatic emits no inverse at all, deliberately: this namespace's disable only sets Disabled, which is a stronger claim than restoring Manual, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never stops a service that is running, because enabling never started one.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

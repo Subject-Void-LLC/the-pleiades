@@ -7083,6 +7083,98 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "ansible_hostname",
+        "kind": "stable",
+        "type": "string",
+        "description": "The short host name, which is everything before the first dot of what uname reports."
+      },
+      {
+        "key": "ansible_kernel",
+        "kind": "stable",
+        "type": "string",
+        "description": "The kernel release, as uname -r reports it."
+      },
+      {
+        "key": "ansible_architecture",
+        "kind": "stable",
+        "type": "string",
+        "description": "The machine hardware name, as uname -m reports it, for example x86_64."
+      },
+      {
+        "key": "ansible_distribution",
+        "kind": "stable",
+        "type": "string",
+        "description": "The distribution name, read from NAME in /etc/os-release, for example Ubuntu."
+      },
+      {
+        "key": "ansible_distribution_version",
+        "kind": "stable",
+        "type": "string",
+        "description": "The distribution version, read from VERSION_ID in /etc/os-release. A rolling release that publishes no VERSION_ID reports no such fact."
+      },
+      {
+        "key": "ansible_memtotal_mb",
+        "kind": "stable",
+        "type": "integer",
+        "description": "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it."
+      },
+      {
+        "key": "ansible_processor_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo. An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."
+      },
+      {
+        "key": "ansible_uptime_seconds",
+        "kind": "volatile",
+        "type": "integer",
+        "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime."
+      },
+      {
+        "key": "ansible_nodename",
+        "kind": "stable",
+        "type": "string",
+        "description": "The full node name uname -n reports, before ansible_hostname cuts it at the first dot."
+      },
+      {
+        "key": "ansible_system",
+        "kind": "stable",
+        "type": "string",
+        "description": "The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin."
+      },
+      {
+        "key": "ansible_distribution_major_version",
+        "kind": "stable",
+        "type": "string",
+        "description": "VERSION_ID up to its first dot, such as 24 for 24.04."
+      },
+      {
+        "key": "ansible_distribution_release",
+        "kind": "stable",
+        "type": "string",
+        "description": "VERSION_CODENAME from /etc/os-release, such as noble."
+      },
+      {
+        "key": "ansible_swaptotal_mb",
+        "kind": "stable",
+        "type": "integer",
+        "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."
+      },
+      {
+        "key": "ansible_processor_vcpus",
+        "kind": "stable",
+        "type": "integer",
+        "description": "The number of logical processors, counted as the processor entries in /proc/cpuinfo."
+      },
+      {
+        "key": "ansible_processor_cores",
+        "kind": "stable",
+        "type": "integer",
+        "description": "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."
+      }
+    ],
     "doc": {
       "summary": "Gathers baseline system facts from the target (OS, kernel, distribution).",
       "description": "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
@@ -10591,6 +10683,20 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "devices",
+        "kind": "volatile",
+        "type": "list",
+        "description": "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."
+      },
+      {
+        "key": "device_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "The number of devices in the devices fact."
+      }
+    ],
     "doc": {
       "summary": "Gathers every device a Cisco Catalyst Center manages, as facts.",
       "description": "Pages through the Catalyst Center's device inventory and emits one fact entry per device: identity, platform, software, role, and reachability/collection status. Never reports changed: reading an inventory does not alter it.",
@@ -10643,6 +10749,38 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "reachability",
+        "kind": "stable",
+        "type": "list",
+        "description": "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."
+      },
+      {
+        "key": "unreachable",
+        "kind": "stable",
+        "type": "list",
+        "description": "Hostnames (or management IPs, if hostname is unset) of every unreachable device."
+      },
+      {
+        "key": "reachable_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "Count of devices with reachability_status Reachable."
+      },
+      {
+        "key": "managed_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "Count of devices with collection_status Managed."
+      },
+      {
+        "key": "total_device_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "How many devices the controller listed, reachable or not."
+      }
+    ],
     "doc": {
       "summary": "Reports which devices a Cisco Catalyst Center can currently reach and manage.",
       "description": "Answers a different question than device_facts: device_facts describes what the fleet is, gathered once; reachability describes what the fleet is doing right now, the check a gate task waits on before acting. Reports reachability_status (can the controller talk to the device at all) and collection_status (is it successfully collecting from it) separately, since a device can be reachable and still not managed.",
@@ -10712,6 +10850,20 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "sites",
+        "kind": "stable",
+        "type": "list",
+        "description": "One entry per site: id, name, site_name_hierarchy."
+      },
+      {
+        "key": "site_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "The number of sites in the sites fact."
+      }
+    ],
     "doc": {
       "summary": "Gathers a Cisco Catalyst Center's site hierarchy, as facts.",
       "description": "Reads every site the targeted Catalyst Center manages. Emits the full site_name_hierarchy for each site, not just its bare name, since two sites in different regions can share a bare name.",
@@ -10762,6 +10914,20 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "tags",
+        "kind": "stable",
+        "type": "list",
+        "description": "One entry per tag: id, name, system_tag."
+      },
+      {
+        "key": "operator_tags",
+        "kind": "stable",
+        "type": "list",
+        "description": "Names of every tag not created by the controller itself."
+      }
+    ],
     "doc": {
       "summary": "Gathers the tags defined on a Cisco Catalyst Center, as facts.",
       "description": "Reads every tag the targeted Catalyst Center knows about, and separates the controller's own system tags (its internal bookkeeping) from operator-created ones, so a runbook grouping devices by operator intent does not have to filter system tags out itself.",
@@ -11687,6 +11853,56 @@
     },
     "supportsCheck": true,
     "noBecomeReason": "it types lines into the device's own CLI session, which no sudo prefix reaches, so it would run as the login",
+    "facts": [
+      {
+        "key": "ansible_net_hostname",
+        "kind": "stable",
+        "type": "string",
+        "description": "The device's own hostname, read from the \"<hostname> uptime is ...\" line of \"show version\"."
+      },
+      {
+        "key": "ansible_net_version",
+        "kind": "stable",
+        "type": "string",
+        "description": "The software version: the \"Cisco IOS XE Software, Version\" line's on IOS XE, e.g. \"17.15.04c\", and on a device that prints no such line (an IOL XE router) the \"Cisco IOS Software ..., Version\" line's, e.g. \"17.15.1\"."
+      },
+      {
+        "key": "ansible_net_model",
+        "kind": "stable",
+        "type": "string",
+        "description": "The platform model, e.g. \"C8000V\". An IOL router reports none."
+      },
+      {
+        "key": "ansible_net_serialnum",
+        "kind": "stable",
+        "type": "string",
+        "description": "The chassis serial number, preferring \"show inventory\"'s Chassis SN and falling back to \"show version\"'s Processor board ID."
+      },
+      {
+        "key": "ansible_net_image",
+        "kind": "stable",
+        "type": "string",
+        "description": "The running system image file, e.g. \"bootflash:packages.conf\"."
+      },
+      {
+        "key": "ansible_net_uptime",
+        "kind": "volatile",
+        "type": "string",
+        "description": "Uptime exactly as the device words it, e.g. \"1 hour, 32 minutes\". Not converted to seconds: IOS reports a rounded phrase, and parsing it into a precise number would invent precision the device never gave."
+      },
+      {
+        "key": "ansible_net_interfaces",
+        "kind": "stable",
+        "type": "list",
+        "description": "One map per interface, in the order \"show ip interface brief\" lists them. From that command: name, ip_address (left out when the device says \"unassigned\"), status and protocol, the status taken whole so \"administratively down\" is not cut at its space. From \"show interfaces\": description (when one is set), mtu (a number), admin_state (\"down\" when the interface is shut down, else \"up\") and line_protocol (as written, e.g. \"up\" or \"down (notconnect)\"). And vrf, the VRF's name, only when the interface is in one: an interface with no vrf key is in the global table. A list, not the map keyed by name cisco.ios.ios_facts returns, because this method has returned a list since it was written, a list keeps the device's own order, and a condition finds one interface with exists(i, i.name == \"Ethernet0/0\")."
+      },
+      {
+        "key": "ansible_net_gather_subset",
+        "kind": "volatile",
+        "type": "list",
+        "description": "The subsets actually gathered, after \"all\" is expanded; config is absent when it was left out."
+      }
+    ],
     "doc": {
       "summary": "Gathers structured facts from a Cisco IOS device over its CLI.",
       "description": "Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco device type declares, so before this method a Cisco device could be commanded and configured but never described. Opens an interactive session in netcli.IOS's own paging and prompt conventions and sends only show commands: by default every subset, so one call hands back what the device is, each interface with its VRF and state, and the running configuration with every secret masked. Each value is recorded twice under one name: as a fact (EmitFact, long-lived drift data) and as a stat (SetStat), so register, until and when read it as result.<register>.<name>. The configuration is a stat only, since its placeholders are keyed per run and would read as a change on every run. Every parser was written against output captured from real devices (a Catalyst 8000V on IOS XE 17.15.04c and an IOL XE router on 17.15.1), not from documentation or memory. A field the device does not report is left out rather than set to an empty string, so a condition can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed, so this always reports no change, and a check runs it for real. The config subset needs privileged mode: an account that lands in user mode needs its enable secret stored (pleiades add-credential --enable-password-stdin). When config came from all, the default, and the device refuses show running-config, it is left out with a warning and the rest is returned; asked for by name, that refusal fails the task. cisco.ios.ios_facts's hardware subset is absent on purpose: the memory and flash figures IOS reports vary enough by platform that parsing them generically would be a guess.",

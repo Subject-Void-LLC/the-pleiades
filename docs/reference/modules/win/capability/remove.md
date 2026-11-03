@@ -40,7 +40,7 @@ Makes sure a Windows capability, what Get-WindowsCapability lists, is not instal
 
 A run that removed the capability emits a win.capability.install naming it, which fetches it from Windows Update again: one first installed from a source needs that source in its rollback: list. One found absent, or pending a restart to finish going, emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -41,7 +41,7 @@ Links interface a_interface of node a to interface b_interface of node b. The sa
 
 A run that made a link emits virt.cml.link.delete naming its lab's id and its own; one that found the same link already there emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

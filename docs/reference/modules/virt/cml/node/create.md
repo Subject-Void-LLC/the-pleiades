@@ -49,7 +49,7 @@ Makes a node from a node definition, with the definition's interfaces, stopped. 
 
 A run that made a node emits virt.cml.node.delete naming its lab's id and its own, so a rollback removes exactly that node.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -25,7 +25,7 @@ Reads Edgeshark's status and removes it only when it is installed. Its undo is v
 
 Its undo is virt.clab.edgeshark.install, recorded when this task removed it.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

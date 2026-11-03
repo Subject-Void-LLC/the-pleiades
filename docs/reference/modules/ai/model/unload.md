@@ -39,7 +39,7 @@ Unloads the model (keep_alive 0); a model not in memory is no change. The undo l
 
 The undo loads the model again, which unloads any other loaded since.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

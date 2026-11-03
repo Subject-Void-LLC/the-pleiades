@@ -52,7 +52,29 @@ Reads every system fact it knows over SSH by default (identity, kernel and syste
 
 Reading is not changing. This method runs uname and reads /etc/os-release and files under /proc, alters nothing on the device, and so has nothing an undo could restore.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
+
+## Facts it keeps
+
+A real run stores each of these as the device's fact. A **stable** fact keeps every value it has had, and a change is drift; a **volatile** one keeps only its latest value and never counts as drift. A check stores none.
+
+| Fact | Kind | Type | Description |
+| --- | --- | --- | --- |
+| `ansible_hostname` | stable | string | The short host name, which is everything before the first dot of what uname reports. |
+| `ansible_kernel` | stable | string | The kernel release, as uname -r reports it. |
+| `ansible_architecture` | stable | string | The machine hardware name, as uname -m reports it, for example x86_64. |
+| `ansible_distribution` | stable | string | The distribution name, read from NAME in /etc/os-release, for example Ubuntu. |
+| `ansible_distribution_version` | stable | string | The distribution version, read from VERSION_ID in /etc/os-release. A rolling release that publishes no VERSION_ID reports no such fact. |
+| `ansible_memtotal_mb` | stable | integer | Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it. |
+| `ansible_processor_count` | stable | integer | The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo. An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1. |
+| `ansible_uptime_seconds` | volatile | integer | How long the device has been up, in whole seconds, from the first field of /proc/uptime. |
+| `ansible_nodename` | stable | string | The full node name uname -n reports, before ansible_hostname cuts it at the first dot. |
+| `ansible_system` | stable | string | The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin. |
+| `ansible_distribution_major_version` | stable | string | VERSION_ID up to its first dot, such as 24 for 24.04. |
+| `ansible_distribution_release` | stable | string | VERSION_CODENAME from /etc/os-release, such as noble. |
+| `ansible_swaptotal_mb` | stable | integer | Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap. |
+| `ansible_processor_vcpus` | stable | integer | The number of logical processors, counted as the processor entries in /proc/cpuinfo. |
+| `ansible_processor_cores` | stable | integer | The cores per processor package, from the first cpu cores field in /proc/cpuinfo. |
 
 ## See also
 

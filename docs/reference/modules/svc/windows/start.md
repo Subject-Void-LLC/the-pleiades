@@ -38,7 +38,7 @@ Makes sure a Windows service is running right now. This is ansible.windows.win_s
 
 A run that started a stopped service emits an svc.windows.stop naming it. A run that found it already running emits nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the service to where it was, not the system.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

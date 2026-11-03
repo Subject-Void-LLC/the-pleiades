@@ -39,7 +39,7 @@ Makes sure a VM virt.vbox.vm.clone made no longer holds its seed: the cloud-init
 
 The seed file is deleted, and nothing keeps what it held (a hash of the login's password, or a Windows VM's Administrator password), so it cannot be put back; a VM that needs seeding again is made again with virt.vbox.vm.clone.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

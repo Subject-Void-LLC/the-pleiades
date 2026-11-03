@@ -54,7 +54,7 @@ Runs the device's pg_restore with --single-transaction and --exit-on-error, so a
 
 It replaces a database's contents, which no recorded value could put back; dump the target first (db.pg.dump) to keep a way back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

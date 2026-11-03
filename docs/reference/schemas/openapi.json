@@ -6087,6 +6087,108 @@
         "x-link-relation": "grant"
       }
     },
+    "/inventory/devices/{name}/fact-chain": {
+      "get": {
+        "description": "Walks the device's stored stable facts in the order they were written and reports the first that was edited, deleted or moved. It is tamper-evident, not tamper-proof: whoever can write the database can rewrite the chain from an edit onward, and values cut off the end leave a shorter chain that still verifies, which comparing head with a copy kept elsewhere notices. Volatile facts are not chained.",
+        "operationId": "verify_device_fact_chain",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "break": {
+                      "description": "The first value that fails; absent when every one verifies.",
+                      "properties": {
+                        "index": {
+                          "type": "integer"
+                        },
+                        "key": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "device": {
+                      "type": "string"
+                    },
+                    "head": {
+                      "description": "The last value's chain hash; record it elsewhere to notice the end being cut off later.",
+                      "type": "string"
+                    },
+                    "unchained": {
+                      "description": "Values stored before the chain existed, which are not checked.",
+                      "type": "integer"
+                    },
+                    "values": {
+                      "description": "How many chained values were checked.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "What the check found; a break is reported in the body, not as an error status."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name is empty, too long, or contains a control character."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:read"
+            ]
+          }
+        ],
+        "summary": "Check a device's fact chain",
+        "x-link-relation": "self"
+      }
+    },
     "/inventory/devices/{name}/facts": {
       "get": {
         "description": "The newest value of each fact real runs observed on the device (what a method emitted, such as facts.gather's ansible_* keys), with when it was first observed and last confirmed. A value is stored only when it changes, so last_seen_at says how current it still is.",
@@ -6114,6 +6216,50 @@
                     "facts": {
                       "items": {
                         "properties": {
+                          "by": {
+                            "description": "The run that first observed this value; absent when unknown.",
+                            "properties": {
+                              "attempt": {
+                                "description": "The dispatch's delivery attempt on a Runner.",
+                                "type": "integer"
+                              },
+                              "job": {
+                                "description": "The Controller's job ID; absent on a CLI run.",
+                                "type": "string"
+                              },
+                              "method": {
+                                "description": "The FQCN that emitted the value.",
+                                "type": "string"
+                              },
+                              "node": {
+                                "description": "The task's node ID in the run's graph.",
+                                "type": "string"
+                              },
+                              "order": {
+                                "description": "The run's place in an order the system keeps; two orders compare only with the same source.",
+                                "properties": {
+                                  "source": {
+                                    "description": "clock (the CLI's run counter) or lease:<epoch> (a device lease's fencing token).",
+                                    "type": "string"
+                                  },
+                                  "token": {
+                                    "description": "The counter's value for the run.",
+                                    "type": "integer"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "run": {
+                                "description": "The run's ID.",
+                                "type": "string"
+                              },
+                              "runner": {
+                                "description": "The Runner's name as it reported it, not an identity the Controller checked.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "hash": {
                             "description": "SHA-256, hex, over the canonical JSON of key and value.",
                             "type": "string"
@@ -6121,6 +6267,58 @@
                           "key": {
                             "description": "The fact's name as the method emitted it, such as ansible_kernel.",
                             "type": "string"
+                          },
+                          "kind": {
+                            "description": "What the emitting method declared: a stable fact keeps every value, a volatile one only its latest.",
+                            "enum": [
+                              "stable",
+                              "volatile"
+                            ],
+                            "type": "string"
+                          },
+                          "last_by": {
+                            "description": "The run that last confirmed this value; absent when unknown.",
+                            "properties": {
+                              "attempt": {
+                                "description": "The dispatch's delivery attempt on a Runner.",
+                                "type": "integer"
+                              },
+                              "job": {
+                                "description": "The Controller's job ID; absent on a CLI run.",
+                                "type": "string"
+                              },
+                              "method": {
+                                "description": "The FQCN that emitted the value.",
+                                "type": "string"
+                              },
+                              "node": {
+                                "description": "The task's node ID in the run's graph.",
+                                "type": "string"
+                              },
+                              "order": {
+                                "description": "The run's place in an order the system keeps; two orders compare only with the same source.",
+                                "properties": {
+                                  "source": {
+                                    "description": "clock (the CLI's run counter) or lease:<epoch> (a device lease's fencing token).",
+                                    "type": "string"
+                                  },
+                                  "token": {
+                                    "description": "The counter's value for the run.",
+                                    "type": "integer"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "run": {
+                                "description": "The run's ID.",
+                                "type": "string"
+                              },
+                              "runner": {
+                                "description": "The Runner's name as it reported it, not an identity the Controller checked.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
                           },
                           "last_seen_at": {
                             "description": "When this value was last confirmed by a run.",
@@ -6131,6 +6329,10 @@
                             "description": "When this value was first observed.",
                             "format": "date-time",
                             "type": "string"
+                          },
+                          "ordered_by_clock": {
+                            "description": "In a history: this value was placed after the one before it by the clock, because the two runs' orders do not compare.",
+                            "type": "boolean"
                           },
                           "value": {
                             "description": "The value observed, as the method emitted it."
@@ -6197,7 +6399,7 @@
     },
     "/inventory/devices/{name}/facts/{key}": {
       "get": {
-        "description": "Every value the device's fact has had, oldest first: its drift, one entry per change.",
+        "description": "Every value the device's fact has had, in the order of the runs that observed them (by the clock where two runs' orders do not compare, which each entry says): its drift, one entry per change. A volatile fact has one value.",
         "operationId": "get_device_fact_history",
         "parameters": [
           {
@@ -6231,6 +6433,50 @@
                     "facts": {
                       "items": {
                         "properties": {
+                          "by": {
+                            "description": "The run that first observed this value; absent when unknown.",
+                            "properties": {
+                              "attempt": {
+                                "description": "The dispatch's delivery attempt on a Runner.",
+                                "type": "integer"
+                              },
+                              "job": {
+                                "description": "The Controller's job ID; absent on a CLI run.",
+                                "type": "string"
+                              },
+                              "method": {
+                                "description": "The FQCN that emitted the value.",
+                                "type": "string"
+                              },
+                              "node": {
+                                "description": "The task's node ID in the run's graph.",
+                                "type": "string"
+                              },
+                              "order": {
+                                "description": "The run's place in an order the system keeps; two orders compare only with the same source.",
+                                "properties": {
+                                  "source": {
+                                    "description": "clock (the CLI's run counter) or lease:<epoch> (a device lease's fencing token).",
+                                    "type": "string"
+                                  },
+                                  "token": {
+                                    "description": "The counter's value for the run.",
+                                    "type": "integer"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "run": {
+                                "description": "The run's ID.",
+                                "type": "string"
+                              },
+                              "runner": {
+                                "description": "The Runner's name as it reported it, not an identity the Controller checked.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "hash": {
                             "description": "SHA-256, hex, over the canonical JSON of key and value.",
                             "type": "string"
@@ -6238,6 +6484,58 @@
                           "key": {
                             "description": "The fact's name as the method emitted it, such as ansible_kernel.",
                             "type": "string"
+                          },
+                          "kind": {
+                            "description": "What the emitting method declared: a stable fact keeps every value, a volatile one only its latest.",
+                            "enum": [
+                              "stable",
+                              "volatile"
+                            ],
+                            "type": "string"
+                          },
+                          "last_by": {
+                            "description": "The run that last confirmed this value; absent when unknown.",
+                            "properties": {
+                              "attempt": {
+                                "description": "The dispatch's delivery attempt on a Runner.",
+                                "type": "integer"
+                              },
+                              "job": {
+                                "description": "The Controller's job ID; absent on a CLI run.",
+                                "type": "string"
+                              },
+                              "method": {
+                                "description": "The FQCN that emitted the value.",
+                                "type": "string"
+                              },
+                              "node": {
+                                "description": "The task's node ID in the run's graph.",
+                                "type": "string"
+                              },
+                              "order": {
+                                "description": "The run's place in an order the system keeps; two orders compare only with the same source.",
+                                "properties": {
+                                  "source": {
+                                    "description": "clock (the CLI's run counter) or lease:<epoch> (a device lease's fencing token).",
+                                    "type": "string"
+                                  },
+                                  "token": {
+                                    "description": "The counter's value for the run.",
+                                    "type": "integer"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "run": {
+                                "description": "The run's ID.",
+                                "type": "string"
+                              },
+                              "runner": {
+                                "description": "The Runner's name as it reported it, not an identity the Controller checked.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
                           },
                           "last_seen_at": {
                             "description": "When this value was last confirmed by a run.",
@@ -6248,6 +6546,10 @@
                             "description": "When this value was first observed.",
                             "format": "date-time",
                             "type": "string"
+                          },
+                          "ordered_by_clock": {
+                            "description": "In a history: this value was placed after the one before it by the clock, because the two runs' orders do not compare.",
+                            "type": "boolean"
                           },
                           "value": {
                             "description": "The value observed, as the method emitted it."

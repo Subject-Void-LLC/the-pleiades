@@ -48,7 +48,7 @@ Deploys the topology (given as a mapping, a project file or a repository URL) th
 
 Its undo destroys the lab, and is recorded only when this task created it, before the deploy runs, since a deploy that fails partway leaves containers behind. A lab that was already deployed is left alone and records no undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

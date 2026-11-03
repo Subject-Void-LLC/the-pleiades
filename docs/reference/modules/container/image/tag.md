@@ -42,7 +42,7 @@ Points tag at the image source names (a reference or an image ID). A tag already
 
 A run that moved the tag records pointing it back at the image it named before, guarded by the image it names now; one that added a new tag records removing it, by the image's ID, unless the tag is the image's only name, since removing that deletes the image; one that found the tag already there records nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

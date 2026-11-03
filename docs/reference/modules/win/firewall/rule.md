@@ -55,7 +55,7 @@ A rule is named by its Name, its identity (OpenSSH-Server-In-TCP, not its displa
 
 A rule this run made is removed by its undo; a rule it changed gets back the earlier value of each setting it changed; a rule it removed is made again with every setting it had, though not in the group it belonged to, which a rule cannot be put back into. Its display name and description are text the device holds, withheld from the journal, so an undo restoring either replays only from the task's own rollback: list.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

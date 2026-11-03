@@ -38,7 +38,7 @@ Runs containerlab's disable-tx-offload for the node's container, as some images 
 
 The offload setting it found is not read, so it cannot be put back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

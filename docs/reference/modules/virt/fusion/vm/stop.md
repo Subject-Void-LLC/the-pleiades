@@ -39,7 +39,7 @@ Makes sure a VM is no longer running. Mode soft asks the guest to shut down, and
 
 A run that stopped or suspended a running VM emits virt.fusion.vm.start naming it; one that found it already stopped emits nothing. Starting it again is not the state it had: a soft or hard stop loses what was in its memory.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

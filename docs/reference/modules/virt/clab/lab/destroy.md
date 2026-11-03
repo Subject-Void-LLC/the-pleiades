@@ -41,7 +41,7 @@ Removes the lab's containers and network through the server. A lab that is not d
 
 A destroyed lab's containers and their state are gone; deploying its topology again makes a new lab, not this one.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

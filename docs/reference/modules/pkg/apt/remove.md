@@ -42,7 +42,7 @@ Makes sure a package is absent from a Debian-family host, removing it if it is p
 
 A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. Reinstalling brings back the dependencies it removed with the package, at whatever version APT then picks. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

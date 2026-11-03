@@ -31,7 +31,7 @@ Terminates the session on the port given. A session that is not open is reported
 
 A closed session is opened again by virt.clab.node.ssh_access, which makes a new one on another port.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

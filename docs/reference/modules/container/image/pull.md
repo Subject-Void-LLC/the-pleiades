@@ -43,7 +43,7 @@ Makes the image a reference names present on the engine. A tag is resolved throu
 
 A run that moved an existing tag records pointing it back, guarded by the image it names now, and partial when the run also pulled, since the pulled image stays (container.image.prune removes it); one that pulled an absent image under a new tag records its removal, by ID; one that pointed a new tag at an image already there records removing the tag, unless it is the image's only name; one that found both as asked records nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

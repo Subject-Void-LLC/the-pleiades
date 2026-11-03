@@ -41,7 +41,7 @@ Makes sure a package is present on a Debian-family host, installing it if it is 
 
 A run that installed an absent package emits a pkg.apt.remove naming it and the packages the install pulled in with it (dependencies), which the remove takes too while nothing else needs them and removing them takes nothing else with them; any it keeps it names. An install that pulled in more than 128 packages, or whose installed set could not be read afterwards, names the package alone and says so, leaving the rest to apt-get autoremove. A run that found it already present, even at a different version than requested, emits nothing: reinstalling over an existing package is not something removing it would undo correctly, since the version that was already there before this task ran would be lost along with the one this task left. What the inverse cannot restore is anything the package's install scripts did: a service they started, a user they created, a config file they wrote outside dpkg's own tracking.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -40,7 +40,7 @@ Makes sure a VM has no snapshot with this name. None under the name reports no c
 
 Deleting merges the snapshot's saved disk state into what came after it and drops its saved memory, so the state it held is gone; a new snapshot taken under the same name would hold the VM as it is now, not as it was.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 
