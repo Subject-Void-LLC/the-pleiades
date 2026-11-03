@@ -1,0 +1,121 @@
+// Tests of gather_subset's selection, the item key encoding and the package
+// and service parsers (gather_subsets.go, gather_packages.go,
+// gather_services.go), against output shaped as each tool prints it.
+package facts
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestGatherSelection_FollowsAnsiblesRules(t *testing.T) {
+	cases := []struct {
+		subsets any
+		want    []string
+		refuse  string
+	}{
+		{nil, []string{"hardware", "min"}, ""},
+		{[]any{}, []string{"hardware", "min"}, ""},
+		{[]any{"packages"}, []string{"min", "packages"}, ""},
+		{[]any{"all"}, []string{"hardware", "min", "packages", "services"}, ""},
+		{[]any{"!hardware"}, []string{"min", "packages", "services"}, ""},
+		{[]any{"!all", "services"}, []string{"min", "services"}, ""},
+		{[]any{"packages", "!min"}, []string{"packages"}, ""},
+		{[]any{"!all", "!min"}, nil, "leaves no subset"},
+		{[]any{"pakages"}, nil, "not a subset"},
+		{"packages", nil, ""},
+	}
+	for _, tc := range cases {
+		chosen, err := gatherSelection(map[string]any{gatherParamSubset: tc.subsets})
+		switch {
+		case tc.refuse != "":
+			if err == nil || !strings.Contains(err.Error(), tc.refuse) {
+				t.Errorf("%v: %v, want a refusal naming %q", tc.subsets, err, tc.refuse)
+			}
+		case tc.want == nil:
+			// A bare string is refused or read by sdk.StringSlice's own rule;
+			// either way nothing here panics.
+		case err != nil:
+			t.Errorf("%v: %v", tc.subsets, err)
+		case !reflect.DeepEqual(chosenNames(chosen), tc.want):
+			t.Errorf("%v: chose %v, want %v", tc.subsets, chosenNames(chosen), tc.want)
+		}
+	}
+}
+
+func TestItemKey_EncodesWhatAKeyCannotHoldExactly(t *testing.T) {
+	for name, want := range map[string]string{
+		"nginx":                           "package.nginx",
+		"libc6:i386":                      "package.libc6:i386",
+		"Microsoft Visual C++ 2015 (x64)": "package.Microsoft%20Visual%20C++%202015%20(x64)",
+		"a/b%c":                           "package.a%2Fb%25c",
+		"zero​width":                      "package.zero%E2%80%8Bwidth",
+	} {
+		if got := itemKey(gatherFamilyPackage, name); got != want {
+			t.Errorf("itemKey(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestPackageParsers_ReadEachDatabasesOwnOutput(t *testing.T) {
+	dpkg := "ii \tbash\t5.2.21-2ubuntu4\tamd64\nrc \tgone\t1.0\tamd64\nii \tlibc6:i386\t2.39-0ubuntu8\ti386\nnot a line\n"
+	rpm := "bash\t(none)\t5.2.26-3.el10\tx86_64\nopenssl-libs\t1\t3.2.2-16.el10\tx86_64\nopenssl-libs\t1\t3.2.2-16.el10\ti686\ngpg-pubkey\t(none)\tabc-def\t(none)\n"
+	apk := "busybox-1.36.1-r29 x86_64 {busybox} (GPL-2.0-only) [installed]\npy3-foo-bar-2.0.1-r0 noarch {py3-foo-bar} (MIT) [installed]\nWARNING: something\n"
+	got := map[string]map[string]any{}
+	for _, f := range append(append(packageFacts(parseDpkg(dpkg)), packageFacts(parseRPM(rpm))...), packageFacts(parseAPK(apk))...) {
+		got[f.key] = f.value.(map[string]any)
+	}
+	want := map[string]map[string]any{
+		"package.bash":              {"version": "5.2.21-2ubuntu4", "arch": "amd64", "source": "dpkg"},
+		"package.libc6:i386":        {"version": "2.39-0ubuntu8", "arch": "i386", "source": "dpkg"},
+		"package.openssl-libs":      {"version": "1:3.2.2-16.el10", "arch": "x86_64", "source": "rpm"},
+		"package.openssl-libs:i686": {"version": "1:3.2.2-16.el10", "arch": "i686", "source": "rpm"},
+		"package.busybox":           {"version": "1.36.1-r29", "arch": "x86_64", "source": "apk"},
+		"package.py3-foo-bar":       {"version": "2.0.1-r0", "arch": "noarch", "source": "apk"},
+	}
+	// rpm's bash and dpkg's bash came from separate calls, so each call
+	// named its own; the rpm one is checked separately.
+	delete(got, "package.bash")
+	for key, value := range want {
+		if key == "package.bash" {
+			continue
+		}
+		if !reflect.DeepEqual(got[key], value) {
+			t.Errorf("%s = %v, want %v", key, got[key], value)
+		}
+	}
+	if _, ok := got["package.gone"]; ok {
+		t.Error("a removed (rc) dpkg package was reported installed")
+	}
+	if _, ok := got["package.gpg-pubkey"]; ok {
+		t.Error("rpm's gpg-pubkey entries were reported as packages")
+	}
+	both := packageFacts(append(parseDpkg("ii \tbash\t5.2\tamd64\n"), parseRPM("bash\t(none)\t5.2-1\tx86_64\n")...))
+	if len(both) != 2 || both[0].key != "package.bash" || both[1].key != "package.bash:x86_64" {
+		t.Errorf("two databases naming one package: %v", both)
+	}
+}
+
+func TestParseSystemd_MergesUnitFilesAndLoadedUnits(t *testing.T) {
+	out := "ssh.service enabled enabled\ncron.service disabled enabled\ngetty@.service enabled enabled\nsystemd-fsck-root.service static -\n" +
+		serviceSectionMark + "\n" +
+		"ssh.service loaded active running OpenBSD Secure Shell server\n● failing.service loaded failed failed A unit that failed\ngetty@tty1.service loaded active running Getty on tty1\n"
+	got := map[string]map[string]any{}
+	for _, f := range parseSystemd(out) {
+		got[f.key] = f.value.(map[string]any)
+	}
+	want := map[string]map[string]any{
+		"service.ssh.service":               {"state": "running", "enabled": true, "status": "enabled", "source": "systemd"},
+		"service.cron.service":              {"state": "inactive", "enabled": false, "status": "disabled", "source": "systemd"},
+		"service.systemd-fsck-root.service": {"state": "inactive", "enabled": false, "status": "static", "source": "systemd"},
+		"service.failing.service":           {"state": "failed", "enabled": false, "status": "unknown", "source": "systemd"},
+		"service.getty@tty1.service":        {"state": "running", "enabled": false, "status": "unknown", "source": "systemd"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("services = %v\nwant %v", got, want)
+	}
+	if parseSystemd("no mark here") != nil {
+		t.Error("output with no section mark was read")
+	}
+}

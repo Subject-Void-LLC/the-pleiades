@@ -113,17 +113,26 @@ func init() {
 	}
 	// Only the uptime moves on its own; every other fact changes when the
 	// device does.
-	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, gatherFactNames(), gatherFactUptimeSeconds)
+	d.Manifest.Facts = append(collection.DeclareFacts(d.Manifest.Doc.Returns, gatherFactNames(), gatherFactUptimeSeconds),
+		// One fact per item (Phase 41c): a package's version or a service's
+		// state changing is the device changing.
+		collection.FactSpec{Key: gatherFamilyPackage, Prefix: true, Kind: collection.FactStable, Type: collection.FactObject,
+			Description: "One installed package: version, arch and source (the database it was read from)."},
+		collection.FactSpec{Key: gatherFamilyService, Prefix: true, Kind: collection.FactStable, Type: collection.FactObject,
+			Description: "One service: state, enabled, status (the manager's own word for it) and source."},
+	)
 	collection.MustRegister(d)
 }
 
-// gatherFactNames is every fact this method may emit: every return its
-// documentation names, each of which is a fact.
+// gatherFactNames is every single fact this method may emit: every return
+// its documentation names but a family, each of which is a fact.
 func gatherFactNames() []string {
-	returns := gatherDoc().Returns
-	names := make([]string, len(returns))
-	for i, r := range returns {
-		names[i] = r.Name
+	var names []string
+	for _, r := range gatherDoc().Returns {
+		// A family (package.<name>) is declared as a prefix in init.
+		if !strings.Contains(r.Name, "<") {
+			names = append(names, r.Name)
+		}
 	}
 	return names
 }
@@ -137,10 +146,11 @@ func gatherFactNames() []string {
 // the copies cannot drift.
 func gatherDoc() collection.Doc {
 	return collection.Doc{
-		Summary:     "Gathers baseline system facts from the target (OS, kernel, distribution).",
-		Description: "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+		Summary:     "Gathers system facts from the target: OS, kernel, distribution, and on request its packages and services.",
+		Description: "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm or apk); and services, one fact per service (service.<name>: state, enabled and status, from systemd). Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
 		Params: []collection.Param{
 			{Name: gatherParamFilter, Type: "list of string", Description: "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."},
+			{Name: gatherParamSubset, Type: "list of string", Description: "The subsets to gather, as ansible.builtin.setup names them: min, hardware, packages, services, or all; a name with a leading ! leaves that subset out, and a list of only such names starts from all. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. An unknown name is refused."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -159,11 +169,17 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactSwapTotalMB, Type: "int", Returned: "when /proc/meminfo reports it", Description: "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."},
 			{Name: gatherFactProcessorVCPUs, Type: "int", Returned: "when /proc/cpuinfo lists processors", Description: "The number of logical processors, counted as the processor entries in /proc/cpuinfo."},
 			{Name: gatherFactProcessorCores, Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
+			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm or apk). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source."},
+			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service systemd knows", Description: "One service by its unit name: state (running, exited, dead, failed or inactive), enabled, status (the unit file's state: enabled, disabled, static, masked) and source."},
 		},
 		Examples: []collection.Example{
 			{
 				Name:        "Gather everything before deciding what to do",
 				RunbookYAML: "- name: Learn what this device is\n  facts.gather:\n",
+			},
+			{
+				Name:        "Gather the installed packages and services",
+				RunbookYAML: "- name: Learn what is installed and running\n  facts.gather:\n    gather_subset:\n      - packages\n      - services\n",
 			},
 			{
 				Name:        "Gather only what a later condition reads",
@@ -191,6 +207,12 @@ type gatherFact struct {
 // keys lists every fact this probe can produce, which is what lets the
 // filter drop a probe before it costs a round trip rather than after.
 type gatherProbe struct {
+	// subset is the gather_subset this probe belongs to.
+	subset string
+	// family, when set, is the prefix of a family of one fact per item
+	// (package.): the probe emits keys it cannot list ahead, so filter
+	// narrows its facts as they are emitted rather than its keys up front.
+	family  string
 	keys    []string
 	command string
 	parse   func(stdout string) []gatherFact
@@ -220,8 +242,17 @@ type gatherProbe struct {
 // runbook in it, which is why no quoting of a task parameter appears
 // anywhere in this file.
 func gatherProbes() []gatherProbe {
+	probes := gatherHostProbes()
+	probes = append(probes, linuxPackageProbes()...)
+	return append(probes, linuxServiceProbes()...)
+}
+
+// gatherHostProbes are the min and hardware subsets' probes: what this
+// method read before it had subsets.
+func gatherHostProbes() []gatherProbe {
 	return []gatherProbe{
 		{
+			subset:  gatherSubsetMin,
 			keys:    []string{gatherFactHostname, gatherFactNodename},
 			command: "uname -n",
 			// uname reports the node name, which on a machine with a domain
@@ -234,26 +265,31 @@ func gatherProbes() []gatherProbe {
 			parse: gatherNodeNames,
 		},
 		{
+			subset:  gatherSubsetMin,
 			keys:    []string{gatherFactSystem},
 			command: "uname -s",
 			parse:   gatherSingle(gatherFactSystem),
 		},
 		{
+			subset:  gatherSubsetMin,
 			keys:    []string{gatherFactKernel},
 			command: "uname -r",
 			parse:   gatherSingle(gatherFactKernel),
 		},
 		{
+			subset:  gatherSubsetMin,
 			keys:    []string{gatherFactArchitecture},
 			command: "uname -m",
 			parse:   gatherSingle(gatherFactArchitecture),
 		},
 		{
+			subset:  gatherSubsetMin,
 			keys:    []string{gatherFactDistribution, gatherFactDistributionVersion, gatherFactDistributionMajor, gatherFactDistributionRelease},
 			command: "cat /etc/os-release",
 			parse:   gatherOSRelease,
 		},
 		{
+			subset:  gatherSubsetHardware,
 			keys:    []string{gatherFactMemTotalMB, gatherFactSwapTotalMB},
 			command: "cat /proc/meminfo",
 			parse:   gatherMemory,
@@ -264,11 +300,13 @@ func gatherProbes() []gatherProbe {
 			// the field's absence. It is the largest read here, growing
 			// with the core count, and it is still a few tens of kilobytes
 			// on a machine nobody would call small.
+			subset:  gatherSubsetHardware,
 			keys:    []string{gatherFactProcessorCount, gatherFactProcessorVCPUs, gatherFactProcessorCores},
 			command: "cat /proc/cpuinfo",
 			parse:   gatherProcessors,
 		},
 		{
+			subset:  gatherSubsetHardware,
 			keys:    []string{gatherFactUptimeSeconds},
 			command: "cat /proc/uptime",
 			parse:   gatherUptimeSeconds,
@@ -305,7 +343,7 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	// Planned before the connection is opened, so a filter with a typo in
 	// it costs no TCP connect, key exchange or authentication round and
 	// names the runbook's mistake rather than the device's.
-	probes, err := gatherPlan(params)
+	probes, patterns, err := gatherPlan(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -327,7 +365,13 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			// only one of them, so the keys are checked again here. Dropping
 			// this would emit ansible_distribution_version to a task that
 			// asked for ansible_distribution alone.
-			if !gatherWanted(probe.keys, fact.key) {
+			if probe.family != "" {
+				// A family's member is held to the filter itself: its key
+				// was not known until the device listed it.
+				if wanted, _ := gatherMatches(patterns, fact.key); !wanted {
+					continue
+				}
+			} else if !gatherWanted(probe.keys, fact.key) {
 				continue
 			}
 			if err := rc.EmitFact(fact.key, fact.value); err != nil {
@@ -339,22 +383,41 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	return collection.Result{Changed: false}, nil
 }
 
-// gatherPlan reads the filter and returns the probes to run, each narrowed
-// to the fact keys that survived it.
+// gatherPlan reads gather_subset and the filter and returns the probes to
+// run, each narrowed to the fact keys that survived the filter, and the
+// filter's patterns, which a family's facts are held to as they are emitted.
 //
 // A filter matching nothing is refused rather than honored. Ansible would
 // return an empty fact set, and this does not, because a pattern that
-// matches none of eight fixed names is a typo far more often than an
-// intention, and a task that gathered nothing and reported success would
-// hide it until a later condition read a fact that was never emitted.
-func gatherPlan(params map[string]any) ([]gatherProbe, error) {
+// matches none of the facts the chosen subsets gather is a typo far more
+// often than an intention, and a task that gathered nothing and reported
+// success would hide it until a later condition read a fact that was never
+// emitted.
+func gatherPlan(params map[string]any) ([]gatherProbe, []string, error) {
+	chosen, err := gatherSelection(params)
+	if err != nil {
+		return nil, nil, err
+	}
 	patterns, _, err := sdk.StringSlice(params, gatherParamFilter)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var planned []gatherProbe
 	for _, probe := range gatherProbes() {
+		if !chosen[probe.subset] {
+			continue
+		}
+		if probe.family != "" {
+			wanted, err := gatherFamilyWanted(patterns, probe.family)
+			if err != nil {
+				return nil, nil, err
+			}
+			if wanted {
+				planned = append(planned, probe)
+			}
+			continue
+		}
 		// A fresh slice rather than filtering in place: gatherProbes hands
 		// back the keys slice it built, and writing through it would edit
 		// the answer the next call sees.
@@ -362,7 +425,7 @@ func gatherPlan(params map[string]any) ([]gatherProbe, error) {
 		for _, key := range probe.keys {
 			matched, err := gatherMatches(patterns, key)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if matched {
 				kept = append(kept, key)
@@ -376,10 +439,33 @@ func gatherPlan(params map[string]any) ([]gatherProbe, error) {
 	}
 
 	if len(planned) == 0 {
-		return nil, fmt.Errorf("%s %q matches none of the facts this method gathers (%s)",
-			gatherParamFilter, patterns, strings.Join(gatherAllKeys(), ", "))
+		return nil, nil, fmt.Errorf("%s %q matches none of the facts the subsets %s gather (%s)",
+			gatherParamFilter, patterns, chosenNames(chosen), strings.Join(gatherAllKeys(chosen), ", "))
 	}
-	return planned, nil
+	return planned, patterns, nil
+}
+
+// gatherFamilyWanted reports whether the filter can want any fact of
+// family: with no patterns, or a pattern naming the family (package.nginx)
+// or matching its members (package.*). Which members it wants is decided as
+// they are emitted.
+func gatherFamilyWanted(patterns []string, family string) (bool, error) {
+	if len(patterns) == 0 {
+		return true, nil
+	}
+	for _, pattern := range patterns {
+		if strings.HasPrefix(pattern, family) {
+			return true, nil
+		}
+		matched, err := path.Match(pattern, family+"x")
+		if err != nil {
+			return false, fmt.Errorf("%s pattern %q is malformed: %w", gatherParamFilter, pattern, err)
+		}
+		if matched {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // gatherMatches reports whether key is wanted by any of the patterns, with
@@ -414,11 +500,23 @@ func gatherWanted(keys []string, key string) bool {
 	return false
 }
 
-// gatherAllKeys returns every fact name this method can emit, in probe
-// order, so a refused filter can say what it could have matched.
-func gatherAllKeys() []string {
+// gatherAllKeys returns every fact name the chosen subsets can emit, in
+// probe order, a family as its prefix and *, so a refused filter can say
+// what it could have matched.
+func gatherAllKeys(chosen map[string]bool) []string {
 	var keys []string
+	seen := map[string]bool{}
 	for _, probe := range gatherProbes() {
+		if !chosen[probe.subset] {
+			continue
+		}
+		if probe.family != "" {
+			if !seen[probe.family] {
+				keys = append(keys, probe.family+"*")
+				seen[probe.family] = true
+			}
+			continue
+		}
 		keys = append(keys, probe.keys...)
 	}
 	return keys

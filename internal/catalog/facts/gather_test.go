@@ -729,3 +729,54 @@ func TestGather_FactRecordFailureIsReported(t *testing.T) {
 		t.Errorf("error = %q, want it to name the fact that could not be recorded", err)
 	}
 }
+
+// TestGather_PackagesAndServicesMatchThisMachine: the packages subset reports
+// every package dpkg says is installed on this machine, with dpkg's own
+// version, and the services subset every service unit file systemd lists;
+// neither is gathered when not asked for.
+func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
+	server := startGatherServer(t)
+	rc := newGatherContext(server)
+	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"packages", "services"}}); err != nil {
+		t.Fatal(err)
+	}
+	packages, services := 0, 0
+	for key := range rc.facts {
+		switch {
+		case strings.HasPrefix(key, "package."):
+			packages++
+		case strings.HasPrefix(key, "service."):
+			services++
+		}
+	}
+	if listed := gatherCommandOutput(t, "sh", "-c", `command -v dpkg-query >/dev/null && dpkg-query -W -f='${db:Status-Abbrev}\n' | grep -c '^ii' || echo skip`); listed != "skip" {
+		if strconv.Itoa(packages) != listed {
+			t.Errorf("%d package facts, dpkg lists %s installed", packages, listed)
+		}
+		version := gatherCommandOutput(t, "dpkg-query", "-W", "-f=${Version}", "bash")
+		if got, _ := rc.facts["package.bash"].(map[string]any); got["version"] != version || got["source"] != "dpkg" {
+			t.Errorf("package.bash = %v, dpkg says %s", got, version)
+		}
+	}
+	if units := gatherCommandOutput(t, "sh", "-c", `command -v systemctl >/dev/null && [ -d /run/systemd/system ] && systemctl list-unit-files --type=service --no-legend --no-pager --plain | grep -vc '@\.service' || echo skip`); units != "skip" && services == 0 {
+		t.Errorf("systemd lists %s unit files and no service fact was gathered", units)
+	}
+	// Only min unless asked: the default gathers no package or service.
+	plain := newGatherContext(server)
+	if _, err := gatherRun(t, server, plain, nil); err != nil {
+		t.Fatal(err)
+	}
+	for key := range plain.facts {
+		if strings.HasPrefix(key, "package.") || strings.HasPrefix(key, "service.") {
+			t.Fatalf("the default gathered %s", key)
+		}
+	}
+	// A filter naming one package keeps that one.
+	one := newGatherContext(server)
+	if _, err := gatherRun(t, server, one, map[string]any{"gather_subset": []any{"packages"}, "filter": []any{"package.bash"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := one.facts["package.bash"]; packages > 0 && (!ok || len(one.facts) != 1) {
+		t.Errorf("a filter naming package.bash kept %d facts", len(one.facts))
+	}
+}

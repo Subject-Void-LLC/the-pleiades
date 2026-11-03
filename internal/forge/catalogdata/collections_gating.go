@@ -233,10 +233,11 @@ var gatingCollections = []collectionscaffold.Config{
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
-			Summary:     "Gathers baseline system facts from the target (OS, kernel, distribution).",
-			Description: "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+			Summary:     "Gathers system facts from the target: OS, kernel, distribution, and on request its packages and services.",
+			Description: "Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm or apk); and services, one fact per service (service.<name>: state, enabled and status, from systemd). Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
 			Params: []collection.Param{
 				{Name: "filter", Type: "list of string", Description: "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."},
+				{Name: "gather_subset", Type: "list of string", Description: "The subsets to gather, as ansible.builtin.setup names them: min, hardware, packages, services, or all; a name with a leading ! leaves that subset out, and a list of only such names starts from all. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. An unknown name is refused."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -255,11 +256,17 @@ var gatingCollections = []collectionscaffold.Config{
 				{Name: "ansible_swaptotal_mb", Type: "int", Returned: "when /proc/meminfo reports it", Description: "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."},
 				{Name: "ansible_processor_vcpus", Type: "int", Returned: "when /proc/cpuinfo lists processors", Description: "The number of logical processors, counted as the processor entries in /proc/cpuinfo."},
 				{Name: "ansible_processor_cores", Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
+				{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm or apk). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source."},
+				{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service systemd knows", Description: "One service by its unit name: state (running, exited, dead, failed or inactive), enabled, status (the unit file's state: enabled, disabled, static, masked) and source."},
 			},
 			Examples: []collection.Example{
 				{
 					Name:        "Gather everything before deciding what to do",
 					RunbookYAML: "- name: Learn what this device is\n  facts.gather:\n",
+				},
+				{
+					Name:        "Gather the installed packages and services",
+					RunbookYAML: "- name: Learn what is installed and running\n  facts.gather:\n    gather_subset:\n      - packages\n      - services\n",
 				},
 				{
 					Name:        "Gather only what a later condition reads",
