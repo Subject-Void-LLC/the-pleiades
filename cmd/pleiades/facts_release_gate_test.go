@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -133,6 +134,34 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	}
 	if out, code := g.pleiades(t, "facts", "nosuchhost"); code == 0 {
 		t.Errorf("facts of a host not in the inventory: exit 0\n%s", out)
+	}
+
+	// Phase 41c: the packages subset reports every package the device's own
+	// database lists (this sshd image is Alpine, so apk), each with apk's
+	// version, stored one fact each and readable by key.
+	gather("gather_subset:=[packages, services]")
+	all := read()
+	packages := map[string]string{}
+	for _, f := range all.Facts {
+		if strings.HasPrefix(f.Key, "package.") {
+			v, _ := f.Value.(map[string]any)
+			version, _ := v["version"].(string)
+			packages[f.Key] = version
+			if v["source"] != "apk" || f.Kind != "stable" {
+				t.Errorf("%s = %v (%s), want an apk package, stable", f.Key, v, f.Kind)
+			}
+		}
+	}
+	listed := strings.TrimSpace(g.device(t, "apk list --installed 2>/dev/null | grep -c installed"))
+	if strconv.Itoa(len(packages)) != listed || len(packages) == 0 {
+		t.Errorf("%d package facts stored; apk lists %s installed", len(packages), listed)
+	}
+	busybox := strings.TrimSpace(g.device(t, "apk list --installed busybox 2>/dev/null | awk '{print $1}'"))
+	if want := strings.TrimPrefix(busybox, "busybox-"); packages["package.busybox"] != want {
+		t.Errorf("package.busybox = %q; apk says %q", packages["package.busybox"], want)
+	}
+	if h := read("package.busybox"); len(h.Facts) != 1 {
+		t.Errorf("package.busybox's history has %d values, want 1", len(h.Facts))
 	}
 
 	// The chain verifies; an edited value breaks it, and the command says so
