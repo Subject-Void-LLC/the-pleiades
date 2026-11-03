@@ -60,6 +60,13 @@ func registerFactMethods(t *testing.T) {
 				return collection.Result{}, err
 			}
 		}
+		if params["note"] == true {
+			// An ordinary name and no secret's shape: only a secret_mask
+			// naming it can say it is secret.
+			if err := rc.EmitFact("login_note", "Lattice7Harbor"); err != nil {
+				return collection.Result{}, err
+			}
+		}
 		if params["more"] == true {
 			for key, value := range map[string]any{"uptime": 42, "undeclared": "x", "cores": "four"} {
 				if err := rc.EmitFact(key, value); err != nil {
@@ -83,6 +90,7 @@ func registerFactMethods(t *testing.T) {
 				{Key: "token", Kind: collection.FactStable, Type: collection.FactString, Description: "a token"},
 				{Key: "banner", Kind: collection.FactStable, Type: collection.FactString, Description: "a banner"},
 				{Key: "db_password", Kind: collection.FactStable, Type: collection.FactString, Description: "a password"},
+				{Key: "login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a note a later task marks secret"},
 			}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -214,5 +222,32 @@ func TestFacts_OnlyWhatTheMethodDeclaresIsStoredAsDeclared(t *testing.T) {
 	want := map[string]facts.Kind{"ansible_kernel": facts.KindStable, "uptime": facts.KindVolatile}
 	if len(kinds) != len(want) || kinds["ansible_kernel"] != want["ansible_kernel"] || kinds["uptime"] != want["uptime"] {
 		t.Errorf("stored %v, want %v: undeclared and cores (a string declared integer) left out", kinds, want)
+	}
+}
+
+// TestFacts_AFieldALaterSecretMaskMarksIsNeverStored: a secret_mask runs on
+// a later task, after the facts of the task whose register it names were
+// stored, so the run's secrets cannot catch the value then; the runbook says
+// ahead that the field is secret, and it is not stored (owner question,
+// 2026-11-02).
+func TestFacts_AFieldALaterSecretMaskMarksIsNeverStored(t *testing.T) {
+	registerFactMethods(t)
+	sink := &factSink{got: map[string][]facts.Entry{}}
+	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), buildDAG(t, `{"id": "facts", "tasks": [
+		{"name": "g", "fqcn": "enginefacts.gather", "register": "g", "params": {"target": "fleet", "note": true}},
+		{"name": "mask", "fqcn": "enginefacts.gather", "secret_mask": {"register": "g", "fields": ["login_note"]}, "params": {"target": "fleet"}}
+	]}`))
+	if err != nil || result.HasErrors() {
+		t.Fatalf("run: %v, %+v", err, result)
+	}
+	stored := map[string]bool{}
+	for _, e := range sink.got["dev-1"] {
+		stored[e.Key] = true
+		if e.Value == "Lattice7Harbor" {
+			t.Errorf("the masked value was stored under %s", e.Key)
+		}
+	}
+	if stored["login_note"] || !stored["ansible_kernel"] {
+		t.Errorf("stored %v: want the kernel and not the field the later secret_mask marks", stored)
 	}
 }

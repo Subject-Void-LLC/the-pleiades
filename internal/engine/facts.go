@@ -58,12 +58,20 @@ func (r *run) recordFacts(ctx context.Context, results []NodeResult) {
 	if r.x.facts == nil {
 		return
 	}
+	masked := maskedLater(r.dag)
 	for _, nr := range results {
 		if len(nr.factKeys) == 0 || nr.Err != nil || nr.Skipped || nr.Device == "" {
 			continue
 		}
 		observed := make(map[string]any, len(nr.factKeys))
 		for _, key := range nr.factKeys {
+			if masked[nr.factRegister][key] {
+				// A secret_mask runs on a later task and reaches back to this
+				// one's register, so the value is not in the run's secrets
+				// yet; the runbook says now that it will be.
+				slog.Warn("a fact was not stored", "node", nr.NodeID, "device", nr.Device, "fact", key, "reason", "a secret_mask in this runbook marks it secret")
+				continue
+			}
 			if v, ok := nr.Stats[key]; ok {
 				observed[key] = v
 			}
@@ -104,4 +112,28 @@ func declaredFacts(method string) func(key string) (facts.Spec, bool) {
 		spec, ok := collection.FactFor(d.Manifest.Facts, key)
 		return facts.Spec{Kind: facts.Kind(spec.Kind), Type: facts.ValueType(spec.Type)}, ok
 	}
+}
+
+// maskedLater is, for each register, the fields some task's secret_mask in
+// the run marks secret. A secret_mask runs on its own, later task, after the
+// facts of the task whose register it names were stored, so the run's known
+// secrets cannot catch them; the runbook says ahead which fields it will
+// mask, and none of them is stored.
+func maskedLater(d *DAG) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	if d == nil {
+		return out
+	}
+	for _, task := range d.Nodes {
+		if task == nil || task.SecretMask == nil || task.SecretMask.Register == "" {
+			continue
+		}
+		if out[task.SecretMask.Register] == nil {
+			out[task.SecretMask.Register] = map[string]bool{}
+		}
+		for _, f := range task.SecretMask.Fields {
+			out[task.SecretMask.Register][f] = true
+		}
+	}
+	return out
 }

@@ -227,6 +227,9 @@ type NodeResult struct {
 	// factMethod is the FQCN that emitted them, whose manifest declares
 	// what each fact is (Phase 41b).
 	factMethod string
+	// factRegister is the task's register, which a later task's
+	// secret_mask can name to mark these facts secret.
+	factRegister string
 
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
@@ -1441,7 +1444,7 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 		delete(actionResult.Stats, sdk.StatFactKeys)
 		if mode == collection.ModeExecute && err == nil {
 			if keys, perr := sdk.ParseFactKeys(v); perr == nil {
-				result.factKeys, result.factMethod = keys, cmd.Task.FQCN
+				result.factKeys, result.factMethod, result.factRegister = keys, cmd.Task.FQCN, cmd.Task.Register
 			}
 		}
 	}
