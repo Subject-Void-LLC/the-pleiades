@@ -342,3 +342,30 @@ func TestStore_AClosedDatabaseIsReported(t *testing.T) {
 		t.Error("Verify on a closed database")
 	}
 }
+
+// TestStore_RecordsAThousandsOfKeysObservation: one batch of three thousand
+// package facts is stored whole, read back key by key, and confirmed again
+// without a new row.
+func TestStore_RecordsAThousandsOfKeysObservation(t *testing.T) {
+	client, device := open(t)
+	store := entstore.New(client)
+	observed := map[string]any{}
+	for i := range 3000 {
+		observed[fmt.Sprintf("package.lib%04d", i)] = map[string]any{"version": "1"}
+	}
+	obs := facts.Observation{Entries: prepared(t, observed), At: time.Now(), By: facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: 1}}}
+	if err := store.Record(context.Background(), device, obs); err != nil {
+		t.Fatal(err)
+	}
+	obs.By.Order.Token, obs.At = 2, obs.At.Add(time.Minute)
+	if err := store.Record(context.Background(), device, obs); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.Current(context.Background(), device)
+	if err != nil || len(current) != 3000 {
+		t.Fatalf("current: %d facts, %v", len(current), err)
+	}
+	if n := client.Fact.Query().CountX(context.Background()); n != 3000 {
+		t.Errorf("%d rows after a confirmation, want 3000", n)
+	}
+}

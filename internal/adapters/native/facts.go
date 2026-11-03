@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -57,16 +58,59 @@ func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Ob
 	if revision, epoch, ok := p.fence.Token(); ok {
 		by.Order = facts.Order{Source: "lease:" + epoch, Token: revision}
 	}
-	batch := facts.Batch{JobID: p.jobID, DeviceID: p.deviceID, Attempt: p.attempt, ObservedAt: obs.At.UTC(), Entries: obs.Entries, By: by}
-	key := p.idempotencyKey(batch)
-	wrapped, err := event.WrapPayload(key, facts.EventType, batch)
-	if err != nil {
-		return fmt.Errorf("failed to wrap a facts batch for job %s: %w", p.jobID, err)
-	}
-	if err := p.bus.Publish(event.WithIdempotencyKey(ctx, key), topology.FactsSubject(p.jobID), *wrapped); err != nil {
-		return fmt.Errorf("failed to publish a facts batch for job %s: %w", p.jobID, err)
+	// One observation of a large host (a fact per package, Phase 41c) is
+	// far past one broker message, so it goes as several batches, each
+	// under maxBatchBytes; the Controller stores each as it comes, all with
+	// the same run's provenance and order.
+	for _, entries := range batchesOf(obs.Entries, maxBatchBytes) {
+		batch := facts.Batch{JobID: p.jobID, DeviceID: p.deviceID, Attempt: p.attempt, ObservedAt: obs.At.UTC(), Entries: entries, By: by}
+		key := p.idempotencyKey(batch)
+		wrapped, err := event.WrapPayload(key, facts.EventType, batch)
+		if err != nil {
+			return fmt.Errorf("failed to wrap a facts batch for job %s: %w", p.jobID, err)
+		}
+		if err := p.bus.Publish(event.WithIdempotencyKey(ctx, key), topology.FactsSubject(p.jobID), *wrapped); err != nil {
+			return fmt.Errorf("failed to publish a facts batch for job %s: %w", p.jobID, err)
+		}
 	}
 	return nil
+}
+
+// maxBatchBytes bounds one published batch's entries, encoded, well under
+// the broker's default 1 MiB message limit, with room for the envelope and
+// provenance.
+const maxBatchBytes = 512 << 10
+
+// batchesOf splits entries into runs whose encoded size stays under max,
+// in their order; an entry larger than max on its own (a value is bounded
+// at facts.MaxValueBytes, far below it) is a batch of one.
+func batchesOf(entries []facts.Entry, max int) [][]facts.Entry {
+	var out [][]facts.Entry
+	var current []facts.Entry
+	size := 0
+	for _, e := range entries {
+		n := entrySize(e)
+		if len(current) > 0 && size+n > max {
+			out = append(out, current)
+			current, size = nil, 0
+		}
+		current = append(current, e)
+		size += n
+	}
+	if len(current) > 0 {
+		out = append(out, current)
+	}
+	return out
+}
+
+// entrySize is e's encoded size, or a generous estimate when it does not
+// encode (which Prepare already refused, so it does not happen).
+func entrySize(e facts.Entry) int {
+	raw, err := json.Marshal(e)
+	if err != nil {
+		return facts.MaxValueBytes
+	}
+	return len(raw)
 }
 
 // idempotencyKey names this batch so a retried publish reproduces it: the

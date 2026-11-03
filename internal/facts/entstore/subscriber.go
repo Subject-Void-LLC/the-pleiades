@@ -47,7 +47,7 @@ func WithDeclarations(index collection.FactIndex) SubscriberOption {
 	return func(s *Subscriber) {
 		s.declared = func(key string) (facts.Spec, bool) {
 			spec, ok := index.Lookup(key)
-			return facts.Spec{Kind: facts.Kind(spec.Kind), Type: facts.ValueType(spec.Type)}, ok
+			return facts.SpecOf(string(spec.Kind), string(spec.Type), spec.Key, spec.Prefix), ok
 		}
 	}
 }

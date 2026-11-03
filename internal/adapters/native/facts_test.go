@@ -5,6 +5,7 @@ package native
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -166,5 +167,50 @@ func TestExecute_PublishesNoFactHoldingTheDispatchsSecret(t *testing.T) {
 	}
 	if _, ok := stored["login_note"]; ok {
 		t.Errorf("the fact holding the dispatch's password was published: %v", stored)
+	}
+}
+
+// TestFactsPublisher_SplitsALargeObservationIntoBrokerSizedBatches: three
+// thousand package facts, as one large host's packages subset gives, go as
+// several batches, each under the broker-message bound, together carrying
+// every entry once, each with the run's provenance.
+func TestFactsPublisher_SplitsALargeObservationIntoBrokerSizedBatches(t *testing.T) {
+	observed := map[string]any{}
+	for i := range 3000 {
+		observed[fmt.Sprintf("package.lib%04d", i)] = map[string]any{"version": "1.2.3-4ubuntu0.1", "arch": "amd64", "source": "apt"}
+	}
+	entries, _, err := facts.Prepare(observed, facts.Guard{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := &mockBus{}
+	p := newFactsPublisher(journal.WithAttempt(context.Background(), 1), bus, "job-1", "device-1", "runner-1")
+	if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: entries, At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bus.published) < 2 {
+		t.Fatalf("published %d batch(es), want the observation split", len(bus.published))
+	}
+	seen := map[string]bool{}
+	for _, pub := range bus.published {
+		if len(pub.evt.Data) > 1<<20 {
+			t.Errorf("a batch is %d bytes, past the broker's 1 MiB", len(pub.evt.Data))
+		}
+		var batch facts.Batch
+		if err := json.Unmarshal(pub.evt.Data, &batch); err != nil {
+			t.Fatal(err)
+		}
+		if batch.By.Runner != "runner-1" || batch.JobID != "job-1" {
+			t.Errorf("a batch lost its provenance: %+v", batch.By)
+		}
+		for _, e := range batch.Entries {
+			if seen[e.Key] {
+				t.Errorf("%s published twice", e.Key)
+			}
+			seen[e.Key] = true
+		}
+	}
+	if len(seen) != 3000 {
+		t.Errorf("%d entries published, want 3000", len(seen))
 	}
 }
