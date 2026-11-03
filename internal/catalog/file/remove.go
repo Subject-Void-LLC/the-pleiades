@@ -291,9 +291,18 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		// allow its removal, cannot be checked.
 		removable := located && !(before.Kind == remotefile.KindDirectory && recurse)
 		if removable {
-			removable, err = remotefile.Removable(ctx, conn, path)
-			if err != nil {
-				removable = false
+			var allowed bool
+			allowed, err = remotefile.Removable(ctx, conn, path)
+			removable = err == nil && allowed
+			// The check's own answer: the device's rules say this login may
+			// not remove the path, so the real run will likely be refused.
+			// A warning, not a refusal, because Removable answers no when it
+			// cannot tell (root under BusyBox), and a check that refused a
+			// removal the real run makes would be wrong the other way.
+			if err == nil && !allowed {
+				if werr := sdk.RecordWarnings(rc, []string{fmt.Sprintf("the device's permissions say this login may not remove %s (the directory holding it is not writable and searchable for it, or is sticky and not its own); the real run will likely be refused", path)}); werr != nil {
+					return collection.Result{}, fmt.Errorf("%s: %w", fqcn, werr)
+				}
 			}
 		}
 		if leaned && !removable {
