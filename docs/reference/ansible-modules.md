@@ -416,6 +416,8 @@ Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`, `ansibl
 | `filter` | `filter` |
 | `gather_subset` | `gather_subset` |
 
+The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.
+
 ### `ansible.builtin.package_facts`
 
 Also written as `package_facts`.

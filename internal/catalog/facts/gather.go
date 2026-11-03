@@ -80,11 +80,15 @@ func init() {
 			RequiredCapabilities: []capability.Name{
 				capability.NameFactGatherer,
 			},
-			// Nothing here needs root. Every source below is world
-			// readable (uname, /etc/os-release, /proc), which is a real
-			// property of the set that was chosen rather than luck: a fact
-			// worth gathering on every device is one every device can be
-			// asked for without elevation.
+			// Nothing here needs root: every source is one an ordinary
+			// login reads (uname, /etc/os-release, /proc, sysctl, the
+			// package databases, the service managers' listings, CIM and
+			// the registry). Beyond plain reads it runs the platform's own
+			// listing tools (rc scripts' status, launchctl, and Homebrew
+			// only as the account that owns it), each only reading, which
+			// is a real property of the set that was chosen rather than
+			// luck: a fact worth gathering on every device is one every
+			// device can be asked for without elevation.
 			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: false,
 				Site:              collection.SiteTarget,
@@ -171,7 +175,7 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactProcessorVCPUs, Type: "int", Returned: "when /proc/cpuinfo lists processors", Description: "The number of logical processors, counted as the processor entries in /proc/cpuinfo."},
 			{Name: gatherFactProcessorCores, Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
 			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm, apk, pkg, brew, brew-cask, pkgutil or registry). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source, then #2 and on in the order the source lists them. A package its source gives no version has none."},
-			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is running, exited, dead, failed or inactive and status the unit file's state (enabled, disabled, static, masked); from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status the last exit status launchctl prints; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."},
+			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart) and status the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status the last exit status launchctl prints; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."},
 		},
 		Examples: []collection.Example{
 			{
