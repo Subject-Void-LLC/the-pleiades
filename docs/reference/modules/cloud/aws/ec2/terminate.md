@@ -38,7 +38,7 @@ Terminates the instance named by instance_id. A no-op if AWS has no record of th
 
 A terminated instance's storage (unless an EBS volume was explicitly detached beforehand, which this method does not do) and identity are gone; there is nothing a cloud.aws.ec2.create could restore.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

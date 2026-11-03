@@ -8370,21 +8370,26 @@ func (m *EncryptionKeyMutation) ResetEdge(name string) error {
 // FactMutation represents an operation that mutates the Fact nodes in the graph.
 type FactMutation struct {
 	config
-	op            Op
-	typ           string
-	id            *int
-	created_at    *time.Time
-	updated_at    *time.Time
-	key           *string
-	payload       *map[string]interface{}
-	hash          *string
-	last_seen_at  *time.Time
-	clearedFields map[string]struct{}
-	device        *int
-	cleareddevice bool
-	done          bool
-	oldValue      func(context.Context) (*Fact, error)
-	predicates    []predicate.Fact
+	op              Op
+	typ             string
+	id              *int
+	created_at      *time.Time
+	updated_at      *time.Time
+	key             *string
+	payload         *map[string]interface{}
+	hash            *string
+	last_seen_at    *time.Time
+	kind            *fact.Kind
+	provenance      *map[string]interface{}
+	last_provenance *map[string]interface{}
+	chain_prev      *string
+	chain           *string
+	clearedFields   map[string]struct{}
+	device          *int
+	cleareddevice   bool
+	done            bool
+	oldValue        func(context.Context) (*Fact, error)
+	predicates      []predicate.Fact
 }
 
 var _ ent.Mutation = (*FactMutation)(nil)
@@ -8714,6 +8719,238 @@ func (m *FactMutation) ResetLastSeenAt() {
 	delete(m.clearedFields, fact.FieldLastSeenAt)
 }
 
+// SetKind sets the "kind" field.
+func (m *FactMutation) SetKind(f fact.Kind) {
+	m.kind = &f
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *FactMutation) Kind() (r fact.Kind, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldKind(ctx context.Context) (v fact.Kind, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *FactMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetProvenance sets the "provenance" field.
+func (m *FactMutation) SetProvenance(value map[string]interface{}) {
+	m.provenance = &value
+}
+
+// Provenance returns the value of the "provenance" field in the mutation.
+func (m *FactMutation) Provenance() (r map[string]interface{}, exists bool) {
+	v := m.provenance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProvenance returns the old "provenance" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldProvenance(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProvenance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProvenance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProvenance: %w", err)
+	}
+	return oldValue.Provenance, nil
+}
+
+// ClearProvenance clears the value of the "provenance" field.
+func (m *FactMutation) ClearProvenance() {
+	m.provenance = nil
+	m.clearedFields[fact.FieldProvenance] = struct{}{}
+}
+
+// ProvenanceCleared returns if the "provenance" field was cleared in this mutation.
+func (m *FactMutation) ProvenanceCleared() bool {
+	_, ok := m.clearedFields[fact.FieldProvenance]
+	return ok
+}
+
+// ResetProvenance resets all changes to the "provenance" field.
+func (m *FactMutation) ResetProvenance() {
+	m.provenance = nil
+	delete(m.clearedFields, fact.FieldProvenance)
+}
+
+// SetLastProvenance sets the "last_provenance" field.
+func (m *FactMutation) SetLastProvenance(value map[string]interface{}) {
+	m.last_provenance = &value
+}
+
+// LastProvenance returns the value of the "last_provenance" field in the mutation.
+func (m *FactMutation) LastProvenance() (r map[string]interface{}, exists bool) {
+	v := m.last_provenance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastProvenance returns the old "last_provenance" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldLastProvenance(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastProvenance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastProvenance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastProvenance: %w", err)
+	}
+	return oldValue.LastProvenance, nil
+}
+
+// ClearLastProvenance clears the value of the "last_provenance" field.
+func (m *FactMutation) ClearLastProvenance() {
+	m.last_provenance = nil
+	m.clearedFields[fact.FieldLastProvenance] = struct{}{}
+}
+
+// LastProvenanceCleared returns if the "last_provenance" field was cleared in this mutation.
+func (m *FactMutation) LastProvenanceCleared() bool {
+	_, ok := m.clearedFields[fact.FieldLastProvenance]
+	return ok
+}
+
+// ResetLastProvenance resets all changes to the "last_provenance" field.
+func (m *FactMutation) ResetLastProvenance() {
+	m.last_provenance = nil
+	delete(m.clearedFields, fact.FieldLastProvenance)
+}
+
+// SetChainPrev sets the "chain_prev" field.
+func (m *FactMutation) SetChainPrev(s string) {
+	m.chain_prev = &s
+}
+
+// ChainPrev returns the value of the "chain_prev" field in the mutation.
+func (m *FactMutation) ChainPrev() (r string, exists bool) {
+	v := m.chain_prev
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChainPrev returns the old "chain_prev" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldChainPrev(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChainPrev is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChainPrev requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChainPrev: %w", err)
+	}
+	return oldValue.ChainPrev, nil
+}
+
+// ClearChainPrev clears the value of the "chain_prev" field.
+func (m *FactMutation) ClearChainPrev() {
+	m.chain_prev = nil
+	m.clearedFields[fact.FieldChainPrev] = struct{}{}
+}
+
+// ChainPrevCleared returns if the "chain_prev" field was cleared in this mutation.
+func (m *FactMutation) ChainPrevCleared() bool {
+	_, ok := m.clearedFields[fact.FieldChainPrev]
+	return ok
+}
+
+// ResetChainPrev resets all changes to the "chain_prev" field.
+func (m *FactMutation) ResetChainPrev() {
+	m.chain_prev = nil
+	delete(m.clearedFields, fact.FieldChainPrev)
+}
+
+// SetChain sets the "chain" field.
+func (m *FactMutation) SetChain(s string) {
+	m.chain = &s
+}
+
+// Chain returns the value of the "chain" field in the mutation.
+func (m *FactMutation) Chain() (r string, exists bool) {
+	v := m.chain
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChain returns the old "chain" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldChain(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChain is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChain requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChain: %w", err)
+	}
+	return oldValue.Chain, nil
+}
+
+// ClearChain clears the value of the "chain" field.
+func (m *FactMutation) ClearChain() {
+	m.chain = nil
+	m.clearedFields[fact.FieldChain] = struct{}{}
+}
+
+// ChainCleared returns if the "chain" field was cleared in this mutation.
+func (m *FactMutation) ChainCleared() bool {
+	_, ok := m.clearedFields[fact.FieldChain]
+	return ok
+}
+
+// ResetChain resets all changes to the "chain" field.
+func (m *FactMutation) ResetChain() {
+	m.chain = nil
+	delete(m.clearedFields, fact.FieldChain)
+}
+
 // SetDeviceID sets the "device" edge to the Device entity by id.
 func (m *FactMutation) SetDeviceID(id int) {
 	m.device = &id
@@ -8787,7 +9024,7 @@ func (m *FactMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *FactMutation) Fields() []string {
-	fields := make([]string, 0, 6)
+	fields := make([]string, 0, 11)
 	if m.created_at != nil {
 		fields = append(fields, fact.FieldCreatedAt)
 	}
@@ -8805,6 +9042,21 @@ func (m *FactMutation) Fields() []string {
 	}
 	if m.last_seen_at != nil {
 		fields = append(fields, fact.FieldLastSeenAt)
+	}
+	if m.kind != nil {
+		fields = append(fields, fact.FieldKind)
+	}
+	if m.provenance != nil {
+		fields = append(fields, fact.FieldProvenance)
+	}
+	if m.last_provenance != nil {
+		fields = append(fields, fact.FieldLastProvenance)
+	}
+	if m.chain_prev != nil {
+		fields = append(fields, fact.FieldChainPrev)
+	}
+	if m.chain != nil {
+		fields = append(fields, fact.FieldChain)
 	}
 	return fields
 }
@@ -8826,6 +9078,16 @@ func (m *FactMutation) Field(name string) (ent.Value, bool) {
 		return m.Hash()
 	case fact.FieldLastSeenAt:
 		return m.LastSeenAt()
+	case fact.FieldKind:
+		return m.Kind()
+	case fact.FieldProvenance:
+		return m.Provenance()
+	case fact.FieldLastProvenance:
+		return m.LastProvenance()
+	case fact.FieldChainPrev:
+		return m.ChainPrev()
+	case fact.FieldChain:
+		return m.Chain()
 	}
 	return nil, false
 }
@@ -8847,6 +9109,16 @@ func (m *FactMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldHash(ctx)
 	case fact.FieldLastSeenAt:
 		return m.OldLastSeenAt(ctx)
+	case fact.FieldKind:
+		return m.OldKind(ctx)
+	case fact.FieldProvenance:
+		return m.OldProvenance(ctx)
+	case fact.FieldLastProvenance:
+		return m.OldLastProvenance(ctx)
+	case fact.FieldChainPrev:
+		return m.OldChainPrev(ctx)
+	case fact.FieldChain:
+		return m.OldChain(ctx)
 	}
 	return nil, fmt.Errorf("unknown Fact field %s", name)
 }
@@ -8898,6 +9170,41 @@ func (m *FactMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetLastSeenAt(v)
 		return nil
+	case fact.FieldKind:
+		v, ok := value.(fact.Kind)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case fact.FieldProvenance:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProvenance(v)
+		return nil
+	case fact.FieldLastProvenance:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastProvenance(v)
+		return nil
+	case fact.FieldChainPrev:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChainPrev(v)
+		return nil
+	case fact.FieldChain:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChain(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Fact field %s", name)
 }
@@ -8931,6 +9238,18 @@ func (m *FactMutation) ClearedFields() []string {
 	if m.FieldCleared(fact.FieldLastSeenAt) {
 		fields = append(fields, fact.FieldLastSeenAt)
 	}
+	if m.FieldCleared(fact.FieldProvenance) {
+		fields = append(fields, fact.FieldProvenance)
+	}
+	if m.FieldCleared(fact.FieldLastProvenance) {
+		fields = append(fields, fact.FieldLastProvenance)
+	}
+	if m.FieldCleared(fact.FieldChainPrev) {
+		fields = append(fields, fact.FieldChainPrev)
+	}
+	if m.FieldCleared(fact.FieldChain) {
+		fields = append(fields, fact.FieldChain)
+	}
 	return fields
 }
 
@@ -8947,6 +9266,18 @@ func (m *FactMutation) ClearField(name string) error {
 	switch name {
 	case fact.FieldLastSeenAt:
 		m.ClearLastSeenAt()
+		return nil
+	case fact.FieldProvenance:
+		m.ClearProvenance()
+		return nil
+	case fact.FieldLastProvenance:
+		m.ClearLastProvenance()
+		return nil
+	case fact.FieldChainPrev:
+		m.ClearChainPrev()
+		return nil
+	case fact.FieldChain:
+		m.ClearChain()
 		return nil
 	}
 	return fmt.Errorf("unknown Fact nullable field %s", name)
@@ -8973,6 +9304,21 @@ func (m *FactMutation) ResetField(name string) error {
 		return nil
 	case fact.FieldLastSeenAt:
 		m.ResetLastSeenAt()
+		return nil
+	case fact.FieldKind:
+		m.ResetKind()
+		return nil
+	case fact.FieldProvenance:
+		m.ResetProvenance()
+		return nil
+	case fact.FieldLastProvenance:
+		m.ResetLastProvenance()
+		return nil
+	case fact.FieldChainPrev:
+		m.ResetChainPrev()
+		return nil
+	case fact.FieldChain:
+		m.ResetChain()
 		return nil
 	}
 	return fmt.Errorf("unknown Fact field %s", name)

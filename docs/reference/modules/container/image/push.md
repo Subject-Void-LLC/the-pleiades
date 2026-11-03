@@ -41,7 +41,7 @@ Pushes the local image a tag names to the registry the tag names, with the regis
 
 A push changes the registry, which the engine has no operation to undo: a tag it moved cannot be moved back, nor a pushed image deleted, through the engine.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

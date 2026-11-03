@@ -40,7 +40,7 @@ Makes sure no VM of this name exists. None reports no change. A running or pause
 
 Deleting a VM deletes its disks, and nothing keeps what was on them, so there is no VM an undo could bring back. Take a snapshot and keep the base it was cloned from to make it again.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

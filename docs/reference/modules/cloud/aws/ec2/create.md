@@ -41,7 +41,7 @@ Makes sure an instance tagged Name=name exists among the account/region's non-te
 
 A run that launched a fresh instance (name did not already exist among non-terminated instances) emits a cloud.aws.ec2.terminate naming the launched instance_id. A run that found an existing match emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing instance's image or type against what was requested.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -37,7 +37,7 @@ Starts every stopped node of the lab through the server, and leaves the running 
 
 A lab-wide start cannot say which nodes were in which state before; virt.clab.node.start records an exact undo for one node.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

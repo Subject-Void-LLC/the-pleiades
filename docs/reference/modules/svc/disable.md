@@ -39,7 +39,7 @@ Makes sure a service is not set to start at boot, without caring which init syst
 
 The inverse is whatever the concrete method records, so on a systemd host a run that disabled an enabled service emits an svc.systemd.enable and a run that found it already disabled emits nothing. That concrete method also records what its own undo cannot preserve, such as a unit that was enabled only until the next reboot.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

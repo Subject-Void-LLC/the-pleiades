@@ -39,7 +39,16 @@ Pages through the Catalyst Center's device inventory and emits one fact entry pe
 
 A read-only fact gatherer changes nothing on the device, so there is nothing to undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
+
+## Facts it keeps
+
+A real run stores each of these as the device's fact. A **stable** fact keeps every value it has had, and a change is drift; a **volatile** one keeps only its latest value and never counts as drift. A check stores none.
+
+| Fact | Kind | Type | Description |
+| --- | --- | --- | --- |
+| `devices` | volatile | list | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset. |
+| `device_count` | stable | integer | The number of devices in the devices fact. |
 
 ## See also
 

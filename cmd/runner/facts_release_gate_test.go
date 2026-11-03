@@ -25,6 +25,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
@@ -33,6 +34,10 @@ import (
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
+
+// gateRunnerID is the name the gates' Runner labels the facts it publishes
+// with (native.WithRunnerID), as cmd/runner passes its host's name.
+const gateRunnerID = "gate-runner"
 
 // factsWalkRunbook gathers the device's facts.
 const factsWalkRunbook = `# Gathers the device's facts. Read only; nothing to undo.
@@ -120,11 +125,14 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	devices.WithFacts(factStore)
 	router := chi.NewRouter()
 	router.Get("/inventory/devices/{name}/facts", devices.Facts)
+	router.Get("/inventory/devices/{name}/fact-chain", devices.FactChain)
 	var body struct {
 		Device string `json:"device"`
 		Facts  []struct {
-			Key   string `json:"key"`
-			Value any    `json:"value"`
+			Key   string           `json:"key"`
+			Value any              `json:"value"`
+			Kind  string           `json:"kind"`
+			By    facts.Provenance `json:"by"`
 		} `json:"facts"`
 	}
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(200 * time.Millisecond) {
@@ -160,5 +168,27 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	}
 	if strings.TrimSpace(kernel) == "" {
 		t.Error("no kernel was stored")
+	}
+
+	// Phase 41b: each value says which job, attempt, method and Runner
+	// observed it, and the run's order is the device lease's fencing token;
+	// the kinds are the method's declaration.
+	kinds := map[string]string{}
+	for _, f := range body.Facts {
+		kinds[f.Key] = f.Kind
+		by := f.By
+		if by.Job != job.JobID || by.Attempt < 1 || by.Method != "facts.gather" || by.Runner != gateRunnerID || by.Node == "" ||
+			!strings.HasPrefix(by.Order.Source, "lease:") || by.Order.Token == 0 {
+			t.Errorf("%s: provenance %+v, want this job, its attempt, facts.gather, the gate's Runner and the lease's token", f.Key, by)
+		}
+	}
+	if kinds["ansible_kernel"] != "stable" || kinds["ansible_uptime_seconds"] != "volatile" {
+		t.Errorf("kinds = %v, want the kernel stable and the uptime volatile as declared", kinds)
+	}
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/inventory/devices/"+deviceName+"/fact-chain", nil))
+	var chain facts.Verdict
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &chain) != nil || chain.Break != nil || chain.Values == 0 {
+		t.Errorf("the fact chain: %d %s", rr.Code, rr.Body.String())
 	}
 }

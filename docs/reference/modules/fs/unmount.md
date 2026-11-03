@@ -41,7 +41,7 @@ Makes sure path is not mounted, unmounting it if it is. This is close to ansible
 
 A run that unmounted a mounted path emits an fs.mount pinned to the exact src, fstype and opts this run captured before unmounting, which is a real, restorable inverse. If this run also removed the path's fstab entry, the inverse asks fs.mount to persist it again. A run that found the path already unmounted and only removed a stale fstab entry emits no inverse: undoing that without also mounting something this task did not mount needs a capability this namespace does not expose. A run that found everything already absent emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

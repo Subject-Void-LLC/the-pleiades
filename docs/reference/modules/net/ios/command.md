@@ -45,7 +45,7 @@ Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt 
 
 An arbitrary IOS command's effect (a copy, a delete, a reload) is unknown to this platform, so no undo can be derived from it. Give the task a rollback: list naming what undoes it when one exists.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

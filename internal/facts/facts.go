@@ -38,25 +38,42 @@ const (
 )
 
 // Entry is one stored fact: a value of a key, when it was first observed with
-// that value, and when it was last confirmed.
+// that value, and when it was last confirmed, with the runs that did each.
 type Entry struct {
 	Key        string    `json:"key"`
 	Value      any       `json:"value"`
 	Hash       string    `json:"hash"`
 	ObservedAt time.Time `json:"observed_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
+	// Kind is what the emitting method declared: stable keeps every value,
+	// volatile only the latest. A value stored before Phase 41b reads as
+	// stable.
+	Kind Kind `json:"kind"`
+	// By is the run that first observed this value; LastBy the run that last
+	// confirmed it. Both are empty for a value stored before Phase 41b.
+	By     Provenance `json:"by,omitzero"`
+	LastBy Provenance `json:"last_by,omitzero"`
+	// OrderedByClock, in a history, says this value's place after the one
+	// before it was decided by the clock, because the two runs' orders do
+	// not compare (two tiers, a counter that started again, or one unknown).
+	OrderedByClock bool `json:"ordered_by_clock,omitempty"`
 }
 
 // Store persists observations and reads them back.
 type Store interface {
-	// Record stores what a task observed on device at, as Prepare returned
-	// it: a row for each key whose hash differs from its newest row, and
-	// the last-seen time of every key observed.
-	Record(ctx context.Context, device string, entries []Entry, at time.Time) error
-	// Current is the newest value of each of device's keys, by key.
+	// Record stores what a task observed on device: for a stable key, a
+	// value for each key whose hash differs from the value it held as of
+	// the observation's order; for a volatile key, its value when it is the
+	// latest; and when each value was last confirmed, and by which run.
+	Record(ctx context.Context, device string, obs Observation) error
+	// Current is the current value of each of device's keys, by key: the
+	// one most recently confirmed, by the run order where it compares.
 	Current(ctx context.Context, device string) ([]Entry, error)
-	// History is every value device's key has had, oldest first.
+	// History is every value device's key has had, oldest first; a
+	// volatile key has one.
 	History(ctx context.Context, device, key string) ([]Entry, error)
+	// Verify checks device's hash chain (VerifyChain).
+	Verify(ctx context.Context, device string) (Verdict, error)
 }
 
 // ErrInvalid marks an observation refused as a whole: a device with no name,
@@ -124,6 +141,11 @@ type Guard struct {
 	Secrets    []string
 	Shaped     func(text string) bool
 	SecretName func(name string) bool
+	// Declared is what the emitting method declared about a key (Phase
+	// 41b): a key it did not declare, or a value of another type, is not
+	// stored. A Spec with no Type checks no type. Nil stores every key as
+	// stable and checks no type.
+	Declared func(key string) (Spec, bool)
 }
 
 // Prepare checks an observation and returns the facts that may be stored,
@@ -164,6 +186,15 @@ func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 			problems = append(problems, Problem{Key: key, Reason: "its value holds text shaped like a secret, which is never stored"})
 			continue
 		}
+		spec := Spec{Kind: KindStable}
+		if guard.Declared != nil {
+			declared, ok := guard.Declared(key)
+			if !ok {
+				problems = append(problems, Problem{Key: key, Reason: "the method does not declare this fact"})
+				continue
+			}
+			spec = declared
+		}
 		hash, err := Hash(key, value)
 		if err != nil {
 			problems = append(problems, Problem{Key: key, Reason: err.Error()})
@@ -176,7 +207,13 @@ func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 			problems = append(problems, Problem{Key: key, Reason: err.Error()})
 			continue
 		}
-		out = append(out, Entry{Key: key, Value: normalized, Hash: hash})
+		if spec.Type != "" {
+			if reason := checkType(spec.Type, normalized); reason != "" {
+				problems = append(problems, Problem{Key: key, Reason: reason})
+				continue
+			}
+		}
+		out = append(out, Entry{Key: key, Value: normalized, Hash: hash, Kind: spec.Kind})
 	}
 	return out, problems, nil
 }

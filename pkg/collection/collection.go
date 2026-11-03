@@ -276,6 +276,10 @@ func Register(d Descriptor) error {
 		return err
 	}
 
+	if err := checkFacts(d); err != nil {
+		return err
+	}
+
 	return collections.Register(d.Name, d)
 }
 

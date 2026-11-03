@@ -42,7 +42,7 @@ Removes the network named name; an absent one is no change. A network any contai
 
 A run that removed the network records creating it again with the settings it had: driver, internal, IPv6, its first subnet with its gateway and range, MTU, parent and labels. Labels are not kept in the journal. The undo is partial when the network had an option or a second subnet no parameter sets; a network is a fresh one with a new ID once made again, and the containers that used it are not reconnected.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -44,7 +44,7 @@ Opens an interactive session over SSH (or over Telnet, with insecure_telnet) and
 
 An arbitrary CLI line's effect on a device is unknown to this platform, so no undo can be derived from it.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -37,7 +37,7 @@ Stops every node, wipes every node's disks and removes the lab. A lab that does 
 
 Every node's disk and configuration is wiped before the lab is removed, and nothing keeps them, so nothing can put the lab back as it was.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

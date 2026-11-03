@@ -1,26 +1,28 @@
 // Package entstore is the Controller's fact store over the ent Fact table
-// (Phase 41), and the consumer that writes what Runners publish into it.
+// (Phase 41, 41b), and the consumer that writes what Runners publish into it.
 //
-// A device's rows for a key are the history of that key's value: a row is
-// written only when an observation's hash differs from the value the key held
-// at the observation's own time (the newest row created at or before it), and
-// an observation of that same value moves the row's last_seen_at instead. The
-// current value is the row most recently confirmed, so a batch that arrives
+// It keeps the rules the Crawl CLI's file store keeps (internal/facts). A
+// stable key's rows are the history of its value: a row is written only when
+// an observation's hash differs from the value the key held as of the
+// observation's run order, and an observation of that same value moves the
+// row's last_seen_at and last_provenance instead. The current value is the
+// one most recently confirmed, by run order where two runs' orders compare
+// (facts.Order) and by the clock where they do not, so a batch that arrives
 // late (redelivered, or from a Runner whose clock runs behind) adds history
-// without replacing a value confirmed after it, and a redelivered batch finds
-// its own row and only confirms it. Two different batches for one device
-// stored at the same moment by two Controller replicas can each write the
-// same new value once; the history then shows it twice. The key, value and
-// hash of a row have no setter in the generated client; only last_seen_at
-// moves.
+// without replacing a value confirmed after it. A volatile key keeps one row,
+// replaced when its value changes.
+//
+// Stable rows form a per-device hash chain (chain_prev, chain). A unique
+// index on (chain_prev, device) keeps it a line: two replicas storing for one
+// device at once cannot both extend the same row, and the loser's batch is
+// redelivered against the new head. The key, value, hash, kind, first
+// provenance and chain of a row have no setter in the generated client.
 package entstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
@@ -43,15 +45,15 @@ func New(client *ent.Client) *Store { return &Store{client: client} }
 var _ facts.Store = (*Store)(nil)
 
 // Record implements facts.Store, in one transaction.
-func (s *Store) Record(ctx context.Context, device string, entries []facts.Entry, at time.Time) error {
-	if len(entries) == 0 {
+func (s *Store) Record(ctx context.Context, device string, obs facts.Observation) error {
+	if len(obs.Entries) == 0 {
 		return nil
 	}
 	tx, err := s.client.Tx(ctx)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	if err := record(ctx, tx, device, entries, at.UTC()); err != nil {
+	if err := record(ctx, tx, device, obs); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -62,7 +64,7 @@ func (s *Store) Record(ctx context.Context, device string, entries []facts.Entry
 }
 
 // record is Record inside tx.
-func record(ctx context.Context, tx *ent.Tx, device string, entries []facts.Entry, at time.Time) error {
+func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observation) error {
 	dev, err := tx.Device.Query().Where(entdevice.DeviceIDEQ(device)).Only(ctx)
 	if ent.IsNotFound(err) {
 		return fmt.Errorf("%w: %s", ErrUnknownDevice, device)
@@ -70,103 +72,146 @@ func record(ctx context.Context, tx *ent.Tx, device string, entries []facts.Entr
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	for _, e := range entries {
-		newest, err := tx.Fact.Query().
-			Where(entfact.KeyEQ(e.Key), entfact.HasDeviceWith(entdevice.IDEQ(dev.ID)), entfact.CreatedAtLTE(at)).
-			Order(ent.Desc(entfact.FieldCreatedAt), ent.Desc(entfact.FieldID)).
-			First(ctx)
-		switch {
-		case err == nil && newest.Hash == e.Hash:
-			if at.After(newest.LastSeenAt) {
-				if err := tx.Fact.UpdateOne(newest).SetLastSeenAt(at).Exec(ctx); err != nil {
-					return fmt.Errorf("facts: %w", err)
-				}
-			}
-			continue
-		case err != nil && !ent.IsNotFound(err):
-			return fmt.Errorf("facts: %w", err)
-		}
-		canon, err := facts.Canonical(e.Value)
+	at := facts.StoredTime(obs.At)
+	by, err := encode(obs.By)
+	if err != nil {
+		return err
+	}
+	head, err := chainHead(ctx, tx, dev.ID)
+	if err != nil {
+		return err
+	}
+	for _, e := range obs.Entries {
+		rows, err := tx.Fact.Query().
+			Where(entfact.KeyEQ(e.Key), entfact.HasDeviceWith(entdevice.IDEQ(dev.ID))).
+			Order(ent.Asc(entfact.FieldID)).
+			All(ctx)
 		if err != nil {
 			return fmt.Errorf("facts: %w", err)
 		}
-		if err := tx.Fact.Create().
-			SetKey(e.Key).
-			SetPayload(map[string]any{payloadKey: string(canon)}).
-			SetHash(e.Hash).
-			SetCreatedAt(at).
-			SetLastSeenAt(at).
-			SetDevice(dev).
-			Exec(ctx); err != nil {
+		if e.Kind == facts.KindVolatile {
+			if err := recordVolatile(ctx, tx, dev, rows, e, obs, by); err != nil {
+				return err
+			}
+			continue
+		}
+		cur, ok := valueAt(rows, obs.By.Order, at)
+		if ok && cur.Hash == e.Hash {
+			if err := confirm(ctx, tx, cur, obs, by); err != nil {
+				return err
+			}
+			continue
+		}
+		chain, err := facts.ChainHash(device, head, e.Key, e.Hash, at, obs.By)
+		if err != nil {
 			return fmt.Errorf("facts: %w", err)
 		}
+		if err := create(tx, dev, e, at, by).SetKind(entfact.KindStable).SetChainPrev(head).SetChain(chain).Exec(ctx); err != nil {
+			return fmt.Errorf("facts: %w", err)
+		}
+		head = chain
 	}
 	return nil
 }
 
-// Current implements facts.Store: for each of device's keys, the value most
-// recently confirmed (the later observation when two were confirmed at once).
-func (s *Store) Current(ctx context.Context, device string) ([]facts.Entry, error) {
-	rows, err := s.client.Fact.Query().
-		Where(entfact.HasDeviceWith(entdevice.DeviceIDEQ(device))).
-		Order(ent.Asc(entfact.FieldKey)).
-		All(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("facts: %w", err)
-	}
-	current := map[string]facts.Entry{}
-	var keys []string
+// recordVolatile keeps e as its key's one volatile row when obs is the
+// latest observation of it: the row is confirmed when its value is the
+// same, and replaced when it is not; a late observation changes nothing.
+func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*ent.Fact, e facts.Entry, obs facts.Observation, by map[string]any) error {
+	var held []*ent.Fact
 	for _, row := range rows {
+		if row.Kind == entfact.KindVolatile {
+			held = append(held, row)
+		}
+	}
+	at := facts.StoredTime(obs.At)
+	if len(held) > 0 {
+		newest := held[len(held)-1]
+		last := entry(newest)
+		if after, _ := facts.Later(obs.By.Order, at, last.LastBy.Order, last.LastSeenAt); !after {
+			return nil
+		}
+		if newest.Hash == e.Hash && len(held) == 1 {
+			return confirm(ctx, tx, newest, obs, by)
+		}
+		ids := make([]int, len(held))
+		for i, row := range held {
+			ids[i] = row.ID
+		}
+		if _, err := tx.Fact.Delete().Where(entfact.IDIn(ids...)).Exec(ctx); err != nil {
+			return fmt.Errorf("facts: %w", err)
+		}
+	}
+	if err := create(tx, dev, e, at, by).SetKind(entfact.KindVolatile).Exec(ctx); err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	return nil
+}
+
+// confirm moves row's last confirmation to obs when obs came later.
+func confirm(ctx context.Context, tx *ent.Tx, row *ent.Fact, obs facts.Observation, by map[string]any) error {
+	last := entry(row)
+	at := facts.StoredTime(obs.At)
+	if after, _ := facts.Later(obs.By.Order, at, last.LastBy.Order, last.LastSeenAt); !after {
+		return nil
+	}
+	if err := tx.Fact.UpdateOne(row).SetLastSeenAt(at).SetLastProvenance(by).Exec(ctx); err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	return nil
+}
+
+// create starts a row for e, first observed and last confirmed by obs.
+func create(tx *ent.Tx, dev *ent.Device, e facts.Entry, at time.Time, by map[string]any) *ent.FactCreate {
+	return tx.Fact.Create().
+		SetKey(e.Key).
+		SetPayload(map[string]any{payloadKey: mustCanonical(e.Value)}).
+		SetHash(e.Hash).
+		SetCreatedAt(at).
+		SetLastSeenAt(at).
+		SetProvenance(by).
+		SetLastProvenance(by).
+		SetDevice(dev)
+}
+
+// valueAt is the stable row a key held as of (order, at): of its rows that
+// came at or before it, the latest, the later row on a tie.
+func valueAt(rows []*ent.Fact, order facts.Order, at time.Time) (*ent.Fact, bool) {
+	var found *ent.Fact
+	var foundEntry facts.Entry
+	for _, row := range rows {
+		if row.Kind != entfact.KindStable {
+			continue
+		}
 		e := entry(row)
-		cur, ok := current[e.Key]
-		if !ok {
-			keys = append(keys, e.Key)
+		if after, _ := facts.Later(e.By.Order, e.ObservedAt, order, at); after {
+			continue
 		}
-		if !ok || e.LastSeenAt.After(cur.LastSeenAt) || e.LastSeenAt.Equal(cur.LastSeenAt) && e.ObservedAt.After(cur.ObservedAt) {
-			current[e.Key] = e
+		if found == nil || !laterThan(foundEntry, e) {
+			found, foundEntry = row, e
 		}
 	}
-	out := make([]facts.Entry, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, current[k])
-	}
-	return out, nil
+	return found, found != nil
 }
 
-// History implements facts.Store: every row of device's key, oldest first.
-func (s *Store) History(ctx context.Context, device, key string) ([]facts.Entry, error) {
-	rows, err := s.client.Fact.Query().
-		Where(entfact.KeyEQ(key), entfact.HasDeviceWith(entdevice.DeviceIDEQ(device))).
-		Order(ent.Asc(entfact.FieldCreatedAt), ent.Asc(entfact.FieldID)).
-		All(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("facts: %w", err)
-	}
-	out := make([]facts.Entry, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, entry(row))
-	}
-	return out, nil
+// laterThan reports whether a was first observed after b.
+func laterThan(a, b facts.Entry) bool {
+	after, _ := facts.Later(a.By.Order, a.ObservedAt, b.By.Order, b.ObservedAt)
+	return after
 }
 
-// payloadKey is where a row's payload holds its value: the value's canonical
-// JSON as text, so a number reads back exactly as it was stored (a JSON
-// column decodes numbers as float64, which rounds an integer past 2^53).
-const payloadKey = "json"
-
-// entry is a row as a facts.Entry.
-func entry(row *ent.Fact) facts.Entry {
-	seen := row.LastSeenAt
-	if seen.IsZero() {
-		seen = row.CreatedAt
+// chainHead is the chain hash of device's newest chained row, "" when none
+// is chained yet.
+func chainHead(ctx context.Context, tx *ent.Tx, device int) (string, error) {
+	row, err := tx.Fact.Query().
+		Where(entfact.HasDeviceWith(entdevice.IDEQ(device)), entfact.ChainNotNil(), entfact.ChainNEQ("")).
+		Order(ent.Desc(entfact.FieldID)).
+		First(ctx)
+	switch {
+	case ent.IsNotFound(err):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("facts: %w", err)
 	}
-	var value any
-	if text, ok := row.Payload[payloadKey].(string); ok {
-		dec := json.NewDecoder(strings.NewReader(text))
-		dec.UseNumber()
-		if err := dec.Decode(&value); err != nil {
-			value = nil
-		}
-	}
-	return facts.Entry{Key: row.Key, Value: value, Hash: row.Hash, ObservedAt: row.CreatedAt.UTC(), LastSeenAt: seen.UTC()}
+	return row.Chain, nil
 }

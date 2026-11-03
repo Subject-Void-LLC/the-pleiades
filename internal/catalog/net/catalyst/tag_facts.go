@@ -30,7 +30,7 @@ import (
 )
 
 func init() {
-	collection.MustRegister(collection.Descriptor{
+	d := collection.Descriptor{
 		Name: "net.catalyst.tag_facts",
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
@@ -79,7 +79,9 @@ func init() {
 		Invoke: TagFacts,
 		// TagFacts itself, since it only reads.
 		Check: TagFacts,
-	})
+	}
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"tags", "operator_tags"})
+	collection.MustRegister(d)
 }
 
 // TagFacts gathers the tags defined on the targeted Catalyst Center.

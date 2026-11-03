@@ -45,7 +45,7 @@ Sets the mode, owner and group of a path that already exists, changing only the 
 
 A run that changed something emits a file.permissions carrying the mode, owner and group the path had before, which restores it exactly. A converged run emits nothing, because undoing a change that was never made means doing nothing. A run that fails partway emits nothing either, so whatever it applied before failing stays applied and has to be re-run rather than undone.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

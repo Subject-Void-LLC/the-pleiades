@@ -48,7 +48,7 @@ Takes the whole intended configuration (config, or src: a file in the project) a
 
 Its undo restores the running configuration saved on the router before the change (and frr.conf, when the change saved), named by the backup's path alone, and refuses when the router has been changed since unless forced.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

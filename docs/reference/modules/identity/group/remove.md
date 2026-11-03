@@ -39,7 +39,7 @@ Makes sure a group is absent from the target, removing it if present. This is an
 
 A run that removed a present group emits an identity.group.create pinned to the exact gid this run captured before removing it, which is a real, restorable inverse. A run that found the group already absent emits nothing. What the inverse cannot restore is any user's primary or supplementary membership in the group at the moment it was removed.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

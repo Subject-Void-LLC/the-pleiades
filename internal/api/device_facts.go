@@ -16,6 +16,7 @@ import (
 type FactReader interface {
 	Current(ctx context.Context, device string) ([]facts.Entry, error)
 	History(ctx context.Context, device, key string) ([]facts.Entry, error)
+	Verify(ctx context.Context, device string) (facts.Verdict, error)
 }
 
 // WithFacts serves a device's facts from reader; without it the facts routes
@@ -78,5 +79,37 @@ func (h *DeviceHandler) serveFacts(w http.ResponseWriter, r *http.Request, key s
 		entries = []facts.Entry{}
 	}
 	dto := factsDTO{Device: item.Name(), Key: key, Facts: entries}
+	Respond(w, r, http.StatusOK, &dto)
+}
+
+// factChainDTO is what checking a device's fact chain found, on the wire.
+type factChainDTO struct {
+	Device string `json:"device"`
+	facts.Verdict
+	LinkSet
+}
+
+// FactChain serves GET /inventory/devices/{name}/fact-chain.
+func (h *DeviceHandler) FactChain(w http.ResponseWriter, r *http.Request) {
+	if h.facts == nil {
+		RespondError(w, r, http.StatusNotImplemented, "facts are not served by this controller")
+		return
+	}
+	name, ok := h.deviceName(w, r)
+	if !ok {
+		return
+	}
+	item, err := h.repo.GetByName(r.Context(), name)
+	if err != nil {
+		h.writeRepositoryError(w, r, "read", name, err)
+		return
+	}
+	verdict, err := h.facts.Verify(r.Context(), string(item.ID()))
+	if err != nil {
+		h.logger.Error("checking a device's fact chain failed", "device", name, "error", err)
+		RespondError(w, r, http.StatusInternalServerError, "checking the device's fact chain failed")
+		return
+	}
+	dto := factChainDTO{Device: item.Name(), Verdict: verdict}
 	Respond(w, r, http.StatusOK, &dto)
 }

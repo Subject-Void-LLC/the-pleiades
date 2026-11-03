@@ -41,7 +41,7 @@ Makes sure a package is present on a Red Hat-family host, installing it if it is
 
 A run that installed an absent package emits a pkg.dnf.remove naming it. A run that found it already present, even at a different version than requested, emits nothing, for the same reason pkg.apt.install's inverse does not fire on a version change: the version already there before this task ran is gone the moment dnf replaces it, so removing afterward would not restore it. What the inverse cannot restore is anything the package's scriptlets did beyond placing its own files.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

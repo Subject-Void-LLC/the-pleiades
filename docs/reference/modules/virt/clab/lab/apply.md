@@ -47,7 +47,7 @@ Asks the server to apply the topology file it holds for the lab: nodes and links
 
 Nodes it recreated are new containers, and a link it removed is not read first.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

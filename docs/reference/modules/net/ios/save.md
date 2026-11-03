@@ -38,7 +38,7 @@ Runs IOS's "write memory", copying running-config over startup-config so the cur
 
 Saving overwrites startup-config with running-config, and the device keeps no copy of what startup-config held beforehand, so this platform cannot reconstruct an inverse. Capture the prior configuration first (net.ios.config's backup parameter) if a rollback target is needed.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

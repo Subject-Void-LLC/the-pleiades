@@ -43,7 +43,7 @@ Logs the engine's machine in to registry with the registry credential bound to t
 
 A run that added the registry's login records removing it; one that replaced or found a login records nothing, since the password it replaced is not kept.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -89,6 +89,60 @@ func (_c *FactCreate) SetNillableLastSeenAt(v *time.Time) *FactCreate {
 	return _c
 }
 
+// SetKind sets the "kind" field.
+func (_c *FactCreate) SetKind(v fact.Kind) *FactCreate {
+	_c.mutation.SetKind(v)
+	return _c
+}
+
+// SetNillableKind sets the "kind" field if the given value is not nil.
+func (_c *FactCreate) SetNillableKind(v *fact.Kind) *FactCreate {
+	if v != nil {
+		_c.SetKind(*v)
+	}
+	return _c
+}
+
+// SetProvenance sets the "provenance" field.
+func (_c *FactCreate) SetProvenance(v map[string]interface{}) *FactCreate {
+	_c.mutation.SetProvenance(v)
+	return _c
+}
+
+// SetLastProvenance sets the "last_provenance" field.
+func (_c *FactCreate) SetLastProvenance(v map[string]interface{}) *FactCreate {
+	_c.mutation.SetLastProvenance(v)
+	return _c
+}
+
+// SetChainPrev sets the "chain_prev" field.
+func (_c *FactCreate) SetChainPrev(v string) *FactCreate {
+	_c.mutation.SetChainPrev(v)
+	return _c
+}
+
+// SetNillableChainPrev sets the "chain_prev" field if the given value is not nil.
+func (_c *FactCreate) SetNillableChainPrev(v *string) *FactCreate {
+	if v != nil {
+		_c.SetChainPrev(*v)
+	}
+	return _c
+}
+
+// SetChain sets the "chain" field.
+func (_c *FactCreate) SetChain(v string) *FactCreate {
+	_c.mutation.SetChain(v)
+	return _c
+}
+
+// SetNillableChain sets the "chain" field if the given value is not nil.
+func (_c *FactCreate) SetNillableChain(v *string) *FactCreate {
+	if v != nil {
+		_c.SetChain(*v)
+	}
+	return _c
+}
+
 // SetDeviceID sets the "device" edge to the Device entity by ID.
 func (_c *FactCreate) SetDeviceID(id int) *FactCreate {
 	_c.mutation.SetDeviceID(id)
@@ -151,6 +205,10 @@ func (_c *FactCreate) defaults() {
 		v := fact.DefaultLastSeenAt()
 		_c.mutation.SetLastSeenAt(v)
 	}
+	if _, ok := _c.mutation.Kind(); !ok {
+		v := fact.DefaultKind
+		_c.mutation.SetKind(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -178,6 +236,14 @@ func (_c *FactCreate) check() error {
 	if v, ok := _c.mutation.Hash(); ok {
 		if err := fact.HashValidator(v); err != nil {
 			return &ValidationError{Name: "hash", err: fmt.Errorf(`ent: validator failed for field "Fact.hash": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Kind(); !ok {
+		return &ValidationError{Name: "kind", err: errors.New(`ent: missing required field "Fact.kind"`)}
+	}
+	if v, ok := _c.mutation.Kind(); ok {
+		if err := fact.KindValidator(v); err != nil {
+			return &ValidationError{Name: "kind", err: fmt.Errorf(`ent: validator failed for field "Fact.kind": %w`, err)}
 		}
 	}
 	if len(_c.mutation.DeviceIDs()) == 0 {
@@ -232,6 +298,26 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.LastSeenAt(); ok {
 		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
 		_node.LastSeenAt = value
+	}
+	if value, ok := _c.mutation.Kind(); ok {
+		_spec.SetField(fact.FieldKind, field.TypeEnum, value)
+		_node.Kind = value
+	}
+	if value, ok := _c.mutation.Provenance(); ok {
+		_spec.SetField(fact.FieldProvenance, field.TypeJSON, value)
+		_node.Provenance = value
+	}
+	if value, ok := _c.mutation.LastProvenance(); ok {
+		_spec.SetField(fact.FieldLastProvenance, field.TypeJSON, value)
+		_node.LastProvenance = value
+	}
+	if value, ok := _c.mutation.ChainPrev(); ok {
+		_spec.SetField(fact.FieldChainPrev, field.TypeString, value)
+		_node.ChainPrev = &value
+	}
+	if value, ok := _c.mutation.Chain(); ok {
+		_spec.SetField(fact.FieldChain, field.TypeString, value)
+		_node.Chain = value
 	}
 	if nodes := _c.mutation.DeviceIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

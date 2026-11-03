@@ -44,7 +44,7 @@ Makes sure one line is present in a text file, which is ansible.builtin.lineinfi
 
 A run that changed the file emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because a line edit is not reliably undone by another line edit: a replacement has already thrown the old line away, and an anchored insert cannot be located again. That makes the record as large as the file. A converged run emits nothing, since undoing a change that was never made means doing nothing, and a run that fails partway emits nothing either. The modification time is not restored, and file.copy itself is declared rather than implemented today.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

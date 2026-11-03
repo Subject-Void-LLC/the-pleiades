@@ -80,6 +80,16 @@ func LastSeenAt(v time.Time) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldLastSeenAt, v))
 }
 
+// ChainPrev applies equality check predicate on the "chain_prev" field. It's identical to ChainPrevEQ.
+func ChainPrev(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldChainPrev, v))
+}
+
+// Chain applies equality check predicate on the "chain" field. It's identical to ChainEQ.
+func Chain(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldChain, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldCreatedAt, v))
@@ -338,6 +348,196 @@ func LastSeenAtIsNil() predicate.Fact {
 // LastSeenAtNotNil applies the NotNil predicate on the "last_seen_at" field.
 func LastSeenAtNotNil() predicate.Fact {
 	return predicate.Fact(sql.FieldNotNull(FieldLastSeenAt))
+}
+
+// KindEQ applies the EQ predicate on the "kind" field.
+func KindEQ(v Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldKind, v))
+}
+
+// KindNEQ applies the NEQ predicate on the "kind" field.
+func KindNEQ(v Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldNEQ(FieldKind, v))
+}
+
+// KindIn applies the In predicate on the "kind" field.
+func KindIn(vs ...Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldIn(FieldKind, vs...))
+}
+
+// KindNotIn applies the NotIn predicate on the "kind" field.
+func KindNotIn(vs ...Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldNotIn(FieldKind, vs...))
+}
+
+// ProvenanceIsNil applies the IsNil predicate on the "provenance" field.
+func ProvenanceIsNil() predicate.Fact {
+	return predicate.Fact(sql.FieldIsNull(FieldProvenance))
+}
+
+// ProvenanceNotNil applies the NotNil predicate on the "provenance" field.
+func ProvenanceNotNil() predicate.Fact {
+	return predicate.Fact(sql.FieldNotNull(FieldProvenance))
+}
+
+// LastProvenanceIsNil applies the IsNil predicate on the "last_provenance" field.
+func LastProvenanceIsNil() predicate.Fact {
+	return predicate.Fact(sql.FieldIsNull(FieldLastProvenance))
+}
+
+// LastProvenanceNotNil applies the NotNil predicate on the "last_provenance" field.
+func LastProvenanceNotNil() predicate.Fact {
+	return predicate.Fact(sql.FieldNotNull(FieldLastProvenance))
+}
+
+// ChainPrevEQ applies the EQ predicate on the "chain_prev" field.
+func ChainPrevEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldChainPrev, v))
+}
+
+// ChainPrevNEQ applies the NEQ predicate on the "chain_prev" field.
+func ChainPrevNEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldNEQ(FieldChainPrev, v))
+}
+
+// ChainPrevIn applies the In predicate on the "chain_prev" field.
+func ChainPrevIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldIn(FieldChainPrev, vs...))
+}
+
+// ChainPrevNotIn applies the NotIn predicate on the "chain_prev" field.
+func ChainPrevNotIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldNotIn(FieldChainPrev, vs...))
+}
+
+// ChainPrevGT applies the GT predicate on the "chain_prev" field.
+func ChainPrevGT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGT(FieldChainPrev, v))
+}
+
+// ChainPrevGTE applies the GTE predicate on the "chain_prev" field.
+func ChainPrevGTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGTE(FieldChainPrev, v))
+}
+
+// ChainPrevLT applies the LT predicate on the "chain_prev" field.
+func ChainPrevLT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLT(FieldChainPrev, v))
+}
+
+// ChainPrevLTE applies the LTE predicate on the "chain_prev" field.
+func ChainPrevLTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLTE(FieldChainPrev, v))
+}
+
+// ChainPrevContains applies the Contains predicate on the "chain_prev" field.
+func ChainPrevContains(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContains(FieldChainPrev, v))
+}
+
+// ChainPrevHasPrefix applies the HasPrefix predicate on the "chain_prev" field.
+func ChainPrevHasPrefix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasPrefix(FieldChainPrev, v))
+}
+
+// ChainPrevHasSuffix applies the HasSuffix predicate on the "chain_prev" field.
+func ChainPrevHasSuffix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasSuffix(FieldChainPrev, v))
+}
+
+// ChainPrevIsNil applies the IsNil predicate on the "chain_prev" field.
+func ChainPrevIsNil() predicate.Fact {
+	return predicate.Fact(sql.FieldIsNull(FieldChainPrev))
+}
+
+// ChainPrevNotNil applies the NotNil predicate on the "chain_prev" field.
+func ChainPrevNotNil() predicate.Fact {
+	return predicate.Fact(sql.FieldNotNull(FieldChainPrev))
+}
+
+// ChainPrevEqualFold applies the EqualFold predicate on the "chain_prev" field.
+func ChainPrevEqualFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEqualFold(FieldChainPrev, v))
+}
+
+// ChainPrevContainsFold applies the ContainsFold predicate on the "chain_prev" field.
+func ChainPrevContainsFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContainsFold(FieldChainPrev, v))
+}
+
+// ChainEQ applies the EQ predicate on the "chain" field.
+func ChainEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldChain, v))
+}
+
+// ChainNEQ applies the NEQ predicate on the "chain" field.
+func ChainNEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldNEQ(FieldChain, v))
+}
+
+// ChainIn applies the In predicate on the "chain" field.
+func ChainIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldIn(FieldChain, vs...))
+}
+
+// ChainNotIn applies the NotIn predicate on the "chain" field.
+func ChainNotIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldNotIn(FieldChain, vs...))
+}
+
+// ChainGT applies the GT predicate on the "chain" field.
+func ChainGT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGT(FieldChain, v))
+}
+
+// ChainGTE applies the GTE predicate on the "chain" field.
+func ChainGTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGTE(FieldChain, v))
+}
+
+// ChainLT applies the LT predicate on the "chain" field.
+func ChainLT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLT(FieldChain, v))
+}
+
+// ChainLTE applies the LTE predicate on the "chain" field.
+func ChainLTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLTE(FieldChain, v))
+}
+
+// ChainContains applies the Contains predicate on the "chain" field.
+func ChainContains(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContains(FieldChain, v))
+}
+
+// ChainHasPrefix applies the HasPrefix predicate on the "chain" field.
+func ChainHasPrefix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasPrefix(FieldChain, v))
+}
+
+// ChainHasSuffix applies the HasSuffix predicate on the "chain" field.
+func ChainHasSuffix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasSuffix(FieldChain, v))
+}
+
+// ChainIsNil applies the IsNil predicate on the "chain" field.
+func ChainIsNil() predicate.Fact {
+	return predicate.Fact(sql.FieldIsNull(FieldChain))
+}
+
+// ChainNotNil applies the NotNil predicate on the "chain" field.
+func ChainNotNil() predicate.Fact {
+	return predicate.Fact(sql.FieldNotNull(FieldChain))
+}
+
+// ChainEqualFold applies the EqualFold predicate on the "chain" field.
+func ChainEqualFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEqualFold(FieldChain, v))
+}
+
+// ChainContainsFold applies the ContainsFold predicate on the "chain" field.
+func ChainContainsFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContainsFold(FieldChain, v))
 }
 
 // HasDevice applies the HasEdge predicate on the "device" edge.

@@ -31,7 +31,7 @@ Runs firewall-cmd --reload, which applies the permanent configuration to the run
 
 A reload applies the permanent configuration to the runtime one, and there is no instruction that un-applies it. Undoing whatever permanent rules were added or removed is the task that changed them, not this one.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

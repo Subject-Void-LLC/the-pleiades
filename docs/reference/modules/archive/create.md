@@ -42,7 +42,7 @@ Creates path as a tar archive of src, entirely from files already on the target 
 
 A run that created an absent archive emits a file.remove naming it, which is a real, restorable inverse for the archive itself. A run that found the archive already present emits nothing. What no inverse here can restore is whatever remove=true deleted once the archive was written: those source paths are gone, and the archive holding their bytes is exactly what the inverse would just have deleted.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

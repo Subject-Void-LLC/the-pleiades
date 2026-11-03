@@ -39,7 +39,7 @@ Reads the node's state first and acts only on a node that is running or paused, 
 
 Its undo is virt.clab.node.start, recorded for a node that was running, and partial for one that was paused, which a start does not restore.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

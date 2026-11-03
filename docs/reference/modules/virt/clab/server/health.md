@@ -33,7 +33,7 @@ Asked with no login, as the server answers it. It only reads, so a check is the 
 
 It only reads the server, so there is nothing to undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

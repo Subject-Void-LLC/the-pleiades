@@ -6,7 +6,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
@@ -20,16 +19,18 @@ import (
 type factSink struct {
 	mu   sync.Mutex
 	got  map[string][]facts.Entry
+	by   []facts.Provenance
 	fail error
 }
 
-func (s *factSink) Record(_ context.Context, device string, entries []facts.Entry, _ time.Time) error {
+func (s *factSink) Record(_ context.Context, device string, obs facts.Observation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail != nil {
 		return s.fail
 	}
-	s.got[device] = append(s.got[device], entries...)
+	s.got[device] = append(s.got[device], obs.Entries...)
+	s.by = append(s.by, obs.By)
 	return nil
 }
 
@@ -59,13 +60,38 @@ func registerFactMethods(t *testing.T) {
 				return collection.Result{}, err
 			}
 		}
+		if params["note"] == true {
+			// An ordinary name and no secret's shape: only a secret_mask
+			// naming it can say it is secret.
+			if err := rc.EmitFact("login_note", "Lattice7Harbor"); err != nil {
+				return collection.Result{}, err
+			}
+		}
+		if params["more"] == true {
+			for key, value := range map[string]any{"uptime": 42, "undeclared": "x", "cores": "four"} {
+				if err := rc.EmitFact(key, value); err != nil {
+					return collection.Result{}, err
+				}
+			}
+		}
 		if params["fail"] == true {
 			return collection.Result{}, errors.New("refused")
 		}
 		return collection.Result{}, nil
 	}
 	if err := collection.Register(collection.Descriptor{Name: "enginefacts.gather", Invoke: gather, Check: gather,
-		Manifest: collection.Manifest{Status: collection.StatusImplemented, SupportsCheck: true, Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a test fixture"}}}); err != nil {
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, SupportsCheck: true, Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a test fixture"},
+			Facts: []collection.FactSpec{
+				{Key: "ansible_kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"},
+				{Key: "uptime", Kind: collection.FactVolatile, Type: collection.FactInteger, Description: "the uptime"},
+				{Key: "cores", Kind: collection.FactStable, Type: collection.FactInteger, Description: "the cores"},
+				// Declared, so the secret tests below refuse them for what
+				// they hold rather than for being undeclared.
+				{Key: "token", Kind: collection.FactStable, Type: collection.FactString, Description: "a token"},
+				{Key: "banner", Kind: collection.FactStable, Type: collection.FactString, Description: "a banner"},
+				{Key: "db_password", Kind: collection.FactStable, Type: collection.FactString, Description: "a password"},
+				{Key: "login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a note a later task marks secret"},
+			}}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -78,13 +104,21 @@ func TestFacts_ARealRunStoresWhatItsTasksEmitted(t *testing.T) {
 	registerFactMethods(t)
 	sink := &factSink{got: map[string][]facts.Entry{}}
 	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "register": "r", "params": {"target": "fleet"}}]}`))
+		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "register": "r", "enginefacts.gather": {"target": "fleet"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := sink.got["dev-1"]
 	if len(got) != 1 || got[0].Key != "ansible_kernel" || got[0].Value != "6.1" || len(got[0].Hash) != 64 {
 		t.Fatalf("stored %+v, want ansible_kernel alone", got)
+	}
+	if got[0].Kind != facts.KindStable {
+		t.Errorf("kind = %q, want stable as declared", got[0].Kind)
+	}
+	// The engine names the run, the node and the method; the order is the
+	// recorder's to add.
+	if len(sink.by) != 1 || sink.by[0].Run == "" || sink.by[0].Node == "" || sink.by[0].Method != "enginefacts.gather" {
+		t.Errorf("provenance = %+v, want the run, node and method", sink.by)
 	}
 	for _, n := range result.Nodes {
 		if _, leaked := n.Stats[sdk.StatFactKeys]; leaked {
@@ -108,7 +142,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			sink := &factSink{got: map[string][]facts.Entry{}}
 			_, _ = newCheckExecutor(factFleet(), engine.WithFactRecorder(sink), engine.WithMode(tc.mode)).Run(context.Background(),
-				buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": `+tc.params+`}]}`))
+				buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": `+tc.params+`}]}`))
 			if len(sink.got) != 0 {
 				t.Errorf("stored %v", sink.got)
 			}
@@ -117,7 +151,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 	t.Run("a check_mode task in a real run", func(t *testing.T) {
 		sink := &factSink{got: map[string][]facts.Entry{}}
 		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "check_mode": true, "params": {"target": "fleet"}}]}`))
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "check_mode": true, "enginefacts.gather": {"target": "fleet"}}]}`))
 		if err != nil || len(sink.got) != 0 {
 			t.Errorf("stored %v (%v)", sink.got, err)
 		}
@@ -125,7 +159,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 	t.Run("a secret by its shape or its name, with no secret known", func(t *testing.T) {
 		sink := &factSink{got: map[string][]facts.Entry{}}
 		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet", "shaped": true}}]}`))
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet", "shaped": true}}]}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,7 +175,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 		sink := &factSink{got: map[string][]facts.Entry{}}
 		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink), engine.WithKnownSecrets([]string{"s3cr3t-pass"})).Run(
 			context.Background(),
-			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet", "leak": true}}]}`))
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet", "leak": true}}]}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -159,7 +193,7 @@ func TestFacts_AStoreThatFailsLeavesTheRunAlone(t *testing.T) {
 	registerFactMethods(t)
 	sink := &factSink{got: map[string][]facts.Entry{}, fail: errors.New("disk full")}
 	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet"}}]}`))
+		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,5 +201,127 @@ func TestFacts_AStoreThatFailsLeavesTheRunAlone(t *testing.T) {
 		if n.Err != nil {
 			t.Errorf("a failed fact store failed the task: %v", n.Err)
 		}
+	}
+}
+
+// TestFacts_OnlyWhatTheMethodDeclaresIsStoredAsDeclared: a key the method
+// does not declare, and a value of another type than declared, are not
+// stored; a volatile key is stored as volatile.
+func TestFacts_OnlyWhatTheMethodDeclaresIsStoredAsDeclared(t *testing.T) {
+	registerFactMethods(t)
+	sink := &factSink{got: map[string][]facts.Entry{}}
+	_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
+		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet", "more": true}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]facts.Kind{}
+	for _, e := range sink.got["dev-1"] {
+		kinds[e.Key] = e.Kind
+	}
+	want := map[string]facts.Kind{"ansible_kernel": facts.KindStable, "uptime": facts.KindVolatile}
+	if len(kinds) != len(want) || kinds["ansible_kernel"] != want["ansible_kernel"] || kinds["uptime"] != want["uptime"] {
+		t.Errorf("stored %v, want %v: undeclared and cores (a string declared integer) left out", kinds, want)
+	}
+}
+
+// TestFacts_AFieldALaterSecretMaskMarksIsNeverStored: a secret_mask runs on
+// a later task, after the facts of the task whose register it names were
+// stored, so the run's secrets cannot catch the value then; the runbook says
+// ahead that the field is secret, and it is not stored (owner question,
+// 2026-11-02).
+func TestFacts_AFieldALaterSecretMaskMarksIsNeverStored(t *testing.T) {
+	registerFactMethods(t)
+	sink := &factSink{got: map[string][]facts.Entry{}}
+	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), buildDAG(t, `{"id": "facts", "tasks": [
+		{"name": "g", "register": "g", "enginefacts.gather": {"target": "fleet", "note": true}},
+		{"name": "mask", "secret_mask": {"register": "g", "fields": ["login_note"]}, "enginefacts.gather": {"target": "fleet"}}
+	]}`))
+	if err != nil || result.HasErrors() {
+		t.Fatalf("run: %v, %+v", err, result)
+	}
+	stored := map[string]bool{}
+	for _, e := range sink.got["dev-1"] {
+		stored[e.Key] = true
+		if e.Value == "Lattice7Harbor" {
+			t.Errorf("the masked value was stored under %s", e.Key)
+		}
+	}
+	if stored["login_note"] || !stored["ansible_kernel"] {
+		t.Errorf("stored %v: want the kernel and not the field the later secret_mask marks", stored)
+	}
+}
+
+// orderedSink is a factSink keeping an order of its own (engine.FactOrderer),
+// as the CLI's recorder does.
+type orderedSink struct {
+	*factSink
+	next uint64
+	fail bool
+}
+
+func (s *orderedSink) ObservationOrder() (facts.Order, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fail {
+		return facts.Order{}, errors.New("the counter's lock was held")
+	}
+	s.next++
+	return facts.Order{Source: facts.ClockSource, Token: s.next}, nil
+}
+
+// TestFacts_AnOrderingRecorderOrdersEachObservationWhenItsTaskFinishes: each
+// task that emitted facts gets its own order, taken as it finished, so two
+// tasks of one run order by when each observed; a recorder that cannot give
+// one leaves the order unknown, for the clock to place.
+func TestFacts_AnOrderingRecorderOrdersEachObservationWhenItsTaskFinishes(t *testing.T) {
+	registerFactMethods(t)
+	two := `{"id": "facts", "tasks": [
+		{"name": "first", "enginefacts.gather": {"target": "fleet"}},
+		{"name": "second", "enginefacts.gather": {"target": "fleet"}}
+	]}`
+	sink := &orderedSink{factSink: &factSink{got: map[string][]facts.Entry{}}}
+	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), buildDAG(t, two)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.by) != 2 || sink.by[0].Order.Token == sink.by[1].Order.Token || !sink.by[0].Order.Known() || !sink.by[1].Order.Known() {
+		t.Fatalf("orders = %+v, want two distinct ticks", sink.by)
+	}
+	failing := &orderedSink{factSink: &factSink{got: map[string][]facts.Entry{}}, fail: true}
+	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(failing)).Run(context.Background(), buildDAG(t, two)); err != nil {
+		t.Fatal(err)
+	}
+	if len(failing.by) != 2 || failing.by[0].Order.Known() || len(failing.got["dev-1"]) == 0 {
+		t.Fatalf("a failed tick: %+v; want the facts stored with no order", failing.by)
+	}
+}
+
+// TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut: a run whose
+// --tags keep the task registering a value and drop the one masking it still
+// stores none of the masked field (the reviewer's F9).
+func TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut(t *testing.T) {
+	registerFactMethods(t)
+	built := buildDAG(t, `{"id": "facts", "tasks": [
+		{"name": "g", "register": "g", "tags": ["gather"], "enginefacts.gather": {"target": "fleet", "note": true}},
+		{"name": "mask", "tags": ["mask"], "secret_mask": {"register": "g", "fields": ["login_note"]}, "enginefacts.gather": {"target": "fleet"}}
+	]}`)
+	selected, err := engine.Select(built, engine.TagFilter{Tags: []string{"gather"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected.Nodes) != 1 {
+		t.Fatalf("the selection kept %d tasks, want the gather alone", len(selected.Nodes))
+	}
+	sink := &factSink{got: map[string][]facts.Entry{}}
+	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), selected); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range sink.got["dev-1"] {
+		if e.Key == "login_note" {
+			t.Fatalf("the masked field was stored: %+v", e)
+		}
+	}
+	if len(sink.got["dev-1"]) == 0 {
+		t.Fatal("nothing was stored, so this proved nothing")
 	}
 }

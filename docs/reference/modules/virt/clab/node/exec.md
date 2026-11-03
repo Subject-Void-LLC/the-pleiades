@@ -46,7 +46,7 @@ Runs the command inside the node's container through the server's exec endpoint,
 
 A command's effect inside a lab node is unknown to this platform, as exec.command's is on a host.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

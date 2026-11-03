@@ -30,6 +30,7 @@
  "internal/ent/migrate": 104,
  "internal/ent/migrate/gen": 1,
  "internal/event": 214,
+ "internal/facts/entstore": 10,
  "internal/inventory/onboard": 201,
  "internal/inventory/plugins": 1,
  "internal/inventory/plugins/aws": 6,

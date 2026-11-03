@@ -7020,3 +7020,37 @@ Runner's executor receives it, so that test is still owed. Back a secret guard w
 `redact.SecretName` on the key and `redact.SecretShaped` on the value, applied on both tiers and again by the
 Controller in `facts.Verify`), and say in its doc that both together are a strip list, not a proof (LESSONS 337).
 Where the dependency is one the component cannot work safely without, move it into the constructor, as 154 says.
+
+## 382. A check that runs on one tier is proven in that tier's own composition root: a registry lookup in a binary that links no registry returns nothing, and the check quietly passes (a repeat of 56) (2026-11-02).
+
+**Why.** Phase 41b (FAILURE_PATTERNS 837). The Controller's Subscriber held a Runner's fact batch to the method's
+declared facts through `collection.Lookup`. `cmd/controller` links no Collection (`go list -deps ./cmd/controller`
+shows only `internal/catalog/fragment` under `internal/catalog`), so in the shipped binary every lookup missed and the
+check never ran. Its unit test registered a fixture method in its own process, and the Walk release gate ran inside
+`cmd/runner`'s test binary, which links the catalog; both passed. The fp-reviewer found it before push. LESSONS 56
+already says a self-registering design is proven in the binary that matters, not in each package's own test. It did not
+hold because 56 was about filling the registry in the binaries that run methods (the CLI and the Runner), and this was a
+new reader in a binary that links none on purpose. LESSONS 21 and 139 (proven in the arrangement the product ships)
+and 381 (each composition root passes what a guard reads) say the same from other sides.
+
+**Rule in practice.** Before code that runs on the Controller reads `collection.Lookup` or any registry filled by
+`init()`, run `go list -deps ./cmd/controller` and look for the registry's packages. When they are absent, build the
+data from something the binary embeds (here the generated module catalog, `wellknown.ModuleCatalog`, through
+`entstore.CatalogIndex`) and test against that real data, not a fixture registered by the test. A test whose binary
+links more than the shipped one says nothing about the shipped one.
+
+## 383. A value hashed into a durable record is normalized to the coarsest precision any supported store keeps, before it is hashed (a repeat in kind of 250) (2026-11-02).
+
+**Why.** Phase 41b (FAILURE_PATTERNS 838). The fact chain hashed each observation time to the nanosecond. PostgreSQL's
+`timestamptz` keeps microseconds and rounds (measured: `.123456789` stored as `.123457`), so every chain read back from
+PostgreSQL would have failed verification. Every store test ran on SQLite, which keeps nanoseconds, with whole-second
+fixture times that no precision changes. The fp-reviewer found it before push. LESSONS 250's second half (prove a
+property on the production dialect as well as the test one) covers the testing, and FAILURE_PATTERNS 832 had just shown
+a database round trip changing a number. Neither says when to normalize: a hash fixes the value at the moment it is
+taken, so the store's own change afterwards breaks it.
+
+**Rule in practice.** For each field a hash covers, list what each supported store keeps (PostgreSQL `timestamptz`
+keeps microseconds, SQLite nanoseconds, an ORM's JSON column numbers as float64) and normalize to the coarsest in one
+function both stores call, before storing and before hashing (`facts.StoredTime`). Give fixtures values the
+normalization changes (a time with nanoseconds), and run the shared conformance suite on every store's real database
+(`TestStore_ConformanceOnPostgres`).

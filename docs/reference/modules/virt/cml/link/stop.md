@@ -43,7 +43,7 @@ Stops the link named by link, or the one between a's a_interface and b's b_inter
 
 A run that changed the link's state emits virt.cml.link.start of the same link, by its lab's id and its own; one that found the link already so emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

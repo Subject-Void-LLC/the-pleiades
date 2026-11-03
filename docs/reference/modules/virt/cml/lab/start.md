@@ -43,7 +43,7 @@ Starts each of the lab's nodes (or those nodes names) that is not running, then 
 
 A run that started nodes emits virt.cml.lab.stop naming exactly those nodes, kept when the wait for them to boot fails, so a rollback never stops a node someone else started. Stopping them does not undo what they did while they ran.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

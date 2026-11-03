@@ -42,7 +42,7 @@ Reads the named files on the device, resolves each reference's tag to the digest
 
 Its undo writes back each reference it changed, as it was, from a record it keeps on the device before writing anything (the journal holds only the record's id); a file edited since is refused rather than overwritten.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

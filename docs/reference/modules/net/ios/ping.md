@@ -46,7 +46,7 @@ Answers a different question from net.ssh.ping, and the difference is the point:
 
 A ping is read-only: it sends echoes and reports what came back, changing nothing on the device, so there is nothing to undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

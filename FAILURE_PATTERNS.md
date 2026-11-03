@@ -839,6 +839,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 833. The fact table's new key and last_seen_at columns were first NOT NULL with no default, a contracting migration the compatibility check refused (a repeat of 389) (fixed before push)
 834. A Bash heredoc decoded a JSON-style escape for U+202E into a real RIGHT-TO-LEFT OVERRIDE inside a Go fuzz seed (a repeat of 256) (fixed before push)
 835. A new architecture test, first written as "the engine must not reach internal/ent", failed on the engine's existing transitive dependency rather than on anything this phase added (fixed before push)
+836. A field a later task's secret_mask marks secret was stored as a fact, because the earlier task's facts were stored at its level barrier before the mask had run (a repeat of 829) (fixed)
+837. The Controller's check of a Runner's facts against each method's declaration was dead code in the shipped binary, which links no Collection, so collection.Lookup found nothing (a repeat of 52 and 578; in kind of 110, 180 and 693) (fixed before push)
+838. On PostgreSQL every fact chain would have failed verification, because the chain hashed the observation time to the nanosecond and timestamptz keeps microseconds (a repeat of 371 and 92; in kind of 832) (fixed before push)
+839. Equal run-order tokens never fell back to the clock, so within one Walk dispatch a second uptime gathered after a reboot was dropped as late, and a late batch of the same job could become current over a newer one (a repeat in kind of 831) (fixed before push)
+840. The Crawl CLI ordered stored facts by each run's start tick, though CLI runs overlap, so a run that started earlier and observed later was ordered first (a repeat of 793 and LESSONS 372) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

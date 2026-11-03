@@ -39,7 +39,7 @@ Runs containerlab's save for the lab, so a node that reads a startup configurati
 
 It overwrites each node's saved configuration, which this method does not read first.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

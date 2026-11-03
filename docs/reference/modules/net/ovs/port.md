@@ -43,7 +43,7 @@ Reads the port through ovs-vsctl and changes only what differs. Its undo puts ba
 
 Its undo puts back what it found: an added port is removed, a removed one added back on its bridge with its tag (partial when it carried more, such as an interface type or trunks), a moved one moved back, and a changed tag set back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

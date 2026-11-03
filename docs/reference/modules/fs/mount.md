@@ -44,7 +44,7 @@ Makes sure path is mounted from src, creating the mount if it is not already the
 
 A run that mounted an absent path emits an fs.unmount naming it, which also strips the fstab entry this run added, if any. A run that found the path already mounted and only added or updated its fstab entry emits no inverse: undoing that without also unmounting a mount this task did not create needs a capability this namespace does not expose. A run that found everything already as requested emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

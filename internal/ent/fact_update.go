@@ -55,6 +55,18 @@ func (_u *FactUpdate) ClearLastSeenAt() *FactUpdate {
 	return _u
 }
 
+// SetLastProvenance sets the "last_provenance" field.
+func (_u *FactUpdate) SetLastProvenance(v map[string]interface{}) *FactUpdate {
+	_u.mutation.SetLastProvenance(v)
+	return _u
+}
+
+// ClearLastProvenance clears the value of the "last_provenance" field.
+func (_u *FactUpdate) ClearLastProvenance() *FactUpdate {
+	_u.mutation.ClearLastProvenance()
+	return _u
+}
+
 // SetDeviceID sets the "device" edge to the Device entity by ID.
 func (_u *FactUpdate) SetDeviceID(id int) *FactUpdate {
 	_u.mutation.SetDeviceID(id)
@@ -142,6 +154,21 @@ func (_u *FactUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.LastSeenAtCleared() {
 		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
 	}
+	if _u.mutation.ProvenanceCleared() {
+		_spec.ClearField(fact.FieldProvenance, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.LastProvenance(); ok {
+		_spec.SetField(fact.FieldLastProvenance, field.TypeJSON, value)
+	}
+	if _u.mutation.LastProvenanceCleared() {
+		_spec.ClearField(fact.FieldLastProvenance, field.TypeJSON)
+	}
+	if _u.mutation.ChainPrevCleared() {
+		_spec.ClearField(fact.FieldChainPrev, field.TypeString)
+	}
+	if _u.mutation.ChainCleared() {
+		_spec.ClearField(fact.FieldChain, field.TypeString)
+	}
 	if _u.mutation.DeviceCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -214,6 +241,18 @@ func (_u *FactUpdateOne) SetNillableLastSeenAt(v *time.Time) *FactUpdateOne {
 // ClearLastSeenAt clears the value of the "last_seen_at" field.
 func (_u *FactUpdateOne) ClearLastSeenAt() *FactUpdateOne {
 	_u.mutation.ClearLastSeenAt()
+	return _u
+}
+
+// SetLastProvenance sets the "last_provenance" field.
+func (_u *FactUpdateOne) SetLastProvenance(v map[string]interface{}) *FactUpdateOne {
+	_u.mutation.SetLastProvenance(v)
+	return _u
+}
+
+// ClearLastProvenance clears the value of the "last_provenance" field.
+func (_u *FactUpdateOne) ClearLastProvenance() *FactUpdateOne {
+	_u.mutation.ClearLastProvenance()
 	return _u
 }
 
@@ -333,6 +372,21 @@ func (_u *FactUpdateOne) sqlSave(ctx context.Context) (_node *Fact, err error) {
 	}
 	if _u.mutation.LastSeenAtCleared() {
 		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
+	}
+	if _u.mutation.ProvenanceCleared() {
+		_spec.ClearField(fact.FieldProvenance, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.LastProvenance(); ok {
+		_spec.SetField(fact.FieldLastProvenance, field.TypeJSON, value)
+	}
+	if _u.mutation.LastProvenanceCleared() {
+		_spec.ClearField(fact.FieldLastProvenance, field.TypeJSON)
+	}
+	if _u.mutation.ChainPrevCleared() {
+		_spec.ClearField(fact.FieldChainPrev, field.TypeString)
+	}
+	if _u.mutation.ChainCleared() {
+		_spec.ClearField(fact.FieldChain, field.TypeString)
 	}
 	if _u.mutation.DeviceCleared() {
 		edge := &sqlgraph.EdgeSpec{

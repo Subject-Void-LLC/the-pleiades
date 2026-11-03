@@ -48,7 +48,7 @@ Runs a command line on the target through a real shell, which is what makes a pi
 
 A shell command's effect is unknown to this platform, and a pipeline or redirect can touch things the command line does not name, so no undo can be derived from it. Pair the task with creates or removes to make re-running it safe, which is idempotence rather than rollback.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

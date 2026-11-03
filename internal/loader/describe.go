@@ -122,6 +122,11 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 	if err := collection.ValidateReversibility(m.Manifest.Reversibility); err != nil {
 		return false, fmt.Errorf("method %q %w", m.Name, err)
 	}
+	// The same for its fact declarations (Phase 41b); Register also holds an
+	// exact key to the kind and type a built-in method declares for it.
+	if err := collection.ValidateFacts(m.Manifest.Facts); err != nil {
+		return false, fmt.Errorf("method %q %w", m.Name, err)
+	}
 	for _, p := range m.Manifest.Doc.Params {
 		// Register refuses the same thing (checkReservedParams); saying so
 		// here keeps a whole directory from loading halfway.

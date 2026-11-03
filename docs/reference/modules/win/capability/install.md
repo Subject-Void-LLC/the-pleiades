@@ -41,7 +41,7 @@ Makes sure a Windows capability, what Get-WindowsCapability lists and Windows ca
 
 A run that installed the capability emits a win.capability.remove naming it; one that found it installed, or pending a restart to finish installing, emits nothing. Either direction may need the restart reboot_required reports before it is complete.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

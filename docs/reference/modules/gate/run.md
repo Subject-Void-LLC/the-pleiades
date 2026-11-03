@@ -49,7 +49,7 @@ Reads a gate manifest (YAML, at most 1 MiB, decoded strictly) from the device an
 
 It runs the project's own checks and changes nothing of its own; what a check writes is that check's doing, which this platform cannot see to undo. It is not declared read-only, since a check is a command.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

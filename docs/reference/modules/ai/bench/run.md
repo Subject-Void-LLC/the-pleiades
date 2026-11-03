@@ -58,7 +58,7 @@ Asks the target provider's model each prompt of the set in turn, as ai.chat asks
 
 Each prompt is a counted call the provider has seen and billed; nothing on a device changes. A saved result is a new file under the project's ai/bench, never written over, which the run reports and does not remove.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

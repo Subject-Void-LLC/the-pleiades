@@ -40,7 +40,7 @@ Makes sure one named package is at the newest version APT knows about, upgrading
 
 Downgrading a package is not something apt-get reliably supports once the previous version has left the local cache and the repository's own metadata (a mirror generally keeps only the latest build of a package), so no safe inverse can be promised here. This mirrors exec.command's own reasoning for why it cannot be undone: the platform does not control whether the information an undo would need still exists anywhere reachable.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

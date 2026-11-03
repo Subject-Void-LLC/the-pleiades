@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
@@ -224,6 +225,15 @@ type NodeResult struct {
 	// factKeys names which of Stats a real run's method emitted as facts
 	// (sdk.StatFactKeys), which the run stores as the device's (facts.go).
 	factKeys []string
+	// factMethod is the FQCN that emitted them, whose manifest declares
+	// what each fact is (Phase 41b).
+	factMethod string
+	// factRegister is the task's register, which a later task's
+	// secret_mask can name to mark these facts secret.
+	factRegister string
+	// factOrder is the observation's place in the order the recorder keeps
+	// (FactOrderer), unknown when it keeps none.
+	factOrder facts.Order
 
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
@@ -1438,7 +1448,10 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 		delete(actionResult.Stats, sdk.StatFactKeys)
 		if mode == collection.ModeExecute && err == nil {
 			if keys, perr := sdk.ParseFactKeys(v); perr == nil {
-				result.factKeys = keys
+				result.factKeys, result.factMethod, result.factRegister = keys, cmd.Task.FQCN, cmd.Task.Register
+				// The run order of the observation, taken now rather than when
+				// the level ends and the facts are stored (facts.go).
+				result.factOrder = r.observationOrder(cmd.Task.FQCN)
 			}
 		}
 	}

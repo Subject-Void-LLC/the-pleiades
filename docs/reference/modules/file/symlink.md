@@ -40,7 +40,7 @@ Makes path be a symbolic link pointing at src, which is ansible.builtin.file wit
 
 A run that created the link emits a file.remove naming it, which deletes the link and never what it points at. A run that found a link already there and repointed it emits a file.symlink pointing back at the target it had, because removing that link would delete something the run never created. A converged run emits nothing, since it sent no command at all.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

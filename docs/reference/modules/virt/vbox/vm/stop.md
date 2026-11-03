@@ -40,7 +40,7 @@ Makes sure a VM is not running. A VM that is already off, saved or aborted repor
 
 A run that stopped a running VM emits virt.vbox.vm.start naming it; one that found it stopped emits nothing. Starting it again does not bring back what a power cut lost.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

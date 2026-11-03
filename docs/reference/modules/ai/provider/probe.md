@@ -42,7 +42,7 @@ Asks the model for a one-word answer, at most 8 tokens at temperature 0 and with
 
 A probe is a counted call: the provider has seen it and billed it, and nothing on a device changed that could be put back.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

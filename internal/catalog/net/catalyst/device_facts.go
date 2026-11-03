@@ -31,7 +31,7 @@ import (
 )
 
 func init() {
-	collection.MustRegister(collection.Descriptor{
+	d := collection.Descriptor{
 		Name: "net.catalyst.device_facts",
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
@@ -81,7 +81,12 @@ func init() {
 		Invoke: DeviceFacts,
 		// DeviceFacts itself, since it only reads.
 		Check: DeviceFacts,
-	})
+	}
+	// devices is volatile: each entry carries the device's up_time as the
+	// controller words it, so the list changes on every gather; the count
+	// is what a change of the fleet shows in.
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"devices", "device_count"}, "devices")
+	collection.MustRegister(d)
 }
 
 // DeviceFacts gathers every device the targeted Catalyst Center manages

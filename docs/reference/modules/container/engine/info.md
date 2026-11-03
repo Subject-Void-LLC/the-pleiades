@@ -54,7 +54,7 @@ Reads the device's container engine as it reports itself, for a later task's whe
 
 Reading is not changing: the method reads the engine's own report and changes nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -48,7 +48,7 @@ Reads a file on the device on an interval until search_regex matches it, or unti
 
 This method reads a file and changes nothing on the device, so there is nothing to undo. That is the same fact that makes it report changed: false. It still records a diff whose two halves are identical, so a journal can tell an observation from a task that was never recorded.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

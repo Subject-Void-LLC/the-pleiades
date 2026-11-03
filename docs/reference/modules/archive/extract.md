@@ -42,7 +42,7 @@ Extracts src into dest, where src is an archive already present on the target --
 
 Extracting an archive can create any number of files and directories under dest, and this method does not enumerate them as it goes. A safe inverse would have to delete exactly what was created and nothing dest already held, which needs that enumeration; without it, the only honest choices are refusing to record an inverse or recording one that might delete more than this run added. This method refuses, the same call pkg.upgrade makes for an installed build a repository may no longer offer.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

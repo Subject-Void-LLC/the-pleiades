@@ -43,7 +43,7 @@ Makes sure no line matching a pattern remains in a text file, which is ansible.b
 
 A run that removed something emits a file.copy carrying the whole text the file held beforehand, with its mode, owner and group. The whole file, because this can take several lines from several places and putting them back with file.line.set would pile them all at the end instead. That makes the record as large as the file. A run that found nothing to remove emits nothing, and so does a run against a file that was not there. The modification time is not restored, and file.copy itself is declared rather than implemented today.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

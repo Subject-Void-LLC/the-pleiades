@@ -414,6 +414,8 @@ story, per `.AGENTS/AGENTS.md`.
 379. **An existence guard decides only on a definite answer: present when the platform answers, absent only when it says not found, and anything else fails the task; the primitive it uses is measured on the real target for a path it cannot read before anything is built on it (a repeat of 138; a repeat in kind of 377) (2026-11-02).**
 380. **A count stated by hand in two files is updated in both in the same edit, starting with the one a test reads; and any change to a counted property (check support, status), not only a new method, runs tools/gendocs' tests before the commit, since pr-check does not select an unchanged tools/gendocs (a repeat of 336) (2026-11-02).**
 381. **A safety check fed by a functional option fails open on every composition root that does not pass it: when a new guard starts reading a list an option fills, check each root that builds the object, test that the root passes it, and give the guard a check that needs no list (a repeat of 154) (2026-11-02).**
+382. **A check that runs on one tier is proven in that tier's own composition root: a registry lookup in a binary that links no registry returns nothing, and the check quietly passes (a repeat of 56) (2026-11-02).**
+383. **A value hashed into a durable record is normalized to the coarsest precision any supported store keeps, before it is hashed (a repeat in kind of 250) (2026-11-02).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

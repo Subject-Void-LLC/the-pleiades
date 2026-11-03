@@ -46,7 +46,7 @@ Holds the runbook until a TCP port accepts a connection, or until it stops accep
 
 This method only observes: it opens a TCP connection from the device and reports whether it succeeded, so the device is in exactly the state it would have been in had the task never run. There is nothing to undo, and an inverse that waited again would be work the forward run never did.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -45,7 +45,7 @@ Takes away the region a file.block.set task left in a file, the two marker lines
 
 Deleting text is usually the least reversible thing a method can do, and the markers are what make this the exception: they say exactly which lines belonged to the block, so the run that removes them captures the body and emits a file.block.set that writes it back. file.line is weaker because it identifies its target by a pattern rather than by a boundary, so it cannot be sure which of several matching lines it took away. What this still does not restore: a block that was in the MIDDLE of a file comes back at the END, because file.block.set appends, and the emitted inverse says so in its own description when that applies. Nor does it restore a final newline added to a file that had none. A run that found no block emits nothing, because undoing a run that changed nothing means doing nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

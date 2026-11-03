@@ -41,7 +41,7 @@ Writes content to path, a file in the project directory, so a value a task read 
 
 It overwrites a file in the project, whose earlier content is never journaled: the journal keeps names and counts, never file content. The project is the author's own working copy, kept under version control, which is where an earlier version comes back from.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

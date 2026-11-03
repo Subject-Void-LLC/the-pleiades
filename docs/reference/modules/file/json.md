@@ -45,7 +45,7 @@ Reads the file (at most 4 MiB of UTF-8, refused when it holds a duplicate key, w
 
 A run that changed an existing file emits a file.copy writing back the whole text it held, with its mode, owner and group; that text is withheld from the journal, so a rollback replays it only from the task's own rollback: list. A run that created the file emits a file.remove. A run that changed nothing emits nothing. The modification time is not restored.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

@@ -67,7 +67,7 @@ Makes the container named name match its declaration by replacing it: an absent 
 
 Recreating a container removes the old one, whose writable layer and anonymous volumes are gone; its declaration can make a new one, never the old.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

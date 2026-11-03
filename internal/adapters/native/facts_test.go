@@ -11,6 +11,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -26,8 +27,12 @@ const factsEchoMethod = "nativefactstest.echo_login"
 
 func init() {
 	collection.MustRegister(collection.Descriptor{
-		Name:     factsEchoMethod,
-		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"}},
+		Name: factsEchoMethod,
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"},
+			Facts: []collection.FactSpec{
+				{Key: "plain_note", Kind: collection.FactStable, Type: collection.FactString, Description: "an ordinary fact"},
+				{Key: "login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a fact holding the login's password"},
+			}},
 		Invoke: func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
 			if err := rc.EmitFact("plain_note", "ok"); err != nil {
 				return collection.Result{}, err
@@ -55,14 +60,15 @@ func factEntries(t *testing.T) []facts.Entry {
 // observation does not.
 func TestFactsPublisher_PublishesTheDispatchsBatchOnItsJobsSubject(t *testing.T) {
 	bus := &mockBus{}
-	p := newFactsPublisher(journal.WithAttempt(context.Background(), 3), bus, "job-1", "device-1")
+	ctx := lock.WithFence(journal.WithAttempt(context.Background(), 3), lock.NewFence(7, "epoch-a"))
+	p := newFactsPublisher(ctx, bus, "job-1", "device-1", "runner-1")
 	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	for range 2 {
-		if err := p.Record(context.Background(), "device-1", factEntries(t), at); err != nil {
+		if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: at}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := p.Record(context.Background(), "device-1", factEntries(t), at.Add(time.Second)); err != nil {
+	if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: at.Add(time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	if len(bus.published) != 3 || bus.published[0].topic != topology.FactsSubject("job-1") {
@@ -75,6 +81,12 @@ func TestFactsPublisher_PublishesTheDispatchsBatchOnItsJobsSubject(t *testing.T)
 	if batch.JobID != "job-1" || batch.DeviceID != "device-1" || batch.Attempt != 3 || len(batch.Entries) != 1 || !batch.ObservedAt.Equal(at) {
 		t.Errorf("batch = %+v", batch)
 	}
+	// Phase 41b: the batch says which job, attempt and Runner observed it,
+	// and the run's order is the device lease's fencing token.
+	want := facts.Provenance{Job: "job-1", Attempt: 3, Runner: "runner-1", Order: facts.Order{Source: "lease:epoch-a", Token: 7}}
+	if batch.By != want {
+		t.Errorf("provenance = %+v, want %+v", batch.By, want)
+	}
 	if bus.published[0].evt.ID != bus.published[1].evt.ID || bus.published[1].evt.ID == bus.published[2].evt.ID {
 		t.Errorf("keys %q, %q, %q: want a retry to repeat and a new observation to differ",
 			bus.published[0].evt.ID, bus.published[1].evt.ID, bus.published[2].evt.ID)
@@ -83,15 +95,15 @@ func TestFactsPublisher_PublishesTheDispatchsBatchOnItsJobsSubject(t *testing.T)
 
 func TestFactsPublisher_RefusesWhatItCannotPublish(t *testing.T) {
 	bus := &mockBus{}
-	p := newFactsPublisher(context.Background(), bus, "job-1", "device-1")
-	if err := p.Record(context.Background(), "device-1", nil, time.Now()); err != nil || len(bus.published) != 0 {
+	p := newFactsPublisher(context.Background(), bus, "job-1", "device-1", "runner-1")
+	if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: nil, At: time.Now()}); err != nil || len(bus.published) != 0 {
 		t.Errorf("no facts: %v, published %d", err, len(bus.published))
 	}
-	if err := p.Record(context.Background(), "device-2", factEntries(t), time.Now()); err == nil || len(bus.published) != 0 {
+	if err := p.Record(context.Background(), "device-2", facts.Observation{Entries: factEntries(t), At: time.Now()}); err == nil || len(bus.published) != 0 {
 		t.Errorf("another device's facts: %v, published %d", err, len(bus.published))
 	}
-	failing := newFactsPublisher(context.Background(), failingBus{}, "job-1", "device-1")
-	if err := failing.Record(context.Background(), "device-1", factEntries(t), time.Now()); err == nil {
+	failing := newFactsPublisher(context.Background(), failingBus{}, "job-1", "device-1", "runner-1")
+	if err := failing.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: time.Now()}); err == nil {
 		t.Error("a failed publish was not reported")
 	}
 }

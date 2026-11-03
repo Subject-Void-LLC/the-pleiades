@@ -43,7 +43,7 @@ Makes sure a VM has the CPUs and memory asked for: a size, or memory_mb and cpus
 
 A run that changed the VM emits virt.vbox.vm.resize back to the memory and CPUs it had; one that found them already right emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

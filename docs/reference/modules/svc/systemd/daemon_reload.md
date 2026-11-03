@@ -31,7 +31,7 @@ Runs systemctl daemon-reload, which makes systemd pick up unit files that were w
 
 Re-reading unit files has no prior state to restore. What systemd held before the reload was a view of unit files that have since changed on disk, and nothing can ask it to go back to believing the old contents. Undoing whatever wrote those files is that task's inverse, not this one's.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

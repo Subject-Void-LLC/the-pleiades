@@ -44,7 +44,7 @@ Reads the host's last boot time, has shutdown.exe restart it pre_reboot_delay se
 
 A restart cannot be taken back: once the host has restarted there is nothing to put back, so no undo is recorded.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

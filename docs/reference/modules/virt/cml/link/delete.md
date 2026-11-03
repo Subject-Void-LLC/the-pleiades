@@ -42,7 +42,7 @@ Removes the link named by link, or the one between a's a_interface and b's b_int
 
 A run that removed a link emits virt.cml.link.create of the same two interfaces, each node by its id and each interface by its label; one that found no such link emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

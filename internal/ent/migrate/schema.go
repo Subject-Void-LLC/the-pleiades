@@ -331,6 +331,11 @@ var (
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "hash", Type: field.TypeString},
 		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true},
+		{Name: "kind", Type: field.TypeEnum, Enums: []string{"stable", "volatile"}, Default: "stable"},
+		{Name: "provenance", Type: field.TypeJSON, Nullable: true},
+		{Name: "last_provenance", Type: field.TypeJSON, Nullable: true},
+		{Name: "chain_prev", Type: field.TypeString, Nullable: true},
+		{Name: "chain", Type: field.TypeString, Nullable: true},
 		{Name: "device_facts", Type: field.TypeInt},
 	}
 	// FactsTable holds the schema information for the "facts" table.
@@ -341,7 +346,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "facts_devices_facts",
-				Columns:    []*schema.Column{FactsColumns[7]},
+				Columns:    []*schema.Column{FactsColumns[12]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -350,12 +355,17 @@ var (
 			{
 				Name:    "fact_key_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[3], FactsColumns[7]},
+				Columns: []*schema.Column{FactsColumns[3], FactsColumns[12]},
 			},
 			{
 				Name:    "fact_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[7]},
+				Columns: []*schema.Column{FactsColumns[12]},
+			},
+			{
+				Name:    "fact_chain_prev_device_facts",
+				Unique:  true,
+				Columns: []*schema.Column{FactsColumns[10], FactsColumns[12]},
 			},
 		},
 	}

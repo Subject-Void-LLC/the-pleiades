@@ -40,7 +40,7 @@ Makes sure a package is absent from a Red Hat-family host, removing it if it is 
 
 A run that removed a present package emits a pkg.dnf.install pinned to the exact version-release this run captured before removing it, which is a real, restorable inverse: reinstalling that build undoes exactly what this run did to the rpm database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own scriptlets did beyond deleting the package's files.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

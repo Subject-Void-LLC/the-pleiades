@@ -44,7 +44,7 @@ Makes sure a port or service is not allowed through firewalld in the given zone.
 
 A run that removed the rule from the permanent configuration, the runtime one, or both emits an fw.firewalld.allow naming the same port or service and zone, with permanent and immediate set to match exactly which half this run actually changed. A run that found everything already denied emits nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

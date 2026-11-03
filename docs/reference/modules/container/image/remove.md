@@ -44,7 +44,7 @@ Removes the reference image names: a tag is removed, and the image with it when 
 
 A removed image's content is gone from the engine; container.image.pull brings an image from a registry back, and container.image.load one from a saved archive.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

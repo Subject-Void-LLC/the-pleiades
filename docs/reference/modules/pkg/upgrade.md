@@ -41,7 +41,7 @@ Makes sure a package is at its newest available version, without caring which pa
 
 Every concrete upgrade method this resolves to is itself irreversible: downgrading a package is not something apt or dnf reliably support once the previous version has left the local cache and the repository's own metadata, so no method in this namespace can promise a safe undo for it.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

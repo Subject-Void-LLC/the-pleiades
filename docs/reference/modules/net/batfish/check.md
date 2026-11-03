@@ -48,7 +48,7 @@ Builds a snapshot from each device's whole configuration (config, or src: a file
 
 It asks Batfish about configurations and changes no device; the snapshot it uploads is removed when the task ends.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

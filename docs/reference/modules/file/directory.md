@@ -42,7 +42,7 @@ Ensures a directory exists at a path, creating any missing parents along the way
 
 A run that created the directory emits a file.remove naming it. That removal is deliberately not recursive, so it refuses rather than destroying anything put inside the directory after this task ran. A run that found the directory already there and only changed its mode, owner or group emits a file.permissions carrying the old ones, which puts the attributes back and never removes the directory. A converged run emits nothing at all. Parents a run created on the way to the directory are not removed by that undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

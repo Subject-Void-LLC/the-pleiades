@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -27,26 +28,36 @@ type factsPublisher struct {
 	jobID    string
 	deviceID string
 	attempt  int
+	runnerID string
+	// fence is the device lease's fencing token, read at each Record as the
+	// journal publisher reads it: the run's order on this device (Phase
+	// 41b). A shared lease, or one lost, gives no order.
+	fence *lock.Fence
 }
 
-// newFactsPublisher builds the sink for one dispatch; the attempt comes from
-// the delivery, as the journal's does.
-func newFactsPublisher(ctx context.Context, bus event.Bus, jobID, deviceID string) *factsPublisher {
+// newFactsPublisher builds the sink for one dispatch; the attempt and the
+// lease's fence come from the delivery's context, as the journal's do.
+func newFactsPublisher(ctx context.Context, bus event.Bus, jobID, deviceID, runnerID string) *factsPublisher {
 	attempt, _ := journal.AttemptFrom(ctx)
-	return &factsPublisher{bus: bus, jobID: jobID, deviceID: deviceID, attempt: attempt}
+	return &factsPublisher{bus: bus, jobID: jobID, deviceID: deviceID, attempt: attempt, runnerID: runnerID, fence: lock.FenceFrom(ctx)}
 }
 
 // Record implements engine.FactRecorder. The device is always the one the
 // dispatch names: a Runner's run is scoped to it, so a run naming another
 // is refused rather than published under it.
-func (p *factsPublisher) Record(ctx context.Context, device string, entries []facts.Entry, at time.Time) error {
-	if len(entries) == 0 {
+func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Observation) error {
+	if len(obs.Entries) == 0 {
 		return nil
 	}
 	if device != p.deviceID {
 		return fmt.Errorf("facts for device %s in a dispatch for device %s", device, p.deviceID)
 	}
-	batch := facts.Batch{JobID: p.jobID, DeviceID: p.deviceID, Attempt: p.attempt, ObservedAt: at.UTC(), Entries: entries}
+	by := obs.By
+	by.Job, by.Attempt, by.Runner = p.jobID, p.attempt, p.runnerID
+	if revision, epoch, ok := p.fence.Token(); ok {
+		by.Order = facts.Order{Source: "lease:" + epoch, Token: revision}
+	}
+	batch := facts.Batch{JobID: p.jobID, DeviceID: p.deviceID, Attempt: p.attempt, ObservedAt: obs.At.UTC(), Entries: obs.Entries, By: by}
 	key := p.idempotencyKey(batch)
 	wrapped, err := event.WrapPayload(key, facts.EventType, batch)
 	if err != nil {

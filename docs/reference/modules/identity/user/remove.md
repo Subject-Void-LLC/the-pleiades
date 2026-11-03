@@ -42,7 +42,7 @@ Makes sure a user account is absent from the target, removing it if present. Thi
 
 A run that removed a present account emits an identity.user.create pinned to the exact uid, group, shell, home and comment this run captured before removing it, which is a real, restorable inverse for the account's identity attributes. A run that found the account already absent emits nothing. What the inverse cannot restore is the account's password (never captured by this platform), or the home directory's contents once remove=true has asked userdel to delete them.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

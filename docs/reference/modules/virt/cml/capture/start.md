@@ -45,7 +45,7 @@ Starts the controller capturing every packet that crosses the link named by link
 
 A run that started a capture emits virt.cml.capture.stop of the same link, which ends it and writes nothing.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

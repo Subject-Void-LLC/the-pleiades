@@ -36,7 +36,7 @@ Creates a VxLAN interface on the server's host that carries the traffic of link 
 
 Its undo removes the VxLAN interfaces named vx-*, which is partial when others carry that prefix.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

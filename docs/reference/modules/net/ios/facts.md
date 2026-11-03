@@ -48,7 +48,22 @@ Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco dev
 
 A read-only fact gatherer changes nothing on the device, so there is nothing to undo.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
+
+## Facts it keeps
+
+A real run stores each of these as the device's fact. A **stable** fact keeps every value it has had, and a change is drift; a **volatile** one keeps only its latest value and never counts as drift. A check stores none.
+
+| Fact | Kind | Type | Description |
+| --- | --- | --- | --- |
+| `ansible_net_hostname` | stable | string | The device's own hostname, read from the "<hostname> uptime is ..." line of "show version". |
+| `ansible_net_version` | stable | string | The software version: the "Cisco IOS XE Software, Version" line's on IOS XE, e.g. "17.15.04c", and on a device that prints no such line (an IOL XE router) the "Cisco IOS Software ..., Version" line's, e.g. "17.15.1". |
+| `ansible_net_model` | stable | string | The platform model, e.g. "C8000V". An IOL router reports none. |
+| `ansible_net_serialnum` | stable | string | The chassis serial number, preferring "show inventory"'s Chassis SN and falling back to "show version"'s Processor board ID. |
+| `ansible_net_image` | stable | string | The running system image file, e.g. "bootflash:packages.conf". |
+| `ansible_net_uptime` | volatile | string | Uptime exactly as the device words it, e.g. "1 hour, 32 minutes". Not converted to seconds: IOS reports a rounded phrase, and parsing it into a precise number would invent precision the device never gave. |
+| `ansible_net_interfaces` | stable | list | One map per interface, in the order "show ip interface brief" lists them. From that command: name, ip_address (left out when the device says "unassigned"), status and protocol, the status taken whole so "administratively down" is not cut at its space. From "show interfaces": description (when one is set), mtu (a number), admin_state ("down" when the interface is shut down, else "up") and line_protocol (as written, e.g. "up" or "down (notconnect)"). And vrf, the VRF's name, only when the interface is in one: an interface with no vrf key is in the global table. A list, not the map keyed by name cisco.ios.ios_facts returns, because this method has returned a list since it was written, a list keeps the device's own order, and a condition finds one interface with exists(i, i.name == "Ethernet0/0"). |
+| `ansible_net_gather_subset` | volatile | list | The subsets actually gathered, after "all" is expanded; config is absent when it was left out. |
 
 ## See also
 

@@ -521,6 +521,50 @@ var factEntrySchema = map[string]any{
 		"hash":         map[string]any{"type": "string", "description": "SHA-256, hex, over the canonical JSON of key and value."},
 		"observed_at":  map[string]any{"type": "string", "format": "date-time", "description": "When this value was first observed."},
 		"last_seen_at": map[string]any{"type": "string", "format": "date-time", "description": "When this value was last confirmed by a run."},
+		"kind": map[string]any{"type": "string", "enum": []string{"stable", "volatile"},
+			"description": "What the emitting method declared: a stable fact keeps every value, a volatile one only its latest."},
+		"by":      factProvenanceSchema("The run that first observed this value; absent when unknown."),
+		"last_by": factProvenanceSchema("The run that last confirmed this value; absent when unknown."),
+		"ordered_by_clock": map[string]any{"type": "boolean",
+			"description": "In a history: this value was placed after the one before it by the clock, because the two runs' orders do not compare."},
+	},
+}
+
+// factProvenanceSchema is which run observed a stored value (Phase 41b).
+func factProvenanceSchema(description string) map[string]any {
+	return map[string]any{
+		"type":        "object",
+		"description": description,
+		"properties": map[string]any{
+			"job":     map[string]any{"type": "string", "description": "The Controller's job ID; absent on a CLI run."},
+			"run":     map[string]any{"type": "string", "description": "The run's ID."},
+			"node":    map[string]any{"type": "string", "description": "The task's node ID in the run's graph."},
+			"method":  map[string]any{"type": "string", "description": "The FQCN that emitted the value."},
+			"attempt": map[string]any{"type": "integer", "description": "The dispatch's delivery attempt on a Runner."},
+			"runner":  map[string]any{"type": "string", "description": "The Runner's name as it reported it, not an identity the Controller checked."},
+			"order": map[string]any{"type": "object", "description": "The run's place in an order the system keeps; two orders compare only with the same source.",
+				"properties": map[string]any{
+					"source": map[string]any{"type": "string", "description": "clock (the CLI's run counter) or lease:<epoch> (a device lease's fencing token)."},
+					"token":  map[string]any{"type": "integer", "description": "The counter's value for the run."},
+				}},
+		},
+	}
+}
+
+// factChainResponseSchema is what checking a device's fact chain found.
+var factChainResponseSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"device":    map[string]any{"type": "string"},
+		"values":    map[string]any{"type": "integer", "description": "How many chained values were checked."},
+		"unchained": map[string]any{"type": "integer", "description": "Values stored before the chain existed, which are not checked."},
+		"head":      map[string]any{"type": "string", "description": "The last value's chain hash; record it elsewhere to notice the end being cut off later."},
+		"break": map[string]any{"type": "object", "description": "The first value that fails; absent when every one verifies.",
+			"properties": map[string]any{
+				"index":  map[string]any{"type": "integer"},
+				"key":    map[string]any{"type": "string"},
+				"reason": map[string]any{"type": "string"},
+			}},
 	},
 }
 
@@ -565,7 +609,7 @@ var GetDeviceFactHistory = Endpoint{
 	Scope:       auth.ScopeInventoryRead,
 	Rel:         auth.RelSelf,
 	Summary:     "Get one fact's history",
-	Description: "Every value the device's fact has had, oldest first: its drift, one entry per change.",
+	Description: "Every value the device's fact has had, in the order of the runs that observed them (by the clock where two runs' orders do not compare, which each entry says): its drift, one entry per change. A volatile fact has one value.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
 		{Name: "key", In: "path", Required: true, Type: "string", Description: "The fact's name."},
@@ -573,6 +617,30 @@ var GetDeviceFactHistory = Endpoint{
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The fact's values, oldest first; empty when the device never had it.", Schema: factsResponseSchema},
 		{Status: http.StatusBadRequest, Description: "name or key is empty, too long, or not a fact name.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+	},
+}
+
+// VerifyDeviceFactChain is GET /inventory/devices/{name}/fact-chain: whether
+// the device's stored facts still form an unbroken hash chain (Phase 41b).
+// It is not under /facts/, where a fact named "verify" would be shadowed.
+var VerifyDeviceFactChain = Endpoint{
+	Name:    "verify_device_fact_chain",
+	Method:  http.MethodGet,
+	Pattern: "/inventory/devices/{name}/fact-chain",
+	Scope:   auth.ScopeInventoryRead,
+	Rel:     auth.RelSelf,
+	Summary: "Check a device's fact chain",
+	Description: "Walks the device's stored stable facts in the order they were written and reports the first that " +
+		"was edited, deleted or moved. It is tamper-evident, not tamper-proof: whoever can write the database can " +
+		"rewrite the chain from an edit onward, and values cut off the end leave a shorter chain that still verifies, " +
+		"which comparing head with a copy kept elsewhere notices. Volatile facts are not chained.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "What the check found; a break is reported in the body, not as an error status.", Schema: factChainResponseSchema},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 	},
 }
@@ -1101,6 +1169,7 @@ var Endpoints = []Endpoint{
 	GetDevice,
 	ListDeviceFacts,
 	GetDeviceFactHistory,
+	VerifyDeviceFactChain,
 	UpdateDevice,
 	DeleteDevice,
 	OnboardDevice,

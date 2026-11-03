@@ -39,7 +39,7 @@ Restarts a systemd unit. This is ansible.builtin.systemd with state=restarted, a
 
 A restart's effect is the interruption itself, and there is no instruction that un-interrupts a service. Restarting it a second time would run this method again rather than reverse it. The unit's state is deliberately still recorded under diff, so a rollback reaching this task can see that the unit was running before and after and decide for itself, but this method emits no instruction because none would be true.
 
-Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+`pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
 ## See also
 

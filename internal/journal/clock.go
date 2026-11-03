@@ -93,6 +93,30 @@ func TickClock(root string) (uint64, error) {
 	return next, nil
 }
 
+// NextTick advances the project counter alone and returns its new value,
+// for a run that already took its tick through TickClock (BeginRun), which
+// floored the counter at every tick the project records: what a run needs
+// to order its own events after its start, such as each task's facts (Phase
+// 41b), without reading every journal again. A counter that is missing or
+// unreadable starts from zero here, so a value from NextTick is only ever
+// compared with another of the same counter's.
+func NextTick(root string) (uint64, error) {
+	dir := filepath.Join(root, pleiadesDirName)
+	unlock, err := lockClock(dir)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = unlock() }()
+	current := readClock(filepath.Join(dir, clockName))
+	if current == math.MaxUint64 {
+		return 0, ErrClockExhausted
+	}
+	if err := writeClock(dir, current+1); err != nil {
+		return 0, err
+	}
+	return current + 1, nil
+}
+
 // lockClock takes the counter's own lock, waiting up to clockLockWait for
 // another run's tick, and returns the function that releases it.
 func lockClock(dir string) (func() error, error) {

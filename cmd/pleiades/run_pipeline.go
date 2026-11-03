@@ -553,7 +553,11 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 			closeAll()
 			return nil, nil, fmt.Errorf("opening the project's fact store: %w", err)
 		}
-		recorder = store
+		// Each stored value carries a tick of the project's run counter,
+		// taken when its task finished, which orders it against other runs'
+		// values (Phase 41b) where the clock would only guess. This run's
+		// start tick floored the counter, so a later tick reads only it.
+		recorder = facts.RunOrdered{Store: store, Tick: func() (uint64, error) { return journal.NextTick(opts.dir) }}
 	}
 
 	executor := engine.NewExecutor(

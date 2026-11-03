@@ -554,7 +554,7 @@ undo a run from its journal: every device it changed, newest change first
 
 ## pleiades facts
 
-what this project's runs observed about a host: each fact's current value, or one fact's history
+what this project's runs observed about a host: each fact's current value, or one fact's history, with its kind and the run that saw it; --verify checks the stored values' hash chain
 
 `pleiades facts <host> [<key>] [flags]`
 
@@ -562,10 +562,13 @@ what this project's runs observed about a host: each fact's current value, or on
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
 | --json | `bool` | `false` | print one JSON document instead of text |
+| --verify | `bool` | `false` | check the host's fact chain instead of showing its facts; exits non-zero when it is broken |
 
 `pleiades facts web1`
 
 `pleiades facts web1 ansible_kernel --json`
+
+`pleiades facts web1 --verify`
 
 ## pleiades journal
 
