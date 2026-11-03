@@ -224,6 +224,9 @@ type NodeResult struct {
 	// factKeys names which of Stats a real run's method emitted as facts
 	// (sdk.StatFactKeys), which the run stores as the device's (facts.go).
 	factKeys []string
+	// factMethod is the FQCN that emitted them, whose manifest declares
+	// what each fact is (Phase 41b).
+	factMethod string
 
 	// StartedAt and FinishedAt bound this one execution, both in UTC to
 	// match publish's own clock. StartedAt is stamped once per node in
@@ -1438,7 +1441,7 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 		delete(actionResult.Stats, sdk.StatFactKeys)
 		if mode == collection.ModeExecute && err == nil {
 			if keys, perr := sdk.ParseFactKeys(v); perr == nil {
-				result.factKeys = keys
+				result.factKeys, result.factMethod = keys, cmd.Task.FQCN
 			}
 		}
 	}

@@ -526,12 +526,13 @@ var Root = Command{
 		{
 			Name:       "facts",
 			Positional: "<host> [<key>]",
-			Synopsis:   "what this project's runs observed about a host: each fact's current value, or one fact's history",
+			Synopsis:   "what this project's runs observed about a host: each fact's current value, or one fact's history, with its kind and the run that saw it; --verify checks the stored values' hash chain",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+				{Name: "verify", Type: "bool", Default: "false", Doc: "check the host's fact chain instead of showing its facts; exits non-zero when it is broken"},
 			},
-			Examples: []string{"pleiades facts web1", "pleiades facts web1 ansible_kernel --json"},
+			Examples: []string{"pleiades facts web1", "pleiades facts web1 ansible_kernel --json", "pleiades facts web1 --verify"},
 		},
 		{
 			Name:     "journal",

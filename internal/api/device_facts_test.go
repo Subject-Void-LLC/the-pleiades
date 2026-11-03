@@ -37,6 +37,11 @@ func (r *factReader) History(_ context.Context, device, key string) ([]facts.Ent
 	return nil, r.err
 }
 
+func (r *factReader) Verify(_ context.Context, device string) (facts.Verdict, error) {
+	r.asked = device + " verify"
+	return facts.Verdict{Values: 2, Head: "abc", Break: &facts.Break{Index: 1, Key: "ansible_kernel", Reason: "edited"}}, r.err
+}
+
 func factsRouter(t *testing.T, repo *stubDeviceRepo, reader api.FactReader) http.Handler {
 	t.Helper()
 	handler := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(io.Discard, nil)))
@@ -48,6 +53,7 @@ func factsRouter(t *testing.T, repo *stubDeviceRepo, reader api.FactReader) http
 		Routes: []api.Route{
 			{Method: apispec.ListDeviceFacts.Method, Pattern: apispec.ListDeviceFacts.Pattern, Scope: apispec.ListDeviceFacts.Scope, Rel: apispec.ListDeviceFacts.Rel, Handler: handler.Facts},
 			{Method: apispec.GetDeviceFactHistory.Method, Pattern: apispec.GetDeviceFactHistory.Pattern, Scope: apispec.GetDeviceFactHistory.Scope, Rel: apispec.GetDeviceFactHistory.Rel, Handler: handler.FactHistory},
+			{Method: apispec.VerifyDeviceFactChain.Method, Pattern: apispec.VerifyDeviceFactChain.Pattern, Scope: apispec.VerifyDeviceFactChain.Scope, Rel: apispec.VerifyDeviceFactChain.Rel, Handler: handler.FactChain},
 		},
 	})
 	if err != nil {
@@ -104,5 +110,42 @@ func TestDeviceFacts_ReadsByDeviceIDAndAnswersEachOutcome(t *testing.T) {
 	}
 	if rr := factsGet(factsRouter(t, &stubDeviceRepo{item: item}, nil), "/inventory/devices/web1/facts"); rr.Code != http.StatusNotImplemented {
 		t.Errorf("no reader: %d", rr.Code)
+	}
+}
+
+// TestDeviceFactChain_ReportsTheVerdictByDeviceID: the chain is checked by
+// the device's ID, a break comes back in the body with a 200, and each
+// failure has its own status without the store's own text.
+func TestDeviceFactChain_ReportsTheVerdictByDeviceID(t *testing.T) {
+	item := &inventorytest.Stub{StubID: "8d1e3c2c-0670-40cc-a914-e1194ff5857e", StubName: "web1"}
+	reader := &factReader{}
+	rr := factsGet(factsRouter(t, &stubDeviceRepo{item: item}, reader), "/inventory/devices/web1/fact-chain")
+	var body struct {
+		Device string       `json:"device"`
+		Values int          `json:"values"`
+		Head   string       `json:"head"`
+		Break  *facts.Break `json:"break"`
+		Links  []any        `json:"_links"`
+	}
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &body) != nil || body.Device != "web1" || body.Values != 2 ||
+		body.Head != "abc" || body.Break == nil || body.Break.Index != 1 || body.Links == nil {
+		t.Fatalf("chain: %d %s", rr.Code, rr.Body.String())
+	}
+	if reader.asked != string(item.ID())+" verify" {
+		t.Errorf("the reader was asked for %q, want the device's ID", reader.asked)
+	}
+	if rr := factsGet(factsRouter(t, &stubDeviceRepo{getErr: inventory.ErrItemNotFound}, reader), "/inventory/devices/nope/fact-chain"); rr.Code != http.StatusNotFound {
+		t.Errorf("a missing device: %d", rr.Code)
+	}
+	if rr := factsGet(factsRouter(t, &stubDeviceRepo{item: item}, nil), "/inventory/devices/web1/fact-chain"); rr.Code != http.StatusNotImplemented {
+		t.Errorf("no reader: %d", rr.Code)
+	}
+	long := strings.Repeat("d", 254)
+	if rr := factsGet(factsRouter(t, &stubDeviceRepo{item: item}, reader), "/inventory/devices/"+long+"/fact-chain"); rr.Code != http.StatusBadRequest {
+		t.Errorf("a device name past the limit: %d", rr.Code)
+	}
+	broken := factsRouter(t, &stubDeviceRepo{item: item}, &factReader{err: errors.New("pq: relation facts at db.internal:5432")})
+	if rr := factsGet(broken, "/inventory/devices/web1/fact-chain"); rr.Code != http.StatusInternalServerError || strings.Contains(rr.Body.String(), "db.internal") {
+		t.Errorf("a broken store: %d %s", rr.Code, rr.Body.String())
 	}
 }

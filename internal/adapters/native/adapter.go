@@ -57,6 +57,10 @@ type Adapter struct {
 	// (WithRenderer); nil refuses such a task rather than handing the
 	// method the literal text.
 	renderer render.Engine
+
+	// runnerID names this Runner on the facts it publishes (WithRunnerID),
+	// so a stored value says which Runner observed it.
+	runnerID string
 }
 
 // AdapterOption configures an Adapter at construction.
@@ -67,6 +71,14 @@ type AdapterOption func(*Adapter)
 // root, passes the one engine it holds.
 func WithRenderer(eng render.Engine) AdapterOption {
 	return func(a *Adapter) { a.renderer = eng }
+}
+
+// WithRunnerID names this Runner on the provenance of every fact it
+// publishes (Phase 41b). cmd/runner passes its host's name. The Controller
+// stores it as the Runner reported it: it is a label for a reader, not an
+// identity the Controller checked.
+func WithRunnerID(id string) AdapterOption {
+	return func(a *Adapter) { a.runnerID = id }
 }
 
 // NewAdapter builds a native Adapter. runbooks resolves a dispatched
@@ -269,7 +281,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID)
 	// The facts its tasks observe (Phase 41), published for the Controller
 	// to store; declared as the interface for the journal's typed-nil reason.
-	var factSink engine.FactRecorder = newFactsPublisher(ctx, a.bus, payload.JobID, payload.DeviceID)
+	var factSink engine.FactRecorder = newFactsPublisher(ctx, a.bus, payload.JobID, payload.DeviceID, a.runnerID)
 
 	executor := engine.NewExecutor(
 		singleDeviceResolver{device: device},

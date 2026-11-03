@@ -31,6 +31,16 @@ type Fact struct {
 	Hash string `json:"hash,omitempty"`
 	// LastSeenAt holds the value of the "last_seen_at" field.
 	LastSeenAt time.Time `json:"last_seen_at,omitempty"`
+	// Kind holds the value of the "kind" field.
+	Kind fact.Kind `json:"kind,omitempty"`
+	// Provenance holds the value of the "provenance" field.
+	Provenance map[string]interface{} `json:"provenance,omitempty"`
+	// LastProvenance holds the value of the "last_provenance" field.
+	LastProvenance map[string]interface{} `json:"last_provenance,omitempty"`
+	// ChainPrev holds the value of the "chain_prev" field.
+	ChainPrev *string `json:"chain_prev,omitempty"`
+	// Chain holds the value of the "chain" field.
+	Chain string `json:"chain,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the FactQuery when eager-loading is set.
 	Edges        FactEdges `json:"edges"`
@@ -63,11 +73,11 @@ func (*Fact) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case fact.FieldPayload:
+		case fact.FieldPayload, fact.FieldProvenance, fact.FieldLastProvenance:
 			values[i] = new([]byte)
 		case fact.FieldID:
 			values[i] = new(sql.NullInt64)
-		case fact.FieldKey, fact.FieldHash:
+		case fact.FieldKey, fact.FieldHash, fact.FieldKind, fact.FieldChainPrev, fact.FieldChain:
 			values[i] = new(sql.NullString)
 		case fact.FieldCreatedAt, fact.FieldUpdatedAt, fact.FieldLastSeenAt:
 			values[i] = new(sql.NullTime)
@@ -131,6 +141,41 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field last_seen_at", values[i])
 			} else if value.Valid {
 				_m.LastSeenAt = value.Time
+			}
+		case fact.FieldKind:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field kind", values[i])
+			} else if value.Valid {
+				_m.Kind = fact.Kind(value.String)
+			}
+		case fact.FieldProvenance:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field provenance", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Provenance); err != nil {
+					return fmt.Errorf("unmarshal field provenance: %w", err)
+				}
+			}
+		case fact.FieldLastProvenance:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field last_provenance", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.LastProvenance); err != nil {
+					return fmt.Errorf("unmarshal field last_provenance: %w", err)
+				}
+			}
+		case fact.FieldChainPrev:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field chain_prev", values[i])
+			} else if value.Valid {
+				_m.ChainPrev = new(string)
+				*_m.ChainPrev = value.String
+			}
+		case fact.FieldChain:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field chain", values[i])
+			} else if value.Valid {
+				_m.Chain = value.String
 			}
 		case fact.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -197,6 +242,23 @@ func (_m *Fact) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("last_seen_at=")
 	builder.WriteString(_m.LastSeenAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("kind=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Kind))
+	builder.WriteString(", ")
+	builder.WriteString("provenance=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Provenance))
+	builder.WriteString(", ")
+	builder.WriteString("last_provenance=")
+	builder.WriteString(fmt.Sprintf("%v", _m.LastProvenance))
+	builder.WriteString(", ")
+	if v := _m.ChainPrev; v != nil {
+		builder.WriteString("chain_prev=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("chain=")
+	builder.WriteString(_m.Chain)
 	builder.WriteByte(')')
 	return builder.String()
 }

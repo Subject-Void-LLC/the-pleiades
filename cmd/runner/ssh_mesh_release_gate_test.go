@@ -296,7 +296,9 @@ func newReleaseGateHarnessBare(t *testing.T, source knownHostsSource, runbookFil
 
 	// The renderer cmd/runner's main hands its adapter, so a runbook with a
 	// {{ }} renders here as it does on a real Runner.
-	adapter, err := native.NewAdapter(bus, runbooks, nil, native.WithRenderer(render.New()))
+	// Named as cmd/runner names a Runner, so a gate can read the label on
+	// the facts it publishes.
+	adapter, err := native.NewAdapter(bus, runbooks, nil, native.WithRenderer(render.New()), native.WithRunnerID(gateRunnerID))
 	if err != nil {
 		t.Fatalf("failed to init native adapter: %v", err)
 	}

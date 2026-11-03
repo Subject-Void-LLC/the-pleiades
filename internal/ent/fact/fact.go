@@ -3,6 +3,7 @@
 package fact
 
 import (
+	"fmt"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -26,6 +27,16 @@ const (
 	FieldHash = "hash"
 	// FieldLastSeenAt holds the string denoting the last_seen_at field in the database.
 	FieldLastSeenAt = "last_seen_at"
+	// FieldKind holds the string denoting the kind field in the database.
+	FieldKind = "kind"
+	// FieldProvenance holds the string denoting the provenance field in the database.
+	FieldProvenance = "provenance"
+	// FieldLastProvenance holds the string denoting the last_provenance field in the database.
+	FieldLastProvenance = "last_provenance"
+	// FieldChainPrev holds the string denoting the chain_prev field in the database.
+	FieldChainPrev = "chain_prev"
+	// FieldChain holds the string denoting the chain field in the database.
+	FieldChain = "chain"
 	// EdgeDevice holds the string denoting the device edge name in mutations.
 	EdgeDevice = "device"
 	// Table holds the table name of the fact in the database.
@@ -48,6 +59,11 @@ var Columns = []string{
 	FieldPayload,
 	FieldHash,
 	FieldLastSeenAt,
+	FieldKind,
+	FieldProvenance,
+	FieldLastProvenance,
+	FieldChainPrev,
+	FieldChain,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "facts"
@@ -88,6 +104,32 @@ var (
 	DefaultLastSeenAt func() time.Time
 )
 
+// Kind defines the type for the "kind" enum field.
+type Kind string
+
+// KindStable is the default value of the Kind enum.
+const DefaultKind = KindStable
+
+// Kind values.
+const (
+	KindStable   Kind = "stable"
+	KindVolatile Kind = "volatile"
+)
+
+func (k Kind) String() string {
+	return string(k)
+}
+
+// KindValidator is a validator for the "kind" field enum values. It is called by the builders before save.
+func KindValidator(k Kind) error {
+	switch k {
+	case KindStable, KindVolatile:
+		return nil
+	default:
+		return fmt.Errorf("fact: invalid enum value for kind field: %q", k)
+	}
+}
+
 // OrderOption defines the ordering options for the Fact queries.
 type OrderOption func(*sql.Selector)
 
@@ -119,6 +161,21 @@ func ByHash(opts ...sql.OrderTermOption) OrderOption {
 // ByLastSeenAt orders the results by the last_seen_at field.
 func ByLastSeenAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLastSeenAt, opts...).ToFunc()
+}
+
+// ByKind orders the results by the kind field.
+func ByKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldKind, opts...).ToFunc()
+}
+
+// ByChainPrev orders the results by the chain_prev field.
+func ByChainPrev(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChainPrev, opts...).ToFunc()
+}
+
+// ByChain orders the results by the chain field.
+func ByChain(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChain, opts...).ToFunc()
 }
 
 // ByDeviceField orders the results by device field.

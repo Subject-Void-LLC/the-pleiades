@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // TestHash_IsTheSameWhateverCarriedTheValue: an int in process and the
@@ -119,7 +120,7 @@ func TestFileStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 		{map[string]any{"kernel": "6.2"}, t0.Add(2 * time.Hour)},
 	}
 	for _, step := range steps {
-		if err := store.Record(ctx, device, prepared(t, step.observed), step.at); err != nil {
+		if err := store.Record(ctx, device, facts.Observation{Entries: prepared(t, step.observed), At: step.at}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -173,7 +174,7 @@ func TestFileStore_RefusesWhatItCannotTrust(t *testing.T) {
 	ctx := context.Background()
 	entries := prepared(t, map[string]any{"k": "v"})
 	for _, bad := range []string{"../escape", "", ".hidden", "a/b"} {
-		if err := store.Record(ctx, bad, entries, time.Now()); !errors.Is(err, facts.ErrInvalid) {
+		if err := store.Record(ctx, bad, facts.Observation{Entries: entries, At: time.Now()}); !errors.Is(err, facts.ErrInvalid) {
 			t.Errorf("device %q: %v, want ErrInvalid", bad, err)
 		}
 	}
@@ -187,7 +188,7 @@ func TestFileStore_RefusesWhatItCannotTrust(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "linked.jsonl")); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Record(ctx, "linked", entries, time.Now()); err == nil {
+	if err := store.Record(ctx, "linked", facts.Observation{Entries: entries, At: time.Now()}); err == nil {
 		t.Error("a write went through a link out of the directory")
 	}
 	if raw, _ := os.ReadFile(outside); len(raw) != 0 { // #nosec G304 -- the test's own file
@@ -240,9 +241,9 @@ func TestFileStore_ALateObservationDoesNotReplaceANewerOne(t *testing.T) {
 	}
 	ctx := context.Background()
 	t0 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
-	_ = store.Record(ctx, "dev", prepared(t, map[string]any{"k": "A"}), t0)
-	_ = store.Record(ctx, "dev", prepared(t, map[string]any{"k": "A"}), t0.Add(5*time.Hour))
-	if err := store.Record(ctx, "dev", prepared(t, map[string]any{"k": "B"}), t0.Add(time.Hour)); err != nil {
+	_ = store.Record(ctx, "dev", facts.Observation{Entries: prepared(t, map[string]any{"k": "A"}), At: t0})
+	_ = store.Record(ctx, "dev", facts.Observation{Entries: prepared(t, map[string]any{"k": "A"}), At: t0.Add(5 * time.Hour)})
+	if err := store.Record(ctx, "dev", facts.Observation{Entries: prepared(t, map[string]any{"k": "B"}), At: t0.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	current, _ := store.Current(ctx, "dev")
@@ -264,7 +265,7 @@ func TestFileStore_AnUnfinishedLineIsIgnoredAndCutOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := store.Record(ctx, "dev", prepared(t, map[string]any{"k": "A"}), time.Now()); err != nil {
+	if err := store.Record(ctx, "dev", facts.Observation{Entries: prepared(t, map[string]any{"k": "A"}), At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "dev.jsonl")
@@ -277,7 +278,7 @@ func TestFileStore_AnUnfinishedLineIsIgnoredAndCutOff(t *testing.T) {
 	if current, err := store.Current(ctx, "dev"); err != nil || len(current) != 1 || current[0].Value != "A" {
 		t.Fatalf("with an unfinished line: %+v, %v", current, err)
 	}
-	if err := store.Record(ctx, "dev", prepared(t, map[string]any{"k": "C"}), time.Now().Add(time.Second)); err != nil {
+	if err := store.Record(ctx, "dev", facts.Observation{Entries: prepared(t, map[string]any{"k": "C"}), At: time.Now().Add(time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(path) // #nosec G304 -- the test's own file
@@ -309,7 +310,7 @@ func TestFileStore_ConcurrentWritersTakeTurns(t *testing.T) {
 			}
 			for i := range 50 {
 				key := fmt.Sprintf("w%d_%d", w, i)
-				if err := store.Record(ctx, "dev", prepared(t, map[string]any{key: i}), base.Add(time.Duration(i)*time.Second)); err != nil {
+				if err := store.Record(ctx, "dev", facts.Observation{Entries: prepared(t, map[string]any{key: i}), At: base.Add(time.Duration(i) * time.Second)}); err != nil {
 					done <- err
 					return
 				}
@@ -359,7 +360,7 @@ func TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce(t *testing.T) {
 			}
 			<-start
 			for d := range devices {
-				if err := store.Record(ctx, fmt.Sprintf("dev%d", d), prepared(t, map[string]any{fmt.Sprintf("w%d", w): d}), at); err != nil {
+				if err := store.Record(ctx, fmt.Sprintf("dev%d", d), facts.Observation{Entries: prepared(t, map[string]any{fmt.Sprintf("w%d", w): d}), At: at}); err != nil {
 					errs <- err
 					return
 				}
@@ -439,4 +440,16 @@ func TestFileStore_ReadingCreatesNothingAndRefusesALink(t *testing.T) {
 	if _, err := facts.OpenFileStore(dir); err == nil {
 		t.Error("a linked directory was accepted for reading")
 	}
+}
+
+// TestFileStore_Conformance holds the CLI's file store to the rules both
+// stores keep (factstest).
+func TestFileStore_Conformance(t *testing.T) {
+	factstest.Run(t, func(t *testing.T) (facts.Store, string) {
+		store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return store, "dev1"
+	})
 }

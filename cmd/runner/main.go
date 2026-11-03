@@ -434,7 +434,10 @@ func main() {
 		log.Fatalf("failed to init runbook source: %v", err)
 	}
 
-	nativeAdapter, err := native.NewAdapter(bus, runbooks, logger, native.WithRenderer(render.New()))
+	// The host's name labels the facts this Runner publishes (Phase 41b); a
+	// host whose name cannot be read publishes them unlabeled.
+	runnerID, _ := os.Hostname()
+	nativeAdapter, err := native.NewAdapter(bus, runbooks, logger, native.WithRenderer(render.New()), native.WithRunnerID(runnerID))
 	if err != nil {
 		log.Fatalf("failed to init native adapter: %v", err)
 	}

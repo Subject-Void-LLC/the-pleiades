@@ -1,9 +1,12 @@
-// The Crawl tier's Release Gate for persisted facts (Phase 41): a real run of
-// a method that gathers facts, against a real sshd container through the
-// real binary, stores them under the project's .pleiades/facts; pleiades
-// facts reads them back as the device reports them, read beside the method;
-// a second gather writes no new value but confirms the old one; and a check
-// stores nothing.
+// The Crawl tier's Release Gate for persisted facts (Phase 41, 41b): a real
+// run of a method that gathers facts, against a real sshd container through
+// the real binary, stores them under the project's .pleiades/facts; pleiades
+// facts reads them back as the device reports them, read beside the method,
+// each with its declared kind and the run that saw it, ordered by the
+// project's run counter; a second gather writes no new value but confirms
+// the old one, and the volatile uptime keeps one value; a check stores
+// nothing; and --verify passes the chain and fails it once a stored value is
+// edited.
 package main_test
 
 import (
@@ -21,12 +24,27 @@ type factsView struct {
 	DeviceID string `json:"device_id"`
 	Key      string `json:"key"`
 	Facts    []struct {
-		Key        string    `json:"key"`
-		Value      any       `json:"value"`
-		Hash       string    `json:"hash"`
-		ObservedAt time.Time `json:"observed_at"`
-		LastSeenAt time.Time `json:"last_seen_at"`
+		Key        string      `json:"key"`
+		Value      any         `json:"value"`
+		Hash       string      `json:"hash"`
+		ObservedAt time.Time   `json:"observed_at"`
+		LastSeenAt time.Time   `json:"last_seen_at"`
+		Kind       string      `json:"kind"`
+		By         factsByView `json:"by"`
+		LastBy     factsByView `json:"last_by"`
 	} `json:"facts"`
+}
+
+// factsByView is a stored value's provenance as pleiades facts --json prints
+// it.
+type factsByView struct {
+	Run    string `json:"run"`
+	Node   string `json:"node"`
+	Method string `json:"method"`
+	Order  struct {
+		Source string `json:"source"`
+		Token  uint64 `json:"token"`
+	} `json:"order"`
 }
 
 func TestCLI_FactsReleaseGate(t *testing.T) {
@@ -65,6 +83,16 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	if want := g.device(t, "uname -r"); kernel != want || first.DeviceID == "" {
 		t.Fatalf("stored ansible_kernel %q for device %q, the device says %q", kernel, first.DeviceID, want)
 	}
+	kinds := map[string]string{}
+	for _, f := range first.Facts {
+		kinds[f.Key] = f.Kind
+		if f.By.Run == "" || f.By.Node == "" || f.By.Method != "facts.gather" || f.By.Order.Source != "clock" || f.By.Order.Token == 0 {
+			t.Errorf("%s: provenance %+v, want this run, its node, facts.gather and the run counter", f.Key, f.By)
+		}
+	}
+	if kinds["ansible_kernel"] != "stable" || kinds["ansible_uptime_seconds"] != "volatile" {
+		t.Errorf("kinds = %v, want the kernel stable and the uptime volatile as declared", kinds)
+	}
 	history := filepath.Join(g.dir, ".pleiades", "facts", first.DeviceID+".jsonl")
 	lines := func() int {
 		raw, err := os.ReadFile(history) // #nosec G304 -- the test's own project
@@ -80,18 +108,22 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 
 	gather()
 	second := read()
-	if got := lines(); got > written+2 {
-		t.Errorf("a second gather wrote %d lines, more than the few facts that change between runs (uptime)", got-written)
+	// The uptime moved, but it is volatile: no history line for it.
+	if got := lines(); got != written {
+		t.Errorf("a second gather of an unchanged device wrote %d history lines", got-written)
 	}
 	for _, f := range second.Facts {
 		if f.Key == "ansible_kernel" {
-			if !f.LastSeenAt.After(f.ObservedAt) {
-				t.Errorf("the kernel, gathered again unchanged, was not confirmed: observed %s, last seen %s", f.ObservedAt, f.LastSeenAt)
+			if !f.LastSeenAt.After(f.ObservedAt) || f.LastBy.Order.Token <= f.By.Order.Token || f.LastBy.Run == f.By.Run {
+				t.Errorf("the kernel, gathered again unchanged, was not confirmed by the second run: %+v", f)
 			}
 		}
 	}
 	if h := read("ansible_kernel"); len(h.Facts) != 1 {
 		t.Errorf("the kernel's history has %d values, want 1", len(h.Facts))
+	}
+	if h := read("ansible_uptime_seconds"); len(h.Facts) != 1 || h.Facts[0].Kind != "volatile" {
+		t.Errorf("the uptime's history = %+v, want its one latest value", h.Facts)
 	}
 
 	before := lines()
@@ -101,5 +133,25 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	}
 	if out, code := g.pleiades(t, "facts", "nosuchhost"); code == 0 {
 		t.Errorf("facts of a host not in the inventory: exit 0\n%s", out)
+	}
+
+	// The chain verifies; an edited value breaks it, and the command says so
+	// by its exit status.
+	if out, code := g.pleiades(t, "facts", "container1", "--verify"); code != 0 || !strings.Contains(out, "unbroken") {
+		t.Fatalf("--verify of an untouched store: exit %d\n%s", code, out)
+	}
+	raw, err := os.ReadFile(history) // #nosec G304 -- the test's own project
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(raw), `"`+kernel+`"`, `"0.0.0-edited"`, 1)
+	if edited == string(raw) {
+		t.Fatal("the kernel's value is not in the history file to edit")
+	}
+	if err := os.WriteFile(history, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := g.pleiades(t, "facts", "container1", "--verify"); code == 0 || !strings.Contains(out, "breaks at value") {
+		t.Errorf("--verify of an edited store: exit %d\n%s", code, out)
 	}
 }

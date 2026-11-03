@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // Subscriber writes published fact batches into the store.
@@ -64,7 +65,12 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		s.logger.Error("dropping a malformed facts batch", slog.String("event", evt.ID))
 		return nil
 	}
-	entries, refused, err := facts.Verify(batch.Entries, facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName})
+	// The run that observed them, held to the batch's own job and attempt
+	// rather than trusting a second copy of each.
+	by := batch.By
+	by.Job, by.Attempt = batch.JobID, batch.Attempt
+	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: declared(by.Method)}
+	entries, refused, err := facts.Verify(batch.Entries, guard)
 	if err != nil || refused > 0 {
 		s.logger.Warn("dropping facts a Runner published that do not pass the rules",
 			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Int("refused", refused), slog.Any("error", err))
@@ -87,7 +93,8 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			return fmt.Errorf("the facts batch names job %s device %s, which this controller has not recorded dispatching yet", batch.JobID, batch.DeviceID)
 		}
 	}
-	if err := s.store.Record(context.Background(), batch.DeviceID, entries, batch.ObservedAt); err != nil {
+	obs := facts.Observation{Entries: entries, At: batch.ObservedAt, By: by}
+	if err := s.store.Record(context.Background(), batch.DeviceID, obs); err != nil {
 		if errors.Is(err, ErrUnknownDevice) {
 			s.logger.Error("dropping a facts batch for a device the database does not hold",
 				slog.String("job", batch.JobID), slog.String("device", batch.DeviceID))
@@ -97,4 +104,19 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	}
 	s.logger.Debug("stored a facts batch", slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Int("facts", len(entries)))
 	return nil
+}
+
+// declared is what a method this Controller knows declares about its facts,
+// so a Runner cannot store a built-in method's fact under another kind or
+// type; nil for a method it does not know (an external Collection's, which
+// only a Runner loads), whose entries keep the kind the Runner sent.
+func declared(method string) func(key string) (facts.Spec, bool) {
+	d, ok := collection.Lookup(method)
+	if !ok || d.Provider != nil {
+		return nil
+	}
+	return func(key string) (facts.Spec, bool) {
+		spec, ok := collection.FactFor(d.Manifest.Facts, key)
+		return facts.Spec{Kind: facts.Kind(spec.Kind), Type: facts.ValueType(spec.Type)}, ok
+	}
 }

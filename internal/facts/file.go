@@ -1,11 +1,10 @@
 // Package facts: the Crawl CLI's fact store, a directory of files under the
 // project's .pleiades/facts, one set per device.
 //
-// <device>.jsonl is append-only: one line per stored value, so a key's lines
-// are its history. <device>.seen.json maps each key and value hash to when
-// that value was last confirmed, rewritten whole through a uniquely named
-// temporary file and a rename, since it changes on every observation and the
-// history does not. A key's current value is the one most recently confirmed.
+// <device>.jsonl is append-only: one line per stored stable value, so a
+// key's lines are its history. <device>.state.json holds what changes on
+// every observation (file_store.go). A key's current value is the one most
+// recently confirmed.
 //
 // Every file is opened through an os.Root on the directory, so a link planted
 // there cannot lead a write outside it; the directory is refused when it is
@@ -18,7 +17,6 @@ package facts
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -28,7 +26,6 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
-	"sort"
 	"sync/atomic"
 	"time"
 )
@@ -86,18 +83,6 @@ func OpenFileStore(dir string) (*FileStore, error) {
 	return &FileStore{dir: dir}, nil
 }
 
-// line is one stored value as the history file holds it.
-type line struct {
-	Key        string    `json:"key"`
-	Value      any       `json:"value"`
-	Hash       string    `json:"hash"`
-	ObservedAt time.Time `json:"observed_at"`
-}
-
-// seenTimes is when each key's each value was last confirmed, by key and then
-// hash.
-type seenTimes map[string]map[string]time.Time
-
 // lockOpenAttempts bounds how often openLock tries again; lockOpenRetries
 // counts the tries again, so a test can see whether a platform needed one.
 const lockOpenAttempts = 20
@@ -148,77 +133,6 @@ func (s *FileStore) root(device string) (*os.Root, error) {
 	return r, nil
 }
 
-// Record implements Store, under the device's lock: each entry whose hash
-// differs from the value its key held at at is appended, and every observed
-// value's last-seen time moves to at when later.
-func (s *FileStore) Record(_ context.Context, device string, entries []Entry, at time.Time) error {
-	if len(entries) == 0 {
-		return nil
-	}
-	r, err := s.root(device)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = r.Close() }()
-	lock, err := openLock(r, device+".lock")
-	if err != nil {
-		return fmt.Errorf("facts: %w", err)
-	}
-	defer func() { _ = lock.Close() }()
-	if err := lockFile(lock); err != nil {
-		return fmt.Errorf("facts: locking %s's facts: %w", device, err)
-	}
-	defer func() { _ = unlockFile(lock) }()
-
-	lines, complete, err := readLines(r, device)
-	if err != nil {
-		return err
-	}
-	seen, err := readSeen(r, device)
-	if err != nil {
-		return err
-	}
-	at = at.UTC()
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
-	var appended []byte
-	for _, e := range entries {
-		if seen[e.Key] == nil {
-			seen[e.Key] = map[string]time.Time{}
-		}
-		if at.After(seen[e.Key][e.Hash]) {
-			seen[e.Key][e.Hash] = at
-		}
-		if cur, ok := valueAt(lines, e.Key, at); ok && cur.Hash == e.Hash {
-			continue
-		}
-		raw, err := json.Marshal(line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at})
-		if err != nil {
-			return fmt.Errorf("facts: %w", err)
-		}
-		appended = append(append(appended, raw...), '\n')
-		lines = append(lines, line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at})
-	}
-	if len(appended) > 0 {
-		if err := appendLines(r, device, complete, appended); err != nil {
-			return err
-		}
-	}
-	return writeSeen(r, device, seen)
-}
-
-// valueAt is the line key held at at: the last line for key observed at or
-// before at.
-func valueAt(lines []line, key string, at time.Time) (line, bool) {
-	var found line
-	ok := false
-	for _, l := range lines {
-		if l.Key == key && !l.ObservedAt.After(at) {
-			found, ok = l, true
-		}
-	}
-	return found, ok
-}
-
 // appendLines appends to device's history, first cutting off an unfinished
 // line a crash left past complete bytes.
 func appendLines(r *os.Root, device string, complete int64, appended []byte) error {
@@ -240,72 +154,6 @@ func appendLines(r *os.Root, device string, complete int64, appended []byte) err
 		return fmt.Errorf("facts: %w", err)
 	}
 	return nil
-}
-
-// Current implements Store: for each key, the value most recently confirmed
-// (the later line when two were confirmed at once).
-func (s *FileStore) Current(_ context.Context, device string) ([]Entry, error) {
-	r, err := s.root(device)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = r.Close() }()
-	lines, _, err := readLines(r, device)
-	if err != nil {
-		return nil, err
-	}
-	seen, err := readSeen(r, device)
-	if err != nil {
-		return nil, err
-	}
-	current := map[string]Entry{}
-	for _, l := range lines {
-		e := Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, LastSeenAt: lastSeen(seen, l)}
-		if cur, ok := current[l.Key]; !ok || !e.LastSeenAt.Before(cur.LastSeenAt) {
-			current[l.Key] = e
-		}
-	}
-	out := make([]Entry, 0, len(current))
-	for _, e := range current {
-		out = append(out, e)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
-	return out, nil
-}
-
-// History implements Store: every line for key, oldest first, each with when
-// its value was last confirmed.
-func (s *FileStore) History(_ context.Context, device, key string) ([]Entry, error) {
-	r, err := s.root(device)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = r.Close() }()
-	lines, _, err := readLines(r, device)
-	if err != nil {
-		return nil, err
-	}
-	seen, err := readSeen(r, device)
-	if err != nil {
-		return nil, err
-	}
-	var out []Entry
-	for _, l := range lines {
-		if l.Key == key {
-			out = append(out, Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, LastSeenAt: lastSeen(seen, l)})
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].ObservedAt.Before(out[j].ObservedAt) })
-	return out, nil
-}
-
-// lastSeen is when l's value was last confirmed, its own observation when no
-// later one is recorded.
-func lastSeen(seen seenTimes, l line) time.Time {
-	if t, ok := seen[l.Key][l.Hash]; ok && t.After(l.ObservedAt) {
-		return t
-	}
-	return l.ObservedAt
 }
 
 // readLines reads device's history, and how many bytes of it are whole
@@ -346,27 +194,35 @@ func readLines(r *os.Root, device string) ([]line, int64, error) {
 	}
 }
 
-// readSeen reads device's last-seen times; a missing file is none.
-func readSeen(r *os.Root, device string) (seenTimes, error) {
-	seen := seenTimes{}
-	f, err := r.Open(device + ".seen.json")
+// readState reads device's state; a missing file is an empty one.
+func readState(r *os.Root, device string) (state, error) {
+	st := state{Seen: map[string]map[string]sighting{}, Volatile: map[string]volatileValue{}}
+	f, err := r.Open(device + ".state.json")
 	if errors.Is(err, fs.ErrNotExist) {
-		return seen, nil
+		return st, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("facts: %w", err)
+		return state{}, fmt.Errorf("facts: %w", err)
 	}
 	defer func() { _ = f.Close() }()
-	if err := json.NewDecoder(f).Decode(&seen); err != nil {
-		return nil, fmt.Errorf("facts: %s.seen.json: %w", device, err)
+	dec := json.NewDecoder(f)
+	dec.UseNumber()
+	if err := dec.Decode(&st); err != nil {
+		return state{}, fmt.Errorf("facts: %s.state.json: %w", device, err)
 	}
-	return seen, nil
+	if st.Seen == nil {
+		st.Seen = map[string]map[string]sighting{}
+	}
+	if st.Volatile == nil {
+		st.Volatile = map[string]volatileValue{}
+	}
+	return st, nil
 }
 
-// writeSeen rewrites device's last-seen times through a temporary file of its
-// own name and a rename, so a reader never meets half of one.
-func writeSeen(r *os.Root, device string, seen seenTimes) error {
-	raw, err := json.Marshal(seen)
+// writeState rewrites device's state through a temporary file of its own
+// name and a rename, so a reader never meets half of one.
+func writeState(r *os.Root, device string, st state) error {
+	raw, err := json.Marshal(st)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
@@ -374,7 +230,7 @@ func writeSeen(r *os.Root, device string, seen seenTimes) error {
 	if _, err := rand.Read(suffix); err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	tmp := device + ".seen." + hex.EncodeToString(suffix) + ".tmp"
+	tmp := device + ".state." + hex.EncodeToString(suffix) + ".tmp"
 	f, err := r.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, fileMode)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
@@ -388,7 +244,7 @@ func writeSeen(r *os.Root, device string, seen seenTimes) error {
 		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
 	}
-	if err := r.Rename(tmp, device+".seen.json"); err != nil {
+	if err := r.Rename(tmp, device+".state.json"); err != nil {
 		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
 	}

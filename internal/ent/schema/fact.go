@@ -48,15 +48,35 @@ func (Fact) Fields() []ent.Field {
 		// Nullable for the expand migration's sake, as key's default is; the
 		// store always sets it, and a reader falls back to created_at.
 		field.Time("last_seen_at").Optional().Default(time.Now),
+		// kind is what the emitting method declared (Phase 41b): a stable
+		// key's rows are its history; a volatile key keeps one row, replaced
+		// when its value changes. A row from before 41b reads as stable.
+		field.Enum("kind").Values("stable", "volatile").Default("stable").Immutable(),
+		// provenance is the run that first observed this value
+		// (facts.Provenance, with its run order); last_provenance the run
+		// that last confirmed it, which moves with last_seen_at. Empty on a
+		// row from before 41b, which reads as unknown provenance.
+		field.JSON("provenance", map[string]interface{}{}).Optional().Immutable(),
+		field.JSON("last_provenance", map[string]interface{}{}).Optional(),
+		// chain_prev and chain are the device's hash chain over its stable
+		// rows (internal/facts' chain.go): chain_prev is the chain hash of
+		// the device's stable row stored before this one ("" for the first),
+		// chain this row's. Both are null on a volatile row and on a row from
+		// before 41b. The unique index below keeps the chain a line: a second
+		// writer naming the same predecessor fails, and its batch is
+		// redelivered against the new head.
+		field.String("chain_prev").Optional().Nillable().Immutable(),
+		field.String("chain").Optional().Immutable(),
 	}
 }
 
-// Indexes of the Fact: one key across devices, and every fact of one device
-// (what the device's facts route reads).
+// Indexes of the Fact: one key across devices, every fact of one device
+// (what the device's facts route reads), and one successor per chain link.
 func (Fact) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("key").Edges("device"),
 		index.Edges("device"),
+		index.Fields("chain_prev").Edges("device").Unique(),
 	}
 }
 

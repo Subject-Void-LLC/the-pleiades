@@ -21,7 +21,7 @@ import (
 )
 
 // factsUsage is the command's usage.
-const factsUsage = "usage: pleiades facts <host> [<key>] [--dir DIR] [--json]"
+const factsUsage = "usage: pleiades facts <host> [<key>] [--verify] [--dir DIR] [--json]"
 
 // factsReport is `pleiades facts`' model: the host, and either its current
 // facts or one key's history.
@@ -32,19 +32,32 @@ type factsReport struct {
 	Facts    []facts.Entry `json:"facts"`
 }
 
+// factChainReport is `pleiades facts <host> --verify`'s model: what checking
+// the host's fact chain found.
+type factChainReport struct {
+	Host     string `json:"host"`
+	DeviceID string `json:"device_id"`
+	facts.Verdict
+}
+
+// errFactChainBroken ends a --verify that found a break, so a script can
+// tell an intact chain from a broken one by the exit status alone.
+var errFactChainBroken = errors.New("the host's fact chain is broken")
+
 // runFacts is `pleiades facts <host> [<key>]`.
 func runFacts(args []string) error {
 	if len(args) == 0 || asksHelp(args[:1]) {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
 	}
-	positionals, rest := splitPositionals(args, map[string]bool{"json": true})
+	positionals, rest := splitPositionals(args, map[string]bool{"json": true, "verify": true})
 	fs := flag.NewFlagSet("facts", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
+	verify := fs.Bool("verify", false, "check the host's fact chain instead of showing its facts")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	if len(positionals) < 1 || len(positionals) > 2 {
+	if len(positionals) < 1 || len(positionals) > 2 || *verify && len(positionals) != 1 {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
 	}
 	ctx := context.Background()
@@ -52,6 +65,9 @@ func runFacts(args []string) error {
 	item, err := repo.GetByName(ctx, positionals[0])
 	if err != nil {
 		return fmt.Errorf("host %q: %w", positionals[0], err)
+	}
+	if *verify {
+		return verifyFacts(ctx, *dir, item.Name(), string(item.ID()), *asJSON)
 	}
 	rep := factsReport{Host: item.Name(), DeviceID: string(item.ID())}
 	if len(positionals) == 2 {
@@ -100,7 +116,64 @@ func printFacts(rep factsReport) {
 		if err != nil {
 			value = []byte("?")
 		}
-		fmt.Printf("%s = %s  (observed %s, last seen %s)\n", termsafe.Escape(e.Key), termsafe.Escape(string(value)),
-			e.ObservedAt.Local().Format(time.RFC3339), e.LastSeenAt.Local().Format(time.RFC3339))
+		fmt.Printf("%s = %s  (%s; observed %s, last seen %s%s)%s\n", termsafe.Escape(e.Key), termsafe.Escape(string(value)), e.Kind,
+			e.ObservedAt.Local().Format(time.RFC3339), e.LastSeenAt.Local().Format(time.RFC3339), byRun(e.LastBy), clockNote(e))
 	}
+}
+
+// byRun names the run that last confirmed a value, when it is known.
+func byRun(p facts.Provenance) string {
+	if p.Run == "" {
+		return ""
+	}
+	return " by run " + termsafe.Escape(p.Run)
+}
+
+// clockNote says a history entry was placed by the clock rather than by
+// run order.
+func clockNote(e facts.Entry) string {
+	if !e.OrderedByClock {
+		return ""
+	}
+	return "  [placed after the previous value by the clock: the two runs' orders do not compare]"
+}
+
+// verifyFacts is --verify: the host's fact chain, checked.
+func verifyFacts(ctx context.Context, dir, host, deviceID string, asJSON bool) error {
+	rep := factChainReport{Host: host, DeviceID: deviceID}
+	store, err := facts.OpenFileStore(factsDir(dir))
+	switch {
+	case errors.Is(err, facts.ErrNoStore):
+	case err != nil:
+		return err
+	default:
+		if rep.Verdict, err = store.Verify(ctx, deviceID); err != nil {
+			return err
+		}
+	}
+	if asJSON {
+		if err := writeJSON(os.Stdout, rep); err != nil {
+			return err
+		}
+	} else {
+		printVerdict(rep)
+	}
+	if rep.Break != nil {
+		return errFactChainBroken
+	}
+	return nil
+}
+
+// printVerdict is the text view of a chain check.
+func printVerdict(rep factChainReport) {
+	host := termsafe.Escape(rep.Host)
+	if rep.Break != nil {
+		fmt.Printf("%s: the fact chain breaks at value %d (%s): %s\n", host, rep.Break.Index, termsafe.Escape(rep.Break.Key), rep.Break.Reason)
+		return
+	}
+	fmt.Printf("%s: %d stored value(s) chained, the chain unbroken; head %s\n", host, rep.Values, rep.Head)
+	if rep.Unchained > 0 {
+		fmt.Printf("  %d older value(s) were stored before the chain existed and are not checked\n", rep.Unchained)
+	}
+	fmt.Println("  tamper-evident only: values cut off the end leave a shorter chain that still verifies; keep the head elsewhere to notice that")
 }
