@@ -116,3 +116,14 @@ func TestLastLine_SkipsALoginBanner(t *testing.T) {
 		}
 	}
 }
+
+func TestProbes_AreTheProbesGatherRuns(t *testing.T) {
+	rpm := Probes("Linux", gatherSubsetPackages, "rpm -qa")
+	if len(rpm) != 1 || len(Probes("Linux", gatherSubsetPackages, "")) != len(linuxPackageProbes()) || Probes("Linux", "nosuch", "") != nil {
+		t.Fatalf("Probes = %v", rpm)
+	}
+	got := rpm[0].Read("bash\t(none)\t5.2-1\tx86_64\nbash\t(none)\t5.2-1\ti686\n")
+	if len(got) != 2 || got["package.bash"] == nil || got["package.bash:i686"] == nil {
+		t.Errorf("Read = %v", got)
+	}
+}
