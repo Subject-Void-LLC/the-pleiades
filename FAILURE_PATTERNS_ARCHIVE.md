@@ -20100,3 +20100,83 @@ journal). Tests: `TestNextTickContinuesTheCounterAndInterleavesWithRuns` (`inter
 
 **Lesson.** An order is taken when the thing it orders happens: at the observation, not at the run's start (who began
 first) and not at the write (which can come later).
+
+## 841. The shipped Controller's device admission and rollback route read a method registry it never fills, so admission checked nothing and every recorded undo was refused, in v0.3.0 too (a repeat of 837, and so of 52 and 578) (fixed)
+
+**Symptom.** 2026-11-03, found after Phase 41b merged (PR #106, `a29afac9`). `cmd/controller` links no Collection:
+under `internal/catalog`, `go list -deps ./cmd/controller` shows only `internal/catalog/fragment`, and nothing it links
+calls `collection.Register` outside tests. Two Controller paths still read that registry:
+
+- `dispatch.methodsAdmit` (`internal/dispatch/worker_devices.go`) skips a method `collection.Lookup` does not find. In
+  the shipped Controller it found none, so Phase 117b part 1's capability and transport admission (the fix for 557)
+  checked nothing. The Runner's preflight and the engine still refused such a device, later, on the Runner.
+- `internal/rollback`'s `declaredUndo` refused every recorded undo on `POST /jobs/{id}/rollback` as "not a built-in
+  method this build runs". `changesNothing` read the same registry, so a failed read-only task became an unknown gap.
+
+Proven in the Controller's own test binary on 2026-11-03 with a throwaway test: `collection.Lookup("file.permissions")`
+returned false, and `rollback.Verify` of a recorded `file.permissions` undo refused it. The `v0.3.0` tag has the same
+lookups in `internal/rollback/verify.go` and `internal/dispatch/worker_devices.go` and the same imports, so Walk-tier
+rollback of a recorded undo never worked in a released Controller. The Runner side re-verifies with its full registry,
+which is why the Runner was never the problem.
+
+**Why no test caught it.** Every test ran in a binary that had filled the registry. `internal/dispatch`'s admission
+tests register synthetic descriptors. `internal/api/dispatcher_rollback_test.go` blank-imports `internal/catalog`.
+`cmd/runner`'s rollback release gate builds the Dispatcher inside `cmd/runner`'s test binary, which links the catalog.
+No test ran either path in a binary that links what `cmd/controller` links.
+
+**Root cause.** The same as 837's: Controller code reached method declarations through an `init()`-filled registry
+that only a binary importing the catalog fills. Here two more readers did it, and they predate 837.
+
+**Why 837, 52 and 578 did not prevent it.** 837 was found the day before, in the same shape, and its fix
+(`entstore.CatalogIndex` over `wellknown.ModuleCatalog`) fixed the one consumer in view: the facts Subscriber. Nobody
+then listed every other `collection.Lookup` the Controller links, so the fix closed an instance and not the class. The
+records keeper's note on 837 named `methodsAdmit` as the same class, and the previous handoff carried it as "found, not
+fixed". LESSONS 382, written for 837, says to run `go list -deps ./cmd/controller` before Controller code reads a
+registry; it speaks of new code and does not ask for a sweep of the old. 52 (LESSONS 56) and 578 did not prevent it for
+the reasons 837 gives: each fixed its own mechanism. LESSONS 155 and 157 already say to enumerate every surface that
+can carry a class before calling it closed; they were not applied when 837 closed.
+
+**Fix.** `8d8bdd6b` on `fix/controller-catalog` (not merged when written). `pkg/collection` gains `InstallCatalog`,
+`BuiltinManifest` and `ManifestOf` (`pkg/collection/catalog.go`): the registry first, then the module catalog that a
+binary registering no Collection installs once. `cmd/controller` installs `wellknown.ModuleCatalog` at start
+(`cmd/controller/builtin_catalog.go`, called from `main.go`). Admission (`internal/dispatch/worker_devices.go`),
+rollback's declarations (`internal/rollback/verify.go`, `steps.go`) and `engine.ListParam`
+(`internal/engine/journal_entry.go`) read through them. Tests:
+`TestWorker_AdmitsFromTheInstalledCatalogInABinaryWithNoRegistry`
+(`internal/dispatch/worker_method_admission_test.go`, mutation-checked);
+`TestInstallBuiltinCatalog_TheControllerTrustsABuiltInsRecordedUndo` (`cmd/controller/builtin_catalog_test.go`, in
+the Controller's own test binary, which links no Collection either); and `TestTheControllerReadsNoRegistryItDoesNotFill`
+(`internal/archtest/controller_registry_test.go`, mutation-checked), which refuses a new `collection.Lookup` in any
+package the Controller links unless it is listed with why it never runs there. Changelog:
+`changelog/controller-builtin-catalog.fixed.md`.
+
+**Lesson.** When a class is found once, sweep every consumer of the same assumption before closing it, and make the
+sweep a test so the next consumer is refused too. This is LESSONS 155 and 157 again, applied to LESSONS 382's case; no
+new lesson was written. The archtest is the sweep made permanent.
+
+## 842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) once failed with "no such file or directory" while another store created the same lock file (open: cause not proven; mitigated by a bounded retry)
+
+**Symptom.** 2026-11-02, GitHub Actions run 41522289001 on `feat/c2d-persisted-facts` at `497a2cc7`, leg `fast-macos`,
+strict. `internal/facts`'s `TestFileStore_ConcurrentWritersTakeTurns` failed with `facts_test.go:321: facts: openat
+dev.lock: no such file or directory`: two stores were creating the same device's lock file at once, and one open with
+`O_CREATE`, through an `os.Root` on a directory that still existed, was refused as if the file's directory were
+missing. The other store created the file at once. It has not been seen on Linux, FreeBSD or Windows.
+
+**Root cause.** Not proven. It has not been reproduced since the one failure, and no upstream cause (Go's `os.Root` on
+darwin, or XNU) has been named. The lab Mac was unreachable over SSH, so no hand reproduction was possible.
+
+**Mitigation, not a fix.** `724a9d09` (in PR #105): `openLock` (`internal/facts/file.go`) tries the open again, at most
+`lockOpenAttempts` (20) times, only on "not exist" and only while the directory is still at its path, and counts each
+retry in `lockOpenRetries`. The same commit added `TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce` (eight stores
+creating forty devices' files at once), which logs the count. PR #106 made the count visible in CI: testgate prints
+the notes a passing test logs as `note: ` lines (`4f329cc6`, `tools/internal/flakegate/notes.go`). In PR #106's run
+41562963070 the fast-macos and repeat passes reported 0 retries, on darwin/arm64 and on linux/amd64. Zero retries means
+the race did not recur in that run; it does not show the cause is gone.
+
+**Handled as 448 was.** 448 (`pkg/tftpxfer` on macOS) is a different failure with the same constraints: intermittent,
+on a platform nobody could log in to, cause unknown. LESSONS 269 (make the fixture say why) applies here as it did
+there.
+
+**Lesson.** An intermittent failure on a platform you cannot reach is mitigated narrowly (bounded, only on the exact
+error, only while the precondition still holds) and made measurable in CI, and its cause stays "unproven" in the
+record until a run reproduces it. Close this entry only with a reproduction or a named cause.

@@ -109,3 +109,8 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     branch-containers job, receipt in `.git/pleiades-branch-ci.json`); open the pull request only when it passes. It
     covers the container packages the branch changes, not the ones that only import a changed package (FAILURE_PATTERNS
     631 is still open), and nothing reads the receipt yet: the rule is remembered, not enforced. A change that narrows what pr-check selects names what it still runs, and keeps `PR_CHECK_ALWAYS`. FAILURE_PATTERNS 426, 446, 538, 755, 756; LESSONS 365.
+24. **A failure only a leg you cannot reach has shown is mitigated narrowly and counted, and its cause stays unproven.**
+    Retry only on the exact error, a bounded number of times, and only while the precondition still holds; count each
+    retry and have a test log the count, so testgate prints it as a `note: ` line in every pass. A count of zero says
+    the race did not recur in that run, not that the cause is gone; the failure pattern stays open until a run
+    reproduces it. FAILURE_PATTERNS 448, 842.
