@@ -846,6 +846,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 840. The Crawl CLI ordered stored facts by each run's start tick, though CLI runs overlap, so a run that started earlier and observed later was ordered first (a repeat of 793 and LESSONS 372) (fixed before push)
 841. The shipped Controller's device admission and rollback route read a method registry it never fills, so admission checked nothing and every recorded undo was refused, in v0.3.0 too (a repeat of 837, and so of 52 and 578) (fixed)
 842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) failed with "no such file or directory" while another store created the same lock file: macOS openat(2) relative to a directory fd reports ENOENT under concurrent create (cause reproduced 2026-11-03; mitigated by a bounded retry)
+843. container.image.save's check predicted a digest the real save missed now and then, because classic Docker stamps the archive's blobs/sha256/ directory with the time of the save, and CI tolerated it three times as contention (a repeat in kind of 589) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

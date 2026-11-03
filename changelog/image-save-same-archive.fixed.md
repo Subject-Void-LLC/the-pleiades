@@ -1,0 +1,1 @@
+`container.image.save` now writes the same archive, and returns the same digest, for the same images on every engine: classic Docker stamps the archive with the time of the save, so a check's predicted digest could miss the real one and saving again could count as a change.
