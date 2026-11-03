@@ -105,10 +105,10 @@ func parseSSHProbe(out string) Probed {
 	lines := strings.Split(out, "\n")
 	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "pleiades-probe=1" })
 	if start < 0 {
-		return Probed{Facts: map[string]any{"shell": "not posix"}}
+		return Probed{Facts: map[string]any{inventory.ShellFact: inventory.NotPOSIX}}
 	}
 	has := map[string]bool{}
-	facts := map[string]any{"shell": "posix"}
+	facts := map[string]any{inventory.ShellFact: "posix"}
 	systemdRunning := false
 	for _, line := range lines[start+1:] {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")

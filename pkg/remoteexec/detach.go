@@ -61,8 +61,7 @@ type redialer func(ctx context.Context) (*Conn, error)
 //     stops the job through these paths, so a directory the login owns would
 //     let the login point root's reads and kills anywhere.
 //   - The job runs under the caller's umask (the 077 is for the job's own
-//     files) and under "$1", or the account's login shell when "$1" is
-//     empty, the shell a plain run's command gets from sshd.
+//     files) and under "$1", sh, as a plain run's command does (script.go).
 //   - It runs in its own session where setsid exists, otherwise in its own
 //     process group through job control, so a stop reaches everything it
 //     started.
@@ -104,13 +103,13 @@ func lastLine(text string) string {
 }
 
 // jobShell is the shell a detached command runs under, passed to detachStart
-// as "$1": sh under become, as elevate runs a plain command, and otherwise
-// empty, meaning the login shell sshd gives a plain command.
+// as "$1": sh, which runs a plain command too (script.go), unless the
+// connection is Raw, whose plain commands the login shell reads.
 func (c *Conn) jobShell() string {
-	if c.become != nil {
-		return "sh"
+	if c.raw {
+		return ""
 	}
-	return ""
+	return "sh"
 }
 
 // Detached-command polling: the first poll soon, then backing off to a

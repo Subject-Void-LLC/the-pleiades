@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -430,5 +431,35 @@ func TestRefuseBecome_NamesTheWayTheMethodAndTheAccount(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not say %q", err, want)
 		}
+	}
+}
+
+// TestConnect_HandsShTheCommandUnlessTheDeviceIsANetworkCLI proves a
+// connection to a host sends every command encoded for sh, whatever the
+// login shell is, and one to a network device's CLI sends it as written for
+// that CLI to read. The server's own record of the lines it was sent is the
+// evidence.
+func TestConnect_HandsShTheCommandUnlessTheDeviceIsANetworkCLI(t *testing.T) {
+	srv := startServer(t)
+	rc := newSecretContext(srv.Secrets())
+	params := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}
+	host := &sshDevice{Stub: newStub(), host: srv.Host, port: srv.Port}
+	cliStub := newStub()
+	cliStub.Caps = append(cliStub.Caps, capability.NameNetworkCLI)
+	cli := &sshDevice{Stub: cliStub, host: srv.Host, port: srv.Port}
+
+	for _, device := range []*sshDevice{host, cli} {
+		conn, err := sdk.Connect(context.Background(), rc, device, params, "test.connect")
+		if err != nil {
+			t.Fatalf("Connect: %v", err)
+		}
+		if _, err := conn.Run(context.Background(), "echo reachable"); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		_ = conn.Close()
+	}
+	wire := srv.WireCommands()
+	if len(wire) != 2 || wire[0] != shline.For("echo reachable") || wire[1] != "echo reachable" {
+		t.Fatalf("sent %q; want the host's encoded for sh and the CLI's as written", wire)
 	}
 }

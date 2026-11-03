@@ -132,11 +132,11 @@ func shellDoc() collection.Doc {
 // each one, so the remote shell finds nothing to interpret. This method
 // must NOT split: handing the line to a shell unsplit is the entire
 // feature. What it does instead is build the three-element argument
-// vector <shell> -c <line> and quote THAT, so the outer login shell that
-// SSH hands the string to sees exactly three words and passes the line
-// through untouched to the shell named. The author's line then reaches
-// exactly one shell, the one they asked for, rather than being parsed
-// once by the login shell and again by the executable.
+// vector <shell> -c <line> and quote THAT, so the outer sh the connection
+// hands the string to (whatever the login shell is: shline) sees exactly
+// three words and passes the line through untouched to the shell named.
+// The author's line then reaches exactly one shell, the one they asked
+// for, rather than being parsed once outside it and again by it.
 //
 // So remoteexec.QuoteCommand is reused here and remoteexec.SplitWords is
 // not. A recorded plan for this method said neither could be reused,

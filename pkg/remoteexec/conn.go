@@ -59,6 +59,10 @@ type Conn struct {
 	// account through sudo (WithBecome).
 	become *Become
 
+	// raw, when set, sends each command as written for the login shell
+	// rather than encoded for sh (Raw, script.go).
+	raw bool
+
 	// redial reconnects a detached command's polls (detach.go), and extra
 	// holds the clients it dialed, closed with this Conn.
 	redial redialer
@@ -133,6 +137,10 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	// An async task's command runs detached on the device (detach.go).
 	if stdin == nil && detached(ctx) {
 		return c.runDetached(ctx, command, limit)
+	}
+	line, err := c.wire(command)
+	if err != nil {
+		return Result{}, err
 	}
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -231,7 +239,7 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		}
 	}()
 
-	runErr := session.Start(c.elevate(command))
+	runErr := session.Start(line)
 	if runErr == nil {
 		startCopy()
 		runErr = waitOrAbandon(ctx, session)

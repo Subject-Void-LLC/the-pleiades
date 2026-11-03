@@ -16,6 +16,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ssh"
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
 // This file covers Ping's success path against a real SSH server.
@@ -150,6 +152,10 @@ func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request,
 		}
 
 		command := decodeExecPayload(req.Payload)
+		// A connection sends every command encoded for sh (shline).
+		if decoded, ok := shline.From(command); ok {
+			command = decoded
+		}
 		if arg, ok := strings.CutPrefix(command, "echo "); ok {
 			_, _ = channel.Write([]byte(unquotePOSIX(arg) + "\n"))
 		}

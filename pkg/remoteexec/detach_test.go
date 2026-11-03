@@ -283,7 +283,7 @@ func TestDetached_ReconnectRefusesWhatIsNotADroppedConnection(t *testing.T) {
 	conn.stopDetached(QuoteArg("/nowhere/.pleiades-async-0/job.x"))
 }
 
-func TestDetached_TheJobKeepsTheCallersUmaskAndShell(t *testing.T) {
+func TestDetached_TheJobKeepsTheCallersUmaskAndRunsUnderSh(t *testing.T) {
 	conn, _, _, home := detachedConn(t)
 	// The start script's own umask 077 is for the job's files; the command
 	// creates its own under the umask a plain run would give it.
@@ -308,8 +308,17 @@ func TestDetached_TheJobKeepsTheCallersUmaskAndShell(t *testing.T) {
 	if got == "0077" || got == "077" {
 		t.Fatal("the job ran under the start script's 077, not the caller's umask")
 	}
+	// sh runs it, as sh runs a plain command (script.go), never $SHELL.
+	if _, err := os.Stat(filepath.Join(home, "login-shell-ran")); err == nil {
+		t.Fatal("the job ran under the login shell ($SHELL), where a plain run's command runs under sh")
+	}
+	// A Raw connection's plain commands are the login shell's, and so is its
+	// detached job.
+	if _, err := conn.Raw().Run(WithDetach(context.Background()), `umask`); err != nil {
+		t.Fatalf("Raw Run: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(home, "login-shell-ran")); err != nil {
-		t.Fatal("the job did not run under the login shell ($SHELL), as a plain run's command does")
+		t.Fatal("a Raw connection's job did not run under the login shell ($SHELL), as its plain commands do")
 	}
 }
 

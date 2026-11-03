@@ -110,6 +110,12 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 	if err != nil {
 		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}
+	// sh reads every command, whatever the login shell is, except on a device
+	// whose exec channel is not a POSIX shell (a network CLI), which reads them
+	// as written.
+	if !inventory.ExecIsPOSIX(device) {
+		conn = conn.Raw()
+	}
 	// A task run with become has every command it sends run as that account.
 	// Proving the login can is done here, once per connection, so a sudo that
 	// asks for a password is one clear refusal and not an exit code a method

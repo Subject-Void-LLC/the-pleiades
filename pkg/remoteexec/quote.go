@@ -7,9 +7,10 @@ import "strings"
 // quote, backslash, quote, quote.
 //
 // This is the injection boundary of every SSH-backed module. An SSH exec
-// request carries one string, and the remote sshd hands that string to
-// the login shell, so a module that pastes a runbook-authored value
-// straight into it has handed the runbook's author a remote shell. The
+// request carries one string, and the shell on the far side parses it (sh,
+// to which a connection hands every command whatever the login shell is:
+// shline), so a module that pastes a runbook-authored value straight into
+// it has handed the runbook's author a remote shell. The
 // values in question are ordinary module parameters (a filename, a
 // package name, a message to echo), and any of them can contain a
 // semicolon, a backtick or a dollar sign.
@@ -19,8 +20,11 @@ import "strings"
 // escapes and no expansion of any kind, until the next single quote. The
 // one byte that cannot appear inside such a run is the quote itself, so
 // an embedded quote closes the run, contributes an escaped literal quote
-// outside it, and reopens. The result is always exactly one argument
-// containing exactly the bytes that went in.
+// outside it, and reopens. The result is always exactly one argument to
+// sh containing exactly the bytes that went in. It is POSIX quoting: fish
+// and csh read it differently, which is why a connection does not hand
+// its commands to them (shline), and why a Raw connection's commands, for a
+// login shell that is not POSIX, are the caller's to write.
 func QuoteArg(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
