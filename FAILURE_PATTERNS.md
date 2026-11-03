@@ -860,6 +860,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 854. The secret-name exemption for item families applied to every Prefix declaration, so a future field-named family (env.DB_PASSWORD) would have been stored (the class of LESSONS 337 and FAILURE_PATTERNS 655) (fixed before push)
 855. The Crawl file store's Record scanned the whole history once per fact, quadratic for thousands of packages against a growing history (the class of 490 and 611) (fixed before push)
 856. A file named gather_windows.go built only on Windows (a repeat of 374) (fixed before commit)
+857. A "this machine" test filtered on package.bash, which a Mac does not have, and failed only on the macOS runner (a repeat of 54) (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

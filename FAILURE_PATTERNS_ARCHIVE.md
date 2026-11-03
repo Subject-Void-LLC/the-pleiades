@@ -20523,3 +20523,22 @@ commit, as `go_diagnostics` after each edit is meant to.
 **Fix.** Renamed to `gather_win.go` before the commit.
 
 **Lesson.** 374's. A file about one OS takes the OS name anywhere but last.
+
+## 857. A "this machine" test filtered on package.bash, which a Mac does not have, and failed only on the macOS runner (a repeat of 54) (fixed on the pull request)
+
+**Symptom.** 2026-11-03, pull request #109, `fast-macos (2)`: `TestGather_PackagesAndServicesMatchThisMachine`
+failed with "a filter naming package.bash kept 0 facts", alone on its re-run too. The SSH harness gathers the runner's
+own packages; on macOS those are Homebrew's and pkgutil's, and none is called bash.
+
+**Root cause.** The test chose its example package by what a Debian or Alpine machine has, not by what the machine it
+ran on had listed. Moving the package's container tests out (850) put it back on the macOS legs, the first runs that
+could see this.
+
+**Why 54 did not prevent it.** 54's lesson is that a test's expectation must come from the system, not from the
+author's picture of it. The reviewer of `feat/facts-41c-1` named this exact assumption as a test note; the dpkg version
+check beside it was guarded, and this line was missed.
+
+**Fix.** The test filters on a package key this machine's own gather listed, one holding no pattern character, and
+skips the filter step where the machine lists no package (`internal/catalog/facts/gather_test.go`).
+
+**Lesson.** A test that runs on "this machine" picks every example from what this machine reported.

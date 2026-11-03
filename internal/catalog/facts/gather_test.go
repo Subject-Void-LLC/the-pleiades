@@ -791,12 +791,23 @@ func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
 			t.Fatalf("the default gathered %s", key)
 		}
 	}
-	// A filter naming one package keeps that one.
+	// A filter naming one package keeps that one: a package this machine
+	// listed, whatever its platform's database calls its packages, and one
+	// whose name holds no pattern character.
+	named := ""
+	for key := range rc.facts {
+		if strings.HasPrefix(key, "package.") && !strings.ContainsAny(key, `*?[\`) && (named == "" || key < named) {
+			named = key
+		}
+	}
+	if named == "" {
+		return
+	}
 	one := newGatherContext(server)
-	if _, err := gatherRun(t, server, one, map[string]any{"gather_subset": []any{"packages"}, "filter": []any{"package.bash"}}); err != nil {
+	if _, err := gatherRun(t, server, one, map[string]any{"gather_subset": []any{"packages"}, "filter": []any{named}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := one.facts["package.bash"]; packages > 0 && (!ok || len(one.facts) != 1) {
-		t.Errorf("a filter naming package.bash kept %d facts", len(one.facts))
+	if _, ok := one.facts[named]; !ok || len(one.facts) != 1 {
+		t.Errorf("a filter naming %s kept %d facts", named, len(one.facts))
 	}
 }
