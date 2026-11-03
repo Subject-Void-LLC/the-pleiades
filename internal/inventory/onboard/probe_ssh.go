@@ -156,9 +156,12 @@ func parseSSHProbe(out string) Probed {
 		// internal/catalog/file's own tests run on a real Mac through
 		// make mac-check, whose shipping of each tree with file.copy and
 		// archive.extract then exercises them through the real binary on
-		// every run. Nothing Linux-only is granted: facts.gather reads
-		// Linux's files, and apt, dnf and systemd are Linux's.
-		caps = append(caps, capability.NamePOSIXFileSystem)
+		// every run. Nothing Linux-only is granted: apt, dnf and systemd
+		// are Linux's. facts.gather reads each of these systems' own
+		// sources (sysctl, FreeBSD's pkg and rc, a Mac's sw_vers, Homebrew,
+		// pkgutil and launchd; Phase 41c), proven on the lab's FreeBSD
+		// machine and Mac through the real binary.
+		caps = append(caps, capability.NamePOSIXFileSystem, capability.NameFactGatherer)
 		// VMware Fusion is a Mac's: granted only on Darwin, and only when its
 		// vmrun answered list as the connecting account.
 		if facts["kernel"] == "Darwin" && facts[generic.FactFusionVersion] != nil {

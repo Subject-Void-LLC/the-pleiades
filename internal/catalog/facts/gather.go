@@ -242,9 +242,39 @@ type gatherProbe struct {
 // runbook in it, which is why no quoting of a task parameter appears
 // anywhere in this file.
 func gatherProbes() []gatherProbe {
+	return gatherProbesFor(platformLinux)
+}
+
+// The platforms facts.gather reads, by what uname -s answers.
+const (
+	platformLinux   = "Linux"
+	platformFreeBSD = "FreeBSD"
+	platformDarwin  = "Darwin"
+)
+
+// gatherProbesFor is the probes of platform, as uname -s names it: Linux's
+// for Linux and for anything it does not know, since its sources are the
+// ones a device most often has and a missing one only leaves facts out.
+func gatherProbesFor(platform string) []gatherProbe {
+	switch platform {
+	case platformFreeBSD:
+		return append(append(bsdHostProbes(platform), freebsdPackageProbes()...), freebsdServiceProbes()...)
+	case platformDarwin:
+		return append(append(bsdHostProbes(platform), darwinPackageProbes()...), darwinServiceProbes()...)
+	}
 	probes := gatherHostProbes()
 	probes = append(probes, linuxPackageProbes()...)
 	return append(probes, linuxServiceProbes()...)
+}
+
+// gatherEveryProbe is every platform's probes, which a plan is checked
+// against before the device is reached.
+func gatherEveryProbe() []gatherProbe {
+	var all []gatherProbe
+	for _, p := range []string{platformLinux, platformFreeBSD, platformDarwin} {
+		all = append(all, gatherProbesFor(p)...)
+	}
+	return all
 }
 
 // gatherHostProbes are the min and hardware subsets' probes: what this
@@ -343,16 +373,28 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	// Planned before the connection is opened, so a filter with a typo in
 	// it costs no TCP connect, key exchange or authentication round and
 	// names the runbook's mistake rather than the device's.
-	probes, patterns, err := gatherPlan(params)
+	choice, err := gatherPlan(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	patterns := choice.patterns
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
 		return collection.Result{}, err
 	}
 	defer func() { _ = conn.Close() }()
+
+	// Which platform's sources to read: uname -s answers on every system
+	// this method reaches, and an answer it does not know reads Linux's.
+	system, err := conn.Run(ctx, "uname -s")
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: uname -s: %w", fqcn, err)
+	}
+	probes, err := choice.probesFor(strings.TrimSpace(system.Stdout))
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	for _, probe := range probes {
 		result, err := conn.Run(ctx, probe.command)
@@ -393,25 +435,53 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 // often than an intention, and a task that gathered nothing and reported
 // success would hide it until a later condition read a fact that was never
 // emitted.
-func gatherPlan(params map[string]any) ([]gatherProbe, []string, error) {
+func gatherPlan(params map[string]any) (gatherChoice, error) {
 	chosen, err := gatherSelection(params)
 	if err != nil {
-		return nil, nil, err
+		return gatherChoice{}, err
 	}
 	patterns, _, err := sdk.StringSlice(params, gatherParamFilter)
 	if err != nil {
-		return nil, nil, err
+		return gatherChoice{}, err
 	}
+	choice := gatherChoice{chosen: chosen, patterns: patterns}
+	// Checked against every platform's probes before the device is
+	// reached, so a typo costs no connection; narrowed to the device's own
+	// platform once it says which (probesFor).
+	planned, err := choice.narrow(gatherEveryProbe())
+	if err != nil {
+		return gatherChoice{}, err
+	}
+	if len(planned) == 0 {
+		return gatherChoice{}, fmt.Errorf("%s %q matches none of the facts the subsets %s gather (%s)",
+			gatherParamFilter, patterns, chosenNames(chosen), strings.Join(gatherAllKeys(chosen), ", "))
+	}
+	return choice, nil
+}
 
+// gatherChoice is what a task asked for: its subsets and filter.
+type gatherChoice struct {
+	chosen   map[string]bool
+	patterns []string
+}
+
+// probesFor is the probes choice runs on platform.
+func (choice gatherChoice) probesFor(platform string) ([]gatherProbe, error) {
+	return choice.narrow(gatherProbesFor(platform))
+}
+
+// narrow keeps the probes of the chosen subsets that the filter can want,
+// each narrowed to the keys it kept.
+func (choice gatherChoice) narrow(probes []gatherProbe) ([]gatherProbe, error) {
 	var planned []gatherProbe
-	for _, probe := range gatherProbes() {
-		if !chosen[probe.subset] {
+	for _, probe := range probes {
+		if !choice.chosen[probe.subset] {
 			continue
 		}
 		if probe.family != "" {
-			wanted, err := gatherFamilyWanted(patterns, probe.family)
+			wanted, err := gatherFamilyWanted(choice.patterns, probe.family)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			if wanted {
 				planned = append(planned, probe)
@@ -423,9 +493,9 @@ func gatherPlan(params map[string]any) ([]gatherProbe, []string, error) {
 		// the answer the next call sees.
 		var kept []string
 		for _, key := range probe.keys {
-			matched, err := gatherMatches(patterns, key)
+			matched, err := gatherMatches(choice.patterns, key)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			if matched {
 				kept = append(kept, key)
@@ -437,12 +507,7 @@ func gatherPlan(params map[string]any) ([]gatherProbe, []string, error) {
 		probe.keys = kept
 		planned = append(planned, probe)
 	}
-
-	if len(planned) == 0 {
-		return nil, nil, fmt.Errorf("%s %q matches none of the facts the subsets %s gather (%s)",
-			gatherParamFilter, patterns, chosenNames(chosen), strings.Join(gatherAllKeys(chosen), ", "))
-	}
-	return planned, patterns, nil
+	return planned, nil
 }
 
 // gatherFamilyWanted reports whether the filter can want any fact of
@@ -506,7 +571,7 @@ func gatherWanted(keys []string, key string) bool {
 func gatherAllKeys(chosen map[string]bool) []string {
 	var keys []string
 	seen := map[string]bool{}
-	for _, probe := range gatherProbes() {
+	for _, probe := range gatherEveryProbe() {
 		if !chosen[probe.subset] {
 			continue
 		}
@@ -517,7 +582,12 @@ func gatherAllKeys(chosen map[string]bool) []string {
 			}
 			continue
 		}
-		keys = append(keys, probe.keys...)
+		for _, k := range probe.keys {
+			if !seen[k] {
+				keys = append(keys, k)
+				seen[k] = true
+			}
+		}
 	}
 	return keys
 }

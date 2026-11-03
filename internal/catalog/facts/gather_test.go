@@ -576,13 +576,16 @@ func TestGather_FilterMatchesAsAGlob(t *testing.T) {
 // TestGather_FilterSkipsTheCommandsItExcludes proves the narrowing
 // happens before the round trip rather than after it.
 //
-// The server accepts ONE session channel and refuses every one after it,
-// so a run that still sent all seven commands would fail on the second.
+// The server accepts TWO session channels (the platform's uname -s and one
+// probe) and refuses every one after, so a run that still sent all seven
+// commands would fail on the third.
 // Reaching the end with the one fact asked for is the only way this can
 // pass, and it is the only assertion available that can tell a filter
 // applied to the output from a filter applied to the work.
 func TestGather_FilterSkipsTheCommandsItExcludes(t *testing.T) {
-	server := startGatherServerWithSessionBudget(t, 1)
+	// Two: the one probe asked for, and the uname -s every run opens with
+	// to learn which platform's sources to read.
+	server := startGatherServerWithSessionBudget(t, 2)
 	rc := newGatherContext(server)
 	kernel := gatherCommandOutput(t, "uname", "-r")
 
@@ -699,7 +702,7 @@ func TestGather_TransportFailureIsReported(t *testing.T) {
 	if !strings.Contains(err.Error(), "open session") {
 		t.Errorf("error = %q, want it to say the session could not be opened", err)
 	}
-	if !strings.Contains(err.Error(), "uname -n") {
+	if !strings.Contains(err.Error(), "uname -s") {
 		t.Errorf("error = %q, want it to name the command that failed", err)
 	}
 	if len(rc.facts) != 0 {
