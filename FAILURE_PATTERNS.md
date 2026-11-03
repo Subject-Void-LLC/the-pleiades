@@ -845,7 +845,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 839. Equal run-order tokens never fell back to the clock, so within one Walk dispatch a second uptime gathered after a reboot was dropped as late, and a late batch of the same job could become current over a newer one (a repeat in kind of 831) (fixed before push)
 840. The Crawl CLI ordered stored facts by each run's start tick, though CLI runs overlap, so a run that started earlier and observed later was ordered first (a repeat of 793 and LESSONS 372) (fixed before push)
 841. The shipped Controller's device admission and rollback route read a method registry it never fills, so admission checked nothing and every recorded undo was refused, in v0.3.0 too (a repeat of 837, and so of 52 and 578) (fixed)
-842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) once failed with "no such file or directory" while another store created the same lock file (open: cause not proven; mitigated by a bounded retry)
+842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) failed with "no such file or directory" while another store created the same lock file: macOS openat(2) relative to a directory fd reports ENOENT under concurrent create (cause reproduced 2026-11-03; mitigated by a bounded retry)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

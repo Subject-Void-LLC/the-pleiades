@@ -20154,7 +20154,7 @@ package the Controller links unless it is listed with why it never runs there. C
 sweep a test so the next consumer is refused too. This is LESSONS 155 and 157 again, applied to LESSONS 382's case; no
 new lesson was written. The archtest is the sweep made permanent.
 
-## 842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) once failed with "no such file or directory" while another store created the same lock file (open: cause not proven; mitigated by a bounded retry)
+## 842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) failed with "no such file or directory" while another store created the same lock file: macOS openat(2) relative to a directory fd reports ENOENT under concurrent create (cause reproduced 2026-11-03; mitigated by a bounded retry)
 
 **Symptom.** 2026-11-02, GitHub Actions run 41522289001 on `feat/c2d-persisted-facts` at `497a2cc7`, leg `fast-macos`,
 strict. `internal/facts`'s `TestFileStore_ConcurrentWritersTakeTurns` failed with `facts_test.go:321: facts: openat
@@ -20162,16 +20162,26 @@ dev.lock: no such file or directory`: two stores were creating the same device's
 `O_CREATE`, through an `os.Root` on a directory that still existed, was refused as if the file's directory were
 missing. The other store created the file at once. It has not been seen on Linux, FreeBSD or Windows.
 
-**Root cause.** Not proven. It has not been reproduced since the one failure, and no upstream cause (Go's `os.Root` on
-darwin, or XNU) has been named. The lab Mac was unreachable over SSH, so no hand reproduction was possible.
+**Root cause (reproduced 2026-11-03, on the lab Mac once it was back).** On macOS 27.0.1 (darwin/arm64, APFS),
+`openat(2)` with `O_CREAT`, relative to a directory file descriptor, sometimes returns ENOENT while another thread
+creates the same name; the same call given an absolute path (`AT_FDCWD`) never does, and `O_NOFOLLOW` makes no
+difference. Go's `os.Root` opens through a directory fd, so it inherits it. Measured with a throwaway program, 16
+goroutines creating one file at once, 400 rounds (6,400 opens each): `openat` from a dirfd 1,244 ENOENT (1,304 with
+`O_NOFOLLOW`), `os.Root.OpenFile` 1,454, `openat` from `AT_FDCWD` with an absolute path 0, plain `os.OpenFile` 0. The
+facts stress tests, run 300 times each there (`go test -count=300 -run 'TestFileStore_(ConcurrentWritersTakeTurns|ManyStoresCreateOneDevicesFilesAtOnce)$'`),
+passed 600 of 600; 271 of the 300 stress runs needed 1 to 5 retries (29 needed none). GitHub's hosted macOS runners
+showed 0 retries in #106's run, so they do not reach the contention. Kernel or file system behaviour, not this code
+and not Go's; whether to report it to Apple or the Go project is the owner's decision, and nothing was reported.
 
-**Mitigation, not a fix.** `724a9d09` (in PR #105): `openLock` (`internal/facts/file.go`) tries the open again, at most
+**Fix: the mitigation is the fix.** `724a9d09` (in PR #105): `openLock` (`internal/facts/file.go`) tries the open again, at most
 `lockOpenAttempts` (20) times, only on "not exist" and only while the directory is still at its path, and counts each
 retry in `lockOpenRetries`. The same commit added `TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce` (eight stores
 creating forty devices' files at once), which logs the count. PR #106 made the count visible in CI: testgate prints
 the notes a passing test logs as `note: ` lines (`4f329cc6`, `tools/internal/flakegate/notes.go`). In PR #106's run
 41562963070 the fast-macos and repeat passes reported 0 retries, on darwin/arm64 and on linux/amd64. Zero retries means
-the race did not recur in that run; it does not show the cause is gone.
+the race did not recur in that run; it does not show the cause is gone. `os.Root` stays, for what it is there for
+(a link planted in the store cannot lead a write outside it), so the retry is the answer: the worst case seen was 5
+retries against a bound of 20.
 
 **Handled as 448 was.** 448 (`pkg/tftpxfer` on macOS) is a different failure with the same constraints: intermittent,
 on a platform nobody could log in to, cause unknown. LESSONS 269 (make the fixture say why) applies here as it did
@@ -20179,4 +20189,5 @@ there.
 
 **Lesson.** An intermittent failure on a platform you cannot reach is mitigated narrowly (bounded, only on the exact
 error, only while the precondition still holds) and made measurable in CI, and its cause stays "unproven" in the
-record until a run reproduces it. Close this entry only with a reproduction or a named cause.
+record until a run reproduces it. This one closed only when the machine came back and a minimal program separated the
+kernel's behaviour from the code's: the reproduction, not the CI count, named the cause.

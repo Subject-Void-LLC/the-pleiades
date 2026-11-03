@@ -89,12 +89,15 @@ const lockOpenAttempts = 20
 
 var lockOpenRetries atomic.Int64
 
-// openLock opens (creating it when missing) a device's lock file. Opening one
-// with O_CREATE was seen to fail with "no such file or directory" on macOS
-// while another store created the same file at the same moment, in a
-// directory that still existed (fast-macos, 2026-11-02). Such a failure is
-// tried again, a bounded number of times and only while the directory itself
-// is still there, so a directory that really is gone still fails at once.
+// openLock opens (creating it when missing) a device's lock file. On macOS,
+// openat(2) with O_CREAT relative to a directory fd, which an os.Root opens
+// through, returns "no such file or directory" now and then while another
+// store creates the same file at the same moment, in a directory that still
+// exists (reproduced on macOS 27, FAILURE_PATTERNS 842; an absolute open
+// does not, but the os.Root is what keeps a planted link from leading a
+// write outside the store). Such a failure is tried again, a bounded number
+// of times and only while the directory itself is still there, so a
+// directory that really is gone still fails at once.
 func openLock(r *os.Root, name string) (*os.File, error) {
 	for attempt := 1; ; attempt++ {
 		f, err := r.OpenFile(name, os.O_CREATE|os.O_RDWR, fileMode)
