@@ -405,7 +405,7 @@ Also written as `wait_for`.
 
 ### `ansible.builtin.setup`
 
-Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`.
+Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`, `ansible.windows.setup`.
 
 | When | Native call | Class |
 |---|---|---|
@@ -414,7 +414,31 @@ Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`.
 | Argument | Becomes |
 |---|---|
 | `filter` | `filter` |
-| `gather_subset` | dropped (`args.ignored`): facts.gather reads one small fixed set of facts, so there is no subset to choose |
+| `gather_subset` | `gather_subset` |
+
+### `ansible.builtin.package_facts`
+
+Also written as `package_facts`.
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `facts.gather` with `gather_subset: [packages]` (review: facts.gather records each package as package.<name> = {version, arch, source}, not Ansible's ansible_facts.packages[name] list; a condition reading ansible_facts.packages needs rewriting to result.<register>["package.<name>"]) | observe |
+
+| Argument | Becomes |
+|---|---|
+| `manager` | dropped (`args.ignored`): facts.gather reads every package database the device has (dpkg, rpm, apk, pkg, Homebrew, pkgutil, the Windows registry), so there is no manager to choose |
+| `strategy` | dropped (`args.ignored`): facts.gather reads every package database the device has, as strategy: all would |
+
+### `ansible.builtin.service_facts`
+
+Also written as `service_facts`.
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `facts.gather` with `gather_subset: [services]` (review: facts.gather records each service as service.<unit> = {state, enabled, status, source}, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>["service.<unit>"]) | observe |
+
+| Argument | Becomes |
+|---|---|
 
 ### `ansible.posix.firewalld`
 
