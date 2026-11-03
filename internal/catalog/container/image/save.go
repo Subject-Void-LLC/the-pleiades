@@ -102,10 +102,14 @@ func save(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return fail(fmt.Errorf("saving %v: %w", refs, err))
 	}
 	defer func() { _ = stream.Close() }()
+	// The same images give the same archive, whatever second the engine
+	// saved it in (normalize.go), so a check predicts the real run's digest.
+	archive := normalizedArchive(stream)
+	defer func() { _ = archive.Close() }()
 
 	var stored containerengine.Stored
 	if mode == collection.ModeCheck {
-		stored.Digest, stored.Size, err = digestOf(stream)
+		stored.Digest, stored.Size, err = digestOf(archive)
 		if err != nil {
 			return fail(fmt.Errorf("reading the archive of %v: %w", refs, err))
 		}
@@ -114,7 +118,7 @@ func save(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 			return fail(err)
 		}
 		stored.Changed = !exists || old != stored.Digest
-	} else if stored, err = files.Store(ctx, p, stream); err != nil {
+	} else if stored, err = files.Store(ctx, p, archive); err != nil {
 		return fail(err)
 	}
 	return collection.Result{Changed: stored.Changed}, recordStats(rc, map[string]any{

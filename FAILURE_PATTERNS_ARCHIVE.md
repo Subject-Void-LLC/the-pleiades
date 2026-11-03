@@ -20154,7 +20154,7 @@ package the Controller links unless it is listed with why it never runs there. C
 sweep a test so the next consumer is refused too. This is LESSONS 155 and 157 again, applied to LESSONS 382's case; no
 new lesson was written. The archtest is the sweep made permanent.
 
-## 842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) once failed with "no such file or directory" while another store created the same lock file (open: cause not proven; mitigated by a bounded retry)
+## 842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) failed with "no such file or directory" while another store created the same lock file: macOS openat(2) relative to a directory fd reports ENOENT under concurrent create (cause reproduced 2026-11-03; mitigated by a bounded retry)
 
 **Symptom.** 2026-11-02, GitHub Actions run 41522289001 on `feat/c2d-persisted-facts` at `497a2cc7`, leg `fast-macos`,
 strict. `internal/facts`'s `TestFileStore_ConcurrentWritersTakeTurns` failed with `facts_test.go:321: facts: openat
@@ -20162,16 +20162,26 @@ dev.lock: no such file or directory`: two stores were creating the same device's
 `O_CREATE`, through an `os.Root` on a directory that still existed, was refused as if the file's directory were
 missing. The other store created the file at once. It has not been seen on Linux, FreeBSD or Windows.
 
-**Root cause.** Not proven. It has not been reproduced since the one failure, and no upstream cause (Go's `os.Root` on
-darwin, or XNU) has been named. The lab Mac was unreachable over SSH, so no hand reproduction was possible.
+**Root cause (reproduced 2026-11-03, on the lab Mac once it was back).** On macOS 27.0.1 (darwin/arm64, APFS),
+`openat(2)` with `O_CREAT`, relative to a directory file descriptor, sometimes returns ENOENT while another thread
+creates the same name; the same call given an absolute path (`AT_FDCWD`) never does, and `O_NOFOLLOW` makes no
+difference. Go's `os.Root` opens through a directory fd, so it inherits it. Measured with a throwaway program, 16
+goroutines creating one file at once, 400 rounds (6,400 opens each): `openat` from a dirfd 1,244 ENOENT (1,304 with
+`O_NOFOLLOW`), `os.Root.OpenFile` 1,454, `openat` from `AT_FDCWD` with an absolute path 0, plain `os.OpenFile` 0. The
+facts stress tests, run 300 times each there (`go test -count=300 -run 'TestFileStore_(ConcurrentWritersTakeTurns|ManyStoresCreateOneDevicesFilesAtOnce)$'`),
+passed 600 of 600; 271 of the 300 stress runs needed 1 to 5 retries (29 needed none). GitHub's hosted macOS runners
+showed 0 retries in #106's run, so they do not reach the contention. Kernel or file system behaviour, not this code
+and not Go's; whether to report it to Apple or the Go project is the owner's decision, and nothing was reported.
 
-**Mitigation, not a fix.** `724a9d09` (in PR #105): `openLock` (`internal/facts/file.go`) tries the open again, at most
+**Fix: the mitigation is the fix.** `724a9d09` (in PR #105): `openLock` (`internal/facts/file.go`) tries the open again, at most
 `lockOpenAttempts` (20) times, only on "not exist" and only while the directory is still at its path, and counts each
 retry in `lockOpenRetries`. The same commit added `TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce` (eight stores
 creating forty devices' files at once), which logs the count. PR #106 made the count visible in CI: testgate prints
 the notes a passing test logs as `note: ` lines (`4f329cc6`, `tools/internal/flakegate/notes.go`). In PR #106's run
 41562963070 the fast-macos and repeat passes reported 0 retries, on darwin/arm64 and on linux/amd64. Zero retries means
-the race did not recur in that run; it does not show the cause is gone.
+the race did not recur in that run; it does not show the cause is gone. `os.Root` stays, for what it is there for
+(a link planted in the store cannot lead a write outside it), so the retry is the answer: the worst case seen was 5
+retries against a bound of 20.
 
 **Handled as 448 was.** 448 (`pkg/tftpxfer` on macOS) is a different failure with the same constraints: intermittent,
 on a platform nobody could log in to, cause unknown. LESSONS 269 (make the fixture say why) applies here as it did
@@ -20179,4 +20189,50 @@ there.
 
 **Lesson.** An intermittent failure on a platform you cannot reach is mitigated narrowly (bounded, only on the exact
 error, only while the precondition still holds) and made measurable in CI, and its cause stays "unproven" in the
-record until a run reproduces it. Close this entry only with a reproduction or a named cause.
+record until a run reproduces it. This one closed only when the machine came back and a minimal program separated the
+kernel's behaviour from the code's: the reproduction, not the CI count, named the cause.
+
+## 843. container.image.save's check predicted a digest the real save missed now and then, because classic Docker stamps the archive's blobs/sha256/ directory with the time of the save and lists several images in any order, and CI tolerated it three times as contention (a repeat in kind of 589) (fixed)
+
+**Symptom.** `internal/catalog/container/image`'s `TestSaveAndLoad_OneArchiveByItsDigest` failed on GitHub's
+`containers` shards three times in ten days, each on a branch that did not touch it (2026-10-24 run 40047970897 on
+`feat/lab-importers`, 2026-11-01 run 41315681516 on `fix/become-honored-or-refused`, 2026-11-03 run 41576491763 on
+`fix/controller-catalog`): `save returned sha256:d1eb..., the check predicted sha256:d776...`. Each time it passed when
+run again alone, so the tolerant rule recorded it as contention and the pull request merged. It never failed on this
+machine.
+
+**Root cause.** Classic Docker (28.5.2, overlay2; what the hosted Ubuntu runners use) writes the archive's
+`blobs/sha256/` directory entry with the time of the save, at second resolution; every file in the archive, and the
+index and manifests, are the same. So two saves of one image in different seconds differ, and the method's check
+(which hashes one save) and its real run (which writes another) agree only when both fall in the same second. Proven
+in a `docker:28-dind` engine: two saves back to back matched 10 of 10, two saves 1.1 s apart differed 10 of 10, and
+`tar -tv` of the pair differs in that one line. Docker Desktop here uses the containerd image store, whose save is
+byte-stable (30 saves of one image, and a freshly imported image saved twice 20 times, all matched), which is why it
+never failed here. The same stamp also made "saving again is no change" false across a second boundary, so a
+recorded archive's digest could churn between runs.
+
+**A second difference, found in review (2026-11-03).** With more than one image, classic Docker 28 also writes
+`manifest.json`'s and `index.json`'s lists in a different order from save to save (measured in `docker:28-dind`: three
+images saved twenty times gave three orders of each), which no time normalization reaches, since the bytes are in the
+files' contents. Every test had saved one image.
+
+**Why 589 did not prevent it.** 589's lesson was that a failure the re-run alone calls contention can still be a
+defect. The ledger (`tools/failures`) had this test three times; nobody read the ledger across pull requests until the
+third, when `record-actions` printed a new entry on a green run.
+
+**Fix.** `normalize.go` (`normalizedArchive`): `container.image.save` re-writes the engine's archive as it streams,
+entry by entry, with every entry's times at the Unix epoch, its extended records reduced to the xattrs (an allowlist),
+the root `manifest.json`'s and `index.json`'s lists sorted by each entry's compact JSON, and every blob unchanged,
+before both the check's hash and the real store, so the same images give the same archive and digest on every engine.
+`TestSave_SeveralImagesGiveOneArchive` and the epoch-time assertion in `TestSaveAndLoad_OneArchiveByItsDigest` hold the
+wiring on a real engine; they can fail only on an engine that writes other times or orders (the classic one CI runs),
+since this machine's containerd-store engine already writes epoch times.
+`TestNormalizedArchive_TheSameImagesGiveTheSameBytes` (USTAR, PAX and GNU archives a second apart; mutation-checked),
+`TestNormalizedArchive_ABrokenArchiveFailsTheRead`. Proven on real classic-engine output: two saves 1.1 s apart differ
+raw and match normalized, and the classic engine loads a normalized archive. The method's documentation says the
+archive's entries carry 1970-01-01.
+
+**Lesson.** A check that predicts a digest of what an outside system produces holds only as far as that system is
+byte-stable, which differs by engine and version; normalize what it produces before hashing it. And a test the
+ledger shows tolerated more than once, on unrelated branches, is a defect until proven otherwise: read the ledger's
+repeats, not only the run in front of you.
