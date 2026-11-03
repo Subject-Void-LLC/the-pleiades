@@ -408,6 +408,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate/gen \
 	github.com/Subject-Void-LLC/the-pleiades/internal/event \
+	github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws \

@@ -118,11 +118,39 @@ func TestRegister_RefusesAKeyAnotherMethodDeclaresOtherwise(t *testing.T) {
 	if err := collection.Register(factMethod("facttest.four", typed)); err == nil {
 		t.Fatal("a disagreeing type was registered")
 	}
-	// A prefix is not compared with other methods' exact keys: a family may
-	// hold a key another method declares on its own.
+	// A family holding a key another method declares otherwise is refused,
+	// and so is a family overlapping another family with another kind; one
+	// that agrees, or overlaps nothing, is not.
 	family := collection.FactSpec{Key: "facttest_", Prefix: true, Kind: collection.FactVolatile, Type: collection.FactString, Description: "a family"}
-	if err := collection.Register(factMethod("facttest.six", family)); err != nil {
-		t.Fatalf("a prefix declaration: %v", err)
+	if err := collection.Register(factMethod("facttest.six", family)); err == nil || !strings.Contains(err.Error(), "same key") {
+		t.Fatalf("a family holding a stable key, declared volatile: %v", err)
+	}
+	agreeing := family
+	agreeing.Kind = collection.FactStable
+	if err := collection.Register(factMethod("facttest.seven", agreeing)); err != nil {
+		t.Fatalf("a family agreeing with the key it holds: %v", err)
+	}
+	inner := collection.FactSpec{Key: "facttest_k", Prefix: true, Kind: collection.FactVolatile, Type: collection.FactString, Description: "an inner family"}
+	if err := collection.Register(factMethod("facttest.eight", inner)); err == nil {
+		t.Fatal("a family inside a family of another kind was registered")
+	}
+	apart := collection.FactSpec{Key: "elsewhere_", Prefix: true, Kind: collection.FactVolatile, Type: collection.FactString, Description: "a family apart"}
+	if err := collection.Register(factMethod("facttest.nine", apart)); err != nil {
+		t.Fatalf("a family overlapping nothing: %v", err)
+	}
+	// And a key inside an existing family must agree with it.
+	if err := collection.Register(factMethod("facttest.ten", collection.FactSpec{Key: "elsewhere_x", Kind: collection.FactStable, Type: collection.FactString, Description: "x"})); err == nil {
+		t.Fatal("a stable key inside a volatile family was registered")
+	}
+	idx := collection.NewFactIndex(map[string]collection.Manifest{"a": {Facts: []collection.FactSpec{stable}}, "b": {Facts: []collection.FactSpec{apart}}})
+	if s, ok := idx.Lookup("facttest_kernel"); !ok || s.Kind != collection.FactStable || idx.Len() != 2 {
+		t.Errorf("index lookup of an exact key: %+v, %v", s, ok)
+	}
+	if s, ok := idx.Lookup("elsewhere_x"); !ok || s.Key != "elsewhere_" {
+		t.Errorf("index lookup through a family: %+v, %v", s, ok)
+	}
+	if _, ok := idx.Lookup("nothing"); ok {
+		t.Error("an undeclared key was found")
 	}
 	if err := collection.Register(factMethod("facttest.five", collection.FactSpec{Key: "bad key", Kind: collection.FactStable, Type: collection.FactString, Description: "x"})); err == nil ||
 		!strings.Contains(err.Error(), `"facttest.five"`) {

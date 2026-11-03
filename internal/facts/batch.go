@@ -25,8 +25,8 @@ type Batch struct {
 // valid key, a bounded value, nothing shaped like a secret) and carry the
 // hash Prepare computes for its value, so a published hash cannot vouch for
 // a value it does not describe. An entry's kind is its own unless guard
-// declares the method's, when the two must agree; a kind that is neither
-// stable nor volatile is refused. It returns the entries that pass,
+// declares its key, when the two must agree and the value must be of the
+// declared type; a kind that is neither stable nor volatile is refused. It returns the entries that pass,
 // recomputed, and how many did not.
 func Verify(entries []Entry, guard Guard) ([]Entry, int, error) {
 	observed := make(map[string]any, len(entries))
@@ -42,12 +42,15 @@ func Verify(entries []Entry, guard Guard) ([]Entry, int, error) {
 		claimed[e.Key] = e.Hash
 		kinds[e.Key] = e.Kind
 	}
-	// Without the method's declaration, each entry keeps the kind the Runner
-	// sent; with it, a kind that disagrees is refused below.
+	// A key guard declares is held to that declaration, and a kind that
+	// disagrees is refused below; any other key (an external Collection's,
+	// which only a Runner loads) keeps the kind the Runner sent.
 	declared := guard.Declared
 	guard.Declared = func(key string) (Spec, bool) {
 		if declared != nil {
-			return declared(key)
+			if spec, ok := declared(key); ok {
+				return spec, true
+			}
 		}
 		if k := kinds[key]; k.Valid() {
 			return Spec{Kind: k}, true

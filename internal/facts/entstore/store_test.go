@@ -16,6 +16,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
@@ -23,9 +24,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // open returns a client over a real file and one device in it.
@@ -280,40 +278,47 @@ func TestStore_TheChainIndexRefusesASecondSuccessor(t *testing.T) {
 	}
 }
 
-// TestSubscriber_HoldsABuiltInMethodsFactsToItsDeclaration: for a method this
-// Controller knows, a batch cannot store a fact under another kind or type
-// than the method declares, and a key it does not declare at all; the job
-// and attempt stored are the batch's own, whatever its provenance says.
-func TestSubscriber_HoldsABuiltInMethodsFactsToItsDeclaration(t *testing.T) {
-	t.Cleanup(collection.SnapshotForTest())
-	invoke := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
-		return collection.Result{}, nil
-	}
-	if err := collection.Register(collection.Descriptor{Name: "entstoretest.gather", Invoke: invoke, Manifest: collection.Manifest{
-		Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture"},
-		Facts: []collection.FactSpec{
-			{Key: "kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"},
-			{Key: "uptime", Kind: collection.FactVolatile, Type: collection.FactInteger, Description: "the uptime"},
-		}}}); err != nil {
+// TestSubscriber_HoldsBatchesToTheEmbeddedCatalog: the Controller holds a
+// batch to the declarations in the module catalog it embeds, the index
+// cmd/controller builds, since it links no Collection (the reviewer's F1): a
+// built-in key claimed under another kind or type is refused, a built-in
+// volatile key keeps its declared kind, a key no built-in declares (an
+// external Collection's) keeps the Runner's kind, and the job and attempt
+// stored are the batch's own, whatever its provenance says.
+func TestSubscriber_HoldsBatchesToTheEmbeddedCatalog(t *testing.T) {
+	index, err := entstore.CatalogIndex(wellknown.ModuleCatalog)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if index.Len() == 0 {
+		t.Fatal("the embedded catalog declares no facts")
+	}
+	if _, err := entstore.CatalogIndex([]byte("not json")); err == nil {
+		t.Error("a catalog that does not decode was read")
 	}
 	client, device := open(t)
 	store := entstore.New(client)
 	ctx := context.Background()
-	kinds := func(string) (facts.Spec, bool) { return facts.Spec{Kind: facts.KindVolatile}, true }
-	entries, _, _ := facts.Prepare(map[string]any{"kernel": "6.1", "uptime": 5, "extra": "x"}, facts.Guard{Declared: kinds})
-	batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 2, ObservedAt: time.Now(), Entries: entries,
-		By: facts.Provenance{Job: "forged", Attempt: 9, Method: "entstoretest.gather"}}
-	sub := entstore.NewSubscriber(store, nil, nil)
+	asVolatile := func(string) (facts.Spec, bool) { return facts.Spec{Kind: facts.KindVolatile}, true }
+	entries, _, _ := facts.Prepare(map[string]any{"ansible_kernel": "6.1", "ansible_uptime_seconds": 5, "acme_widgets": 3}, facts.Guard{Declared: asVolatile})
+	typed, _, _ := facts.Prepare(map[string]any{"ansible_memtotal_mb": "lots"}, facts.Guard{})
+	batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 2, ObservedAt: time.Now(), Entries: append(entries, typed...),
+		By: facts.Provenance{Job: "forged", Attempt: 9, Method: "not.a.method"}}
+	sub := entstore.NewSubscriber(store, nil, nil, entstore.WithDeclarations(index))
 	if err := handle(t, sub, batch); err != nil {
 		t.Fatal(err)
 	}
 	current, _ := store.Current(ctx, device)
-	if len(current) != 1 || current[0].Key != "uptime" || current[0].Kind != facts.KindVolatile {
-		t.Fatalf("stored %+v, want only uptime: kernel claimed volatile and extra undeclared are refused", current)
+	kinds := map[string]facts.Kind{}
+	for _, e := range current {
+		kinds[e.Key] = e.Kind
+		if e.By.Job != "job-1" || e.By.Attempt != 2 {
+			t.Errorf("%s: provenance = %+v, want the batch's own job and attempt", e.Key, e.By)
+		}
 	}
-	if by := current[0].By; by.Job != "job-1" || by.Attempt != 2 || by.Method != "entstoretest.gather" {
-		t.Errorf("provenance = %+v, want the batch's own job and attempt", by)
+	want := map[string]facts.Kind{"ansible_uptime_seconds": facts.KindVolatile, "acme_widgets": facts.KindVolatile}
+	if len(kinds) != len(want) || kinds["ansible_uptime_seconds"] != want["ansible_uptime_seconds"] || kinds["acme_widgets"] != want["acme_widgets"] {
+		t.Fatalf("stored %v, want %v: the kernel claimed volatile and a memory size that is not an integer are refused", kinds, want)
 	}
 }
 

@@ -28,6 +28,8 @@ func Run(t *testing.T, newStore NewStore) {
 	t.Run("provenance says who first saw a value and who last confirmed it", func(t *testing.T) { provenanceKept(t, newStore) })
 	t.Run("stable values form a chain that verifies", func(t *testing.T) { chainVerifies(t, newStore) })
 	t.Run("a key whose kind changed reads its newest value", func(t *testing.T) { kindChange(t, newStore) })
+	t.Run("within one run, the clock orders its observations", func(t *testing.T) { sameRunByClock(t, newStore) })
+	t.Run("a time is kept to the microsecond and still verifies", func(t *testing.T) { microsecondTime(t, newStore) })
 }
 
 // entries prepares observed as a method declaring every key kind would.
@@ -169,8 +171,56 @@ func kindChange(t *testing.T, newStore NewStore) {
 	}
 	if h := history(t, s, dev, "load"); len(h) != 2 || h[0].Kind != facts.KindStable {
 		t.Fatalf("history = %+v, want the stable value kept and the volatile one after it", h)
+	} // And back: a volatile value, then a stable one; the history lists the
+	// stable values in run order and the volatile one last, on both stores.
+	record(t, s, dev, facts.KindStable, map[string]any{"load": 3}, base.Add(2*time.Minute), by("r3", 3))
+	h := history(t, s, dev, "load")
+	if len(h) != 3 || h[0].Value != jsonInt(1) || h[1].Value != jsonInt(3) || h[2].Kind != facts.KindVolatile {
+		t.Fatalf("history = %+v, want 1 and 3 stable in order, then the volatile 2", h)
+	}
+	if e := current(t, s, dev, "load"); e.Value != jsonInt(3) || e.Kind != facts.KindStable {
+		t.Fatalf("current = %+v, want the stable 3, observed last", e)
 	}
 }
 
 // jsonInt is n as a store reads a number back: as written, never a float.
 func jsonInt(n int) any { return json.Number(strconv.Itoa(n)) }
+
+// sameRunByClock: two observations of one run (one dispatch's batches share
+// the lease's token) are ordered by when each was made, so a second gather
+// after a reboot replaces the first uptime, and a batch stored late does
+// not become current over the one made after it (the reviewer's F3).
+func sameRunByClock(t *testing.T, newStore NewStore) {
+	s, dev := newStore(t)
+	same := facts.Provenance{Run: "one", Order: facts.Order{Source: "lease:e1", Token: 7}}
+	record(t, s, dev, facts.KindVolatile, map[string]any{"uptime": 9000}, base, same)
+	record(t, s, dev, facts.KindVolatile, map[string]any{"uptime": 30}, base.Add(5*time.Minute), same)
+	if e := current(t, s, dev, "uptime"); e.Value != jsonInt(30) {
+		t.Fatalf("current uptime = %v, want 30 from the gather after the reboot", e.Value)
+	}
+	// Batch 2 (10:05, 6.2) stored before batch 1 (10:00, 6.1) of one job.
+	record(t, s, dev, facts.KindStable, map[string]any{"ansible_kernel": "6.2"}, base.Add(5*time.Minute), same)
+	record(t, s, dev, facts.KindStable, map[string]any{"ansible_kernel": "6.1"}, base, same)
+	if e := current(t, s, dev, "ansible_kernel"); e.Value != "6.2" {
+		t.Fatalf("current kernel = %v, want 6.2, observed last", e.Value)
+	}
+	h := history(t, s, dev, "ansible_kernel")
+	if len(h) != 2 || h[0].Value != "6.1" || h[1].Value != "6.2" || !h[1].OrderedByClock {
+		t.Fatalf("history = %+v, want 6.1 then 6.2, marked as placed by the clock", h)
+	}
+}
+
+// microsecondTime: an observation's time keeps to the microsecond, as fine
+// as every dialect keeps it, and the chain built from it verifies (the
+// reviewer's F2: PostgreSQL's timestamptz drops nanoseconds).
+func microsecondTime(t *testing.T, newStore NewStore) {
+	s, dev := newStore(t)
+	at := base.Add(123456789 * time.Nanosecond)
+	record(t, s, dev, facts.KindStable, map[string]any{"ansible_kernel": "6.1"}, at, by("r", 1))
+	if e := current(t, s, dev, "ansible_kernel"); !e.ObservedAt.Equal(at.Truncate(time.Microsecond)) {
+		t.Fatalf("observed at %s, want %s", e.ObservedAt.Format(time.RFC3339Nano), at.Truncate(time.Microsecond).Format(time.RFC3339Nano))
+	}
+	if v, err := s.Verify(context.Background(), dev); err != nil || v.Break != nil || v.Values != 1 {
+		t.Fatalf("verdict = %+v, %v", v, err)
+	}
+}

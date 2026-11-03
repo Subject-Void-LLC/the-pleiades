@@ -138,17 +138,21 @@ value is stored again only when it changes, so a fact's stored values are its
 history, and each says when a run last confirmed it. A check stores nothing. A
 fact named like a secret, or whose value holds one of the run's secrets or text
 shaped like one, is never stored: the Runner leaves it out and the Controller
-refuses it again. For a built-in method the Controller also holds each fact to the
-method's own declaration of its kind and type.
+refuses it again. Every fact a built-in method declares is held to that
+declaration's kind and type, read from the module catalog the Controller serves
+(it links no Collection), whatever method a batch names; a key no built-in declares
+(an external Collection's, which only a Runner loads) keeps the kind its Runner sent.
 
 Each value carries its kind (`stable`, history kept; `volatile`, latest value
 only) and its provenance: the job, attempt, run, task, method and Runner that
 observed it (`by`) and that last confirmed it (`last_by`), with the run's order,
 the device lease's fencing token. The Runner's name is the host name it reported,
-not an identity the Controller checked. A device's history is ordered by that
-token, not by a Runner's clock; where two values' orders do not compare (a
-dispatch on a shared lease has no token, or a value came from the command line),
-the clock decides and the entry says `ordered_by_clock`. Stable values form a hash
+and the token is the one it reports: neither is checked by the Controller, so a
+Runner that is not trusted can mislabel its facts or misorder them. A device's
+history is ordered by that token, not by a Runner's clock; where two values'
+orders do not compare or are equal (one dispatch's own tasks; a dispatch on a
+shared lease, which has no token; or a lock store that started again), the clock
+decides and the entry says `ordered_by_clock`. Stable values form a hash
 chain per device, kept a line by a unique index, so two replicas cannot both
 extend the same value: the second's batch is redelivered against the new head.
 

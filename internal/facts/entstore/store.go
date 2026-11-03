@@ -72,7 +72,7 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	at := obs.At.UTC()
+	at := facts.StoredTime(obs.At)
 	by, err := encode(obs.By)
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 			}
 			continue
 		}
-		chain, err := facts.ChainHash(head, e.Key, e.Hash, at, obs.By)
+		chain, err := facts.ChainHash(device, head, e.Key, e.Hash, at, obs.By)
 		if err != nil {
 			return fmt.Errorf("facts: %w", err)
 		}
@@ -124,7 +124,7 @@ func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*en
 			held = append(held, row)
 		}
 	}
-	at := obs.At.UTC()
+	at := facts.StoredTime(obs.At)
 	if len(held) > 0 {
 		newest := held[len(held)-1]
 		last := entry(newest)
@@ -151,10 +151,11 @@ func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*en
 // confirm moves row's last confirmation to obs when obs came later.
 func confirm(ctx context.Context, tx *ent.Tx, row *ent.Fact, obs facts.Observation, by map[string]any) error {
 	last := entry(row)
-	if after, _ := facts.Later(obs.By.Order, obs.At.UTC(), last.LastBy.Order, last.LastSeenAt); !after {
+	at := facts.StoredTime(obs.At)
+	if after, _ := facts.Later(obs.By.Order, at, last.LastBy.Order, last.LastSeenAt); !after {
 		return nil
 	}
-	if err := tx.Fact.UpdateOne(row).SetLastSeenAt(obs.At.UTC()).SetLastProvenance(by).Exec(ctx); err != nil {
+	if err := tx.Fact.UpdateOne(row).SetLastSeenAt(at).SetLastProvenance(by).Exec(ctx); err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
 	return nil

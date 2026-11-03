@@ -162,27 +162,38 @@ func ValidateFacts(specs []FactSpec) error {
 }
 
 // checkFacts is Register's check of d's fact declarations: valid on their
-// own, and agreeing with every registered method that declares the same
-// exact key, since a device's facts are kept by key whatever method emitted
-// them, and one key cannot be kept both ways. Registration happens at start
-// (package init and the loader, one at a time), so the check and the write
-// are not raced.
+// own, and agreeing with every registered method's declaration that can name
+// the same key (an equal key, a key inside a family, or two families one
+// holding the other), since a device's facts are kept by key whatever method
+// emitted them, and one key cannot be kept both ways. External Collections
+// register after the built-ins, so this is also what keeps a program's
+// family from claiming a built-in's key under another kind. Registration
+// happens at start (package init and the loader, one at a time), so the
+// check and the write are not raced.
 func checkFacts(d Descriptor) error {
 	if err := ValidateFacts(d.Manifest.Facts); err != nil {
 		return fmt.Errorf("collection: %q %w", d.Name, err)
 	}
 	for _, s := range d.Manifest.Facts {
-		if s.Prefix {
-			continue
-		}
 		for name, other := range collections.All() {
-			o, ok := FactFor(other.Manifest.Facts, s.Key)
-			if ok && (o.Kind != s.Kind || o.Type != s.Type) {
-				return fmt.Errorf("collection: %q declares fact %q %s %s, and %q declares it %s %s", d.Name, s.Key, s.Kind, s.Type, name, o.Kind, o.Type)
+			for _, o := range other.Manifest.Facts {
+				if overlaps(s, o) && (o.Kind != s.Kind || o.Type != s.Type) {
+					return fmt.Errorf("collection: %q declares fact %s %s %s, and %q declares %s %s %s, which can name the same key",
+						d.Name, factName(s), s.Kind, s.Type, name, factName(o), o.Kind, o.Type)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// factName is a declaration's key as a message shows it: quoted, with a
+// trailing * for a family.
+func factName(s FactSpec) string {
+	if s.Prefix {
+		return fmt.Sprintf("%q*", s.Key)
+	}
+	return fmt.Sprintf("%q", s.Key)
 }
 
 // validFactKey is internal/facts.ValidKey's rule, which a package under pkg/

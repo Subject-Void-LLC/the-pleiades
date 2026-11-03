@@ -342,3 +342,50 @@ func TestTickClockPassesOverWhatItCannotRead(t *testing.T) {
 		t.Errorf("rebuilt tick %d, want one past the journaled end tick %d", next, run.EndTick)
 	}
 }
+
+// TestNextTickContinuesTheCounterAndInterleavesWithRuns: a tick a run takes
+// after its start (a task's facts, Phase 41b) is one more than the counter,
+// distinct across goroutines at once, and a later run's start tick comes
+// after every one of them, so facts ticks never reorder runs.
+func TestNextTickContinuesTheCounterAndInterleavesWithRuns(t *testing.T) {
+	root := t.TempDir()
+	start, err := journal.TickClock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 16
+	got := make(chan uint64, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tick, err := journal.NextTick(root)
+			if err != nil {
+				t.Error(err)
+			}
+			got <- tick
+		}()
+	}
+	wg.Wait()
+	close(got)
+	seen := map[uint64]bool{}
+	var highest uint64
+	for tick := range got {
+		if tick <= start || seen[tick] {
+			t.Fatalf("tick %d after start %d, seen before: %v", tick, start, seen[tick])
+		}
+		seen[tick] = true
+		highest = max(highest, tick)
+	}
+	next, err := journal.TickClock(root)
+	if err != nil || next != highest+1 {
+		t.Fatalf("the next run's tick = %d, %v; want %d", next, err, highest+1)
+	}
+	if err := os.WriteFile(counterFile(root), []byte(strconv.FormatUint(^uint64(0), 10)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.NextTick(root); err == nil {
+		t.Error("a counter at its largest value was advanced")
+	}
+}

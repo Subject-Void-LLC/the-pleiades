@@ -39,6 +39,33 @@ type FactRecorder interface {
 	Record(ctx context.Context, device string, obs facts.Observation) error
 }
 
+// FactOrderer is a FactRecorder that keeps an order of its own between
+// observations: the Crawl CLI's project run counter. The engine asks it for
+// the order when a task that emitted facts finishes, since its facts are
+// stored only when its level ends, which can be much later and in another
+// order than the observations were made (two runs at once on one device). A
+// recorder without one (the Walk tier's, whose order is the dispatch's lease)
+// stamps its own at Record.
+type FactOrderer interface {
+	ObservationOrder() (facts.Order, error)
+}
+
+// observationOrder is the recorder's order for an observation now, or the
+// unknown order when it keeps none or cannot say; a value of unknown order is
+// placed by the clock.
+func (r *run) observationOrder(method string) facts.Order {
+	orderer, ok := r.x.facts.(FactOrderer)
+	if !ok {
+		return facts.Order{}
+	}
+	order, err := orderer.ObservationOrder()
+	if err != nil {
+		slog.Warn("a task's facts get no run order; the clock will place them", "method", method, "error", err)
+		return facts.Order{}
+	}
+	return order
+}
+
 // WithFactRecorder stores real runs' facts through fr. Without it a run
 // stores none.
 func WithFactRecorder(fr FactRecorder) ExecutorOption {
@@ -93,7 +120,7 @@ func (r *run) recordFacts(ctx context.Context, results []NodeResult) {
 			at = time.Now().UTC()
 		}
 		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), factRecordTimeout)
-		obs := facts.Observation{Entries: entries, At: at, By: facts.Provenance{Run: r.runID, Node: nr.NodeID, Method: nr.factMethod}}
+		obs := facts.Observation{Entries: entries, At: at, By: facts.Provenance{Run: r.runID, Node: nr.NodeID, Method: nr.factMethod, Order: nr.factOrder}}
 		if err := r.x.facts.Record(wctx, nr.Device, obs); err != nil {
 			r.factFailures++
 			slog.Error("storing a task's facts failed; the run goes on", "node", nr.NodeID, "device", nr.Device, "error", err, "failures_this_run", r.factFailures)
@@ -115,16 +142,23 @@ func declaredFacts(method string) func(key string) (facts.Spec, bool) {
 }
 
 // maskedLater is, for each register, the fields some task's secret_mask in
-// the run marks secret. A secret_mask runs on its own, later task, after the
-// facts of the task whose register it names were stored, so the run's known
-// secrets cannot catch them; the runbook says ahead which fields it will
-// mask, and none of them is stored.
+// the runbook marks secret. A secret_mask runs on its own, later task, after
+// the facts of the task whose register it names were stored, so the run's
+// known secrets cannot catch them; the runbook says ahead which fields it
+// will mask, and none of them is stored. It reads every task the runbook
+// has, not only those a --tags selection kept: a run that keeps the task
+// registering a value and drops the one masking it has still been told the
+// value is secret.
 func maskedLater(d *DAG) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	if d == nil {
 		return out
 	}
-	for _, task := range d.Nodes {
+	tasks := d.Nodes
+	if d.full != nil {
+		tasks = d.full.nodes
+	}
+	for _, task := range tasks {
 		if task == nil || task.SecretMask == nil || task.SecretMask.Register == "" {
 			continue
 		}

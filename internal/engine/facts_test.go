@@ -104,7 +104,7 @@ func TestFacts_ARealRunStoresWhatItsTasksEmitted(t *testing.T) {
 	registerFactMethods(t)
 	sink := &factSink{got: map[string][]facts.Entry{}}
 	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "register": "r", "params": {"target": "fleet"}}]}`))
+		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "register": "r", "enginefacts.gather": {"target": "fleet"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			sink := &factSink{got: map[string][]facts.Entry{}}
 			_, _ = newCheckExecutor(factFleet(), engine.WithFactRecorder(sink), engine.WithMode(tc.mode)).Run(context.Background(),
-				buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": `+tc.params+`}]}`))
+				buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": `+tc.params+`}]}`))
 			if len(sink.got) != 0 {
 				t.Errorf("stored %v", sink.got)
 			}
@@ -151,7 +151,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 	t.Run("a check_mode task in a real run", func(t *testing.T) {
 		sink := &factSink{got: map[string][]facts.Entry{}}
 		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "check_mode": true, "params": {"target": "fleet"}}]}`))
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "check_mode": true, "enginefacts.gather": {"target": "fleet"}}]}`))
 		if err != nil || len(sink.got) != 0 {
 			t.Errorf("stored %v (%v)", sink.got, err)
 		}
@@ -159,7 +159,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 	t.Run("a secret by its shape or its name, with no secret known", func(t *testing.T) {
 		sink := &factSink{got: map[string][]facts.Entry{}}
 		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet", "shaped": true}}]}`))
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet", "shaped": true}}]}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -175,7 +175,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 		sink := &factSink{got: map[string][]facts.Entry{}}
 		_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink), engine.WithKnownSecrets([]string{"s3cr3t-pass"})).Run(
 			context.Background(),
-			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet", "leak": true}}]}`))
+			buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet", "leak": true}}]}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -193,7 +193,7 @@ func TestFacts_AStoreThatFailsLeavesTheRunAlone(t *testing.T) {
 	registerFactMethods(t)
 	sink := &factSink{got: map[string][]facts.Entry{}, fail: errors.New("disk full")}
 	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet"}}]}`))
+		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestFacts_OnlyWhatTheMethodDeclaresIsStoredAsDeclared(t *testing.T) {
 	registerFactMethods(t)
 	sink := &factSink{got: map[string][]facts.Entry{}}
 	_, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
-		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "fqcn": "enginefacts.gather", "params": {"target": "fleet", "more": true}}]}`))
+		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "enginefacts.gather": {"target": "fleet", "more": true}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,8 +234,8 @@ func TestFacts_AFieldALaterSecretMaskMarksIsNeverStored(t *testing.T) {
 	registerFactMethods(t)
 	sink := &factSink{got: map[string][]facts.Entry{}}
 	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), buildDAG(t, `{"id": "facts", "tasks": [
-		{"name": "g", "fqcn": "enginefacts.gather", "register": "g", "params": {"target": "fleet", "note": true}},
-		{"name": "mask", "fqcn": "enginefacts.gather", "secret_mask": {"register": "g", "fields": ["login_note"]}, "params": {"target": "fleet"}}
+		{"name": "g", "register": "g", "enginefacts.gather": {"target": "fleet", "note": true}},
+		{"name": "mask", "secret_mask": {"register": "g", "fields": ["login_note"]}, "enginefacts.gather": {"target": "fleet"}}
 	]}`))
 	if err != nil || result.HasErrors() {
 		t.Fatalf("run: %v, %+v", err, result)
@@ -249,5 +249,79 @@ func TestFacts_AFieldALaterSecretMaskMarksIsNeverStored(t *testing.T) {
 	}
 	if stored["login_note"] || !stored["ansible_kernel"] {
 		t.Errorf("stored %v: want the kernel and not the field the later secret_mask marks", stored)
+	}
+}
+
+// orderedSink is a factSink keeping an order of its own (engine.FactOrderer),
+// as the CLI's recorder does.
+type orderedSink struct {
+	*factSink
+	next uint64
+	fail bool
+}
+
+func (s *orderedSink) ObservationOrder() (facts.Order, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fail {
+		return facts.Order{}, errors.New("the counter's lock was held")
+	}
+	s.next++
+	return facts.Order{Source: facts.ClockSource, Token: s.next}, nil
+}
+
+// TestFacts_AnOrderingRecorderOrdersEachObservationWhenItsTaskFinishes: each
+// task that emitted facts gets its own order, taken as it finished, so two
+// tasks of one run order by when each observed; a recorder that cannot give
+// one leaves the order unknown, for the clock to place.
+func TestFacts_AnOrderingRecorderOrdersEachObservationWhenItsTaskFinishes(t *testing.T) {
+	registerFactMethods(t)
+	two := `{"id": "facts", "tasks": [
+		{"name": "first", "enginefacts.gather": {"target": "fleet"}},
+		{"name": "second", "enginefacts.gather": {"target": "fleet"}}
+	]}`
+	sink := &orderedSink{factSink: &factSink{got: map[string][]facts.Entry{}}}
+	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), buildDAG(t, two)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.by) != 2 || sink.by[0].Order.Token == sink.by[1].Order.Token || !sink.by[0].Order.Known() || !sink.by[1].Order.Known() {
+		t.Fatalf("orders = %+v, want two distinct ticks", sink.by)
+	}
+	failing := &orderedSink{factSink: &factSink{got: map[string][]facts.Entry{}}, fail: true}
+	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(failing)).Run(context.Background(), buildDAG(t, two)); err != nil {
+		t.Fatal(err)
+	}
+	if len(failing.by) != 2 || failing.by[0].Order.Known() || len(failing.got["dev-1"]) == 0 {
+		t.Fatalf("a failed tick: %+v; want the facts stored with no order", failing.by)
+	}
+}
+
+// TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut: a run whose
+// --tags keep the task registering a value and drop the one masking it still
+// stores none of the masked field (the reviewer's F9).
+func TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut(t *testing.T) {
+	registerFactMethods(t)
+	built := buildDAG(t, `{"id": "facts", "tasks": [
+		{"name": "g", "register": "g", "tags": ["gather"], "enginefacts.gather": {"target": "fleet", "note": true}},
+		{"name": "mask", "tags": ["mask"], "secret_mask": {"register": "g", "fields": ["login_note"]}, "enginefacts.gather": {"target": "fleet"}}
+	]}`)
+	selected, err := engine.Select(built, engine.TagFilter{Tags: []string{"gather"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected.Nodes) != 1 {
+		t.Fatalf("the selection kept %d tasks, want the gather alone", len(selected.Nodes))
+	}
+	sink := &factSink{got: map[string][]facts.Entry{}}
+	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), selected); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range sink.got["dev-1"] {
+		if e.Key == "login_note" {
+			t.Fatalf("the masked field was stored: %+v", e)
+		}
+	}
+	if len(sink.got["dev-1"]) == 0 {
+		t.Fatal("nothing was stored, so this proved nothing")
 	}
 }

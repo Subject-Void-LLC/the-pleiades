@@ -85,7 +85,7 @@ func (s *Store) Verify(ctx context.Context, device string) (facts.Verdict, error
 			links[i].Prev = *row.ChainPrev
 		}
 	}
-	return facts.VerifyChain(links), nil
+	return facts.VerifyChain(device, links), nil
 }
 
 // payloadKey is where a JSON column holds its value: the value's canonical

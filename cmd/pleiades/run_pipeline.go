@@ -256,7 +256,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// the executor is built once over a resolver limited to the batch
 	// running, after validation has seen every device.
 	runWorld, serial := planSerial(world, dag, mode)
-	executor, closeExecutor, err := newRunExecutor(opts, runWorld, sink, mode, runTick)
+	executor, closeExecutor, err := newRunExecutor(opts, runWorld, sink, mode)
 	if err != nil {
 		return rep, err
 	}
@@ -444,7 +444,7 @@ func projectWriteGuards(dir string) []string {
 
 // newRunExecutor builds the executor a run uses, and a function that
 // closes what it opened (the lock manager and the connection pool).
-func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journal, mode collection.Mode, runTick uint64) (*engine.Executor, func(), error) {
+func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journal, mode collection.Mode) (*engine.Executor, func(), error) {
 	locks := lock.NewInProcessManager()
 
 	// engine.NewDefaultTransportBindings is the one shared, Registry-backed
@@ -553,9 +553,11 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 			closeAll()
 			return nil, nil, fmt.Errorf("opening the project's fact store: %w", err)
 		}
-		// Each stored value carries the run's tick, which orders it against
-		// other runs' values (Phase 41b) where the clock would only guess.
-		recorder = facts.RunOrdered{Store: store, Order: facts.Order{Source: facts.ClockSource, Token: runTick}}
+		// Each stored value carries a tick of the project's run counter,
+		// taken when its task finished, which orders it against other runs'
+		// values (Phase 41b) where the clock would only guess. This run's
+		// start tick floored the counter, so a later tick reads only it.
+		recorder = facts.RunOrdered{Store: store, Tick: func() (uint64, error) { return journal.NextTick(opts.dir) }}
 	}
 
 	executor := engine.NewExecutor(

@@ -4,10 +4,7 @@
 // 831).
 package facts
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
 // Order is a run's place in an order the system keeps: the Crawl CLI's run
 // counter (.pleiades/clock) or the device lease revision a Runner held. Two
@@ -65,10 +62,12 @@ type Observation struct {
 }
 
 // Later reports whether an observation (order a, time ta) came after one
-// (order b, time tb): by the order the system keeps when the two compare,
-// otherwise by the clock. The second result says the clock decided.
+// (order b, time tb): by the order the system keeps when the two compare and
+// differ, otherwise by the clock. Equal tokens are one dispatch (every batch
+// carries the lease's one fencing token), whose own observations only the
+// clock orders. The second result says the clock decided.
 func Later(a Order, ta time.Time, b Order, tb time.Time) (after, byClock bool) {
-	if a.Comparable(b) {
+	if a.Comparable(b) && a.Token != b.Token {
 		return a.Token > b.Token, false
 	}
 	return ta.After(tb), true
@@ -76,10 +75,15 @@ func Later(a Order, ta time.Time, b Order, tb time.Time) (after, byClock bool) {
 
 // notAfter reports whether a happened at or before b, by the same rule.
 func notAfter(a Order, ta time.Time, b Order, tb time.Time) bool {
-	if a.Comparable(b) {
-		return a.Token <= b.Token
-	}
-	return !ta.After(tb)
+	after, _ := Later(a, ta, b, tb)
+	return !after
+}
+
+// StoredTime is t as both stores keep it: UTC, to the microsecond, which is
+// as fine as PostgreSQL's timestamptz keeps a time. A time is hashed into the
+// chain, so it must read back exactly as it was hashed on every dialect.
+func StoredTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Microsecond)
 }
 
 // ClockSource is the Order source of the Crawl CLI's run counter
@@ -88,15 +92,21 @@ func notAfter(a Order, ta time.Time, b Order, tb time.Time) bool {
 // .pleiades was deleted loses its facts with it.
 const ClockSource = "clock"
 
-// RunOrdered is a Store whose every observation is stamped with one run's
-// order: what the Crawl CLI hands the engine for a run that took its tick.
+// RunOrdered is the Crawl CLI's recorder: a Store whose observations are
+// ordered by the project's run counter, a tick taken when each task that
+// emitted facts finished (the engine's FactOrderer), so two runs on one
+// device at once order by when they observed, not by when they began
+// (the reviewer's F4). Tick is journal.NextTick over the project.
 type RunOrdered struct {
 	Store
-	Order Order
+	Tick func() (uint64, error)
 }
 
-// Record implements Store, stamping the run's order on obs.
-func (o RunOrdered) Record(ctx context.Context, device string, obs Observation) error {
-	obs.By.Order = o.Order
-	return o.Store.Record(ctx, device, obs)
+// ObservationOrder takes the next tick of the project's counter.
+func (o RunOrdered) ObservationOrder() (Order, error) {
+	tick, err := o.Tick()
+	if err != nil {
+		return Order{}, err
+	}
+	return Order{Source: ClockSource, Token: tick}, nil
 }

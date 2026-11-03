@@ -109,6 +109,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
@@ -1208,8 +1209,15 @@ func main() {
 	// What Runners' tasks observed (Phase 41): stored in the Fact table when
 	// the batch names a device this Controller dispatched, the journal's
 	// admission rule, and read back through the device resource.
+	// Each batch's facts are held to the built-in methods' declarations,
+	// read from the module catalog this binary serves, since a Controller
+	// links no Collection (Phase 41b).
 	factStore := entstore.New(client)
-	if err := entstore.NewSubscriber(factStore, logger, journalAdmission(jobStore)).Subscribe(ctx, bus); err != nil {
+	factIndex, err := entstore.CatalogIndex(wellknown.ModuleCatalog)
+	if err != nil {
+		fatal("failed to read the built-in fact declarations", err)
+	}
+	if err := entstore.NewSubscriber(factStore, logger, journalAdmission(jobStore), entstore.WithDeclarations(factIndex)).Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the facts consumer", err)
 	}
 

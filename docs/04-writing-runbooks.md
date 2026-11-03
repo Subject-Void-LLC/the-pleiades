@@ -184,11 +184,13 @@ the run:
   its latest value is kept and a change is never drift. A key the method did not
   declare, or a value of another type, is not stored, and the run's log says so.
 - Each stored value says which run, task and method first observed it and which
-  run last confirmed it. Values are ordered by the run that observed them (the
-  project's run counter, or on the Controller the device lease's fencing token),
-  not by a clock, so a late result cannot replace a newer one. Where two runs'
-  orders do not compare (a value from the command line and one from the
-  Controller), the clock decides and the history says so.
+  run last confirmed it. Values are ordered by an order the system keeps, not by a
+  clock: on the command line a tick of the project's run counter taken when the
+  task finished, so two runs at once on one host order by when each observed; on
+  the Controller the device lease's fencing token. A result stored late does not
+  replace a newer one. The clock decides only where two orders do not compare or
+  are equal (one dispatch's own tasks, a dispatch on a shared lease, which has no
+  token, or a lease store that started again), and the history says so.
 - Stored stable values form a hash chain per device: each carries the hash of the
   value stored before it, so an edited or deleted value breaks the chain at the
   value after it. `pleiades facts <host> --verify` checks it and exits non-zero on

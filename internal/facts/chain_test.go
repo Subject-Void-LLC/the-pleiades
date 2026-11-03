@@ -27,7 +27,7 @@ func chained(t *testing.T, n int) []facts.Link {
 			t.Fatal(err)
 		}
 		by := facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: uint64(i + 1)}}
-		chain, err := facts.ChainHash(prev, key, hash, at, by)
+		chain, err := facts.ChainHash("dev1", prev, key, hash, at, by)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +41,7 @@ func chained(t *testing.T, n int) []facts.Link {
 // found at the value it broke, and only unchained values at the start are
 // passed over.
 func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
-	if v := facts.VerifyChain(chained(t, 3)); v.Break != nil || v.Values != 3 || v.Head == "" {
+	if v := facts.VerifyChain("dev1", chained(t, 3)); v.Break != nil || v.Values != 3 || v.Head == "" {
 		t.Fatalf("an intact chain: %+v", v)
 	}
 	cases := map[string]struct {
@@ -55,9 +55,10 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 			l[1].Hash, _ = facts.Hash("k", "z")
 			return l
 		}, 1, "chain hash"},
-		"an edited provenance": {func(l []facts.Link) []facts.Link { l[2].By.Run = "other"; return l }, 2, "chain hash"},
-		"a deleted value":      {func(l []facts.Link) []facts.Link { return append(l[:1], l[2:]...) }, 1, "stored before it"},
-		"two values swapped":   {func(l []facts.Link) []facts.Link { l[0], l[1] = l[1], l[0]; return l }, 0, "stored before it"},
+		"an edited provenance":                         {func(l []facts.Link) []facts.Link { l[2].By.Run = "other"; return l }, 2, "chain hash"},
+		"a chain removed from a value after the start": {func(l []facts.Link) []facts.Link { l[1].Chain = ""; return l }, 1, "carries no chain"},
+		"a deleted value":                              {func(l []facts.Link) []facts.Link { return append(l[:1], l[2:]...) }, 1, "stored before it"},
+		"two values swapped":                           {func(l []facts.Link) []facts.Link { l[0], l[1] = l[1], l[0]; return l }, 0, "stored before it"},
 		"an unchained value after the chain began": {func(l []facts.Link) []facts.Link {
 			l[2].Chain, l[2].Prev = "", ""
 			return l
@@ -65,14 +66,25 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			v := facts.VerifyChain(tc.tamper(chained(t, 3)))
+			v := facts.VerifyChain("dev1", tc.tamper(chained(t, 3)))
 			if v.Break == nil || v.Break.Index != tc.index || !strings.Contains(v.Break.Reason, tc.reason) {
 				t.Fatalf("verdict = %+v, want a break at %d naming %q", v, tc.index, tc.reason)
 			}
 		})
 	}
+	// One device's history does not verify as another's.
+	if v := facts.VerifyChain("dev2", chained(t, 2)); v.Break == nil || v.Break.Index != 0 {
+		t.Errorf("another device's chain verified: %+v", v)
+	}
+	// A value naming its run was stored after the chain existed, so one
+	// whose chain was removed is a break, not an older value.
+	stripped := chained(t, 2)
+	stripped[0].Chain, stripped[0].Prev = "", ""
+	if v := facts.VerifyChain("dev1", stripped); v.Break == nil || v.Break.Index != 0 || v.Unchained != 0 {
+		t.Errorf("a stripped chain with provenance verified: %+v", v)
+	}
 	legacy := append([]facts.Link{{Key: "old", Value: "x"}}, chained(t, 2)...)
-	if v := facts.VerifyChain(legacy); v.Break != nil || v.Unchained != 1 || v.Values != 2 {
+	if v := facts.VerifyChain("dev1", legacy); v.Break != nil || v.Unchained != 1 || v.Values != 2 {
 		t.Fatalf("an unchained value first: %+v", v)
 	}
 }

@@ -68,7 +68,7 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 		if err != nil {
 			return err
 		}
-		at, by := obs.At.UTC(), obs.By
+		at, by := StoredTime(obs.At), obs.By
 		entries := append([]Entry(nil), obs.Entries...)
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 		head := chainHead(lines)
@@ -88,7 +88,7 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 				continue
 			}
 			l := line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at, By: by, Prev: head}
-			if l.Chain, err = ChainHash(l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
+			if l.Chain, err = ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
 				return fmt.Errorf("facts: %w", err)
 			}
 			raw, err := json.Marshal(l)
@@ -199,16 +199,23 @@ func (s *FileStore) History(_ context.Context, device, key string) ([]Entry, err
 			out = append(out, stableEntry(st, l))
 		}
 	}
+	out = InRunOrder(out)
 	if v, ok := st.Volatile[key]; ok {
 		out = append(out, volatileEntry(key, v))
 	}
-	return InRunOrder(out), nil
+	return out, nil
 }
 
 // Verify implements Store: device's chain, in the order its lines were
-// written.
+// written. It reads the history alone: the chain is all there, so a state
+// file that does not decode does not stop a check of it.
 func (s *FileStore) Verify(_ context.Context, device string) (Verdict, error) {
-	lines, _, err := s.read(device)
+	r, err := s.root(device)
+	if err != nil {
+		return Verdict{}, err
+	}
+	defer func() { _ = r.Close() }()
+	lines, _, err := readLines(r, device)
 	if err != nil {
 		return Verdict{}, err
 	}
@@ -216,7 +223,7 @@ func (s *FileStore) Verify(_ context.Context, device string) (Verdict, error) {
 	for i, l := range lines {
 		links[i] = Link{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, By: l.By, Prev: l.Prev, Chain: l.Chain}
 	}
-	return VerifyChain(links), nil
+	return VerifyChain(device, links), nil
 }
 
 // stableEntry is a history line as an Entry, with when and by which run its
@@ -235,9 +242,11 @@ func volatileEntry(key string, v volatileValue) Entry {
 }
 
 // InRunOrder sorts a key's values by when they were first observed, by run
-// order where two runs compare and by the clock where they do not, and marks
-// each value the clock placed after the one before it. Both stores' histories
-// use it.
+// order where two runs' orders compare and differ and by the clock where they
+// do not, and marks each value the clock placed after the one before it. Both
+// stores' histories use it. With orders of several sources mixed the
+// comparison need not be transitive (the reviewer's F7), so the order among
+// such values follows how they were stored; each such value is marked.
 func InRunOrder(entries []Entry) []Entry {
 	sort.SliceStable(entries, func(i, j int) bool {
 		after, _ := Later(entries[j].By.Order, entries[j].ObservedAt, entries[i].By.Order, entries[i].ObservedAt)
@@ -246,7 +255,7 @@ func InRunOrder(entries []Entry) []Entry {
 	for i := range entries {
 		entries[i].OrderedByClock = false
 		if i > 0 {
-			entries[i].OrderedByClock = !entries[i].By.Order.Comparable(entries[i-1].By.Order)
+			_, entries[i].OrderedByClock = Later(entries[i].By.Order, entries[i].ObservedAt, entries[i-1].By.Order, entries[i-1].ObservedAt)
 		}
 	}
 	return entries

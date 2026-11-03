@@ -33,10 +33,12 @@ type Link struct {
 }
 
 // ChainHash is a value's chain hash: SHA-256 over the canonical JSON of the
-// previous value's chain hash and what the chain covers of this one (its key,
-// its fact hash, when it was observed and by which run).
-func ChainHash(prev, key, hash string, observedAt time.Time, by Provenance) (string, error) {
-	canon, err := Canonical([]any{prev, key, hash, observedAt.UTC().Format(time.RFC3339Nano), by})
+// device it belongs to, the previous value's chain hash and what the chain
+// covers of this one (its key, its fact hash, when it was observed and by
+// which run). Naming the device means one device's history copied to
+// another does not verify there.
+func ChainHash(device, prev, key, hash string, observedAt time.Time, by Provenance) (string, error) {
+	canon, err := Canonical([]any{device, prev, key, hash, StoredTime(observedAt).Format(time.RFC3339Nano), by})
 	if err != nil {
 		return "", err
 	}
@@ -74,13 +76,15 @@ type Verdict struct {
 // one whose Prev is not the chain hash of the value before it (one deleted or
 // moved), or one whose own chain hash does not match what it covers (an
 // edited key, time or provenance). Links with no chain at all may only come
-// first: they were stored before the chain existed.
-func VerifyChain(links []Link) Verdict {
+// first, and only with no provenance: they were stored before the chain
+// existed, which is also before provenance was, so an unchained value that
+// names its run had its chain removed.
+func VerifyChain(device string, links []Link) Verdict {
 	var v Verdict
 	prev := ""
 	chained := false
 	for i, l := range links {
-		if l.Chain == "" && !chained {
+		if l.Chain == "" && !chained && l.By == (Provenance{}) {
 			v.Unchained++
 			continue
 		}
@@ -97,9 +101,12 @@ func VerifyChain(links []Link) Verdict {
 		if l.Prev != prev {
 			return fail(fmt.Sprintf("it names %s as the value stored before it, and the value stored before it is %s", short(l.Prev), short(prev)))
 		}
-		want, err := ChainHash(l.Prev, l.Key, l.Hash, l.ObservedAt, l.By)
+		if l.Chain == "" {
+			return fail("it carries no chain, though it was stored after the chain existed")
+		}
+		want, err := ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By)
 		if err != nil || want != l.Chain {
-			return fail("its chain hash does not match its key, time or provenance")
+			return fail("its chain hash does not match its device, key, time or provenance")
 		}
 		prev = l.Chain
 	}

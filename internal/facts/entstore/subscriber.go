@@ -29,16 +29,52 @@ type Subscriber struct {
 	// (internal/journal's admission.go): any Runner may publish on any
 	// job's facts subject.
 	admit journal.AdmissionCheck
+	// declared is what the built-in catalog declares about a key
+	// (WithDeclarations), which a Runner's batch is held to.
+	declared func(key string) (facts.Spec, bool)
+}
+
+// SubscriberOption configures a Subscriber.
+type SubscriberOption func(*Subscriber)
+
+// WithDeclarations holds every batch's facts to index, whatever method a
+// batch says emitted them: a key the index declares is stored only as the
+// kind and type declared there, and any other key (an external Collection's,
+// which only a Runner loads) keeps the kind its Runner sent. The Controller
+// links no catalog, so it passes the index of the module catalog it embeds
+// (CatalogIndex). Without it every batch keeps the kinds its Runner sent.
+func WithDeclarations(index collection.FactIndex) SubscriberOption {
+	return func(s *Subscriber) {
+		s.declared = func(key string) (facts.Spec, bool) {
+			spec, ok := index.Lookup(key)
+			return facts.Spec{Kind: facts.Kind(spec.Kind), Type: facts.ValueType(spec.Type)}, ok
+		}
+	}
 }
 
 // NewSubscriber builds the consumer over store, storing only batches admit
 // admits; a nil admit stores every well-formed batch, which only a test of
 // the store alone wants.
-func NewSubscriber(store facts.Store, logger *slog.Logger, admit journal.AdmissionCheck) *Subscriber {
+func NewSubscriber(store facts.Store, logger *slog.Logger, admit journal.AdmissionCheck, opts ...SubscriberOption) *Subscriber {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Subscriber{store: store, logger: logger, admit: admit}
+	s := &Subscriber{store: store, logger: logger, admit: admit}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// CatalogIndex reads a module catalog, the generated JSON of every built-in
+// method's manifest by name (internal/api/wellknown's ModuleCatalog), as the
+// index WithDeclarations takes.
+func CatalogIndex(catalog []byte) (collection.FactIndex, error) {
+	var manifests map[string]collection.Manifest
+	if err := json.Unmarshal(catalog, &manifests); err != nil {
+		return collection.FactIndex{}, fmt.Errorf("facts: reading the module catalog: %w", err)
+	}
+	return collection.NewFactIndex(manifests), nil
 }
 
 // Subscribe attaches s to every job's facts subject: one durable consumer
@@ -69,7 +105,7 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// rather than trusting a second copy of each.
 	by := batch.By
 	by.Job, by.Attempt = batch.JobID, batch.Attempt
-	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: declared(by.Method)}
+	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared}
 	entries, refused, err := facts.Verify(batch.Entries, guard)
 	if err != nil || refused > 0 {
 		s.logger.Warn("dropping facts a Runner published that do not pass the rules",
@@ -104,19 +140,4 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	}
 	s.logger.Debug("stored a facts batch", slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Int("facts", len(entries)))
 	return nil
-}
-
-// declared is what a method this Controller knows declares about its facts,
-// so a Runner cannot store a built-in method's fact under another kind or
-// type; nil for a method it does not know (an external Collection's, which
-// only a Runner loads), whose entries keep the kind the Runner sent.
-func declared(method string) func(key string) (facts.Spec, bool) {
-	d, ok := collection.Lookup(method)
-	if !ok || d.Provider != nil {
-		return nil
-	}
-	return func(key string) (facts.Spec, bool) {
-		spec, ok := collection.FactFor(d.Manifest.Facts, key)
-		return facts.Spec{Kind: facts.Kind(spec.Kind), Type: facts.ValueType(spec.Type)}, ok
-	}
 }

@@ -14,22 +14,24 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 )
 
-// TestRunOrdered_StampsTheRunsOrderOnEveryObservation: the CLI's wrapper
-// gives every value the run's tick, whatever the engine sent.
-func TestRunOrdered_StampsTheRunsOrderOnEveryObservation(t *testing.T) {
+// TestRunOrdered_TakesATickForEachObservation: the CLI's recorder orders an
+// observation by a tick of the project counter, and says so when it cannot
+// take one.
+func TestRunOrdered_TakesATickForEachObservation(t *testing.T) {
 	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	ordered := facts.RunOrdered{Store: store, Order: facts.Order{Source: facts.ClockSource, Token: 41}}
-	obs := facts.Observation{Entries: prepared(t, map[string]any{"ansible_kernel": "6.1"}), At: time.Now(),
-		By: facts.Provenance{Run: "r", Order: facts.Order{Source: "forged", Token: 9}}}
-	if err := ordered.Record(context.Background(), "dev1", obs); err != nil {
-		t.Fatal(err)
+	next := uint64(40)
+	ordered := facts.RunOrdered{Store: store, Tick: func() (uint64, error) { next++; return next, nil }}
+	for want := uint64(41); want <= 42; want++ {
+		if o, err := ordered.ObservationOrder(); err != nil || o != (facts.Order{Source: facts.ClockSource, Token: want}) {
+			t.Fatalf("order = %+v, %v; want clock %d", o, err, want)
+		}
 	}
-	cur, err := store.Current(context.Background(), "dev1")
-	if err != nil || len(cur) != 1 || cur[0].By.Order != ordered.Order || cur[0].By.Run != "r" {
-		t.Fatalf("current = %+v, %v; want the run's own order", cur, err)
+	broken := facts.RunOrdered{Store: store, Tick: func() (uint64, error) { return 0, errors.New("the counter's lock was held") }}
+	if _, err := broken.ObservationOrder(); err == nil {
+		t.Error("a tick that failed gave an order")
 	}
 }
 
@@ -69,8 +71,10 @@ func TestFileStore_FailuresAreReportedAndLeaveNoTemporaryFile(t *testing.T) {
 	if _, err := store.Current(ctx, "dev1"); err == nil {
 		t.Error("a state file that does not decode was read")
 	}
-	if _, err := store.Verify(ctx, "dev1"); err == nil {
-		t.Error("a state file that does not decode was verified")
+	// The chain is all in the history, so a broken state file does not stop
+	// a check of it.
+	if v, err := store.Verify(ctx, "dev1"); err != nil || v.Break != nil {
+		t.Errorf("a broken state file stopped a check of an intact history: %+v, %v", v, err)
 	}
 	if err := store.Record(ctx, "../dev", obs); !errors.Is(err, facts.ErrInvalid) {
 		t.Errorf("a device name that leaves the directory: %v", err)

@@ -163,19 +163,19 @@ func FuzzVerifyChain(f *testing.F) {
 		by := facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: token}}
 		hash, _ := facts.Hash(key, value)
 		forged := []facts.Link{{Key: key, Value: value, Hash: hash, ObservedAt: at, By: by, Prev: prev, Chain: chain}}
-		if v := facts.VerifyChain(forged); v.Break != nil && (v.Break.Index < 0 || v.Break.Index >= len(forged)) {
+		if v := facts.VerifyChain("dev1", forged); v.Break != nil && (v.Break.Index < 0 || v.Break.Index >= len(forged)) {
 			t.Fatalf("a break at %d of %d links", v.Break.Index, len(forged))
 		}
-		real, err := facts.ChainHash("", key, hash, at, by)
+		real, err := facts.ChainHash("dev1", "", key, hash, at, by)
 		if err != nil {
 			return
 		}
-		next, _ := facts.ChainHash(real, key, hash, at.Add(time.Second), by)
+		next, _ := facts.ChainHash("dev1", real, key, hash, at.Add(time.Second), by)
 		intact := []facts.Link{
 			{Key: key, Value: value, Hash: hash, ObservedAt: at, By: by, Chain: real},
 			{Key: key, Value: value, Hash: hash, ObservedAt: at.Add(time.Second), By: by, Prev: real, Chain: next},
 		}
-		if v := facts.VerifyChain(intact); v.Break != nil || v.Values != 2 || v.Head != next {
+		if v := facts.VerifyChain("dev1", intact); v.Break != nil || v.Values != 2 || v.Head != next {
 			t.Fatalf("an intact chain: %+v", v)
 		}
 	})
