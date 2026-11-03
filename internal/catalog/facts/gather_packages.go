@@ -5,7 +5,6 @@
 package facts
 
 import (
-	"strconv"
 	"strings"
 )
 
@@ -18,8 +17,8 @@ const (
 
 // linuxPackageProbes are the packages subset's probes on Linux: the dpkg,
 // rpm and apk databases, each read only where its tool exists. A device with
-// two of them (rare) reports both; a name both hold is told apart by source
-// (packageFacts).
+// two of them (rare) reports both; a name both hold is told apart where
+// Gather emits it (gatherNames).
 func linuxPackageProbes() []gatherProbe {
 	return []gatherProbe{
 		{
@@ -48,28 +47,12 @@ type installedPackage struct {
 	name, version, arch, source string
 }
 
-// packageFacts turns pkgs into one fact each. A name already taken (rpm's
-// multilib packages share one name across architectures) takes its
-// architecture after a colon, as dpkg names a foreign one, a name still
-// taken its source after an at sign, and one taken even so (two of
-// Windows' Uninstall entries may share a display name) a number after a
-// hash, counted in the order the source lists them, so no package
-// overwrites another. A package its source gives no version has none.
+// packageFacts turns pkgs into one fact each, keyed by name; a name another
+// package already took is told apart where Gather emits it (gatherNames). A
+// package its source gives no version has none.
 func packageFacts(pkgs []installedPackage) []gatherFact {
 	out := make([]gatherFact, 0, len(pkgs))
-	taken := map[string]bool{}
 	for _, p := range pkgs {
-		name := p.name
-		if taken[name] && p.arch != "" {
-			name += ":" + p.arch
-		}
-		if taken[name] {
-			name += "@" + p.source
-		}
-		for n, base := 2, name; taken[name]; n++ {
-			name = base + "#" + strconv.Itoa(n)
-		}
-		taken[name] = true
 		value := map[string]any{"source": p.source}
 		if p.version != "" {
 			value["version"] = p.version
@@ -77,18 +60,26 @@ func packageFacts(pkgs []installedPackage) []gatherFact {
 		if p.arch != "" {
 			value["arch"] = p.arch
 		}
-		out = append(out, gatherFact{key: itemKey(gatherFamilyPackage, name), value: value})
+		out = append(out, gatherFact{key: itemKey(gatherFamilyPackage, p.name), value: value})
 	}
 	return out
 }
 
+// dpkgInstalled are the status letters (the second of dpkg's abbreviation)
+// of a package whose files are on the system: installed, unpacked,
+// half-configured, and awaiting or pending triggers. Not installed (n),
+// config files only (c) and half installed (H) are not. The first letter, what
+// is wanted of it (install, hold, remove, purge), does not decide: a held
+// package (hi) is installed.
+const dpkgInstalled = "iUFWt"
+
 // parseDpkg reads dpkg-query's lines (status abbreviation, package, version,
-// architecture), keeping only the installed ones ("ii").
+// architecture), keeping the installed ones (dpkgInstalled).
 func parseDpkg(out string) []installedPackage {
 	var pkgs []installedPackage
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Split(line, "\t")
-		if len(fields) != 4 || !strings.HasPrefix(fields[0], "ii") || fields[1] == "" || fields[2] == "" {
+		if len(fields) != 4 || len(fields[0]) < 2 || !strings.ContainsRune(dpkgInstalled, rune(fields[0][1])) || fields[1] == "" || fields[2] == "" {
 			continue
 		}
 		pkgs = append(pkgs, installedPackage{name: fields[1], version: fields[2], arch: fields[3], source: sourceDpkg})

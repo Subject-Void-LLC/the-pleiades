@@ -325,3 +325,12 @@ func TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut(t *testing.T) 
 		t.Fatal("nothing was stored, so this proved nothing")
 	}
 }
+
+// TestFactCaps_AgreeAcrossTheBoundary: a Collection reads the observation cap
+// from pkg/collection, since it cannot import internal/facts, which enforces
+// it; the two numbers are one rule.
+func TestFactCaps_AgreeAcrossTheBoundary(t *testing.T) {
+	if collection.MaxFactsPerObservation != facts.MaxFactsPerObservation {
+		t.Fatalf("collection says %d facts, internal/facts enforces %d", collection.MaxFactsPerObservation, facts.MaxFactsPerObservation)
+	}
+}

@@ -55,7 +55,7 @@ func TestWindowsPackages_EveryEntryKeepsItsOwnFact(t *testing.T) {
 		`{"name":"Microsoft Visual C++ 2022 X64 Minimum Runtime","version":"14.38.33130","arch":"amd64"},` +
 		`{"name":"Microsoft Visual C++ 2022 X64 Minimum Runtime","version":"14.36.32532","arch":"amd64"},` +
 		`{"name":"Caf\u00e9 Tool","version":"","arch":"x86"},{"name":"  ","version":"1","arch":"x86"}]`
-	got := valuesOf(packageFacts(parseWindowsPackages(out)))
+	got := valuesOf(distinctAll(packageFacts(parseWindowsPackages(out))))
 	want := map[string]any{
 		"package.7-Zip%2024.09%20(x64)":                                                    map[string]any{"version": "24.09", "arch": "amd64", "source": sourceRegistry},
 		"package.Microsoft%20Visual%20C++%202022%20X64%20Minimum%20Runtime":                map[string]any{"version": "14.40.33810", "arch": "amd64", "source": sourceRegistry},
@@ -67,7 +67,7 @@ func TestWindowsPackages_EveryEntryKeepsItsOwnFact(t *testing.T) {
 		t.Errorf("packages = %v\nwant %v", got, want)
 	}
 	// A fourth entry of the same name, arch and source takes a number.
-	four := valuesOf(packageFacts(append(parseWindowsPackages(out), installedPackage{name: "Microsoft Visual C++ 2022 X64 Minimum Runtime", version: "1", arch: "amd64", source: sourceRegistry})))
+	four := valuesOf(distinctAll(packageFacts(append(parseWindowsPackages(out), installedPackage{name: "Microsoft Visual C++ 2022 X64 Minimum Runtime", version: "1", arch: "amd64", source: sourceRegistry}))))
 	if _, ok := four["package.Microsoft%20Visual%20C++%202022%20X64%20Minimum%20Runtime:amd64@registry#2"]; !ok || len(four) != 6 {
 		t.Errorf("a fourth entry was not told apart: %v", four)
 	}

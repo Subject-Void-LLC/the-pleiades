@@ -137,7 +137,7 @@ func declaredFacts(method string) func(key string) (facts.Spec, bool) {
 	d, _ := collection.Lookup(method)
 	return func(key string) (facts.Spec, bool) {
 		spec, ok := collection.FactFor(d.Manifest.Facts, key)
-		return facts.SpecOf(string(spec.Kind), string(spec.Type), spec.Key, spec.Prefix), ok
+		return facts.SpecOf(string(spec.Kind), string(spec.Type), spec.Key, spec.NamesItems()), ok
 	}
 }
 

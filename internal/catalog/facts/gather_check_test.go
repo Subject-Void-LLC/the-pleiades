@@ -46,8 +46,15 @@ func TestGatherCheck_OnlyReads(t *testing.T) {
 	if len(commands) == 0 {
 		t.Fatal("the check sent no command, so it read nothing")
 	}
-	for _, c := range commands {
-		if !strings.HasPrefix(c, "uname ") && !strings.HasPrefix(c, "cat ") || strings.ContainsAny(c, ">|;&`$") {
+	for _, sent := range commands {
+		// Each read runs in sh, so the login shell only passes it on.
+		c, ok := strings.CutPrefix(sent, "'sh' '-c' '")
+		c, ok2 := strings.CutSuffix(c, "'")
+		if !ok || !ok2 {
+			t.Errorf("the check sent %q, not one read run in sh", sent)
+			continue
+		}
+		if !strings.HasPrefix(c, "uname ") && !strings.HasPrefix(c, "cat ") || strings.ContainsAny(c, ">|;&`$'") {
 			t.Errorf("the check sent %q, which is not one of the fixed reads", c)
 		}
 	}

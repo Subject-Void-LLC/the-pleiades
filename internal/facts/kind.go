@@ -43,12 +43,14 @@ const (
 )
 
 // Spec is what a method declared about one fact: its kind and value type,
-// and for a key in a declared family (a prefix), that prefix.
+// and for a key in a declared family whose names after the prefix are items'
+// (collection.FactSpec.ItemNames), that prefix.
 type Spec struct {
 	Kind Kind
 	Type ValueType
-	// Family is the declared prefix the key belongs to (package.), empty
-	// for a key declared on its own.
+	// Family is the declared prefix of an item family the key belongs to
+	// (package.), empty for a key declared on its own or in a family whose
+	// names are fields.
 	Family string
 }
 
@@ -101,11 +103,12 @@ func describe(t ValueType) string {
 }
 
 // SpecOf is a declaration (collection.FactSpec's kind, type, key and
-// whether the key is a prefix) as Prepare reads it. internal/facts imports
-// no other package of the module, so callers pass the fields.
-func SpecOf(kind, valueType, key string, prefix bool) Spec {
+// whether the key is the prefix of a family of items, NamesItems) as Prepare
+// reads it. internal/facts imports no other package of the module, so
+// callers pass the fields.
+func SpecOf(kind, valueType, key string, items bool) Spec {
 	spec := Spec{Kind: Kind(kind), Type: ValueType(valueType)}
-	if prefix {
+	if items {
 		spec.Family = key
 	}
 	return spec

@@ -46,11 +46,11 @@ func TestGatherSelection_FollowsAnsiblesRules(t *testing.T) {
 
 func TestItemKey_EncodesWhatAKeyCannotHoldExactly(t *testing.T) {
 	for name, want := range map[string]string{
-		"nginx":                           "package.nginx",
-		"libc6:i386":                      "package.libc6:i386",
-		"Microsoft Visual C++ 2015 (x64)": "package.Microsoft%20Visual%20C++%202015%20(x64)",
-		"a/b%c":                           "package.a%2Fb%25c",
-		"zero​width":                      "package.zero%E2%80%8Bwidth",
+		"nginx":                                 "package.nginx",
+		"libc6:i386":                            "package.libc6:i386",
+		"Microsoft Visual C++ 2015 (x64)":       "package.Microsoft%20Visual%20C++%202015%20(x64)",
+		"a/b%c":                                 "package.a%2Fb%25c",
+		"zero" + string(rune(0x200b)) + "width": "package.zero%E2%80%8Bwidth",
 	} {
 		if got := itemKey(gatherFamilyPackage, name); got != want {
 			t.Errorf("itemKey(%q) = %q, want %q", name, got, want)
@@ -59,20 +59,23 @@ func TestItemKey_EncodesWhatAKeyCannotHoldExactly(t *testing.T) {
 }
 
 func TestPackageParsers_ReadEachDatabasesOwnOutput(t *testing.T) {
-	dpkg := "ii \tbash\t5.2.21-2ubuntu4\tamd64\nrc \tgone\t1.0\tamd64\nii \tlibc6:i386\t2.39-0ubuntu8\ti386\nnot a line\n"
+	dpkg := "ii \tbash\t5.2.21-2ubuntu4\tamd64\nrc \tgone\t1.0\tamd64\nii \tlibc6:i386\t2.39-0ubuntu8\ti386\nnot a line\n" +
+		"hi \tlinux-image-generic\t6.8.0.48\tamd64\niU \thalfway\t1\tamd64\niH \tbroken\t1\tamd64\npn \tpurged\t1\tamd64\n"
 	rpm := "bash\t(none)\t5.2.26-3.el10\tx86_64\nopenssl-libs\t1\t3.2.2-16.el10\tx86_64\nopenssl-libs\t1\t3.2.2-16.el10\ti686\ngpg-pubkey\t(none)\tabc-def\t(none)\n"
 	apk := "busybox-1.36.1-r29 x86_64 {busybox} (GPL-2.0-only) [installed]\npy3-foo-bar-2.0.1-r0 noarch {py3-foo-bar} (MIT) [installed]\nWARNING: something\n"
 	got := map[string]map[string]any{}
-	for _, f := range append(append(packageFacts(parseDpkg(dpkg)), packageFacts(parseRPM(rpm))...), packageFacts(parseAPK(apk))...) {
+	for _, f := range append(append(distinctAll(packageFacts(parseDpkg(dpkg))), distinctAll(packageFacts(parseRPM(rpm)))...), distinctAll(packageFacts(parseAPK(apk)))...) {
 		got[f.key] = f.value.(map[string]any)
 	}
 	want := map[string]map[string]any{
-		"package.bash":              {"version": "5.2.21-2ubuntu4", "arch": "amd64", "source": "dpkg"},
-		"package.libc6:i386":        {"version": "2.39-0ubuntu8", "arch": "i386", "source": "dpkg"},
-		"package.openssl-libs":      {"version": "1:3.2.2-16.el10", "arch": "x86_64", "source": "rpm"},
-		"package.openssl-libs:i686": {"version": "1:3.2.2-16.el10", "arch": "i686", "source": "rpm"},
-		"package.busybox":           {"version": "1.36.1-r29", "arch": "x86_64", "source": "apk"},
-		"package.py3-foo-bar":       {"version": "2.0.1-r0", "arch": "noarch", "source": "apk"},
+		"package.bash":                {"version": "5.2.21-2ubuntu4", "arch": "amd64", "source": "dpkg"},
+		"package.libc6:i386":          {"version": "2.39-0ubuntu8", "arch": "i386", "source": "dpkg"},
+		"package.linux-image-generic": {"version": "6.8.0.48", "arch": "amd64", "source": "dpkg"},
+		"package.halfway":             {"version": "1", "arch": "amd64", "source": "dpkg"},
+		"package.openssl-libs":        {"version": "1:3.2.2-16.el10", "arch": "x86_64", "source": "rpm"},
+		"package.openssl-libs:i686":   {"version": "1:3.2.2-16.el10", "arch": "i686", "source": "rpm"},
+		"package.busybox":             {"version": "1.36.1-r29", "arch": "x86_64", "source": "apk"},
+		"package.py3-foo-bar":         {"version": "2.0.1-r0", "arch": "noarch", "source": "apk"},
 	}
 	// rpm's bash and dpkg's bash came from separate calls, so each call
 	// named its own; the rpm one is checked separately.
@@ -85,13 +88,15 @@ func TestPackageParsers_ReadEachDatabasesOwnOutput(t *testing.T) {
 			t.Errorf("%s = %v, want %v", key, got[key], value)
 		}
 	}
-	if _, ok := got["package.gone"]; ok {
-		t.Error("a removed (rc) dpkg package was reported installed")
+	for _, gone := range []string{"package.gone", "package.broken", "package.purged"} {
+		if _, ok := got[gone]; ok {
+			t.Errorf("%s, which dpkg does not hold installed, was reported", gone)
+		}
 	}
 	if _, ok := got["package.gpg-pubkey"]; ok {
 		t.Error("rpm's gpg-pubkey entries were reported as packages")
 	}
-	both := packageFacts(append(parseDpkg("ii \tbash\t5.2\tamd64\n"), parseRPM("bash\t(none)\t5.2-1\tx86_64\n")...))
+	both := distinctAll(append(packageFacts(parseDpkg("ii \tbash\t5.2\tamd64\n")), packageFacts(parseRPM("bash\t(none)\t5.2-1\tx86_64\n"))...))
 	if len(both) != 2 || both[0].key != "package.bash" || both[1].key != "package.bash:x86_64" {
 		t.Errorf("two databases naming one package: %v", both)
 	}
@@ -118,4 +123,14 @@ func TestParseSystemd_MergesUnitFilesAndLoadedUnits(t *testing.T) {
 	if parseSystemd("no mark here") != nil {
 		t.Error("output with no section mark was read")
 	}
+}
+
+// distinctAll is facts as Gather emits them from one run: a key an earlier
+// fact took told apart (gatherNames).
+func distinctAll(facts []gatherFact) []gatherFact {
+	names := gatherNames{}
+	for i := range facts {
+		facts[i] = names.distinct(facts[i])
+	}
+	return facts
 }

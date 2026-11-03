@@ -84,12 +84,17 @@ func TestVerify_KeepsAKindOnlyWhereTheDeclarationAgrees(t *testing.T) {
 // TestPrepare_AFamilyMembersNameIsDataNotAFieldName: in a declared family
 // (package.), the part after the prefix is an item's identifier, so a
 // package called password-store is kept, while a key declared on its own
-// and named like a secret is still refused, and a family member's value is
-// still held to the secret checks.
+// and named like a secret is still refused, so is a member of a family whose
+// names are fields (env.), and a family member's value is still held to the
+// secret checks.
 func TestPrepare_AFamilyMembersNameIsDataNotAFieldName(t *testing.T) {
 	declared := func(key string) (facts.Spec, bool) {
-		if strings.HasPrefix(key, "package.") {
+		switch {
+		case strings.HasPrefix(key, "package."):
 			return facts.SpecOf("stable", "object", "package.", true), true
+		case strings.HasPrefix(key, "env."):
+			// A family whose names are fields, not items.
+			return facts.SpecOf("stable", "string", "env.", false), true
 		}
 		return facts.SpecOf("stable", "string", key, false), true
 	}
@@ -100,6 +105,7 @@ func TestPrepare_AFamilyMembersNameIsDataNotAFieldName(t *testing.T) {
 		"package.token-sdk":      map[string]any{"version": "2"},
 		"package.leaky":          map[string]any{"version": "-----BEGIN OPENSSH PRIVATE KEY-----"},
 		"db_password":            "x",
+		"env.db_password":        "x",
 	}, facts.Guard{Declared: declared, SecretName: secretName, Shaped: shaped})
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +114,7 @@ func TestPrepare_AFamilyMembersNameIsDataNotAFieldName(t *testing.T) {
 	for _, e := range entries {
 		kept[e.Key] = true
 	}
-	if !kept["package.password-store"] || !kept["package.token-sdk"] || kept["package.leaky"] || kept["db_password"] {
+	if !kept["package.password-store"] || !kept["package.token-sdk"] || kept["package.leaky"] || kept["db_password"] || kept["env.db_password"] {
 		t.Errorf("kept %v (problems %v): want the two packages, not the secret-shaped value or the secret-named key", kept, problems)
 	}
 }

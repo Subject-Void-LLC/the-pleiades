@@ -10,13 +10,18 @@
 package main_test
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 )
 
 // factsView is pleiades facts --json.
@@ -183,4 +188,48 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	if out, code := g.pleiades(t, "facts", "container1", "--verify"); code == 0 || !strings.Contains(out, "breaks at value") {
 		t.Errorf("--verify of an edited store: exit %d\n%s", code, out)
 	}
+
+	// A login whose shell is not POSIX (csh's descendant tcsh, FreeBSD
+	// root's before 14, and fish) gathers the same packages: every probe
+	// runs in sh, so the login shell only passes it on. Read from the task's
+	// own report, since the store would still hold the earlier gather's.
+	for _, shell := range []string{"tcsh", "fish"} {
+		asRoot(t, g.container, "apk add -q "+shell+` && sed -i -E "s#^(`+releaseGateSSHUser+`:([^:]*:){5})[^:]*\$#\\1$(command -v `+shell+`)#" /etc/passwd`)
+		if got := asRoot(t, g.container, "getent passwd "+releaseGateSSHUser+" | cut -d: -f7"); !strings.HasSuffix(got, "/"+shell) {
+			t.Fatalf("the login's shell is %q, not %s", got, shell)
+		}
+		out, code := g.pleiades(t, "adhoc", "container1", "facts.gather", "gather_subset:=[packages]", "--json")
+		var rep struct {
+			Tasks []struct {
+				Stats map[string]any `json:"stats"`
+			} `json:"tasks"`
+		}
+		if code != 0 || json.Unmarshal([]byte(out[strings.Index(out, "{"):]), &rep) != nil || len(rep.Tasks) != 1 {
+			t.Fatalf("facts.gather with a %s login: exit %d\n%s", shell, code, out)
+		}
+		n := 0
+		for key := range rep.Tasks[0].Stats {
+			if strings.HasPrefix(key, "package.") {
+				n++
+			}
+		}
+		// Counted again: installing the shell added packages.
+		if now := asRoot(t, g.container, "apk list --installed 2>/dev/null | grep -c installed"); strconv.Itoa(n) != now {
+			t.Errorf("with a %s login, %d package facts; apk lists %s", shell, n, now)
+		}
+	}
+}
+
+// asRoot runs script as root in c and returns its trimmed output.
+func asRoot(t *testing.T, c testcontainers.Container, script string) string {
+	t.Helper()
+	code, r, err := c.Exec(context.Background(), []string{"sh", "-c", script}, tcexec.Multiplexed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := io.ReadAll(r)
+	if code != 0 {
+		t.Fatalf("%s exited %d: %s", script, code, out)
+	}
+	return strings.TrimSpace(string(out))
 }

@@ -409,6 +409,13 @@ func TestGather_EveryNewFactIsDeclared(t *testing.T) {
 			t.Errorf("%s is gathered but not declared in Returns", key)
 		}
 	}
+	// A package or service is named by its item's own name, which the
+	// secret-name check must not read as a field (password-store).
+	for _, family := range []string{"package.", "service."} {
+		if spec, ok := collection.FactFor(d.Manifest.Facts, family+"x"); !ok || !spec.NamesItems() {
+			t.Errorf("%s is not declared a family of items: %+v", family, spec)
+		}
+	}
 }
 
 // gatherDistinctPhysicalIDs counts the distinct physical id values in
@@ -460,7 +467,7 @@ func TestGather_OmitsEverythingItCannotDetermine(t *testing.T) {
 // TestGather_OmitsOnlyTheFactsItCannotDetermine proves the omission is
 // per fact rather than all or nothing.
 //
-// The PATH is narrowed to a directory holding uname alone, so the three
+// The PATH is narrowed to a directory holding uname and sh alone, so the three
 // uname facts arrive and the four read out of files cannot. A method that
 // abandoned the whole gather at the first command it could not run would
 // fail this, and so would one that emitted empty strings for the rest.
@@ -476,9 +483,16 @@ func TestGather_OmitsOnlyTheFactsItCannotDetermine(t *testing.T) {
 	}
 	kernel := gatherCommandOutput(t, "uname", "-r")
 
+	// sh as well, which every probe runs in and every device has.
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("this machine has no sh: %v", err)
+	}
 	only := t.TempDir()
-	if err := os.Symlink(uname, filepath.Join(only, "uname")); err != nil {
-		t.Fatalf("linking uname into the narrowed PATH: %v", err)
+	for name, target := range map[string]string{"uname": uname, "sh": sh} {
+		if err := os.Symlink(target, filepath.Join(only, name)); err != nil {
+			t.Fatalf("linking %s into the narrowed PATH: %v", name, err)
+		}
 	}
 	t.Setenv("PATH", only)
 
@@ -752,13 +766,16 @@ func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
 			services++
 		}
 	}
-	if listed := gatherCommandOutput(t, "sh", "-c", `command -v dpkg-query >/dev/null && dpkg-query -W -f='${db:Status-Abbrev}\n' | grep -c '^ii' || echo skip`); listed != "skip" {
+	// Counted by dpkg's own status words rather than the parser's letters:
+	// every state whose files are on the system, a held package's included.
+	if listed := gatherCommandOutput(t, "sh", "-c", `command -v dpkg-query >/dev/null && dpkg-query -W -f='${db:Status-Status}\n' | grep -cxE 'installed|unpacked|half-configured|triggers-awaited|triggers-pending' || echo skip`); listed != "skip" {
 		if strconv.Itoa(packages) != listed {
 			t.Errorf("%d package facts, dpkg lists %s installed", packages, listed)
 		}
-		version := gatherCommandOutput(t, "dpkg-query", "-W", "-f=${Version}", "bash")
-		if got, _ := rc.facts["package.bash"].(map[string]any); got["version"] != version || got["source"] != "dpkg" {
-			t.Errorf("package.bash = %v, dpkg says %s", got, version)
+		if version := gatherCommandOutput(t, "sh", "-c", `dpkg-query -W -f='${Version}' bash 2>/dev/null || true`); version != "" {
+			if got, _ := rc.facts["package.bash"].(map[string]any); got["version"] != version || got["source"] != "dpkg" {
+				t.Errorf("package.bash = %v, dpkg says %s", got, version)
+			}
 		}
 	}
 	if units := gatherCommandOutput(t, "sh", "-c", `command -v systemctl >/dev/null && [ -d /run/systemd/system ] && systemctl list-unit-files --type=service --no-legend --no-pager --plain | grep -vc '@\.service' || echo skip`); units != "skip" && services == 0 {

@@ -31,13 +31,16 @@ func TestValidateFacts_RefusesEachMalformedDeclaration(t *testing.T) {
 		mutate func(*collection.FactSpec)
 		want   string
 	}{
-		"an empty key":       {func(s *collection.FactSpec) { s.Key = "" }, "not a fact name"},
-		"a key with a space": {func(s *collection.FactSpec) { s.Key = "a b" }, "not a fact name"},
-		"a key with a slash": {func(s *collection.FactSpec) { s.Key = "a/b" }, "not a fact name"},
-		"a long key":         {func(s *collection.FactSpec) { s.Key = strings.Repeat("k", 257) }, "not a fact name"},
-		"no kind":            {func(s *collection.FactSpec) { s.Kind = "" }, "neither"},
-		"an unknown type":    {func(s *collection.FactSpec) { s.Type = "date" }, "JSON type"},
-		"no description":     {func(s *collection.FactSpec) { s.Description = "  " }, "no description"},
+		"an empty key":        {func(s *collection.FactSpec) { s.Key = "" }, "not a fact name"},
+		"a key with a space":  {func(s *collection.FactSpec) { s.Key = "a b" }, "not a fact name"},
+		"a key with a slash":  {func(s *collection.FactSpec) { s.Key = "a/b" }, "not a fact name"},
+		"a long key":          {func(s *collection.FactSpec) { s.Key = strings.Repeat("k", 257) }, "not a fact name"},
+		"no kind":             {func(s *collection.FactSpec) { s.Kind = "" }, "neither"},
+		"an unknown type":     {func(s *collection.FactSpec) { s.Type = "date" }, "JSON type"},
+		"no description":      {func(s *collection.FactSpec) { s.Description = "  " }, "no description"},
+		"items on a key":      {func(s *collection.FactSpec) { s.ItemNames = true }, "as items"},
+		"items on no dot":     {func(s *collection.FactSpec) { s.Prefix, s.ItemNames = true, true }, "as items"},
+		"items on a lone dot": {func(s *collection.FactSpec) { s.Key, s.Prefix, s.ItemNames = ".", true, true }, "as items"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := good
@@ -49,6 +52,13 @@ func TestValidateFacts_RefusesEachMalformedDeclaration(t *testing.T) {
 	}
 	if err := collection.ValidateFacts([]collection.FactSpec{good, good}); err == nil || !strings.Contains(err.Error(), "twice") {
 		t.Fatalf("a duplicate: %v", err)
+	}
+	items := collection.FactSpec{Key: "pkg.", Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "items"}
+	if err := collection.ValidateFacts([]collection.FactSpec{items}); err != nil || !items.NamesItems() {
+		t.Fatalf("a family of items: %v", err)
+	}
+	if fields := (collection.FactSpec{Key: "env.", Prefix: true}); fields.NamesItems() {
+		t.Error("a family that did not say its names are items was read as items")
 	}
 }
 

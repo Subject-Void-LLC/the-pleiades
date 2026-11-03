@@ -117,9 +117,9 @@ func init() {
 	d.Manifest.Facts = append(collection.DeclareFacts(d.Manifest.Doc.Returns, gatherFactNames(), gatherFactUptimeSeconds),
 		// One fact per item (Phase 41c): a package's version or a service's
 		// state changing is the device changing.
-		collection.FactSpec{Key: gatherFamilyPackage, Prefix: true, Kind: collection.FactStable, Type: collection.FactObject,
+		collection.FactSpec{Key: gatherFamilyPackage, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
 			Description: "One installed package: version, arch and source (the database it was read from)."},
-		collection.FactSpec{Key: gatherFamilyService, Prefix: true, Kind: collection.FactStable, Type: collection.FactObject,
+		collection.FactSpec{Key: gatherFamilyService, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
 			Description: "One service: state, enabled, status (the manager's own word for it) and source."},
 	)
 	collection.MustRegister(d)
@@ -384,12 +384,15 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	defer closeRun()
 	probes := choice.probesFor(platform)
 
+	names := gatherNames{}
+	emitted := 0
 	for _, probe := range probes {
 		stdout, err := run(ctx, probe.command)
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, probe.name(), err)
 		}
 
+		var keep []gatherFact
 		for _, fact := range probe.parse(stdout) {
 			// A probe answering two facts can survive a filter that wants
 			// only one of them, so the keys are checked again here. Dropping
@@ -398,12 +401,26 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			if probe.family != "" {
 				// A family's member is held to the filter itself: its key
 				// was not known until the device listed it.
-				if wanted, _ := gatherMatches(patterns, fact.key); !wanted {
+				if !gatherMatches(patterns, fact.key) {
 					continue
 				}
+				// Two databases may both list a package (dpkg and rpm,
+				// Homebrew and pkgutil): one never overwrites the other.
+				fact = names.distinct(fact)
 			} else if !gatherWanted(probe.keys, fact.key) {
 				continue
 			}
+			keep = append(keep, fact)
+		}
+		// One task's observation is stored only whole and only up to
+		// collection.MaxFactsPerObservation facts, so a device listing more
+		// would store none of them while the task succeeded; it fails
+		// instead, saying how to gather less.
+		if emitted += len(keep); emitted > collection.MaxFactsPerObservation {
+			return collection.Result{}, fmt.Errorf("%s: %s lists more than the %d facts one task may record; gather less with %s or %s",
+				fqcn, device.Name(), collection.MaxFactsPerObservation, gatherParamSubset, gatherParamFilter)
+		}
+		for _, fact := range keep {
 			if err := rc.EmitFact(fact.key, fact.value); err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, fact.key, err)
 			}
@@ -432,15 +449,19 @@ func gatherPlan(params map[string]any) (gatherChoice, error) {
 	if err != nil {
 		return gatherChoice{}, err
 	}
+	// A malformed pattern is refused by name rather than silently matching
+	// nothing, which is what path.Match's own error exists to say. Checked
+	// once here, so matching later need not.
+	for _, pattern := range patterns {
+		if _, err := path.Match(pattern, ""); err != nil {
+			return gatherChoice{}, fmt.Errorf("%s pattern %q is malformed: %w", gatherParamFilter, pattern, err)
+		}
+	}
 	choice := gatherChoice{chosen: chosen, patterns: patterns}
 	// Checked against every platform's probes before the device is
 	// reached, so a typo costs no connection; narrowed to the device's own
 	// platform once it says which (probesFor).
-	planned, err := choice.narrow(gatherEveryProbe())
-	if err != nil {
-		return gatherChoice{}, err
-	}
-	if len(planned) == 0 {
+	if len(choice.narrow(gatherEveryProbe())) == 0 {
 		return gatherChoice{}, fmt.Errorf("%s %q matches none of the facts the subsets %s gather (%s)",
 			gatherParamFilter, patterns, chosenNames(chosen), strings.Join(gatherAllKeys(chosen), ", "))
 	}
@@ -453,42 +474,31 @@ type gatherChoice struct {
 	patterns []string
 }
 
-// probesFor is the probes choice runs on platform. narrow refuses only a
-// malformed pattern, which gatherPlan has already refused over every
-// platform's probes, so it cannot refuse here.
+// probesFor is the probes choice runs on platform.
 func (choice gatherChoice) probesFor(platform string) []gatherProbe {
-	probes, _ := choice.narrow(gatherProbesFor(platform))
-	return probes
+	return choice.narrow(gatherProbesFor(platform))
 }
 
 // narrow keeps the probes of the chosen subsets that the filter can want,
 // each narrowed to the keys it kept.
-func (choice gatherChoice) narrow(probes []gatherProbe) ([]gatherProbe, error) {
+func (choice gatherChoice) narrow(probes []gatherProbe) []gatherProbe {
 	var planned []gatherProbe
 	for _, probe := range probes {
 		if !choice.chosen[probe.subset] {
 			continue
 		}
 		if probe.family != "" {
-			wanted, err := gatherFamilyWanted(choice.patterns, probe.family)
-			if err != nil {
-				return nil, err
-			}
-			if wanted {
+			if gatherFamilyWanted(choice.patterns, probe.family) {
 				planned = append(planned, probe)
 			}
 			continue
 		}
-		// A fresh slice rather than filtering in place: gatherProbes hands
-		// back the keys slice it built, and writing through it would edit
-		// the answer the next call sees.
+		// A fresh slice rather than filtering in place: gatherProbesFor
+		// hands back the keys slice it built, and writing through it would
+		// edit the answer the next call sees.
 		var kept []string
 		for _, key := range probe.keys {
-			matched, err := gatherMatches(choice.patterns, key)
-			if err != nil {
-				return nil, err
-			}
-			if matched {
+			if gatherMatches(choice.patterns, key) {
 				kept = append(kept, key)
 			}
 		}
@@ -498,52 +508,44 @@ func (choice gatherChoice) narrow(probes []gatherProbe) ([]gatherProbe, error) {
 		probe.keys = kept
 		planned = append(planned, probe)
 	}
-	return planned, nil
+	return planned
 }
 
-// gatherFamilyWanted reports whether the filter can want any fact of
-// family: with no patterns, or a pattern naming the family (package.nginx)
-// or matching its members (package.*). Which members it wants is decided as
-// they are emitted.
-func gatherFamilyWanted(patterns []string, family string) (bool, error) {
+// gatherFamilyWanted reports whether the filter could want a fact of family:
+// with no patterns, or a pattern whose literal start (the text before its
+// first wildcard) and the family's prefix agree as far as both go, so
+// package.nginx, package.*, pack* and *nginx all can and ansible_* cannot.
+// Which members it wants is decided as they are emitted.
+func gatherFamilyWanted(patterns []string, family string) bool {
 	if len(patterns) == 0 {
-		return true, nil
+		return true
 	}
 	for _, pattern := range patterns {
-		if strings.HasPrefix(pattern, family) {
-			return true, nil
+		literal := pattern
+		if i := strings.IndexAny(pattern, `*?[\`); i >= 0 {
+			literal = pattern[:i]
 		}
-		matched, err := path.Match(pattern, family+"x")
-		if err != nil {
-			return false, fmt.Errorf("%s pattern %q is malformed: %w", gatherParamFilter, pattern, err)
-		}
-		if matched {
-			return true, nil
+		if strings.HasPrefix(family, literal) || strings.HasPrefix(literal, family) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 // gatherMatches reports whether key is wanted by any of the patterns, with
-// no patterns meaning every key is.
-//
-// path.Match is the same shell-style matching Ansible's filter uses, and a
-// malformed pattern is refused by name rather than silently matching
-// nothing, which is what path.Match's own error exists to say.
-func gatherMatches(patterns []string, key string) (bool, error) {
+// no patterns meaning every key is. path.Match is the same shell-style
+// matching Ansible's filter uses; gatherPlan has refused a malformed
+// pattern, so its error cannot arise here.
+func gatherMatches(patterns []string, key string) bool {
 	if len(patterns) == 0 {
-		return true, nil
+		return true
 	}
 	for _, pattern := range patterns {
-		matched, err := path.Match(pattern, key)
-		if err != nil {
-			return false, fmt.Errorf("%s pattern %q is malformed: %w", gatherParamFilter, pattern, err)
-		}
-		if matched {
-			return true, nil
+		if matched, _ := path.Match(pattern, key); matched {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 // gatherWanted reports whether key survived the filter for its probe.
@@ -554,6 +556,33 @@ func gatherWanted(keys []string, key string) bool {
 		}
 	}
 	return false
+}
+
+// gatherNames are the family keys a run has emitted, so a name a second item
+// takes (rpm's multilib packages, a name two databases list, two Uninstall
+// entries sharing a display name) is told apart: its architecture after a
+// colon, as dpkg names a foreign one, then its source after an at sign,
+// then a number after a hash, counted in the order the device lists them.
+type gatherNames map[string]bool
+
+// distinct is f under a key no earlier item took.
+func (n gatherNames) distinct(f gatherFact) gatherFact {
+	key := f.key
+	if n[key] {
+		value, _ := f.value.(map[string]any)
+		if arch, _ := value["arch"].(string); arch != "" {
+			key = itemKey(key+":", arch)
+		}
+		if source, _ := value["source"].(string); n[key] && source != "" {
+			key = itemKey(key+"@", source)
+		}
+		for i, base := 2, key; n[key]; i++ {
+			key = base + "#" + strconv.Itoa(i)
+		}
+	}
+	n[key] = true
+	f.key = key
+	return f
 }
 
 // gatherAllKeys returns every fact name the chosen subsets can emit, in

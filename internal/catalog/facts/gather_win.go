@@ -4,9 +4,10 @@
 // change a name on its way here; the parsing is in Go, as every other
 // platform's is. The min and hardware facts come from CIM, the packages from
 // the registry's Uninstall keys (the machine's, both views), and the
-// services from the service control manager through Win32_Service. Nothing
-// needs elevation: every one of them is readable by a member of Remote
-// Management Users.
+// services from the service control manager through Win32_Service. Every
+// script only reads. The lab gate runs them with an administrator's login;
+// whether a member of Remote Management Users alone reads all of it is not
+// yet proven.
 package facts
 
 import (
@@ -58,27 +59,36 @@ $out = [ordered]@{
 // windowsHardwareScript prints the hardware subset's facts: memory and the
 // page files' allocated size in whole megabytes, the processor packages,
 // logical processors and the first package's cores, and the seconds since
-// boot by the host's own clock.
+// boot by the host's own clock. A value CIM does not give is null, which the
+// parser leaves out, never 0.
 const windowsHardwareScript = `$ErrorActionPreference = 'Stop'
+function N($v) { if ($null -eq $v) { $null } else { [int64]$v } }
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $cpu = @(Get-CimInstance Win32_Processor)
 $swap = 0
 foreach ($p in @(Get-CimInstance Win32_PageFileUsage)) { $swap += [int64]$p.AllocatedBaseSize }
+$mem = $null
+if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Floor([double]$cs.TotalPhysicalMemory / 1MB) }
+$cores = $null
+if ($cpu.Count -gt 0) { $cores = $cpu[0].NumberOfCores }
+$up = $null
+if ($null -ne $os.LastBootUpTime) { $up = [math]::Floor(((Get-Date) - $os.LastBootUpTime).TotalSeconds) }
 $out = [ordered]@{
-  ansible_memtotal_mb = [int64][math]::Floor([double]$cs.TotalPhysicalMemory / 1MB)
+  ansible_memtotal_mb = N $mem
   ansible_swaptotal_mb = [int64]$swap
-  ansible_processor_count = [int64]$cs.NumberOfProcessors
-  ansible_processor_vcpus = [int64]$cs.NumberOfLogicalProcessors
-  ansible_processor_cores = [int64]$cpu[0].NumberOfCores
-  ansible_uptime_seconds = [int64][math]::Floor(((Get-Date) - $os.LastBootUpTime).TotalSeconds)
+  ansible_processor_count = N $cs.NumberOfProcessors
+  ansible_processor_vcpus = N $cs.NumberOfLogicalProcessors
+  ansible_processor_cores = N $cores
+  ansible_uptime_seconds = N $up
 }` + windowsJSONOut
 
 // windowsPackagesScript prints every program the machine's Uninstall keys
 // name: the native view, whose architecture is the host's own, and the
-// 32-bit view under WOW6432Node. An entry with no DisplayName is not a
-// program Windows lists and is left out, as Programs and Features leaves it
-// out; per-user installs (HKCU) are another account's and are not read.
+// 32-bit view under WOW6432Node. An entry with no DisplayName is left out;
+// one Programs and Features hides (a SystemComponent, an update) is kept,
+// since it is installed all the same. Per-user installs (HKCU) are another
+// account's and are not read.
 const windowsPackagesScript = `$ErrorActionPreference = 'Stop'
 $native = ([string]$env:PROCESSOR_ARCHITECTURE).ToLowerInvariant()
 $roots = @(

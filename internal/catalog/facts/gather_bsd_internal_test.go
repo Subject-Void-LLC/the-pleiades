@@ -72,7 +72,7 @@ func TestFreeBSDParsers_ReadPkgAndRC(t *testing.T) {
 }
 
 func TestDarwinParsers_ReadBrewPkgutilAndLaunchd(t *testing.T) {
-	brew := valuesOf(packageFacts(parseBrew("ada-url 3.4.4\nbrotli 1.1.0 1.2.0\n" + serviceSectionMark + "\nclaude-code 2.1.236\nbrotli 9\n")))
+	brew := valuesOf(distinctAll(packageFacts(parseBrew("ada-url 3.4.4\nbrotli 1.1.0 1.2.0\n" + serviceSectionMark + "\nclaude-code 2.1.236\nbrotli 9\n"))))
 	if brew["package.brotli"].(map[string]any)["version"] != "1.2.0" || brew["package.claude-code"].(map[string]any)["source"] != "brew-cask" {
 		t.Errorf("brew: %v", brew)
 	}

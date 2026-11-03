@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
@@ -57,18 +58,28 @@ func gatherRunner(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	if err != nil {
 		return nil, "", nil, err
 	}
+	// Every probe runs in sh, so the login shell (csh, tcsh or fish as
+	// well as a POSIX one) only passes it on; each is one line, since csh
+	// refuses a newline inside quotes.
+	run := func(ctx context.Context, command string) (string, error) {
+		res, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", command}))
+		return res.Stdout, err
+	}
 	// Which platform's sources to read: uname -s answers on every system
-	// reached over SSH, and an answer this does not know reads Linux's.
-	system, err := conn.Run(ctx, "uname -s")
+	// reached over SSH, and an answer this does not know reads Linux's. Its
+	// last line, since a login that prints a banner prints it first.
+	system, err := run(ctx, "uname -s")
 	if err != nil {
 		_ = conn.Close()
 		return nil, "", nil, fmt.Errorf("%s: uname -s: %w", fqcn, err)
 	}
-	run := func(ctx context.Context, command string) (string, error) {
-		res, err := conn.Run(ctx, command)
-		return res.Stdout, err
-	}
-	return run, strings.TrimSpace(system.Stdout), func() { _ = conn.Close() }, nil
+	return run, lastLine(system), func() { _ = conn.Close() }, nil
+}
+
+// lastLine is out's last line that is not empty, trimmed.
+func lastLine(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // name is how an error names the probe: its command, or for a Windows

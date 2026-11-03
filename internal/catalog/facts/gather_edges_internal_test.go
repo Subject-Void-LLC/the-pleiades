@@ -6,10 +6,12 @@ package facts
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
@@ -28,10 +30,19 @@ func TestGatherPlan_FamiliesInTheRefusalsAndTheFilter(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "package.*") || !strings.Contains(err.Error(), "service.*") {
 		t.Errorf("refusal = %v", err)
 	}
-	// * is no family's prefix, and still wants every family's members.
-	for pattern, want := range map[string]bool{"*": true, "ansible_*": false, "service.*": false} {
-		if got, err := gatherFamilyWanted([]string{pattern}, gatherFamilyPackage); err != nil || got != want {
-			t.Errorf("%q wants packages: %v, %v", pattern, got, err)
+	// A family is wanted by a pattern whose literal start agrees with its
+	// prefix, however that pattern begins.
+	for pattern, want := range map[string]bool{"*": true, "*nginx": true, "pack*": true, "package.nginx": true, "package.ng?nx": true,
+		"ansible_*": false, "service.*": false, "pkg*": false} {
+		if got := gatherFamilyWanted([]string{pattern}, gatherFamilyPackage); got != want {
+			t.Errorf("%q wants packages: %v", pattern, got)
+		}
+	}
+	// A malformed pattern is refused whichever probe it would meet first,
+	// one starting like a family's included.
+	for _, bad := range []string{"[", "package.[", "ansible_[x"} {
+		if _, err := gatherPlan(map[string]any{gatherParamSubset: []any{"all"}, gatherParamFilter: []any{bad}}); err == nil || !strings.Contains(err.Error(), "malformed") {
+			t.Errorf("%q: %v", bad, err)
 		}
 	}
 }
@@ -70,5 +81,38 @@ func TestGather_AnUnusableWinRMCredentialIsRefusedBeforeContact(t *testing.T) {
 	_, err := Gather(context.Background(), &clashContext{winTestContext{facts: map[string]any{}}}, newWinTestHost(), nil)
 	if err == nil || !strings.HasPrefix(err.Error(), "facts.gather: ") || len(*asked) != 0 {
 		t.Errorf("err = %v, asked %v", err, *asked)
+	}
+}
+
+func TestGather_MoreFactsThanOneTaskMayRecordFailsTheTask(t *testing.T) {
+	var many strings.Builder
+	many.WriteString("[")
+	for i := range collection.MaxFactsPerObservation {
+		if i > 0 {
+			many.WriteString(",")
+		}
+		fmt.Fprintf(&many, `{"name":"p%d","version":"1","arch":"amd64"}`, i)
+	}
+	many.WriteString("]")
+	answerWindows(t, map[string]winrmexec.Result{
+		gatherSubsetMin:      {Stdout: `{"ansible_system":"Win32NT"}`},
+		gatherSubsetPackages: {Stdout: many.String()},
+	})
+	rc := &winTestContext{facts: map[string]any{}}
+	_, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{gatherParamSubset: []any{"min", "packages"}})
+	if err == nil || !strings.Contains(err.Error(), "more than the 8192 facts") {
+		t.Fatalf("err = %v", err)
+	}
+	// The probe that crossed the cap emitted nothing; the one before it did.
+	if len(rc.facts) != 1 {
+		t.Errorf("%d facts emitted, want only the min probe's", len(rc.facts))
+	}
+}
+
+func TestLastLine_SkipsALoginBanner(t *testing.T) {
+	for out, want := range map[string]string{"FreeBSD\n": "FreeBSD", "Welcome to the lab\n\nLinux\n\n": "Linux", "": ""} {
+		if got := lastLine(out); got != want {
+			t.Errorf("lastLine(%q) = %q, want %q", out, got, want)
+		}
 	}
 }

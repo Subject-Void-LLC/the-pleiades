@@ -40,13 +40,15 @@ func parsePkg(out string) []installedPackage {
 // freebsdServiceProbes reads rc: every script (service -l), the enabled ones
 // (service -e), and the status of each enabled one, which takes a few
 // seconds where every script's would take many more and tell little about
-// scripts that do not start at boot (their state is unknown).
+// scripts that do not start at boot (their state is unknown). The listing is
+// split without globbing (set -f), and a name that would read as an option
+// to service is not asked about.
 func freebsdServiceProbes() []gatherProbe {
 	return []gatherProbe{{
 		subset: gatherSubsetServices,
 		family: gatherFamilyService,
 		command: `command -v service >/dev/null 2>&1 && { service -l; echo '` + serviceSectionMark + `'; service -e; echo '` + serviceSectionMark + `'; ` +
-			`for p in $(service -e); do s=${p##*/}; st=$(service "$s" onestatus 2>&1 | head -1); printf '%s\t%s\n' "$s" "$st"; done; }`,
+			`set -f; for p in $(service -e); do s=${p##*/}; case $s in -*) continue;; esac; st=$(service "$s" onestatus 2>&1 | head -1); printf '%s\t%s\n' "$s" "$st"; done; }`,
 		parse: parseRC,
 	}}
 }
@@ -113,13 +115,17 @@ func placeholder(name string) bool {
 
 // darwinPackageProbes reads Homebrew's formulae and casks, where Homebrew is
 // installed in either of its places (it is not on a non-login shell's PATH),
-// and pkgutil's installer receipts.
+// and pkgutil's installer receipts. brew is a script whoever owns Homebrew's
+// prefix can change, so it is run only by the account that owns it and never
+// as root: run as anyone else, it would run that owner's code with this
+// login's rights. A login that does not own Homebrew reports no brew
+// packages.
 func darwinPackageProbes() []gatherProbe {
 	return []gatherProbe{
 		{
 			subset: gatherSubsetPackages,
 			family: gatherFamilyPackage,
-			command: `for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do if [ -x "$b" ]; then ` +
+			command: `for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do if [ -x "$b" ] && [ -O "$b" ] && [ "$(id -u)" != 0 ]; then ` +
 				`HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 "$b" list --versions --formula; echo '` + serviceSectionMark + `'; ` +
 				`HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 "$b" list --versions --cask; break; fi; done`,
 			parse: func(out string) []gatherFact { return packageFacts(parseBrew(out)) },
@@ -127,7 +133,7 @@ func darwinPackageProbes() []gatherProbe {
 		{
 			subset:  gatherSubsetPackages,
 			family:  gatherFamilyPackage,
-			command: `command -v pkgutil >/dev/null 2>&1 && for p in $(pkgutil --pkgs); do pkgutil --pkg-info "$p"; echo; done`,
+			command: `command -v pkgutil >/dev/null 2>&1 && set -f && for p in $(pkgutil --pkgs); do case $p in -*) continue;; esac; pkgutil --pkg-info "$p"; echo; done`,
 			parse:   func(out string) []gatherFact { return packageFacts(parsePkgutil(out)) },
 		},
 	}
