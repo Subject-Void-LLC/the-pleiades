@@ -253,6 +253,6 @@ rm -rf ` + qdir})
 		return
 	}
 	defer func() { _ = fresh.Close() }()
-	fresh.become = c.become
+	fresh.become, fresh.raw = c.become, c.raw
 	_, _ = fresh.run(ctx, stop, nil, 4096)
 }

@@ -59,10 +59,11 @@ type Process struct {
 // Process without waiting for it to finish. The caller must Close the
 // result.
 //
-// command is sent VERBATIM over the SSH exec channel, exactly as Run
-// sends it. The remote sshd hands it to the login shell, so a caller
-// building a command from untrusted parts must quote every one of them
-// with QuoteArg or QuoteCommand; this function will not do it silently.
+// command is sent over the SSH exec channel exactly as Run sends it: for
+// sh to read, whatever the login shell is, or as written on a Raw view
+// (script.go). sh parses it, so a caller building a command from untrusted
+// parts must quote every one of them with QuoteArg or QuoteCommand; this
+// function will not do it silently.
 //
 // Like Subsystem, it shares c's already-authenticated *ssh.Client, so a
 // started command inherits the host key verification, the dial retry,
@@ -76,14 +77,16 @@ func (c *Conn) Start(ctx context.Context, command string) (*Process, error) {
 	// connection goes back to its Pool only once every process started on
 	// it has been seen to exit (Wait answered an exit status); a connection
 	// with one that was not is closed instead (lease.started, lease.ended).
+	// Refused before any session opens: nothing was sent, so the
+	// connection is not left in doubt.
+	line, err := c.wire(command)
+	if err != nil {
+		return nil, err
+	}
 	if c.lease != nil {
 		c.lease.started()
 	}
 	s, err := c.openStream(ctx, "remote command", func(session *ssh.Session) error {
-		line, err := c.wire(command)
-		if err != nil {
-			return err
-		}
 		return session.Start(line)
 	})
 	if err != nil {

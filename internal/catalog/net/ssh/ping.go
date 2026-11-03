@@ -149,7 +149,18 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	// author-supplied value can contain any byte sequence, including shell
 	// metacharacters, and must come back as one argument rather than as a
 	// second command.
-	result, err := runner.Run(ctx, nil, target, auth, "echo "+remoteexec.QuoteArg(data))
+	conn, err := runner.Connect(ctx, nil, target, auth)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	// sh reads the echo whatever the login shell is, except on a device whose
+	// exec channel is not a POSIX shell, which reads it as written, as
+	// sdk.Connect decides.
+	if !inventory.ExecIsPOSIX(device) {
+		conn = conn.Raw()
+	}
+	result, err := conn.Run(ctx, "echo "+remoteexec.QuoteArg(data))
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}

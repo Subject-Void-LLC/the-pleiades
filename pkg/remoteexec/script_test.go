@@ -48,3 +48,29 @@ func TestConn_RefusesALineOverOneArgumentBeforeSendingIt(t *testing.T) {
 		t.Errorf("sent %d lines", len(srv.WireCommands()))
 	}
 }
+
+func TestConn_RefusesANULAndHoldsTheArgumentLimitExactly(t *testing.T) {
+	conn, srv, _ := detachedServer(t)
+	if _, err := conn.Run(context.Background(), "printf '%s' 'a\x00b'"); err == nil || !strings.Contains(err.Error(), "NUL") {
+		t.Fatalf("a NUL: %v", err)
+	}
+	if _, err := conn.Start(context.Background(), "echo \x00"); err == nil {
+		t.Fatal("Start sent a NUL")
+	}
+	// The longest line an argument holds is MaxBytes-1 bytes: it runs, and
+	// one byte more is refused before it is sent.
+	overhead := len(shline.For(""))
+	fits := ": " + strings.Repeat("a", shline.MaxBytes-1-overhead-2)
+	if line := shline.For(fits); len(line) != shline.MaxBytes-1 {
+		t.Fatalf("the line is %d bytes", len(line))
+	}
+	if res, err := conn.Run(context.Background(), fits); err != nil || res.ExitCode != 0 {
+		t.Fatalf("the longest line: exit %d, %v", res.ExitCode, err)
+	}
+	if _, err := conn.Run(context.Background(), fits+"a"); err == nil || !strings.Contains(err.Error(), "standard input") {
+		t.Fatalf("one byte more: %v", err)
+	}
+	if n := len(srv.WireCommands()); n != 1 {
+		t.Errorf("sent %d lines, want only the one that fits", n)
+	}
+}

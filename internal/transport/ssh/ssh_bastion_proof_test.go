@@ -122,6 +122,9 @@ func startBastionProofOuterJumpHost(t *testing.T, outerNet string) testcontainer
 		t.Fatalf("starting outer jump host: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	if err := testsupport.SetLoginShell(context.Background(), c, containerSSHUser); err != nil {
+		t.Fatal(err)
+	}
 	return c
 }
 
@@ -161,6 +164,9 @@ func startBastionProofInnerBastion(t *testing.T, outerNet, mgmtNet string) testc
 		t.Fatalf("starting inner bastion: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	if err := testsupport.SetLoginShell(context.Background(), c, containerSSHUser); err != nil {
+		t.Fatal(err)
+	}
 	return c
 }
 

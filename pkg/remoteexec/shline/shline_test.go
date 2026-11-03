@@ -66,3 +66,27 @@ func FuzzFor(f *testing.F) {
 		}
 	})
 }
+
+// TestFor_EveryByteReachesShAsItself sends each byte from 1 to 255 inside a
+// quoted printf argument through this machine's sh, as sshd runs a line
+// through a login shell that is sh, and reads it back unchanged: run on Linux,
+// macOS and a FreeBSD lab machine alike, each measures its own sh's printf.
+func TestFor_EveryByteReachesShAsItself(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh here")
+	}
+	var all strings.Builder
+	for b := 1; b < 256; b++ {
+		if b != '\'' {
+			all.WriteByte(byte(b))
+		}
+	}
+	want := all.String()
+	cmd := exec.Command(sh, "-c", For("printf '%s' '"+want+"'; printf '%s' \"'\""))
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "LC_ALL=C"}
+	out, err := cmd.Output()
+	if err != nil || string(out) != want+"'" {
+		t.Fatalf("got %q (%v)", out, err)
+	}
+}

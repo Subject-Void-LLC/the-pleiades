@@ -53,7 +53,7 @@ func TestEveryLoginShellHandsShTheSameCommand(t *testing.T) {
 
 	want := ""
 	for _, shell := range []string{"ash", "bash", "zsh", "tcsh", "fish"} {
-		if err := testsupport.UseLoginShell(ctx, srv.Container, testsupport.SSHDUser, shell); err != nil {
+		if err := testsupport.UseLoginShell(ctx, srv.Container, shell, testsupport.SSHDUser); err != nil {
 			t.Fatal(err)
 		}
 		res, err := tr.Exec(ctx, target, cred, loginShellScript)

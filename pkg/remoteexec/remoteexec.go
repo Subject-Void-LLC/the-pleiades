@@ -352,10 +352,10 @@ func SnapshotForTest() func() {
 // should use Connect and reuse the returned Conn, which pays for one
 // chain of handshakes instead of one per command.
 //
-// command is sent VERBATIM. Nothing here wraps it in a local shell or
-// concatenates it with the target address, and the caller is solely
-// responsible for what it contains. QuoteArg and QuoteCommand are how a
-// caller builds one safely from untrusted parts.
+// command is sent as Conn.Run sends it, for sh to read whatever the login
+// shell is. Nothing is concatenated to it, it never runs in a local shell,
+// and the caller is solely responsible for what it contains. QuoteArg and
+// QuoteCommand are how a caller builds one safely from untrusted parts.
 func (r *Runner) Run(ctx context.Context, hops []Hop, target Target, auth Auth, command string) (Result, error) {
 	conn, err := r.Connect(ctx, hops, target, auth)
 	if err != nil {

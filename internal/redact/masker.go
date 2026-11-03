@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
 // Masker applies one Ruleset. It is the only masking engine in this
@@ -102,6 +104,20 @@ func (m *Masker) Text(extra []string, text string) string {
 		combined = append(combined, literals...)
 		combined = append(combined, extra...)
 		literals = combined
+	}
+	// A device that echoes the line it was sent (a login shell's trace, a
+	// ForceCommand's log) echoes each secret in it as a connection encoded
+	// it for sh (shline), whose escapes all begin \0; such text is held to
+	// those forms too.
+	if strings.Contains(text, `\0`) {
+		encoded := make([]string, 0, 2*len(literals))
+		encoded = append(encoded, literals...)
+		for _, l := range literals {
+			if e := shline.Encode(l); e != l {
+				encoded = append(encoded, e)
+			}
+		}
+		literals = encoded
 	}
 	out := maskLiterals(literals, text)
 

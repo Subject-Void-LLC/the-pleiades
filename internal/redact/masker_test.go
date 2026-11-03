@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
 // TestDefaultRulesetParses is the CI-side guard for DefaultRuleset's panic.
@@ -445,5 +447,21 @@ func repoRoot(t *testing.T) string {
 			t.Fatal("could not find the module root")
 		}
 		dir = parent
+	}
+}
+
+// TestText_MasksASecretAsALoginShellEchoesTheEncodedLine: a device that
+// echoes the line a connection sent (an xtrace in a login rc, a ForceCommand
+// logging SSH_ORIGINAL_COMMAND) shows each secret encoded for sh, and that
+// form is masked as the plain one is.
+func TestText_MasksASecretAsALoginShellEchoesTheEncodedLine(t *testing.T) {
+	secret := "p@ss'w0rd! $x"
+	echoed := "+ /bin/sh -c ... sh 'mysql -p" + shline.Encode(secret) + " db'"
+	got := redact.Text([]string{secret}, echoed)
+	if strings.Contains(got, shline.Encode(secret)) || strings.Contains(got, "w0rd") {
+		t.Fatalf("the encoded secret survived: %q", got)
+	}
+	if plain := redact.Text([]string{secret}, "pw="+secret); strings.Contains(plain, "w0rd") {
+		t.Fatalf("the plain secret survived: %q", plain)
 	}
 }

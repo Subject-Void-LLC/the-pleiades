@@ -17,6 +17,8 @@ import (
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
@@ -152,12 +154,15 @@ func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request,
 		}
 
 		command := decodeExecPayload(req.Payload)
-		// A connection sends every command encoded for sh (shline).
+		// A connection sends every command encoded for sh (shline); one sent
+		// as written, for a device whose exec channel is not a POSIX shell,
+		// answers marked raw, so a test can tell which it got.
+		mark := "raw:"
 		if decoded, ok := shline.From(command); ok {
-			command = decoded
+			command, mark = decoded, ""
 		}
 		if arg, ok := strings.CutPrefix(command, "echo "); ok {
-			_, _ = channel.Write([]byte(unquotePOSIX(arg) + "\n"))
+			_, _ = channel.Write([]byte(mark + unquotePOSIX(arg) + "\n"))
 		}
 		_, _ = channel.SendRequest("exit-status", false,
 			cryptossh.Marshal(struct{ Status uint32 }{exitStatus}))
@@ -387,4 +392,32 @@ func newTestPrivateKeyPEM(t *testing.T) string {
 		t.Fatalf("marshalling a client key: %v", err)
 	}
 	return string(pem.EncodeToMemory(block))
+}
+
+// cliStub is sshStub for a network device's CLI (NetworkCLICapable), whose
+// exec channel is not a POSIX shell.
+type cliStub struct{ sshStub }
+
+func (s *cliStub) HasCapability(name capability.Name) bool {
+	return name == capability.NameSSHTransport || name == capability.NameNetworkCLI
+}
+
+// TestPing_SendsANetworkCLITheEchoAsWritten proves Ping follows the rule
+// sdk.Connect does: sh reads a host's echo, and a network CLI gets it as
+// written for its own command line.
+func TestPing_SendsANetworkCLITheEchoAsWritten(t *testing.T) {
+	server := newTestSSHServer(t, "admin", "hunter2", 0)
+	params := map[string]any{"insecure_skip_host_key_verify": true}
+	for device, want := range map[inventory.InventoryItem]string{
+		&sshStub{host: server.host, port: server.port}:          "pong",
+		&cliStub{sshStub{host: server.host, port: server.port}}: "raw:pong",
+	} {
+		rc := pingContext(map[string]string{"username": "admin", "password": "hunter2"})
+		if _, err := ssh.Ping(context.Background(), rc, device, params); err != nil {
+			t.Fatalf("Ping: %v", err)
+		}
+		if got := rc.stats["reply"]; got != want {
+			t.Errorf("reply = %v, want %q", got, want)
+		}
+	}
 }

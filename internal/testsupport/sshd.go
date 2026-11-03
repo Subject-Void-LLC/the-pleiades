@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
@@ -134,44 +135,63 @@ func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
 }
 
 // EnvLoginShell names the login shell the sshd containers give their test
-// account (zsh, tcsh, fish, bash), so every test reaching a device over SSH
-// can be run again under a shell that is not the image's POSIX one. Unset,
+// account (zsh, tcsh, fish, bash), so a test reaching a device over SSH can be
+// run again under a shell that is not the image's POSIX one: the Alpine sshd
+// containers (StartSSHD and the release gates' own), the Docker and Podman
+// engine hosts, and cmd/pleiades' Debian devices take it. An Ansible gate's
+// container does not, Ansible choosing its own shell. Unset,
 // the image's own shell stays. A method that sends its command for the login
 // shell to parse, rather than for sh, fails under one of them.
 const EnvLoginShell = "PLEIADES_TEST_LOGIN_SHELL"
 
-// SetLoginShell makes the shell EnvLoginShell names user's login shell in c,
-// as root and before any test connects (UseLoginShell). It does nothing when
-// the variable is unset.
-func SetLoginShell(ctx context.Context, c testcontainers.Container, user string) error {
+// loginShellTimeout bounds installing a login shell and switching to it.
+const loginShellTimeout = 3 * time.Minute
+
+// SetLoginShell makes the shell EnvLoginShell names each of users' login
+// shell in c, as root and before any test connects (UseLoginShell). It does
+// nothing when the variable is unset.
+func SetLoginShell(ctx context.Context, c testcontainers.Container, users ...string) error {
 	shell := os.Getenv(EnvLoginShell)
 	if shell == "" {
 		return nil
 	}
-	return UseLoginShell(ctx, c, user, shell)
+	return UseLoginShell(ctx, c, shell, users...)
 }
 
-// UseLoginShell installs shell (zsh, tcsh, fish, bash, or ash, the image's
-// own) in c, an Alpine sshd container, and makes it user's login shell. sshd
-// reads it at each login, so a connection opened after this call gets it.
-func UseLoginShell(ctx context.Context, c testcontainers.Container, user, shell string) error {
+// UseLoginShell installs shell (zsh, tcsh, fish, bash, or ash, Alpine's own)
+// in c through whichever of apk, apt-get and dnf the image has, and makes it
+// each of users' login shell. sshd reads it at each login, so a connection
+// opened after this call gets it.
+func UseLoginShell(ctx context.Context, c testcontainers.Container, shell string, users ...string) error {
 	if shell == "" || strings.Trim(shell, "abcdefghijklmnopqrstuvwxyz") != "" {
 		return fmt.Errorf("%q is not a shell's name", shell)
 	}
-	install := "apk add -q " + shell + " >/dev/null && "
-	if shell == "ash" {
-		install = ""
+	script := "command -v " + shell + " >/dev/null || " +
+		"if command -v apk >/dev/null; then apk add -q " + shell + " >/dev/null; " +
+		"elif command -v apt-get >/dev/null; then { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq " + shell + "; } >/dev/null; " +
+		"elif command -v dnf >/dev/null; then dnf install -y -q " + shell + " >/dev/null; fi; " +
+		"path=$(command -v " + shell + ") || exit 1"
+	for _, user := range users {
+		script += "; sed -i -E \"s#^(" + user + ":([^:]*:){5})[^:]*\\$#\\1$path#\" /etc/passwd && " +
+			"getent passwd " + user + " | cut -d: -f7"
 	}
-	script := install + "path=$(command -v " + shell + ") && " +
-		"sed -i -E \"s#^(" + user + ":([^:]*:){5})[^:]*\\$#\\1$path#\" /etc/passwd && " +
-		"getent passwd " + user + " | cut -d: -f7"
+	// Bounded: installing the shell reaches the package mirror, and a stalled
+	// one must fail the test, not hold it until the package's timeout.
+	ctx, cancel := context.WithTimeout(ctx, loginShellTimeout)
+	defer cancel()
 	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", script}, tcexec.Multiplexed())
 	if err != nil {
 		return fmt.Errorf("setting the login shell to %s: %w", shell, err)
 	}
 	out, _ := io.ReadAll(reader)
-	if got := strings.TrimSpace(string(out)); code != 0 || !strings.HasSuffix(got, "/"+shell) {
-		return fmt.Errorf("setting the login shell to %s: exit %d: %s", shell, code, got)
+	got := strings.Fields(string(out))
+	if code != 0 || len(got) != len(users) {
+		return fmt.Errorf("setting the login shell to %s: exit %d: %s", shell, code, out)
+	}
+	for _, line := range got {
+		if !strings.HasSuffix(line, "/"+shell) {
+			return fmt.Errorf("setting the login shell to %s: an account's is %s", shell, line)
+		}
 	}
 	return nil
 }

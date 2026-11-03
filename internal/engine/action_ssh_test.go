@@ -104,6 +104,22 @@ func TestSSHTarget(t *testing.T) {
 	if _, ok := engine.SSHTarget(plain); ok {
 		t.Error("expected ok=false for a device not implementing SSHTransportCapable")
 	}
+
+	// A host's command goes to sh; a network CLI's, and one onboarding found
+	// no POSIX shell on, as written for the login shell (Target.LoginShell).
+	if target.LoginShell {
+		t.Error("a host's ssh_exec target asks for its login shell")
+	}
+	cli := newSSHDevice("sw1", "10.0.0.2", 22)
+	cli.Caps = append(cli.Caps, capability.NameNetworkCLI)
+	windows := newSSHDevice("win1", "10.0.0.3", 22)
+	d := inventory.Discovery{Protocol: "ssh", Facts: map[string]any{inventory.ShellFact: inventory.NotPOSIX}}
+	windows.Props = map[string]inventory.PropertyValue{inventory.DiscoveredProperty: d.Property()}
+	for _, dev := range []*sshStub{cli, windows} {
+		if target, _ := engine.SSHTarget(dev); !target.LoginShell {
+			t.Errorf("%s: its ssh_exec target hands the command to sh", dev.Name())
+		}
+	}
 }
 
 // serialStub wraps inventorytest.Stub with the two accessors
