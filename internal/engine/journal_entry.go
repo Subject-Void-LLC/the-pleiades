@@ -678,11 +678,11 @@ func RecordableTexts(items any) ([]string, bool) {
 // (Type "list"). Only there may the journal hold a list, so a list never
 // stands in for a value a method takes as one piece of text.
 func ListParam(fqcn, key string) bool {
-	desc, ok := collection.Lookup(fqcn)
+	manifest, ok := collection.ManifestOf(fqcn)
 	if !ok {
 		return false
 	}
-	for _, p := range desc.Manifest.Doc.Params {
+	for _, p := range manifest.Doc.Params {
 		if p.Name == key {
 			return p.Type == "list"
 		}

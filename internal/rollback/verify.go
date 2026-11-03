@@ -76,28 +76,31 @@ func verifyRecorded(s Step) error {
 }
 
 // declaredUndo returns emitter's declaration of an undo through target,
-// and target's descriptor, refusing a method that is not a built-in this
-// build runs, an undo it does not declare, or an undo method that is not
-// implemented.
+// and target's descriptor (its manifest; no implementation), refusing a
+// method that is not a built-in this build knows, an undo it does not
+// declare, or an undo method that is not implemented. A Controller registers
+// no Collection, so both are read through collection.BuiltinManifest and
+// ManifestOf, which fall back to the module catalog it installs; reading the
+// registry alone refused every recorded undo there (FAILURE_PATTERNS 841).
 func declaredUndo(emitter, target string) (*sdk.InverseSpec, collection.Descriptor, error) {
-	desc, ok := collection.Lookup(emitter)
-	if !ok || desc.Manifest.Status != collection.StatusImplemented || desc.Provider != nil {
+	emits, ok := collection.BuiltinManifest(emitter)
+	if !ok || emits.Status != collection.StatusImplemented {
 		return nil, collection.Descriptor{}, fmt.Errorf("the journal names %s, which is not a built-in method this build runs, so the undo it records is not trusted", emitter)
 	}
 	var spec *sdk.InverseSpec
-	for i := range desc.Manifest.Reversibility.Inverses {
-		if desc.Manifest.Reversibility.Inverses[i].FQCN == target {
-			spec = &desc.Manifest.Reversibility.Inverses[i]
+	for i := range emits.Reversibility.Inverses {
+		if emits.Reversibility.Inverses[i].FQCN == target {
+			spec = &emits.Reversibility.Inverses[i]
 		}
 	}
 	if spec == nil {
 		return nil, collection.Descriptor{}, fmt.Errorf("the journal records an undo of %s through %s, which %s does not declare, so it is not trusted", emitter, target, emitter)
 	}
-	undo, ok := collection.Lookup(target)
-	if !ok || undo.Manifest.Status != collection.StatusImplemented {
+	undo, ok := collection.ManifestOf(target)
+	if !ok || undo.Status != collection.StatusImplemented {
 		return nil, collection.Descriptor{}, fmt.Errorf("the undo method %s is not an implemented method in this build", target)
 	}
-	return spec, undo, nil
+	return spec, collection.Descriptor{Name: target, Manifest: undo}, nil
 }
 
 // recordableValue reports whether v is a value the journal's projection

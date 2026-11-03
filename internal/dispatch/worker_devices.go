@@ -165,13 +165,16 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 // actions, so a device no method could reach was dispatched and failed on
 // the Runner.
 //
-// A method this process has not registered (an external Collection, which
-// only a Runner loads) is left to the Runner's preflight. On the Walk tier
+// A method neither registered nor in the installed built-in catalog (an
+// external Collection's, which only a Runner loads) is left to the Runner's
+// preflight. On the Walk tier
 // every task runs against its one dispatched device, so every method is
 // checked against it; segmented dispatch narrows that per segment.
 func methodsAdmit(device pkginventory.InventoryItem, methods []string) error {
 	for _, fqcn := range methods {
-		desc, ok := collection.Lookup(fqcn)
+		// The registry, or on a Controller, which registers no Collection, the
+		// module catalog its composition root installed.
+		manifest, ok := collection.ManifestOf(fqcn)
 		if !ok {
 			continue
 		}
@@ -179,7 +182,7 @@ func methodsAdmit(device pkginventory.InventoryItem, methods []string) error {
 		// method whose calls take more than one shape admits a device any
 		// of them fits; the Runner's preflight and its engine hold each call
 		// to its own (collection.Manifest.For).
-		if err := collection.CheckAnyShape(device, fqcn, desc.Manifest); err != nil {
+		if err := collection.CheckAnyShape(device, fqcn, manifest); err != nil {
 			return err
 		}
 	}

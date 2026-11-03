@@ -1,0 +1,1 @@
+The Controller now admits each device against the capabilities and transports of the methods a runbook calls, and `POST /jobs/{id}/rollback` trusts a built-in method's recorded undo; neither worked in a shipped Controller, which registers no method, so it now reads the module catalog it embeds.

@@ -61,8 +61,8 @@ func changesNothing(fqcn string) bool {
 	case "noop", "set_metadata", "pleiades.builtin.set_metadata", "ios_backup":
 		return true
 	}
-	desc, ok := collection.Lookup(fqcn)
-	return ok && desc.Provider == nil && desc.Manifest.Reversibility.ReadOnly
+	manifest, ok := collection.BuiltinManifest(fqcn)
+	return ok && manifest.Reversibility.ReadOnly
 }
 
 // stepError is why one change cannot be undone, with the flag that
@@ -113,8 +113,8 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 	}
 	if e.InverseFQCN == "" {
 		reason := fmt.Sprintf("%s changed the device and recorded no undo", e.FQCN)
-		if desc, ok := collection.Lookup(e.FQCN); ok && !desc.Manifest.Reversibility.Reversible && desc.Manifest.Reversibility.Notes != "" {
-			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", e.FQCN, strings.TrimSuffix(desc.Manifest.Reversibility.Notes, "."))
+		if manifest, ok := collection.ManifestOf(e.FQCN); ok && !manifest.Reversibility.Reversible && manifest.Reversibility.Notes != "" {
+			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", e.FQCN, strings.TrimSuffix(manifest.Reversibility.Notes, "."))
 		}
 		reason += "; give the task a rollback: list in its runbook, or leave the change in place"
 		if notFound != nil {

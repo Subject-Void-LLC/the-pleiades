@@ -556,6 +556,13 @@ func main() {
 		// does not exit.
 	}
 
+	// Before anything can ask about a built-in method: this binary links no
+	// Collection, so admission and rollback read the module catalog it
+	// embeds (builtin_catalog.go).
+	if err := installBuiltinCatalog(); err != nil {
+		fatal("failed to install the built-in method catalog", err)
+	}
+
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
 
 	// The one number that says how long this deployment promises to
