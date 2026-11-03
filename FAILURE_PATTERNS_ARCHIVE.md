@@ -19971,3 +19971,132 @@ imports of persistence to `TestEngineNeverImportsPersistence`, and it fails if t
 
 **Lesson.** Run a new architecture rule against main before relying on it, and scope it to the edge the phase adds. A
 rule that fails on main's existing graph is either a finding about main or written too wide.
+
+## 836. A field a later task's secret_mask marks secret was stored as a fact, because the earlier task's facts were stored at its level barrier before the mask had run (a repeat of 829) (fixed)
+
+**Symptom.** 2026-11-02, found by the owner's question about `secret_mask`. A task registers a result and emits facts;
+a later task's `secret_mask:` names a field of that register. The field's value was stored as a fact: in
+`.pleiades/facts` on the Crawl tier, and in the Controller's fact table, served at `GET /inventory/devices/{name}/facts`,
+on the Walk tier. On `main` since PR #105 (`5987ba53`); unreleased, since it came after v0.3.0.
+
+**Root cause.** `secret_mask` runs as its own later task and reaches back to an earlier register. Its value joins the
+run's secrets only when that later task runs. The engine stores the earlier task's facts at that task's level barrier
+(`internal/engine/facts.go`), which comes first, so the value was not yet in the secrets the fact guard reads.
+
+**Why 829 did not prevent it.** 829's fix gave the Runner's executor the dispatch's secrets and added name and shape
+checks that need no list. Each reads what is known at the moment the facts are stored, and a secret the runbook marks
+later is not known then. The gap was seen and left open: the handoff for PR #105 listed "a value masked only at report
+time (`secret_mask`) is not in the fact guard's known-secret list" as an owner question, so it merged as a question
+rather than as a refusal.
+
+**Fix.** `45193c98`: `maskedLater(dag)` collects each field any `secret_mask` in the runbook names for a register, and
+the engine refuses to store those fields from the task that writes the register. `5212a405`: `maskedLater` reads the
+full graph (`dag.full`), not the tag selection, so `--tags` cannot drop the masking task and keep the value (the shape
+of 540, a tag selection losing something the runbook declares). Tests: `TestFacts_AFieldALaterSecretMaskMarksIsNeverStored`
+and `TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut` (`internal/engine/facts_test.go`), both
+mutation-checked. Changelog: `facts-secret-mask.security.md`. Related: vuln-corpus finding `C7_auto-roboto_2026-11-02`.
+
+**Residuals.** The refusal is by register and field name, not by value, so the same value emitted under another key
+and field is not caught. `run.publish` status messages are masked only with the secrets known when each is sent
+(pre-existing, best effort).
+
+**Lesson.** A guard that reads "what is secret so far" misses every secret the runbook marks later. When a declaration
+anywhere in a runbook can make a value secret, read it from the whole runbook, never from the tag selection, before
+storing anything it covers.
+
+## 837. The Controller's check of a Runner's facts against each method's declaration was dead code in the shipped binary, which links no Collection, so collection.Lookup found nothing (a repeat of 52 and 578; in kind of 110, 180 and 693) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over Phase 41b, before push. `internal/facts/entstore`'s Subscriber held
+each batch a Runner published to the facts the method declares (`189be213`), finding the method through
+`collection.Lookup`. `cmd/controller` links no Collection: under `internal/catalog`, `go list -deps ./cmd/controller`
+lists only `internal/catalog/fragment`. So in the shipped Controller every lookup missed and no batch was held to a
+declaration. Every test passed: the subscriber's test registered an in-process fixture method, and the Walk release
+gate ran inside `cmd/runner`'s test binary, which links the catalog.
+
+**Root cause.** The check reached the declarations through the process's registry, which only a binary that imports
+the catalog fills. Each test ran in a binary that had filled it; the one binary the check runs in had not.
+
+**Why 52, 578, 110, 180 and 693 did not prevent it.** 52 (LESSONS 56) is a registry left empty in the binary that
+matters while each package's own test finds itself; its fix was an aggregator the CLI and the Runner import, and nothing
+asks which binaries link it when a new reader of `collection.Lookup` appears in Controller code. 578's grant route
+relied on a check in another binary ("the Controller loads no program"); its fix was the route's own check, not a rule
+about where a check runs. 110, 180 and 693 are the same gap through constructor options: the test wires what the
+shipped root does not. Each lesson names its own mechanism, and this was a fourth.
+
+**Fix.** `5212a405`: `entstore.CatalogIndex(wellknown.ModuleCatalog)` builds the declarations from the generated module
+catalog the Controller embeds, and `cmd/controller/main.go` passes it with `entstore.WithDeclarations`. A batch is held
+by its keys, whatever method it names. Test: `TestSubscriber_HoldsBatchesToTheEmbeddedCatalog`
+(`internal/facts/entstore/store_test.go`), against the real embedded catalog.
+
+**Lesson.** A check that runs in one binary is tested with what that binary links. Before Controller code reads an
+`init()`-filled registry, run `go list -deps ./cmd/controller` and look for it; when it is absent, build the data from
+something the binary embeds (LESSONS 382).
+
+## 838. On PostgreSQL every fact chain would have failed verification, because the chain hashed the observation time to the nanosecond and timestamptz keeps microseconds (a repeat of 371 and 92; in kind of 832) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over Phase 41b, before push. The per-device fact chain (`462786a6`)
+hashed each observation's time at full precision. PostgreSQL's `timestamptz` keeps microseconds: measured, it stored
+`.123456789` as `.123457`, rounding rather than truncating. A row read back from PostgreSQL hashes a different time from
+the one written, so verification would fail on any real time. Every store test ran on SQLite, which keeps nanoseconds,
+with whole-second fixture times, so nothing saw it.
+
+**Root cause.** The hash was taken before the store changed the value. A fixture time with no fraction is a value no
+precision changes, so the tests could not tell.
+
+**Why 371 and 92 did not prevent it.** Both lessons say a property that holds on the test dialect needs a run on the
+production one, and LESSONS 250's second half says the same. They were applied to SQL statements and to refusals.
+`internal/facts/entstore` had no PostgreSQL test at all and was not a container package. 832 had just shown a database
+round trip changing a value (a JSON number), and its fix covered the payload column only; the time was the next value
+through the same boundary.
+
+**Fix.** `5212a405`: `facts.StoredTime` (`internal/facts/provenance.go`) truncates to the microsecond in both stores,
+before storing and before hashing. `TestStore_ConformanceOnPostgres` (`internal/facts/entstore/postgres_test.go`) runs
+the shared conformance suite (`internal/facts/factstest`) on real PostgreSQL through the versioned migrations, and it
+fails without the fix. `internal/facts/entstore` is now in the Makefile's `DOCKER_DEPENDENT_PACKAGES`.
+
+**Lesson.** A value hashed into a durable record is normalized to the coarsest precision any supported store keeps,
+before it is hashed, and its fixtures hold values that normalization changes (LESSONS 383).
+
+## 839. Equal run-order tokens never fell back to the clock, so within one Walk dispatch a second uptime gathered after a reboot was dropped as late, and a late batch of the same job could become current over a newer one (a repeat in kind of 831) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over Phase 41b, before push. `facts.Later` returned `a.Token > b.Token`.
+All batches of one Walk dispatch share the lease's fencing token, so two observations from one job compared as "not
+later" either way. A second uptime gathered after a reboot in the same job was dropped as late, and a batch of that job
+arriving late could become current over a newer one.
+
+**Root cause.** The comparison read "equal tokens" as an answer ("not later") when it means the token cannot say.
+
+**Why 831 did not prevent it.** 831 moved "current" from arrival to the observation's own time. Phase 41b then moved
+the order to a run-order token, as LESSONS 371 asks, and dropped the clock everywhere, including where the token holds
+no order. 793 and LESSONS 373 name that fallback (order by the clock where the token cannot, and say so), but for
+rollback; nothing carried it to the fact order.
+
+**Fix.** `5212a405`: tokens decide only when they differ; equal ones are ordered by the clock, and the history marks
+them `ordered_by_clock`. Test: the conformance case "within one run, the clock orders its observations"
+(`internal/facts/factstest/conformance.go`), mutation-checked.
+
+**Lesson.** An order token decides only when two differ. An equal pair goes to the next source of order, and the record
+says which source decided.
+
+## 840. The Crawl CLI ordered stored facts by each run's start tick, though CLI runs overlap, so a run that started earlier and observed later was ordered first (a repeat of 793 and LESSONS 372) (fixed before push)
+
+**Symptom.** 2026-11-02, the fp-reviewer pass over Phase 41b, before push. The CLI ordered the facts a run stored by
+the journal tick the run took when it started. CLI runs can overlap, since the run lock is shared. A run that started
+first and observed a value after a later-started run was ordered before it, so its newer value read as older.
+
+**Root cause.** A start tick is an order of starts. Where runs overlap, it says who began first, not who observed last.
+
+**Why 793 and LESSONS 372 did not prevent it.** Both say exactly this: an order of acquisitions is an order of changes
+only under exclusive holding. They were written about the Walk lease's fencing token, and the CLI's run tick did not
+read as an acquisition order, though the shared run lock makes it one.
+
+**Fix.** The reviewer's suggested fix, a tick per store write, was rejected: facts are stored at the level barrier,
+which can be well after the observation. `5212a405`: the engine asks a recorder that implements `engine.FactOrderer`
+for an order when a fact-emitting task finishes. The CLI's `facts.RunOrdered` takes `journal.NextTick`, which takes the
+counter alone under its lock (`BeginRun` has already floored it at every recorded tick, so no task rescans the
+journal). Tests: `TestNextTickContinuesTheCounterAndInterleavesWithRuns` (`internal/journal/clock_test.go`),
+`TestFacts_AnOrderingRecorderOrdersEachObservationWhenItsTaskFinishes` (`internal/engine/facts_test.go`) and
+`TestRunOrdered_TakesATickForEachObservation` (`internal/facts/file_failures_test.go`).
+
+**Lesson.** An order is taken when the thing it orders happens: at the observation, not at the run's start (who began
+first) and not at the write (which can come later).
