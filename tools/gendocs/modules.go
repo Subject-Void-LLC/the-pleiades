@@ -190,6 +190,7 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 		writeParameters(&b, m.Doc)
 		writeReturns(&b, m.Doc)
 		writeReversibility(&b, m.Reversibility)
+		writeFacts(&b, m.Facts)
 	}
 
 	if len(m.Doc.SeeAlso) > 0 {
@@ -329,9 +330,32 @@ func writeReversibility(b *strings.Builder, r collection.Reversibility) {
 		fmt.Fprintf(b, "%s\n\n", r.Notes)
 	}
 
-	b.WriteString("Note that no rollback engine reads this yet. What exists today is the recording, " +
-		"which has to happen during the forward run because the values an undo needs are gone once the " +
+	b.WriteString("`pleiades rollback` and the Controller's rollback route replay a recorded instruction. " +
+		"It is recorded during the forward run because the values an undo needs are gone once the " +
 		"change is applied.\n\n")
+}
+
+// writeFacts renders the facts a method declares it may emit (Phase 41b),
+// each with its kind, so a reader of a drift report can see why a key is or
+// is not compared. A method that declares none gets no section.
+func writeFacts(b *strings.Builder, specs []collection.FactSpec) {
+	if len(specs) == 0 {
+		return
+	}
+	b.WriteString("## Facts it keeps\n\n")
+	b.WriteString("A real run stores each of these as the device's fact. A **stable** fact keeps every value " +
+		"it has had, and a change is drift; a **volatile** one keeps only its latest value and never " +
+		"counts as drift. A check stores none.\n\n")
+	rows := make([][]string, 0, len(specs))
+	for _, f := range specs {
+		name := f.Key
+		if f.Prefix {
+			name += "*"
+		}
+		rows = append(rows, []string{code(name), string(f.Kind), string(f.Type), f.Description})
+	}
+	b.WriteString(table([]string{"Fact", "Kind", "Type", "Description"}, rows))
+	b.WriteString("\n")
 }
 
 // checkModeSupport renders a method's answer to `pleiades run --mode

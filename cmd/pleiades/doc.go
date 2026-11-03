@@ -297,6 +297,7 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 	if m.Status == collection.StatusImplemented {
 		printParams(m.Doc)
 		printReturns(m.Doc)
+		printDeclaredFacts(m.Facts)
 	}
 
 	if len(m.Doc.SeeAlso) > 0 {
@@ -382,6 +383,24 @@ func printReturns(doc collection.Doc) {
 	fmt.Println("\nreturns:")
 	for _, r := range doc.Returns {
 		fmt.Printf("  %-20s %s\n    %s\n", r.Name, r.Type, r.Description)
+	}
+}
+
+// printDeclaredFacts prints the facts a method declares it may emit, each with its
+// kind, so a reader of a drift report can see why a key is or is not
+// compared: a stable fact keeps every value and its change is drift, a
+// volatile one keeps only the latest.
+func printDeclaredFacts(specs []collection.FactSpec) {
+	if len(specs) == 0 {
+		return
+	}
+	fmt.Println("\nfacts (kept after a real run):")
+	for _, f := range specs {
+		name := f.Key
+		if f.Prefix {
+			name += "*"
+		}
+		fmt.Printf("  %-30s %-8s %s\n    %s\n", name, f.Kind, f.Type, f.Description)
 	}
 }
 

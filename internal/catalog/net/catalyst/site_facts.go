@@ -30,7 +30,7 @@ import (
 )
 
 func init() {
-	collection.MustRegister(collection.Descriptor{
+	d := collection.Descriptor{
 		Name: "net.catalyst.site_facts",
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
@@ -80,7 +80,9 @@ func init() {
 		Invoke: SiteFacts,
 		// SiteFacts itself, since it only reads.
 		Check: SiteFacts,
-	})
+	}
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"sites", "site_count"})
+	collection.MustRegister(d)
 }
 
 // SiteFacts gathers the targeted Catalyst Center's site hierarchy.

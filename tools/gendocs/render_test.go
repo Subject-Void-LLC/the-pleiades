@@ -103,13 +103,11 @@ func TestItoa(t *testing.T) {
 }
 
 // TestWriteReversibility covers both answers the rollback section can
-// give, and the honest limit it always carries.
+// give, and the line naming what replays a recorded instruction.
 //
 // A unit test rather than a check on the generated tree, because the
-// section's wording is the only place a reader learns that the platform
-// records an undo instruction without yet being able to run one. A
-// generated page asserting more than that would be the aspirational
-// documentation this generator exists to replace.
+// section's wording is where a reader learns what happens to an undo
+// instruction once it is recorded.
 func TestWriteReversibility(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -152,11 +150,11 @@ func TestWriteReversibility(t *testing.T) {
 					t.Errorf("rendered page unexpectedly contains %q:\n%s", absent, got)
 				}
 			}
-			// Every rendered section says the metadata is not yet acted on. A
-			// reader who assumed the platform could perform a rollback would
-			// be worse off than one who found nothing.
-			if !strings.Contains(got, "no rollback engine reads this yet") {
-				t.Errorf("rendered page omits the honest limit:\n%s", got)
+			// Every rendered section names what replays the instruction
+			// (Phase 40's rollback, on both tiers), which the page once said
+			// did not exist yet.
+			if !strings.Contains(got, "`pleiades rollback` and the Controller's rollback route replay a recorded instruction") {
+				t.Errorf("rendered page does not say what replays the instruction:\n%s", got)
 			}
 		})
 	}

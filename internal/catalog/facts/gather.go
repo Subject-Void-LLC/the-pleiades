@@ -70,7 +70,7 @@ const (
 const gatherKilobytesPerMegabyte = 1024
 
 func init() {
-	collection.MustRegister(collection.Descriptor{
+	d := collection.Descriptor{
 		Name: "facts.gather",
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
@@ -110,7 +110,22 @@ func init() {
 		// Gather itself, since it only reads: its check answers with what
 		// is on the device now, which is exactly what a real run would.
 		Check: Gather,
-	})
+	}
+	// Only the uptime moves on its own; every other fact changes when the
+	// device does.
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, gatherFactNames(), gatherFactUptimeSeconds)
+	collection.MustRegister(d)
+}
+
+// gatherFactNames is every fact this method may emit: every return its
+// documentation names, each of which is a fact.
+func gatherFactNames() []string {
+	returns := gatherDoc().Returns
+	names := make([]string, len(returns))
+	for i, r := range returns {
+		names[i] = r.Name
+	}
+	return names
 }
 
 // gatherDoc is this method's reference documentation, kept out of the

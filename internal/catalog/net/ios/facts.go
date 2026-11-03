@@ -17,7 +17,7 @@ import (
 )
 
 func init() {
-	collection.MustRegister(collection.Descriptor{
+	d := collection.Descriptor{
 		Name: "net.ios.facts",
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
@@ -62,7 +62,12 @@ func init() {
 		Invoke: Facts,
 		// Facts itself, since it only reads.
 		Check: Facts,
-	})
+	}
+	// The uptime moves on its own and the subsets gathered describe the
+	// call, not the device, so both are volatile. ansible_net_config is a
+	// stat only, never a fact.
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{factHostname, factVersion, factModel, factSerialNum, factImage, factUptime, factInterfaces, factGatherSubset}, factUptime, factGatherSubset)
+	collection.MustRegister(d)
 }
 
 // Fact names mirror cisco.ios.ios_facts's own, so a converted playbook

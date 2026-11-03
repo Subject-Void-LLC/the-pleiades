@@ -31,7 +31,7 @@ import (
 )
 
 func init() {
-	collection.MustRegister(collection.Descriptor{
+	d := collection.Descriptor{
 		Name: "net.catalyst.reachability",
 		Manifest: collection.Manifest{
 			SupportedTransports: []string{
@@ -84,7 +84,11 @@ func init() {
 		Invoke: Reachability,
 		// Reachability itself, since it only reads.
 		Check: Reachability,
-	})
+	}
+	// Every one stable: a device going unreachable is the change these
+	// facts exist to keep.
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"reachability", "unreachable", "reachable_count", "managed_count", "total_device_count"})
+	collection.MustRegister(d)
 }
 
 // Reachability summarizes which devices the targeted Catalyst Center can

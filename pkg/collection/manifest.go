@@ -287,6 +287,13 @@ type Manifest struct {
 	// is refused such a device. It needs SeedsLogin.
 	SeedsLoginIOSSecret bool `json:"seedsLoginIOSSecret,omitempty"`
 
+	// Facts declares every fact this method may emit through EmitFact,
+	// each stable or volatile with its value type (Phase 41b). The engine
+	// stores nothing for a key the method did not declare. Register refuses
+	// a declaration that is malformed, or that disagrees with another
+	// method's declaration of the same key.
+	Facts []FactSpec `json:"facts,omitempty"`
+
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries
 	// versus an implemented one.
