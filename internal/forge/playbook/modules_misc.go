@@ -98,13 +98,32 @@ var miscModules = []Entry{
 		},
 	},
 	{
-		Module:  "ansible.builtin.setup",
-		Aliases: []string{"setup", "ansible.builtin.gather_facts", "gather_facts"},
+		Module: "ansible.builtin.setup",
+		// ansible.windows.setup is the same module for a Windows host, which
+		// facts.gather reads over WinRM.
+		Aliases: []string{"setup", "ansible.builtin.gather_facts", "gather_facts", "ansible.windows.setup"},
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "gathering facts reads and changes nothing"},
+		Adjust:  setupSubset,
 		Args: []Arg{
 			{Name: "filter", To: "filter"},
-			{Name: "gather_subset", Handling: ArgDrop, Code: "args.ignored", Reason: "facts.gather reads one small fixed set of facts, so there is no subset to choose"},
+			{Name: "gather_subset", To: "gather_subset"},
 		},
+	},
+	{
+		Module:  "ansible.builtin.package_facts",
+		Aliases: []string{"package_facts"},
+		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "listing packages reads and changes nothing",
+			Fixed: map[string]any{"gather_subset": []any{"packages"}}, Note: packageFactsNote},
+		Args: []Arg{
+			{Name: "manager", Handling: ArgDrop, Code: "args.ignored", Reason: "facts.gather reads every package database the device has (dpkg, rpm, apk, pkg, Homebrew, pkgutil, the Windows registry), so there is no manager to choose"},
+			{Name: "strategy", Handling: ArgDrop, Code: "args.ignored", Reason: "facts.gather reads every package database the device has, as strategy: all would"},
+		},
+	},
+	{
+		Module:  "ansible.builtin.service_facts",
+		Aliases: []string{"service_facts"},
+		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "listing services reads and changes nothing",
+			Fixed: map[string]any{"gather_subset": []any{"services"}}, Note: serviceFactsNote},
 	},
 	{
 		Module:  "ansible.posix.firewalld",
@@ -192,3 +211,11 @@ const mountPointNote = "Ansible creates a missing mount point directory; fs.moun
 
 // backupNote is how a network method's backup differs from Ansible's.
 const backupNote = "the backup is kept as the task's backup stat, not written to a file beside the playbook"
+
+// packageFactsNote and serviceFactsNote say how the facts these modules
+// leave differ from Ansible's, which a converted condition reading them
+// must be rewritten for.
+const (
+	packageFactsNote = "facts.gather records each package as package.<name> = {version, arch, source}, not Ansible's ansible_facts.packages[name] list; a condition reading ansible_facts.packages needs rewriting to result.<register>[\"package.<name>\"]"
+	serviceFactsNote = "facts.gather records each service as service.<unit> = {state, enabled, status, source}, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>[\"service.<unit>\"]"
+)

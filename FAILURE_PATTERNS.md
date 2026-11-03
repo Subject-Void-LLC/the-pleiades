@@ -847,6 +847,20 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 841. The shipped Controller's device admission and rollback route read a method registry it never fills, so admission checked nothing and every recorded undo was refused, in v0.3.0 too (a repeat of 837, and so of 52 and 578) (fixed)
 842. On macOS a device's facts lock open (os.Root OpenFile with O_CREATE) failed with "no such file or directory" while another store created the same lock file: macOS openat(2) relative to a directory fd reports ENOENT under concurrent create (cause reproduced 2026-11-03; mitigated by a bounded retry)
 843. container.image.save's check predicted a digest the real save missed now and then, because classic Docker stamps the archive's blobs/sha256/ directory with the time of the save and lists several images in any order, and CI tolerated it three times as contention (a repeat in kind of 589) (fixed)
+844. systemctl's options after its verb were read as unit names under POSIXLY_CORRECT, so facts.gather's services probe listed nothing in the SSH harness (the class of 494 and 420; caught by 494's harness setting) (fixed before push)
+845. facts.gather's probes went to the account's login shell, so under csh, tcsh or fish a multi-statement probe failed to parse and the task succeeded with no package or service facts (a repeat of 809, and of 779's class) (fixed before push here; the same class in about 20 other send sites is open, for the next pull request)
+846. The macOS packages probe ran Homebrew's brew, a script under a prefix another account may own, as the gather login, possibly root (a repeat in kind of 781, and of vuln-corpus finding C4_auto-roboto_2026-11-01) (fixed before push)
+847. dpkg's package probe kept only the "ii" state, dropping held and partly installed packages, and its test computed the expectation with the same filter, so it could not fail (a repeat of 54) (fixed before push)
+848. The playbook converter passed Ansible's gather_subset through unchanged though the two meanings differ, so ['!facter', '!ohai'] converted cleanly and failed on every host (a repeat of 334) (fixed before push)
+849. Package facts from two databases on one host overwrote each other, because names were told apart within one probe only, and the test proving it called a combination Gather never makes (a repeat of 54 and 571) (fixed before push)
+850. Adding one container test to internal/catalog/facts moved the whole package to the container tier, so none of its tests ran on the non-Linux container-free legs (a sibling of 631 and 756) (fixed before push)
+851. A literal U+200B (zero-width space) sat in a Go test string, and internal/archtest's invisible-character check passed it (a repeat of 256 and 834) (fixed before push; the archtest gap is open)
+852. A test container with sleep as PID 1 never reaped children, so a daemon OpenRC started from docker exec became a zombie that start-stop-daemon would not stop (a repeat of 343) (fixed before push)
+853. Past MaxFactsPerObservation (8192) an observation was stored as none of it while the task succeeded (a repeat in kind of 265) (fixed before push; a Runner's publish failing mid-split is open)
+854. The secret-name exemption for item families applied to every Prefix declaration, so a future field-named family (env.DB_PASSWORD) would have been stored (the class of LESSONS 337 and FAILURE_PATTERNS 655) (fixed before push)
+855. The Crawl file store's Record scanned the whole history once per fact, quadratic for thousands of packages against a growing history (the class of 490 and 611) (fixed before push)
+856. A file named gather_windows.go built only on Windows (a repeat of 374) (fixed before commit)
+857. A "this machine" test filtered on package.bash, which a Mac does not have, and failed only on the macOS runner (a repeat of 54) (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

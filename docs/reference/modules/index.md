@@ -106,7 +106,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
 | [exec.shell](exec/shell.md) | implemented | Runs a command through the target's shell, so pipes and redirects work. |
 | [exec.winrm.shell](exec/winrm/shell.md) | implemented | Runs a command on a Windows target through PowerShell, cmd.exe or no shell, over WinRM. |
-| [facts.gather](facts/gather.md) | implemented | Gathers baseline system facts from the target (OS, kernel, distribution). |
+| [facts.gather](facts/gather.md) | implemented | Gathers system facts from the target: OS, kernel, distribution, and on request its packages and services. |
 | [file.block.remove](file/block/remove.md) | implemented | Removes a marked, multi-line block of text from a file. |
 | [file.block.set](file/block/set.md) | implemented | Ensures a marked, multi-line block of text is present in a file. |
 | [file.copy](file/copy.md) | implemented | Writes content, or a file from the project, to a file on the target, only when the bytes there differ. |

@@ -409,6 +409,13 @@ func TestGather_EveryNewFactIsDeclared(t *testing.T) {
 			t.Errorf("%s is gathered but not declared in Returns", key)
 		}
 	}
+	// A package or service is named by its item's own name, which the
+	// secret-name check must not read as a field (password-store).
+	for _, family := range []string{"package.", "service."} {
+		if spec, ok := collection.FactFor(d.Manifest.Facts, family+"x"); !ok || !spec.NamesItems() {
+			t.Errorf("%s is not declared a family of items: %+v", family, spec)
+		}
+	}
 }
 
 // gatherDistinctPhysicalIDs counts the distinct physical id values in
@@ -460,7 +467,7 @@ func TestGather_OmitsEverythingItCannotDetermine(t *testing.T) {
 // TestGather_OmitsOnlyTheFactsItCannotDetermine proves the omission is
 // per fact rather than all or nothing.
 //
-// The PATH is narrowed to a directory holding uname alone, so the three
+// The PATH is narrowed to a directory holding uname and sh alone, so the three
 // uname facts arrive and the four read out of files cannot. A method that
 // abandoned the whole gather at the first command it could not run would
 // fail this, and so would one that emitted empty strings for the rest.
@@ -476,9 +483,16 @@ func TestGather_OmitsOnlyTheFactsItCannotDetermine(t *testing.T) {
 	}
 	kernel := gatherCommandOutput(t, "uname", "-r")
 
+	// sh as well, which every probe runs in and every device has.
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("this machine has no sh: %v", err)
+	}
 	only := t.TempDir()
-	if err := os.Symlink(uname, filepath.Join(only, "uname")); err != nil {
-		t.Fatalf("linking uname into the narrowed PATH: %v", err)
+	for name, target := range map[string]string{"uname": uname, "sh": sh} {
+		if err := os.Symlink(target, filepath.Join(only, name)); err != nil {
+			t.Fatalf("linking %s into the narrowed PATH: %v", name, err)
+		}
 	}
 	t.Setenv("PATH", only)
 
@@ -576,13 +590,16 @@ func TestGather_FilterMatchesAsAGlob(t *testing.T) {
 // TestGather_FilterSkipsTheCommandsItExcludes proves the narrowing
 // happens before the round trip rather than after it.
 //
-// The server accepts ONE session channel and refuses every one after it,
-// so a run that still sent all seven commands would fail on the second.
+// The server accepts TWO session channels (the platform's uname -s and one
+// probe) and refuses every one after, so a run that still sent all seven
+// commands would fail on the third.
 // Reaching the end with the one fact asked for is the only way this can
 // pass, and it is the only assertion available that can tell a filter
 // applied to the output from a filter applied to the work.
 func TestGather_FilterSkipsTheCommandsItExcludes(t *testing.T) {
-	server := startGatherServerWithSessionBudget(t, 1)
+	// Two: the one probe asked for, and the uname -s every run opens with
+	// to learn which platform's sources to read.
+	server := startGatherServerWithSessionBudget(t, 2)
 	rc := newGatherContext(server)
 	kernel := gatherCommandOutput(t, "uname", "-r")
 
@@ -699,7 +716,7 @@ func TestGather_TransportFailureIsReported(t *testing.T) {
 	if !strings.Contains(err.Error(), "open session") {
 		t.Errorf("error = %q, want it to say the session could not be opened", err)
 	}
-	if !strings.Contains(err.Error(), "uname -n") {
+	if !strings.Contains(err.Error(), "uname -s") {
 		t.Errorf("error = %q, want it to name the command that failed", err)
 	}
 	if len(rc.facts) != 0 {
@@ -727,5 +744,70 @@ func TestGather_FactRecordFailureIsReported(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ansible_hostname") {
 		t.Errorf("error = %q, want it to name the fact that could not be recorded", err)
+	}
+}
+
+// TestGather_PackagesAndServicesMatchThisMachine: the packages subset reports
+// every package dpkg says is installed on this machine, with dpkg's own
+// version, and the services subset every service unit file systemd lists;
+// neither is gathered when not asked for.
+func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
+	server := startGatherServer(t)
+	rc := newGatherContext(server)
+	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"packages", "services"}}); err != nil {
+		t.Fatal(err)
+	}
+	packages, services := 0, 0
+	for key := range rc.facts {
+		switch {
+		case strings.HasPrefix(key, "package."):
+			packages++
+		case strings.HasPrefix(key, "service."):
+			services++
+		}
+	}
+	// Counted by dpkg's own status words rather than the parser's letters:
+	// every state whose files are on the system, a held package's included.
+	if listed := gatherCommandOutput(t, "sh", "-c", `command -v dpkg-query >/dev/null && dpkg-query -W -f='${db:Status-Status}\n' | grep -cxE 'installed|unpacked|half-configured|triggers-awaited|triggers-pending' || echo skip`); listed != "skip" {
+		if strconv.Itoa(packages) != listed {
+			t.Errorf("%d package facts, dpkg lists %s installed", packages, listed)
+		}
+		if version := gatherCommandOutput(t, "sh", "-c", `dpkg-query -W -f='${Version}' bash 2>/dev/null || true`); version != "" {
+			if got, _ := rc.facts["package.bash"].(map[string]any); got["version"] != version || got["source"] != "dpkg" {
+				t.Errorf("package.bash = %v, dpkg says %s", got, version)
+			}
+		}
+	}
+	if units := gatherCommandOutput(t, "sh", "-c", `command -v systemctl >/dev/null && [ -d /run/systemd/system ] && systemctl list-unit-files --type=service --no-legend --no-pager --plain | grep -vc '@\.service' || echo skip`); units != "skip" && services == 0 {
+		t.Errorf("systemd lists %s unit files and no service fact was gathered", units)
+	}
+	// Only min unless asked: the default gathers no package or service.
+	plain := newGatherContext(server)
+	if _, err := gatherRun(t, server, plain, nil); err != nil {
+		t.Fatal(err)
+	}
+	for key := range plain.facts {
+		if strings.HasPrefix(key, "package.") || strings.HasPrefix(key, "service.") {
+			t.Fatalf("the default gathered %s", key)
+		}
+	}
+	// A filter naming one package keeps that one: a package this machine
+	// listed, whatever its platform's database calls its packages, and one
+	// whose name holds no pattern character.
+	named := ""
+	for key := range rc.facts {
+		if strings.HasPrefix(key, "package.") && !strings.ContainsAny(key, `*?[\`) && (named == "" || key < named) {
+			named = key
+		}
+	}
+	if named == "" {
+		return
+	}
+	one := newGatherContext(server)
+	if _, err := gatherRun(t, server, one, map[string]any{"gather_subset": []any{"packages"}, "filter": []any{named}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := one.facts[named]; !ok || len(one.facts) != 1 {
+		t.Errorf("a filter naming %s kept %d facts", named, len(one.facts))
 	}
 }

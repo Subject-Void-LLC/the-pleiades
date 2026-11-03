@@ -393,6 +393,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/registry \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/volume \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/facts/live \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/batfish \

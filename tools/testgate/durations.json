@@ -15,6 +15,7 @@
  "internal/catalog/container/registry": 1,
  "internal/catalog/container/volume": 6,
  "internal/catalog/db/pg": 43,
+ "internal/catalog/facts/live": 20,
  "internal/catalog/file": 14,
  "internal/catalog/net": 7,
  "internal/catalog/net/batfish": 142,

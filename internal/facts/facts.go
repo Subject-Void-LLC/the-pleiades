@@ -33,8 +33,13 @@ const (
 	// MaxValueBytes bounds one value's canonical JSON.
 	MaxValueBytes = 64 << 10
 	// MaxFactsPerObservation bounds how many keys one task's observation
-	// may hold.
-	MaxFactsPerObservation = 256
+	// may hold: room for a family of one fact per item (Phase 41c, a
+	// package or a service each), which a large host has thousands of.
+	MaxFactsPerObservation = 8192
+	// MaxObservationBytes bounds the canonical JSON of every value one
+	// observation stores, together, so many keys cannot each carry the
+	// largest value.
+	MaxObservationBytes = 8 << 20
 )
 
 // Entry is one stored fact: a value of a key, when it was first observed with
@@ -148,24 +153,41 @@ type Guard struct {
 	Declared func(key string) (Spec, bool)
 }
 
+// nameOf is the part of key the secret-name guard reads: the whole key, or
+// for a key in a declared family (package.<name>) only the family's prefix,
+// since what follows it is an item's identifier (a package called
+// password-store), not the name of a field that could hold a secret. Its
+// value is still held to every other check.
+func nameOf(key string, guard Guard) string {
+	if guard.Declared == nil {
+		return key
+	}
+	if spec, ok := guard.Declared(key); ok && spec.Family != "" && strings.HasPrefix(key, spec.Family) {
+		return spec.Family
+	}
+	return key
+}
+
 // Prepare checks an observation and returns the facts that may be stored,
 // each with its hash, and why each other key was not: a key that is not
 // ValidKey or is named like a secret, a value that will not encode or is past
 // MaxValueBytes, or one holding a known secret or text shaped like one (a
 // secret is never stored, masked or not). An observation with more than
-// MaxFactsPerObservation keys is refused whole.
+// MaxFactsPerObservation keys, or whose stored values come to more than
+// MaxObservationBytes, is refused whole.
 func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 	if len(observed) > MaxFactsPerObservation {
 		return nil, nil, fmt.Errorf("%w: %d facts, more than %d", ErrInvalid, len(observed), MaxFactsPerObservation)
 	}
 	var out []Entry
 	var problems []Problem
+	total := 0
 	for key, value := range observed {
 		if !ValidKey(key) {
 			problems = append(problems, Problem{Key: key, Reason: "not a fact name: empty, too long, or holding a space, a slash or an unprintable character"})
 			continue
 		}
-		if guard.SecretName != nil && guard.SecretName(key) {
+		if guard.SecretName != nil && guard.SecretName(nameOf(key, guard)) {
 			problems = append(problems, Problem{Key: key, Reason: "it is named like a secret, which is never stored"})
 			continue
 		}
@@ -213,7 +235,11 @@ func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 				continue
 			}
 		}
+		total += len(canon)
 		out = append(out, Entry{Key: key, Value: normalized, Hash: hash, Kind: spec.Kind})
+	}
+	if total > MaxObservationBytes {
+		return nil, nil, fmt.Errorf("%w: its values come to %d bytes, more than %d", ErrInvalid, total, MaxObservationBytes)
 	}
 	return out, problems, nil
 }

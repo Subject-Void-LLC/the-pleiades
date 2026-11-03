@@ -4,16 +4,16 @@ status: beta
 
 # facts.gather
 
-Gathers baseline system facts from the target (OS, kernel, distribution).
+Gathers system facts from the target: OS, kernel, distribution, and on request its packages and services.
 
-Reads every system fact it knows over SSH by default (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell "this device does not say" from "this device says nothing". Nothing is changed and no command is elevated, so this always reports no change. Three of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_subset has nothing to select between at this size, gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.
+Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell "this device does not say" from "this device says nothing". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); and services, one fact per service (service.<name>: state, enabled and status, from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager). The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.
 
 ## Attributes
 
 |  |  |
 | --- | --- |
 | Capabilities | `FactGathererCapable` |
-| Transports | `ssh` |
+| Transports | `ssh`, `winrm` |
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
@@ -23,7 +23,8 @@ Reads every system fact it knows over SSH by default (identity, kernel and syste
 
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `filter` | `list of string` | no | - | Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so ["ansible_distribution*"] gathers the distribution and its version and nothing else. Leaving this out gathers everything, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out. |
+| `filter` | `list of string` | no | - | Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so ["ansible_distribution*"] gathers the distribution and its version and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out. |
+| `gather_subset` | `list of string` | no | - | The subsets to gather: min and hardware as ansible.builtin.setup names them, packages and services (Ansible's package_facts and service_facts), or all, every one; a name with a leading ! leaves that subset out, and a list of only such names starts from min and hardware. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. An unknown name is refused. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns
@@ -45,12 +46,14 @@ Reads every system fact it knows over SSH by default (identity, kernel and syste
 | `ansible_swaptotal_mb` | `int` | when /proc/meminfo reports it | Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap. |
 | `ansible_processor_vcpus` | `int` | when /proc/cpuinfo lists processors | The number of logical processors, counted as the processor entries in /proc/cpuinfo. |
 | `ansible_processor_cores` | `int` | when /proc/cpuinfo reports cpu cores | The cores per processor package, from the first cpu cores field in /proc/cpuinfo. |
+| `package.<name>` | `map` | with the packages subset, for each installed package | One installed package: version, arch and source (dpkg, rpm, apk, pkg, brew, brew-cask, pkgutil or registry). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source, then #2 and on in the order the source lists them. A package its source gives no version has none. |
+| `service.<name>` | `map` | with the services subset, for each service the service manager lists | One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart) and status the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status the last exit status launchctl prints; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows. |
 
 ## Undoing this
 
 **Cannot be undone.** This method never records a reversing instruction, so a rollback reaching a task that used it stops rather than guessing.
 
-Reading is not changing. This method runs uname and reads /etc/os-release and files under /proc, alters nothing on the device, and so has nothing an undo could restore.
+Reading is not changing. This method runs fixed reads (uname, /etc/os-release, /proc, sysctl, package and service listings, CIM and the registry on Windows), alters nothing on the device, and so has nothing an undo could restore.
 
 `pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 
@@ -75,6 +78,8 @@ A real run stores each of these as the device's fact. A **stable** fact keeps ev
 | `ansible_swaptotal_mb` | stable | integer | Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap. |
 | `ansible_processor_vcpus` | stable | integer | The number of logical processors, counted as the processor entries in /proc/cpuinfo. |
 | `ansible_processor_cores` | stable | integer | The cores per processor package, from the first cpu cores field in /proc/cpuinfo. |
+| `package.*` | stable | object | One installed package: version, arch and source (the database it was read from). |
+| `service.*` | stable | object | One service: state, enabled, status (the manager's own word for it) and source. |
 
 ## See also
 
@@ -88,6 +93,16 @@ Gather everything before deciding what to do:
 ```yaml
 - name: Learn what this device is
   facts.gather:
+```
+
+Gather the installed packages and services:
+
+```yaml
+- name: Learn what is installed and running
+  facts.gather:
+    gather_subset:
+      - packages
+      - services
 ```
 
 Gather only what a later condition reads:

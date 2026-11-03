@@ -81,14 +81,29 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 	if err != nil {
 		return err
 	}
-	for _, e := range obs.Entries {
+	// Every row of the device's keys this observation names, read once: a
+	// host's packages are thousands of keys (Phase 41c), and one query per
+	// key made a batch thousands of round trips. An observation holds each
+	// key once, so what one entry writes is never read by another.
+	keys := make([]string, len(obs.Entries))
+	for i, e := range obs.Entries {
+		keys[i] = e.Key
+	}
+	byKey := map[string][]*ent.Fact{}
+	for _, chunk := range chunked(keys, 500) {
 		rows, err := tx.Fact.Query().
-			Where(entfact.KeyEQ(e.Key), entfact.HasDeviceWith(entdevice.IDEQ(dev.ID))).
+			Where(entfact.KeyIn(chunk...), entfact.HasDeviceWith(entdevice.IDEQ(dev.ID))).
 			Order(ent.Asc(entfact.FieldID)).
 			All(ctx)
 		if err != nil {
 			return fmt.Errorf("facts: %w", err)
 		}
+		for _, row := range rows {
+			byKey[row.Key] = append(byKey[row.Key], row)
+		}
+	}
+	for _, e := range obs.Entries {
+		rows := byKey[e.Key]
 		if e.Kind == facts.KindVolatile {
 			if err := recordVolatile(ctx, tx, dev, rows, e, obs, by); err != nil {
 				return err
@@ -214,4 +229,18 @@ func chainHead(ctx context.Context, tx *ent.Tx, device int) (string, error) {
 		return "", fmt.Errorf("facts: %w", err)
 	}
 	return row.Chain, nil
+}
+
+// chunked splits keys into runs of at most n, so one IN list stays within
+// what every dialect accepts as bound parameters.
+func chunked(keys []string, n int) [][]string {
+	var out [][]string
+	for len(keys) > n {
+		out = append(out, keys[:n])
+		keys = keys[n:]
+	}
+	if len(keys) > 0 {
+		out = append(out, keys)
+	}
+	return out
 }

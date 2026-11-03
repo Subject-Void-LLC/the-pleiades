@@ -42,6 +42,12 @@ const (
 	FactObject FactType = "object"
 )
 
+// MaxFactsPerObservation is how many facts one task may record on a device:
+// an observation holding more is stored as none of them. It is
+// internal/facts' bound, which a Collection cannot import, held equal to it
+// by internal/engine's tests.
+const MaxFactsPerObservation = 8192
+
 // FactSpec declares one fact, or one family of facts sharing a prefix, that a
 // method may emit.
 type FactSpec struct {
@@ -50,6 +56,12 @@ type FactSpec struct {
 	Key string `json:"key"`
 	// Prefix makes Key a prefix: any name starting with it is declared.
 	Prefix bool `json:"prefix,omitempty"`
+	// ItemNames says that what follows a family's prefix names an item (a
+	// package called password-store), not a field, so the secret-name
+	// check reads only the prefix. It is never assumed: a family keyed by
+	// field names (env.DB_PASSWORD) leaves it unset and keeps the check on
+	// every name. It needs Prefix, and a prefix ending in a dot.
+	ItemNames bool `json:"item_names,omitempty"`
 	// Kind is stable or volatile.
 	Kind FactKind `json:"kind"`
 	// Type is the JSON type of the value.
@@ -57,6 +69,10 @@ type FactSpec struct {
 	// Description says what the fact is, in one line.
 	Description string `json:"description"`
 }
+
+// NamesItems reports whether s is a family whose names after its prefix are
+// items' (ItemNames), which the secret-name check does not read.
+func (s FactSpec) NamesItems() bool { return s.Prefix && s.ItemNames }
 
 // Matches reports whether name is the fact s declares.
 func (s FactSpec) Matches(name string) bool {
@@ -148,6 +164,8 @@ func ValidateFacts(specs []FactSpec) error {
 			return fmt.Errorf("declares fact %q with type %q, which is not a JSON type it can name", s.Key, s.Type)
 		case strings.TrimSpace(s.Description) == "":
 			return fmt.Errorf("declares fact %q with no description", s.Key)
+		case s.ItemNames && (!s.Prefix || len(s.Key) < 2 || !strings.HasSuffix(s.Key, ".")):
+			return fmt.Errorf("declares fact %q's names as items, which only a family whose prefix ends in a dot can", s.Key)
 		}
 		id := s.Key
 		if s.Prefix {

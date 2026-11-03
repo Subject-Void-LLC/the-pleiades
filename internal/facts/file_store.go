@@ -72,6 +72,13 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 		entries := append([]Entry(nil), obs.Entries...)
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 		head := chainHead(lines)
+		// Each key's lines, read once rather than the whole history once per
+		// fact: a host's packages are thousands of keys against a history
+		// that keeps growing.
+		byKey := map[string][]line{}
+		for _, l := range lines {
+			byKey[l.Key] = append(byKey[l.Key], l)
+		}
 		var appended []byte
 		for _, e := range entries {
 			if e.Kind == KindVolatile {
@@ -84,7 +91,7 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 			if prior, ok := st.Seen[e.Key][e.Hash]; !ok || isLater(by.Order, at, prior.By.Order, prior.At) {
 				st.Seen[e.Key][e.Hash] = sighting{At: at, By: by}
 			}
-			if cur, ok := valueAt(lines, e.Key, by.Order, at); ok && cur.Hash == e.Hash {
+			if cur, ok := valueAt(byKey[e.Key], by.Order, at); ok && cur.Hash == e.Hash {
 				continue
 			}
 			l := line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at, By: by, Prev: head}
@@ -96,7 +103,7 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 				return fmt.Errorf("facts: %w", err)
 			}
 			appended = append(append(appended, raw...), '\n')
-			lines = append(lines, l)
+			byKey[l.Key] = append(byKey[l.Key], l)
 			head = l.Chain
 		}
 		if len(appended) > 0 {
@@ -130,13 +137,14 @@ func isLater(a Order, ta time.Time, b Order, tb time.Time) bool {
 	return after
 }
 
-// valueAt is the line key held as of (order, at): of the key's lines that
-// came at or before it, the latest, the later line in the file on a tie.
-func valueAt(lines []line, key string, order Order, at time.Time) (line, bool) {
+// valueAt is the line a key held as of (order, at), given that key's lines
+// in file order: of those that came at or before it, the latest, the later
+// line in the file on a tie.
+func valueAt(lines []line, order Order, at time.Time) (line, bool) {
 	var found line
 	ok := false
 	for _, l := range lines {
-		if l.Key != key || !notAfter(l.By.Order, l.ObservedAt, order, at) {
+		if !notAfter(l.By.Order, l.ObservedAt, order, at) {
 			continue
 		}
 		if !ok || !isLater(found.By.Order, found.ObservedAt, l.By.Order, l.ObservedAt) {

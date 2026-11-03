@@ -20236,3 +20236,309 @@ archive's entries carry 1970-01-01.
 byte-stable, which differs by engine and version; normalize what it produces before hashing it. And a test the
 ledger shows tolerated more than once, on unrelated branches, is a defect until proven otherwise: read the ledger's
 repeats, not only the run in front of you.
+
+## 844. systemctl's options after its verb were read as unit names under POSIXLY_CORRECT, so facts.gather's services probe listed nothing in the SSH harness (the class of 494 and 420; caught by 494's harness setting) (fixed before push)
+
+**Symptom.** 2026-11-03, Phase 41c-1 on `feat/facts-41c-1`, writing the services subset. Run through the SSH test
+harness (`remoteexectest`), `systemctl list-unit-files --type=service ...` printed no unit, so the services probe gave
+no `service.*` fact.
+
+**Root cause.** systemctl parses its arguments with getopt_long, which honors `POSIXLY_CORRECT`: under it, parsing
+stops at the first word that is not an option. The verb `list-unit-files` is that word, so every option after it was
+read as a unit name to match. The harness sets `POSIXLY_CORRECT=1` on purpose (494's fix), so a Linux test sees the
+parse a BSD userland uses. On a real device the variable is usually unset, so the command would have worked there, and
+failed on any device whose environment sets it.
+
+**Why 494 did not prevent it, and why that is fine.** 494's fix is the harness setting, and it worked as designed: it
+caught this before the commit. 494's lesson (a platform difference a Linux machine can be made to show is a harness
+setting) is what found it.
+
+**Fix.** `f8234fc1`: every systemctl option goes before the verb (`internal/catalog/facts/gather_services.go`).
+Proven by `TestGather_PackagesAndServicesMatchThisMachine`, which compares the services subset with this machine's own
+systemctl under the harness.
+
+**Lesson.** Put a command's options before its first operand or verb, always. A non-permuting parser (BSD's, or GNU's
+under `POSIXLY_CORRECT`) reads anything after it as an operand. No new lesson: this is 494's, applied.
+
+## 845. facts.gather's probes went to the account's login shell, so under csh, tcsh or fish a multi-statement probe failed to parse and the task succeeded with no package or service facts (a repeat of 809, and of 779's class) (fixed before push here; the same class in about 20 other send sites is open, for the next pull request)
+
+**Symptom.** 2026-11-03, found in review of `feat/facts-41c-1`. Phase 41c-1's package and service probes are POSIX
+scripts with several statements (`command -v dpkg-query >/dev/null && ...`, loops on FreeBSD and macOS). They were sent
+as the SSH command string, which sshd hands to the account's login shell. Under csh, tcsh or fish they fail to parse.
+The SSH path reads no exit status for a probe, so the task succeeded and stored no `package.*` or `service.*` fact.
+With the fix removed, a tcsh login gathered 0 packages, and the task succeeded.
+
+**Root cause.** 809's: a script written for POSIX `sh` is POSIX only when `sh` runs it, and sshd runs the command
+string through the login shell. The probes before 41c-1 were single commands (`uname -s`, reading `/etc/os-release`)
+that every shell parses the same way, so the defect stayed hidden until 41c-1 added scripts.
+
+**Why 809 did not prevent it.** 809's fix wrapped one check's listing, and `remotefile.Locate` and `Removable`, in
+`sh -c`. Its lesson (the platform's own script goes to `sh -c`, on one line) is a habit: no rule and no test holds a
+new probe to it. And no test could have seen it: the in-process SSH harness runs every command through `/bin/sh`
+whatever the account's shell, so it cannot show a login shell's grammar. That is LESSONS 174's blindness: the fixture
+neutralizes the one condition (a non-POSIX login) that the defect needs.
+
+**Fix.** `ab881c13`: every SSH probe runs as `remoteexec.QuoteCommand([]string{"sh", "-c", probe})`
+(`internal/catalog/facts/gather_transport.go`), each probe one line, since csh refuses a newline inside quotes. The
+platform is read from the last line of `uname -s`'s output, since a login that prints a banner prints it first
+(`lastLine`, `TestLastLine_SkipsALoginBanner`). Proven by `TestCLI_FactsReleaseGate`, which switches the container
+login's shell to tcsh, then fish, and reads each gather's own report (`adhoc --json` stats) for the package count.
+
+**Open: the class elsewhere.** A product-wide audit on 2026-11-03 found the same class in about 20 other places that
+send a platform script to a login shell. The owner decided (2026-11-03) that every SSH command runs under `sh`, raw
+ones too, in its own pull request, next. Its test switch (`PLEIADES_TEST_LOGIN_SHELL`) is saved in `git stash`
+("shell-agnostic: PLEIADES_TEST_LOGIN_SHELL switch"). Until it lands, this class is open outside `facts.gather`.
+
+**Lesson.** A rule about how to send a command that only a habit enforces does not hold. Put the rule in the one
+function that sends commands, and give the harness a switch that runs commands under another login shell, so a test
+can see it. LESSONS 386 records the form proven under five shells.
+
+## 846. The macOS packages probe ran Homebrew's brew, a script under a prefix another account may own, as the gather login, possibly root (a repeat in kind of 781, and of vuln-corpus finding C4_auto-roboto_2026-11-01) (fixed before push)
+
+**Symptom.** 2026-11-03, found in review of `feat/facts-41c-1`. The macOS packages probe ran
+`/opt/homebrew/bin/brew` or `/usr/local/bin/brew` to list formulae and casks. `brew` is a shell script, and Homebrew's
+prefix belongs to whichever account installed it. A gather that logs in as root, or as any account other than that
+owner, ran another account's code with its own rights.
+
+**Root cause.** The probe trusted a program by its path. A path under a directory another account controls runs
+whatever that account last put there (CWE-426, untrusted search path; CWE-250, running with more rights than needed).
+Reasoned, not exploited: it needs the attacker to own the Homebrew prefix and the gather to run as another account.
+
+**Why 781 and C4 did not prevent it.** 781 (a job base in a directory the login owns, under become) and vuln-corpus
+finding C4_auto-roboto_2026-11-01 (the detached job's HOME, fixed with `[ -O "$HOME" ]`) are the same idea: do not act
+with one account's rights on a path another account controls. Each was fixed where it was found. Neither became a
+check that a new probe passes through, and a read-only gather did not look like a place where code runs.
+
+**Fix.** `ab881c13`: the probe runs `brew` only when the login owns it and is not root:
+`[ -x "$b" ] && [ -O "$b" ] && [ "$(id -u)" != 0 ]` (`internal/catalog/facts/gather_bsd_items.go`). Otherwise it
+lists only pkgutil's receipts. Proven on the lab Mac (macOS 27.0.1) by
+`TestCLI_FactsGatherOnMacOSMatchesItsOwnTools`, whose Homebrew count still matches.
+
+**Lesson.** A probe that runs a program, not only one that writes, runs it with the login's rights: check who owns
+the program before running it, and never run another account's program as root. No new lesson; this is LESSONS 367's
+rule (a confinement rule binds every read of the same source) applied to running a program.
+
+## 847. dpkg's package probe kept only the "ii" state, dropping held and partly installed packages, and its test computed the expectation with the same filter, so it could not fail (a repeat of 54) (fixed before push)
+
+**Symptom.** 2026-11-03, found in review of `feat/facts-41c-1`. The dpkg probe kept a line only when its status was
+`ii`. A held package (`hi`) and any installed state other than "installed" (unpacked, half-configured, triggers
+awaited or pending) gave no fact, so drift could not see them. `TestGather_PackagesAndServicesMatchThisMachine`
+passed, because it counted this machine's packages with the same `^ii` filter.
+
+**Root cause.** The code assumed the desired-action letter and the state letter were both `i` for every installed
+package. The test was written from the code, not from dpkg, so it shared the assumption.
+
+**Why 54 did not prevent it.** 54 is a test whose fixture only exercises what the code already reads; its lesson
+(LESSONS 58) asks whether a test's fixture can tell the feature from its absence. Here the expectation was derived
+with the code's own filter, the same shape, and nobody asked dpkg what "installed" means.
+
+**Fix.** `ab881c13`: a package is installed when its status letter is one of `iUFWt` (`dpkgInstalled`,
+`internal/catalog/facts/gather_packages.go`). The machine test counts dpkg's own `${db:Status-Status}` words
+(installed, unpacked, half-configured, triggers-awaited, triggers-pending) rather than the code's filter, and the parser
+fixture in `TestPackageParsers_ReadEachDatabasesOwnOutput` has `hi`, `iU`, `iH` and `pn` lines.
+
+**Lesson.** A test's expectation comes from the tool's own answer, not from the code's reading of it. When both use
+the same filter, the test checks nothing.
+
+## 848. The playbook converter passed Ansible's gather_subset through unchanged though the two meanings differ, so ['!facter', '!ohai'] converted cleanly and failed on every host (a repeat of 334) (fixed before push)
+
+**Symptom.** 2026-11-03, found in review of `feat/facts-41c-1`. `setup`'s `gather_subset` was copied to
+`facts.gather`'s. The words mean different things. Ansible's `all` never includes packages or services (those are
+`package_facts` and `service_facts`), while `facts.gather`'s `all` does. Ansible's `facter`, `ohai`, `network` and
+`virtual` have no `facts.gather` subset and were refused at run time, so the common `gather_subset: ['!facter',
+'!ohai']` converted with no note and then failed on every host.
+
+**Root cause.** 334's: a table mapping another program's interface was written from the names, not from that
+program's own description of them. Equal words were taken as equal meanings.
+
+**Why 334 did not prevent it.** 334's fix and test (`TestEntries_ArgsMatchAnsibleCore`) check argument names and
+values against `ansible-doc`. A subset list's meaning (what `all` covers, what a removal alone starts from) is not an
+argument name, so nothing compared it.
+
+**Fix.** `bcce2fe0`: `setupSubset` (`internal/forge/playbook/adjust.go`) computes what Ansible would gather (removals
+win whatever their order; a list of removals alone starts from `all`) and passes `[min]` or `[min, hardware]`,
+leaving out each added name with no counterpart under a `module.semantics` note. In `facts.gather` itself a list of
+removals alone now starts from `min` and `hardware`, so a task lists packages only by naming them or `all`. Tests:
+the `setup` cases in `internal/forge/playbook/modules_test.go` (removals only, removal wins, nothing left, network).
+
+**Lesson.** Map a value's meaning, not its spelling: for each value the other program accepts, write down what it
+does there and test the conversion on that outcome (LESSONS 234).
+
+## 849. Package facts from two databases on one host overwrote each other, because names were told apart within one probe only, and the test proving it called a combination Gather never makes (a repeat of 54 and 571) (fixed before push)
+
+**Symptom.** 2026-11-03, found in review of `feat/facts-41c-1`. A host with two package databases (dpkg and rpm on
+one host; Homebrew and pkgutil on a Mac) can list one name in both. Each probe told its own repeated names apart
+(`:arch`, then `@source`), but the two probes' facts were joined afterwards, so the second `package.bash` replaced the
+first. The test that seemed to prove the naming fed both outputs to one probe's naming, which Gather never does.
+
+**Root cause.** The naming state lived in each probe's parse, not where Gather emits facts for the whole run.
+
+**Why 54 and 571 did not prevent it.** 54's lesson is that a fixture must reach the code path the feature uses; 571's
+is that a comment or test must not claim more than the code does. This test's call order was not Gather's, so it
+proved a path the product never takes, and its name claimed the product's behavior.
+
+**Fix.** `ab881c13`: Gather tells keys apart across every probe of the run (`gatherNames`,
+`internal/catalog/facts/gather.go`): `:arch`, then `@source`, then `#n`. The test helper `distinctAll` emits facts the
+way Gather does, and `TestPackageParsers_ReadEachDatabasesOwnOutput` checks that dpkg's and rpm's `bash` give
+`package.bash` and `package.bash:x86_64`.
+
+**Lesson.** A test of a property that holds across a run calls the code the way the run does. A helper that builds
+the case another way tests the helper.
+
+## 850. Adding one container test to internal/catalog/facts moved the whole package to the container tier, so none of its tests ran on the non-Linux container-free legs (a sibling of 631 and 756) (fixed before push)
+
+**Symptom.** 2026-11-03, review of `feat/facts-41c-1`. `8c0ca796` added a test that runs the rpm probe in a Rocky
+Linux container, and `90f47225` one that runs OpenRC in an Alpine container. `tools/internal/flakegate`'s
+`TestEveryContainerPackageIsListed` then required `internal/catalog/facts` in `DOCKER_DEPENDENT_PACKAGES`. A
+container package runs only in the containers tier, on Linux, so the package's parser and gather tests stopped running
+on the macOS, FreeBSD and Windows container-free legs, which are the platforms 41c-1 added.
+
+**Root cause.** The tier is decided per package. One container test moves every test in its package.
+
+**Why 631 and 756 did not prevent it.** 631 (pr-check selects changed packages, not dependents) and 756 (the
+container opt-out dropped `internal/archtest`) are other ways a test leaves the run it belongs in. Neither says that a
+new container test changes where its siblings run, and the guard that moved the package is correct; it reports the
+move but does not say what it costs.
+
+**Fix.** `4787bbb6`: the rpm and OpenRC tests moved to `internal/catalog/facts/live`, which reaches the probes
+through an exported view (`facts.Probes`, `internal/catalog/facts/probes_export.go`; `TestProbes_AreTheProbesGatherRuns`
+holds it equal to what Gather runs). The `Makefile`'s container list and `tools/testgate/durations.json` name the new
+package; `internal/catalog/facts` is container-free again. Each command in a container now has a deadline.
+
+**Lesson.** Before adding a container test to a package, ask what else the package's tests prove and where they must
+run. Put the container test in its own package when the others belong on every platform.
+
+## 851. A literal U+200B (zero-width space) sat in a Go test string, and internal/archtest's invisible-character check passed it (a repeat of 256 and 834) (fixed before push; the archtest gap is open)
+
+**Symptom.** 2026-11-03, review of `feat/facts-41c-1`. A case in `TestItemKey_EncodesWhatAKeyCannotHoldExactly`
+(`internal/catalog/facts/gather_subsets_internal_test.go`) held a real zero-width space in its source, invisible in
+an editor and a diff. `internal/archtest`'s `TestNoInvisibleControlCharactersInGoSource` passed.
+
+**Root cause.** Two. The character reached the file as itself, as in 256 and 834. And the archtest asks
+`termsafe.Unsafe`, which does not count zero-width characters as unsafe, so the backstop that caught 834 missed this
+one.
+
+**Why 256 and 834 did not prevent it.** Their fix is the archtest plus a habit (LESSONS 202: build such characters in
+code). The habit was not followed, and the archtest covers the characters a terminal acts on, not every invisible one.
+
+**Fix.** `ab881c13`: the character is built in code, `string(rune(0x200b))`. **Not fixed:** the archtest still
+passes a zero-width character in Go source. Widening it (or `termsafe.Unsafe`) is open.
+
+**Lesson.** A backstop's list is part of what it proves: an invisible-character check that does not name zero-width
+characters lets them through. Build such characters in code, and treat the archtest as the backstop it is.
+
+## 852. A test container with sleep as PID 1 never reaped children, so a daemon OpenRC started from docker exec became a zombie that start-stop-daemon would not stop (a repeat of 343) (fixed before push)
+
+**Symptom.** 2026-11-03, writing `90f47225`'s OpenRC test on `feat/facts-41c-1`. The test booted OpenRC in an Alpine
+container, started `crond`, stopped it, and read the services subset. After the stop the gather still saw `crond`
+running.
+
+**Root cause.** 343's: the container's PID 1 was `sleep`, which never reaps. A daemon OpenRC started through `docker
+exec` was orphaned to PID 1, and once it exited it stayed a zombie. start-stop-daemon found the process still there
+and refused to stop it.
+
+**Why 343 did not prevent it.** 343 fixed the two containers in view (the benchmark's runner and the Ansible
+adapter's), and its lesson says any container that runs a process tree needs an init. No harness default or check
+applies it, so a new test container started the old way.
+
+**Fix.** The test container starts with `HostConfig.Init` (docker `--init`), now in
+`internal/catalog/facts/live/live_test.go` (`90f47225`, moved by `4787bbb6`). `TestGatherServices_ReadsARealOpenRC`
+holds the stopped state.
+
+**Lesson.** 343's, again; LESSONS 385 states it for a test that starts a daemon.
+
+## 853. Past MaxFactsPerObservation (8192) an observation was stored as none of it while the task succeeded (a repeat in kind of 265) (fixed before push; a Runner's publish failing mid-split is open)
+
+**Symptom.** 2026-11-03, review of `feat/facts-41c-1`. Phase 41 refuses an observation of more than 8,192 keys as a
+whole. A host with that many packages and services gave a `facts.gather` that succeeded and stored nothing, with only
+a log line saying why.
+
+**Root cause.** The bound was checked where facts are stored, after the method returned success. The method did not
+know the bound, so it could not fail the task.
+
+**Why 265 did not prevent it.** 265 is one bad record failing a whole sync; this is one bound making a whole
+observation vanish while reporting success. Both turn a per-record outcome into a whole-run outcome at another stage,
+and 265's lesson (check every stage that touches a record) was applied to its own plugin contract only.
+
+**Fix.** `ab881c13`: `facts.gather` counts its facts and fails past `collection.MaxFactsPerObservation`, with an error
+naming `gather_subset` and `filter` as the way to gather less (`TestGather_MoreFactsThanOneTaskMayRecordFailsTheTask`).
+`collection.MaxFactsPerObservation` (`pkg/collection/facts.go`) mirrors `internal/facts`' bound, since a Collection may
+not import `internal/`; `internal/engine`'s `TestFactCaps_AgreeAcrossTheBoundary` holds the two equal.
+
+**Open.** A Runner splits an observation into batches under 512 KiB. When a publish fails partway, the batches already
+sent are stored and the rest are not, so the stored observation is partial.
+
+**Lesson.** A bound that drops data is enforced where the task can still fail, and said in the task's result.
+
+## 854. The secret-name exemption for item families applied to every Prefix declaration, so a future field-named family (env.DB_PASSWORD) would have been stored (the class of LESSONS 337 and FAILURE_PATTERNS 655) (fixed before push)
+
+**Symptom.** 2026-11-03, review of `feat/facts-41c-1`. `f648b8ec` let a key inside a declared family pass the
+secret-name guard on its prefix only, since a package called `password-store` is a name, not a field. The exemption
+applied to any `Prefix` declaration. A later family whose suffix is a field name, such as environment variables
+(`env.DB_PASSWORD`), would have skipped the guard and been stored.
+
+**Root cause.** The exemption was inferred from the declaration's shape (a prefix) instead of being declared. A prefix
+family can hold item names or field names, and only the method knows which.
+
+**Why 337 and 655 did not prevent it.** Both say a guard is an allowlist of what each value is, never an inference.
+This exemption was new code that inferred.
+
+**Fix.** `ab881c13`: `collection.FactSpec.ItemNames` (`pkg/collection/facts.go`) is an explicit opt-in, validated:
+it needs `Prefix` and a prefix ending in a dot (`TestValidateFacts_RefusesEachMalformedDeclaration`). Only such a
+family's suffix skips the name guard; the value is still held to every secret check.
+`TestPrepare_AFamilyMembersNameIsDataNotAFieldName` (`internal/facts/kind_test.go`) shows `package.password-store`
+kept and `env.db_password` refused.
+
+**Lesson.** An exemption from a secret guard is declared by name, never inferred from a shape that other uses share.
+
+## 855. The Crawl file store's Record scanned the whole history once per fact, quadratic for thousands of packages against a growing history (the class of 490 and 611) (fixed before push)
+
+**Symptom.** 2026-11-03, review of `feat/facts-41c-1`. Phase 41c-1 makes a host's observation thousands of keys.
+The file store's `Record` read the device's whole history once per key to find that key's latest value, so one gather
+cost the number of keys times the length of the history, and grew with every gather.
+
+**Root cause.** The store was written for eight keys per observation, where a scan per key was cheap.
+
+**Why 490 and 611 did not prevent it.** Both are a per-item pass over a whole input (a line count per reference, a
+join per wrapped line). Their fixes were local; nothing asks a structure's existing loops to be re-checked when its
+input grows by orders of magnitude.
+
+**Fix.** `e9be6fd2`: `Record` indexes the history's lines by key once per call and reads each key's lines from the
+index (`internal/facts/file_store.go`). **Not changed:** `sdk.NoteFactKey`'s linear check for a repeated key, bounded
+by the 8,192 cap.
+
+**Lesson.** When a phase multiplies a structure's input, re-read each loop over it for work done once per item over
+the whole.
+
+## 856. A file named gather_windows.go built only on Windows (a repeat of 374) (fixed before commit)
+
+**Symptom.** 2026-11-03, writing `724a2010` on `feat/facts-41c-1`. gopls reported no package metadata for the new
+`internal/catalog/facts/gather_windows.go`, and its code was not built on Linux.
+
+**Root cause.** 374's: Go reads a file name ending `_windows.go` as a build constraint.
+
+**Why 374 did not prevent it.** 374's lesson is a naming habit with no check behind it. gopls caught it before the
+commit, as `go_diagnostics` after each edit is meant to.
+
+**Fix.** Renamed to `gather_win.go` before the commit.
+
+**Lesson.** 374's. A file about one OS takes the OS name anywhere but last.
+
+## 857. A "this machine" test filtered on package.bash, which a Mac does not have, and failed only on the macOS runner (a repeat of 54) (fixed on the pull request)
+
+**Symptom.** 2026-11-03, pull request #109, `fast-macos (2)`: `TestGather_PackagesAndServicesMatchThisMachine`
+failed with "a filter naming package.bash kept 0 facts", alone on its re-run too. The SSH harness gathers the runner's
+own packages; on macOS those are Homebrew's and pkgutil's, and none is called bash.
+
+**Root cause.** The test chose its example package by what a Debian or Alpine machine has, not by what the machine it
+ran on had listed. Moving the package's container tests out (850) put it back on the macOS legs, the first runs that
+could see this.
+
+**Why 54 did not prevent it.** 54's lesson is that a test's expectation must come from the system, not from the
+author's picture of it. The reviewer of `feat/facts-41c-1` named this exact assumption as a test note; the dpkg version
+check beside it was guarded, and this line was missed.
+
+**Fix.** The test filters on a package key this machine's own gather listed, one holding no pattern character, and
+skips the filter step where the machine lists no package (`internal/catalog/facts/gather_test.go`).
+
+**Lesson.** A test that runs on "this machine" picks every example from what this machine reported.
