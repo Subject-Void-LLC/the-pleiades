@@ -416,6 +416,9 @@ story, per `.AGENTS/AGENTS.md`.
 381. **A safety check fed by a functional option fails open on every composition root that does not pass it: when a new guard starts reading a list an option fills, check each root that builds the object, test that the root passes it, and give the guard a check that needs no list (a repeat of 154) (2026-11-02).**
 382. **A check that runs on one tier is proven in that tier's own composition root: a registry lookup in a binary that links no registry returns nothing, and the check quietly passes (a repeat of 56) (2026-11-02).**
 383. **A value hashed into a durable record is normalized to the coarsest precision any supported store keeps, before it is hashed (a repeat in kind of 250) (2026-11-02).**
+384. **A release gate that reads a persistent store cannot see an empty run: the earlier run's records are still there, so read the task's own report for what this run did (a repeat in kind of 136) (2026-11-03).**
+385. **A container a test starts a daemon in needs an init as PID 1 (HostConfig.Init), or the daemon cannot be stopped: an orphan that exits stays a zombie, and a service manager reads it as still running (a repeat of FAILURE_PATTERNS 343) (2026-11-03).**
+386. **A command meant to run the same under any login shell must not depend on that shell's grammar: send it as one encoded word that sh decodes, `sh -c 'eval "$(printf %b "$1")"' sh '<script, unsafe bytes as \0NNN>'` (a repeat in kind of FAILURE_PATTERNS 809's lesson) (2026-11-03).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

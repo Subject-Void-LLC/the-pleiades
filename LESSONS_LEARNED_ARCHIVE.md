@@ -7054,3 +7054,48 @@ keeps microseconds, SQLite nanoseconds, an ORM's JSON column numbers as float64)
 function both stores call, before storing and before hashing (`facts.StoredTime`). Give fixtures values the
 normalization changes (a time with nanoseconds), and run the shared conformance suite on every store's real database
 (`TestStore_ConformanceOnPostgres`).
+
+## 384. A release gate that reads a persistent store cannot see an empty run: the earlier run's records are still there, so read the task's own report for what this run did (a repeat in kind of 136) (2026-11-03).
+
+**Why.** Phase 41c-1 (FAILURE_PATTERNS 845). `TestCLI_FactsReleaseGate` was extended to gather through tcsh and fish
+logins. Its existing checks read the device's stored facts (`pleiades facts <host> --json`). An earlier step had already
+gathered the same packages through a POSIX login, so the store held them whatever the tcsh gather did. With the fix
+removed, a tcsh login gathered 0 packages and the task succeeded, and a check on the store would still have passed. The
+step was written to read the gather's own report instead (`adhoc --json`, its stats), which says what that run
+emitted. LESSONS 136 says a test that cannot fail against the defect it names is worse than none, and that only
+restoring the broken code proves which kind you wrote. It did not hold here by itself because the store looked like
+the most real thing to read: it is what a user reads. But a store answers "what is known", not "what this run did".
+
+**Rule in practice.** When a gate step runs after another step that wrote the same records, read the step's own
+result (its report, its stats, its exit status) for what it did, and read the store only for what it keeps. Or start
+the step from an empty store. Then restore the defect once and watch the step fail.
+
+## 385. A container a test starts a daemon in needs an init as PID 1 (HostConfig.Init), or the daemon cannot be stopped: an orphan that exits stays a zombie, and a service manager reads it as still running (a repeat of FAILURE_PATTERNS 343) (2026-11-03).
+
+**Why.** Phase 41c-1 (FAILURE_PATTERNS 852). The OpenRC test booted OpenRC in an Alpine container whose PID 1 was
+`sleep`. A daemon started from `docker exec` is orphaned to PID 1; when it exited, `sleep` never reaped it, so it stayed
+a zombie, start-stop-daemon would not call it stopped, and the test saw `crond` running after a stop. FAILURE_PATTERNS
+343 found the same with Ansible's orphans in 2026-09 and its lesson says any container running a process tree needs an
+init. It did not hold because it was written as a failure pattern's lesson, not a rule a test author reads before
+starting a container, and no harness default sets an init.
+
+**Rule in practice.** Every test container that starts a service, a daemon or anything that forks under `docker exec`
+sets `HostConfig.Init` (`docker --init`), as `internal/catalog/facts/live/live_test.go` does. When a stopped daemon
+still looks alive in a container, look for a zombie whose parent is PID 1 before anything else.
+
+## 386. A command meant to run the same under any login shell must not depend on that shell's grammar: send it as one encoded word that sh decodes, `sh -c 'eval "$(printf %b "$1")"' sh '<script, unsafe bytes as \0NNN>'` (a repeat in kind of FAILURE_PATTERNS 809's lesson) (2026-11-03).
+
+**Why.** Phase 41c-1 (FAILURE_PATTERNS 845). sshd hands the command string to the account's login shell. 809's
+answer was to wrap the platform's own script in `sh -c` on one line, and 41c-1's probes now do that. But the login
+shell still parses the quoted argument before `sh` runs it, and each shell quotes differently: csh refuses a newline
+inside quotes and expands `!` there, and fish has its own escapes. So a wrapper that is safe for one script under one
+shell is a case-by-case argument, not a guarantee. The form above passes the login shell only single-quoted text in
+which every byte any of them might act on is written as a `\0NNN` octal escape; `printf %b` turns it back into the
+script inside `sh`, and `eval` runs it. Measured on 2026-11-03 in containers: the script `sh` ran was byte-identical
+under sh, bash, zsh, tcsh and fish logins, and stdin passed through to it.
+
+**Rule in practice.** One encoder builds every command the platform sends over SSH, and every send site uses it,
+including a user's raw command once the owner's 2026-11-03 decision (every SSH command runs under `sh`) is built. The
+pull request that applies it is next after 41c-1; its harness switch, `PLEIADES_TEST_LOGIN_SHELL`, makes the
+in-process harness run commands under another login shell, since the harness alone runs everything through `/bin/sh`
+and cannot show this class (LESSONS 174).
