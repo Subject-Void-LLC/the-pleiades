@@ -14,7 +14,7 @@ const serviceSectionMark = "--pleiades-units--"
 
 // linuxServiceProbes are the services subset's probes on Linux: systemd's
 // unit files (whether each is enabled) and its loaded units (what each is
-// doing), read in one command.
+// doing), read in one command, and OpenRC's scripts, runlevels and states.
 func linuxServiceProbes() []gatherProbe {
 	return []gatherProbe{
 		{
@@ -28,7 +28,86 @@ func linuxServiceProbes() []gatherProbe {
 				`echo '` + serviceSectionMark + `'; systemctl --type=service --all --no-legend --no-pager --plain list-units; }`,
 			parse: parseSystemd,
 		},
+		{
+			subset: gatherSubsetServices,
+			family: gatherFamilyService,
+			// OpenRC (Alpine, Gentoo), where systemd is not what booted:
+			// every init script, the runlevels each is in, and, once OpenRC
+			// has booted (its softlevel exists), each one's state. None of
+			// it needs root.
+			command: `command -v rc-status >/dev/null 2>&1 && [ ! -d /run/systemd/system ] && { rc-service --list; echo '` + serviceSectionMark + `'; ` +
+				`rc-update show -v; echo '` + serviceSectionMark + `'; [ -e /run/openrc/softlevel ] && rc-status --all -f ini 2>/dev/null; }`,
+			parse: parseOpenRC,
+		},
 	}
+}
+
+// openrcStates are OpenRC's words for a service's state, in the words the
+// other managers' facts use where one means the same.
+var openrcStates = map[string]string{"started": "running", "stopped": "stopped"}
+
+// parseOpenRC reads the OpenRC probe's three sections: every init script,
+// rc-update's runlevels per script ("sshd | default"), and rc-status's ini
+// listing ("[default]", "sshd = started"). A script in a runlevel other than
+// shutdown starts with the system; status is its runlevels, or disabled. A
+// script rc-status does not list is stopped, and every one is unknown when
+// OpenRC has not booted (rc-status printed nothing).
+func parseOpenRC(out string) []gatherFact {
+	sections := strings.Split(out, serviceSectionMark)
+	if len(sections) != 3 {
+		return nil
+	}
+	runlevels := map[string][]string{}
+	for _, line := range strings.Split(sections[1], "\n") {
+		name, levels, ok := strings.Cut(line, "|")
+		if name = strings.TrimSpace(name); ok && name != "" {
+			runlevels[name] = strings.Fields(levels)
+		}
+	}
+	state := map[string]string{}
+	booted := false
+	for _, line := range strings.Split(sections[2], "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			booted = true
+			continue
+		}
+		name, st, ok := strings.Cut(line, "=")
+		if name, st = strings.TrimSpace(name), strings.TrimSpace(st); ok && name != "" && st != "" {
+			if word, known := openrcStates[st]; known {
+				st = word
+			}
+			state[name] = st
+		}
+	}
+	var facts []gatherFact
+	seen := map[string]bool{}
+	for _, line := range strings.Split(sections[0], "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		st := state[name]
+		switch {
+		case !booted:
+			st = "unknown"
+		case st == "":
+			st = "stopped"
+		}
+		enabled := false
+		for _, level := range runlevels[name] {
+			enabled = enabled || level != "shutdown"
+		}
+		status := strings.Join(runlevels[name], ",")
+		if status == "" {
+			status = "disabled"
+		}
+		facts = append(facts, gatherFact{key: itemKey(gatherFamilyService, name), value: map[string]any{
+			"state": st, "enabled": enabled, "status": status, "source": "openrc",
+		}})
+	}
+	return facts
 }
 
 // systemdEnabled are the unit-file states that start a unit at boot.
