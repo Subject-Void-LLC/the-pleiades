@@ -19,7 +19,9 @@ func TestGatherSelection_FollowsAnsiblesRules(t *testing.T) {
 		{[]any{}, []string{"hardware", "min"}, ""},
 		{[]any{"packages"}, []string{"min", "packages"}, ""},
 		{[]any{"all"}, []string{"hardware", "min", "packages", "services"}, ""},
-		{[]any{"!hardware"}, []string{"min", "packages", "services"}, ""},
+		// Removals alone start from the default, never listing packages.
+		{[]any{"!hardware"}, []string{"min"}, ""},
+		{[]any{"!packages"}, []string{"hardware", "min"}, ""},
 		{[]any{"!all", "services"}, []string{"min", "services"}, ""},
 		{[]any{"packages", "!min"}, []string{"packages"}, ""},
 		{[]any{"!all", "!min"}, nil, "leaves no subset"},

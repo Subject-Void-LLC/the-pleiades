@@ -35,11 +35,15 @@ var gatherSubsets = []string{gatherSubsetMin, gatherSubsetHardware, gatherSubset
 // without asking.
 var gatherDefaultSubsets = []string{gatherSubsetMin, gatherSubsetHardware}
 
-// gatherSelection reads gather_subset as Ansible does: names add a subset,
-// a name with a leading ! removes one, all adds every subset and !all
-// removes every one but min; a list of removals alone starts from all; min
-// is kept unless a task removes it by name. An unknown name is refused, a
-// typo being far likelier than a wish to gather nothing.
+// gatherSelection reads gather_subset as Ansible does in all but one way:
+// names add a subset, a name with a leading ! removes one, all adds every
+// subset and !all removes every one but min, and min is kept unless a task
+// removes it by name. A list of removals alone starts from the default (min
+// and hardware), where Ansible's starts from all: packages and services are
+// separate modules there (package_facts, service_facts), so its all never
+// lists them, and here a task lists a host's packages only by naming them or
+// all. An unknown name is refused, a typo being far likelier than a wish to
+// gather nothing.
 func gatherSelection(params map[string]any) (map[string]bool, error) {
 	names, set, err := sdk.StringSlice(params, gatherParamSubset)
 	if err != nil {
@@ -59,7 +63,7 @@ func gatherSelection(params map[string]any) (map[string]bool, error) {
 		}
 	}
 	if onlyRemovals {
-		for _, s := range gatherSubsets {
+		for _, s := range gatherDefaultSubsets {
 			chosen[s] = true
 		}
 	}

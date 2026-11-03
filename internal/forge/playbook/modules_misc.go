@@ -103,6 +103,7 @@ var miscModules = []Entry{
 		// facts.gather reads over WinRM.
 		Aliases: []string{"setup", "ansible.builtin.gather_facts", "gather_facts", "ansible.windows.setup"},
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "gathering facts reads and changes nothing"},
+		Adjust:  setupSubset,
 		Args: []Arg{
 			{Name: "filter", To: "filter"},
 			{Name: "gather_subset", To: "gather_subset"},
