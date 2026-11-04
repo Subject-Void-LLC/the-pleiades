@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
 // TestDefaultRulesetParses is the CI-side guard for DefaultRuleset's panic.
@@ -445,5 +447,36 @@ func repoRoot(t *testing.T) string {
 			t.Fatal("could not find the module root")
 		}
 		dir = parent
+	}
+}
+
+// TestText_MasksASecretAsALoginShellEchoesTheEncodedLine: a device that
+// echoes the line a connection sent (an xtrace in a login rc, a ForceCommand
+// logging SSH_ORIGINAL_COMMAND) shows each secret encoded for sh, and that
+// form is masked as the plain one is.
+func TestText_MasksASecretAsALoginShellEchoesTheEncodedLine(t *testing.T) {
+	secret := "p@ss'w0rd! $x"
+	echoed := "+ /bin/sh -c ... sh 'mysql -p" + shline.Encode(secret) + " db'"
+	got := redact.Text([]string{secret}, echoed)
+	if strings.Contains(got, shline.Encode(secret)) || strings.Contains(got, "w0rd") {
+		t.Fatalf("the encoded secret survived: %q", got)
+	}
+	if plain := redact.Text([]string{secret}, "pw="+secret); strings.Contains(plain, "w0rd") {
+		t.Fatalf("the plain secret survived: %q", plain)
+	}
+}
+
+// TestMasking_EncodedSecretsMatchShline holds redact's copy of the encoding to
+// shline's own: a secret holding every byte from 1 to 255, echoed as shline
+// encodes it, is masked whole.
+func TestMasking_EncodedSecretsMatchShline(t *testing.T) {
+	var all strings.Builder
+	for b := 1; b < 256; b++ {
+		all.WriteByte(byte(b))
+	}
+	secret := all.String()
+	got := redact.Text([]string{secret}, "trace "+shline.Encode(secret)+" end")
+	if strings.Contains(got, shline.Encode(secret)) || !strings.HasSuffix(got, " end") {
+		t.Fatalf("the encoded secret was not masked whole: %q", got)
 	}
 }

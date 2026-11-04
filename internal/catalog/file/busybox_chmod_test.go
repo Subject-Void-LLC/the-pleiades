@@ -91,6 +91,9 @@ func startFileSSHD(t *testing.T) (dirServer, testcontainers.Container) {
 		t.Fatalf("starting the sshd container: %v", err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	if err := testsupport.SetLoginShell(ctx, container, busyboxSSHUser); err != nil {
+		t.Fatal(err)
+	}
 
 	host, err := container.Host(ctx)
 	if err != nil {

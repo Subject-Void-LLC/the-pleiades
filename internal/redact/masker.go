@@ -103,6 +103,20 @@ func (m *Masker) Text(extra []string, text string) string {
 		combined = append(combined, extra...)
 		literals = combined
 	}
+	// A device that echoes the line it was sent (a login shell's trace, a
+	// ForceCommand's log) echoes each secret in it as a connection encoded
+	// it for sh (pkg/remoteexec/shline), whose escapes all begin \0; such
+	// text is held to those forms too.
+	if strings.Contains(text, `\0`) {
+		encoded := make([]string, 0, 2*len(literals))
+		encoded = append(encoded, literals...)
+		for _, l := range literals {
+			if e := shEncoded(l); e != l {
+				encoded = append(encoded, e)
+			}
+		}
+		literals = encoded
+	}
 	out := maskLiterals(literals, text)
 
 	// The prefilter pass. Lowercasing once and testing cheap substrings is
@@ -206,4 +220,26 @@ func (m *Masker) HandlerOptions(level slog.Leveler) *slog.HandlerOptions {
 		Level:       level,
 		ReplaceAttr: m.Attr,
 	}
+}
+
+// shEncoded is text as pkg/remoteexec/shline.Encode writes it: each byte
+// outside letters, digits, a space and _ . / : , = + - @ % as \0 and three
+// octal digits. It is a copy, since this package depends on nothing but the
+// standard library (internal/archtest); TestMasking_EncodedSecretsMatchShline
+// holds the two equal.
+func shEncoded(text string) string {
+	var b strings.Builder
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte(" _./:,=+-@%", c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('\\')
+		b.WriteByte('0')
+		b.WriteByte('0' + c>>6)
+		b.WriteByte('0' + c>>3&7)
+		b.WriteByte('0' + c&7)
+	}
+	return b.String()
 }

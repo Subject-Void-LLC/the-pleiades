@@ -7099,3 +7099,43 @@ including a user's raw command once the owner's 2026-11-03 decision (every SSH c
 pull request that applies it is next after 41c-1; its harness switch, `PLEIADES_TEST_LOGIN_SHELL`, makes the
 in-process harness run commands under another login shell, since the harness alone runs everything through `/bin/sh`
 and cannot show this class (LESSONS 174).
+
+## 387. When a new transport encoding replaces a channel that refused a byte, refuse that byte explicitly: the old channel's refusal is not inherited (the class of FAILURE_PATTERNS 317 and 438) (2026-11-03).
+
+**Why.** Branch `fix/shell-agnostic-ssh` (FAILURE_PATTERNS 859). sshd refused a command holding a NUL byte, and every
+path check in the platform sat above that refusal without knowing it relied on it. The `sh` encoding of
+FAILURE_PATTERNS 858 writes a NUL as an octal escape that `printf %b` drops, so the bytes on either side were joined
+and `/srv/app/.<NUL>./etc` would have reached the device as `/srv/app/../etc`. The fp-reviewer agent found it before
+push. 438's rule (a guard decides on exactly the bytes the far side reads) did not catch it because the guards still
+read the bytes the platform meant to send; the bytes changed below them.
+
+**Rule in practice.** Before an encoding, a wrapper or a new channel replaces an old one, list what the old one
+refused (a NUL, a length, a character set) and refuse each explicitly in the new code, with a test that sends it.
+Then send every byte value through the new path to its real decoder and hold each to itself, as
+`TestFor_EveryByteReachesShAsItself` does.
+
+## 388. A property a fixture neutralizes, such as the login shell, is tested by running the whole suite with that fixture switched, not by reading code: the static audit of the login-shell class found about 20 send sites, and the switched run found the tests' own helpers too (a repeat in kind of 174) (2026-11-03).
+
+**Why.** Branch `fix/shell-agnostic-ssh` (FAILURE_PATTERNS 858, 862, 863). The in-process SSH harness runs every
+command through `/bin/sh` whatever the account's shell, so no test could show a login shell's grammar (LESSONS 174's
+blindness). A product-wide audit on 2026-11-03 read the code and listed about 20 send sites. The switch
+`PLEIADES_TEST_LOGIN_SHELL` (`testsupport.UseLoginShell`) gives every sshd container a test starts another login
+shell; a baseline run of `cmd/pleiades` under fish failed 11 tests, and the switched runs then found the release gates'
+own verification helpers (862) and the switch's own parsing (863), none of which the audit had listed. LESSONS 174 said
+to list the conditions a fixture neutralizes; this is what to do with one once it is listed.
+
+**Rule in practice.** When a class depends on an environment the fixtures fix (a login shell, a locale, a umask, an
+OS), give the harness one switch for it and run every suite that uses the fixture with it switched, each value in
+turn. A code audit says where to look; only the switched run says it is done.
+
+## 389. A test helper that reads a device "independently" over its own SSH client is a send site too, and sends the way the product does (a repeat in kind of 363) (2026-11-03).
+
+**Why.** Branch `fix/shell-agnostic-ssh` (FAILURE_PATTERNS 862). `cmd/pleiades`'s `verifyOverSSH` and `cmd/runner`'s
+`readOverSSH` check a run's effect on a device through an SSH client of their own, so that the check does not trust
+the code under test. They sent POSIX checks raw to the login shell and failed under fish, zsh and tcsh. Independence
+from the product's code does not make a helper independent of the device's rules: it still reaches the same login
+shell. LESSONS 363 says a rule for a mechanism is checked along every route to a device; a test's own route is one.
+
+**Rule in practice.** A test helper that talks to a device builds its command with the product's encoder (here
+`shline.For`) while reading the result through its own client. When a send rule changes, search the tests for their
+own SSH clients as well as the product for its send sites.

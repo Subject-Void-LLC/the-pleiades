@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -88,6 +89,9 @@ func startReleaseGateSSHD(t *testing.T) (testcontainers.Container, string, int) 
 		t.Fatalf("failed to start openssh-server container: %v", err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	if err := testsupport.SetLoginShell(ctx, container, releaseGateSSHUser); err != nil {
+		t.Fatal(err)
+	}
 
 	host, err := container.Host(ctx)
 	if err != nil {
@@ -142,7 +146,10 @@ func verifyOverSSH(t *testing.T, addr, command string) string {
 		t.Fatalf("independent verification session failed: %v", err)
 	}
 	defer session.Close()
-	out, err := session.CombinedOutput(command)
+	// Through sh, as a connection sends a command, so a test run with a
+	// login shell that is not POSIX (PLEIADES_TEST_LOGIN_SHELL) still reads
+	// the device the same way.
+	out, err := session.CombinedOutput(shline.For(command))
 	if err != nil {
 		t.Fatalf("independent verification command %q failed: %v\noutput: %s", command, err, out)
 	}

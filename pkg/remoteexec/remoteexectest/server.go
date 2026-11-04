@@ -61,6 +61,8 @@ import (
 	"sync/atomic"
 
 	cryptossh "golang.org/x/crypto/ssh"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
 // Options configures a Server.
@@ -212,9 +214,22 @@ func (l *commandLog) add(command string) {
 }
 
 // Commands returns every command the server has been asked to run, in
-// the order they arrived. A check's test reads it to prove what the check
-// sent the device, rather than trusting the method's own account.
+// the order they arrived, each as its sender wrote it: a line a connection
+// encoded for sh (shline.For) is decoded, so a check's test reads
+// what the check sent the device rather than trusting the method's own
+// account. WireCommands returns the lines as they arrived.
 func (s *Server) Commands() []string {
+	wire := s.WireCommands()
+	for i, line := range wire {
+		if command, ok := shline.From(line); ok {
+			wire[i] = command
+		}
+	}
+	return wire
+}
+
+// WireCommands returns every line the server was sent, as it arrived.
+func (s *Server) WireCommands() []string {
 	s.log.mu.Lock()
 	defer s.log.mu.Unlock()
 	return append([]string(nil), s.log.commands...)

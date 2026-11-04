@@ -20,6 +20,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
 // localPipe returns two ends of a real, loopback TCP connection. It is
@@ -222,7 +224,14 @@ func handleFakeSession(channel ssh.Channel, requests <-chan *ssh.Request, handle
 		}
 		req.Reply(true, nil)
 
-		stdout, stderr, exitCode := handler(payload.Command)
+		// A connection sends every command encoded for sh (shline); the
+		// handler sees the command its caller wrote. A Raw view's arrives
+		// as it is.
+		command := payload.Command
+		if decoded, ok := shline.From(command); ok {
+			command = decoded
+		}
+		stdout, stderr, exitCode := handler(command)
 		channel.Write([]byte(stdout))
 		channel.Stderr().Write([]byte(stderr))
 		channel.SendRequest("exit-status", false, ssh.Marshal(&struct{ Status uint32 }{uint32(exitCode)}))

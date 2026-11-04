@@ -130,6 +130,10 @@ func requireSSHContainer(tb testing.TB) (string, int) {
 			return
 		}
 		sharedContainer = container
+		if err := testsupport.SetLoginShell(ctx, container, containerSSHUser); err != nil {
+			sharedContainerErr = err
+			return
+		}
 
 		host, err := container.Host(ctx)
 		if err != nil {

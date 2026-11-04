@@ -102,7 +102,10 @@ func SSHTarget(item inventory.InventoryItem) (transport.Target, bool) {
 	if !ok {
 		return transport.Target{}, false
 	}
-	return transport.Target{Endpoint: transport.NetworkEndpoint{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}}, true
+	return transport.Target{
+		Endpoint:   transport.NetworkEndpoint{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()},
+		LoginShell: !inventory.ExecIsPOSIX(item),
+	}, true
 }
 
 // SerialTarget is the TransportBinding.Target function for any fqcn

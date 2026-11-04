@@ -103,6 +103,9 @@ type engineFixture struct {
 	ready []string
 	// sshdConfigDir is where the fixture's sshd reads drop-in files.
 	sshdConfigDir string
+	// logins are the accounts a test logs in as, whose login shell
+	// EnvLoginShell sets.
+	logins []string
 
 	once sync.Once
 	err  error
@@ -112,10 +115,12 @@ var (
 	dockerFixture = &engineFixture{
 		engine: "docker", dir: "docker-sshd", base: DockerHostBaseImage, tag: "pleiades/test-docker-sshd:29.9.0",
 		ready: []string{"docker", "info"}, sshdConfigDir: "/etc/ssh/sshd_config.d",
+		logins: []string{DockerHostUser, DockerHostOutsider},
 	}
 	podmanFixture = &engineFixture{
 		engine: "podman", dir: "podman-sshd", base: PodmanHostBaseImage, tag: "pleiades/test-podman-sshd:5.8.7",
 		ready: []string{"podman", "info"}, sshdConfigDir: "/etc/ssh/sshd_config.d",
+		logins: []string{PodmanHostRootful, PodmanHostRootless},
 	}
 )
 
@@ -188,6 +193,9 @@ func startEngineHost(tb testing.TB, f *engineFixture, opts EngineHostOptions) *E
 		tb.Fatalf("starting the %s host fixture: %v", f.engine, err)
 	}
 	tb.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	if err := SetLoginShell(ctx, c, f.logins...); err != nil {
+		tb.Fatal(err)
+	}
 	// Registered after Terminate, so it runs first: a failed test gets the
 	// fixture's own log (sshd runs with -e, so its refusals are there, each
 	// naming its reason), which is what a refused login on a machine nobody

@@ -59,6 +59,10 @@ type Conn struct {
 	// account through sudo (WithBecome).
 	become *Become
 
+	// raw, when set, sends each command as written for the login shell
+	// rather than encoded for sh (Raw, script.go).
+	raw bool
+
 	// redial reconnects a detached command's polls (detach.go), and extra
 	// holds the clients it dialed, closed with this Conn.
 	redial redialer
@@ -86,11 +90,12 @@ func (c *Conn) usable() error {
 // Run runs command on this connection and returns its output and exit
 // code.
 //
-// command is sent VERBATIM over the SSH exec channel. Nothing here wraps
-// it in a local shell or concatenates it with the target address. The
-// remote sshd hands it to the login shell, which is why QuoteArg and
-// QuoteCommand exist: a caller building a command from untrusted parts
-// must quote them, and this function will not do it silently.
+// command is sent over the SSH exec channel for sh to read, whatever the
+// login shell is (script.go), or as written on a Raw view; nothing is
+// concatenated to it, and it never runs in a local shell. sh parses it,
+// which is why QuoteArg and QuoteCommand exist: a caller building a command
+// from untrusted parts must quote them, and this function will not do it
+// silently.
 //
 // A non-zero remote exit status is returned as Result.ExitCode with a
 // nil error, because the command ran to completion and reported failure,
@@ -133,6 +138,10 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	// An async task's command runs detached on the device (detach.go).
 	if stdin == nil && detached(ctx) {
 		return c.runDetached(ctx, command, limit)
+	}
+	line, err := c.wire(command)
+	if err != nil {
+		return Result{}, err
 	}
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -231,7 +240,7 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		}
 	}()
 
-	runErr := session.Start(c.elevate(command))
+	runErr := session.Start(line)
 	if runErr == nil {
 		startCopy()
 		runErr = waitOrAbandon(ctx, session)

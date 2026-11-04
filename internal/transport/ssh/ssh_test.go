@@ -18,6 +18,8 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/shline"
 )
 
 // This file tests what this package is, which since pkg/remoteexec took
@@ -240,13 +242,15 @@ func TestExec_TranslatesResultFaithfully(t *testing.T) {
 	}
 }
 
-// TestExec_CommandRunsVerbatim proves the exact command string survives
-// the Adapter untouched: no local shell wrapping, and no concatenation
-// with the target address.
-func TestExec_CommandRunsVerbatim(t *testing.T) {
+// TestExec_CommandIsSentForShOrAsWritten proves the exact command string
+// survives the Adapter: encoded so sh reads it whatever the login shell is
+// (pkg/remoteexec/shline), or as written for a device whose exec channel is
+// not a POSIX shell (Target.LoginShell), and never concatenated with the
+// target address.
+func TestExec_CommandIsSentForShOrAsWritten(t *testing.T) {
 	const want = `echo "$(whoami)"; rm -rf /tmp/should-not-be-touched`
 
-	received := make(chan string, 1)
+	received := make(chan string, 2)
 	server := startLoopbackServer(t, func(cmd string) (string, string, int) {
 		received <- cmd
 		return "", "", 0
@@ -256,8 +260,16 @@ func TestExec_CommandRunsVerbatim(t *testing.T) {
 	if _, err := tr.Exec(context.Background(), server.target, testCred(), want); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
+	if got := <-received; got != shline.For(want) {
+		t.Errorf("the remote side received %q, want it encoded for sh", got)
+	}
+	raw := server.target
+	raw.LoginShell = true
+	if _, err := tr.Exec(context.Background(), raw, testCred(), want); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
 	if got := <-received; got != want {
-		t.Errorf("the remote side received %q, want %q", got, want)
+		t.Errorf("for the login shell the remote side received %q, want %q", got, want)
 	}
 }
 

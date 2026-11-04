@@ -123,6 +123,13 @@ type Target struct {
 	// with no TLS never reads it; the device type is what refuses a pin
 	// its connection could not apply.
 	TLS devicetls.Settings
+
+	// LoginShell sends a command over SSH as written, for the login shell
+	// to read, for a device whose exec channel is not a POSIX shell (a
+	// network CLI). Unset, an SSH transport hands the command to sh, whatever
+	// the login shell (pkg/remoteexec/shline), so a POSIX command means the
+	// same under bash, zsh, tcsh or fish. Other transports never read it.
+	LoginShell bool
 }
 
 // Hop is one intermediate connection reached before a Target's own

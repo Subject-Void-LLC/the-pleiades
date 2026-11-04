@@ -56,6 +56,9 @@ func startTestdataDevice(t *testing.T, dir, rootPassword string, hostConfig func
 		t.Fatalf("starting the %s device: %v", dir, err)
 	}
 	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	if err := testsupport.SetLoginShell(ctx, c, "root"); err != nil {
+		t.Fatal(err)
+	}
 	host, err := c.Host(ctx)
 	if err != nil {
 		t.Fatal(err)

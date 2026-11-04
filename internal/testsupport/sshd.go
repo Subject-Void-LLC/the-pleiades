@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
@@ -116,6 +117,10 @@ func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
 		}
 		return nil, fmt.Errorf("starting the sshd container: %w", err)
 	}
+	if err := SetLoginShell(ctx, c, SSHDUser); err != nil {
+		_ = c.Terminate(context.Background())
+		return nil, err
+	}
 	host, err := c.Host(ctx)
 	if err != nil {
 		_ = c.Terminate(context.Background())
@@ -127,6 +132,76 @@ func StartSSHDOn(ctx context.Context, networks ...string) (*SSHD, error) {
 		return nil, fmt.Errorf("sshd container port: %w", err)
 	}
 	return &SSHD{Container: c, Host: host, Port: int(mapped.Num())}, nil
+}
+
+// EnvLoginShell names the login shell the sshd containers give their test
+// account (zsh, tcsh, fish, bash), so a test reaching a device over SSH can be
+// run again under a shell that is not the image's POSIX one: the Alpine sshd
+// containers (StartSSHD and the release gates' own), the Docker and Podman
+// engine hosts, and cmd/pleiades' Debian devices take it. An Ansible gate's
+// container does not, Ansible choosing its own shell. Unset,
+// the image's own shell stays. A method that sends its command for the login
+// shell to parse, rather than for sh, fails under one of them.
+const EnvLoginShell = "PLEIADES_TEST_LOGIN_SHELL"
+
+// loginShellTimeout bounds installing a login shell and switching to it.
+const loginShellTimeout = 3 * time.Minute
+
+// SetLoginShell makes the shell EnvLoginShell names each of users' login
+// shell in c, as root and before any test connects (UseLoginShell). It does
+// nothing when the variable is unset.
+func SetLoginShell(ctx context.Context, c testcontainers.Container, users ...string) error {
+	shell := os.Getenv(EnvLoginShell)
+	if shell == "" {
+		return nil
+	}
+	return UseLoginShell(ctx, c, shell, users...)
+}
+
+// UseLoginShell installs shell (zsh, tcsh, fish, bash, or ash, Alpine's own)
+// in c through whichever of apk, apt-get and dnf the image has, and makes it
+// each of users' login shell. sshd reads it at each login, so a connection
+// opened after this call gets it.
+func UseLoginShell(ctx context.Context, c testcontainers.Container, shell string, users ...string) error {
+	if shell == "" || strings.Trim(shell, "abcdefghijklmnopqrstuvwxyz") != "" {
+		return fmt.Errorf("%q is not a shell's name", shell)
+	}
+	// Installers write warnings (debconf, a mirror's notice) even when quiet,
+	// so each account's shell is read back on a line of its own, marked.
+	script := "command -v " + shell + " >/dev/null || " +
+		"if command -v apk >/dev/null; then apk add -q " + shell + "; " +
+		"elif command -v apt-get >/dev/null; then apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq " + shell + "; " +
+		// fish is in EPEL, not a RHEL-family system's own repositories.
+		"elif command -v dnf >/dev/null; then dnf install -y -q " + shell + " || { dnf install -y -q epel-release && dnf install -y -q " + shell + "; }; " +
+		"fi >/dev/null 2>&1; path=$(command -v " + shell + ") || { echo 'no " + shell + "'; exit 1; }"
+	for _, user := range users {
+		script += "; sed -i -E \"s#^(" + user + ":([^:]*:){5})[^:]*\\$#\\1$path#\" /etc/passwd && " +
+			"printf 'shell:%s\\n' \"$(getent passwd " + user + " | cut -d: -f7)\""
+	}
+	// Bounded: installing the shell reaches the package mirror, and a stalled
+	// one must fail the test, not hold it until the package's timeout.
+	ctx, cancel := context.WithTimeout(ctx, loginShellTimeout)
+	defer cancel()
+	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", script}, tcexec.Multiplexed())
+	if err != nil {
+		return fmt.Errorf("setting the login shell to %s: %w", shell, err)
+	}
+	out, _ := io.ReadAll(reader)
+	var got []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "shell:"); ok {
+			got = append(got, v)
+		}
+	}
+	if code != 0 || len(got) != len(users) {
+		return fmt.Errorf("setting the login shell to %s: exit %d, %d of %d accounts: %s", shell, code, len(got), len(users), out)
+	}
+	for _, path := range got {
+		if !strings.HasSuffix(path, "/"+shell) {
+			return fmt.Errorf("setting the login shell to %s: an account's is %s", shell, path)
+		}
+	}
+	return nil
 }
 
 // Terminate stops and removes the container.

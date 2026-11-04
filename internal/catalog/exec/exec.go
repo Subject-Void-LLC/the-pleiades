@@ -121,8 +121,9 @@ func changeDirectory(dir string) string {
 // commandLine builds the single string an SSH exec request carries, from
 // an already-split argument vector and an optional working directory.
 //
-// Every element is quoted, so the remote login shell that inevitably
-// parses this string finds nothing in it to interpret.
+// Every element is quoted, so the sh that inevitably parses this string
+// (the connection hands it to sh whatever the login shell is: shline)
+// finds nothing in it to interpret.
 func commandLine(argv []string, dir string) string {
 	return changeDirectory(dir) + remoteexec.QuoteCommand(argv)
 }

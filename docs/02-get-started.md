@@ -277,6 +277,12 @@ auto-detected convergence. For a read-only check like this one, say so explicitl
       changed: false
 ```
 
+The command runs under `/bin/sh` on the device, as Ansible's shell module runs its
+command, whatever the account's login shell is: a host whose account logs in to bash,
+zsh, tcsh or fish reads the same command the same way. Write it for `sh`. A network
+device's CLI, and a device onboarding found no POSIX shell on, get the command as written
+instead, for their own command line.
+
 ```console
 $ pleiades run runbooks/check_web1.yaml
 ...

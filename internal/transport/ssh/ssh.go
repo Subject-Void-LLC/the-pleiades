@@ -74,8 +74,9 @@ func New(opts Options) transport.Transport {
 // Retry is scoped strictly to the dial phase. Once the command has been
 // sent to the remote side it is never retried, since it may already have
 // partially run and re-sending it could apply an unknown side effect
-// twice. command runs VERBATIM: no local shell, and no concatenation
-// with target.Host or anything else.
+// twice. command is sent as written, with nothing concatenated to it: to sh,
+// which reads it whatever the login shell is, or to the login shell itself
+// when target.LoginShell says the device has no POSIX shell.
 func (t *sshTransport) Exec(ctx context.Context, target transport.Target, cred credential.Credential, command string) (transport.Result, error) {
 	// SSH only ever speaks to a network host:port pair. Any other
 	// Endpoint kind (Phase 73 onward: a serial line, a local socket)
@@ -102,7 +103,17 @@ func (t *sshTransport) Exec(ctx context.Context, target transport.Target, cred c
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}
 
-	result, err := t.runner.Run(ctx, hops, remoteexec.Target{Host: net.Host, Port: net.Port}, auth, command)
+	conn, err := t.runner.Connect(ctx, hops, remoteexec.Target{Host: net.Host, Port: net.Port}, auth)
+	if err != nil {
+		return transport.Result{}, fmt.Errorf("ssh: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	// sh reads the command whatever the login shell is, unless the device's
+	// exec channel is not a POSIX shell (Target.LoginShell).
+	if target.LoginShell {
+		conn = conn.Raw()
+	}
+	result, err := conn.Run(ctx, command)
 	if err != nil {
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}
