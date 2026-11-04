@@ -209,6 +209,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "the-pleiades.secretName" . }}
                   key: JWT_SECRET
+            {{- /* Only where the Secret holds one: without it the controller
+                 keeps no digest of a file only some may read, and says so at
+                 start. */}}
+            {{- if or .Values.secrets.factsDigestKey .Values.secrets.existingSecretHasFactsDigestKey }}
+            - name: PLEIADES_FACTS_DIGEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "the-pleiades.secretName" . }}
+                  key: PLEIADES_FACTS_DIGEST_KEY
+            {{- end }}
             {{- if eq .Values.controller.tls.mode "upstream" }}
             {{- /* The only configuration in which this process serves plain
                  HTTP, and it is a statement by the operator rather than

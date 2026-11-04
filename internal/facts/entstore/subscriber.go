@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -32,6 +33,11 @@ type Subscriber struct {
 	// declared is what the built-in catalog declares about a key
 	// (WithDeclarations), which a Runner's batch is held to.
 	declared func(key string) (facts.Spec, bool)
+	// digestOpen and digestKeyer open and key the digests a Runner sealed
+	// to this Controller (WithDigestKeys, digests.go); without them each is
+	// dropped.
+	digestOpen  *sealed.PrivateKey
+	digestKeyer *facts.Keyer
 }
 
 // SubscriberOption configures a Subscriber.
@@ -105,8 +111,11 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// rather than trusting a second copy of each.
 	by := batch.By
 	by.Job, by.Attempt = batch.JobID, batch.Attempt
-	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared}
+	// A sealed digest is verified as the Runner hashed it, then opened and
+	// keyed (or dropped) before anything is written.
+	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared, AllowSealed: true}
 	entries, refused, err := facts.Verify(batch.Entries, guard)
+	entries = s.keyDigests(batch.DeviceID, entries)
 	if err != nil || refused > 0 {
 		s.logger.Warn("dropping facts a Runner published that do not pass the rules",
 			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Int("refused", refused), slog.Any("error", err))

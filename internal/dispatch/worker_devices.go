@@ -257,6 +257,7 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// its record travels (record.Dispatched).
 	payload.DeviceType, payload.DeviceProperties = record.Dispatched(device)
 	payload.SharedDevice = pkginventory.IsShared(device)
+	payload.FactSealKey = w.factSealKey
 
 	// The job's step first, so a run that turned persistence off never
 	// reads the device's hierarchy for it; then the device's own ladder,

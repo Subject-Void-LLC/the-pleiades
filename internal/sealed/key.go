@@ -35,6 +35,25 @@ func GenerateKey() (*PrivateKey, error) {
 	return &PrivateKey{key: k}, nil
 }
 
+// minDeriveBytes is the least input keying material DeriveKey takes: a key
+// pair is only as hard to guess as what it was derived from.
+const minDeriveBytes = 32
+
+// DeriveKey returns the key pair RFC 9180's DeriveKeyPair makes from ikm, the
+// same pair every time for the same ikm, so a service holding one secret has
+// its key pair without storing it. ikm must be at least 32 bytes of secret
+// material, used for nothing else.
+func DeriveKey(ikm []byte) (*PrivateKey, error) {
+	if len(ikm) < minDeriveBytes {
+		return nil, fmt.Errorf("a seal key needs at least %d bytes to derive from, got %d", minDeriveBytes, len(ikm))
+	}
+	k, err := kem().DeriveKeyPair(ikm)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive a seal key: %w", err)
+	}
+	return &PrivateKey{key: k}, nil
+}
+
 // ParsePrivateKey reads a private key Bytes wrote.
 func ParsePrivateKey(b []byte) (*PrivateKey, error) {
 	k, err := kem().NewPrivateKey(b)

@@ -502,6 +502,9 @@ type Executor struct {
 	// facts stores real runs' observed facts (WithFactRecorder, facts.go);
 	// nil stores none.
 	facts FactRecorder
+	// sealedDigests lets a sealed digest through to facts
+	// (WithSealedFactDigests, fact_digests.go).
+	sealedDigests bool
 
 	// renderer renders a task's params that hold a template (WithRenderer,
 	// render_params.go); nil refuses such a task.

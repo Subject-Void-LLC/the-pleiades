@@ -8,6 +8,8 @@ package main_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -47,14 +49,31 @@ tasks:
     facts.gather: {}
 `
 
-func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping Release Gate container test in short mode")
-	}
-	files := map[string]string{"facts-walk.yaml": factsWalkRunbook}
+// factsWalkGate is one facts job run end to end: a real Runner gathers on a
+// real sshd device, publishes over real NATS, and the Controller's consumer
+// (with subOpts) stores what it sends; the Worker dispatches with workerOpts.
+type factsWalkGate struct {
+	h         *releaseGateHarness
+	client    *ent.Client
+	factStore *entstore.Store
+	job       *dispatch.Job
+	quiet     *slog.Logger
+}
+
+// factsWalkGateDevice is the gate device's ID and name.
+const factsWalkGateDevice = "facts-walk-1"
+
+// runFactsWalkGate runs runbookYAML (facts-walk.yaml) as a Controller job and
+// waits for it to complete; prepare runs on the device first, as root.
+func runFactsWalkGate(t *testing.T, runbookYAML, prepare string, workerOpts []dispatch.WorkerOption, subOpts []entstore.SubscriberOption) factsWalkGate {
+	t.Helper()
+	files := map[string]string{"facts-walk.yaml": runbookYAML}
 	h := newReleaseGateHarnessFor(t, knownHostsInEnvironment, files)
 	ctx := context.Background()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if prepare != "" {
+		h.onDevice(t, prepare)
+	}
 
 	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: "sqlite://" + t.TempDir() + "/controller.db"})
 	if err != nil {
@@ -64,7 +83,7 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	store := dispatch.NewEntJobStore(client)
 	factStore := entstore.New(client)
 
-	const deviceID, deviceName = "facts-walk-1", "facts-walk-1"
+	const deviceID, deviceName = factsWalkGateDevice, factsWalkGateDevice
 	client.Device.Create().SetName(deviceName).SetType("linux_server").SetDeviceID(deviceID).
 		SetProperties(map[string]any{"host": h.sshHost, "port": h.sshPort}).SaveX(ctx)
 	device := &sshGateDevice{
@@ -81,7 +100,7 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker := dispatch.NewWorker(store, &gateRepository{devices: []pkginventory.InventoryItem{device}}, runbooks, h.bus, gateCredentials{})
+	worker := dispatch.NewWorker(store, &gateRepository{devices: []pkginventory.InventoryItem{device}}, runbooks, h.bus, gateCredentials{}, workerOpts...)
 	subCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 	if err := dispatch.NewResultConsumer(store, quiet).Subscribe(subCtx, h.bus); err != nil {
@@ -100,7 +119,7 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 			return journal.AdmitUnrecorded, nil
 		}
 	}
-	if err := entstore.NewSubscriber(factStore, quiet, admit).Subscribe(subCtx, h.bus); err != nil {
+	if err := entstore.NewSubscriber(factStore, quiet, admit, subOpts...).Subscribe(subCtx, h.bus); err != nil {
 		t.Fatal(err)
 	}
 
@@ -118,6 +137,16 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	if !jobReaches(store, job.JobID, "completed", 2*time.Minute) {
 		t.Fatalf("job never completed; devices:\n%s\nRunner events:\n%s", jobRows(store, job.JobID), jobEvents(t, h, job.JobID))
 	}
+	return factsWalkGate{h: h, client: client, factStore: factStore, job: job, quiet: quiet}
+}
+
+func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Release Gate container test in short mode")
+	}
+	g := runFactsWalkGate(t, factsWalkRunbook, "", nil, nil)
+	h, client, factStore, job, quiet, ctx := g.h, g.client, g.factStore, g.job, g.quiet, context.Background()
+	const deviceName = factsWalkGateDevice
 
 	// The device resource's facts route, over the Controller's own device
 	// repository and the store the consumer writes.
@@ -190,5 +219,70 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	var chain facts.Verdict
 	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &chain) != nil || chain.Break != nil || chain.Values == 0 {
 		t.Errorf("the fact chain: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// factsDigestRunbook describes two files: one anyone may read, one only its
+// owner may.
+const factsDigestRunbook = `# Describes two files. Read only; nothing to undo.
+id: facts-walk
+tasks:
+  - name: gather
+    facts.gather:
+      gather_subset:
+        - "!all"
+        - "!min"
+      files:
+        - /etc/hostname
+        - /tmp/walk-mine
+`
+
+// TestFactsReleaseGate_APrivateFilesDigestIsStoredOnlyKeyed: on the Walk tier
+// a digest of a file not everyone may read leaves the Runner sealed to the
+// Controller's key and is stored keyed under the Controller's own: the stored
+// value is exactly the Controller's HMAC of the file's real digest, and no row
+// holds the digest itself. A file anyone may read keeps its plain digest.
+func TestFactsReleaseGate_APrivateFilesDigestIsStoredOnlyKeyed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Release Gate container test in short mode")
+	}
+	open, keyer, err := entstore.DigestKeys([]byte("a 32-byte facts digest secret!!!"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := runFactsWalkGate(t, factsDigestRunbook,
+		"printf 'pin1234\\n' > /tmp/walk-mine && chown "+releaseGateSSHUser+" /tmp/walk-mine && chmod 600 /tmp/walk-mine",
+		[]dispatch.WorkerOption{dispatch.WithFactSealKey(open.Public().String())},
+		[]entstore.SubscriberOption{entstore.WithDigestKeys(open, keyer)})
+	ctx := context.Background()
+	var current []facts.Entry
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(200 * time.Millisecond) {
+		current, err = g.factStore.Current(ctx, factsWalkGateDevice)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(current) >= 2 || time.Now().After(deadline) {
+			break
+		}
+	}
+	values := map[string]map[string]any{}
+	for _, e := range current {
+		values[e.Key], _ = e.Value.(map[string]any)
+	}
+	raw := sha256.Sum256([]byte("pin1234\n"))
+	rawHex := hex.EncodeToString(raw[:])
+	mine := values["file.%2Ftmp%2Fwalk-mine"]
+	want, _ := keyer.Seal(factsWalkGateDevice, "file.%2Ftmp%2Fwalk-mine", rawHex)
+	if mine == nil || mine["hmac_sha256"] != want || mine["hmac_key"] != keyer.ID() || mine["world_readable"] != false ||
+		mine["sha256_sealed"] != nil || mine["sha256_raw"] != nil || mine["sha256"] != nil || mine["size"] != nil {
+		t.Errorf("the private file is stored as %v, want the Controller's keyed digest %s alone", mine, want)
+	}
+	hostname := strings.Fields(g.h.onDevice(t, "sha256sum /etc/hostname"))[0]
+	if pub := values["file.%2Fetc%2Fhostname"]; pub == nil || pub["sha256"] != hostname || pub["world_readable"] != true {
+		t.Errorf("/etc/hostname is stored as %v, want its plain digest %s", pub, hostname)
+	}
+	rows, _ := json.Marshal(g.client.Fact.Query().AllX(ctx))
+	if strings.Contains(string(rows), rawHex) {
+		t.Error("a stored row holds the private file's raw digest")
 	}
 }

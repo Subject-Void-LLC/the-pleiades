@@ -151,6 +151,11 @@ type Guard struct {
 	// stored. A Spec with no Type checks no type. Nil stores every key as
 	// stable and checks no type.
 	Declared func(key string) (Spec, bool)
+	// AllowSealed keeps a digest sealed to the Controller's key
+	// (SealedDigestField): set where one is expected, a sealing Runner or the
+	// Controller about to open it. A raw digest (RawDigestField) is dropped
+	// everywhere.
+	AllowSealed bool
 }
 
 // nameOf is the part of key the secret-name guard reads: the whole key, or
@@ -183,6 +188,8 @@ func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 	var problems []Problem
 	total := 0
 	for key, value := range observed {
+		// No digest nothing keyed is stored, whatever path brought it here.
+		value = ScrubDigests(value, guard.AllowSealed)
 		if !ValidKey(key) {
 			problems = append(problems, Problem{Key: key, Reason: "not a fact name: empty, too long, or holding a space, a slash or an unprintable character"})
 			continue

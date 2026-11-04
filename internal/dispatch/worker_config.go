@@ -27,6 +27,9 @@ import (
 type Worker struct {
 	store JobStore
 	repo  inventory.Repository
+	// factSealKey is the public key a Runner seals raw digests to
+	// (WithFactSealKey); empty, and every such digest is dropped.
+	factSealKey string
 	// definitions prepares a job's definition through the source its KIND
 	// owns, keyed by kind, mirroring internal/adapters/routing's map on
 	// the Runner side. The native runbook entry is always present (built
@@ -168,6 +171,15 @@ func WithSetStore(sets inventory.SetStore) WorkerOption {
 // WorkerOption configures optional, non-default behavior on a Worker built
 // by NewWorker. The only implementation today is WithFanOutLeaseTTL.
 type WorkerOption func(*Worker)
+
+// WithFactSealKey puts pub, the Controller's public key for raw digests, on
+// every dispatch, so a Runner seals a digest of a file not everyone may read
+// to it rather than drop it (internal/facts' keyed digests).
+func WithFactSealKey(pub string) WorkerOption {
+	return func(w *Worker) {
+		w.factSealKey = pub
+	}
+}
 
 // WithFanOutLeaseTTL overrides a Worker's fan-out lease window from its
 // production default (DefaultFanOutLeaseTTL) to ttl. It exists chiefly for

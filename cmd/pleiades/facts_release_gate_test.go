@@ -11,6 +11,7 @@ package main_test
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
@@ -223,8 +224,20 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	if n := stored["file.%2Fnonexistent"]; n == nil || n["state"] != "absent" {
 		t.Errorf("a missing file = %v, want absent", n)
 	}
-	if m := stored["file.%2Ftmp%2Fmine"]; m == nil || m["digest"] != "withheld" || m["sha256"] != nil || m["size"] != nil || m["mode"] != "0600" {
-		t.Errorf("a private file = %v, want its digest and size withheld", m)
+	// The login's private file: kept only as the project's keyed digest,
+	// never its plain or raw digest or its size.
+	m := stored["file.%2Ftmp%2Fmine"]
+	if m == nil || !keyedDigest(m) || m["sha256"] != nil || m["sha256_raw"] != nil || m["size"] != nil || m["mode"] != "0600" {
+		t.Errorf("a private file = %v, want only the project's keyed digest", m)
+	}
+	if raw := strings.Fields(asRoot(t, g.container, "sha256sum /tmp/mine"))[0]; m != nil && m["hmac_sha256"] == raw {
+		t.Error("the keyed digest is the raw digest")
+	}
+	// A second gather of the unchanged file keeps the same keyed value: one
+	// value in its history, so a keyed digest shows drift as a plain one does.
+	gather("files:=[/tmp/mine]")
+	if h := read("file.%2Ftmp%2Fmine"); len(h.Facts) != 1 {
+		t.Errorf("the private file's history has %d values after two gathers of it unchanged", len(h.Facts))
 	}
 
 	// The chain verifies; an edited value breaks it, and the command says so
@@ -276,6 +289,15 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 			t.Errorf("with a %s login, %d package facts; apk lists %s", shell, n, now)
 		}
 	}
+}
+
+// keyedDigest reports whether a file fact holds a keyed digest under a
+// project's key: 64 hex characters and a key named project:<16 hex>.
+func keyedDigest(v map[string]any) bool {
+	digest, _ := v["hmac_sha256"].(string)
+	key, _ := v["hmac_key"].(string)
+	_, err := hex.DecodeString(digest)
+	return len(digest) == 64 && err == nil && strings.HasPrefix(key, "project:") && len(key) == len("project:")+16
 }
 
 // numberOf is a JSON number as a float64, or -1.

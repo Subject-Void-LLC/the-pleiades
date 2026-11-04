@@ -39,11 +39,12 @@ func installBuiltinCatalog() error {
 // newFactsSubscriber is the Controller's facts consumer over store: each
 // batch a Runner publishes is held to the built-in methods' fact
 // declarations, read from the module catalog this binary embeds
-// (FAILURE_PATTERNS 837). main calls it, and so does its test.
-func newFactsSubscriber(store facts.Store, logger *slog.Logger, admit journal.AdmissionCheck) (*entstore.Subscriber, error) {
+// (FAILURE_PATTERNS 837), with opts after (the digest keys). main calls it,
+// and so does its test.
+func newFactsSubscriber(store facts.Store, logger *slog.Logger, admit journal.AdmissionCheck, opts ...entstore.SubscriberOption) (*entstore.Subscriber, error) {
 	index, err := entstore.CatalogIndex(wellknown.ModuleCatalog)
 	if err != nil {
 		return nil, err
 	}
-	return entstore.NewSubscriber(store, logger, admit, entstore.WithDeclarations(index)), nil
+	return entstore.NewSubscriber(store, logger, admit, append([]entstore.SubscriberOption{entstore.WithDeclarations(index)}, opts...)...), nil
 }

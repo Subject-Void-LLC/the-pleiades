@@ -311,6 +311,14 @@ type DispatchPayload struct {
 	DeviceType       string         `json:"device_type,omitempty"`
 	DeviceProperties map[string]any `json:"device_properties,omitempty"`
 
+	// FactSealKey is the Controller's public key for raw digests: a digest of
+	// a file not everyone may read is sealed to it on the Runner, so the stream
+	// and the Runner's hashes hold only ciphertext, and the Controller keys it
+	// before storing. It is not a secret. Absent when the Controller has no
+	// digest key, and from an older Controller; a Runner given none drops such
+	// digests.
+	FactSealKey string `json:"fact_seal_key,omitempty"`
+
 	// Secrets is the flattened credential for DeviceName, resolved by the
 	// Controller at dispatch time (PLAN.md Section 17's Just-in-Time
 	// delivery principle: attached directly to the payload, never

@@ -1168,6 +1168,20 @@ func main() {
 		dispatch.WithSetStore(sets),
 		dispatch.WithCredentials(credentialResolver, injector),
 	}
+	// The key Runners seal digests of files not everyone may read to, and
+	// the key this Controller keys them with (fact_digest_keys.go): its
+	// public half rides every dispatch, and the facts consumer below opens
+	// and keys what Runners send. Without a key both are absent, and every
+	// such digest is dropped.
+	digestOpen, digestKeyer, err := loadFactDigestKeys(logger)
+	if err != nil {
+		fatal("failed to read the facts digest key", err)
+	}
+	var factsOpts []entstore.SubscriberOption
+	if digestOpen != nil {
+		workerOpts = append(workerOpts, dispatch.WithFactSealKey(digestOpen.Public().String()))
+		factsOpts = append(factsOpts, entstore.WithDigestKeys(digestOpen, digestKeyer))
+	}
 	workerOpts = append(workerOpts,
 		dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
 	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, deviceCredentials, workerOpts...)
@@ -1212,7 +1226,7 @@ func main() {
 	// read from the module catalog this binary serves, since a Controller
 	// links no Collection (Phase 41b).
 	factStore := entstore.New(client)
-	factsSubscriber, err := newFactsSubscriber(factStore, logger, journalAdmission(jobStore))
+	factsSubscriber, err := newFactsSubscriber(factStore, logger, journalAdmission(jobStore), factsOpts...)
 	if err != nil {
 		fatal("failed to read the built-in fact declarations", err)
 	}
