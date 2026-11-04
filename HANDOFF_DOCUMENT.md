@@ -4,26 +4,24 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-03. Branch `feat/facts-41c-1`, 15 commits on `origin/main` at `e047af00` (PR #108 merged), `f648b8ec` to
-`e9be6fd2`, plus the records (uncommitted). Done and reviewed; not through `make pr-check`, push or a pull request
-yet.** PRs #107 (`fix/controller-catalog`) and #108 (`fix/records-842-image-save`) are merged.
+**2026-11-03. Branch `fix/shell-agnostic-ssh`, four commits on `main` at `4711fff8` (PR #109, Phase 41c-1, merged):
+`4a7db76d`, `142d53bb`, `09acef1e`, `aeff581b`, plus the records (uncommitted). Done and reviewed (fp-reviewer; all 14
+findings fixed); the login-shell matrix is clean. Not through `make pr-check`, push or a pull request yet.**
 
 ### What works (each proven by a test that ran)
 
-- **Phase 41c-1: `facts.gather` gains `gather_subset`** (`min`, `hardware`, `packages`, `services`, `all`, `!x`) and
-  one stable fact per item, `package.<name>` and `service.<name>`, on four OSes. Linux: dpkg, rpm, apk; systemd and
-  OpenRC (so Alpine). FreeBSD: pkg, rc, sysctl. macOS: sw_vers, sysctl, Homebrew (only as its owner, never root),
-  pkgutil, launchd. Every SSH probe runs under `sh -c`. Windows over WinRM: CIM, both registry Uninstall views,
-  `Win32_Service`; `windows_server` is `FactGathererCapable`. The converter maps `ansible.windows.setup`,
-  `package_facts` and `service_facts`.
-- Proof: lab gates `TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools` (bsd-check, FreeBSD 15.1),
-  `TestCLI_FactsGatherOnMacOSMatchesItsOwnTools` (the lab Mac, macOS 27.0.1) and
-  `TestCLI_FactsGatherOnWindowsMatchesItsOwnTools` (win-check, Server 2025); `TestCLI_FactsReleaseGate` (Alpine apk,
-  through tcsh and fish logins too); `internal/catalog/facts/live` (Rocky rpm, Alpine OpenRC booted and not);
-  `FuzzGatherParsers`.
-- Review found FAILURE_PATTERNS 844 to 856, all fixed before push except the open parts below. LESSONS 384 to 386.
-- Phase 41c is 3 of 10 (`implementation.py --json --phase 41c`: Packages, Services, Bounds ticked; Pattern Entry
-  Gate, Every OS and the Fuzz/Stress gate marked partial; open gates: Pattern Entry Gate, Fuzz/Stress Test).
+- **Every SSH command reaches `/bin/sh`, whatever the login shell** (owner decision 2026-11-03: raw `ssh_exec`
+  commands too, as Ansible's shell module runs its command). `Conn.run` and `Conn.Start` encode each command with
+  `pkg/remoteexec/shline` (LESSONS 386's encoder); `Conn.Raw()` is chosen only by `inventory.ExecIsPOSIX` (a
+  network CLI, or onboarding's `shell` fact `not posix`). A NUL is refused, and a line at or over 128 KiB is refused
+  before a session opens. FAILURE_PATTERNS 858 to 863, LESSONS 387 to 389; 845's open class is closed.
+- Proof: `TestEveryLoginShellHandsShTheSameCommand` (real sshd, ash/bash/zsh/tcsh/fish byte-identical, raw control
+  fails under fish); `PLEIADES_TEST_LOGIN_SHELL` runs of `cmd/pleiades`, `cmd/runner`, `internal/transport/ssh`,
+  `internal/catalog/file`, `pkg/scpxfer`, `pkg/sftpxfer`, `pkg/containerengine` and `internal/adapters/native`
+  clean under fish, tcsh and zsh; the lab Mac (zsh) passes `TestCLI_FactsGatherOnMacOSMatchesItsOwnTools`, and
+  bsd-check (FreeBSD 15.1, account switched to tcsh) passes `TestCLI_FreeBSDFileChecksMatchTheirRealRuns` and the
+  FreeBSD facts gate; `TestOnlyRemoteexecOpensAnSSHSession` (archtest, with a negative control);
+  `TestConn_RefusesANULAndHoldsTheArgumentLimitExactly`; `TestPing_SendsANetworkCLITheEchoAsWritten`.
 
 ### Current blocker
 
@@ -31,13 +29,16 @@ None. Next is the gate.
 
 ### Open
 
-- The login-shell class (FAILURE_PATTERNS 845) in about 20 other SSH send sites. Owner decision 2026-11-03: every SSH
-  command runs under `sh`, raw ones too, in its own pull request next (LESSONS 386 has the encoder).
-- `internal/archtest` misses zero-width characters (851). A Runner publish failing mid-split leaves earlier batches
-  stored (853).
-- No fact marks a package or service as gone: an uninstalled package's fact stays current and only `last_seen_at`
-  stops moving (for 41d). Whether a member of Remote Management Users alone can read the Windows probes is unproven
-  (the lab login is an admin).
+- A `generic_ssh` host logging in to fish and onboarded before this change is recorded `not posix` and stays raw
+  until onboarded again (the changelog says so; the discovery has no probe version). The Ansible gate's container is
+  not switched. `TestEveryLoginShellHandsShTheSameCommand` installs its shells from the Alpine mirror at test time
+  (three-minute deadline, not pinned in an image).
+- vuln-corpus finding `C13_auto-roboto_2026-11-03` (the NUL, 859) is submitted and pending review.
+- Tool defect: argus `expand_seeds` wrote fuzz corpus files into the repository despite `persist:false` (logged in
+  `~/argus/MCP_USAGE_LOG.md`, row 170).
+- Carried forward: `internal/archtest` misses zero-width characters (851); a Runner publish failing mid-split leaves
+  earlier batches stored (853); no fact marks a package or service as gone (for 41d); whether a Remote Management
+  Users member alone can read the Windows probes is unproven.
 - Owner questions carried forward: Phase 41's encryption item depends on Phase 5 (not in v0.4.0); external Collection
   Landlock has no network rules; the Controller does not check a Runner's reported order token or label; the
   `secret_mask` residuals (836); whether `file.remove`'s check should refuse rather than warn.
@@ -46,21 +47,19 @@ None. Next is the gate.
 
 1. `make pr-check` through the monitor, push, `make branch-containers`, then the pull request (failure-pattern classes
    in the body, no AI attribution). Merge only when green, `record-actions`, pull `main` and clean.
-2. The shell-agnostic pull request. Its test switch `PLEIADES_TEST_LOGIN_SHELL` is in `git stash` ("shell-agnostic:
-   PLEIADES_TEST_LOGIN_SHELL switch"); a fish run of `cmd/pleiades` is in progress, and its result goes in that PR.
-3. 41c-2 (files, ports, users), 41c-3, 41d to 41g, 117b, 117c, 105, then release 0.4.0 (no tag until the owner says).
+2. 41c-2 (files, ports, users), 41c-3, 41d to 41g, 117b, 117c, 105, then release 0.4.0 (no tag until the owner says).
 
 ### Files changed this session
 
-`internal/catalog/facts/` (gather, subsets, packages, services, transport, BSD, Windows, `probes_export.go`, tests,
-and the new `live/` package), `internal/facts/` (`facts.go`, `kind.go`, `file_store.go`, `entstore`),
-`internal/adapters/native/facts.go`, `internal/engine/facts.go`, `pkg/collection/facts.go`,
-`internal/forge/playbook/` (`adjust.go`, `modules_misc.go`), `internal/forge/catalogdata/collections_gating.go`,
-`internal/inventory/devices/windows/server.go`, `internal/inventory/onboard/probe_ssh.go`,
-`cmd/pleiades/facts_release_gate_test.go` and `facts_lab_release_gate_test.go`, `Makefile`,
-`tools/testgate/durations.json`, `CLAUDE.md`, regenerated `docs/reference` and `internal/api/wellknown`,
-`changelog/facts-packages-services.added.md`. Records: `FAILURE_PATTERNS.md` and its archive (844 to 856),
-`LESSONS_LEARNED.md` and its archive (384 to 386), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, and the
-ignored `.SPECIFICATION/IMPLEMENTATION.md` (41c) and `SECURITY_ATTESTATION.md` (PW.5).
+`pkg/remoteexec/` (`shline/`, `conn.go`, `process.go`, `script.go`, `detach.go`, `quote.go`, `remoteexec.go`,
+`remoteexectest/server.go`, tests), `pkg/inventory/execshell.go`, `pkg/sdk/connect.go`, `internal/transport/`
+(`transport.go`, `ssh/ssh.go`, `ssh/login_shell_container_test.go`, tests), `internal/engine/action_ssh.go`,
+`internal/catalog/exec/` (`exec.go`, `shell.go`), `internal/catalog/net/ssh/ping.go`,
+`internal/inventory/onboard/probe_ssh.go`, `internal/redact/masker.go`, `internal/testsupport/` (`sshd.go`,
+`dockerhost.go`), `internal/archtest/ssh_session_test.go`, release gate tests in `cmd/pleiades` and `cmd/runner`,
+`internal/catalog/file/busybox_chmod_test.go`, `docs/02-get-started.md`,
+`changelog/ssh-commands-run-under-sh.breaking.md`. Records: `FAILURE_PATTERNS.md` and its archive (858 to 863, 845
+resolved), `LESSONS_LEARNED.md` and its archive (387 to 389), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, and the
+ignored `.SPECIFICATION/SECURITY_ATTESTATION.md` (PW.5).
 
-Lab: bsd-check and win-check were started for their gates and are powered off again; the lab Mac ran its gate.
+Lab: bsd-check's account was switched to tcsh for its gates and restored to sh, and bsd-check is powered off (ACPI, state poweroff); win-check is powered off; the lab Mac (login zsh) ran its facts gate and was cleaned after (49 GiB free).

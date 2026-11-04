@@ -20293,6 +20293,11 @@ ones too, in its own pull request, next. Its test switch (`PLEIADES_TEST_LOGIN_S
 function that sends commands, and give the harness a switch that runs commands under another login shell, so a test
 can see it. LESSONS 386 records the form proven under five shells.
 
+**Resolved, 2026-11-03.** The open class is fixed by 858 (`4a7db76d` on `fix/shell-agnostic-ssh`): every command
+a connection sends is encoded for `sh` in `pkg/remoteexec`, raw only where `inventory.ExecIsPOSIX` says the device
+has no POSIX shell, and every sshd-backed suite 858 names passes with `PLEIADES_TEST_LOGIN_SHELL` set to fish,
+tcsh and zsh. Two more of the class, the release gates' own helpers (862), were found by that run.
+
 ## 846. The macOS packages probe ran Homebrew's brew, a script under a prefix another account may own, as the gather login, possibly root (a repeat in kind of 781, and of vuln-corpus finding C4_auto-roboto_2026-11-01) (fixed before push)
 
 **Symptom.** 2026-11-03, found in review of `feat/facts-41c-1`. The macOS packages probe ran
@@ -20542,3 +20547,150 @@ check beside it was guarded, and this line was missed.
 skips the filter step where the machine lists no package (`internal/catalog/facts/gather_test.go`).
 
 **Lesson.** A test that runs on "this machine" picks every example from what this machine reported.
+
+## 858. Every command pkg/remoteexec sent over SSH went to the account's login shell, so under a fish or tcsh login the file methods, check mode, rollback, detach, scp, onboarding and the other platform scripts broke, some reporting success having done nothing (a repeat of 845, and of 809 and 779) (fixed; a fish host onboarded before the fix stays raw until onboarded again, open)
+
+**Symptom.** 2026-11-03, branch `fix/shell-agnostic-ssh`. sshd hands an exec request's command string to the account's
+login shell, and every command the platform builds is POSIX shell. Under fish and tcsh logins these broke:
+`pkg/remotefile` (`Stat`, `Checksum`, `Read`, `Write`, `DirectoryEmpty`, `whoAmI`, `writeBeside`), the detached
+job's start and stop, scp (its multi-line script under tcsh), the onboarding probes, `gate.run`, `db.pg` dump and
+restore, `wait.port`, `net.frr.config`, `build.digests.refresh`, `pkg.apt.*` (tcsh, on `VAR=x cmd`), `identity.user`
+and `net.linux.bridge` (tcsh, multi-line), and `exec.command` and `exec.shell` (tcsh on a multi-line command; fish
+on a backslash pair or a backslash-quote inside single quotes). A baseline run of `cmd/pleiades` with its sshd
+fixtures logging in to fish failed 11 tests: check mode, external Collection checks, rollback, the journal, the
+concurrent-run notice, `migrate-playbook` and tags.
+
+**Root cause.** 845's and 809's: a script written for POSIX `sh` is POSIX only when `sh` runs it. Each send site
+chose its own way to reach `sh`, or none, and no test could see the difference: the in-process SSH harness runs every
+command through `/bin/sh` whatever the account's shell (LESSONS 174).
+
+**Why 845 did not prevent it.** 845 fixed `facts.gather`'s probes alone and recorded about 20 other send sites as
+open, for this pull request. Its lesson (put the rule in the one function that sends commands, and give the harness a
+login-shell switch) is what this branch builds. 809 and 779 each fixed one or two scripts by wrapping them in
+`sh -c`, a habit with no rule behind it, and the login shell still parsed the quoted argument before `sh` ran it.
+
+**Fix.** `4a7db76d`. `Conn.run` and `Conn.Start`, the only two places a connection sends a command, encode it with
+`pkg/remoteexec/shline` after become wraps it (the encoder LESSONS 386 describes; `shline`'s package comment holds the
+exact line as committed). `Conn.Raw()` sends a command as written, and is chosen only by `inventory.ExecIsPOSIX`
+(false for `NetworkCLICapable`, or for onboarding's discovered `shell` fact `not posix`) in `sdk.Connect`, in the
+`ssh_exec` transport (`transport.Target.LoginShell`, set by `engine.SSHTarget`) and, after 860, in `net.ssh.ping`. A
+detached job runs under `sh` as a plain command does. Owner decision 2026-11-03: raw `ssh_exec` commands run under
+`sh` too, as Ansible's shell module runs its command. Proof: `TestEveryLoginShellHandsShTheSameCommand`
+(`internal/transport/ssh`, real sshd) runs one POSIX script through the real `ssh_exec` transport under ash, bash,
+zsh, tcsh and fish logins and holds every answer byte-identical, with the same script sent raw failing under fish as
+its control. `PLEIADES_TEST_LOGIN_SHELL` (`testsupport.EnvLoginShell`, `testsupport.UseLoginShell`) gives every sshd
+container a test starts that login shell; `cmd/pleiades`, `cmd/runner`, `internal/transport/ssh`,
+`internal/catalog/file`, `pkg/scpxfer`, `pkg/sftpxfer`, `pkg/containerengine` and `internal/adapters/native` pass
+under fish, tcsh and zsh. On the lab, the Mac (its login is zsh) passes `TestCLI_FactsGatherOnMacOSMatchesItsOwnTools`,
+and bsd-check (FreeBSD 15.1) with its account switched to tcsh, then restored to sh, passes
+`TestCLI_FreeBSDFileChecksMatchTheirRealRuns` and the FreeBSD facts gate. `internal/archtest`'s
+`TestOnlyRemoteexecOpensAnSSHSession`, with its negative control `TestSessionOpensFindsBothWays`, refuses an SSH
+session opened outside `pkg/remoteexec`.
+
+**Open.** A `generic_ssh` host whose account logs in to fish and was onboarded before this change was recorded
+`not posix` by the old raw probe, so its commands stay raw until it is onboarded again; the discovery carries no probe
+version to tell an old record from a new one, so the changelog fragment tells the user to run `pleiades onboard`
+again. The Ansible gate's container is not switched, since Ansible chooses its own shell.
+`TestEveryLoginShellHandsShTheSameCommand` installs the shells from the Alpine mirror at test time, bounded by a
+three-minute deadline, not pinned in an image.
+
+**Lesson.** 845's, now built: one encoder in the one place commands are sent, an archtest that keeps every session
+there, and a harness switch that runs the whole suite under another login shell (LESSONS 388).
+
+## 859. sh-encoding a command dropped a NUL byte that sshd used to refuse, so /srv/app/.<NUL>./etc passed a Go ".." check and reached the device as /srv/app/../etc (CWE-158; a repeat in kind of 438, and of 317's NUL class) (fixed before push)
+
+**Symptom.** 2026-11-03, found by the fp-reviewer agent's review of `fix/shell-agnostic-ssh` before push. Before
+`4a7db76d`, a command holding a NUL byte was refused by sshd. The new encoding writes a NUL as `\0000`, and `printf
+%b` inside command substitution drops it (measured on dash, `bash --posix` and busybox ash), so the bytes on either
+side of it were joined. A path such as `/srv/app/.<NUL>./etc` holds no `..` segment to a Go check, and would have
+reached the device as `/srv/app/../etc`: path traversal through a null byte (CWE-158).
+
+**Root cause.** The old channel's refusal was a property of sshd, not of any code in the platform, so nothing in the
+platform knew it was relying on it. The encoding replaced the channel and its refusal went with it.
+
+**Why 438 and 317 did not prevent it.** 438's lesson is that a guard decides on exactly the bytes the far side will
+read. The path guards still decided on the bytes the platform meant to send; the change was below them, in how those
+bytes became the bytes `sh` reads, and no one re-asked what that step could drop. 317 (and 371) are a NUL reaching a
+format that treats it specially; each fixed its own boundary, and nothing lists the bytes a transport used to refuse.
+
+**Fix.** `09acef1e`: `Conn.wire` refuses a command holding a NUL before anything is sent
+(`TestConn_RefusesANULAndHoldsTheArgumentLimitExactly`); `TestFor_EveryByteReachesShAsItself` sends every byte from
+1 to 255 through this machine's `sh` and holds each to itself. Submitted to vuln-corpus as `C13_auto-roboto_2026-11-03`
+(pending review).
+
+**Lesson.** When a new encoding replaces a channel that refused a byte, refuse that byte explicitly (LESSONS 387).
+
+## 860. net.ssh.ping dialed through Runner.Run and skipped the device rule, so a Windows OpenSSH or network-CLI device got the sh-encoded line (a sibling of 757 and 823; LESSONS 244 and 363) (fixed before push)
+
+**Symptom.** 2026-11-03, review of `fix/shell-agnostic-ssh` before push. `4a7db76d` sent a command raw to a device
+`inventory.ExecIsPOSIX` says is not POSIX, in `sdk.Connect` and the `ssh_exec` transport. `net.ssh.ping` opens its
+connection through `Runner.Run`, not `sdk.Connect`, so it never asked, and sent its echo encoded for `sh` to a network
+CLI or a Windows OpenSSH server, where no `/bin/sh` exists.
+
+**Root cause.** The device rule was applied where `sdk.Connect` and the `ssh_exec` transport build a connection, not along every
+route that opens one, and `net.ssh.ping` (which never pools) opens its own.
+
+**Why 757, 823 and LESSONS 244 and 363 did not prevent it.** Each says a rule for a mechanism is checked along every
+route a method can take to a device. The branch listed send sites, the places that build a command, and
+not the routes that open a connection, so the third route was found by review rather than by the list.
+
+**Fix.** `09acef1e`: `net.ssh.ping` follows `sdk.Connect`'s rule through `inventory.ExecIsPOSIX`
+(`internal/catalog/net/ssh/ping.go`), proven by `TestPing_SendsANetworkCLITheEchoAsWritten`. A redialed detach stop
+keeps a raw view raw.
+
+**Lesson.** LESSONS 363's: list the routes to a device, not only the send sites that looked unsafe.
+
+## 861. The 128 KiB line limit admitted 131072 bytes, which Linux refuses because the closing NUL counts, and Start checked it after opening a session, so a refused command tainted a pooled connection (LESSONS 121's boundary class; a repeat in kind of 105) (fixed before push)
+
+**Symptom.** 2026-11-03, review of `fix/shell-agnostic-ssh` before push. sshd passes the whole command line to the
+login shell as one argument, and Linux refuses an argument of 128 KiB or more with its closing NUL counted
+(`MAX_ARG_STRLEN`). `4a7db76d` refused a line over 131072 bytes, so a line of exactly 131072 passed the check and
+failed on the device. `Conn.Start` checked the length only after opening a session, so a refused command tainted a
+pooled connection for a command it never sent.
+
+**Root cause.** The bound was written from the documented size, not measured at its edge. The check in `Start` sat
+after the step it should have guarded, as 105's guard ran after the deletions it guarded.
+
+**Why LESSONS 121 and 105 did not prevent it.** 121 says to prove a length limit at the last length that works and the
+first that does not; `4a7db76d`'s test (`TestConn_RefusesALineOverOneArgumentBeforeSendingIt`) checked lines well over the limit
+(a quarter of `MaxBytes` in quotes, each encoded to five bytes), never the edge. 105's lesson is about ordering a guard before
+the writes; nothing ties it to a session a pool will mark tainted.
+
+**Fix.** `09acef1e`: the limit is `>= shline.MaxBytes`, and `Conn.wire` runs before `openStream` in both `run` and
+`Start`. `TestConn_RefusesANULAndHoldsTheArgumentLimitExactly` runs 131071 bytes and refuses 131072.
+
+**Lesson.** LESSONS 121's: prove a limit at both sides of its edge; and refuse before taking anything a refusal
+would leave marked.
+
+## 862. The release gates' own verification helpers dialed their own SSH client and sent POSIX checks raw to the login shell, so they failed under fish, zsh and tcsh logins (a sibling of 858) (fixed before push)
+
+**Symptom.** 2026-11-03, the first `PLEIADES_TEST_LOGIN_SHELL` runs of `fix/shell-agnostic-ssh`.
+`cmd/pleiades`'s `verifyOverSSH` and `cmd/runner`'s `readOverSSH` read a device's state "independently" of the
+product, over an SSH client of their own, to check what a run did. They sent their POSIX checks as written: under
+fish an `if` exited 127, under zsh an unmatched glob exited 124, and tcsh read
+`2>/dev/null` as an argument.
+
+**Root cause.** A helper that talks to a device is a send site, and these were outside `pkg/remoteexec`, so 858's
+encoder did not reach them and the static audit of send sites, written against product code, did not list them.
+
+**Fix.** `142d53bb`: both helpers send through `shline.For` (`cmd/pleiades/ssh_release_gate_test.go`,
+`cmd/runner/external_collection_release_gate_test.go`). Found only by running the suites under fish, tcsh and zsh.
+
+**Lesson.** A test helper that reads a device over its own client sends the way the product does (LESSONS 389).
+
+## 863. testsupport.UseLoginShell counted installer warnings as accounts and could not install fish on Rocky (a sibling of 779's banner parse) (fixed before push)
+
+**Symptom.** 2026-11-03, switching the Debian and Rocky fixtures with `PLEIADES_TEST_LOGIN_SHELL`.
+`testsupport.UseLoginShell` read each switched account's shell from the installer's whole output, so apt's debconf
+notes, written even when quiet, were counted as accounts and the switch was judged to have failed. On Rocky, `dnf`
+could not install fish, which only EPEL carries.
+
+**Root cause.** The helper parsed every line of a command whose output it did not control, as 779's detached start
+parsed all of stdout after a login banner.
+
+**Fix.** `aeff581b` (`internal/testsupport/sshd.go`): each account's shell is printed on a marked line
+(`shell:<path>`, read back from `getent passwd`), and only marked lines are read; `dnf` falls back to installing
+`epel-release` first. The Debian devices, Rocky, the Docker and Podman engine hosts and every other switched fixture
+pass under fish, tcsh and zsh.
+
+**Lesson.** 779's: read a remote command's answer from a line it marked, never from all of its output.

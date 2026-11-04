@@ -419,6 +419,9 @@ story, per `.AGENTS/AGENTS.md`.
 384. **A release gate that reads a persistent store cannot see an empty run: the earlier run's records are still there, so read the task's own report for what this run did (a repeat in kind of 136) (2026-11-03).**
 385. **A container a test starts a daemon in needs an init as PID 1 (HostConfig.Init), or the daemon cannot be stopped: an orphan that exits stays a zombie, and a service manager reads it as still running (a repeat of FAILURE_PATTERNS 343) (2026-11-03).**
 386. **A command meant to run the same under any login shell must not depend on that shell's grammar: send it as one encoded word that sh decodes, `sh -c 'eval "$(printf %b "$1")"' sh '<script, unsafe bytes as \0NNN>'` (a repeat in kind of FAILURE_PATTERNS 809's lesson) (2026-11-03).**
+387. **When a new transport encoding replaces a channel that refused a byte, refuse that byte explicitly: the old channel's refusal is not inherited (the class of FAILURE_PATTERNS 317 and 438) (2026-11-03).**
+388. **A property a fixture neutralizes, such as the login shell, is tested by running the whole suite with that fixture switched, not by reading code: the static audit of the login-shell class found about 20 send sites, and the switched run found the tests' own helpers too (a repeat in kind of 174) (2026-11-03).**
+389. **A test helper that reads a device "independently" over its own SSH client is a send site too, and sends the way the product does (a repeat in kind of 363) (2026-11-03).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

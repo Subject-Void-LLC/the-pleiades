@@ -237,7 +237,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   connection (a shell, subsystem, streamed process or cut-off command). A method whose manifest
   sets `EndsLoginSession` (the six identity methods, `pleiades.builtin.connection.reset`) closes
   it after a real run. `net.ssh.ping`, `wait.connection` (`sdk.ConnectFresh`: its question is the login
-  itself) and the transport actions never pool.
+  itself) and the transport actions never pool. Every command a `Conn` sends reaches `/bin/sh`, whatever the
+  account's login shell (`pkg/remoteexec/shline`: one single-quoted word of `\0NNN` escapes every login shell passes
+  on unchanged, owner decision 2026-11-03, `ssh_exec` included); `Conn.Raw()` sends as written only for a device
+  `inventory.ExecIsPOSIX` says is not a POSIX shell (a network CLI, or onboarding's `shell: not posix`). A NUL is
+  refused. `PLEIADES_TEST_LOGIN_SHELL=fish|tcsh|zsh` runs the sshd-backed suites under that login shell, and
+  `internal/archtest` keeps SSH sessions inside `pkg/remoteexec`.
 - **Generic device types are real (Phase 111).** `generic_ssh`, `generic_netconf`, `generic_http` and
   `generic_grpc` (`internal/inventory/devices/generic`) take their capabilities beyond a small baseline
   from the device: `internal/inventory/onboard` probes it over its protocol (one prober per type on a
