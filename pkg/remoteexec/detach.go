@@ -225,6 +225,17 @@ func (c *Conn) reconnect(ctx context.Context, err error) bool {
 	c.taint()
 	c.extra = append(c.extra, fresh.chain...)
 	c.client = fresh.client
+	// A route's connection is cut through its route; the old one's is kept,
+	// since that connection is still this Conn's to close.
+	if fresh.severVia != nil {
+		old, next := c.severVia, fresh.severVia
+		c.severVia = func() {
+			if old != nil {
+				old()
+			}
+			next()
+		}
+	}
 	return true
 }
 

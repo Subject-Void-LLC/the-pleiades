@@ -43,8 +43,11 @@ type cancelWatch struct {
 	// sever, once the watch fires or aborts, closes the connection after
 	// abandonGrace unless finish stops it first.
 	sever *time.Timer
-	// clients are what sever closes.
-	clients []*ssh.Client
+	// clients are what sever closes, after severVia when it is set (a
+	// connection opened through a route, whose clients' close would wait on
+	// the route).
+	clients  []*ssh.Client
+	severVia func()
 
 	// done is closed by finish, ending the goroutine if it has not fired.
 	done chan struct{}
@@ -59,7 +62,7 @@ func (c *Conn) watch(ctx context.Context) *cancelWatch {
 	clients := make([]*ssh.Client, 0, len(c.chain)+len(c.extra))
 	clients = append(clients, c.chain...)
 	clients = append(clients, c.extra...)
-	w := &cancelWatch{done: make(chan struct{}), clients: clients}
+	w := &cancelWatch{done: make(chan struct{}), clients: clients, severVia: c.severVia}
 	go func() {
 		select {
 		case <-w.done:
@@ -90,8 +93,13 @@ func (w *cancelWatch) end(cancelled bool) {
 		// Armed before the signal is sent, since sending it can block on a
 		// connection that stopped carrying anything, which is what the
 		// timer is there to end.
-		clients := w.clients
-		w.sever = time.AfterFunc(abandonGrace, func() { severClients(clients) })
+		clients, severVia := w.clients, w.severVia
+		w.sever = time.AfterFunc(abandonGrace, func() {
+			if severVia != nil {
+				severVia()
+			}
+			severClients(clients)
+		})
 	}
 	session := w.session
 	w.mu.Unlock()
@@ -111,6 +119,14 @@ func (w *cancelWatch) attach(session *ssh.Session) bool {
 	}
 	w.session = session
 	return true
+}
+
+// ending reports whether the command is being ended (the watch fired or
+// aborted), after which nothing more is sent to it.
+func (w *cancelWatch) ending() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.sever != nil
 }
 
 // finish ends the watch and reports whether it fired before the command's
@@ -152,9 +168,14 @@ func severClients(clients []*ssh.Client) {
 }
 
 // stdinSource reads a command's standard input and keeps the first read
-// error that is not the input's end, so a failed read is never sent to the
-// remote as a clean end of input: "cat > f.tmp && mv f.tmp f" would then
-// commit the part it got.
+// error that is not the input's end, so a failed read fails the call rather
+// than being sent to the remote as a clean end of input, which would let
+// "cat > f.tmp && mv f.tmp f" commit the part it got and report success.
+// The command is then signalled and its session closed. That cannot promise
+// the device kept nothing: sshd ends the command's input when the channel
+// closes, so on a server that does not deliver the signal the command may
+// still finish on the part it got. The call's error says it may have run in
+// part.
 type stdinSource struct {
 	// r is the caller's standard input.
 	r io.Reader

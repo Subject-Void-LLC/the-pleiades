@@ -149,7 +149,17 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	// author-supplied value can contain any byte sequence, including shell
 	// metacharacters, and must come back as one argument rather than as a
 	// second command.
-	conn, err := runner.Connect(ctx, nil, target, auth)
+	// A device reached through a route of SSH hops (a bastion) is pinged
+	// through them, as sdk.Connect reaches it: dialing its address directly
+	// answers a question about a different path, and sends the device's
+	// credential to whatever answers that address here.
+	var via remoteexec.NetDial
+	if router, ok := rc.(sdk.Router); ok {
+		if route := router.DeviceRoute(); route != nil {
+			via = remoteexec.NetDial(route)
+		}
+	}
+	conn, err := runner.ConnectVia(ctx, via, target, auth)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}

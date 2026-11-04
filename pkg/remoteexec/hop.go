@@ -86,30 +86,40 @@ func dialThroughHop(hopClient *ssh.Client) dialFunc {
 	}
 }
 
-// dialVia is the dialFunc for a first leg whose TCP connection via opens (a
-// device's route, ConnectVia), then the SSH handshake over it, both under the
-// bound realDial's handshake runs under (FAILURE_PATTERNS 352).
-func dialVia(via NetDial) dialFunc {
-	return func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		dialCtx, cancel := handshakeContext(ctx, config)
-		defer cancel()
-		conn, err := via(dialCtx, "tcp", addr)
-		if err != nil {
-			return nil, fmt.Errorf("open a connection to %s through its route: %w", addr, err)
-		}
-		defer closeOnDone(dialCtx, conn)()
-
-		// A route's connection need not report a TCP peer (DialThroughHops'
-		// is a pipe), and the host key check parses the peer as host:port
-		// even when it checks the name dialed, which it prefers.
-		routed := &routedConn{Conn: conn, remote: routeAddr(addr)}
-		sshConn, chans, reqs, err := ssh.NewClientConn(routed, addr, config)
-		if err != nil {
-			_ = conn.Close()
-			return nil, fmt.Errorf("ssh handshake through the route to %s: %w", addr, err)
-		}
-		return ssh.NewClient(sshConn, chans, reqs), nil
+// dialVia opens target's TCP connection through via (a device's route,
+// ConnectVia), then the SSH handshake over it, both under the bound realDial's
+// handshake runs under (FAILURE_PATTERNS 352). It returns the client and the
+// connection via opened, which the caller severs a cancelled command's
+// connection through.
+func dialVia(ctx context.Context, via NetDial, addr string, config *ssh.ClientConfig) (*ssh.Client, net.Conn, error) {
+	dialCtx, cancel := handshakeContext(ctx, config)
+	defer cancel()
+	conn, err := via(dialCtx, "tcp", addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open a connection to %s through its route: %w", addr, err)
 	}
+	defer closeOnDone(dialCtx, conn)()
+
+	// A route's connection need not report a TCP peer (DialThroughHops'
+	// is a pipe), and the host key check parses the peer as host:port
+	// even when it checks the name dialed, which it prefers.
+	routed := &routedConn{Conn: conn, remote: routeAddr(addr)}
+	sshConn, chans, reqs, err := ssh.NewClientConn(routed, addr, config)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("ssh handshake through the route to %s: %w", addr, err)
+	}
+	return ssh.NewClient(sshConn, chans, reqs), conn, nil
+}
+
+// severerFor is how a cancelled command's connection opened through raw is
+// cut: through the route's own sever when it has one (hopTunneledConn), which
+// closes its first hop first, otherwise by closing raw.
+func severerFor(raw net.Conn) func() {
+	if s, ok := raw.(interface{ sever() }); ok {
+		return s.sever
+	}
+	return func() { _ = raw.Close() }
 }
 
 // routedConn is a connection opened through a route, reporting as its peer

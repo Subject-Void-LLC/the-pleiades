@@ -399,7 +399,7 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 	}
 	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify})
 
-	chain, err := r.dialChain(ctx, legs, nil)
+	chain, err := r.dialChain(ctx, legs)
 	if err != nil {
 		return nil, err
 	}
@@ -418,20 +418,33 @@ type NetDial func(ctx context.Context, network, address string) (net.Conn, error
 // ConnectVia is Connect with the TCP connection to target opened by via
 // rather than dialed directly: a device reached through a route whose hops
 // are dialed, and verified, by whoever built via. The SSH handshake with
-// target, its host key check against this Runner's known_hosts, the circuit
-// breaker, retry and backoff are Connect's own. Closing the Conn closes the
-// connection via returned, which for a route closes its hops too. A nil via
-// is Connect with no hops.
+// target and its host key check against this Runner's known_hosts are
+// Connect's own. Closing the Conn closes the connection via returned, which
+// for a route closes its hops too. A nil via is Connect with no hops.
+//
+// The leg is dialed once, with no circuit breaker or retry of its own. A
+// route's dialer (DialThroughHops) already applies both to target's address
+// on the same Runner, and claiming that address's half-open probe twice on
+// one dial left its circuit open for good: the outer claim took the probe,
+// the inner one saw it in flight and refused, and the refusal reopened the
+// circuit (FAILURE_PATTERNS 146, 398).
 func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, auth Auth) (*Conn, error) {
 	if via == nil {
 		return r.Connect(ctx, nil, target, auth)
 	}
-	legs := []connectLeg{{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify}}
-	chain, err := r.dialChain(ctx, legs, dialVia(via))
-	if err != nil {
-		return nil, err
+	addr := target.Addr()
+	if !auth.usable() {
+		return nil, fmt.Errorf("remoteexec: no usable authentication method for %s", addr)
 	}
-	conn := &Conn{client: chain[0], chain: chain, addr: legs[0].addr}
+	hostKeyCB, err := hostKeyCallbackFor(r.opts, r.opts.InsecureSkipHostKeyVerify)
+	if err != nil {
+		return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", addr, err)
+	}
+	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, r.opts.DialTimeout))
+	if err != nil {
+		return nil, &DialError{Addr: addr, Err: err}
+	}
+	conn := &Conn{client: client, chain: []*ssh.Client{client}, addr: addr, severVia: severerFor(raw)}
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.ConnectVia(ctx, via, target, auth) }
 	return conn, nil
 }
@@ -448,12 +461,7 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 // for the identical reason (a hop's client owns the tunneled connection
 // the next one was built on), so a partial chain is never left dangling
 // for the caller to notice only when something later breaks.
-//
-// first dials the first leg; nil means r.dial, a direct TCP connection.
-func (r *Runner) dialChain(ctx context.Context, legs []connectLeg, first dialFunc) (chain []*ssh.Client, err error) {
-	if first == nil {
-		first = r.dial
-	}
+func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh.Client, err error) {
 	chain = make([]*ssh.Client, 0, len(legs))
 	defer func() {
 		if err != nil {
@@ -503,7 +511,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg, first dialFun
 		// Step 3: dial with retry and backoff, scoped to the dial phase
 		// only. The first leg dials directly (r.dial); every leg after
 		// it tunnels through the previous leg's own client, chain[i-1].
-		dial := first
+		dial := r.dial
 		if i > 0 {
 			dial = dialThroughHop(chain[i-1])
 		}

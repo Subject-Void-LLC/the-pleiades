@@ -115,6 +115,11 @@ func TestCLI_ACollectionMethodReachesARoutedDeviceThroughItsBastion(t *testing.T
 	if !strings.Contains(out, `"stdout": "`+hostname+`"`) {
 		t.Fatalf("exec.command through the bastion did not run on the target %q:\n%s", hostname, out)
 	}
+	// net.ssh.ping opens its own connection, and its question is whether
+	// this platform reaches the device the way a task does: through the route.
+	if out, err := runPleiadesWithEnv(t, dir, env, "adhoc", "inner", "net.ssh.ping", "--json"); err != nil {
+		t.Fatalf("net.ssh.ping through the bastion: %v\n%s", err, out)
+	}
 }
 
 // routedKnownHosts writes one known_hosts naming the bastion's keys under

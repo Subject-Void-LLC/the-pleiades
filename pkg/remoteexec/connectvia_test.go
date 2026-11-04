@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -167,5 +168,144 @@ func TestRun_AConnectionDroppedMidCommandIsAnErrorNotAStatus(t *testing.T) {
 	res, err := conn.Run(context.Background(), "sleep 2")
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Run on a dropped connection = %+v, %v; want a transport error", res, err)
+	}
+}
+
+// routeThrough is the dialer a route gives a method (internal/engine's
+// routeDial): DialThroughHops through bastion, on r, for whatever address it
+// is asked for.
+func routeThrough(r *Runner, bastion Target, auth Auth) NetDial {
+	hops := []Hop{{Target: bastion, Auth: auth, InsecureSkipHostKeyVerify: true}}
+	return func(ctx context.Context, _, address string) (net.Conn, error) {
+		host, portText, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		port, err := strconv.Atoi(portText)
+		if err != nil {
+			return nil, err
+		}
+		return r.DialThroughHops(ctx, hops, Target{Host: host, Port: port})
+	}
+}
+
+// TestConnectVia_ARoutedTargetsCircuitRecovers: once a routed target's
+// circuit has opened and its cooldown passed, the next connection through
+// the route closes it. The route's dialer guards the target's address on the
+// same Runner, and a second guard on the same dial took the half-open probe
+// the dialer then found in flight, so the circuit reopened on every attempt.
+func TestConnectVia_ARoutedTargetsCircuitRecovers(t *testing.T) {
+	bastion := startPoolServer(t)
+	inner := startPoolServer(t)
+	r := New(Options{InsecureSkipHostKeyVerify: true, BreakerThreshold: 2, BreakerCooldown: 200 * time.Millisecond})
+	auth := PasswordAuth(bastion.Username, bastion.Password)
+	via := routeThrough(r, target(bastion), auth)
+
+	// The target was unreachable long enough to open its circuit.
+	for range 2 {
+		r.breaker.RecordFailure(inner.Addr())
+	}
+	time.Sleep(300 * time.Millisecond)
+	conn, err := r.ConnectVia(context.Background(), via, target(inner), PasswordAuth(inner.Username, inner.Password))
+	if err != nil {
+		t.Fatalf("ConnectVia after the cooldown: %v; the circuit never recovers", err)
+	}
+	_ = conn.Close()
+	if !r.breaker.Permitted(inner.Addr()) {
+		t.Fatal("the circuit is still open after a connection succeeded")
+	}
+}
+
+// TestRun_ACancelledCommandThroughAStalledBastionIsBounded: a cancelled
+// command on a routed connection whose bastion stopped answering returns
+// within the abandon grace. Closing the target's client waits on the route's
+// tunnel, which a silent bastion never ends; the route is cut from its first
+// hop instead.
+func TestRun_ACancelledCommandThroughAStalledBastionIsBounded(t *testing.T) {
+	bastion := startPoolServer(t)
+	inner := startPoolServer(t)
+	port, freeze := stallingProxy(t, bastion.Addr())
+	r := New(Options{InsecureSkipHostKeyVerify: true})
+	via := routeThrough(r, Target{Host: "127.0.0.1", Port: port}, PasswordAuth(bastion.Username, bastion.Password))
+	conn, err := r.ConnectVia(context.Background(), via, target(inner), PasswordAuth(inner.Username, inner.Password))
+	if err != nil {
+		t.Fatalf("ConnectVia: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.Run(ctx, "sleep 3")
+		done <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	freeze()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run = %v; want context.Canceled", err)
+		}
+	case <-time.After(abandonGrace + 15*time.Second):
+		t.Fatal("Run never returned: the route's tunnel was waited on")
+	}
+}
+
+// TestConnectVia_RefusesBeforeDialingWhatCannotBeChecked: no usable
+// credential, or a known_hosts that cannot be read, refuses before the
+// route's dialer is called.
+func TestConnectVia_RefusesBeforeDialingWhatCannotBeChecked(t *testing.T) {
+	called := false
+	via := NetDial(func(context.Context, string, string) (net.Conn, error) {
+		called = true
+		return nil, errors.New("dialed")
+	})
+	if _, err := New(Options{InsecureSkipHostKeyVerify: true}).ConnectVia(context.Background(), via, Target{Host: "h", Port: 22}, Auth{}); err == nil || !strings.Contains(err.Error(), "no usable authentication") {
+		t.Fatalf("ConnectVia with no credential = %v; want a refusal", err)
+	}
+	missing := filepath.Join(t.TempDir(), "absent", "known_hosts")
+	if _, err := New(Options{KnownHostsPath: missing}).ConnectVia(context.Background(), via, Target{Host: "h", Port: 22}, PasswordAuth("u", "p")); err == nil || !strings.Contains(err.Error(), "host key verification unavailable") {
+		t.Fatalf("ConnectVia with an unreadable known_hosts = %v; want a refusal", err)
+	}
+	if called {
+		t.Fatal("the route's dialer was called for a connection that could not be checked")
+	}
+}
+
+// TestRun_ACancelledCommandThroughAPlainRouteIsBounded: a route whose
+// dialer hands back a plain connection (no tunnel of this package's) is cut
+// by closing that connection, so a cancelled command on a server that stopped
+// answering still returns within the abandon grace.
+func TestRun_ACancelledCommandThroughAPlainRouteIsBounded(t *testing.T) {
+	inner := startPoolServer(t)
+	port, freeze := stallingProxy(t, inner.Addr())
+	via := NetDial(func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, network, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	})
+	conn, err := New(Options{InsecureSkipHostKeyVerify: true}).ConnectVia(context.Background(), via, target(inner), PasswordAuth(inner.Username, inner.Password))
+	if err != nil {
+		t.Fatalf("ConnectVia: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.Run(ctx, "sleep 3")
+		done <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	freeze()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run = %v; want context.Canceled", err)
+		}
+	case <-time.After(abandonGrace + 15*time.Second):
+		t.Fatal("Run never returned")
 	}
 }

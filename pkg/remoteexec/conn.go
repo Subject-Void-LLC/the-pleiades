@@ -66,6 +66,11 @@ type Conn struct {
 	// holds the clients it dialed, closed with this Conn.
 	redial redialer
 	extra  []*ssh.Client
+
+	// severVia, set for a connection opened through a route (ConnectVia),
+	// cuts it from the route's first hop inward; a cancelled command's watch
+	// calls it before closing the clients (conn_watch.go).
+	severVia func()
 }
 
 // taint marks a borrowed connection as not to be reused. It does nothing
@@ -221,8 +226,11 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		// finished, and its exit status is the answer.
 		pipe, pipeErr := session.StdinPipe()
 		if pipeErr != nil {
-			watch.finish()
+			cancelled := watch.finish()
 			c.taint()
+			if cancelled {
+				return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctx.Err())
+			}
 			return Result{}, fmt.Errorf("remoteexec: open stdin on %s: %w", c.addr, pipeErr)
 		}
 		source = &stdinSource{r: stdin}
@@ -247,7 +255,13 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 					watch.abort()
 					return
 				}
-				_ = pipe.Close()
+				// No end of input once the command is being ended: the
+				// caller's reader may finish after the cancellation, and an
+				// end of input then is the one thing that would let the
+				// command take what it got as the whole.
+				if !watch.ending() {
+					_ = pipe.Close()
+				}
 			}()
 		}
 	}

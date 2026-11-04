@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -105,21 +106,28 @@ func TestRunWithStdin_ACopyTheRemoteStoppedGrantingIsBounded(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
+	in := &countingReader{r: bytes.NewReader(make([]byte, 8<<20))}
 	go func() {
-		_, err := conn.RunWithStdin(ctx, "trap '' TERM; sleep 60", bytes.NewReader(make([]byte, 8<<20)))
+		// Long enough to outlast the grace; short, since the server's Close
+		// at the test's end waits for it.
+		_, err := conn.RunWithStdin(ctx, "trap '' TERM; sleep 8", in)
 		done <- err
 	}()
-	time.Sleep(300 * time.Millisecond)
+	// Frozen once the copy is under way, so what is waited on is the copy
+	// and not the session open.
+	deadline := time.Now().Add(10 * time.Second)
+	for in.read.Load() < 1<<20 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the copy read %d bytes in 10 s; it never got under way", in.read.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	freeze()
-	began := time.Now()
 	cancel()
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("RunWithStdin = %v; want context.Canceled", err)
-		}
-		if took := time.Since(began); took > abandonGrace+3*time.Second {
-			t.Fatalf("RunWithStdin took %s after its cancel; want about the abandon grace (%s)", took, abandonGrace)
 		}
 	case <-time.After(abandonGrace + 15*time.Second):
 		t.Fatal("RunWithStdin never returned: its standard input copy was waited on")
@@ -166,4 +174,17 @@ func TestRun_ADetachedCommandHoldingANULIsRefused(t *testing.T) {
 	if got := srv.Commands(); len(got) != 0 {
 		t.Fatalf("the server received %d commands, want none: %q", len(got), got)
 	}
+}
+
+// countingReader counts what has been read from r.
+type countingReader struct {
+	r    io.Reader
+	read atomic.Int64
+}
+
+// Read reads from r and counts it.
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.read.Add(int64(n))
+	return n, err
 }

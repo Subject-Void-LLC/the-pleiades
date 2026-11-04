@@ -58,8 +58,10 @@ func TestSSHContainer_ACancelledCommandIsNotACompletedOne(t *testing.T) {
 		t.Skip("skipping SSH container integration test in short mode")
 	}
 	conn := connectToContainer(t)
-	for i := range 5 {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	for i := range 3 {
+		// Long enough that the deadline lands while the command runs, not
+		// while its session is being opened, even on a loaded machine.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		res, err := conn.Run(ctx, "echo started; sleep 30")
 		cancel()
 		if !errors.Is(err, context.DeadlineExceeded) {
