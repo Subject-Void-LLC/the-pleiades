@@ -3,6 +3,7 @@ package remoteexec
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -84,3 +85,49 @@ func dialThroughHop(hopClient *ssh.Client) dialFunc {
 		return ssh.NewClient(sshConn, chans, reqs), nil
 	}
 }
+
+// dialVia is the dialFunc for a first leg whose TCP connection via opens (a
+// device's route, ConnectVia), then the SSH handshake over it, both under the
+// bound realDial's handshake runs under (FAILURE_PATTERNS 352).
+func dialVia(via NetDial) dialFunc {
+	return func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+		dialCtx, cancel := handshakeContext(ctx, config)
+		defer cancel()
+		conn, err := via(dialCtx, "tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("open a connection to %s through its route: %w", addr, err)
+		}
+		defer closeOnDone(dialCtx, conn)()
+
+		// A route's connection need not report a TCP peer (DialThroughHops'
+		// is a pipe), and the host key check parses the peer as host:port
+		// even when it checks the name dialed, which it prefers.
+		routed := &routedConn{Conn: conn, remote: routeAddr(addr)}
+		sshConn, chans, reqs, err := ssh.NewClientConn(routed, addr, config)
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("ssh handshake through the route to %s: %w", addr, err)
+		}
+		return ssh.NewClient(sshConn, chans, reqs), nil
+	}
+}
+
+// routedConn is a connection opened through a route, reporting as its peer
+// the address the route was asked for.
+type routedConn struct {
+	net.Conn
+	// remote is what RemoteAddr returns.
+	remote net.Addr
+}
+
+// RemoteAddr returns the address dialed through the route.
+func (c *routedConn) RemoteAddr() net.Addr { return c.remote }
+
+// routeAddr is a host:port reached through a route, as a net.Addr.
+type routeAddr string
+
+// Network returns "tcp", what a route carries.
+func (routeAddr) Network() string { return "tcp" }
+
+// String returns the host:port.
+func (a routeAddr) String() string { return string(a) }

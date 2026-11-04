@@ -23,7 +23,8 @@ import (
 const ParamInsecureSkipHostKeyVerify = "insecure_skip_host_key_verify"
 
 // Connect opens one SSH connection to the device a task targets. The
-// caller must Close the returned connection.
+// caller must Close the returned connection. A device reached through a
+// route of SSH hops (Router) is dialed through them.
 //
 // It returns a connection rather than running one command because a
 // converging method needs several: a probe that reads the current state,
@@ -102,9 +103,16 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 
 	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: port}
 	var conn *remoteexec.Conn
-	if pool := poolOf(rc); pooled && pool != nil {
-		conn, err = pool.Connect(ctx, runner, device.Name(), target, auth)
-	} else {
+	switch route := routeOf(rc); {
+	case route != nil:
+		// A device reached through a route of SSH hops (a bastion) is dialed
+		// through them, as ssh_exec dials it, never directly. Its connection
+		// is not pooled: the pool dials directly, and a lent connection
+		// would carry no record of the route it came through.
+		conn, err = runner.ConnectVia(ctx, remoteexec.NetDial(route), target, auth)
+	case pooled && poolOf(rc) != nil:
+		conn, err = poolOf(rc).Connect(ctx, runner, device.Name(), target, auth)
+	default:
 		conn, err = runner.Connect(ctx, nil, target, auth)
 	}
 	if err != nil {
@@ -209,6 +217,15 @@ type ConnectionPooler interface {
 func poolOf(rc RunbookContext) *remoteexec.Pool {
 	if p, ok := rc.(ConnectionPooler); ok {
 		return p.ConnectionPool()
+	}
+	return nil
+}
+
+// routeOf returns the dialer through rc's device's route, or nil when the
+// device is dialed directly or rc cannot say (sdk.Router).
+func routeOf(rc RunbookContext) RouteDial {
+	if r, ok := rc.(Router); ok {
+		return r.DeviceRoute()
 	}
 	return nil
 }

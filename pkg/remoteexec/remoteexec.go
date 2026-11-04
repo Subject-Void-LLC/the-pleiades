@@ -399,7 +399,7 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 	}
 	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify})
 
-	chain, err := r.dialChain(ctx, legs)
+	chain, err := r.dialChain(ctx, legs, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -407,6 +407,32 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 	// A detached command whose connection drops polls on a fresh one, dialed
 	// the same way (detach.go).
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.Connect(ctx, hops, target, auth) }
+	return conn, nil
+}
+
+// NetDial opens a TCP connection to address: a device's route through SSH
+// hops (a bastion), handed to a Collection method as a dialer so the hops'
+// credentials never reach it.
+type NetDial func(ctx context.Context, network, address string) (net.Conn, error)
+
+// ConnectVia is Connect with the TCP connection to target opened by via
+// rather than dialed directly: a device reached through a route whose hops
+// are dialed, and verified, by whoever built via. The SSH handshake with
+// target, its host key check against this Runner's known_hosts, the circuit
+// breaker, retry and backoff are Connect's own. Closing the Conn closes the
+// connection via returned, which for a route closes its hops too. A nil via
+// is Connect with no hops.
+func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, auth Auth) (*Conn, error) {
+	if via == nil {
+		return r.Connect(ctx, nil, target, auth)
+	}
+	legs := []connectLeg{{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify}}
+	chain, err := r.dialChain(ctx, legs, dialVia(via))
+	if err != nil {
+		return nil, err
+	}
+	conn := &Conn{client: chain[0], chain: chain, addr: legs[0].addr}
+	conn.redial = func(ctx context.Context) (*Conn, error) { return r.ConnectVia(ctx, via, target, auth) }
 	return conn, nil
 }
 
@@ -422,7 +448,12 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 // for the identical reason (a hop's client owns the tunneled connection
 // the next one was built on), so a partial chain is never left dangling
 // for the caller to notice only when something later breaks.
-func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh.Client, err error) {
+//
+// first dials the first leg; nil means r.dial, a direct TCP connection.
+func (r *Runner) dialChain(ctx context.Context, legs []connectLeg, first dialFunc) (chain []*ssh.Client, err error) {
+	if first == nil {
+		first = r.dial
+	}
 	chain = make([]*ssh.Client, 0, len(legs))
 	defer func() {
 		if err != nil {
@@ -472,7 +503,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		// Step 3: dial with retry and backoff, scoped to the dial phase
 		// only. The first leg dials directly (r.dial); every leg after
 		// it tunnels through the previous leg's own client, chain[i-1].
-		dial := r.dial
+		dial := first
 		if i > 0 {
 			dial = dialThroughHop(chain[i-1])
 		}
