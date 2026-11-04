@@ -8,6 +8,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -150,23 +151,82 @@ func TestPrepare_StoresNoDigestNothingKeyed(t *testing.T) {
 	}
 }
 
-func TestSealPlaintext_BindsTheDigestToItsFactAndDevice(t *testing.T) {
-	pt, err := facts.SealPlaintext("dev-1", "file.x", strings.ToUpper(keyedRaw))
+func TestSealPlaintext_BindsTheDigestToItsJobFactAndDevice(t *testing.T) {
+	pt, err := facts.SealPlaintext("job-1", "dev-1", "file.x", strings.ToUpper(keyedRaw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if raw, err := facts.OpenPlaintext(pt, "dev-1", "file.x"); err != nil || raw != keyedRaw {
+	if raw, err := facts.OpenPlaintext(pt, "job-1", "dev-1", "file.x"); err != nil || raw != keyedRaw {
 		t.Errorf("OpenPlaintext = %q, %v", raw, err)
 	}
-	for _, c := range [][2]string{{"dev-2", "file.x"}, {"dev-1", "file.y"}} {
-		if _, err := facts.OpenPlaintext(pt, c[0], c[1]); err == nil {
-			t.Errorf("a digest sealed for dev-1's file.x opened as %s's %s", c[0], c[1])
+	// Replayed into another job, moved to another device or fact: refused.
+	for _, c := range [][3]string{{"job-2", "dev-1", "file.x"}, {"job-1", "dev-2", "file.x"}, {"job-1", "dev-1", "file.y"}} {
+		if _, err := facts.OpenPlaintext(pt, c[0], c[1], c[2]); err == nil {
+			t.Errorf("a digest sealed in job-1 for dev-1's file.x opened as %v", c)
 		}
 	}
-	if _, err := facts.SealPlaintext("dev-1", "file.x", "nope"); err == nil {
+	if _, err := facts.SealPlaintext("job-1", "dev-1", "file.x", "nope"); err == nil {
 		t.Error("a non-digest was sealed")
 	}
-	if _, err := facts.OpenPlaintext([]byte("dev-1\x00file.x\x00nope"), "dev-1", "file.x"); err == nil {
+	if _, err := facts.OpenPlaintext([]byte("job-1\x00dev-1\x00file.x\x00nope"), "job-1", "dev-1", "file.x"); err == nil {
 		t.Error("a sealed non-digest opened")
+	}
+	// A NUL in any bound field would let one field's end read as another's.
+	for _, f := range [][3]string{{"job\x00", "dev", "k"}, {"job", "d\x00ev", "k"}, {"job", "dev", "k\x00"}} {
+		if _, err := facts.SealPlaintext(f[0], f[1], f[2], keyedRaw); err == nil {
+			t.Errorf("sealed with a NUL in %q", f)
+		}
+	}
+	k, _ := facts.NewKeyer(keyedSecret, "project")
+	if _, err := k.Seal("dev\x00x", "file.x", keyedRaw); err == nil {
+		t.Error("keyed with a NUL in the device")
+	}
+}
+
+func TestScrubDigests_NoRawDigestAtAnyDepthAndNoPlainOneOfAPrivateFile(t *testing.T) {
+	in := map[string]any{
+		"state": "present", "sha256_sealed": "c",
+		"nested": map[string]any{"sha256_raw": keyedRaw, "sha256_sealed": "c", "keep": 1},
+		"list":   []any{map[string]any{"sha256_raw": keyedRaw}, "x"},
+		"maps":   []map[string]any{{"sha256_raw": keyedRaw}},
+	}
+	out := facts.ScrubDigests(in, true).(map[string]any)
+	b, _ := json.Marshal(out)
+	if strings.Contains(string(b), keyedRaw) || out["sha256_sealed"] != "c" || strings.Count(string(b), "sha256_sealed") != 1 {
+		t.Errorf("ScrubDigests = %s", b)
+	}
+	if out["nested"].(map[string]any)["keep"] != 1 {
+		t.Error("an ordinary nested field went")
+	}
+	// A private file's plain digest and size are never kept, whoever sent
+	// them; a world-readable one's are.
+	private := facts.ScrubDigests(map[string]any{"world_readable": false, "sha256": keyedRaw, "size": 7, "mode": "0600"}, false).(map[string]any)
+	public := facts.ScrubDigests(map[string]any{"world_readable": true, "sha256": keyedRaw, "size": 7}, false).(map[string]any)
+	if private["sha256"] != nil || private["size"] != nil || private["mode"] != "0600" || public["sha256"] != keyedRaw || public["size"] != 7 {
+		t.Errorf("private %v, public %v", private, public)
+	}
+	if got := facts.ScrubDigests("plain", false); got != "plain" {
+		t.Errorf("a scalar = %v", got)
+	}
+	// A typed value set in process, never through JSON: held to the rule all
+	// the same.
+	type file struct {
+		Raw  string            `json:"sha256_raw"`
+		Tags map[string]string `json:"tags"`
+	}
+	for _, typed := range []any{
+		map[string]string{"sha256_raw": keyedRaw},
+		file{Raw: keyedRaw, Tags: map[string]string{"sha256_raw": keyedRaw}},
+		&file{Raw: keyedRaw},
+		[]file{{Raw: keyedRaw}},
+	} {
+		b, _ := json.Marshal(facts.ScrubDigests(typed, false))
+		if strings.Contains(string(b), keyedRaw) {
+			t.Errorf("%T kept the raw digest: %s", typed, b)
+		}
+	}
+	// A typed value that does not encode is dropped: nothing could store it.
+	if got := facts.ScrubDigests(map[string]any{"f": []func(){func() {}}}, false).(map[string]any); got["f"] != nil {
+		t.Errorf("a value that does not encode = %v", got)
 	}
 }

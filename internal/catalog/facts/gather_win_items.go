@@ -64,12 +64,14 @@ if (Get-Command Get-LocalGroup -ErrorAction SilentlyContinue) {
   })
 }` + windowsJSONOut
 
-// windowsFilesScript is the files script (a file is hashed only when its ACL
-// lets Everyone, Authenticated Users or BUILTIN\Users read it and denies none
-// of them, as posixFileProbe hashes only a world-readable file; any other is
-// digest withheld, with no size; and a file another process holds open
-// for writing, such as a log, is still read, sharing it as that process
-// allows, rather than reported unreadable until the writer lets go) for the base64 JSON list of paths
+// windowsFilesScript is the files script (every regular file the login can
+// read is hashed; its digest is kept plain, with its size, only when its ACL
+// lets Everyone, Authenticated Users or BUILTIN\Users read it and denies none of
+// them, as posixFileProbe's, and any other's is handed over raw for the engine
+// to key or seal, with no size; a file another process holds open for
+// writing, such as a log, is still read, sharing it as that process allows,
+// rather than reported unreadable until the writer lets go) for the base64
+// JSON list of paths
 // b64: per path, in order, its state and, when present, type, size,
 // attributes, owner, digest and link target.
 func windowsFilesScript(b64 string) string {

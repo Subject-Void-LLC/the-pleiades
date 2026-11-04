@@ -234,7 +234,11 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// A raw digest of a file not everyone may read is sealed to the
 	// Controller's key when the dispatch carries one, and dropped otherwise
 	// (fact_seal.go).
-	sealActions, sealRun := factSealing(payload)
+	sealActions, sealRun, sealErr := factSealing(payload)
+	if sealErr != nil {
+		a.logger.Warn("the dispatch's fact seal key does not parse; no digest of a private file is kept for this job",
+			slog.String("job", payload.JobID), slog.Any("error", sealErr))
+	}
 	actions := engine.NewCollectionActionExecutor(
 		// nil inventory.Repository: this per-task subprocess has no live
 		// database connection of its own (see

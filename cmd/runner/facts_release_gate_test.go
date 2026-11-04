@@ -60,8 +60,13 @@ type factsWalkGate struct {
 	quiet     *slog.Logger
 }
 
-// factsWalkGateDevice is the gate device's ID and name.
-const factsWalkGateDevice = "facts-walk-1"
+// factsWalkGateDevice and factsWalkGateName are the gate device's ID and
+// name, apart, so a digest bound to the one and checked against the other
+// would fail here rather than only where they differ in production.
+const (
+	factsWalkGateDevice = "facts-walk-id-1"
+	factsWalkGateName   = "facts-walk-1"
+)
 
 // runFactsWalkGate runs runbookYAML (facts-walk.yaml) as a Controller job and
 // waits for it to complete; prepare runs on the device first, as root.
@@ -83,7 +88,7 @@ func runFactsWalkGate(t *testing.T, runbookYAML, prepare string, workerOpts []di
 	store := dispatch.NewEntJobStore(client)
 	factStore := entstore.New(client)
 
-	const deviceID, deviceName = factsWalkGateDevice, factsWalkGateDevice
+	const deviceID, deviceName = factsWalkGateDevice, factsWalkGateName
 	client.Device.Create().SetName(deviceName).SetType("linux_server").SetDeviceID(deviceID).
 		SetProperties(map[string]any{"host": h.sshHost, "port": h.sshPort}).SaveX(ctx)
 	device := &sshGateDevice{
@@ -146,7 +151,7 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	}
 	g := runFactsWalkGate(t, factsWalkRunbook, "", nil, nil)
 	h, client, factStore, job, quiet, ctx := g.h, g.client, g.factStore, g.job, g.quiet, context.Background()
-	const deviceName = factsWalkGateDevice
+	const deviceName = factsWalkGateName
 
 	// The device resource's facts route, over the Controller's own device
 	// repository and the store the consumer writes.

@@ -17,8 +17,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 )
@@ -126,6 +128,9 @@ func (k *Keyer) Seal(deviceID, factKey, raw string) (string, error) {
 	if err := k.load(); err != nil {
 		return "", err
 	}
+	if holdsNUL(deviceID, factKey) {
+		return "", errBindingNUL
+	}
 	raw, err := normalDigest(raw)
 	if err != nil {
 		return "", err
@@ -169,26 +174,78 @@ func ReplaceRaw(value any, replace func(raw string) (map[string]any, error)) any
 	return obj
 }
 
-// ScrubDigests is value without a raw digest, and without a sealed one unless
-// allowSealed (a Runner that seals, or a Controller about to open one), as a
-// new object when anything went. It is the rule every writer is held to: a
-// digest nothing keyed is never stored, whatever path brought it.
+// The fields of a file-like fact's object that say whether anyone may read
+// it, and what a private one never keeps: a plain digest or a size.
+const (
+	WorldReadableField = "world_readable"
+	PlainDigestField   = "sha256"
+	SizeField          = "size"
+)
+
+// ScrubDigests is value without a raw digest anywhere in it, without a sealed
+// one anywhere but its top level and there only when allowSealed (a Runner
+// that seals, or a Controller about to open one), and, for an object saying
+// world_readable is false, without a plain digest or a size, as a new value.
+// It is the rule every writer and every result is held to, whatever path
+// brought the value and however deep the field sits: a digest nothing keyed
+// is never stored or shown, and a store does not trust a sender to have left
+// a private file's plain digest out.
 func ScrubDigests(value any, allowSealed bool) any {
-	obj, ok := value.(map[string]any)
-	if !ok {
+	return scrubDigests(value, allowSealed, true)
+}
+
+// scrubDigests is ScrubDigests at one depth; top says value is the fact's
+// own object, the one place a sealed digest may sit.
+func scrubDigests(value any, allowSealed, top bool) any {
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for name, field := range v {
+			if name == RawDigestField || (name == SealedDigestField && !(allowSealed && top)) {
+				continue
+			}
+			out[name] = scrubDigests(field, allowSealed, false)
+		}
+		if out[WorldReadableField] == false {
+			delete(out, PlainDigestField)
+			delete(out, SizeField)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = scrubDigests(item, allowSealed, false)
+		}
+		return out
+	case []map[string]any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = scrubDigests(item, allowSealed, false)
+		}
+		return out
+	case nil, string, bool, json.Number, []string,
+		int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 		return value
 	}
-	_, raw := obj[RawDigestField]
-	_, sealed := obj[SealedDigestField]
-	if !raw && !(sealed && !allowSealed) {
-		return value
+	// Any other map, slice or struct (a typed value a method set in this
+	// process, never through JSON) is read as JSON reads it and held to the
+	// same rule, so a digest cannot hide in a type this switch does not name.
+	// A value that does not encode is dropped: nothing could store it.
+	switch reflect.ValueOf(value).Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array, reflect.Struct, reflect.Pointer, reflect.Interface:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil
+		}
+		var decoded any
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if err := dec.Decode(&decoded); err != nil {
+			return nil
+		}
+		return scrubDigests(decoded, allowSealed, top)
 	}
-	out := copyObject(obj)
-	delete(out, RawDigestField)
-	if !allowSealed {
-		delete(out, SealedDigestField)
-	}
-	return out
+	return value
 }
 
 // takeField is value as a new object without field, and field's value as a
@@ -217,29 +274,47 @@ func copyObject(obj map[string]any) map[string]any {
 	return out
 }
 
+// errBindingNUL is a binding field holding a NUL, which would let one field's
+// end be read as another's.
+var errBindingNUL = errors.New("facts: a digest's job, device or fact holds a NUL")
+
 // bindDigest is a digest bound to one fact of one device: the three joined by
-// NULs, which none of them can hold. It is what is keyed, and what a Runner
-// seals, so a sealed digest moved to another fact or device opens as the
-// wrong one and is refused.
+// NULs, which none of them may hold (Seal refuses one). It is what is keyed.
 func bindDigest(deviceID, factKey, raw string) []byte {
 	return []byte(deviceID + "\x00" + factKey + "\x00" + raw)
 }
 
-// SealPlaintext is what a Runner seals for one fact's digest (bindDigest).
-func SealPlaintext(deviceID, factKey, raw string) ([]byte, error) {
+// holdsNUL reports whether any of fields holds a NUL.
+func holdsNUL(fields ...string) bool {
+	for _, f := range fields {
+		if strings.IndexByte(f, 0) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// SealPlaintext is what a Runner seals for one fact's digest: the job, the
+// device, the fact's key and the digest, joined by NULs none of them may hold.
+// The job is bound too, so a sealed digest replayed into a later job (to make
+// a changed file look unchanged) opens as another job's and is refused.
+func SealPlaintext(jobID, deviceID, factKey, raw string) ([]byte, error) {
+	if holdsNUL(jobID, deviceID, factKey) {
+		return nil, errBindingNUL
+	}
 	raw, err := normalDigest(raw)
 	if err != nil {
 		return nil, err
 	}
-	return bindDigest(deviceID, factKey, raw), nil
+	return []byte(jobID + "\x00" + deviceID + "\x00" + factKey + "\x00" + raw), nil
 }
 
-// OpenPlaintext is the digest a sealed plaintext holds, when it was sealed for
-// deviceID's fact factKey; anything else is refused.
-func OpenPlaintext(plaintext []byte, deviceID, factKey string) (string, error) {
+// OpenPlaintext is the digest a sealed plaintext holds, when it was sealed in
+// jobID for deviceID's fact factKey; anything else is refused.
+func OpenPlaintext(plaintext []byte, jobID, deviceID, factKey string) (string, error) {
 	parts := bytes.Split(plaintext, []byte{0})
-	if len(parts) != 3 || string(parts[0]) != deviceID || string(parts[1]) != factKey {
-		return "", errors.New("facts: a sealed digest names another fact or device")
+	if len(parts) != 4 || string(parts[0]) != jobID || string(parts[1]) != deviceID || string(parts[2]) != factKey {
+		return "", errors.New("facts: a sealed digest names another job, device or fact")
 	}
-	return normalDigest(string(parts[2]))
+	return normalDigest(string(parts[3]))
 }

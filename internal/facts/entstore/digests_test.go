@@ -23,7 +23,7 @@ const digestRaw = "3f773b3737a2f378fa4589ecacc53598168149f40fa0294c8580ee8fa4455
 // sealFor is what a Runner publishes for device's fact key: raw, sealed to pub.
 func sealFor(t *testing.T, pub sealed.PublicKey, device, key string) string {
 	t.Helper()
-	plaintext, err := facts.SealPlaintext(device, key, digestRaw)
+	plaintext, err := facts.SealPlaintext("job-1", device, key, digestRaw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,10 +34,11 @@ func sealFor(t *testing.T, pub sealed.PublicKey, device, key string) string {
 	return string(file)
 }
 
-// sealedPassword is a file sealed to pub as a password, not a fact digest.
-func sealedPassword(t *testing.T, pub sealed.PublicKey) string {
+// sealedPassword is a file sealed to pub as a password, not a fact digest,
+// bound to exactly what the batch names, so its purpose alone refuses it.
+func sealedPassword(t *testing.T, pub sealed.PublicKey, device string) string {
 	t.Helper()
-	plaintext, _ := facts.SealPlaintext("x", "file.w", digestRaw)
+	plaintext, _ := facts.SealPlaintext("job-1", device, "file.w", digestRaw)
 	file, err := sealed.SealToKey(pub, sealed.PurposePassword, plaintext)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +105,7 @@ func TestSubscriber_KeysWhatARunnerSealedAndStoresNothingRaw(t *testing.T) {
 		// Not a sealed file at all, and one sealed for another purpose (a
 		// password): neither is opened as a digest.
 		"file.z": map[string]any{"state": "present", "sha256_sealed": "not a sealed file"},
-		"file.w": map[string]any{"state": "present", "sha256_sealed": sealedPassword(t, open.Public())},
+		"file.w": map[string]any{"state": "present", "sha256_sealed": sealedPassword(t, open.Public(), device)},
 	})
 	sub := entstore.NewSubscriber(store, nil, nil, entstore.WithDigestKeys(open, keyer))
 	if err := handle(t, sub, facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(), Entries: entries}); err != nil {

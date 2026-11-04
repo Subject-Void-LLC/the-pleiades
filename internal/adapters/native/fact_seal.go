@@ -9,6 +9,7 @@ package native
 
 import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -16,19 +17,29 @@ import (
 // factSealing is the collection executor's options and the executor's option
 // for payload's raw digests: sealed to its key and let through to the
 // Controller, or, with no usable key, neither (the executor's option then does
-// nothing), so each is dropped.
-func factSealing(payload wire.DispatchPayload) ([]engine.CollectionActionExecutorOption, engine.ExecutorOption) {
+// nothing), so each is dropped and the task's warnings say so. A key that will
+// not parse is also returned as an error, for the adapter to log.
+func factSealing(payload wire.DispatchPayload) ([]engine.CollectionActionExecutorOption, engine.ExecutorOption, error) {
 	none := engine.ExecutorOption(func(*engine.Executor) {})
 	if payload.FactSealKey == "" {
-		return nil, none
+		return nil, none, nil
 	}
 	pub, err := sealed.ParsePublicKey(payload.FactSealKey)
 	if err != nil {
-		return nil, none
+		return nil, none, err
 	}
-	seal := func(plaintext []byte) (string, error) {
+	return []engine.CollectionActionExecutorOption{engine.WithFactDigestSealer(sealerFor(payload.JobID, pub))}, engine.WithSealedFactDigests(), nil
+}
+
+// sealerFor seals a digest to pub with jobID bound in too, so the Controller
+// refuses a sealed digest replayed into another job.
+func sealerFor(jobID string, pub sealed.PublicKey) engine.DigestSealer {
+	return func(deviceID, factKey, raw string) (string, error) {
+		plaintext, err := facts.SealPlaintext(jobID, deviceID, factKey, raw)
+		if err != nil {
+			return "", err
+		}
 		file, err := sealed.SealToKey(pub, sealed.PurposeFactDigest, plaintext)
 		return string(file), err
 	}
-	return []engine.CollectionActionExecutorOption{engine.WithFactDigestSealer(seal)}, engine.WithSealedFactDigests()
 }

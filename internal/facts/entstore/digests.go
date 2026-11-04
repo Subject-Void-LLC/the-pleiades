@@ -18,8 +18,9 @@ import (
 )
 
 // sealKeyLabel separates the key pair Runners seal to from the HMAC key both
-// derived from one Controller secret.
-const sealKeyLabel = "pleiades/facts/seal-key/v1"
+// derived from one Controller secret, and names the seal's suite, so a change
+// of suite is a deliberate new label (and a re-key), never a silent one.
+const sealKeyLabel = "pleiades/facts/seal-key/v1/" + sealed.MethodKey
 
 // DigestKeys derives, from the Controller's one digest secret (at least 32
 // bytes, used for nothing else), the key pair Runners seal raw digests to and
@@ -48,10 +49,12 @@ func WithDigestKeys(open *sealed.PrivateKey, keyer *facts.Keyer) SubscriberOptio
 }
 
 // keyDigests is entries with every sealed digest keyed, or dropped when it
-// cannot be, each changed entry's hash recomputed. deviceID is the batch's,
-// which a sealed digest must name.
-func (s *Subscriber) keyDigests(deviceID string, entries []facts.Entry) []facts.Entry {
+// cannot be, each changed entry's hash recomputed, and the keys of the facts
+// whose digest was dropped. jobID and deviceID are the batch's, which a sealed
+// digest must name.
+func (s *Subscriber) keyDigests(jobID, deviceID string, entries []facts.Entry) ([]facts.Entry, []string) {
 	out := entries[:0]
+	var lost []string
 	for _, e := range entries {
 		obj, ok := e.Value.(map[string]any)
 		if !ok {
@@ -69,8 +72,10 @@ func (s *Subscriber) keyDigests(deviceID string, entries []facts.Entry) []facts.
 		}
 		delete(value, facts.SealedDigestField)
 		sealedText, _ := text.(string)
-		if keyed, ok := s.openDigest(deviceID, e.Key, sealedText); ok {
+		if keyed, ok := s.openDigest(jobID, deviceID, e.Key, sealedText); ok {
 			value[facts.KeyedDigestField], value[facts.KeyedDigestKeyField] = keyed, s.digestKeyer.ID()
+		} else {
+			lost = append(lost, e.Key)
 		}
 		hash, err := facts.Hash(e.Key, value)
 		if err != nil {
@@ -81,13 +86,13 @@ func (s *Subscriber) keyDigests(deviceID string, entries []facts.Entry) []facts.
 		e.Value, e.Hash = value, hash
 		out = append(out, e)
 	}
-	return out
+	return out, lost
 }
 
 // openDigest is the keyed digest of the raw digest sealedText holds, when the
 // Controller has its keys and sealedText opens, as a fact digest, to one
-// sealed for deviceID's fact key.
-func (s *Subscriber) openDigest(deviceID, key, sealedText string) (string, bool) {
+// sealed in jobID for deviceID's fact key.
+func (s *Subscriber) openDigest(jobID, deviceID, key, sealedText string) (string, bool) {
 	if s.digestOpen == nil || s.digestKeyer == nil {
 		return "", false
 	}
@@ -99,7 +104,7 @@ func (s *Subscriber) openDigest(deviceID, key, sealedText string) (string, bool)
 	if err != nil {
 		return "", false
 	}
-	raw, err := facts.OpenPlaintext(plaintext, deviceID, key)
+	raw, err := facts.OpenPlaintext(plaintext, jobID, deviceID, key)
 	if err != nil {
 		return "", false
 	}

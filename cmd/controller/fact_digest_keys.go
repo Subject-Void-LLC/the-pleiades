@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
@@ -32,5 +33,24 @@ func loadFactDigestKeys(logger *slog.Logger) (*sealed.PrivateKey, *facts.Keyer, 
 	if err != nil {
 		return nil, nil, err
 	}
-	return entstore.DigestKeys(secret)
+	open, keyer, err := entstore.DigestKeys(secret)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Named by its identity, never its value, so replicas configured with
+	// different keys show in their logs rather than as files that drift.
+	logger.Info("keeping digests of files not everyone may read keyed", slog.String("key", keyer.ID()))
+	return open, keyer, nil
+}
+
+// factDigestOptions is the Worker's and the facts consumer's options for the
+// digest keys: the public half on every dispatch, and the keys to open and
+// key what Runners seal. With no keys, neither, so every such digest is
+// dropped. main uses it, and so does its test.
+func factDigestOptions(open *sealed.PrivateKey, keyer *facts.Keyer) ([]dispatch.WorkerOption, []entstore.SubscriberOption) {
+	if open == nil || keyer == nil {
+		return nil, nil
+	}
+	return []dispatch.WorkerOption{dispatch.WithFactSealKey(open.Public().String())},
+		[]entstore.SubscriberOption{entstore.WithDigestKeys(open, keyer)}
 }

@@ -11,8 +11,11 @@ package main_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"io"
 	"os"
 	"path/filepath"
@@ -175,14 +178,16 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	// its process is not; a file in a directory only root may search is
 	// unreadable, never absent; and the digest is the device's own.
 	asRoot(t, g.container, "mkdir -p /rootonly && echo s > /rootonly/secret && chmod 700 /rootonly")
-	// The login's own private file: it reads it, others may not, so its
-	// digest and size are withheld.
-	asRoot(t, g.container, "echo pin1234 > /tmp/mine && chown "+releaseGateSSHUser+" /tmp/mine && chmod 600 /tmp/mine")
+	// The login's own private file (in /opt, not the sticky /tmp, where
+	// fs.protected_regular keeps even root from rewriting it): it reads it,
+	// others may not, so its
+	// digest is kept only keyed, and its size not at all.
+	asRoot(t, g.container, "echo pin1234 > /opt/mine && chown "+releaseGateSSHUser+" /opt/mine && chmod 600 /opt/mine")
 	// A listener of root's, whose process this login may not look into.
 	asRoot(t, g.container, "(busybox nc -lk -p 7070 -e /bin/true >/dev/null 2>&1 &)")
 	// Waited for by the kernel's own table (7070 is 1B9E), not a fixed sleep.
 	asRoot(t, g.container, `i=0; until grep -q ':1B9E ' /proc/net/tcp /proc/net/tcp6; do i=$((i+1)); [ $i -gt 100 ] && exit 1; sleep 0.1; done`)
-	gather("gather_subset:=[ports, users]", "files:=[/etc/hostname, /rootonly/secret, /nonexistent, /tmp/mine]")
+	gather("gather_subset:=[ports, users]", "files:=[/etc/hostname, /rootonly/secret, /nonexistent, /opt/mine]")
 	stored := map[string]map[string]any{}
 	for _, f := range read().Facts {
 		if v, ok := f.Value.(map[string]any); ok {
@@ -226,18 +231,47 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	}
 	// The login's private file: kept only as the project's keyed digest,
 	// never its plain or raw digest or its size.
-	m := stored["file.%2Ftmp%2Fmine"]
+	m := stored["file.%2Fopt%2Fmine"]
 	if m == nil || !keyedDigest(m) || m["sha256"] != nil || m["sha256_raw"] != nil || m["size"] != nil || m["mode"] != "0600" {
 		t.Errorf("a private file = %v, want only the project's keyed digest", m)
 	}
-	if raw := strings.Fields(asRoot(t, g.container, "sha256sum /tmp/mine"))[0]; m != nil && m["hmac_sha256"] == raw {
+	if raw := strings.Fields(asRoot(t, g.container, "sha256sum /opt/mine"))[0]; m != nil && m["hmac_sha256"] == raw {
 		t.Error("the keyed digest is the raw digest")
 	}
 	// A second gather of the unchanged file keeps the same keyed value: one
 	// value in its history, so a keyed digest shows drift as a plain one does.
-	gather("files:=[/tmp/mine]")
-	if h := read("file.%2Ftmp%2Fmine"); len(h.Facts) != 1 {
+	gather("files:=[/opt/mine]")
+	if h := read("file.%2Fopt%2Fmine"); len(h.Facts) != 1 {
 		t.Errorf("the private file's history has %d values after two gathers of it unchanged", len(h.Facts))
+	}
+	// The value is exactly the project's keyed digest of the file's real
+	// content, computed here from the project's own master key, and a change
+	// to the file is a new value: a keyed digest shows drift as a plain one.
+	masterKey, err := credential.ResolveMasterKey(g.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyer, err := facts.NewKeyer(masterKey, "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantKeyed := func(content string) string {
+		sum := sha256.Sum256([]byte(content))
+		v, _ := keyer.Seal(first.DeviceID, "file.%2Fopt%2Fmine", hex.EncodeToString(sum[:]))
+		return v
+	}
+	if m["hmac_sha256"] != wantKeyed("pin1234\n") || m["hmac_key"] != keyer.ID() {
+		t.Errorf("the private file is keyed as %v, want the project's keyed digest of its content", m)
+	}
+	asRoot(t, g.container, "echo pin5678 > /opt/mine")
+	gather("files:=[/opt/mine]")
+	h := read("file.%2Fopt%2Fmine")
+	if len(h.Facts) != 2 {
+		t.Fatalf("the changed private file's history has %d values, want 2", len(h.Facts))
+	}
+	latest, _ := h.Facts[len(h.Facts)-1].Value.(map[string]any)
+	if latest["hmac_sha256"] != wantKeyed("pin5678\n") {
+		t.Errorf("after the change the private file is keyed as %v, want the keyed digest of its new content", latest)
 	}
 
 	// The chain verifies; an edited value breaks it, and the command says so

@@ -108,7 +108,11 @@ func TestFactDigests_ARunnerSealsThemToTheController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seal := engine.WithFactDigestSealer(func(plaintext []byte) (string, error) {
+	seal := engine.WithFactDigestSealer(func(deviceID, factKey, raw string) (string, error) {
+		plaintext, err := facts.SealPlaintext("job-1", deviceID, factKey, raw)
+		if err != nil {
+			return "", err
+		}
 		file, err := sealed.SealToKey(priv.Public(), sealed.PurposeFactDigest, plaintext)
 		return string(file), err
 	})
@@ -128,7 +132,7 @@ func TestFactDigests_ARunnerSealsThemToTheController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if raw, err := facts.OpenPlaintext(plaintext, "dev-1", "file.x"); err != nil || raw != digestRaw {
+	if raw, err := facts.OpenPlaintext(plaintext, "job-1", "dev-1", "file.x"); err != nil || raw != digestRaw {
 		t.Errorf("the Controller would open %q, %v", raw, err)
 	}
 	// A run whose recorder does not publish to the Controller stores no
@@ -149,8 +153,13 @@ func TestFactDigests_AnExecutorToldNeitherDropsThem(t *testing.T) {
 	if file["state"] != "present" || file["hmac_sha256"] != nil || file["sha256_sealed"] != nil {
 		t.Errorf("the result holds %v", file)
 	}
+	// The loss is said, by fact and reason, never by value.
+	warnings := strings.Join(toStrings(result.Nodes[0].Stats[sdk.StatWarnings]), "\n")
+	if !strings.Contains(warnings, "the digest of file.x was not kept") || !strings.Contains(warnings, "the digest of probe was not kept") {
+		t.Errorf("warnings = %q, want each lost digest named", warnings)
+	}
 	// A sealer that fails drops the digest too.
-	failing := engine.WithFactDigestSealer(func([]byte) (string, error) { return "", errors.New("no key") })
+	failing := engine.WithFactDigestSealer(func(string, string, string) (string, error) { return "", errors.New("no key") })
 	result, stored = runDigests(t, false, []engine.CollectionActionExecutorOption{failing}, engine.WithSealedFactDigests())
 	if holdsRaw(t, result) || holdsRaw(t, stored) || strings.Contains(string(mustJSON(t, stored)), "sha256_sealed") {
 		t.Errorf("a failed seal left %+v", stored)
@@ -189,5 +198,58 @@ func TestFactDigests_AChildsRawDigestIsHandledToo(t *testing.T) {
 	failed, _ := runDigests(t, true, []engine.CollectionActionExecutorOption{failing})
 	if holdsRaw(t, failed) {
 		t.Error("a failed child's raw digest reached the result")
+	}
+}
+
+// toStrings is a warnings stat as strings.
+func toStrings(v any) []string {
+	switch w := v.(type) {
+	case []string:
+		return w
+	case []any:
+		out := make([]string, 0, len(w))
+		for _, item := range w {
+			s, _ := item.(string)
+			out = append(out, s)
+		}
+		return out
+	}
+	return nil
+}
+
+func TestFactDigests_ARawDigestDeeperInAValueIsDropped(t *testing.T) {
+	registerDigestMethod(t)
+	// A child (or an external Collection) nesting the field: neither keyed
+	// nor shown, at any depth.
+	nested := engine.WithCollectionInvoker(func(context.Context, collection.Descriptor, inventory.InventoryItem, map[string]any, collection.Mode) (collection.Result, map[string]any, error) {
+		return collection.Result{}, map[string]any{
+			"file.x":         map[string]any{"inner": map[string]any{"sha256_raw": digestRaw}, "list": []any{map[string]any{"sha256_raw": digestRaw}}},
+			"private":        map[string]any{"world_readable": false, "sha256": digestRaw, "size": 7},
+			sdk.StatFactKeys: []any{"file.x"},
+		}, nil
+	})
+	keyer, _ := facts.NewKeyer(bytes.Repeat([]byte{9}, 32), "project")
+	result, stored := runDigests(t, false, []engine.CollectionActionExecutorOption{nested, engine.WithFactDigestKeyer(keyer)})
+	if holdsRaw(t, result) || holdsRaw(t, stored) {
+		t.Fatalf("a nested raw digest, or a private file's plain one, survived: %v", result.Nodes[0].Stats)
+	}
+}
+
+// rawExecutor is an ActionExecutor outside the collection executor whose
+// result holds a raw digest, as no built-in one does today.
+type rawExecutor struct{}
+
+func (rawExecutor) Execute(context.Context, *engine.Task, inventory.InventoryItem) (engine.ActionResult, error) {
+	return engine.ActionResult{Stats: map[string]any{"probe": map[string]any{"sha256_raw": digestRaw, "sha256_sealed": "x"}}}, nil
+}
+
+func TestFactDigests_NoExecutorsResultKeepsARawDigest(t *testing.T) {
+	x := engine.NewExecutor(factFleet(), rawExecutor{}, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+	result, err := x.Run(context.Background(), buildDAG(t, `{"id": "d", "tasks": [{"name": "r", "register": "r", "anything.at.all": {"target": "fleet"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if holdsRaw(t, result) || strings.Contains(string(mustJSON(t, result)), "sha256_sealed") {
+		t.Errorf("an executor's raw or unexpected sealed digest reached the result: %v", result.Nodes[0].Stats)
 	}
 }

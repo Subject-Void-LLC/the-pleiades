@@ -115,7 +115,14 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// keyed (or dropped) before anything is written.
 	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared, AllowSealed: true}
 	entries, refused, err := facts.Verify(batch.Entries, guard)
-	entries = s.keyDigests(batch.DeviceID, entries)
+	entries, lost := s.keyDigests(batch.JobID, batch.DeviceID, entries)
+	if len(lost) > 0 {
+		// Named by fact, never by value: a Controller without the digest
+		// key, a Runner sealing to another key, or a sealed digest from
+		// another job or device. Each such fact is stored without one.
+		s.logger.Warn("stored facts without the digest a Runner sealed, which this controller could not open as theirs",
+			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Any("facts", lost))
+	}
 	if err != nil || refused > 0 {
 		s.logger.Warn("dropping facts a Runner published that do not pass the rules",
 			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Int("refused", refused), slog.Any("error", err))
