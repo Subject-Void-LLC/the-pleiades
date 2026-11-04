@@ -1,8 +1,11 @@
+//go:build !windows
+
 // Tests of what a connection sends: every command encoded for sh
 // (shline), as written on a Raw view, and nothing over the size one argument
 // may hold. The harness runs each line through a real /bin/sh, as sshd runs
 // it through a login shell that is sh; the other login shells are the
 // release gates' (PLEIADES_TEST_LOGIN_SHELL) and internal/transport/ssh's.
+// Not on Windows, where the harness has no /bin/sh, as detach_test.go.
 package remoteexec
 
 import (

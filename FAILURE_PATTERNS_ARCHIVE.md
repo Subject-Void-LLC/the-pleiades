@@ -20694,3 +20694,15 @@ parsed all of stdout after a login banner.
 pass under fish, tcsh and zsh.
 
 **Lesson.** 779's: read a remote command's answer from a line it marked, never from all of its output.
+
+## 864. A new test file used a helper from a file built only off Windows, so the package's tests did not compile for Windows (fixed before push)
+
+**Symptom.** 2026-11-03, `make pr-check` on `fix/shell-agnostic-ssh`: the `pr-check-vet` step failed under `GOOS=windows` with `pkg/remoteexec/script_test.go: undefined: detachedServer`. Linux and macOS built and passed.
+
+**Root cause.** `detachedServer` lives in `pkg/remoteexec/detach_test.go`, which carries `//go:build !windows` (its harness runs `/bin/sh`). The new `script_test.go` called it with no constraint of its own, so it built on Windows against a helper that did not.
+
+**Why nothing caught it sooner.** Every local run was on Linux, and gopls reports the host's build only. The cross-OS vet step in pr-check is what exists to catch this, and did.
+
+**Fix.** `script_test.go` carries the same `//go:build !windows` and says why.
+
+**Lesson.** A test file that calls a helper inherits the helper's build constraint: check the helper's file header, or run `GOOS=windows go vet` on the package, before the gate.
