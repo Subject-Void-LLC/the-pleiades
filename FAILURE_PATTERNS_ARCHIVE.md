@@ -20956,3 +20956,214 @@ range (`TestParseFileSection_ReadsEachStatAndTellsUnreadableFromAbsent`).
 
 **Lesson.** Before review, read each new test against the test-quality titles in this file: a test written fresh
 repeats the old classes unless someone looks.
+
+## 878. A Runner counted the dispatched credential's username as a secret, so every fact naming the login was refused on the Walk tier (a repeat of 120; 394's identifier allowlist lived on the CLI only, and 829's fix carried the gap into the fact guard) (fixed)
+
+**Symptom.** 2026-11-04, found by the new Walk gate on `feat/facts-keyed-digest`
+(`TestFactsReleaseGate_APrivateFilesDigestIsStoredOnlyKeyed`). On a Runner every fact that named the login was refused
+as "its value holds a secret of this run": the login's own `user.<name>`, any file it owns, and with a root login
+nearly every file fact. A short username was also scrubbed out of paths in the job's output. It shipped with PR #111
+(41c-2), whose `users` and `files` subsets are the first facts to name the login.
+
+**Root cause.** `childSecretValues` (`internal/adapters/native/ipc_parent.go`, since `9e7c455a`) counted every value of
+the dispatched credential as secret through `redact.MapValues`: the username, a certificate's public half and a seeded
+login's identifiers as well as the password and keys. The CLI's `credentialSecrets` leaves those identifiers out (394),
+because a substring scrub of a short name such as `root` corrupts every path holding it. 829's fix
+(`5763c04f`) fed the same list, through `dispatchSecrets`, to the executor's fact guard, so over-masking in output
+became refusal of facts.
+
+**Why 120, 394 and 829 did not prevent it.** 120 fixed the class for injected credential types (`wire.Injected.Mask`),
+not for the device credential a native method is handed. 394 wrote the allowlist into the CLI path and said the Walk
+tier "was not affected", which was true of the leak it fixed and said nothing of over-masking. 829 reused the Runner's
+existing list without asking what it held. One rule lived in two copies with no test holding them equal.
+
+**Fix.** `98005436`: `engine.CredentialSecrets` is exported and the Runner's `childSecretValues` calls it, so both
+tiers count a credential the same way; the password and keys stay masked. `container_exec_walk_test.go` had encoded
+the old masking of the username and was updated. Proven by the Walk gate above, which stores a file fact on a real
+Runner. Residual: `internal/loader` and the legacy adapter still mask the username, which is stricter, so the tiers
+still differ for external Collections; `pkg/netconf` keeps its own copy of the identifier allowlist.
+
+**Lesson.** A rule about which values are secret is one function every tier calls. When a fix says another tier "was
+not affected", check that the other tier does the same thing, not only that it leaks nothing.
+
+## 879. The Runner invoker path returned before the digest rewrite, which a mapper's report said one call point covered on both tiers (a sibling of 860; LESSONS 244 and 363) (fixed before push)
+
+**Symptom.** 2026-11-04, while building `feat/facts-keyed-digest`. A raw digest (`sha256_raw`) a Runner's child handed
+back was not sealed: the rewrite never ran on that path. `facts.Prepare`'s scrub dropped the raw value before it was
+stored, so nothing leaked; the digest was lost instead of kept.
+
+**Root cause.** The collection executor has two invoker paths. The Runner's child path returns early
+(`internal/engine/collection_action.go`), before the line after `collector.Facts()` where the rewrite was first
+placed. A go-mapper report had said that one point covered both tiers, and the code was written to that claim.
+
+**Fix.** In `3e6bb38c`, `digestsOf` runs on each path, on failure as on success (`collection_action.go`, the child path
+and the in-process path), and in `70d3032b` the executor scrubs every node's stats (`scrubResultDigests`). Proven by
+`TestFactDigests_AChildsRawDigestIsHandledToo` and the other `TestFactDigests_*` tests in
+`internal/engine/fact_digests_test.go`, which run a real Executor on both paths; removing the rewrite fails three of
+them.
+
+**Lesson.** See LESSONS 393: a map of where code runs is a hypothesis until each path it names has its own test.
+
+## 880. A session script that copied a method's Doc into catalogdata cut the Go literal at the wrong closing brace, twice, leaving a file that did not compile (fixed before push)
+
+**Symptom.** 2026-11-04. Syncing `facts.gather`'s documentation into
+`internal/forge/catalogdata/collections_gating.go` left the file unable to compile. It happened once on
+`feat/facts-41c-2` and again on this branch.
+
+**Root cause.** The script, kept outside the repository, found the end of the `Doc` literal by counting braces and
+did not skip braces inside string literals. The documentation text holds braces, so it stopped early.
+
+**Fix.** String-aware brace matching in the script. The build caught both cases before any commit, so no broken file
+was committed.
+
+**Lesson.** A script that edits Go source by position must read Go's own syntax (strings, runes, comments), or use
+`go/parser`; counting a delimiter in text that may quote it fails on the first quoted one. When the same tool fails a
+second time, record it rather than fixing it quietly again.
+
+## 881. The Controller read PLEIADES_FACTS_DIGEST_KEY after it had bound its listener and migrated the database (a repeat of 297; LESSONS 216) (fixed before push)
+
+**Symptom.** 2026-11-04, fp-reviewer pass over `feat/facts-keyed-digest`. A malformed `PLEIADES_FACTS_DIGEST_KEY`
+stopped the Controller only after it had bound its port and migrated its database.
+
+**Root cause.** 297's class: a configuration value checked where it is used, not where it is read. The new key was
+read beside the facts consumer it feeds, which `cmd/controller/main.go` builds late.
+
+**Why 297 did not prevent it.** 297 moved one variable (`NATS_URL`); LESSONS 216 states the rule, and nothing checks a
+new variable against it.
+
+**Fix.** `70d3032b`: `loadFactDigestKeys` (`cmd/controller/fact_digest_keys.go`) runs before the Controller binds or
+migrates. Proven by `TestFactDigestKeyReleaseGate_AMalformedKeyStopsTheControllerFirst`, which starts the real
+binary with a malformed key and asserts exit 1, no database file and no listener.
+
+**Lesson.** Every new environment variable a composition root reads is checked before the first side effect, with a
+test that asserts what had not happened yet.
+
+## 882. The chart's existingSecret path could not deliver the new digest key, so two combinations rendered a controller that would not start (a repeat in kind of 234) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-keyed-digest`. With `secrets.existingSecret` set, `secrets.factsDigestKey`
+was never written anywhere the controller reads, and `secrets.existingSecretHasFactsDigestKey: true` without an
+`existingSecret` made the deployment read a key from the chart's own Secret that it did not hold.
+
+**Root cause.** 234's class: the chart's `existingSecret` branch is a second path for every secret, and the new value
+was wired through one path only.
+
+**Fix.** `70d3032b`: `helm/the-pleiades/templates/_validations.tpl` refuses `factsDigestKey` together with
+`existingSecret`, and `existingSecretHasFactsDigestKey` without one, each with a message naming the setting to use.
+`21e07e95` adds both to `tools/helm-lint`'s refusal profiles (`profiles.go`), each held to its message; disabling
+one makes `make helm-lint` fail on exactly that case (negative control run 2026-11-04).
+
+**Lesson.** A new chart secret is checked against each combination of `existingSecret` and its own flag, and each
+refusal joins `tools/helm-lint`'s refusal profiles.
+
+## 883. A digest the store could not keep was dropped without a word, in the engine and in the Controller (a sibling of 853) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-keyed-digest`. An executor told neither a keyer nor a sealer, and a
+Controller without `PLEIADES_FACTS_DIGEST_KEY` or holding a sealed digest that would not open, dropped the digest and
+reported success with nothing said, so an operator could not tell a private file with no digest from a missing
+configuration.
+
+**Root cause.** 853's class: a bound or a refusal applied by dropping data while the task succeeds.
+
+**Fix.** `70d3032b`: every loss is said. On the CLI and a Runner the task carries a warning naming the fact, never the
+value (`appendWarning`, `internal/engine/fact_digests.go`); the Controller logs a warning per batch by fact, logs its
+key's identity at start (`loadFactDigestKeys`), and a Runner logs a seal key that will not parse
+(`internal/adapters/native/fact_seal.go`). Proven by `TestFactDigests_AnExecutorToldNeitherDropsThem` and
+`TestSubscriber_WithoutKeysStoresTheFactWithoutItsDigest`.
+
+**Lesson.** A fail-closed drop is right; a silent one is not. Each drop names what it dropped where the operator reads.
+
+## 884. The raw-digest scrub looked only at the top level of a fact, a typed in-process value skipped it, and the store trusted the sender to leave out a private file's plain digest (a repeat in kind of 696; LESSONS 350) (fixed before push)
+
+**Symptom.** 2026-11-04, the fp-reviewer pass and two independent diff reviews of `feat/facts-keyed-digest`. Three
+gaps in one guard: `facts.ScrubDigests` dropped `sha256_raw` only at the top level of a fact's value, so one nested
+deeper survived; a value an in-process method returned as a Go type rather than a `map[string]any` was not walked; and
+the store kept a plain `sha256` or `size` of an object marked `world_readable: false` if a sender put one there.
+
+**Root cause.** 696's class: a strip list applied to the top level only. The third gap assumed the producer is honest,
+where the store must hold its own rule.
+
+**Fix.** `70d3032b`: `facts.ScrubDigests` (run in `Prepare`) drops a raw digest at any depth and inside typed values,
+drops a sealed one except at a sealing Runner's top level, and drops a plain `sha256` and `size` of any
+`world_readable: false` object whoever sent it; the executor scrubs every node's stats (`scrubResultDigests`). Proven
+by `TestScrubDigests_NoRawDigestAtAnyDepthAndNoPlainOneOfAPrivateFile`,
+`TestFactDigests_ARawDigestDeeperInAValueIsDropped`, `TestFactDigests_NoExecutorsResultKeepsARawDigest` and
+`TestSubscriber_NeverStoresARawDigest`.
+
+**Lesson.** A guard over data walks the whole value in every shape it can arrive in, and a store holds its own
+invariants rather than trusting what the sender left out.
+
+## 885. A sealed digest bound its device and fact but not its job, so one could be replayed into a later job, and a NUL in a bound field was accepted (the NUL class of 317 and 859) (fixed before push)
+
+**Symptom.** 2026-11-04, an independent diff review of `feat/facts-keyed-digest`. A sealed digest captured from one
+job's batch could be placed in a later job's batch for the same device and fact, so a changed private file would read
+as unchanged. A NUL in the job, device or fact field could make two different bindings encode the same way.
+
+**Root cause.** The binding named what the digest is of, not when it was taken. The binding fields were joined without
+refusing the separator.
+
+**Fix.** `70d3032b`: `facts.SealPlaintext` binds job, device and fact, the Controller checks all three against the
+batch before keying, and a NUL in any bound field is refused. Proven by
+`TestSealPlaintext_BindsTheDigestToItsJobFactAndDevice`, `TestFactSealing_SealsToTheDispatchKeyBoundToItsJob`, and the
+Walk gate, whose device ID and name differ (888).
+
+**Lesson.** A sealed value carries everything that makes it valid in one place and time; a binding of "what" without
+"when" is replayable.
+
+## 886. Text the branch made false still said a private file's digest is "withheld" (a repeat of 789) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-keyed-digest`. After a private file's digest became keyed, text from
+41c-2 still said it is withheld: in `facts.gather`'s documentation and generated reference, a changelog fragment, the
+Windows probe's comments and the production guide.
+
+**Root cause.** 789's class: a behavior change not followed through every sentence that described the old behavior.
+
+**Why 789 did not prevent it.** Its lesson is to search for the old words after a change; the search was not run before
+review.
+
+**Fix.** `70d3032b`: `changelog/facts-files-ports-users.added.md`, `internal/catalog/facts/gather.go`,
+`gather_win_items.go`, `internal/forge/catalogdata/collections_gating.go` and the generated reference were corrected,
+and the production guide's section "Digests of files only some may read" stands on its own.
+
+**Lesson.** When a change replaces a word that names a behavior (here "withheld"), search the tree for it before review.
+
+## 887. pleiades seal offered the fact-digest purpose, which only a Runner can use, so a hand-sealed value could only fail (a repeat in kind of 221) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-keyed-digest`. `pleiades seal --purpose fact-digest` sealed a value the
+Controller would never accept, since a sealed digest must carry a job, device and fact binding the command cannot
+supply.
+
+**Root cause.** 221's class: an interface offered a choice the receiving side always refuses. The new purpose was added
+to `internal/sealed` and the command accepted every purpose the package knows.
+
+**Fix.** `70d3032b`: `cmd/pleiades/seal.go` refuses `--purpose fact-digest` and names the purpose to use instead
+(`seal_test.go`, case "a runner's fact digest").
+
+**Lesson.** A new value in a shared vocabulary is checked against each place that offers the vocabulary to a person.
+
+## 888. The branch's tests repeated old test-quality classes: the Controller's digest wiring was untested, gates checked a digest's shape and not its value or a change, a purpose check could not fail, and the Walk gate used one string for device ID and name (a repeat of 467; LESSONS 235, 351 and 381) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-keyed-digest`.
+- `cmd/controller/main.go` wired the digest keys into the Worker and the facts consumer by hand, and no test held
+  that wiring.
+- The CLI and lab gates asserted that a private file's fact carried `hmac_sha256` and `hmac_key`, not that the value
+  was the right HMAC or that a change gave a new one.
+- A store test's purpose check passed for a reason other than the purpose: its device did not match, so the binding
+  check refused first.
+- The Walk gate used one string as the device's ID and its name, so a check on the wrong one could not be told apart.
+
+**Root cause.** Classes already recorded: asserting what was left alone rather than what was produced (467), a test
+that cannot fail against its defect (LESSONS 235), and a composition root's options with no test (LESSONS 351 and 381).
+
+**Why the earlier fixes did not hold.** As in 877: each lives as a lesson, and new tests were not read against them
+before review.
+
+**Fix.** `70d3032b`. The wiring is one helper, `factDigestOptions`, which `main` and
+`TestFactDigestOptions_KeyWhatARunnerSealedThroughTheConsumerMainBuilds` both use. `TestCLI_FactsReleaseGate` holds
+the stored value to the project key's HMAC of the real content, stable over two gathers and new after a change; the
+FreeBSD, macOS and Windows lab gates check the keyed shape and that a change shows, all passing 2026-11-04. The
+purpose test's device now matches, so only the purpose can refuse it (negative-controlled). The Walk gate
+(`TestFactsReleaseGate_APrivateFilesDigestIsStoredOnlyKeyed`) gives the device an ID and a name that differ, and
+asserts the stored value equals the Controller's HMAC of the real digest and that no row holds the raw.
+
+**Lesson.** Read new tests against the test-quality titles before review (877's lesson, repeated): a digest test
+checks the value against an independent computation and checks that a change shows.
