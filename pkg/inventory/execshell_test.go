@@ -25,7 +25,11 @@ func TestExecIsPOSIX_OnlyANetworkCLIOrAProvedNonPOSIXShellIsNot(t *testing.T) {
 		{"an engine host, which declares no POSIX file system", &inventorytest.Stub{StubName: "e", Caps: []capability.Name{capability.NameContainerEngine}}, true},
 		{"a network CLI", &inventorytest.Stub{StubName: "sw", Caps: []capability.Name{capability.NameSSHTransport, capability.NameNetworkCLI}}, false},
 		{"onboarded posix", &inventorytest.Stub{StubName: "g", Props: discovered("posix")}, true},
-		{"onboarded not posix", &inventorytest.Stub{StubName: "w", Props: discovered(inventory.NotPOSIX)}, false},
+		{"onboarded with no posix sh", &inventorytest.Stub{StubName: "w", Props: discovered(inventory.NotPOSIX)}, false},
+		// An onboarding before the shell-agnostic change wrote "not posix" for
+		// a fish or tcsh LOGIN on a device that has sh. Read as no sh, every
+		// command went raw to fish, where a quoted value can run as code.
+		{"onboarded before the change, with a fish login", &inventorytest.Stub{StubName: "f", Props: discovered("not posix")}, true},
 	}
 	for _, tc := range cases {
 		if got := inventory.ExecIsPOSIX(tc.item); got != tc.want {

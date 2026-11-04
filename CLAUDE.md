@@ -240,7 +240,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   itself) and the transport actions never pool. Every command a `Conn` sends reaches `/bin/sh`, whatever the
   account's login shell (`pkg/remoteexec/shline`: one single-quoted word of `\0NNN` escapes every login shell passes
   on unchanged, owner decision 2026-11-03, `ssh_exec` included); `Conn.Raw()` sends as written only for a device
-  `inventory.ExecIsPOSIX` says is not a POSIX shell (a network CLI, or onboarding's `shell: not posix`). A NUL is
+  `inventory.ExecIsPOSIX` says is not a POSIX shell (a network CLI, or onboarding's `shell: no posix sh`; the value an older onboarding wrote, `not posix`, is read as unrecorded). A NUL is
   refused. `PLEIADES_TEST_LOGIN_SHELL=fish|tcsh|zsh` runs the sshd-backed suites under that login shell, and
   `internal/archtest` keeps SSH sessions inside `pkg/remoteexec`.
 - **Generic device types are real (Phase 111).** `generic_ssh`, `generic_netconf`, `generic_http` and
