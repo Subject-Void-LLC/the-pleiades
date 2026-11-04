@@ -20606,6 +20606,12 @@ again. The Ansible gate's container is not switched, since Ansible chooses its o
 `TestEveryLoginShellHandsShTheSameCommand` installs the shells from the Alpine mirror at test time, bounded by a
 three-minute deadline, not pinned in an image.
 
+**Resolution of the open half (2026-11-04, branch `fix/ssh-sweep-2026-11-04`).** The stale record was worse than
+"stays raw": fish does not treat `QuoteArg`'s quoting as a boundary, so a quoted value could run as code. `01e5c792`
+gives the new meaning a new value, `no posix sh`, and reads the old `not posix` as unrecorded, so such a host gets the
+`sh` wrapper without being onboarded again. See 893 for the cost (a no-`sh` device onboarded before #110 must be
+onboarded again, and an older Runner reads the new value as POSIX).
+
 **Lesson.** 845's, now built: one encoder in the one place commands are sent, an archtest that keeps every session
 there, and a harness switch that runs the whole suite under another login shell (LESSONS 388).
 
@@ -21228,3 +21234,160 @@ at once with `planted value "0644" could appear in a random hex ID`. `TestJourna
 
 **Lesson.** An assertion that a planted value is absent from text holding random identifiers plants a value those
 identifiers' alphabet cannot spell, and the helper refuses one that could. CI_LESSONS 25.
+
+## 891. pkg/remoteexec returned a cancelled SSH command as a completed one: partial output with no error, or exit 143, and a context already done still sent the command (a sibling of 774; a repeat in kind of 352, of 149's fix and of 859) (fixed)
+
+**Symptom.** 2026-11-04, from the Batch sweep of merged code (`.IGNORE/claude-api/out/sweep-2026-11-04/VERDICTS-ssh.md`),
+then measured against the real OpenSSH sshd container on branch `fix/ssh-sweep-2026-11-04`:
+- a cancelled `echo started; sleep 30` returned `Stdout` "started" with a nil error;
+- a cancelled `RunWithStdin` returned `ExitCode` 143 with a nil error;
+- a context already done still sent the command (the test's marker file was written).
+
+The same commit found three more on the same path:
+- a failed read of standard input was sent to the device as a clean end of input, so `cat > f` wrote a prefix of the
+  file and reported 0;
+- `RunWithStdin`'s deferred wait on its stdin copy could wait forever on a copy blocked on an SSH window the remote
+  stopped granting;
+- the detached (async) path never reached `Conn.wire`, so it skipped the NUL refusal.
+
+**Root cause.** `waitOrAbandon` (`pkg/remoteexec/conn.go`) returned whatever status sshd reported after the
+watcher's SIGTERM and session close, and `run` read it as an ordinary result: a nil error became success, an
+`ExitError` became a finished command with that exit code. Nothing checked the context before `NewSession` or
+`Start`, and neither takes a context. The stdin copy's error was dropped whole, a read error included. The NUL check
+lived in `wire`, which the detached branch does not call.
+
+**Why the earlier fixes did not hold.**
+- 774 bounded the wait after a cancel (`abandonGrace`) but kept reporting the status that came back, so a status sshd
+  sent after the signal still read as the command's own.
+- 149's fix dropped the stdin copy's error on purpose, because a remote that stops reading has finished. That reason
+  covers a write error only. A read error from the local source is a different event, and it was dropped with it.
+- 352 bounded the handshake (`closeOnDone`), not the session open and exec start after it, which were left with no
+  guard.
+- 859 put the NUL refusal in `wire`, the one place it was believed every command passes; the detached branch is a
+  second route that does not.
+
+**Fix.** `a50bc048`. `cancelWatch` (`pkg/remoteexec/conn_watch.go`) starts before `NewSession`; when the context ends
+it sends SIGTERM, closes the session, and after `abandonGrace` closes the connection chain, which ends a session open,
+a Wait and a blocked stdin copy that a session close alone does not. A run the watch fired on returns the context's
+error and no `Result`. A done context sends nothing. `stdinSource` stops the command and fails the call on a read
+error. `refuseNUL` runs before the detached branch. Tests, each failing on the old code:
+`TestSSHContainer_ACancelledCommandIsNotACompletedOne`, `TestSSHContainer_ACancelledInputIsNotReportedAsCompleted`
+and `TestSSHContainer_AContextAlreadyDoneRunsNothing` (`internal/transport/ssh/ssh_cancel_container_test.go`, real
+sshd), and `pkg/remoteexec/conn_cancel_test.go` (`TestRun_AContextAlreadyDoneSendsNothing`,
+`TestRunWithStdin_AFailedReadIsNotAnEndOfInput`, `TestRunWithStdin_ACopyTheRemoteStoppedGrantingIsBounded`,
+`TestRun_ASilentConnectionCannotHoldASessionOpen`, `TestRun_ADetachedCommandHoldingANULIsRefused`). `72474f70` added
+`TestRun_AContextEndingWhileTheSessionOpensIsACancellation` and `TestRun_AConnectionDroppedMidCommandIsAnErrorNotAStatus`.
+
+**How it was nearly missed.** The first two tests of the cancel were written against the in-process SSH server and
+passed on the old code. `x/crypto/ssh`'s server answers a channel CLOSE at once and drops any status sent after it,
+so it never shows what OpenSSH shows. They were replaced by the real-sshd tests (LESSONS 396).
+
+**Open.** `pkg/remoteexec/stream.go` (`Conn.Start`, `Process`, subsystems) has the same cancelled-as-completed shape
+(fp-reviewer finding F4), carried to the next SSH pull request.
+
+**Lesson.** After a cancel, the context's error is the answer, whatever the server sends next: a status that arrives
+after the client asked the command to stop is not the command's result. When a guard lives in one function, list the
+routes that skip it (here the detached branch), as LESSONS 363 says.
+
+## 892. sdk.Connect, ConnectPort and ConnectFresh ignored the device's route, so a Collection method dialed a device behind a bastion directly, and so did net.ssh.ping (a sibling of 860; LESSONS 244 and 363) (fixed)
+
+**Symptom.** 2026-11-04, from the Batch sweep of merged code. A device with a `route` of SSH hops was reached
+through the bastion by `ssh_exec`, but every Collection method built on `sdk.Connect`, `sdk.ConnectPort` or
+`sdk.ConnectFresh`, and `net.ssh.ping`, dialed the device's own address. `TestCLI_ACollectionMethodReachesARoutedDeviceThroughItsBastion`
+(`cmd/pleiades/route_collection_test.go`), with the target known only by its container name on the bastion's
+Docker network, failed on the old code with `lookup ... no such host`.
+
+**Root cause.** The engine already resolved the route and handed the method a dialer through it (`sdk.Router`'s
+`RouteDial`); `sdk`'s connect never read it. `net.ssh.ping` opens its own connection and did not read it either.
+
+**Why 860 and LESSONS 244 and 363 did not prevent it.** 860 found that `net.ssh.ping` took a different route from
+`sdk.Connect` and missed the device rule, and fixed that one rule on that one route. The route of hops is a second
+rule with the same two routes, and nobody asked of it the question 860 asked of the shell rule. LESSONS 363 says to
+check a rule along every route to a device; it was applied per rule as each was found, not to the list of rules a
+connection must follow.
+
+**Fix.** `9ca3ef7c`: `remoteexec.Runner.ConnectVia` opens a connection through a given dialer, checking the target's
+host key against known_hosts as a direct connection does, and `sdk`'s connect uses it for a routed device, unpooled
+(the pool dials directly). `bd004d1e`: `net.ssh.ping` goes through the route too. Tests:
+`TestCLI_ACollectionMethodReachesARoutedDeviceThroughItsBastion` (real binary, two sshd containers; an unknown target
+key is refused through the route), `TestConnect_DialsARoutedDeviceThroughItsRoute` (`pkg/sdk`),
+`TestPing_ARoutedDeviceIsPingedThroughItsRoute` (`internal/catalog/net/ssh`), and the `TestConnectVia_*` tests in
+`pkg/remoteexec/connectvia_test.go`.
+
+**Open.** Crawl tier only. A Runner, an external Collection and the onboarding SSH probe still dial the device's
+address directly; `docs/11-extending-pleiades.md` and `changelog/ssh-cancel-route-legacy-shell.security.md` say so.
+
+**Lesson.** For each way a connection is opened, list every rule a connection must follow (route, shell, host key,
+pool key) and check each one, not only the rule that brought you there.
+
+## 893. inventory.NotPOSIX kept the stored string "not posix" when #110 changed what it meant, so a fish or tcsh host onboarded before #110 had its commands sent raw to fish, where a quoted value is not a boundary (the open half of 858) (fixed)
+
+**Symptom.** 2026-11-04, from the Batch sweep of merged code. Before #110 (`4a7db76d`, FAILURE_PATTERNS 858),
+onboarding recorded `shell: not posix` for a device whose login shell was not POSIX, such as fish or tcsh on a host
+that has `/bin/sh`. #110 kept the same string but made it mean "this device has no POSIX sh", which sends commands raw.
+So a fish host onboarded before #110 had every command sent raw to fish. `QuoteArg` is not an injection boundary in
+fish, which reads a backslash inside single quotes, so a quoted value could end its quote and run as the login.
+
+**Root cause.** A persisted value kept its spelling while its meaning changed, and a record carries no probe version,
+so the reader could not tell an old record from a new one. 858 recorded the stale-record half as open and left it to
+the user to onboard again (its changelog said so), which nothing enforced.
+
+**Fix.** `01e5c792`. The new meaning has a new value, `no posix sh` (`pkg/inventory/execshell.go`), which the probe
+records; the old value `not posix` is read as nothing recorded, so such a device gets the `sh` wrapper.
+`TestExecIsPOSIX_OnlyANetworkCLIOrAProvedNonPOSIXShellIsNot` (`pkg/inventory/execshell_test.go`) holds both values.
+`CLAUDE.md` names the new value.
+
+**Consequences, stated in the changelog fragment.** A device with no `sh` (a Windows OpenSSH server, a router or
+appliance added as `generic_ssh`) onboarded before #110 now fails at `/bin/sh` until it is onboarded again. A Runner
+older than this release reads the new value as POSIX and fails the same way on such a device until it is upgraded.
+Both fail closed: a command fails rather than runs where it should not.
+
+**Lesson.** Never change the meaning of a persisted value in place. Give the new meaning a new value, and read the old
+one by its old meaning or as unrecorded (LESSONS 397).
+
+## 894. ConnectVia's first version claimed a routed target's breaker probe and the route's own dial claimed it again, so after one cooldown the circuit reopened on its own refusal and a routed device stayed refused for good (a repeat of 146 and 398) (fixed before push)
+
+**Symptom.** 2026-11-04, found by the fp-reviewer agent on `fix/ssh-sweep-2026-11-04` before the pull request.
+`ConnectVia` as written in `9ca3ef7c` dialed through `dialChain` and `dialWithRetry`, which claim the target
+address's half-open probe with `Allow`. The route's own dialer (`DialThroughHops`' `dialFinalLegWithRetry`, on the
+same shared Runner and the same address key) claimed it again. After a cooldown, the outer claim took the probe, the
+inner one saw it in flight and refused, and that refusal was recorded as a failure, which reopened the circuit. Every
+cooldown repeated it, so a routed device that once had five failures was never dialed again.
+`TestConnectVia_ARoutedTargetsCircuitRecovers` (`pkg/remoteexec/connectvia_test.go`) failed on `72474f70`.
+
+**Root cause.** Two layers on one dial path each guarded the same address with the same breaker: 146's shape exactly,
+reached through a new caller.
+
+**Why 146 and 398 did not hold.** 146 split `Permitted` (look) from `Allow` (claim) so that only the code about to
+dial claims. Here both layers were code about to dial, each through its own retry loop. 398 leased the probe so a
+lost one is reissued after a cooldown; but this probe was not lost, it was held by the same call's outer layer, and the
+inner refusal recorded a failure that reopened the circuit, so the lease never came into play.
+
+**Fix.** `bd004d1e`: `ConnectVia` dials its one leg once, with no breaker or retry of its own, since the route's
+dialer applies both to the same address. `TestConnectVia_ARoutedTargetsCircuitRecovers` passes.
+
+**Lesson.** When a new path wraps an existing dialer, find which layer owns the breaker and retry for that address,
+and give the outer layer neither. 146's lesson stands: a claim made twice on one path is a wedge.
+
+## 895. A cancel's sever closed a routed target's client, whose Close waits on the tunnel's pumps, so a cancelled command through a stalled bastion had no bound (vuln-corpus C15; a repeat in kind of 352) (fixed before push)
+
+**Symptom.** 2026-11-04, found by the fp-reviewer agent on `fix/ssh-sweep-2026-11-04` before the pull request. On a
+routed connection, 891's `cancelWatch` (as first written) severed the connection by closing the routed target's client.
+`hopTunneledConn.Close` waits on the tunnel's pumps, which wait on the bastion, so with a bastion that stopped
+answering a cancelled command never returned. `TestRun_ACancelledCommandThroughAStalledBastionIsBounded`
+(`pkg/remoteexec/connectvia_test.go`) hung to the test timeout on `72474f70`.
+
+**Root cause.** The sever's one job is to end the connection without waiting on the peer, and it called a Close that
+waits on the peer.
+
+**Why 352 did not hold.** 352 bounded the handshake through a bastion, where a tunneled connection has no deadline,
+by closing on the context's end. The sever was new code on this branch, and it closed from the target inward, the end
+whose Close waits, rather than from the first hop, whose close does not.
+
+**Fix.** `bd004d1e`: `hopTunneledConn.sever` (`pkg/remoteexec/tunnel.go`, chosen by `severerFor` in `hop.go`)
+closes the first hop's client first, without waiting on the pumps, then the rest of the chain. `TestRun_ACancelledCommandThroughAStalledBastionIsBounded` and
+`TestRun_ACancelledCommandThroughAPlainRouteIsBounded` pass.
+
+**Class.** C15 (unbounded wait on a peer; CWE-1088, CWE-400)
+
+**Lesson.** A close used to end a wait must itself not wait on the peer. On a tunnel, cut from the outermost hop.

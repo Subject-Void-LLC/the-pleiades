@@ -428,6 +428,8 @@ story, per `.AGENTS/AGENTS.md`.
 393. **A map from a mapper agent is a hypothesis: when it says one point covers several paths, hold each path it names to its own test before building on the claim (a repeat in kind of 363 and 244) (2026-11-04).**
 394. **Keep a store-side invariant even when the producer is meant to enforce it: here it turned a missed path into a drop instead of a leak (extends 390; 135's caution applies) (2026-11-04).**
 395. **Independent reviews by a second model earn their cost at both ends of a security change: a design review before coding changed the design, and two diff reviews after found gaps the house reviewer missed (extends 392) (2026-11-04).**
+396. **When a client's bug depends on what the server sends after the client's close or signal, test it against the real server: x/crypto/ssh's in-process server answers a CLOSE at once and drops a status sent after it, which OpenSSH does not (a repeat in kind of 136; FAILURE_PATTERNS 774's lesson) (2026-11-04).**
+397. **Never change the meaning of a persisted value in place: give the new meaning a new value, and read the old one by its old meaning or as unrecorded (2026-11-04).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
