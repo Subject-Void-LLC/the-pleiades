@@ -892,6 +892,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 886. Text the branch made false still said a private file's digest is "withheld" (a repeat of 789) (fixed before push)
 887. pleiades seal offered the fact-digest purpose, which only a Runner can use, so a hand-sealed value could only fail (a repeat in kind of 221) (fixed before push)
 888. The branch's tests repeated old test-quality classes: the Controller's digest wiring was untested, gates checked a digest's shape and not its value or a change, a purpose check could not fail, and the Walk gate used one string for device ID and name (a repeat of 467; LESSONS 235, 351 and 381) (fixed before push)
+889. The engine's result scrub wrote into an action's stats map, which an executor may share across the devices it runs on at once (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

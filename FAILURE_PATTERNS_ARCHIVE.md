@@ -21167,3 +21167,23 @@ asserts the stored value equals the Controller's HMAC of the real digest and tha
 
 **Lesson.** Read new tests against the test-quality titles before review (877's lesson, repeated): a digest test
 checks the value against an independent computation and checks that a change shows.
+
+## 889. The engine's result scrub wrote into an action's stats map, which an executor may share across the devices it runs on at once (fixed before push)
+
+**Symptom.** `make pr-check`'s fast pass, run under `-race`, failed `TestExecutor_DeviceFanOut` and
+`TestWithin_ResolvesOnlyNamesInsideTheBound` in `internal/engine` with "race detected during execution of test"; the
+first failed again when re-run alone. Every earlier run of the package on this branch passed, because they ran
+without `-race`.
+
+**Root cause.** `70d3032b` added `scrubResultDigests` (`internal/engine/fact_digests.go`), called on every node's
+`actionResult.Stats` in `executor.go`, and it wrote each scrubbed value back into that map. An executor may return
+one map to every device of a fan-out (a test executor returning a literal it built once, and nothing forbids a real
+one), so each device's goroutine wrote into the same map. The scrub was added late, from review finding D3, and
+only the digest tests were rerun, without `-race`.
+
+**Fix.** `scrubResultDigests` builds and returns a new map and never writes to the one it was given. The two tests
+pass three times under `-race`, and so does the whole package.
+
+**Lesson.** A function the engine calls on an executor's result treats that result as shared and read-only: build a
+new value rather than write into it. Rerun a package under `-race` after any change to code the executor calls per
+device, however small.

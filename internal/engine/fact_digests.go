@@ -120,12 +120,19 @@ func appendWarning(stats map[string]any, warning string) {
 	}
 }
 
-// scrubResultDigests holds a node's stats, whatever executor produced them,
+// scrubResultDigests is a node's stats, whatever executor produced them, held
 // to the rule every result is held to (facts.ScrubDigests): no raw digest at
 // any depth, and a sealed one only where this run publishes to a Controller.
+// It returns a new map and never writes to stats: an executor may hand one
+// map to every device it runs on at once, and writing to it from each
+// device's goroutine would race.
 func scrubResultDigests(stats map[string]any, allowSealed bool) map[string]any {
-	for key, value := range stats {
-		stats[key] = facts.ScrubDigests(value, allowSealed)
+	if stats == nil {
+		return nil
 	}
-	return stats
+	out := make(map[string]any, len(stats))
+	for key, value := range stats {
+		out[key] = facts.ScrubDigests(value, allowSealed)
+	}
+	return out
 }
