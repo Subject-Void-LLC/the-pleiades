@@ -166,14 +166,17 @@ func UseLoginShell(ctx context.Context, c testcontainers.Container, shell string
 	if shell == "" || strings.Trim(shell, "abcdefghijklmnopqrstuvwxyz") != "" {
 		return fmt.Errorf("%q is not a shell's name", shell)
 	}
+	// Installers write warnings (debconf, a mirror's notice) even when quiet,
+	// so each account's shell is read back on a line of its own, marked.
 	script := "command -v " + shell + " >/dev/null || " +
-		"if command -v apk >/dev/null; then apk add -q " + shell + " >/dev/null; " +
-		"elif command -v apt-get >/dev/null; then { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq " + shell + "; } >/dev/null; " +
-		"elif command -v dnf >/dev/null; then dnf install -y -q " + shell + " >/dev/null; fi; " +
-		"path=$(command -v " + shell + ") || exit 1"
+		"if command -v apk >/dev/null; then apk add -q " + shell + "; " +
+		"elif command -v apt-get >/dev/null; then apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq " + shell + "; " +
+		// fish is in EPEL, not a RHEL-family system's own repositories.
+		"elif command -v dnf >/dev/null; then dnf install -y -q " + shell + " || { dnf install -y -q epel-release && dnf install -y -q " + shell + "; }; " +
+		"fi >/dev/null 2>&1; path=$(command -v " + shell + ") || { echo 'no " + shell + "'; exit 1; }"
 	for _, user := range users {
 		script += "; sed -i -E \"s#^(" + user + ":([^:]*:){5})[^:]*\\$#\\1$path#\" /etc/passwd && " +
-			"getent passwd " + user + " | cut -d: -f7"
+			"printf 'shell:%s\\n' \"$(getent passwd " + user + " | cut -d: -f7)\""
 	}
 	// Bounded: installing the shell reaches the package mirror, and a stalled
 	// one must fail the test, not hold it until the package's timeout.
@@ -184,13 +187,18 @@ func UseLoginShell(ctx context.Context, c testcontainers.Container, shell string
 		return fmt.Errorf("setting the login shell to %s: %w", shell, err)
 	}
 	out, _ := io.ReadAll(reader)
-	got := strings.Fields(string(out))
-	if code != 0 || len(got) != len(users) {
-		return fmt.Errorf("setting the login shell to %s: exit %d: %s", shell, code, out)
+	var got []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "shell:"); ok {
+			got = append(got, v)
+		}
 	}
-	for _, line := range got {
-		if !strings.HasSuffix(line, "/"+shell) {
-			return fmt.Errorf("setting the login shell to %s: an account's is %s", shell, line)
+	if code != 0 || len(got) != len(users) {
+		return fmt.Errorf("setting the login shell to %s: exit %d, %d of %d accounts: %s", shell, code, len(got), len(users), out)
+	}
+	for _, path := range got {
+		if !strings.HasSuffix(path, "/"+shell) {
+			return fmt.Errorf("setting the login shell to %s: an account's is %s", shell, path)
 		}
 	}
 	return nil
