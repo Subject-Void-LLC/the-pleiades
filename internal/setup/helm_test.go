@@ -25,6 +25,7 @@ func helmInput() setup.HelmInput {
 		Namespace:        "pleiades",
 		MasterKey:        []byte(strings.Repeat("h", 32)),
 		JWTSecret:        crypto.EncodeKey([]byte(strings.Repeat("j", 32))),
+		FactsDigestKey:   crypto.EncodeKey([]byte(strings.Repeat("d", 32))),
 		PostgresPassword: strings.Repeat("ab", 32),
 		Budget:           topology.DefaultOutageBudget,
 	}
@@ -45,6 +46,8 @@ type renderedValues struct {
 	Secrets struct {
 		ExistingSecret         string `yaml:"existingSecret"`
 		ExistingSecretChecksum string `yaml:"existingSecretChecksum"`
+
+		ExistingSecretHasFactsDigestKey bool `yaml:"existingSecretHasFactsDigestKey"`
 	} `yaml:"secrets"`
 	Postgresql struct {
 		Auth struct {
@@ -97,8 +100,11 @@ func TestRenderHelm_TheSecretHoldsExactlyWhatTheChartReads(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if strings.Join(keys, ",") != "JWT_SECRET,MASTER_ENCRYPTION_KEY,POSTGRES_PASSWORD" {
-		t.Fatalf("the Secret holds %v; the chart reads exactly the key, the JWT secret and the database password from it", keys)
+	if strings.Join(keys, ",") != "JWT_SECRET,MASTER_ENCRYPTION_KEY,PLEIADES_FACTS_DIGEST_KEY,POSTGRES_PASSWORD" {
+		t.Fatalf("the Secret holds %v; the chart reads exactly the key, the JWT secret, the facts digest key and the database password from it", keys)
+	}
+	if s.StringData[setup.VarFactsDigestKey] != in.FactsDigestKey || !v.Secrets.ExistingSecretHasFactsDigestKey {
+		t.Fatal("the facts digest key is not in the Secret, or the values do not tell the chart it is")
 	}
 	if s.StringData["MASTER_ENCRYPTION_KEY"] != crypto.EncodeKey(in.MasterKey) {
 		t.Fatal("the Secret's key is not the key given")
@@ -116,7 +122,7 @@ func TestRenderHelm_TheSecretHoldsExactlyWhatTheChartReads(t *testing.T) {
 	if v.Mesh.MaxOutageSeconds != 1800 || v.Runner.Heartbeat.LivenessStaleAfterSeconds != 0 {
 		t.Fatalf("mesh/runner = %d/%d; a default budget sets 1800 and leaves the liveness window alone", v.Mesh.MaxOutageSeconds, v.Runner.Heartbeat.LivenessStaleAfterSeconds)
 	}
-	for _, secret := range []string{crypto.EncodeKey(in.MasterKey), in.JWTSecret, in.PostgresPassword} {
+	for _, secret := range []string{crypto.EncodeKey(in.MasterKey), in.JWTSecret, in.FactsDigestKey, in.PostgresPassword} {
 		if bytes.Contains(valuesYAML, []byte(secret)) {
 			t.Fatal("the values file, which holds no secret, contains one")
 		}
@@ -150,6 +156,19 @@ func TestRenderHelm_TheChecksumFollowsTheContent(t *testing.T) {
 	_, other, _, _ := render(t, changed)
 	if other.Secrets.ExistingSecretChecksum == base.Secrets.ExistingSecretChecksum {
 		t.Fatal("a new JWT secret did not change the checksum, so the pods would keep the old one")
+	}
+}
+
+// TestRenderHelm_RefusesAFactsDigestKeyTheControllerWouldNot proves a digest
+// key the controller would refuse at startup never reaches a Secret: missing,
+// not base64, or not 32 bytes.
+func TestRenderHelm_RefusesAFactsDigestKeyTheControllerWouldNot(t *testing.T) {
+	for _, key := range []string{"", "not base64!", crypto.EncodeKey([]byte(strings.Repeat("d", 16)))} {
+		in := helmInput()
+		in.FactsDigestKey = key
+		if _, _, err := setup.RenderHelm(in); err == nil {
+			t.Errorf("RenderHelm accepted the facts digest key %q", key)
+		}
 	}
 }
 
@@ -194,6 +213,17 @@ func TestRun_HelmWritesNewFilesOnlyAndRefusesARerun(t *testing.T) {
 	}
 	if strings.Contains(out.String(), crypto.EncodeKey(result.Key)) {
 		t.Fatal("the Helm target printed the key")
+	}
+	var written renderedSecret
+	if err := yaml.Unmarshal(secret, &written); err != nil {
+		t.Fatal(err)
+	}
+	digestKey := written.StringData[setup.VarFactsDigestKey]
+	if raw, err := crypto.DecodeKey(digestKey, "test"); err != nil || len(raw) != 32 || digestKey == crypto.EncodeKey(result.Key) || digestKey == written.StringData[setup.VarJWTSecret] {
+		t.Fatalf("the Secret's facts digest key is not a fresh 32-byte key of its own: %v", err)
+	}
+	if strings.Contains(out.String(), digestKey) {
+		t.Fatal("the Helm target printed the facts digest key")
 	}
 	for _, want := range []string{"kubectl create --namespace pleiades -f", "counted nothing"} {
 		if !strings.Contains(out.String(), want) {

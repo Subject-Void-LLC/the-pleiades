@@ -50,6 +50,10 @@ func runHelm(ctx context.Context, opts Options, dir *Dir, screen *Screen, out io
 	if err != nil {
 		return Result{}, err
 	}
+	digestKey, err := newSecretText()
+	if err != nil {
+		return Result{}, err
+	}
 	pgRaw, err := crypto.GenerateKey()
 	if err != nil {
 		return Result{}, err
@@ -61,7 +65,7 @@ func runHelm(ctx context.Context, opts Options, dir *Dir, screen *Screen, out io
 
 	secret, values, err := RenderHelm(HelmInput{
 		SecretName: opts.SecretName, Namespace: opts.Namespace,
-		MasterKey: key, JWTSecret: jwt, PostgresPassword: pgPassword, Budget: budget,
+		MasterKey: key, JWTSecret: jwt, FactsDigestKey: digestKey, PostgresPassword: pgPassword, Budget: budget,
 	})
 	if err != nil {
 		return Result{}, err

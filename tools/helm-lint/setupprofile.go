@@ -10,6 +10,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,6 +48,7 @@ func checkSetupOutput(chart string) (int, []finding, error) {
 		Namespace:        "pleiades",
 		MasterKey:        []byte(strings.Repeat("s", 32)),
 		JWTSecret:        strings.Repeat("J", 44),
+		FactsDigestKey:   base64.StdEncoding.EncodeToString([]byte(strings.Repeat("d", 32))),
 		PostgresPassword: strings.Repeat("ab", 32),
 		// Longer than the runner's default liveness window, so the values
 		// file has to raise that window too or the chart refuses it.
@@ -132,7 +134,9 @@ func decodeSetupOutput(secretYAML, valuesYAML []byte) (setupOutput, error) {
 // controller's pods must carry setup's checksum, so a new Secret rolls them.
 // The database's volume must carry setup's fingerprint, so a reinstall with
 // a different password is refused. And the connection string must be built
-// from the Secret's password, with that variable defined before it.
+// from the Secret's password, with that variable defined before it. A key
+// setup writes for the controller alone (the facts digest key) must reach the
+// controller, or the operator holds a key nothing reads.
 func checkExistingSecretShape(objects []manifest, emitted setupOutput) []finding {
 	var findings []finding
 	add := func(object, message string) {
@@ -168,6 +172,10 @@ func checkExistingSecretShape(objects []manifest, emitted setupOutput) []finding
 				}
 			}
 		}
+		if obj.Kind == "Deployment" && strings.HasSuffix(obj.Metadata.Name, "-controller") && emitted.keys[setup.VarFactsDigestKey] &&
+			!readsSecretKey(obj, setupSecretName, setup.VarFactsDigestKey) {
+			add(name, "setup's Secret carries "+setup.VarFactsDigestKey+" but the controller does not read it, so no digest of a private file is kept")
+		}
 		if obj.Kind == "Deployment" && strings.HasSuffix(obj.Metadata.Name, "-controller") {
 			if got := obj.Spec.Template.Metadata.Annotations["checksum/secret"]; got != emitted.checksum {
 				add(name, fmt.Sprintf("checksum/secret is %q, want setup's %q, so replacing the Secret would not restart the controller", got, emitted.checksum))
@@ -182,6 +190,20 @@ func checkExistingSecretShape(objects []manifest, emitted setupOutput) []finding
 		}
 	}
 	return findings
+}
+
+// readsSecretKey reports whether any container of obj takes an environment
+// variable of the same name from key in the Secret secret.
+func readsSecretKey(obj manifest, secret, key string) bool {
+	for _, c := range obj.Spec.Template.Spec.Containers {
+		for _, env := range c.Env {
+			if env.Name == key && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil &&
+				env.ValueFrom.SecretKeyRef.Name == secret && env.ValueFrom.SecretKeyRef.Key == key {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // checkFingerprintFormulaAgrees proves setup computes the database credential

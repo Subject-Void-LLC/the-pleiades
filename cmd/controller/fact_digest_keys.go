@@ -26,7 +26,7 @@ const factDigestKeyEnv = "PLEIADES_FACTS_DIGEST_KEY"
 // means it to be used.
 func loadFactDigestKeys(logger *slog.Logger) (*sealed.PrivateKey, *facts.Keyer, error) {
 	if os.Getenv(factDigestKeyEnv) == "" {
-		logger.Warn("no digest of a file not everyone may read is kept: set " + factDigestKeyEnv + " (base64 of 32 bytes) to keep them keyed")
+		logger.Warn("no digest of a file not everyone may read is kept: set " + factDigestKeyEnv + " (base64 of 32 bytes) to keep them keyed; on Compose, `make setup` then `make up` writes one")
 		return nil, nil, nil
 	}
 	secret, err := decodeEnvelopeKey(factDigestKeyEnv)

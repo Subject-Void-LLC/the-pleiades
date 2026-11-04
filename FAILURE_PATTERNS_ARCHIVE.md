@@ -11908,6 +11908,18 @@ request. `fast-macos` is advisory, so this does not block a merge.
 
 **Lesson.** See LESSONS 269: when a failure happens only where nobody can log in, make the fixture say why.
 
+**Third occurrence, 2026-11-04 (still open).** PR #112's advisory job `fast-macos (1)`, Actions run 41904826019 at
+`04756356`, in the strict `test-repeat` pass: `TestLongestAcceptedFilenamesCrossARealServerWhole/largest_blocksize/non-ASCII`
+failed in a Put this time, not a Get. The request to send `"配置.txt"` at blksize 16356 timed out (`filename_test.go:160:
+Put: tftpxfer: requesting to send "配置.txt": read udp [::]:57863: i/o timeout`). The server dump this entry's fix added
+is the first evidence from inside a failure: 6 attempts, each `sent=6 acked=0` and about 32 seconds long, with the
+server sending to `127.0.0.1:<client port>` and receiving no reply. So the request reached the server each time, and
+the client, listening on the dual-stack `[::]:57863`, never read the server's replies. Resources were not short
+(3780 MB free, no swap growth). It is not PR #112's code. This fits the unproven hypothesis
+above (client on `[::]`, server answering from `127.0.0.1`) but does not prove it. The real fix is still open; the
+candidates are to pin the client to `udp4` and `127.0.0.1`, or a recorded, counted retry on darwin (CI_LESSONS 24).
+The ledger entries are annotated with this pattern.
+
 ## 449. A touched package CI could not floor-check was left out of the pre-push measurement
 
 **Symptom.** `make pr-check`'s first full run found `pkg/awscloud` at 94.9% against its 95.8% floor. 119c had added
@@ -21187,3 +21199,32 @@ pass three times under `-race`, and so does the whole package.
 **Lesson.** A function the engine calls on an executor's result treats that result as shared and read-only: build a
 new value rather than write into it. Rerun a package under `-race` after any change to code the executor calls per
 device, however small.
+
+## 890. TestJournalAdmitsOnlyDeclaredKeys planted "0644", a value the entry's random hex IDs can spell, so it failed main by chance with nothing leaked (a repeat of 236) (fixed)
+
+**Symptom.** 2026-11-04, main's post-merge run after PR #111 (merged as `f19fa172`), Actions run 41876826581, job
+`fast`, on Linux: `internal/engine.TestJournalAdmitsOnlyDeclaredKeys` failed with `journal_entry_test.go:423: the
+journal entry carries "0644"; no value a device, a credential store, a decrypted envelope, or an injector produced may
+reach it`. Nothing had leaked. The test and its planted value date from `533d0b9d` (2026-09-12, Phase 40's run
+journal) and had passed until then.
+
+**Root cause.** `assertNoValueLeaked` (`internal/engine/journal_entry_test.go`) joins the entry's fields into one text
+and does a substring search for each planted value. The planted stat value `"0644"` is all hex digits, and the entry
+carries a random hex run ID and DAG version, so `0644` turns up in them by chance: a four-digit run is 1 in 65,536 at
+each position, roughly a few in a thousand per run over the entry's random fields. The assertion of absence was over
+text that holds random identifiers, and the planted value was possible in their alphabet.
+
+**Why 236's fix did not hold.** 236 was the same class: a substring check for a value was refuted by text that spelled
+the value without depending on it. Its fix changed the one fuzz property in `internal/setup` to a differential check,
+and the rule became LESSONS 195 (prove independence, not absence) and, for the journal's own fuzz target, LESSONS 172
+(an empty-input baseline as the control). Neither reached this example test, which was written on the same day as
+LESSONS 172 with a plain substring search, and nothing checked what a planted value could collide with. A baseline
+would not have helped here either, since a random ID is new on every run.
+
+**Fix.** `43942bd8` (branch `fix/journal-test-planted-values`, not yet merged). The test plants
+`"planted-mode-rw-r--r--"`, and `assertNoValueLeaked` now fails the test at once (`t.Fatalf`) for any planted value
+made only of hex digits and dashes, before it searches. Negative control: putting `"0644"` back makes the test refuse
+at once with `planted value "0644" could appear in a random hex ID`. `TestJournal*` passed three times.
+
+**Lesson.** An assertion that a planted value is absent from text holding random identifiers plants a value those
+identifiers' alphabet cannot spell, and the helper refuses one that could. CI_LESSONS 25.

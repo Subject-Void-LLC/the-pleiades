@@ -27,8 +27,8 @@ const (
 // Only PlanBuilder.Build makes one, and it makes one only when every change
 // in it has passed the guard its field's class requires.
 type Plan struct {
-	// Key, JWT and Budget are the three fields a run can write.
-	Key, JWT, Budget Action
+	// Key, JWT, Budget and DigestKey are the fields a run can write.
+	Key, JWT, Budget, DigestKey Action
 
 	// BudgetValue is the budget to write when Budget is not Keep.
 	BudgetValue topology.OutageBudget
@@ -47,7 +47,7 @@ type Plan struct {
 
 // Changes reports whether the plan writes anything.
 func (p *Plan) Changes() bool {
-	return p.Key != Keep || p.JWT != Keep || p.Budget != Keep
+	return p.Key != Keep || p.JWT != Keep || p.Budget != Keep || p.DigestKey != Keep
 }
 
 // PlanBuilder decides, field by field, what one run of the compose target
@@ -109,6 +109,20 @@ func (b *PlanBuilder) JWTSecret() *PlanBuilder {
 		return b
 	}
 	b.plan.JWT = Replace
+	return b
+}
+
+// FactsDigestKey decides the facts digest key: generated when the file has
+// none, never replaced. A new one would make every private file's stored
+// digest change at once, which reads as drift on all of them, so changing it
+// is an edit an operator makes knowingly, not a flag.
+func (b *PlanBuilder) FactsDigestKey() *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	if _, held := b.file.Get(VarFactsDigestKey); !held {
+		b.plan.DigestKey = Generate
+	}
 	return b
 }
 

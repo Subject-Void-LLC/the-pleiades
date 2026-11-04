@@ -19,6 +19,8 @@ func composeFileNote() []string {
 		"MASTER_ENCRYPTION_KEY is the only copy of the key that reads every credential",
 		"this deployment stores. Back this file up somewhere that is not this machine.",
 		"Change that key by rotating it, never by editing it: see the production guide.",
+		"Back up PLEIADES_FACTS_DIGEST_KEY with it, and keep it the same on a restore:",
+		"a new one makes every private file's stored digest read as changed once.",
 	}
 }
 
@@ -27,24 +29,29 @@ func composeSummary(file string, plan *Plan, key []byte) string {
 	lines := []string{"Wrote " + file + ":"}
 	switch plan.Key {
 	case Generate:
-		lines = append(lines, "  MASTER_ENCRYPTION_KEY  new, fingerprint "+keyregistry.Short(crypto.Fingerprint(key)))
+		lines = append(lines, "  MASTER_ENCRYPTION_KEY      new, fingerprint "+keyregistry.Short(crypto.Fingerprint(key)))
 	case Replace:
-		lines = append(lines, "  MASTER_ENCRYPTION_KEY  replaced, fingerprint "+keyregistry.Short(crypto.Fingerprint(key)))
+		lines = append(lines, "  MASTER_ENCRYPTION_KEY      replaced, fingerprint "+keyregistry.Short(crypto.Fingerprint(key)))
 	default:
-		lines = append(lines, "  MASTER_ENCRYPTION_KEY  unchanged")
+		lines = append(lines, "  MASTER_ENCRYPTION_KEY      unchanged")
 	}
 	switch plan.JWT {
 	case Generate:
-		lines = append(lines, "  JWT_SECRET             new")
+		lines = append(lines, "  JWT_SECRET                 new")
 	case Replace:
-		lines = append(lines, "  JWT_SECRET             replaced; API tokens signed with the old one no longer work")
+		lines = append(lines, "  JWT_SECRET                 replaced; API tokens signed with the old one no longer work")
 	default:
-		lines = append(lines, "  JWT_SECRET             unchanged")
+		lines = append(lines, "  JWT_SECRET                 unchanged")
+	}
+	if plan.DigestKey != Keep {
+		lines = append(lines, "  PLEIADES_FACTS_DIGEST_KEY  new")
+	} else {
+		lines = append(lines, "  PLEIADES_FACTS_DIGEST_KEY  unchanged")
 	}
 	if plan.Budget != Keep {
-		lines = append(lines, "  PLEIADES_MAX_OUTAGE    "+shortDuration(plan.BudgetValue.Duration()))
+		lines = append(lines, "  PLEIADES_MAX_OUTAGE        "+shortDuration(plan.BudgetValue.Duration()))
 	} else {
-		lines = append(lines, "  PLEIADES_MAX_OUTAGE    unchanged")
+		lines = append(lines, "  PLEIADES_MAX_OUTAGE        unchanged")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -57,7 +64,7 @@ func helmSummary(secretFile, valuesFile string, opts Options, key []byte) string
 		nsFlag = " --namespace " + ns
 	}
 	return strings.Join([]string{
-		fmt.Sprintf("Wrote %s (the master key, fingerprint %s, the JWT secret and the database password)", secretFile, keyregistry.Short(crypto.Fingerprint(key))),
+		fmt.Sprintf("Wrote %s (the master key, fingerprint %s, the JWT secret, the facts digest key and the database password)", secretFile, keyregistry.Short(crypto.Fingerprint(key))),
 		fmt.Sprintf("and %s (no secrets).", valuesFile),
 		"",
 		"Install with:",

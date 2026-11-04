@@ -60,6 +60,9 @@ type HelmInput struct {
 	// JWTSecret is the JWT secret, as text.
 	JWTSecret string
 
+	// FactsDigestKey is the facts digest key, as text (base64 of 32 bytes).
+	FactsDigestKey string
+
 	// PostgresPassword is the in-chart database's password.
 	PostgresPassword string
 
@@ -95,7 +98,7 @@ type secretMetadata struct {
 //
 // The Secret carries only what the chart reads from it when
 // secrets.existingSecret is set and the in-chart database is on: the master
-// key, the JWT secret, and the database password. The chart builds the
+// key, the JWT secret, the facts digest key, and the database password. The chart builds the
 // database connection string from that password itself, so the Secret never
 // has to repeat the release's service names.
 //
@@ -118,10 +121,14 @@ func RenderHelm(in HelmInput) (secret, values []byte, err error) {
 	if len(in.MasterKey) != 32 || in.JWTSecret == "" || in.PostgresPassword == "" || !in.Budget.Valid() {
 		return nil, nil, errors.New("setup: the Helm output needs a 32-byte key, a JWT secret, a database password and a valid outage budget")
 	}
+	if err := validateKey(in.FactsDigestKey); err != nil {
+		return nil, nil, errors.New("setup: the Helm output's facts digest key " + err.Error())
+	}
 
 	data := map[string]string{
 		VarMasterKey:        crypto.EncodeKey(in.MasterKey),
 		VarJWTSecret:        in.JWTSecret,
+		VarFactsDigestKey:   in.FactsDigestKey,
 		"POSTGRES_PASSWORD": in.PostgresPassword,
 	}
 	manifest := secretManifest{
@@ -145,6 +152,8 @@ func RenderHelm(in HelmInput) (secret, values []byte, err error) {
 		"secrets": map[string]any{
 			"existingSecret":         name,
 			"existingSecretChecksum": secretChecksum(data),
+			// The Secret holds the key, so the chart passes it on.
+			"existingSecretHasFactsDigestKey": true,
 		},
 		"postgresql": map[string]any{
 			"auth": map[string]any{

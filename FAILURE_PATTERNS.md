@@ -450,7 +450,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 445. Pull request #55 failed CI twice on checks that run locally in minutes (a repeat in kind of 427)
 446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
 447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted (a repeat of 239)
-448. pkg/tftpxfer's Get timed out on macOS twice running, and the cause is still unknown
+448. pkg/tftpxfer timed out on macOS three times (two Gets on PR #55, a Put's request on PR #112), and the cause is still unknown (open)
 449. A touched package CI could not floor-check was left out of the pre-push measurement
 450. The docker CLI methods passed names and images unchecked, so an image of `--privileged` ran a privileged container (a repeat of 148)
 451. docker inspect read any non-zero exit as an absent container, so an unreachable daemon let run create one elsewhere
@@ -893,6 +893,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 887. pleiades seal offered the fact-digest purpose, which only a Runner can use, so a hand-sealed value could only fail (a repeat in kind of 221) (fixed before push)
 888. The branch's tests repeated old test-quality classes: the Controller's digest wiring was untested, gates checked a digest's shape and not its value or a change, a purpose check could not fail, and the Walk gate used one string for device ID and name (a repeat of 467; LESSONS 235, 351 and 381) (fixed before push)
 889. The engine's result scrub wrote into an action's stats map, which an executor may share across the devices it runs on at once (fixed before push)
+890. TestJournalAdmitsOnlyDeclaredKeys planted "0644", a value the entry's random hex IDs can spell, so it failed main by chance with nothing leaked (a repeat of 236) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

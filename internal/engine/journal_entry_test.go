@@ -352,7 +352,7 @@ func TestJournalAdmitsOnlyDeclaredKeys(t *testing.T) {
 			// One declared stat, one the Doc has never heard of, and the
 			// two pkg/sdk records. The undeclared one carries a nested map
 			// whose keys are exactly the shape a device supplies.
-			if err := rc.SetStat("mode", "0644"); err != nil {
+			if err := rc.SetStat("mode", "planted-mode-rw-r--r--"); err != nil {
 				return collection.Result{}, err
 			}
 			if err := rc.SetStat("headers", map[string]any{"set-cookie": "session=hunter2"}); err != nil {
@@ -420,7 +420,7 @@ func TestJournalAdmitsOnlyDeclaredKeys(t *testing.T) {
 
 	// The guarantee, stated as the test that would have caught a leak: no
 	// value any of the above carried appears anywhere in the entry.
-	assertNoValueLeaked(t, e, "hunter2", "session=hunter2", "the whole prior file", "the whole new file", "0644", "/etc/hosts")
+	assertNoValueLeaked(t, e, "hunter2", "session=hunter2", "the whole prior file", "the whole new file", "planted-mode-rw-r--r--", "/etc/hosts")
 }
 
 // TestJournalRefusesAnUnregisteredFQCN proves the author's own bytes never
@@ -614,8 +614,19 @@ func assertKeys(t *testing.T, field string, got, want []string) {
 // entry's own text, which is the guarantee stated as an assertion: an
 // entry can hold no value a device, a credential store, a decrypted
 // envelope, or an injector produced.
+//
+// A planted value must not be one the entry's own IDs could spell. Its run ID
+// is a random UUID (hex digits and dashes) and its DAG version is "sha256:"
+// and hex, so a value such as "0644" turned up in them by chance and failed
+// the test with nothing leaked. A value made only of hex digits and dashes,
+// or one inside the "sha256:" prefix, is refused before the search.
 func assertNoValueLeaked(t *testing.T, e engine.JournalEntry, values ...string) {
 	t.Helper()
+	for _, value := range values {
+		if value != "" && (strings.Trim(value, "0123456789abcdefABCDEF-") == "" || strings.Contains("sha256:", value)) {
+			t.Fatalf("planted value %q could appear in a random hex ID; plant one with other letters", value)
+		}
+	}
 	rendered := strings.Join(append([]string{
 		e.JobID, e.RunID, e.NodeID, e.DAGID, e.DAGVersion, e.FQCN, e.TaskName, e.Register,
 		e.DeviceID, string(e.Outcome), string(e.FailureStage), string(e.SkipKind), e.InverseFQCN,

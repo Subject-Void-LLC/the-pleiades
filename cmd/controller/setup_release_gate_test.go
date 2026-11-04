@@ -5,6 +5,7 @@
 package main_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -26,6 +27,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
 )
@@ -56,6 +58,77 @@ func readKeyFile(t *testing.T, dir string) (key []byte, jwt string) {
 	}
 	jwt, _ = f.Get(setup.VarJWTSecret)
 	return key, jwt
+}
+
+// readEnvValue returns the value setup wrote for name in dir's .env.
+func readEnvValue(t *testing.T, dir, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatalf("reading .env: %v", err)
+	}
+	f, err := setup.ParseEnvFile(data)
+	if err != nil {
+		t.Fatalf("parsing .env: %v", err)
+	}
+	value, ok := f.Get(name)
+	if !ok || value == "" {
+		t.Fatalf(".env holds no %s", name)
+	}
+	return value
+}
+
+// assertControllerKeysDigestsWith starts the real controller binary with the
+// secrets setup wrote, as compose passes them, and waits for it to say it keeps
+// private files' digests keyed under the key digestKey derives. It stops the
+// controller once it has said so: the key is read before the database or the
+// broker, so nothing else has to be running.
+func assertControllerKeysDigestsWith(t *testing.T, dbPath string, key []byte, jwt, digestKey string) {
+	t.Helper()
+	raw, err := crypto.DecodeKey(digestKey, setup.VarFactsDigestKey)
+	if err != nil {
+		t.Fatalf("the facts digest key setup wrote does not decode: %v", err)
+	}
+	_, keyer, err := entstore.DigestKeys(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binPath)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(setupEnv(dbPath),
+		setup.VarJWTSecret+"="+jwt,
+		setup.VarMasterKey+"="+crypto.EncodeKey(key),
+		setup.VarFactsDigestKey+"="+digestKey)
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	var seen strings.Builder
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+		seen.WriteString(line + "\n")
+		if strings.Contains(line, "no digest of a file not everyone may read is kept") {
+			t.Fatalf("the controller started without the facts digest key setup wrote:\n%s", seen.String())
+		}
+		if strings.Contains(line, "keeping digests of files not everyone may read keyed") {
+			if !strings.Contains(line, keyer.ID()) {
+				t.Fatalf("the controller keys digests under another key than %s:\n%s", keyer.ID(), line)
+			}
+			if strings.Contains(seen.String(), digestKey) {
+				t.Fatal("the controller printed the facts digest key")
+			}
+			return
+		}
+	}
+	t.Fatalf("the controller never said it keeps digests keyed:\n%s", seen.String())
 }
 
 // openUnder opens the database as the controller would, under key.
@@ -112,10 +185,15 @@ func TestSetupReleaseGate_NonInteractiveReachesAWorkingSignIn(t *testing.T) {
 	}
 
 	key, jwt := readKeyFile(t, dir)
-	for name, secret := range map[string]string{"key": crypto.EncodeKey(key), "JWT secret": jwt, "password": setupTestPassword} {
+	digestKey := readEnvValue(t, dir, setup.VarFactsDigestKey)
+	for name, secret := range map[string]string{"key": crypto.EncodeKey(key), "JWT secret": jwt, "facts digest key": digestKey, "password": setupTestPassword} {
 		if strings.Contains(string(out), secret) {
 			t.Fatalf("setup printed the %s:\n%s", name, out)
 		}
+	}
+	assertControllerKeysDigestsWith(t, dbPath, key, jwt, digestKey)
+	if digestKey == crypto.EncodeKey(key) || digestKey == jwt {
+		t.Fatal("the facts digest key repeats another secret setup wrote")
 	}
 
 	client := openUnder(t, dbPath, key)
