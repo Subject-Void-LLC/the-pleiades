@@ -72,6 +72,10 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
 20. **A test that runs make clears what a parent make exports.** `MAKEFLAGS` and its kin reach the child through
     `go test` when the gate itself was started by make, and change what the child prints and does. FAILURE_PATTERNS
     686.
+25. **A check that a planted value is absent from text holding random IDs plants a value the IDs cannot spell.** A
+    substring search for `0644` over an entry carrying a random hex run ID finds it a few times in a thousand runs,
+    with nothing leaked. Plant letters outside the random alphabet, and have the helper refuse a planted value made
+    only of that alphabet. FAILURE_PATTERNS 236, 890.
 
 ## Docker Desktop on this machine
 
