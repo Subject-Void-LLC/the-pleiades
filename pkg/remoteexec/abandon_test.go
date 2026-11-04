@@ -1,7 +1,7 @@
 //go:build !windows
 
-// Tests for a command abandoned at its context's end (conn.go's
-// waitOrAbandon): the shape Debian's sshd produces, where a cancelled
+// Tests for a command abandoned at its context's end (conn_watch.go's
+// cancelWatch): the shape Debian's sshd produces, where a cancelled
 // command's session is never closed because its output never ends. The
 // in-process server answers a client's close by itself, as x/crypto/ssh
 // does, so a proxy in front of it stops passing the server's side on: from

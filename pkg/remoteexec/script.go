@@ -14,10 +14,8 @@ import (
 // A command holding a NUL, or a line of shline.MaxBytes or more, is refused
 // before anything is sent.
 func (c *Conn) wire(command string) (string, error) {
-	// A NUL ends a command sshd would refuse; encoded, sh would drop it and
-	// run the bytes on either side joined, which is a different command.
-	if strings.IndexByte(command, 0) >= 0 {
-		return "", fmt.Errorf("remoteexec: the command for %s holds a NUL byte, which no command can carry", c.addr)
+	if err := c.refuseNUL(command); err != nil {
+		return "", err
 	}
 	line := c.elevate(command)
 	if !c.raw {
@@ -27,6 +25,17 @@ func (c *Conn) wire(command string) (string, error) {
 		return "", fmt.Errorf("remoteexec: the command for %s is %d bytes as sent, over the %d one argument may hold; send its data on standard input", c.addr, len(line), shline.MaxBytes-1)
 	}
 	return line, nil
+}
+
+// refuseNUL refuses a command holding a NUL byte. A NUL ends a command sshd
+// would refuse; encoded, sh would drop it and run the bytes on either side
+// joined, which is a different command, and a detached command's file would
+// carry it to the shell that reads that file.
+func (c *Conn) refuseNUL(command string) error {
+	if strings.IndexByte(command, 0) >= 0 {
+		return fmt.Errorf("remoteexec: the command for %s holds a NUL byte, which no command can carry", c.addr)
+	}
+	return nil
 }
 
 // Raw returns a view of c that sends each command as it is written, for the
