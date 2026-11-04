@@ -169,6 +169,64 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 		t.Errorf("package.busybox's history has %d values, want 1", len(h.Facts))
 	}
 
+	// Phase 41c-2: ports, users and named files, stored one fact each. The
+	// login is not root: sshd's listener is root's, so its uid is known and
+	// its process is not; a file in a directory only root may search is
+	// unreadable, never absent; and the digest is the device's own.
+	asRoot(t, g.container, "mkdir -p /rootonly && echo s > /rootonly/secret && chmod 700 /rootonly")
+	// The login's own private file: it reads it, others may not, so its
+	// digest and size are withheld.
+	asRoot(t, g.container, "echo pin1234 > /tmp/mine && chown "+releaseGateSSHUser+" /tmp/mine && chmod 600 /tmp/mine")
+	// A listener of root's, whose process this login may not look into.
+	asRoot(t, g.container, "(busybox nc -lk -p 7070 -e /bin/true >/dev/null 2>&1 &)")
+	// Waited for by the kernel's own table (7070 is 1B9E), not a fixed sleep.
+	asRoot(t, g.container, `i=0; until grep -q ':1B9E ' /proc/net/tcp /proc/net/tcp6; do i=$((i+1)); [ $i -gt 100 ] && exit 1; sleep 0.1; done`)
+	gather("gather_subset:=[ports, users]", "files:=[/etc/hostname, /rootonly/secret, /nonexistent, /tmp/mine]")
+	stored := map[string]map[string]any{}
+	for _, f := range read().Facts {
+		if v, ok := f.Value.(map[string]any); ok {
+			stored[f.Key] = v
+		}
+	}
+	// This image runs sshd (sshd.pam) as the login's own account, on 2222,
+	// so its process is visible: the uid and name are the device's, read as
+	// root from /proc.
+	sshdUID := asRoot(t, g.container, `for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = sshd.pam ] && stat -c %u $p && break; done`)
+	for _, key := range []string{"port.tcp:0.0.0.0:2222", "port.tcp:[::]:2222"} {
+		if sshd := stored[key]; sshd == nil || strconv.Itoa(int(numberOf(sshd["uid"]))) != sshdUID || sshd["process"] != "sshd.pam" {
+			t.Errorf("%s = %v, want sshd.pam's listener, uid %s", key, sshd, sshdUID)
+		}
+	}
+	if nc := stored["port.tcp:[::]:7070"]; nc == nil || nc["uid"] != float64(0) || nc["process"] != nil {
+		t.Errorf("root's listener = %v, want uid 0 and no process this login may see", nc)
+	}
+	accounts := asRoot(t, g.container, "grep -cv '^#' /etc/passwd")
+	users := 0
+	for k := range stored {
+		if strings.HasPrefix(k, "user.") {
+			users++
+		}
+	}
+	if strconv.Itoa(users) != accounts {
+		t.Errorf("%d user facts; /etc/passwd lists %s accounts", users, accounts)
+	}
+	if login := stored["user."+releaseGateSSHUser]; login == nil || login["home"] == "" {
+		t.Errorf("user.%s = %v", releaseGateSSHUser, login)
+	}
+	digest := strings.Fields(asRoot(t, g.container, "sha256sum /etc/hostname"))[0]
+	if h := stored["file.%2Fetc%2Fhostname"]; h == nil || h["sha256"] != digest || h["state"] != "present" || h["type"] != "file" {
+		t.Errorf("file /etc/hostname = %v, the device's own digest is %s", h, digest)
+	}
+	if s := stored["file.%2Frootonly%2Fsecret"]; s == nil || s["state"] != "unreadable" {
+		t.Errorf("a file in a directory only root may search = %v, want unreadable", s)
+	}
+	if n := stored["file.%2Fnonexistent"]; n == nil || n["state"] != "absent" {
+		t.Errorf("a missing file = %v, want absent", n)
+	}
+	if m := stored["file.%2Ftmp%2Fmine"]; m == nil || m["digest"] != "withheld" || m["sha256"] != nil || m["size"] != nil || m["mode"] != "0600" {
+		t.Errorf("a private file = %v, want its digest and size withheld", m)
+	}
+
 	// The chain verifies; an edited value breaks it, and the command says so
 	// by its exit status.
 	if out, code := g.pleiades(t, "facts", "container1", "--verify"); code != 0 || !strings.Contains(out, "unbroken") {
@@ -218,6 +276,14 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 			t.Errorf("with a %s login, %d package facts; apk lists %s", shell, n, now)
 		}
 	}
+}
+
+// numberOf is a JSON number as a float64, or -1.
+func numberOf(v any) float64 {
+	if f, ok := v.(float64); ok {
+		return f
+	}
+	return -1
 }
 
 // asRoot runs script as root in c and returns its trimmed output.

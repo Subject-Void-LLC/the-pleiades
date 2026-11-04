@@ -5,6 +5,9 @@
 package facts
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode"
@@ -23,13 +26,34 @@ func FuzzGatherParsers(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s)
 	}
+	// Hostile outputs aimed at each parser of the files, ports and users
+	// subsets (Phase 41c-2): extra marks, short lines, bad numbers, zones,
+	// NULs, CRLF, invalid UTF-8 and JSON of the wrong shape.
+	raw, err := os.ReadFile(filepath.Join("testdata", "parser-seeds.json"))
+	if err != nil {
+		f.Fatal(err)
+	}
+	var more []struct {
+		Input string `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &more); err != nil || len(more) == 0 {
+		f.Fatalf("testdata/parser-seeds.json: %v (%d seeds)", err, len(more))
+	}
+	for _, s := range more {
+		f.Add(s.Input)
+	}
 	var probes []gatherProbe
 	for _, platform := range []string{platformLinux, platformFreeBSD, platformDarwin, platformWindows} {
 		probes = append(probes, gatherProbesFor(platform)...)
 	}
 	f.Fuzz(func(t *testing.T, out string) {
 		for _, p := range probes {
-			for _, fact := range p.parse(out) {
+			facts := p.parse(out)
+			if p.commandFor != nil {
+				// A probe built from paths is keyed by them as Gather keys it.
+				facts = filesFacts([]string{"/a b", `C:\x\y`}, facts)
+			}
+			for _, fact := range facts {
 				if p.family == "" {
 					// Gather emits only the keys a single probe declares
 					// (gatherWanted), whatever its parser read.
@@ -42,6 +66,15 @@ func FuzzGatherParsers(f *testing.F) {
 				for _, r := range name {
 					if r == '/' || unicode.IsSpace(r) || !unicode.IsPrint(r) {
 						t.Fatalf("%s answered %q, whose name holds %q", p.name(), fact.key, r)
+					}
+				}
+				if v, ok := fact.value.(map[string]any); ok {
+					// A mode is four octal digits; a port 1 to 65535.
+					if m, ok := v["mode"].(string); ok && len(m) != 4 {
+						t.Fatalf("%s answered mode %q", p.name(), m)
+					}
+					if n, ok := v["port"].(int); ok && (n < 1 || n > 65535) {
+						t.Fatalf("%s answered port %d", p.name(), n)
 					}
 				}
 				if _, ok := fact.value.(map[string]any); !ok {

@@ -422,6 +422,9 @@ story, per `.AGENTS/AGENTS.md`.
 387. **When a new transport encoding replaces a channel that refused a byte, refuse that byte explicitly: the old channel's refusal is not inherited (the class of FAILURE_PATTERNS 317 and 438) (2026-11-03).**
 388. **A property a fixture neutralizes, such as the login shell, is tested by running the whole suite with that fixture switched, not by reading code: the static audit of the login-shell class found about 20 send sites, and the switched run found the tests' own helpers too (a repeat in kind of 174) (2026-11-03).**
 389. **A test helper that reads a device "independently" over its own SSH client is a send site too, and sends the way the product does (a repeat in kind of 363) (2026-11-03).**
+390. **A fact a method emits is also a stat: protect a sensitive value where it is produced, or strip it in the engine before stats leave, because a value protected only at the fact store still reaches run reports, `result.<register>` and Walk job results (the class of FAILURE_PATTERNS 578 and 829) (2026-11-04).**
+391. **"Absent" is a claim only the system's own not-found answer may make: a layer that folds errors (PowerShell's provider) cannot judge it, so decide from the innermost error type (a repeat of 379) (2026-11-04).**
+392. **A second model's review and fuzz seeds taken from its output, given only the code, found defects the author's tests and the house reviewer missed; keep it as a step, and verify every claim it makes before acting on it (extends 312; 50's caution applies) (2026-11-04).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

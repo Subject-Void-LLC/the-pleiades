@@ -8,6 +8,7 @@
 package main_test
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"strconv"
@@ -35,9 +36,9 @@ func labShell(t *testing.T, m labMachine, cmd string) string {
 	return strings.TrimSpace(stringStat(rep.Tasks[0].Stats, "stdout"))
 }
 
-// labGatherAll onboards m and gathers every subset, returning the task's
-// stats (its facts).
-func labGatherAll(t *testing.T, m labMachine) map[string]any {
+// labGatherAll onboards m and gathers every subset, files naming files,
+// returning the task's stats (its facts).
+func labGatherAll(t *testing.T, m labMachine, files ...string) map[string]any {
 	t.Helper()
 	// Run as the user runs it, with this environment's home and known_hosts.
 	onboard := exec.Command(binPath, "onboard", m.host)
@@ -45,13 +46,20 @@ func labGatherAll(t *testing.T, m labMachine) map[string]any {
 	if out, err := onboard.CombinedOutput(); err != nil {
 		t.Fatalf("onboarding %s: %v\n%s", m.host, err, out)
 	}
-	return labGather(t, m)
+	return labGather(t, m, files...)
 }
 
-// labGather gathers every subset from m, returning the task's stats.
-func labGather(t *testing.T, m labMachine) map[string]any {
+// labGather gathers every subset from m, files naming files, returning the
+// task's stats.
+func labGather(t *testing.T, m labMachine, files ...string) map[string]any {
 	t.Helper()
-	rep, raw, code := runPleiadesJSONWithHome(t, m.dir, "", "adhoc", m.host, "facts.gather", "gather_subset:=[all]")
+	args := []string{"adhoc", m.host, "facts.gather", "gather_subset:=[all]"}
+	if len(files) > 0 {
+		// JSON is YAML: each path quoted, whatever it holds.
+		raw, _ := json.Marshal(files)
+		args = append(args, "files:="+string(raw))
+	}
+	rep, raw, code := runPleiadesJSONWithHome(t, m.dir, "", args...)
 	if code != 0 || len(rep.Tasks) != 1 {
 		t.Fatalf("facts.gather on %s (exit %d):\n%s", m.host, code, raw)
 	}
@@ -81,6 +89,24 @@ func numberStat(stats map[string]any, key string) int {
 	return -1
 }
 
+// labItem is stats[key] as an object, failing t when it is not one.
+func labItem(t *testing.T, stats map[string]any, key string) map[string]any {
+	t.Helper()
+	v, ok := stats[key].(map[string]any)
+	if !ok {
+		t.Errorf("no fact %s", key)
+	}
+	return v
+}
+
+// labFileKey is path's file fact key, its slashes, percent signs and spaces
+// percent-encoded as the method encodes them (the paths here hold nothing
+// else a key cannot).
+func labFileKey(path string) string {
+	r := strings.NewReplacer("%", "%25", "/", "%2F", " ", "%20")
+	return "file." + r.Replace(path)
+}
+
 // labAtoi is s as a number, failing t when it is not one.
 func labAtoi(t *testing.T, s string) int {
 	t.Helper()
@@ -99,7 +125,7 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	if got := labShell(t, m, "uname -s"); got != "FreeBSD" {
 		t.Fatalf("%s is %q, not FreeBSD", m.host, got)
 	}
-	stats := labGatherAll(t, m)
+	stats := labGatherAll(t, m, "/etc/hosts", "/root/.cshrc", "/nonexistent", "/etc/master.passwd")
 	if stats["ansible_system"] != "FreeBSD" || stats["ansible_distribution"] != "FreeBSD" {
 		t.Errorf("system %v, distribution %v", stats["ansible_system"], stats["ansible_distribution"])
 	}
@@ -120,6 +146,33 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	if sshd, _ := stats["service.sshd"].(map[string]any); sshd["state"] != "running" || sshd["enabled"] != true {
 		t.Errorf("service.sshd = %v, want the running, enabled daemon this test logged in through", sshd)
 	}
+	// Phase 41c-2. Every listener sockstat lists (a UDP one only unconnected).
+	if want := labAtoi(t, labShell(t, m, `sockstat -46lq | awk '$5 ~ /^tcp/ || $7 == "*:*"' | wc -l`)); labCount(stats, "port.", "") != want {
+		t.Errorf("%d port facts, sockstat lists %d listeners", labCount(stats, "port.", ""), want)
+	}
+	if p := labItem(t, stats, "port.tcp:0.0.0.0:22"); p["process"] != "sshd" {
+		t.Errorf("port.tcp:0.0.0.0:22 = %v, want sshd", p)
+	}
+	if want := labAtoi(t, labShell(t, m, `grep -cv '^#' /etc/passwd`)); labCount(stats, "user.", "files") != want {
+		t.Errorf("%d user facts, /etc/passwd lists %d accounts", labCount(stats, "user.", "files"), want)
+	}
+	if u := labItem(t, stats, "user.pleiades"); numberStat(u, "uid") != labAtoi(t, labShell(t, m, "id -u")) {
+		t.Errorf("user.pleiades = %v", u)
+	}
+	if f := labItem(t, stats, labFileKey("/etc/hosts")); f["sha256"] != labShell(t, m, "sha256 -q /etc/hosts") || f["owner"] != "root" || f["group"] != "wheel" {
+		t.Errorf("/etc/hosts = %v", f)
+	}
+	// /root is root's and wheel's; this login is in neither.
+	if f := labItem(t, stats, labFileKey("/root/.cshrc")); f["state"] != "unreadable" {
+		t.Errorf("/root/.cshrc = %v, want unreadable, never absent", f)
+	}
+	if f := labItem(t, stats, labFileKey("/nonexistent")); f["state"] != "absent" {
+		t.Errorf("/nonexistent = %v", f)
+	}
+	// Root's alone: present, described, never hashed.
+	if f := labItem(t, stats, labFileKey("/etc/master.passwd")); f["state"] != "present" || f["digest"] != "withheld" || f["sha256"] != nil || f["size"] != nil {
+		t.Errorf("/etc/master.passwd = %v, want present with its digest withheld", f)
+	}
 }
 
 func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
@@ -130,7 +183,7 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	if got := labShell(t, m, "uname -s"); got != "Darwin" {
 		t.Fatalf("%s is %q, not Darwin", m.host, got)
 	}
-	stats := labGatherAll(t, m)
+	stats := labGatherAll(t, m, "/etc/hosts", "/etc", "/private/var/root/.forward", "/nonexistent")
 	if stats["ansible_distribution"] != "MacOSX" || stats["ansible_distribution_version"] != labShell(t, m, "sw_vers -productVersion") {
 		t.Errorf("distribution %v %v", stats["ansible_distribution"], stats["ansible_distribution_version"])
 	}
@@ -147,6 +200,33 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	daemons := labAtoi(t, labShell(t, m, `launchctl print system | awk '/^\tservices = \{/{f=1;next} f&&/^\t\}/{exit} f' | wc -l`))
 	if got := labCount(stats, "service.", "launchd"); got == 0 || got != daemons {
 		t.Errorf("%d launchd facts, launchd lists %d daemons", got, daemons)
+	}
+	// Phase 41c-2. TCP listeners, counted against netstat: a UDP endpoint
+	// may open or close between the gather and the count, a listener rarely.
+	listeners := labAtoi(t, labShell(t, m, `netstat -anvl -p tcp | awk '$6 == "LISTEN"' | wc -l`))
+	if got := labCount(stats, "port.tcp:", ""); got != listeners || got == 0 {
+		t.Errorf("%d TCP port facts, netstat lists %d listeners", got, listeners)
+	}
+	if want := labAtoi(t, labShell(t, m, "dscl . -list /Users | wc -l")); labCount(stats, "user.", "dslocal") != want {
+		t.Errorf("%d user facts, the local directory lists %d", labCount(stats, "user.", "dslocal"), want)
+	}
+	me := labShell(t, m, "id -un")
+	if u := labItem(t, stats, "user."+me); numberStat(u, "uid") != labAtoi(t, labShell(t, m, "id -u")) || u["home"] != labShell(t, m, "echo $HOME") {
+		t.Errorf("user.%s = %v", me, u)
+	}
+	digest := strings.Fields(labShell(t, m, "shasum -a 256 /etc/hosts"))[0]
+	if f := labItem(t, stats, labFileKey("/etc/hosts")); f["type"] != "file" || f["sha256"] != digest {
+		t.Errorf("/etc/hosts = %v, shasum says %s", f, digest)
+	}
+	// /etc is a link on a Mac, and is described as itself.
+	if f := labItem(t, stats, labFileKey("/etc")); f["type"] != "link" || f["link_target"] != labShell(t, m, "readlink /etc") {
+		t.Errorf("/etc = %v, want the link to private/etc as itself", f)
+	}
+	if f := labItem(t, stats, labFileKey("/private/var/root/.forward")); f["state"] != "unreadable" {
+		t.Errorf("a file in root's home = %v, want unreadable, never absent", f)
+	}
+	if f := labItem(t, stats, labFileKey("/nonexistent")); f["state"] != "absent" {
+		t.Errorf("/nonexistent = %v", f)
 	}
 }
 
@@ -188,7 +268,7 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 		t.Fatalf("registering the gate's programs printed %q", got)
 	}
 
-	stats := labGather(t, m)
+	stats := labGather(t, m, `C:\Windows\win.ini`, `C:\pagefile.sys`, `C:\nonexistent\x`)
 	if stats["ansible_system"] != "Win32NT" || stats["ansible_hostname"] != labPowerShell(t, m, `$env:COMPUTERNAME`) {
 		t.Errorf("system %v, host name %v", stats["ansible_system"], stats["ansible_hostname"])
 	}
@@ -219,5 +299,34 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 	}
 	if winrm, _ := stats["service.WinRM"].(map[string]any); winrm["state"] != "running" || winrm["enabled"] != true {
 		t.Errorf("service.WinRM = %v, want the running, enabled service this test came in through", winrm)
+	}
+	// Phase 41c-2.
+	// TCP listeners only: a UDP endpoint may come and go between the two reads.
+	if want := labAtoi(t, labPowerShell(t, m, `@(Get-NetTCPConnection -State Listen).Count`)); labCount(stats, "port.tcp:", "") != want {
+		t.Errorf("%d TCP port facts, the host lists %d listeners", labCount(stats, "port.tcp:", ""), want)
+	}
+	if p := labItem(t, stats, "port.tcp:[::]:5985"); p["process"] != "System" {
+		t.Errorf("WinRM's listener = %v", p)
+	}
+	if want := labAtoi(t, labPowerShell(t, m, `@(Get-LocalUser).Count`)); labCount(stats, "user.", "sam") != want {
+		t.Errorf("%d user facts, the host lists %d accounts", labCount(stats, "user.", "sam"), want)
+	}
+	if want := labAtoi(t, labPowerShell(t, m, `@(Get-LocalGroup).Count`)); labCount(stats, "group.", "sam") != want {
+		t.Errorf("%d group facts, the host lists %d groups", labCount(stats, "group.", "sam"), want)
+	}
+	if a := labItem(t, stats, "user.Administrator"); a["enabled"] != true {
+		t.Errorf("user.Administrator = %v", a)
+	}
+	digest := strings.ToLower(labPowerShell(t, m, `(Get-FileHash -LiteralPath 'C:\Windows\win.ini' -Algorithm SHA256).Hash`))
+	if f := labItem(t, stats, `file.C:\Windows\win.ini`); f["sha256"] != digest || f["state"] != "present" {
+		t.Errorf("win.ini = %v, the host's digest is %s", f, digest)
+	}
+	// The page file is there, and PowerShell's Get-Item says it is not:
+	// this is the answer that must not be absent.
+	if f := labItem(t, stats, `file.C:\pagefile.sys`); f["state"] != "present" || f["sha256"] != nil {
+		t.Errorf("C:\\pagefile.sys = %v, want present, with no digest", f)
+	}
+	if f := labItem(t, stats, `file.C:\nonexistent\x`); f["state"] != "absent" {
+		t.Errorf("a missing path = %v", f)
 	}
 }

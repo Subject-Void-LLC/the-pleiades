@@ -1,7 +1,8 @@
 // Package facts: facts.gather's subsets (Phase 41c), Ansible's gather_subset.
 // Each probe belongs to one subset; a task names the subsets it wants, and
 // only their probes run. min and hardware are what this method always read;
-// packages and services are new, each a family of one fact per item.
+// packages, services, ports and users are each a family of one fact per item,
+// and files is one fact per path the task names in files.
 package facts
 
 import (
@@ -23,11 +24,15 @@ const (
 	gatherSubsetHardware = "hardware"
 	gatherSubsetPackages = "packages"
 	gatherSubsetServices = "services"
+	gatherSubsetFiles    = "files"
+	gatherSubsetPorts    = "ports"
+	gatherSubsetUsers    = "users"
 	gatherSubsetAll      = "all"
 )
 
 // gatherSubsets is every subset, in the order a run reads them.
-var gatherSubsets = []string{gatherSubsetMin, gatherSubsetHardware, gatherSubsetPackages, gatherSubsetServices}
+var gatherSubsets = []string{gatherSubsetMin, gatherSubsetHardware, gatherSubsetPackages, gatherSubsetServices,
+	gatherSubsetFiles, gatherSubsetPorts, gatherSubsetUsers}
 
 // gatherDefaultSubsets is what a task naming no subset gathers: what this
 // method always read, so a runbook written before subsets existed reads the
@@ -44,11 +49,55 @@ var gatherDefaultSubsets = []string{gatherSubsetMin, gatherSubsetHardware}
 // lists them, and here a task lists a host's packages only by naming them or
 // all. An unknown name is refused, a typo being far likelier than a wish to
 // gather nothing.
+//
+// files is the one subset that reads what the task names: paths in files add
+// it, a task naming files with no paths is refused, and all gathers it only
+// when there are paths to read.
 func gatherSelection(params map[string]any) (map[string]bool, error) {
 	names, set, err := sdk.StringSlice(params, gatherParamSubset)
 	if err != nil {
 		return nil, err
 	}
+	paths, _, err := sdk.StringSlice(params, gatherParamFiles)
+	if err != nil {
+		return nil, err
+	}
+	chosen, err := gatherNamed(names, set)
+	if err != nil {
+		return nil, err
+	}
+	switch named, removed := gatherNamesFiles(names); {
+	case len(paths) > 0 && removed:
+		return nil, fmt.Errorf("%s names paths and %s leaves %s out; drop one of them", gatherParamFiles, gatherParamSubset, gatherSubsetFiles)
+	case len(paths) > 0:
+		chosen[gatherSubsetFiles] = true
+	case named:
+		return nil, fmt.Errorf("%s %s reads the paths %s names, and it names none", gatherParamSubset, gatherSubsetFiles, gatherParamFiles)
+	default:
+		// all chose it, with nothing to read.
+		delete(chosen, gatherSubsetFiles)
+	}
+	if len(chosen) == 0 {
+		return nil, fmt.Errorf("%s %q leaves no subset to gather", gatherParamSubset, names)
+	}
+	return chosen, nil
+}
+
+// gatherNamesFiles reports whether names asks for the files subset by name,
+// and whether it leaves it out by name (!files).
+func gatherNamesFiles(names []string) (named, removed bool) {
+	for _, raw := range names {
+		name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!")
+		if name == gatherSubsetFiles {
+			named, removed = named || !remove, removed || remove
+		}
+	}
+	return named, removed
+}
+
+// gatherNamed is the subsets names chooses, by Ansible's rules, before files
+// is settled.
+func gatherNamed(names []string, set bool) (map[string]bool, error) {
 	chosen := map[string]bool{}
 	if !set || len(names) == 0 {
 		for _, s := range gatherDefaultSubsets {
@@ -93,9 +142,6 @@ func gatherSelection(params map[string]any) (map[string]bool, error) {
 	if keepMin {
 		chosen[gatherSubsetMin] = true
 	}
-	if len(chosen) == 0 {
-		return nil, fmt.Errorf("%s %q leaves no subset to gather", gatherParamSubset, names)
-	}
 	return chosen, nil
 }
 
@@ -123,6 +169,10 @@ func chosenNames(chosen map[string]bool) []string {
 const (
 	gatherFamilyPackage = "package."
 	gatherFamilyService = "service."
+	gatherFamilyFile    = "file."
+	gatherFamilyPort    = "port."
+	gatherFamilyUser    = "user."
+	gatherFamilyGroup   = "group."
 )
 
 // itemKey is the fact key of one item of family: the family's prefix and the

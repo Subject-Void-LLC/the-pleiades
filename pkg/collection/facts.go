@@ -48,6 +48,11 @@ const (
 // by internal/engine's tests.
 const MaxFactsPerObservation = 8192
 
+// MaxFactKeyBytes is the longest a fact's key may be, in bytes: the store's
+// bound (internal/facts.MaxKeyBytes), held equal to it by internal/engine's
+// tests, so a method can refuse a key at plan time that storage would drop.
+const MaxFactKeyBytes = 256
+
 // FactSpec declares one fact, or one family of facts sharing a prefix, that a
 // method may emit.
 type FactSpec struct {

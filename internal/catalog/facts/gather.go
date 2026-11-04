@@ -82,8 +82,8 @@ func init() {
 			},
 			// Nothing here needs root: every source is one an ordinary
 			// login reads (uname, /etc/os-release, /proc, sysctl, the
-			// package databases, the service managers' listings, CIM and
-			// the registry). Beyond plain reads it runs the platform's own
+			// package databases, the service managers' listings, the socket
+			// tables, the account files, stat, CIM and the registry). Beyond plain reads it runs the platform's own
 			// listing tools (rc scripts' status, launchctl, and Homebrew
 			// only as the account that owns it), each only reading, which
 			// is a real property of the set that was chosen rather than
@@ -125,6 +125,16 @@ func init() {
 			Description: "One installed package: version, arch and source (the database it was read from)."},
 		collection.FactSpec{Key: gatherFamilyService, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
 			Description: "One service: state, enabled, status (the manager's own word for it) and source."},
+		// A path's digest or owner changing, a new listener, an account
+		// added: each is the device changing.
+		collection.FactSpec{Key: gatherFamilyFile, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
+			Description: "One path the task named: state (present, absent, unreadable) and, when present, type, size, owner, mode, sha256 and link target; never the content."},
+		collection.FactSpec{Key: gatherFamilyPort, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
+			Description: "One listening socket: protocol, address, port and, where the login may see it, the process."},
+		collection.FactSpec{Key: gatherFamilyUser, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
+			Description: "One local account: uid, gid, home and shell (sid and enabled on Windows); never a password or its hash."},
+		collection.FactSpec{Key: gatherFamilyGroup, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
+			Description: "One local group: gid (sid on Windows) and its listed members."},
 	)
 	collection.MustRegister(d)
 }
@@ -151,11 +161,12 @@ func gatherFactNames() []string {
 // the copies cannot drift.
 func gatherDoc() collection.Doc {
 	return collection.Doc{
-		Summary:     "Gathers system facts from the target: OS, kernel, distribution, and on request its packages and services.",
-		Description: "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); and services, one fact per service (service.<name>: state, enabled and status, from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager). The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+		Summary:     "Gathers system facts from the target: OS, kernel, distribution, and on request its packages, services, listening ports, accounts and named files.",
+		Description: "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, one fact per service (service.<name>: state, enabled and status, from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager); ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and, for a file anyone may read, a SHA-256 digest, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
 		Params: []collection.Param{
 			{Name: gatherParamFilter, Type: "list of string", Description: "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."},
-			{Name: gatherParamSubset, Type: "list of string", Description: "The subsets to gather: min and hardware as ansible.builtin.setup names them, packages and services (Ansible's package_facts and service_facts), or all, every one; a name with a leading ! leaves that subset out, and a list of only such names starts from min and hardware. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. An unknown name is refused."},
+			{Name: gatherParamSubset, Type: "list of string", Description: "The subsets to gather: min and hardware as ansible.builtin.setup names them, packages and services (Ansible's package_facts and service_facts), ports, users and files, or all, every one; a name with a leading ! leaves that subset out, and a list of only such names starts from min and hardware. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. files is gathered whenever files names paths, all gathers it only then, and naming files with no paths is refused. An unknown name is refused."},
+			{Name: gatherParamFiles, Type: "list of string", Description: "Absolute paths to describe, at most 64: for each, whether it is present, absent or unreadable and, when present, its type, size, owner and group (uid and gid on a POSIX device), mode (attributes on Windows), the SHA-256 and size of a regular file anyone may read, and a link's target. Content is never read back. A file not world-readable (on a POSIX device, one its mode or a directory above it keeps from others; on Windows, one whose ACL does not let Everyone, Authenticated Users or Users read it) is not hashed and its size is not kept: its digest is withheld, since a stored digest of a small secret can be guessed offline by anyone who may read the facts. A path is absent only when the device says it does not exist; one inside a directory the login may not search, or that Windows will not open, is unreadable. A link is described as itself, not what it points to. A network path (a UNC path such as \\\\server\\share) is refused."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -176,6 +187,10 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactProcessorCores, Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
 			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm, apk, pkg, brew, brew-cask, pkgutil or registry). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source, then #2 and on in the order the source lists them. A package its source gives no version has none."},
 			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart) and status the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status the last exit status launchctl prints; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."},
+			{Name: "file.<path>", Type: "map", Returned: "with the files subset, for each path in files", Description: "One named path: state (present, absent or unreadable); when present, type (file, directory, link, fifo, socket, char or block), size (not for a directory, nor a file whose digest is withheld), uid, gid, owner, group and mode as four octal digits on a POSIX device, attributes and owner on Windows, for a regular file world_readable and, when anyone may read it, sha256, size and readable, or digest withheld when not, and link_target for a link. The path is percent-encoded in the key as any item name is."},
+			{Name: "port.<protocol>:<address>:<port>", Type: "map", Returned: "with the ports subset, for each listening socket", Description: "One listening TCP socket, or UDP socket bound with no peer: protocol (tcp or udp), address (0.0.0.0 or :: for any; in brackets in the key when it is IPv6), port, uid on Linux, and process, the owning process's name, where the login may see it (on Linux its own processes, or every one as root; on FreeBSD every one unless security.bsd.see_other_uids is off; every one on macOS; on Windows every one an administrator sees). A socket taking both families is ::."},
+			{Name: "user.<name>", Type: "map", Returned: "with the users subset, for each local account", Description: "One local account: uid, gid, home, shell and source (files from /etc/passwd, dslocal from a Mac's local directory), or on Windows sid, enabled and source sam. Accounts a directory service adds (LDAP, SSSD, a domain) are not local and not listed; the password field is never read."},
+			{Name: "group.<name>", Type: "map", Returned: "with the users subset, for each local group", Description: "One local group: gid (sid on Windows), members as the group lists them (an account whose primary group it is is not repeated), and source. A Windows group whose members could not be listed has no members key."},
 		},
 		Examples: []collection.Example{
 			{
@@ -185,6 +200,10 @@ func gatherDoc() collection.Doc {
 			{
 				Name:        "Gather the installed packages and services",
 				RunbookYAML: "- name: Learn what is installed and running\n  facts.gather:\n    gather_subset:\n      - packages\n      - services\n",
+			},
+			{
+				Name:        "Record a configuration file's digest and who listens where",
+				RunbookYAML: "- name: Describe sshd's configuration and the listening sockets\n  facts.gather:\n    gather_subset:\n      - ports\n    files:\n      - /etc/ssh/sshd_config\n",
 			},
 			{
 				Name:        "Gather only what a later condition reads",
@@ -220,7 +239,10 @@ type gatherProbe struct {
 	family  string
 	keys    []string
 	command string
-	parse   func(stdout string) []gatherFact
+	// commandFor, when set, builds the command from the paths the task
+	// named (the files subset); probesFor sets command from it.
+	commandFor func(paths []string) string
+	parse      func(stdout string) []gatherFact
 }
 
 // The platforms facts.gather reads, by what uname -s answers.
@@ -252,21 +274,29 @@ const (
 // awk or sed, so the remote toolchain this needs is what a BusyBox
 // device already has, and the parsing lives in Go where it is testable
 // rather than in a shell expression where a quoting mistake is silent.
-// Every command is also a compile-time constant with nothing from the
-// runbook in it, which is why no quoting of a task parameter appears
-// anywhere in this file.
+// Every command is a compile-time constant with nothing from the runbook in
+// it, but one: the files probe's, which holds the paths the task named, each
+// quoted where it is built (posixFileProbe, windowsFileProbe).
 func gatherProbesFor(platform string) []gatherProbe {
+	var probes []gatherProbe
 	switch platform {
 	case platformFreeBSD:
-		return append(append(bsdHostProbes(platform), freebsdPackageProbes()...), freebsdServiceProbes()...)
+		probes = append(append(bsdHostProbes(platform), freebsdPackageProbes()...), freebsdServiceProbes()...)
+		probes = append(probes, posixFileProbe(statFormatBSD, modeFormatBSD), freebsdPortProbe())
+		return append(probes, posixUserProbes()...)
 	case platformDarwin:
-		return append(append(bsdHostProbes(platform), darwinPackageProbes()...), darwinServiceProbes()...)
+		probes = append(append(bsdHostProbes(platform), darwinPackageProbes()...), darwinServiceProbes()...)
+		probes = append(probes, posixFileProbe(statFormatBSD, modeFormatBSD), darwinPortProbe())
+		return append(probes, darwinUserProbes()...)
 	case platformWindows:
 		return windowsProbes()
 	}
-	probes := gatherHostProbes()
+	probes = gatherHostProbes()
 	probes = append(probes, linuxPackageProbes()...)
-	return append(probes, linuxServiceProbes()...)
+	probes = append(probes, linuxServiceProbes()...)
+	probes = append(probes, posixFileProbe(statFormatGNU, modeFormatGNU))
+	probes = append(probes, linuxPortProbes()...)
+	return append(probes, posixUserProbes()...)
 }
 
 // gatherEveryProbe is every platform's probes, which a plan is checked
@@ -386,6 +416,11 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, err
 	}
 	defer closeRun()
+	// The named paths are held to the device's own form before any probe
+	// runs, so a path written for the other kind of system reads nothing.
+	if err := gatherFilesFor(choice.files, platform); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	probes := choice.probesFor(platform)
 
 	names := gatherNames{}
@@ -461,7 +496,16 @@ func gatherPlan(params map[string]any) (gatherChoice, error) {
 			return gatherChoice{}, fmt.Errorf("%s pattern %q is malformed: %w", gatherParamFilter, pattern, err)
 		}
 	}
-	choice := gatherChoice{chosen: chosen, patterns: patterns}
+	files, err := gatherFilePaths(params)
+	if err != nil {
+		return gatherChoice{}, err
+	}
+	choice := gatherChoice{chosen: chosen, patterns: patterns, files: files}
+	// Named paths a filter would drop are a contradiction, not a wish to
+	// read nothing.
+	if len(files) > 0 && chosen[gatherSubsetFiles] && !gatherFamilyWanted(patterns, gatherFamilyFile) {
+		return gatherChoice{}, fmt.Errorf("%s names paths and %s %q matches no %s fact", gatherParamFiles, gatherParamFilter, patterns, gatherFamilyFile)
+	}
 	// Checked against every platform's probes before the device is
 	// reached, so a typo costs no connection; narrowed to the device's own
 	// platform once it says which (probesFor).
@@ -476,11 +520,23 @@ func gatherPlan(params map[string]any) (gatherChoice, error) {
 type gatherChoice struct {
 	chosen   map[string]bool
 	patterns []string
+	// files is the paths the files subset reads.
+	files []string
 }
 
-// probesFor is the probes choice runs on platform.
+// probesFor is the probes choice runs on platform, a probe built from the
+// task's paths given its command and its facts' keys.
 func (choice gatherChoice) probesFor(platform string) []gatherProbe {
-	return choice.narrow(gatherProbesFor(platform))
+	probes := choice.narrow(gatherProbesFor(platform))
+	for i, p := range probes {
+		if p.commandFor == nil {
+			continue
+		}
+		parse, paths := p.parse, choice.files
+		probes[i].command = p.commandFor(paths)
+		probes[i].parse = func(out string) []gatherFact { return filesFacts(paths, parse(out)) }
+	}
+	return probes
 }
 
 // narrow keeps the probes of the chosen subsets that the filter can want,

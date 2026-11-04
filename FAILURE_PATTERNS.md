@@ -869,6 +869,18 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 863. testsupport.UseLoginShell counted installer warnings as accounts and could not install fish on Rocky (a sibling of 779's banner parse) (fixed before push)
 864. A new test file used a helper from a file built only off Windows, so the package's tests did not compile for Windows (fixed before push)
 865. internal/redact imported pkg/remoteexec/shline, breaking its standard-library-only rule, because only the new archtest had been run (fixed before push)
+866. facts.gather's Windows files probe used Get-Item -Force, which throws ItemNotFoundException for C:\pagefile.sys, a file that exists, so a present file read as absent (a repeat of 818; LESSONS 379) (fixed before commit)
+867. The files path check accepted //server/share, /\server\share, //?/UNC/..., //./pipe/... and //./PhysicalDrive0, which Windows reads as network or device paths, because the facts copy of windowsAbsolute was weaker than exec.winrm.shell's (a repeat of 821; LESSONS 244) (fixed before push)
+868. A stored, unkeyed SHA-256 and size of a task-named file would be readable by anyone with inventory:read, an offline guessing oracle for a small secret file (a repeat in kind of 829) (fixed before push; the keyed design is open)
+869. /proc/net/udp lists an unbound UDP socket as 0.0.0.0:0 in state 07, which the Linux ports parser reported as a listener on port 0 (fixed before push)
+870. FreeBSD sockstat prints one line per (process, descriptor), so a listener held by N workers became port...:80, port...:80#2, #3, churning with the worker count (a repeat of 849) (fixed before push)
+871. macOS netstat -anv cuts an IPv6 address to its column width, so a listener's address was stored truncated (a sibling in kind of 606) (fixed before push)
+872. Linux /proc/net byte order was guessed from uname -m, which cannot tell little-endian from big-endian MIPS (a repeat of LESSONS 343) (fixed before push)
+873. The Windows files, ports and users scripts failed the whole task on a host lacking Get-LocalUser or the TCP/IP cmdlets, and [IO.File]::GetAccessControl does not exist in PowerShell 7, while their comments said every script read what any host has (a repeat of 789) (fixed before push)
+874. Windows [IO.File]::OpenRead asks FileShare.Read, so a file open for writing elsewhere read unreadable until the writer closed it, drift on an unchanged file (fixed before push)
+875. The Linux ports probe printed whole socket tables and every descriptor link, so a busy server would pass the 64 MiB output limit (fixed before push)
+876. An IPv6 zone index (Windows %4) in a port key moved when an adapter was added, renaming an unchanged listener (a sibling of 870) (fixed before push)
+877. The new tests repeated old test-quality classes: lab gates compared UDP counts read at different moments and waited with a fixed sleep, password asserts could not fail, the fact key bound was copied with no equality test, a filter dropping every path gathered nothing silently, and a malformed stat line was accepted (a repeat of 788, 211 and 422; LESSONS 136 and 134) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

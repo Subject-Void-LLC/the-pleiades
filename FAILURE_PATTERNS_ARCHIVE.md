@@ -20716,3 +20716,243 @@ pass under fish, tcsh and zsh.
 **Fix.** `internal/redact/masker.go` keeps its own copy of the encoding (`shEncoded`), and `TestMasking_EncodedSecretsMatchShline` holds it equal to `shline.Encode` over every byte from 1 to 255.
 
 **Lesson.** After adding an import to a package, run all of `internal/archtest`, not the one test the change adds; a layering rule elsewhere may already forbid it.
+
+## 866. facts.gather's Windows files probe used Get-Item -Force, which throws ItemNotFoundException for C:\pagefile.sys, a file that exists, so a present file read as absent (a repeat of 818; LESSONS 379) (fixed before commit)
+
+**Symptom.** 2026-11-04, building Phase 41c-2's `files` subset, measured on win-check (Windows Server 2025) through
+pleiades. The first Windows probe read each path with `Get-Item -Force` and called a path absent on
+`ItemNotFoundException`. For `C:\pagefile.sys`, which exists, `Get-Item -Force` throws that same exception, so the
+probe could not tell a file that is absent from one it cannot reach, and a present file would have been stored as
+`absent`.
+
+**Root cause.** PowerShell's provider layer folds errors: it answers "not found" for a file it cannot open as well as
+for one that is not there. The probe read that layer's answer as the system's.
+
+**Why 818 and LESSONS 379 did not prevent it.** 818 fixed `exec.winrm.shell`'s guard to decide as Ansible's
+`Test-AnsiblePath` does (`GetAttributes`, with only `FileNotFoundException` or `DirectoryNotFoundException` as absent),
+and LESSONS 379 says an existence guard decides absent only when the platform says not found. The facts probe was
+written fresh in another package, and `Get-Item` did say "not found", so it met 379's wording. 379 did not say that
+the "not found" must come from the system itself and not from a layer above it.
+
+**Fix.** `e84c0dc3` (`internal/catalog/facts/gather_win_items.go`): the probe reads `[IO.File]::GetAttributes`, and a
+path is absent only when the innermost exception is `FileNotFoundException` or `DirectoryNotFoundException`; anything
+else is `unreadable`. `TestCLI_FactsGatherOnWindowsMatchesItsOwnTools` gathers `C:\pagefile.sys` on win-check and
+requires it present (with no digest), and `C:\nonexistent\x` absent.
+
+**Lesson.** LESSONS 391: "absent" is a claim only the system's own not-found answer may make; decide from the innermost
+error type, never from a layer that folds errors.
+
+## 867. The files path check accepted //server/share, /\server\share, //?/UNC/..., //./pipe/... and //./PhysicalDrive0, which Windows reads as network or device paths, because the facts copy of windowsAbsolute was weaker than exec.winrm.shell's (a repeat of 821; LESSONS 244) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push. Reasoned, not measured. `gatherFilePaths` accepted
+any path starting with `/` as a POSIX path. Windows reads `/` as `\`, so `//server/share`, `/\server\share`,
+`//?/UNC/...`, `//./pipe/...` and `//./PhysicalDrive0` would have reached a Windows device as a UNC path or a device
+namespace path: a read of another machine through this one, or of a pipe or a raw disk. A device name such as `CON`,
+`NUL` or `COM1` in any directory was also accepted.
+
+**Root cause.** The facts package kept its own path check. It held Windows paths to a drive letter, but checked the
+POSIX form only for a leading `/`, and so never asked what a Windows device does with a POSIX-looking path.
+
+**Why 821 and LESSONS 244 did not prevent it.** 821 fixed `exec.winrm.shell`'s `windowsAbsolute`, refusing `\\?\`,
+`\\.\` and odd server names. LESSONS 244 says that when one of two sibling paths carries a guard, check the other, and
+move the guard into one helper both call. The facts check is a sibling that was written without reading 821's, and
+the guard was not shared. The two still are not: `internal/catalog/facts/gather_files.go` and
+`internal/catalog/exec/winrm/shell.go` each keep a `windowsAbsolute`, with different rules on purpose (the facts one
+refuses every UNC path), and no test holds them together.
+
+**Fix.** `ae4c5657`: a path starting with two separators of either kind is refused, a Windows device name (`CON`,
+`PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, the superscript digits too) is refused,
+and once the device names its platform each path is held to that platform's own absolute form (`gatherFilesFor`).
+Tests: `TestGatherFilePaths_RefusesWhatCannotBeReadSafely`, `TestGatherFilesFor_HoldsEachPathToTheDevicesOwnForm`,
+`TestGather_RefusesAPathWrittenForTheOtherKindOfSystem`.
+
+**Lesson.** LESSONS 244's: when a second check of the same kind of input is written, start from the first one's
+refusals, and ask what the far side does with each form the check admits.
+
+## 868. A stored, unkeyed SHA-256 and size of a task-named file would be readable by anyone with inventory:read, an offline guessing oracle for a small secret file (a repeat in kind of 829) (fixed before push; the keyed design is open)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push. Security. The `files` subset stored a SHA-256 and a
+size for every regular file the login could read. Facts are served to `inventory:read`, which a viewer holds. For a
+small secret file (a password file, a key, a PIN), the digest lets anyone who can read the facts confirm guesses
+offline, and the size narrows the guesses. Reasoned, not measured against an attacker.
+
+**Root cause.** The roadmap item asked for "a digest and metadata" of each path. The design treated a digest as safe
+because it is not the content, and did not ask who reads it or how small the input can be.
+
+**Why 829 did not prevent it.** 829 kept a secret value out of the fact store by the run's known secrets, a secret key
+name and a secret shape. A digest is none of those: the harm is derived from it, not carried in it, so no strip list
+can catch it.
+
+**Fix.** `ae4c5657`, by the owner's decision of 2026-11-04 to withhold now. A regular file is hashed only when it is
+world-readable: on POSIX, its mode allows others to read and every directory above it allows others to search,
+computed on the device in `sh` arithmetic; on Windows, its ACL allows read to Everyone, Authenticated Users or
+BUILTIN\Users with no matching deny (`Get-Acl`). Any other file has no `sha256` and no `size`, carries
+`digest: withheld`, and is never hashed on the device. Tests: `TestGather_FilesReportDigestsAndNeverCallUnreadableAbsent`
+(a 0640 file, and a 0644 file inside a 0700 directory, both withheld), `TestCLI_FactsReleaseGate` (`/tmp/mine`, mode
+0600, withheld), `TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools` (`/etc/master.passwd` withheld) and
+`TestCLI_FactsGatherOnWindowsMatchesItsOwnTools` (`C:\pagefile.sys`, no digest).
+
+**Open.** The owner's keyed hybrid is the next pull request: a plain digest for a world-readable file, an HMAC at the
+store boundary for a restricted one, and the stats stripped in the engine (LESSONS 390: a fact is also a stat).
+
+**Lesson.** A derived value (a digest, a size, a count) of a secret can be as sensitive as the secret when the input
+is small; decide who reads the store before storing one.
+
+## 869. /proc/net/udp lists an unbound UDP socket as 0.0.0.0:0 in state 07, which the Linux ports parser reported as a listener on port 0 (fixed before push)
+
+**Symptom.** 2026-11-04, found by `FuzzGatherParsers` with seeds taken from the API model's output plus a new
+invariant that a port is from 1 to 65535. The Linux parser read state `07` in `/proc/net/udp` as a bound UDP socket,
+and an unbound one has local port 0 in that state, so it became `port.udp:0.0.0.0:0`. The kept failing input
+(`internal/catalog/facts/testdata/fuzz/FuzzGatherParsers/c370165e73df7491`) is a TCP-table row in state `0A` with
+local port 0, which the parser also passed.
+
+**Root cause.** The parser checked the state column and not the port, and no test fed it a socket that is not bound.
+
+**Fix.** `ae4c5657` (`internal/catalog/facts/gather_ports.go`): a row with local port 0 is no listener, whatever its
+state. `FuzzGatherParsers` keeps the port-range invariant and the regression input.
+
+**Lesson.** A fuzz target holds the parser to the output's own invariants (a port is 1 to 65535), not only to "does
+not panic"; that is what found this.
+
+## 870. FreeBSD sockstat prints one line per (process, descriptor), so a listener held by N workers became port...:80, port...:80#2, #3, churning with the worker count (a repeat of 849) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push. A web server with several workers sharing one
+listening socket printed one `sockstat -46lq` line per worker, and the parser made each a fact, told apart by `#n`. The
+number of facts moved as workers came and went, so drift would have shown a listener appear and vanish with no change
+to what was listening.
+
+**Root cause.** The parser took sockstat's lines as sockets. A line is a (process, descriptor) pair, and one socket
+has as many as there are processes holding it.
+
+**Why 849 did not prevent it.** 849 made names distinct across every probe of a run with `:arch`, `@source` and `#n`.
+That suffix keeps two items apart; it does not decide whether two lines are two items, and here they were one.
+
+**Fix.** `ae4c5657` (`internal/catalog/facts/gather_bsd_more.go`): one fact per socket, its process named by the lowest
+pid. `TestParseSockstat_ReadsFreeBSDsListeners`.
+
+**Lesson.** Before naming items apart, decide what one item is; a suffix that keeps a key unique also hides a
+duplicate that should have been merged.
+
+## 871. macOS netstat -anv cuts an IPv6 address to its column width, so a listener's address was stored truncated (a sibling in kind of 606) (fixed before push)
+
+**Symptom.** 2026-11-04, measured on the lab Mac (macOS 27.0.1). `netstat -anv` printed a local IPv6 address cut to its
+column, as `2601:84:ca01:103.56230`, so the key held an address the host does not have.
+
+**Root cause.** The probe read a tool's display output, whose columns have a fixed width, and nothing checked that a
+value fit its column. 606's class: a terminal or display width rewrote what the reader expected.
+
+**Fix.** `ae4c5657`: the probe runs `netstat -anvl`, which prints the address whole (measured on the lab Mac), and
+names a process only from a `name:pid` field. `TestParseDarwinNetstat_ReadsTheProcessBetweenFixedColumns`.
+
+**Lesson.** A parser of a tool's column output checks the value it takes against the form it must have, and the probe
+asks the tool for its unabridged form.
+
+## 872. Linux /proc/net byte order was guessed from uname -m, which cannot tell little-endian from big-endian MIPS (a repeat of LESSONS 343) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push. Reasoned. `/proc/net/tcp` prints addresses in the
+host's byte order. The probe chose the order from `uname -m`, and `mips` names both orders, so on one of them every
+address would have been read backwards.
+
+**Root cause.** The machine name stood in for the property the parser needed.
+
+**Why LESSONS 343 did not prevent it.** 343 says detect a capability by asking for it, never by a proxy. It was
+written about test helpers and check scripts, and nothing applied it to a probe's own guess at the device.
+
+**Fix.** `ae4c5657` (`internal/catalog/facts/gather_ports.go`): the probe asks the device,
+`printf '\001\000' | od -An -tx2`, which prints `0001` on a little-endian host and `0100` on a big-endian one (measured
+on Alpine, Debian, Rocky and macOS); `uname -m` is only the fallback. `TestParseLinuxPorts_ReadsTheKernelsTablesInItsByteOrder`.
+
+**Lesson.** LESSONS 343's: ask the device for the property, here its byte order, rather than infer it from a name.
+
+## 873. The Windows files, ports and users scripts failed the whole task on a host lacking Get-LocalUser or the TCP/IP cmdlets, and [IO.File]::GetAccessControl does not exist in PowerShell 7, while their comments said every script read what any host has (a repeat of 789) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push, found by a second model given the code; reasoned,
+not measured. The scripts ran under `$ErrorActionPreference='Stop'`, so a host without `Get-LocalUser` or without the
+`Get-NetTCPConnection` and `Get-NetUDPEndpoint` cmdlets failed the whole gather, not one subset. The files script read
+ACLs through `[IO.File]::GetAccessControl`, which PowerShell 7 does not have, so under it the owner was lost and, once
+868's rule was in, every file read as not world-readable and was withheld. Comments claimed every script read only
+what any host has.
+
+**Root cause.** The scripts were written against the lab's Windows Server and its Windows PowerShell, and the comments
+stated a rule nothing checked.
+
+**Why 789 did not prevent it.** 789's lesson is that a change corrects the sentence it makes false; its rule is a review,
+and here the comments were false from the first commit, written as an intention.
+
+**Fix.** `ae4c5657` (`internal/catalog/facts/gather_win_items.go`): each cmdlet a host may lack is guarded by
+`Get-Command`, ACLs are read through `Get-Acl` (PowerShell 5.1 and 7), and the network cmdlets tolerate only an
+`ObjectNotFound` error. The comments say what the scripts now do. Proven on win-check by
+`TestCLI_FactsGatherOnWindowsMatchesItsOwnTools`.
+
+**Lesson.** A script that claims to run on any host is written against the oldest and the newest interpreter it can
+meet, and each optional command is guarded where it is called.
+
+## 874. Windows [IO.File]::OpenRead asks FileShare.Read, so a file open for writing elsewhere read unreadable until the writer closed it, drift on an unchanged file (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push. Reasoned. The files script hashed with
+`[IO.File]::OpenRead`, which opens with `FileShare.Read`. A file another process holds open for writing (a log) refuses
+that, so it read as `unreadable`, then as present once the writer closed it: drift with no change to the file.
+
+**Root cause.** `OpenRead`'s sharing mode is the default for a reader that wants no one to write under it, not for an
+observer.
+
+**Fix.** `ae4c5657`: the script opens with `[IO.File]::Open(..., 'ReadWrite, Delete')` sharing, so a writer or a
+deleter does not block the read.
+
+**Lesson.** An observer opens a file with the widest sharing mode the platform allows, so the observation does not
+depend on what else has the file open.
+
+## 875. The Linux ports probe printed whole socket tables and every descriptor link, so a busy server would pass the 64 MiB output limit (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push. Reasoned. The probe printed every row of
+`/proc/net/tcp`, `tcp6`, `udp` and `udp6`, and `ls -l` of every process's descriptors, and parsed them in Go. On a busy
+server with many connections and open files that output would pass the transport's 64 MiB limit, and the subset would
+fail where it is most wanted.
+
+**Root cause.** The probe moved the filtering to the platform side, so output grew with connections rather than with
+listeners.
+
+**Fix.** `ae4c5657` (`internal/catalog/facts/gather_ports.go`): the device keeps only rows in state `0A` or `07` and
+only `socket:` links (`grep` on the device), so the output grows with listeners.
+
+**Lesson.** A probe filters on the device to what it will keep, so its output is bounded by the answer, not by how
+busy the device is.
+
+## 876. An IPv6 zone index (Windows %4) in a port key moved when an adapter was added, renaming an unchanged listener (a sibling of 870) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push. A listener on a link-local address carries a zone,
+`%4` on Windows (the interface index). The key kept it, so adding an adapter that renumbered the interfaces renamed the
+listener: one fact gone and another new, with nothing changed in what listened.
+
+**Root cause.** 870's: a fact's key held a value that moves with something other than the item.
+
+**Fix.** `ae4c5657` (`internal/catalog/facts/gather_ports.go`): the zone is cut from the address in the key and kept in
+the value.
+
+**Lesson.** A fact key holds only what names the item; anything that moves with the host's state goes in the value.
+
+## 877. The new tests repeated old test-quality classes: lab gates compared UDP counts read at different moments and waited with a fixed sleep, password asserts could not fail, the fact key bound was copied with no equality test, a filter dropping every path gathered nothing silently, and a malformed stat line was accepted (a repeat of 788, 211 and 422; LESSONS 136 and 134) (fixed before push)
+
+**Symptom.** 2026-11-04, review of `feat/facts-41c-2` before push.
+- The lab gates compared the gather's count of ports with a count read at another moment, UDP included, and a UDP
+  endpoint can open or close between the two reads; the release gate started a listener and slept one second.
+- Asserts that a user fact carries no `password` key could not fail, because no parser ever wrote such a key.
+- `gatherMaxFileKeyBytes` copied `internal/facts.MaxKeyBytes` with no test holding the two equal.
+- A `filter` that dropped every named path gathered nothing and succeeded.
+- A stat line with a non-numeric size, a negative id or a mode wider than 12 bits was accepted.
+
+**Root cause.** Each is a class already recorded: a count taken twice and a fixed sleep (211, 422, 788), a test that
+cannot fail against its defect (LESSONS 136), and a copied value with no comparing test (LESSONS 134).
+
+**Why the earlier fixes did not hold.** Each lives as a lesson or in the test it fixed; the new gates were written
+fresh and not read against them before review.
+
+**Fix.** `ae4c5657`. The lab gates count TCP listeners only. The release gate waits for the listener in the kernel's own
+table (`/proc/net/tcp`, port 7070 as `1B9E`), not a sleep. The password checks hold the probe text, which passes the
+password field through `cut -d: -f1,3-` so it never leaves the device (`TestUserProbes_NeverCarryThePasswordField`).
+The bound is `collection.MaxFactKeyBytes`, held equal to the store's by `TestFactCaps_AgreeAcrossTheBoundary`. A
+filter that drops every named path is refused. `parseFileSection` refuses a stat line whose numbers do not parse in
+range (`TestParseFileSection_ReadsEachStatAndTellsUnreadableFromAbsent`).
+
+**Lesson.** Before review, read each new test against the test-quality titles in this file: a test written fresh
+repeats the old classes unless someone looks.

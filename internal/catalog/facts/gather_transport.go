@@ -44,7 +44,8 @@ func gatherRunner(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 			if err != nil {
 				return "", err
 			}
-			// Every script is fixed and reads what any Windows host has, so
+			// Every script only reads, guards the cmdlets a host may lack,
+			// and holds no task text but the files script's base64 paths, so
 			// one that fails is worth saying, not a fact quietly absent.
 			if res.ExitCode != 0 {
 				return "", fmt.Errorf("exited %d: %s", res.ExitCode, farside.Output(res.Stderr+"\n"+res.Stdout))
@@ -83,8 +84,13 @@ func lastLine(out string) string {
 }
 
 // name is how an error names the probe: its command, or for a Windows
-// script, which subset's script it is.
+// script or a command built from paths, which subset's it is.
 func (p gatherProbe) name() string {
+	// A command built from the task's paths is named by its subset: the
+	// paths are the task's own, and a list of them is no name.
+	if p.commandFor != nil {
+		return "the " + p.subset + " probe"
+	}
 	if strings.Contains(p.command, "\n") {
 		return "the Windows " + p.subset + " script"
 	}

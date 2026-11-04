@@ -7139,3 +7139,46 @@ shell. LESSONS 363 says a rule for a mechanism is checked along every route to a
 **Rule in practice.** A test helper that talks to a device builds its command with the product's encoder (here
 `shline.For`) while reading the result through its own client. When a send rule changes, search the tests for their
 own SSH clients as well as the product for its send sites.
+
+## 390. A fact a method emits is also a stat: protect a sensitive value where it is produced, or strip it in the engine before stats leave, because a value protected only at the fact store still reaches run reports, `result.<register>` and Walk job results (the class of FAILURE_PATTERNS 578 and 829) (2026-11-04).
+
+**Why.** Branch `feat/facts-41c-2` (FAILURE_PATTERNS 868). Planning how to keep a restricted file's digest from
+`inventory:read`, the first idea was to key or strip it at the fact store. But `runbookContext.EmitFact`
+(`internal/engine/runbook_context.go`) records a fact through the same `record` as `SetStat` and only adds its key to
+`sdk.StatFactKeys`. So every fact is a stat first: it is printed in the run's report, readable by a later task as
+`result.<register>`, and carried in a Walk job's results, none of which pass through the fact store. A guard at the
+store alone would have protected one of four exits. 578 (mask where text comes in, not per output path) and 829 (a
+secret stored as a fact) are the same shape from the masking side.
+
+**Rule in practice.** For a value that must not reach some readers, list every exit of the map it is written to before
+choosing where to protect it. Prefer not producing it (the 41c-2 fix: a restricted file is never hashed on the device);
+otherwise strip or transform it in the engine, before stats leave, and test each exit. The keyed-digest pull request
+that follows 41c-2 strips the stats in the engine for this reason.
+
+## 391. "Absent" is a claim only the system's own not-found answer may make: a layer that folds errors (PowerShell's provider) cannot judge it, so decide from the innermost error type (a repeat of 379) (2026-11-04).
+
+**Why.** Branch `feat/facts-41c-2` (FAILURE_PATTERNS 866). The Windows files probe read `Get-Item -Force`'s
+`ItemNotFoundException` as absent. Measured on win-check (Windows Server 2025): `Get-Item -Force` throws that exception
+for `C:\pagefile.sys`, which exists. LESSONS 379 says an existence guard decides absent only when the platform says
+not found, and 818 fixed `exec.winrm.shell` the same way. 379 did not hold because `Get-Item` does say "not found":
+the wording admits any layer's not-found, and PowerShell's provider says it for a file it cannot open as well as for
+one that is not there.
+
+**Rule in practice.** Read existence from the lowest call the platform offers (`[IO.File]::GetAttributes` on Windows,
+`stat` on POSIX) and treat as absent only that call's own not-found (`FileNotFoundException`,
+`DirectoryNotFoundException`, the errno text `No such file or directory` or `Not a directory`), taken from the
+innermost exception. Anything else is unreadable. Keep a present-but-unopenable file (`C:\pagefile.sys`) in the lab
+gate so a swap back to a folding call fails.
+
+## 392. A second model's review and fuzz seeds taken from its output, given only the code, found defects the author's tests and the house reviewer missed; keep it as a step, and verify every claim it makes before acting on it (extends 312; 50's caution applies) (2026-11-04).
+
+**Why.** Branch `feat/facts-41c-2`. After the branch's own tests and review were green, a review by a second model,
+given the code alone, and fuzz seeds built from its model of the parsers' input found real defects: an unbound UDP
+socket read as a listener on port 0 (FAILURE_PATTERNS 869, through `FuzzGatherParsers` and a port-range invariant),
+`[IO.File]::GetAccessControl` missing from PowerShell 7 (873), and the macOS netstat column handling (871). LESSONS 312
+says a branch-wide review after green tests still finds real defects; this is a second, independent reader doing the
+same. LESSONS 50 says a review's suggested fix is itself checked against the invariant it protects.
+
+**Rule in practice.** Before a pull request, give the branch's code to a second, independent reviewer and turn its
+model of the inputs into fuzz seeds (`internal/catalog/facts/testdata/parser-seeds.json` holds 86). Verify each claim
+against the code or the real target before changing anything, and record which were wrong as well as which were right.

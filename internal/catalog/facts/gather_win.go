@@ -114,7 +114,7 @@ $out = @(foreach ($s in @(Get-CimInstance Win32_Service)) {
 
 // windowsProbes are the Windows probes, each a PowerShell script.
 func windowsProbes() []gatherProbe {
-	return []gatherProbe{
+	return append([]gatherProbe{
 		{
 			subset: gatherSubsetMin,
 			keys: []string{gatherFactHostname, gatherFactNodename, gatherFactSystem, gatherFactKernel, gatherFactArchitecture,
@@ -141,7 +141,7 @@ func windowsProbes() []gatherProbe {
 			command: windowsServicesScript,
 			parse:   parseWindowsServices,
 		},
-	}
+	}, windowsItemProbes()...)
 }
 
 // parseWindowsMin reads the min script's object, adding the distribution's
