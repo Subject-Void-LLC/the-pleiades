@@ -20,6 +20,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -30,10 +31,6 @@ const gatherParamFiles = "files"
 // gatherMaxFiles bounds how many paths one task may name, so a task cannot
 // turn a fact gather into a crawl of the file system.
 const gatherMaxFiles = 64
-
-// gatherMaxFileKeyBytes is the longest a file fact's key may be: the fact
-// store's own key bound (internal/facts.MaxKeyBytes).
-const gatherMaxFileKeyBytes = 256
 
 // fileSectionMark begins each path's answer.
 const fileSectionMark = "--pleiades-file--"
@@ -46,8 +43,12 @@ const (
 )
 
 // gatherFilePaths reads and checks files: at most gatherMaxFiles paths, each
-// absolute (/ on a POSIX device, a drive letter on Windows), valid UTF-8,
-// holding no NUL, and short enough that its fact key fits the store.
+// absolute (/ on a POSIX device, a drive letter on Windows, which
+// gatherFilesFor holds to the platform once the device names it), valid
+// UTF-8, holding no NUL, not starting with two separators of either kind
+// (\\server\share, //server/share and \\?\ reach another machine or the
+// device namespace on Windows, which reads / as \), and short enough that
+// its fact key fits the store.
 func gatherFilePaths(params map[string]any) ([]string, error) {
 	paths, _, err := sdk.StringSlice(params, gatherParamFiles)
 	if err != nil {
@@ -61,10 +62,14 @@ func gatherFilePaths(params map[string]any) ([]string, error) {
 		switch {
 		case !utf8.ValidString(p) || strings.ContainsRune(p, 0):
 			return nil, fmt.Errorf("%s path %q holds a NUL or is not UTF-8", gatherParamFiles, p)
+		case len(p) >= 2 && strings.ContainsRune(`/\`, rune(p[0])) && strings.ContainsRune(`/\`, rune(p[1])):
+			return nil, fmt.Errorf("%s path %q starts with two separators, which names another machine or a device on Windows", gatherParamFiles, p)
 		case !strings.HasPrefix(p, "/") && !windowsAbsolute(p):
 			return nil, fmt.Errorf("%s path %q is not absolute (/... on a POSIX device, C:\\... on Windows)", gatherParamFiles, p)
-		case len(itemKey(gatherFamilyFile, p)) > gatherMaxFileKeyBytes:
-			return nil, fmt.Errorf("%s path %q is too long to name a fact (%d bytes once encoded, at most %d)", gatherParamFiles, p, len(itemKey(gatherFamilyFile, p)), gatherMaxFileKeyBytes)
+		case windowsAbsolute(p) && windowsDeviceName(p):
+			return nil, fmt.Errorf("%s path %q names a Windows device (CON, NUL, COM1 and the like), not a file", gatherParamFiles, p)
+		case len(itemKey(gatherFamilyFile, p)) > collection.MaxFactKeyBytes:
+			return nil, fmt.Errorf("%s path %q is too long to name a fact (%d bytes once encoded, at most %d)", gatherParamFiles, p, len(itemKey(gatherFamilyFile, p)), collection.MaxFactKeyBytes)
 		case seen[p]:
 			return nil, fmt.Errorf("%s names %q twice", gatherParamFiles, p)
 		}
@@ -73,17 +78,68 @@ func gatherFilePaths(params map[string]any) ([]string, error) {
 	return paths, nil
 }
 
-// windowsAbsolute reports whether p is a drive-rooted Windows path (C:\...).
-// A UNC path (\\server\share) is not taken: it would reach another machine
-// through this one.
+// windowsAbsolute reports whether p is a drive-rooted Windows path (C:\...
+// or C:/...). A UNC path (\\server\share) is not one: it would reach another
+// machine through this one.
 func windowsAbsolute(p string) bool {
 	return len(p) >= 3 && ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) && p[1] == ':' && (p[2] == '\\' || p[2] == '/')
 }
 
+// windowsDeviceNames are the names Windows reads as a device in any
+// directory and with any extension: reading one would open a console, a
+// serial port or the null device, not a file.
+var windowsDeviceNames = map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL": true, "CONIN$": true, "CONOUT$": true}
+
+// windowsDeviceName reports whether p's last element, before any extension
+// and trailing spaces or dots, is a Windows device name.
+func windowsDeviceName(p string) bool {
+	base := p[strings.LastIndexAny(p, `/\`)+1:]
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.ToUpper(strings.TrimRight(base, " "))
+	if windowsDeviceNames[base] {
+		return true
+	}
+	// COM0 to COM9 and LPT0 to LPT9, the superscript digits too.
+	for _, prefix := range []string{"COM", "LPT"} {
+		if rest, ok := strings.CutPrefix(base, prefix); ok && (len(rest) == 1 && rest[0] >= '0' && rest[0] <= '9' || rest == "\u00b9" || rest == "\u00b2" || rest == "\u00b3") {
+			return true
+		}
+	}
+	return false
+}
+
+// gatherFilesFor holds paths to platform's own absolute form, now that the
+// device has named it: a drive-rooted path on Windows, / anywhere else. A
+// path written for the other kind of system would be read relative to the
+// login's home, or not at all.
+func gatherFilesFor(paths []string, platform string) error {
+	for _, p := range paths {
+		if (platform == platformWindows) != windowsAbsolute(p) {
+			return fmt.Errorf("%s path %q is not an absolute path on %s", gatherParamFiles, p, platform)
+		}
+	}
+	return nil
+}
+
 // posixFileProbe is the files probe of a POSIX platform: statFormat is its
 // stat's options and format, printing type, size, uid, gid, mode, owner and
-// group separated by colons (which an account name cannot hold).
-func posixFileProbe(statFormat string) gatherProbe {
+// group separated by colons (which an account name cannot hold), and
+// modeFormat the format printing a mode alone.
+//
+// # A digest only of what anyone may read
+//
+// A stored digest is read by anyone who may read the device's facts, and
+// the SHA-256 of a small secret (a password or key file) can be guessed
+// offline. So a regular file is hashed only when it is world-readable: its
+// mode lets others read it and every directory above it lets others search
+// it. Otherwise the device prints digest-withheld and hashes nothing, so no
+// digest of it leaves the device, and its size (a secret's length) is not
+// kept either. The test runs on the device, in sh arithmetic over stat's
+// octal modes, each checked to be octal first so a bad answer withholds
+// rather than ends the shell.
+func posixFileProbe(statFormat, modeFormat string) gatherProbe {
 	return gatherProbe{
 		subset: gatherSubsetFiles,
 		family: gatherFamilyFile,
@@ -101,7 +157,11 @@ func posixFileProbe(statFormat string) gatherProbe {
 			// absent; every other error is unreadable.
 			return `for p in ` + strings.Join(quoted, " ") + `; do echo '` + fileSectionMark + `'; ` +
 				`if e=$(LC_ALL=C stat ` + statFormat + ` -- "$p" 2>&1); then printf 'ok:%s\n' "$e"; ` +
-				`if [ -f "$p" ] && [ ! -L "$p" ]; then if [ -r "$p" ]; then printf 'sha:%s\n' "$(` + posixSHA256 + ` < "$p")"; else echo 'sha-unreadable'; fi; fi; ` +
+				`if [ -f "$p" ] && [ ! -L "$p" ]; then w=1; q=$p; m=$(LC_ALL=C stat ` + modeFormat + ` -- "$p" 2>/dev/null); ` +
+				`case $m in ''|*[!0-7]*) w=0;; *) [ $((0$m & 4)) -ne 0 ] || w=0;; esac; ` +
+				`while [ $w = 1 ]; do q=${q%/*}; [ -n "$q" ] || break; a=$(LC_ALL=C stat -L ` + modeFormat + ` -- "$q" 2>/dev/null); ` +
+				`case $a in ''|*[!0-7]*) w=0;; *) [ $((0$a & 1)) -ne 0 ] || w=0;; esac; done; ` +
+				`if [ $w = 0 ]; then echo 'digest-withheld'; elif [ -r "$p" ]; then printf 'sha:%s\n' "$(` + posixSHA256 + ` < "$p")"; else echo 'sha-unreadable'; fi; fi; ` +
 				`if [ -L "$p" ]; then printf 'link:%s\n' "$(readlink -- "$p" | od -An -tx1 | tr -d ' \n')"; fi; ` +
 				`else case $e in *': No such file or directory'|*': Not a directory') echo absent;; *) echo unreadable;; esac; fi; done`
 		},
@@ -119,7 +179,13 @@ const posixSHA256 = `if command -v sha256sum >/dev/null 2>&1; then sha256sum; el
 const (
 	statFormatGNU = `-c '%F:%s:%u:%g:%a:%U:%G'`
 	statFormatBSD = `-f '%HT:%z:%u:%g:%Mp%Lp:%Su:%Sg'`
+	modeFormatGNU = `-c '%a'`
+	modeFormatBSD = `-f '%Mp%Lp'`
 )
+
+// fileDigestWithheld is a file fact's digest field when the file is not
+// world-readable: the digest was never taken.
+const fileDigestWithheld = "withheld"
 
 // fileTypes maps each stat's word for a file's type (GNU's lower case, BSD's
 // title case) to one vocabulary.
@@ -168,7 +234,8 @@ func parseFileSection(section string) map[string]any {
 			size, err0 := strconv.ParseUint(fields[1], 10, 63)
 			uid, err1 := strconv.ParseUint(fields[2], 10, 32)
 			gid, err2 := strconv.ParseUint(fields[3], 10, 32)
-			mode, err3 := strconv.ParseUint(fields[4], 8, 32)
+			// A mode is twelve bits: permissions, setuid, setgid, sticky.
+			mode, err3 := strconv.ParseUint(fields[4], 8, 12)
 			if !known || err0 != nil || err1 != nil || err2 != nil || err3 != nil {
 				continue
 			}
@@ -190,13 +257,21 @@ func parseFileSection(section string) map[string]any {
 			if b, err := hex.DecodeString(digest); err == nil && len(b) == 32 {
 				value["sha256"], value["readable"] = digest, true
 			}
+			value["world_readable"] = true
 		case line == "sha-unreadable":
-			value["readable"] = false
+			value["readable"], value["world_readable"] = false, true
+		case line == "digest-withheld":
+			value["digest"], value["world_readable"] = fileDigestWithheld, false
 		case strings.HasPrefix(line, "link:"):
 			if b, err := hex.DecodeString(strings.TrimPrefix(line, "link:")); err == nil {
 				value["link_target"] = strings.TrimSuffix(string(b), "\n")
 			}
 		}
+	}
+	// A withheld file's size is a secret's length, and is not kept either.
+	if value["digest"] == fileDigestWithheld {
+		delete(value, "size")
+		delete(value, "sha256")
 	}
 	return value
 }

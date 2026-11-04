@@ -2,7 +2,9 @@
 // 41c), each a fixed PowerShell script printing one JSON document as the
 // other Windows probes do (windowsJSONOut).
 //
-// The files script reads through .NET, not the PowerShell provider:
+// The files script reads through .NET, not the PowerShell provider, but for
+// the ACL (Get-Acl, which PowerShell 5.1 and 7 both have, where .NET's
+// File.GetAccessControl is gone from 7):
 // Get-Item -Force on C:\pagefile.sys, a file that exists, throws the same
 // ItemNotFoundException as a path that does not, so the provider cannot tell
 // absent from unreachable. [IO.File]::GetAttributes can: only a
@@ -19,31 +21,54 @@ import (
 )
 
 // windowsPortsScript lists every listening TCP socket and every UDP
-// endpoint, each with its owning process's name where Get-Process names it.
+// endpoint (Windows keeps no peer for one, so every bound endpoint is
+// listed), each with its owning process's name where Get-Process names it.
+// A host without the TCP/IP cmdlets (before Windows 8 and Server 2012)
+// lists none; the cmdlets' "no such object" when nothing listens is no
+// error, and any other failure ends the script.
 const windowsPortsScript = `$ErrorActionPreference = 'Stop'
-$names = @{}
-foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) { $names[[int]$p.Id] = [string]$p.ProcessName }
-$out = @(
-  foreach ($c in @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)) { [ordered]@{ protocol = 'tcp'; address = [string]$c.LocalAddress; port = [int]$c.LocalPort; process = $names[[int]$c.OwningProcess] } }
-  foreach ($u in @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue)) { [ordered]@{ protocol = 'udp'; address = [string]$u.LocalAddress; port = [int]$u.LocalPort; process = $names[[int]$u.OwningProcess] } }
-)` + windowsJSONOut
+$out = @()
+if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+  $names = @{}
+  foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) { $names[[int]$p.Id] = [string]$p.ProcessName }
+  $tcp = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue -ErrorVariable te)
+  $udp = @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue -ErrorVariable ue)
+  foreach ($e in @($te) + @($ue)) { if ($e.CategoryInfo.Category -ne 'ObjectNotFound') { throw $e } }
+  $out = @(
+    foreach ($c in $tcp) { [ordered]@{ protocol = 'tcp'; address = [string]$c.LocalAddress; port = [int]$c.LocalPort; process = $names[[int]$c.OwningProcess] } }
+    foreach ($u in $udp) { [ordered]@{ protocol = 'udp'; address = [string]$u.LocalAddress; port = [int]$u.LocalPort; process = $names[[int]$u.OwningProcess] } }
+  )
+}` + windowsJSONOut
 
 // windowsUsersScript lists the local accounts: name, SID and whether each
-// is enabled. Get-LocalUser has no password or hash to give.
+// is enabled. Get-LocalUser has no password or hash to give. A host without
+// it (PowerShell before 5.1, or the 32-bit shell) lists none, as a POSIX
+// device without the files does.
 const windowsUsersScript = `$ErrorActionPreference = 'Stop'
-$out = @(foreach ($u in @(Get-LocalUser)) { [ordered]@{ name = [string]$u.Name; sid = [string]$u.SID.Value; enabled = [bool]$u.Enabled } })` + windowsJSONOut
+$out = @()
+if (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) {
+  $out = @(foreach ($u in @(Get-LocalUser)) { [ordered]@{ name = [string]$u.Name; sid = [string]$u.SID.Value; enabled = [bool]$u.Enabled } })
+}` + windowsJSONOut
 
 // windowsGroupsScript lists the local groups with their members. A group
 // whose members Get-LocalGroupMember cannot list (it throws on an orphaned
 // SID or some cloud members) reports none, not an empty list.
 const windowsGroupsScript = `$ErrorActionPreference = 'Stop'
-$out = @(foreach ($g in @(Get-LocalGroup)) {
-  $m = $null
-  try { $m = @(foreach ($x in @(Get-LocalGroupMember -Group $g -ErrorAction Stop)) { [string]$x.Name }) } catch { }
-  [ordered]@{ name = [string]$g.Name; sid = [string]$g.SID.Value; members = $m }
-})` + windowsJSONOut
+$out = @()
+if (Get-Command Get-LocalGroup -ErrorAction SilentlyContinue) {
+  $out = @(foreach ($g in @(Get-LocalGroup)) {
+    $m = $null
+    try { $m = @(foreach ($x in @(Get-LocalGroupMember -Group $g -ErrorAction Stop)) { [string]$x.Name }) } catch { }
+    [ordered]@{ name = [string]$g.Name; sid = [string]$g.SID.Value; members = $m }
+  })
+}` + windowsJSONOut
 
-// windowsFilesScript is the files script for the base64 JSON list of paths
+// windowsFilesScript is the files script (a file is hashed only when its ACL
+// lets Everyone, Authenticated Users or BUILTIN\Users read it and denies none
+// of them, as posixFileProbe hashes only a world-readable file; any other is
+// digest withheld, with no size; and a file another process holds open
+// for writing, such as a log, is still read, sharing it as that process
+// allows, rather than reported unreadable until the writer lets go) for the base64 JSON list of paths
 // b64: per path, in order, its state and, when present, type, size,
 // attributes, owner, digest and link target.
 func windowsFilesScript(b64 string) string {
@@ -66,18 +91,28 @@ $out = @(foreach ($p in @($paths)) {
     try { $r.link_target = [string](@((Get-Item -LiteralPath $p -Force -ErrorAction Stop).Target) -join ';') } catch { }
   } elseif ($dir) { $r.type = 'directory' } else {
     $r.type = 'file'
-    try { $r.size = [int64](New-Object IO.FileInfo($p)).Length } catch { }
+    $world = $false
     try {
-      $s = [IO.File]::OpenRead($p)
-      try { $h = [Security.Cryptography.SHA256]::Create().ComputeHash($s) } finally { $s.Dispose() }
-      $r.sha256 = -join ($h | ForEach-Object { $_.ToString('x2') })
-      $r.readable = $true
-    } catch { $r.readable = $false }
+      $allow = $false; $deny = $false
+      foreach ($a in @((Get-Acl -LiteralPath $p).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))) {
+        if (@('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545') -notcontains $a.IdentityReference.Value) { continue }
+        if (($a.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -eq 0) { continue }
+        if ([string]$a.AccessControlType -eq 'Deny') { $deny = $true } else { $allow = $true }
+      }
+      $world = $allow -and -not $deny
+    } catch { }
+    $r.world_readable = $world
+    if (-not $world) { $r.digest = 'withheld' } else {
+      try { $r.size = [int64](New-Object IO.FileInfo($p)).Length } catch { }
+      try {
+        $s = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite, Delete')
+        try { $h = [Security.Cryptography.SHA256]::Create().ComputeHash($s) } finally { $s.Dispose() }
+        $r.sha256 = -join ($h | ForEach-Object { $_.ToString('x2') })
+        $r.readable = $true
+      } catch { $r.readable = $false }
+    }
   }
-  try {
-    if ($dir) { $acl = [IO.Directory]::GetAccessControl($p, 'Owner') } else { $acl = [IO.File]::GetAccessControl($p, 'Owner') }
-    $r.owner = [string]$acl.GetOwner([Security.Principal.NTAccount]).Value
-  } catch { }
+  try { $r.owner = [string](Get-Acl -LiteralPath $p).Owner } catch { }
   $r
 })` + windowsJSONOut
 }
@@ -117,6 +152,8 @@ func parseWindowsFiles(out string) []gatherFact {
 		Owner      string `json:"owner"`
 		SHA256     string `json:"sha256"`
 		Readable   *bool  `json:"readable"`
+		World      *bool  `json:"world_readable"`
+		Digest     string `json:"digest"`
 		LinkTarget string `json:"link_target"`
 	}](out)
 	facts := make([]gatherFact, 0, len(items))
@@ -138,8 +175,16 @@ func parseWindowsFiles(out string) []gatherFact {
 			if it.Readable != nil {
 				value["readable"] = *it.Readable
 			}
-			if b, ok := windowsDigest(it.SHA256); ok {
+			if it.World != nil {
+				value["world_readable"] = *it.World
+			}
+			if b, ok := windowsDigest(it.SHA256); ok && it.Digest != fileDigestWithheld {
 				value["sha256"] = b
+			}
+			// A withheld file's size is a secret's length, and is not kept.
+			if it.Digest == fileDigestWithheld {
+				value["digest"] = fileDigestWithheld
+				delete(value, "size")
 			}
 		}
 		facts = append(facts, gatherFact{value: value})

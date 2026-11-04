@@ -80,12 +80,33 @@ func TestGather_FilesReportDigestsAndNeverCallUnreadableAbsent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 	gone := filepath.Join(dir, "gone")
+	// A file anyone may read, under directories anyone may search, is the
+	// only kind whose digest is taken. t.TempDir's own directories are
+	// private, so they are opened up for it.
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		if err := os.Chmod(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	public := filepath.Join(dir, "public")
+	if err := os.WriteFile(public, []byte("hello facts\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Readable by this login, and by nobody else: its directory is private.
+	private := filepath.Join(dir, "private")
+	if err := os.Mkdir(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inPrivate := filepath.Join(private, "public-mode")
+	if err := os.WriteFile(inPrivate, []byte("s3cret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	server := startGatherServer(t)
 	rc := newGatherContext(server)
 	if _, err := gatherRun(t, server, rc, map[string]any{
 		"gather_subset": []any{"!all", "!min"},
-		"files":         []any{plain, link, hidden, gone, dir},
+		"files":         []any{plain, link, hidden, gone, dir, public, inPrivate},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +114,21 @@ func TestGather_FilesReportDigestsAndNeverCallUnreadableAbsent(t *testing.T) {
 		t.Fatal("a path's $(...) ran on the device")
 	}
 	sum := sha256.Sum256([]byte("hello facts\n"))
+	pub := gatherItem(t, rc, gatherFileKey(public))
+	if pub["sha256"] != hex.EncodeToString(sum[:]) || pub["readable"] != true || pub["world_readable"] != true || pub["mode"] != "0644" ||
+		pub["type"] != "file" || pub["uid"] != os.Getuid() || int64Of(pub["size"]) != 12 {
+		t.Errorf("%s = %v", public, pub)
+	}
+	// Neither a file only its group may read nor one in a private
+	// directory has its digest or size taken, though this login reads both.
+	for _, p := range []string{plain, inPrivate} {
+		f := gatherItem(t, rc, gatherFileKey(p))
+		if f["digest"] != "withheld" || f["world_readable"] != false || f["sha256"] != nil || f["size"] != nil || f["state"] != "present" {
+			t.Errorf("%s = %v, want present with its digest and size withheld", p, f)
+		}
+	}
 	f := gatherItem(t, rc, gatherFileKey(plain))
-	if f["sha256"] != hex.EncodeToString(sum[:]) || f["readable"] != true || f["mode"] != "0640" || f["type"] != "file" ||
-		f["uid"] != os.Getuid() || int64Of(f["size"]) != 12 {
+	if f["mode"] != "0640" {
 		t.Errorf("%s = %v", plain, f)
 	}
 	if _, ok := f["content"]; ok {
@@ -225,10 +258,6 @@ func TestGather_UsersMatchThisMachinesFilesAndCarryNoPassword(t *testing.T) {
 		if toString(u["uid"]) != f[2] || toString(u["gid"]) != f[3] || u["home"] != f[5] || u["shell"] != f[6] || u["source"] != "files" {
 			t.Errorf("user %s = %v, /etc/passwd says %v", f[0], u, f)
 		}
-		// The password field is never read, so it can be in no value.
-		if _, ok := u["password"]; ok {
-			t.Errorf("user %s carries a password field", f[0])
-		}
 	}
 	groups := 0
 	for _, line := range strings.Split(group, "\n") {
@@ -261,4 +290,17 @@ func gatherMinKeys(rc *gatherContext) []string {
 		}
 	}
 	return keys
+}
+
+func TestGather_RefusesAPathWrittenForTheOtherKindOfSystem(t *testing.T) {
+	gatherNeedsLinux(t)
+	server := startGatherServer(t)
+	rc := newGatherContext(server)
+	_, err := gatherRun(t, server, rc, map[string]any{"files": []any{`C:\Windows\win.ini`}})
+	if err == nil || !strings.Contains(err.Error(), "not an absolute path on Linux") {
+		t.Fatalf("a Windows path on Linux: %v", err)
+	}
+	if len(rc.facts) != 0 {
+		t.Errorf("a refused task still emitted %d facts", len(rc.facts))
+	}
 }

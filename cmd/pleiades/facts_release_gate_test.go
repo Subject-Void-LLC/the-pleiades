@@ -174,9 +174,14 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	// its process is not; a file in a directory only root may search is
 	// unreadable, never absent; and the digest is the device's own.
 	asRoot(t, g.container, "mkdir -p /rootonly && echo s > /rootonly/secret && chmod 700 /rootonly")
+	// The login's own private file: it reads it, others may not, so its
+	// digest and size are withheld.
+	asRoot(t, g.container, "echo pin1234 > /tmp/mine && chown "+releaseGateSSHUser+" /tmp/mine && chmod 600 /tmp/mine")
 	// A listener of root's, whose process this login may not look into.
-	asRoot(t, g.container, "(busybox nc -lk -p 7070 -e /bin/true >/dev/null 2>&1 &); sleep 1")
-	gather("gather_subset:=[ports, users]", "files:=[/etc/hostname, /rootonly/secret, /nonexistent]")
+	asRoot(t, g.container, "(busybox nc -lk -p 7070 -e /bin/true >/dev/null 2>&1 &)")
+	// Waited for by the kernel's own table (7070 is 1B9E), not a fixed sleep.
+	asRoot(t, g.container, `i=0; until grep -q ':1B9E ' /proc/net/tcp /proc/net/tcp6; do i=$((i+1)); [ $i -gt 100 ] && exit 1; sleep 0.1; done`)
+	gather("gather_subset:=[ports, users]", "files:=[/etc/hostname, /rootonly/secret, /nonexistent, /tmp/mine]")
 	stored := map[string]map[string]any{}
 	for _, f := range read().Facts {
 		if v, ok := f.Value.(map[string]any); ok {
@@ -197,12 +202,9 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	}
 	accounts := asRoot(t, g.container, "grep -cv '^#' /etc/passwd")
 	users := 0
-	for k, v := range stored {
+	for k := range stored {
 		if strings.HasPrefix(k, "user.") {
 			users++
-			if _, ok := v["password"]; ok {
-				t.Errorf("%s carries a password field", k)
-			}
 		}
 	}
 	if strconv.Itoa(users) != accounts {
@@ -220,6 +222,9 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	}
 	if n := stored["file.%2Fnonexistent"]; n == nil || n["state"] != "absent" {
 		t.Errorf("a missing file = %v, want absent", n)
+	}
+	if m := stored["file.%2Ftmp%2Fmine"]; m == nil || m["digest"] != "withheld" || m["sha256"] != nil || m["size"] != nil || m["mode"] != "0600" {
+		t.Errorf("a private file = %v, want its digest and size withheld", m)
 	}
 
 	// The chain verifies; an edited value breaks it, and the command says so

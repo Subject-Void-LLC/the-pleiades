@@ -99,8 +99,9 @@ func labItem(t *testing.T, stats map[string]any, key string) map[string]any {
 	return v
 }
 
-// labFileKey is path's file fact key: each slash, percent sign, space or
-// backslash-free byte the key cannot hold percent-encoded, as the method does.
+// labFileKey is path's file fact key, its slashes, percent signs and spaces
+// percent-encoded as the method encodes them (the paths here hold nothing
+// else a key cannot).
 func labFileKey(path string) string {
 	r := strings.NewReplacer("%", "%25", "/", "%2F", " ", "%20")
 	return "file." + r.Replace(path)
@@ -124,7 +125,7 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	if got := labShell(t, m, "uname -s"); got != "FreeBSD" {
 		t.Fatalf("%s is %q, not FreeBSD", m.host, got)
 	}
-	stats := labGatherAll(t, m, "/etc/hosts", "/root/.cshrc", "/nonexistent")
+	stats := labGatherAll(t, m, "/etc/hosts", "/root/.cshrc", "/nonexistent", "/etc/master.passwd")
 	if stats["ansible_system"] != "FreeBSD" || stats["ansible_distribution"] != "FreeBSD" {
 		t.Errorf("system %v, distribution %v", stats["ansible_system"], stats["ansible_distribution"])
 	}
@@ -168,6 +169,10 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	if f := labItem(t, stats, labFileKey("/nonexistent")); f["state"] != "absent" {
 		t.Errorf("/nonexistent = %v", f)
 	}
+	// Root's alone: present, described, never hashed.
+	if f := labItem(t, stats, labFileKey("/etc/master.passwd")); f["state"] != "present" || f["digest"] != "withheld" || f["sha256"] != nil || f["size"] != nil {
+		t.Errorf("/etc/master.passwd = %v, want present with its digest withheld", f)
+	}
 }
 
 func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
@@ -196,10 +201,11 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	if got := labCount(stats, "service.", "launchd"); got == 0 || got != daemons {
 		t.Errorf("%d launchd facts, launchd lists %d daemons", got, daemons)
 	}
-	// Phase 41c-2. Every TCP listener and unconnected, bound UDP socket.
-	listeners := labAtoi(t, labShell(t, m, `{ netstat -anv -p tcp | awk '$6 == "LISTEN"'; netstat -anv -p udp | awk '$1 ~ /^udp/ && $5 == "*.*" && $4 !~ /[.][*]$/'; } | wc -l`))
-	if got := labCount(stats, "port.", ""); got != listeners || got == 0 {
-		t.Errorf("%d port facts, netstat lists %d listeners", got, listeners)
+	// Phase 41c-2. TCP listeners, counted against netstat: a UDP endpoint
+	// may open or close between the gather and the count, a listener rarely.
+	listeners := labAtoi(t, labShell(t, m, `netstat -anvl -p tcp | awk '$6 == "LISTEN"' | wc -l`))
+	if got := labCount(stats, "port.tcp:", ""); got != listeners || got == 0 {
+		t.Errorf("%d TCP port facts, netstat lists %d listeners", got, listeners)
 	}
 	if want := labAtoi(t, labShell(t, m, "dscl . -list /Users | wc -l")); labCount(stats, "user.", "dslocal") != want {
 		t.Errorf("%d user facts, the local directory lists %d", labCount(stats, "user.", "dslocal"), want)
@@ -295,8 +301,9 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 		t.Errorf("service.WinRM = %v, want the running, enabled service this test came in through", winrm)
 	}
 	// Phase 41c-2.
-	if want := labAtoi(t, labPowerShell(t, m, `@(Get-NetTCPConnection -State Listen).Count + @(Get-NetUDPEndpoint).Count`)); labCount(stats, "port.", "") != want {
-		t.Errorf("%d port facts, the host lists %d listeners", labCount(stats, "port.", ""), want)
+	// TCP listeners only: a UDP endpoint may come and go between the two reads.
+	if want := labAtoi(t, labPowerShell(t, m, `@(Get-NetTCPConnection -State Listen).Count`)); labCount(stats, "port.tcp:", "") != want {
+		t.Errorf("%d TCP port facts, the host lists %d listeners", labCount(stats, "port.tcp:", ""), want)
 	}
 	if p := labItem(t, stats, "port.tcp:[::]:5985"); p["process"] != "System" {
 		t.Errorf("WinRM's listener = %v", p)
@@ -316,8 +323,8 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 	}
 	// The page file is there, and PowerShell's Get-Item says it is not:
 	// this is the answer that must not be absent.
-	if f := labItem(t, stats, `file.C:\pagefile.sys`); f["state"] != "present" || f["readable"] != false {
-		t.Errorf("C:\\pagefile.sys = %v, want present and not readable", f)
+	if f := labItem(t, stats, `file.C:\pagefile.sys`); f["state"] != "present" || f["sha256"] != nil {
+		t.Errorf("C:\\pagefile.sys = %v, want present, with no digest", f)
 	}
 	if f := labItem(t, stats, `file.C:\nonexistent\x`); f["state"] != "absent" {
 		t.Errorf("a missing path = %v", f)

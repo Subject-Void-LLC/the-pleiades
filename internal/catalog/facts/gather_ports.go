@@ -20,21 +20,26 @@ import (
 // portSectionMark separates the Linux ports probe's sections.
 const portSectionMark = "--pleiades-ports--"
 
-// linuxPortProbes reads, one section each: the machine's architecture (the
-// kernel prints addresses in its own byte order), the four socket tables,
-// every file descriptor this login can list, and each process's name. Every
-// read is a file or a builtin but the one ls, so a host with thousands of
-// processes costs one command, not thousands.
+// linuxPortProbes reads, one section each: the machine's byte order, asked
+// of the machine itself (od reads two bytes as one 16-bit word: 0001 is
+// little-endian, 0100 big-endian; the kernel prints addresses in that order)
+// with uname -m after it for a device without od, the rows of the four
+// socket tables in state 0A or 07 (the only ones that can listen), every
+// socket descriptor this login can list with each process's directory
+// before them, and each process's name. The rows are narrowed on the device
+// so a server holding hundreds of thousands of connections answers in
+// kilobytes, not past the output limit. Each read is a file, grep or a
+// builtin but the one ls, so thousands of processes cost one command.
 func linuxPortProbes() []gatherProbe {
 	tables := ""
 	for _, t := range []string{"tcp", "tcp6", "udp", "udp6"} {
-		tables += `echo '` + portSectionMark + ` ` + t + `'; cat /proc/net/` + t + ` 2>/dev/null; `
+		tables += `echo '` + portSectionMark + ` ` + t + `'; grep -E ' (0A|07) ' /proc/net/` + t + ` 2>/dev/null; `
 	}
 	return []gatherProbe{{
 		subset: gatherSubsetPorts,
 		family: gatherFamilyPort,
-		command: `[ -r /proc/net/tcp ] && { uname -m; ` + tables +
-			`echo '` + portSectionMark + ` fd'; ls -l /proc/[0-9]*/fd 2>/dev/null; ` +
+		command: `[ -r /proc/net/tcp ] && { printf '\001\000' | od -An -tx2; uname -m; ` + tables +
+			`echo '` + portSectionMark + ` fd'; ls -l /proc/[0-9]*/fd 2>/dev/null | grep -E '^/proc/|socket:'; ` +
 			`echo '` + portSectionMark + ` comm'; for d in /proc/[0-9]*; do read -r c < "$d/comm" 2>/dev/null && printf '%s\t%s\n' "${d#/proc/}" "$c"; done; }`,
 		parse: parseLinuxPorts,
 	}}
@@ -43,6 +48,20 @@ func linuxPortProbes() []gatherProbe {
 // bigEndianMachines are the uname -m answers of Linux machines that store a
 // word most significant byte first, whose /proc/net addresses read in order.
 var bigEndianMachines = map[string]bool{"s390x": true, "s390": true, "ppc64": true, "ppc": true, "mips": true, "mips64": true, "sparc64": true, "armeb": true, "aarch64_be": true}
+
+// machineBigEndian reads the byte-order section: od's answer when it gave
+// one, else what uname -m names (bigEndianMachines), which cannot tell a
+// little-endian MIPS from a big-endian one, and so is only the fallback.
+func machineBigEndian(section string) bool {
+	lines := strings.Split(strings.TrimSpace(section), "\n")
+	switch strings.TrimSpace(lines[0]) {
+	case "0001":
+		return false
+	case "0100":
+		return true
+	}
+	return bigEndianMachines[strings.TrimSpace(lines[len(lines)-1])]
+}
 
 // listeningSocket is one socket a table lists as listening.
 type listeningSocket struct {
@@ -60,7 +79,7 @@ func parseLinuxPorts(out string) []gatherFact {
 	if len(sections) < 2 {
 		return nil
 	}
-	bigEndian := bigEndianMachines[strings.TrimSpace(lastLine(sections[0]+"\n"))]
+	bigEndian := machineBigEndian(sections[0])
 	var sockets []listeningSocket
 	var fds, comms string
 	for _, section := range sections[1:] {
@@ -87,8 +106,11 @@ func parseLinuxPorts(out string) []gatherFact {
 }
 
 // portKey is a listening socket's fact key: its protocol, address (an IPv6
-// one in brackets) and port, as port.tcp:[::]:22.
+// one in brackets) and port, as port.tcp:[::]:22. An IPv6 zone (%eth0, %4)
+// is kept in the value and left out of the key: Windows numbers its
+// interfaces, and the number moves when an adapter is added.
 func portKey(protocol, address string, port int) string {
+	address, _, _ = strings.Cut(address, "%")
 	if strings.Contains(address, ":") {
 		address = "[" + address + "]"
 	}
@@ -110,8 +132,10 @@ func parseProcNetTable(protocol, body string, bigEndian bool) []listeningSocket 
 		if !ok1 || !ok2 || err != nil {
 			continue
 		}
+		// Port 0 is a socket not yet bound (an unbound UDP socket is state 07
+		// on 0.0.0.0:0), which listens on nothing.
 		listening := (protocol == "tcp" && f[3] == "0A") || (protocol == "udp" && f[3] == "07" && remotePort == 0)
-		if !listening {
+		if !listening || port == 0 {
 			continue
 		}
 		out = append(out, listeningSocket{protocol: protocol, address: local, port: port, uid: uid, inode: f[9]})

@@ -28,9 +28,19 @@ func freebsdPortProbe() gatherProbe {
 // parseSockstat reads sockstat's lines (user, command, pid, fd, protocol,
 // local and foreign address). The command may hold spaces, so a line is read
 // from its protocol column, the one field naming tcp or udp and a family. A
-// UDP socket listens when it has no foreign address (*:*).
+// UDP socket listens when it has no foreign address (*:*). sockstat prints a
+// socket once for each process holding it (a server's forked workers share
+// its listener), so lines naming one socket are one fact, named by the
+// lowest pid's command as Linux names it, and their number, which moves as
+// workers come and go, never reaches a key.
 func parseSockstat(out string) []gatherFact {
-	var facts []gatherFact
+	type owner struct {
+		pid     int
+		command string
+	}
+	var order []string
+	values := map[string]map[string]any{}
+	owners := map[string]owner{}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
 		i := 0
@@ -50,11 +60,29 @@ func parseSockstat(out string) []gatherFact {
 		if !ok {
 			continue
 		}
-		value := map[string]any{"protocol": protocol, "address": address, "port": port}
-		if command := strings.Join(f[1:i-2], " "); command != "?" {
-			value["process"] = command
+		key := portKey(protocol, address, port)
+		if _, seen := values[key]; !seen {
+			order = append(order, key)
+			values[key] = map[string]any{"protocol": protocol, "address": address, "port": port}
+			owners[key] = owner{pid: -1}
 		}
-		facts = append(facts, gatherFact{key: portKey(protocol, address, port), value: value})
+		// A hidden owner (?) names nothing; a known one is kept when its pid
+		// is the lowest seen.
+		command := strings.Join(f[1:i-2], " ")
+		pid, err := strconv.Atoi(f[i-2])
+		if command == "?" || err != nil {
+			continue
+		}
+		if o := owners[key]; o.pid < 0 || pid < o.pid {
+			owners[key] = owner{pid: pid, command: command}
+		}
+	}
+	facts := make([]gatherFact, 0, len(order))
+	for _, key := range order {
+		if o := owners[key]; o.pid >= 0 {
+			values[key]["process"] = o.command
+		}
+		facts = append(facts, gatherFact{key: key, value: values[key]})
 	}
 	return facts
 }
@@ -101,9 +129,11 @@ func splitHostPort(field, sep, protocolColumn string) (string, int, bool) {
 // ones first, a mark between.
 func darwinPortProbe() gatherProbe {
 	return gatherProbe{
-		subset:  gatherSubsetPorts,
-		family:  gatherFamilyPort,
-		command: `command -v netstat >/dev/null 2>&1 && { LC_ALL=C netstat -anv -p tcp; echo '` + portSectionMark + `'; LC_ALL=C netstat -anv -p udp; }`,
+		subset: gatherSubsetPorts,
+		family: gatherFamilyPort,
+		// -l prints an IPv6 address whole; without it netstat cuts one to
+		// its column's width.
+		command: `command -v netstat >/dev/null 2>&1 && { LC_ALL=C netstat -anvl -p tcp; echo '` + portSectionMark + `'; LC_ALL=C netstat -anvl -p udp; }`,
 		parse:   parseDarwinNetstat,
 	}
 }
@@ -143,9 +173,13 @@ func parseDarwinNetstat(out string) []gatherFact {
 			continue
 		}
 		value := map[string]any{"protocol": protocol, "address": address, "port": port}
+		// The process is named only when the column reads as name:pid, so
+		// a row of another layout names nothing rather than a guess.
 		owner := strings.Join(f[lead:len(f)-darwinTrailingColumns], " ")
 		if i := strings.LastIndex(owner, ":"); i > 0 {
-			value["process"] = owner[:i]
+			if _, err := strconv.ParseUint(owner[i+1:], 10, 32); err == nil {
+				value["process"] = owner[:i]
+			}
 		}
 		facts = append(facts, gatherFact{key: portKey(protocol, address, port), value: value})
 	}
