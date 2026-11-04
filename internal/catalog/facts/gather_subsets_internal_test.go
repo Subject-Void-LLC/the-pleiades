@@ -18,7 +18,8 @@ func TestGatherSelection_FollowsAnsiblesRules(t *testing.T) {
 		{nil, []string{"hardware", "min"}, ""},
 		{[]any{}, []string{"hardware", "min"}, ""},
 		{[]any{"packages"}, []string{"min", "packages"}, ""},
-		{[]any{"all"}, []string{"hardware", "min", "packages", "services"}, ""},
+		// all gathers files only when there are paths to read.
+		{[]any{"all"}, []string{"hardware", "min", "packages", "ports", "services", "users"}, ""},
 		// Removals alone start from the default, never listing packages.
 		{[]any{"!hardware"}, []string{"min"}, ""},
 		{[]any{"!packages"}, []string{"hardware", "min"}, ""},
@@ -30,19 +31,48 @@ func TestGatherSelection_FollowsAnsiblesRules(t *testing.T) {
 	}
 	for _, tc := range cases {
 		chosen, err := gatherSelection(map[string]any{gatherParamSubset: tc.subsets})
-		switch {
-		case tc.refuse != "":
-			if err == nil || !strings.Contains(err.Error(), tc.refuse) {
-				t.Errorf("%v: %v, want a refusal naming %q", tc.subsets, err, tc.refuse)
-			}
-		case tc.want == nil:
-			// A bare string is refused or read by sdk.StringSlice's own rule;
-			// either way nothing here panics.
-		case err != nil:
-			t.Errorf("%v: %v", tc.subsets, err)
-		case !reflect.DeepEqual(chosenNames(chosen), tc.want):
-			t.Errorf("%v: chose %v, want %v", tc.subsets, chosenNames(chosen), tc.want)
+		checkSelection(t, tc.subsets, chosen, err, tc.want, tc.refuse)
+	}
+}
+
+func TestGatherSelection_FilesFollowItsPaths(t *testing.T) {
+	paths := []any{"/etc/hosts"}
+	cases := []struct {
+		subsets, files any
+		want           []string
+		refuse         string
+	}{
+		// Paths add files to whatever else is chosen.
+		{nil, paths, []string{"files", "hardware", "min"}, ""},
+		{[]any{"all"}, paths, []string{"files", "hardware", "min", "packages", "ports", "services", "users"}, ""},
+		{[]any{"!all", "!min"}, paths, []string{"files"}, ""},
+		// Naming files with nothing to read, or paths with !files, is a
+		// mistake, and is refused rather than guessed at.
+		{[]any{"files"}, nil, nil, "names none"},
+		{[]any{"!files"}, paths, nil, "leaves files out"},
+		{[]any{"files", "!files"}, paths, nil, "leaves files out"},
+	}
+	for _, tc := range cases {
+		chosen, err := gatherSelection(map[string]any{gatherParamSubset: tc.subsets, gatherParamFiles: tc.files})
+		checkSelection(t, tc.subsets, chosen, err, tc.want, tc.refuse)
+	}
+}
+
+// checkSelection holds one selection to its expected subsets or refusal.
+func checkSelection(t *testing.T, subsets any, chosen map[string]bool, err error, want []string, refuse string) {
+	t.Helper()
+	switch {
+	case refuse != "":
+		if err == nil || !strings.Contains(err.Error(), refuse) {
+			t.Errorf("%v: %v, want a refusal naming %q", subsets, err, refuse)
 		}
+	case want == nil:
+		// A bare string is refused or read by sdk.StringSlice's own rule;
+		// either way nothing here panics.
+	case err != nil:
+		t.Errorf("%v: %v", subsets, err)
+	case !reflect.DeepEqual(chosenNames(chosen), want):
+		t.Errorf("%v: chose %v, want %v", subsets, chosenNames(chosen), want)
 	}
 }
 

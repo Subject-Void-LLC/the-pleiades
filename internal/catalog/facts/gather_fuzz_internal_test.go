@@ -29,7 +29,12 @@ func FuzzGatherParsers(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, out string) {
 		for _, p := range probes {
-			for _, fact := range p.parse(out) {
+			facts := p.parse(out)
+			if p.commandFor != nil {
+				// A probe built from paths is keyed by them as Gather keys it.
+				facts = filesFacts([]string{"/a b", `C:\x\y`}, facts)
+			}
+			for _, fact := range facts {
 				if p.family == "" {
 					// Gather emits only the keys a single probe declares
 					// (gatherWanted), whatever its parser read.
