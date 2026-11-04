@@ -868,6 +868,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 862. The release gates' own verification helpers dialed their own SSH client and sent POSIX checks raw to the login shell, so they failed under fish, zsh and tcsh logins (a sibling of 858) (fixed before push)
 863. testsupport.UseLoginShell counted installer warnings as accounts and could not install fish on Rocky (a sibling of 779's banner parse) (fixed before push)
 864. A new test file used a helper from a file built only off Windows, so the package's tests did not compile for Windows (fixed before push)
+865. internal/redact imported pkg/remoteexec/shline, breaking its standard-library-only rule, because only the new archtest had been run (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

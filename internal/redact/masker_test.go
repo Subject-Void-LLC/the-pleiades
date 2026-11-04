@@ -465,3 +465,18 @@ func TestText_MasksASecretAsALoginShellEchoesTheEncodedLine(t *testing.T) {
 		t.Fatalf("the plain secret survived: %q", plain)
 	}
 }
+
+// TestMasking_EncodedSecretsMatchShline holds redact's copy of the encoding to
+// shline's own: a secret holding every byte from 1 to 255, echoed as shline
+// encodes it, is masked whole.
+func TestMasking_EncodedSecretsMatchShline(t *testing.T) {
+	var all strings.Builder
+	for b := 1; b < 256; b++ {
+		all.WriteByte(byte(b))
+	}
+	secret := all.String()
+	got := redact.Text([]string{secret}, "trace "+shline.Encode(secret)+" end")
+	if strings.Contains(got, shline.Encode(secret)) || !strings.HasSuffix(got, " end") {
+		t.Fatalf("the encoded secret was not masked whole: %q", got)
+	}
+}

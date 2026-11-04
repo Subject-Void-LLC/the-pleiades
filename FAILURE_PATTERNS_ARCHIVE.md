@@ -20706,3 +20706,13 @@ pass under fish, tcsh and zsh.
 **Fix.** `script_test.go` carries the same `//go:build !windows` and says why.
 
 **Lesson.** A test file that calls a helper inherits the helper's build constraint: check the helper's file header, or run `GOOS=windows go vet` on the package, before the gate.
+
+## 865. internal/redact imported pkg/remoteexec/shline, breaking its standard-library-only rule, because only the new archtest had been run (fixed before push)
+
+**Symptom.** 2026-11-04, `make pr-check` on `fix/shell-agnostic-ssh`: `internal/archtest`'s `TestRedactPackageDependsOnNothingButTheStandardLibrary` failed, `internal/redact` depending on `pkg/remoteexec/shline` (added in 09acef1e to mask a secret's encoded form).
+
+**Root cause.** `internal/redact` is held to the standard library alone, so every process can mask without pulling in the module. The masker fix imported the encoder for one function. Locally only the branch's new archtest was run (`-run TestOnlyRemoteexecOpensAnSSHSession`), never the whole package, so the existing rule was not consulted.
+
+**Fix.** `internal/redact/masker.go` keeps its own copy of the encoding (`shEncoded`), and `TestMasking_EncodedSecretsMatchShline` holds it equal to `shline.Encode` over every byte from 1 to 255.
+
+**Lesson.** After adding an import to a package, run all of `internal/archtest`, not the one test the change adds; a layering rule elsewhere may already forbid it.
