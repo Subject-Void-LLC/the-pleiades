@@ -333,6 +333,9 @@ func TestFactCaps_AgreeAcrossTheBoundary(t *testing.T) {
 	if collection.MaxFactsPerObservation != facts.MaxFactsPerObservation {
 		t.Fatalf("collection says %d facts, internal/facts enforces %d", collection.MaxFactsPerObservation, facts.MaxFactsPerObservation)
 	}
+	if collection.RawDigestField != facts.RawDigestField {
+		t.Fatalf("collection names the raw digest %q, internal/facts %q", collection.RawDigestField, facts.RawDigestField)
+	}
 	if collection.MaxFactKeyBytes != facts.MaxKeyBytes {
 		t.Fatalf("collection says a key may be %d bytes, internal/facts enforces %d", collection.MaxFactKeyBytes, facts.MaxKeyBytes)
 	}

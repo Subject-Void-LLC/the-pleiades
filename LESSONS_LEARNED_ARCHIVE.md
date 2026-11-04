@@ -7182,3 +7182,44 @@ same. LESSONS 50 says a review's suggested fix is itself checked against the inv
 **Rule in practice.** Before a pull request, give the branch's code to a second, independent reviewer and turn its
 model of the inputs into fuzz seeds (`internal/catalog/facts/testdata/parser-seeds.json` holds 86). Verify each claim
 against the code or the real target before changing anything, and record which were wrong as well as which were right.
+
+## 393. A map from a mapper agent is a hypothesis: when it says one point covers several paths, hold each path it names to its own test before building on the claim (a repeat in kind of 363 and 244) (2026-11-04).
+
+**Why.** Branch `feat/facts-keyed-digest` (FAILURE_PATTERNS 879). A go-mapper report said one call point in the
+collection executor covered both tiers, so the digest rewrite went after `collector.Facts()`. The Runner's child path
+returns before that line (`internal/engine/collection_action.go`), so on a Runner the rewrite never ran. Only the
+store's own scrub (LESSONS 394) kept the raw digest out. LESSONS 363 says a rule is checked along every route a method
+takes to a device, and 244 says a guard on one of two sibling paths is checked on the other. Neither held here
+because the routes were taken from a report rather than counted in the code: a confident summary replaced the search.
+
+**Rule in practice.** Treat a mapper's claim that one point covers several paths as a list of tests to write, one per
+path, each run through the real executor on that path. `internal/engine/fact_digests_test.go` now runs the in-process
+path and the Runner's child path separately, and removing the rewrite fails three of its tests.
+
+## 394. Keep a store-side invariant even when the producer is meant to enforce it: here it turned a missed path into a drop instead of a leak (extends 390; 135's caution applies) (2026-11-04).
+
+**Why.** Branch `feat/facts-keyed-digest` (FAILURE_PATTERNS 879 and 884). The engine is meant to rewrite every raw
+digest before anything leaves, and on the Runner's child path it did not. `facts.Prepare`'s `ScrubDigests` drops a
+raw digest whatever the engine did, so the missed path lost a digest rather than storing a guessable one. LESSONS 390
+says a value protected only at the store still reaches reports and registers, so protect it where it is produced. This
+is the other half: protecting it only where it is produced fails open the first time a path is missed. LESSONS 135
+says a duplicated guard hides its own coverage, so each layer needs a test that fails without it.
+
+**Rule in practice.** For a value that must never be stored raw, enforce the rule where it is produced and again where
+it is stored, by a field name the store can check on its own (`sha256_raw`, `collection.RawDigestField`, held equal to
+`internal/facts.RawDigestField` by `TestFactCaps_AgreeAcrossTheBoundary`). Pin each layer separately: the engine's
+tests fail when the rewrite is removed even though the store would still drop the value.
+
+## 395. Independent reviews by a second model earn their cost at both ends of a security change: a design review before coding changed the design, and two diff reviews after found gaps the house reviewer missed (extends 392) (2026-11-04).
+
+**Why.** Branch `feat/facts-keyed-digest`. LESSONS 392 found that a second model's review of finished code caught
+defects the author's tests missed. This branch added a review of the design before any code. It changed the design: a
+Runner seals each raw digest to the Controller's public key (HPKE) rather than holding a key, and the invariant became
+one field name a store can check for itself. After coding, two independent diff reviews found that a sealed digest
+could be replayed into a later job (FAILURE_PATTERNS 885) and that a typed in-process value skipped the scrub (884);
+the fp-reviewer pass found others (881 to 888). A Batch sweep of merged code also ran on 2026-11-04; its verdicts are
+still being verified. API spend for the session was $20.53 of a $92 credit.
+
+**Rule in practice.** For a change that handles a secret or a guessable value, ask for an independent design review
+before coding and an independent diff review after, as well as the house reviewer. Verify every claim against the code
+before acting on it (LESSONS 50), and record which claims were wrong as well as which were right.

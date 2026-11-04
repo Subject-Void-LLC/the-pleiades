@@ -52,6 +52,10 @@ const (
 	// PurposePassword is a login password, the one purpose add-credential
 	// opens today.
 	PurposePassword = "password"
+	// PurposeFactDigest is a file's raw digest a Runner seals to the
+	// Controller, which keys it before storing (internal/facts' keyed
+	// digests). Nothing opens one as a password.
+	PurposeFactDigest = "fact-digest"
 	// MaxFileSize bounds a sealed file read from disk, far above any secret
 	// this package seals, so a wrong path naming a large file is refused
 	// rather than read.
@@ -71,7 +75,7 @@ const (
 )
 
 // purposes are the kinds of secret a file may say it holds.
-var purposes = []string{PurposePassword}
+var purposes = []string{PurposePassword, PurposeFactDigest}
 
 var (
 	// ErrNotSealed reports data that is not a sealed file at all, such as a

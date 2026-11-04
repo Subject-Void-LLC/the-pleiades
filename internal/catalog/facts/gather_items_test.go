@@ -120,11 +120,14 @@ func TestGather_FilesReportDigestsAndNeverCallUnreadableAbsent(t *testing.T) {
 		t.Errorf("%s = %v", public, pub)
 	}
 	// Neither a file only its group may read nor one in a private
-	// directory has its digest or size taken, though this login reads both.
-	for _, p := range []string{plain, inPrivate} {
+	// directory keeps a plain digest or its size, though this login reads
+	// both: its digest is handed over only under the raw field, which the
+	// engine keys or seals before anything keeps it.
+	for p, content := range map[string]string{plain: "hello facts\n", inPrivate: "s3cret\n"} {
 		f := gatherItem(t, rc, gatherFileKey(p))
-		if f["digest"] != "withheld" || f["world_readable"] != false || f["sha256"] != nil || f["size"] != nil || f["state"] != "present" {
-			t.Errorf("%s = %v, want present with its digest and size withheld", p, f)
+		raw := sha256.Sum256([]byte(content))
+		if f["sha256_raw"] != hex.EncodeToString(raw[:]) || f["world_readable"] != false || f["sha256"] != nil || f["size"] != nil || f["state"] != "present" {
+			t.Errorf("%s = %v, want its digest raw for the engine and no size", p, f)
 		}
 	}
 	f := gatherItem(t, rc, gatherFileKey(plain))

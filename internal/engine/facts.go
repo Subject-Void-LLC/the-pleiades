@@ -103,7 +103,7 @@ func (r *run) recordFacts(ctx context.Context, results []NodeResult) {
 				observed[key] = v
 			}
 		}
-		guard := facts.Guard{Secrets: r.secrets.Snapshot(), Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: declaredFacts(nr.factMethod)}
+		guard := facts.Guard{Secrets: r.secrets.Snapshot(), Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: declaredFacts(nr.factMethod), AllowSealed: r.x.sealedDigests}
 		entries, problems, err := facts.Prepare(observed, guard)
 		for _, p := range problems {
 			slog.Warn("a fact was not stored", "node", nr.NodeID, "device", nr.Device, "fact", p.Key, "reason", p.Reason)

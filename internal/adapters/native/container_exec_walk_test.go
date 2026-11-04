@@ -102,18 +102,17 @@ func TestContainerExec_RunnerChildReachesTheDevicesEngine(t *testing.T) {
 
 	// A login other than the account onboarding found the engine as is
 	// refused, asked of the device over the same login, before any request
-	// reaches the engine: the facts are that account's. The run's own
-	// account is the credential's username, which the child masks like every
-	// other credential value on its way out, so the refusal is held to the
-	// recorded account and the remedy, and to never printing the username.
+	// reaches the engine: the facts are that account's. The refusal names
+	// the recorded account, the remedy and the run's own login: a username is
+	// an identifier, which the Runner leaves readable as the CLI does
+	// (engine.CredentialSecrets), while the credential's secrets stay masked.
 	elsewhere := containerHostPayload(d, d.EngineID(t))
 	discovered := elsewhere.DeviceProperties[inventory.DiscoveredProperty].(map[string]any)
 	discovered["facts"].(map[string]any)[engines.FactLoginUser] = "an-account-onboarding-used"
 	_, _, err = exec.invoke(ctx, desc, newWireDevice(elsewhere), params, collection.ModeExecute)
-	if err == nil || !strings.Contains(err.Error(), "an-account-onboarding-used") || !strings.Contains(err.Error(), "pleiades onboard box") {
-		t.Errorf("a login onboarding did not use: err = %v, want the account refusal naming the recorded account and re-onboarding", err)
-	} else if strings.Contains(err.Error(), testsupport.DockerHostUser) {
-		t.Errorf("the refusal printed the credential's username: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "an-account-onboarding-used") || !strings.Contains(err.Error(), "pleiades onboard box") ||
+		!strings.Contains(err.Error(), testsupport.DockerHostUser) {
+		t.Errorf("a login onboarding did not use: err = %v, want the account refusal naming the recorded account, this run's login and re-onboarding", err)
 	}
 
 	// An older Controller dispatches the typed socket a record held. The

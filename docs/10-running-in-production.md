@@ -245,6 +245,32 @@ used by this database`. The fingerprint is not a secret: it cannot be turned bac
 the key, and anyone who could test a guessed key against it could test it just as
 well against the ciphertext it protects, which sits in the same database.
 
+### Digests of files only some may read
+
+`facts.gather` keeps a plain SHA-256 only of a file anyone may read. The digest of
+any other file (a key, a password file, a `0600` configuration) is never stored as
+it is, because anyone who can read a device's facts could test guesses against a
+small secret's digest offline. A Runner seals such a digest to the controller,
+and the controller stores it keyed with HMAC-SHA-256 under its own key, so the same
+unchanged file keeps the same stored value and a change still shows as drift.
+
+That key comes from `PLEIADES_FACTS_DIGEST_KEY`: base64 of 32 random bytes, used
+for nothing else, and the same on every controller replica. Generate one with
+`openssl rand -base64 32`. Without it the controller says so when it starts, and
+those files are stored with their other details but no digest at all. Changing it
+re-keys every such digest once, which reads as each of those files changing; their
+`hmac_key` field names the key, so the change is visible as a new key rather than
+new content. It is not derived from `MASTER_ENCRYPTION_KEY`, which rotates.
+`controller setup` does not write it yet: set it in `.env` for Compose, or for
+Helm as `secrets.factsDigestKey`, or as a `PLEIADES_FACTS_DIGEST_KEY` key in your
+own Secret with `secrets.existingSecretHasFactsDigestKey: true`.
+
+On the command line the same digest is keyed under a key derived from the project's
+master key, `project:` in its `hmac_key`, read only when such a file is gathered. On
+a Runner a task's own result (what `register` reads) holds the digest sealed to the
+controller, not keyed, so a condition on `hmac_sha256` works in a `pleiades run`
+and not in a controller job; the stored fact has it on both.
+
 ### What the chart refuses to install
 
 Some configurations are refused at render time, with the reason in the error,

@@ -90,6 +90,13 @@ secrets:
   # sign-ins do not use it. Changing it rejects every API token signed with
   # the old one, which is recoverable, unlike changing the key above.
   jwtSecret: ""
+  # -- base64 of 32 random bytes, optional. The controller keeps the digest of
+  # a file only some may read keyed under it; without it no such digest is
+  # kept.
+  factsDigestKey: ""
+  # -- With existingSecret: set true once that Secret carries a
+  # PLEIADES_FACTS_DIGEST_KEY, so the controller reads it.
+  existingSecretHasFactsDigestKey: false
 
 controller:
   # -- How many controllers to run. One is the default because the default

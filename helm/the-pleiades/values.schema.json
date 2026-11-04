@@ -242,6 +242,12 @@
         },
         "jwtSecret": {
           "type": "string"
+        },
+        "factsDigestKey": {
+          "type": "string"
+        },
+        "existingSecretHasFactsDigestKey": {
+          "type": "boolean"
         }
       }
     },

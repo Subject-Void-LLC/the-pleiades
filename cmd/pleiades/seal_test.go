@@ -167,6 +167,7 @@ func TestCLI_SealAndPasswordFileRefusals(t *testing.T) {
 		"two ways to seal":            {"x\n", []string{"seal", "--to", pub, "--passphrase", "--out", out}, "choose one way"},
 		"both on standard input":      {"x\n", []string{"seal", "--passphrase-stdin", "--secret-stdin", "--out", out}, "cannot both"},
 		"no out":                      {"x\n", []string{"seal", "--to", pub, "--secret-stdin"}, "--out is required"},
+		"a runner's fact digest":      {"x\n", []string{"seal", "--to", pub, "--secret-stdin", "--purpose", "fact-digest", "--out", out}, "what a Runner seals"},
 		"not a seal key":              {"x\n", []string{"seal", "--to", "ssh-ed25519 AAAA", "--secret-stdin", "--out", out}, "not a pleiades seal key"},
 		"a stray argument":            {"", []string{"seal-key", "extra"}, "usage"},
 	} {

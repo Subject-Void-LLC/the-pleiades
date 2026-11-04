@@ -107,6 +107,50 @@ func labFileKey(path string) string {
 	return "file." + r.Replace(path)
 }
 
+// labPrivateFile writes a file only its owner may read under dir on m, as the
+// gate's login, removed when the test ends, and returns its path.
+func labPrivateFile(t *testing.T, m labMachine, dir string) string {
+	t.Helper()
+	path := dir + "/pleiades-gate-private"
+	if got := labShell(t, m, "umask 077 && printf 'pin1234\\n' > "+path+" && echo written"); got != "written" {
+		t.Fatalf("writing %s printed %q", path, got)
+	}
+	t.Cleanup(func() { labShell(t, m, "rm -f "+path+" && echo removed") })
+	return path
+}
+
+// labHoldsKeyedDigest holds the file fact key to a private file's shape: the
+// project's keyed digest alone, with no plain or raw digest and no size.
+func labHoldsKeyedDigest(t *testing.T, stats map[string]any, key string) {
+	t.Helper()
+	f := labItem(t, stats, key)
+	digest, _ := f["hmac_sha256"].(string)
+	id, _ := f["hmac_key"].(string)
+	if len(digest) != 64 || !strings.HasPrefix(id, "project:") || f["world_readable"] != false ||
+		f["sha256"] != nil || f["sha256_raw"] != nil || f["size"] != nil {
+		t.Errorf("%s = %v, want the project's keyed digest alone", key, f)
+	}
+}
+
+// labChangeShows changes the private file at path with change and gathers it
+// again: its keyed digest must change, so the digest is of the file's
+// content and a keyed digest shows drift as a plain one does.
+func labChangeShows(t *testing.T, m labMachine, stats map[string]any, path string, change func()) {
+	t.Helper()
+	labChangeShowsAt(t, m, stats, labFileKey(path), path, change)
+}
+
+// labChangeShowsAt is labChangeShows for a fact key the caller encodes.
+func labChangeShowsAt(t *testing.T, m labMachine, stats map[string]any, key, path string, change func()) {
+	t.Helper()
+	before, _ := stats[key].(map[string]any)
+	change()
+	after, _ := labGather(t, m, path)[key].(map[string]any)
+	if after == nil || after["hmac_sha256"] == nil || after["hmac_sha256"] == before["hmac_sha256"] {
+		t.Errorf("%s after a change = %v, before %v: want a new keyed digest", key, after, before)
+	}
+}
+
 // labAtoi is s as a number, failing t when it is not one.
 func labAtoi(t *testing.T, s string) int {
 	t.Helper()
@@ -125,7 +169,8 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	if got := labShell(t, m, "uname -s"); got != "FreeBSD" {
 		t.Fatalf("%s is %q, not FreeBSD", m.host, got)
 	}
-	stats := labGatherAll(t, m, "/etc/hosts", "/root/.cshrc", "/nonexistent", "/etc/master.passwd")
+	mine := labPrivateFile(t, m, "/home/"+labShell(t, m, "id -un"))
+	stats := labGatherAll(t, m, "/etc/hosts", "/root/.cshrc", "/nonexistent", "/etc/master.passwd", mine)
 	if stats["ansible_system"] != "FreeBSD" || stats["ansible_distribution"] != "FreeBSD" {
 		t.Errorf("system %v, distribution %v", stats["ansible_system"], stats["ansible_distribution"])
 	}
@@ -169,10 +214,14 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	if f := labItem(t, stats, labFileKey("/nonexistent")); f["state"] != "absent" {
 		t.Errorf("/nonexistent = %v", f)
 	}
-	// Root's alone: present, described, never hashed.
-	if f := labItem(t, stats, labFileKey("/etc/master.passwd")); f["state"] != "present" || f["digest"] != "withheld" || f["sha256"] != nil || f["size"] != nil {
-		t.Errorf("/etc/master.passwd = %v, want present with its digest withheld", f)
+	// Root's alone, which this login cannot read: present, described, no
+	// digest of any kind.
+	if f := labItem(t, stats, labFileKey("/etc/master.passwd")); f["state"] != "present" || f["world_readable"] != false || f["readable"] != false ||
+		f["sha256"] != nil || f["hmac_sha256"] != nil || f["size"] != nil {
+		t.Errorf("/etc/master.passwd = %v, want present with no digest", f)
 	}
+	labHoldsKeyedDigest(t, stats, labFileKey(mine))
+	labChangeShows(t, m, stats, mine, func() { labShell(t, m, "printf 'pin5678\\n' > "+mine+" && echo written") })
 }
 
 func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
@@ -183,7 +232,10 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	if got := labShell(t, m, "uname -s"); got != "Darwin" {
 		t.Fatalf("%s is %q, not Darwin", m.host, got)
 	}
-	stats := labGatherAll(t, m, "/etc/hosts", "/etc", "/private/var/root/.forward", "/nonexistent")
+	mine := labPrivateFile(t, m, labShell(t, m, "echo $HOME"))
+	stats := labGatherAll(t, m, "/etc/hosts", "/etc", "/private/var/root/.forward", "/nonexistent", mine)
+	labHoldsKeyedDigest(t, stats, labFileKey(mine))
+	labChangeShows(t, m, stats, mine, func() { labShell(t, m, "printf 'pin5678\\n' > "+mine+" && echo written") })
 	if stats["ansible_distribution"] != "MacOSX" || stats["ansible_distribution_version"] != labShell(t, m, "sw_vers -productVersion") {
 		t.Errorf("distribution %v %v", stats["ansible_distribution"], stats["ansible_distribution_version"])
 	}
@@ -268,7 +320,17 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 		t.Fatalf("registering the gate's programs printed %q", got)
 	}
 
-	stats := labGather(t, m, `C:\Windows\win.ini`, `C:\pagefile.sys`, `C:\nonexistent\x`)
+	// A file in the login's own profile, which BUILTIN\Users may not read.
+	profile := labPowerShell(t, m, `$env:USERPROFILE`)
+	winMine := profile + `\pleiades-gate-private.txt`
+	if got := labPowerShell(t, m, `Set-Content -LiteralPath '`+winMine+`' -Value 'pin1234'; 'written'`); got != "written" {
+		t.Fatalf("writing %s printed %q", winMine, got)
+	}
+	t.Cleanup(func() { labPowerShell(t, m, `Remove-Item -LiteralPath '`+winMine+`' -Force; 'removed'`) })
+	stats := labGather(t, m, `C:\Windows\win.ini`, `C:\pagefile.sys`, `C:\nonexistent\x`, winMine)
+	labHoldsKeyedDigest(t, stats, "file."+strings.ReplaceAll(winMine, " ", "%20"))
+	labChangeShowsAt(t, m, stats, "file."+strings.ReplaceAll(winMine, " ", "%20"), winMine,
+		func() { labPowerShell(t, m, `Set-Content -LiteralPath '`+winMine+`' -Value 'pin5678'; 'written'`) })
 	if stats["ansible_system"] != "Win32NT" || stats["ansible_hostname"] != labPowerShell(t, m, `$env:COMPUTERNAME`) {
 		t.Errorf("system %v, host name %v", stats["ansible_system"], stats["ansible_hostname"])
 	}

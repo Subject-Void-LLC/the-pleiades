@@ -532,6 +532,10 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// one at a time; with nobody there (a pipe, a schedule, an agent)
 		// it is kept pending for `pleiades ai review`.
 		engine.WithReviewPrompter(runReviewPrompter()),
+		// A digest of a file not everyone may read is kept only keyed, under a
+		// key derived from the project's master key, which is read only when
+		// such a digest turns up (internal/facts' keyed digests).
+		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return credential.ResolveMasterKey(opts.dir) }, "project")),
 	)
 
 	// Every named secret of the project is masked from the run's start, not

@@ -128,16 +128,17 @@ func gatherFilesFor(paths []string, platform string) error {
 // group separated by colons (which an account name cannot hold), and
 // modeFormat the format printing a mode alone.
 //
-// # A digest only of what anyone may read
+// # A plain digest only of what anyone may read
 //
 // A stored digest is read by anyone who may read the device's facts, and
 // the SHA-256 of a small secret (a password or key file) can be guessed
-// offline. So a regular file is hashed only when it is world-readable: its
-// mode lets others read it and every directory above it lets others search
-// it. Otherwise the device prints digest-withheld and hashes nothing, so no
-// digest of it leaves the device, and its size (a secret's length) is not
-// kept either. The test runs on the device, in sh arithmetic over stat's
-// octal modes, each checked to be octal first so a bad answer withholds
+// offline. So a regular file keeps a plain sha256 only when it is
+// world-readable: its mode lets others read it and every directory above it
+// lets others search it. Any other file's digest is handed over as
+// sha256_raw, which the engine keys or seals before anything keeps or shows it
+// (internal/facts' keyed digests), and its size (a secret's length) is not
+// kept. The test runs on the device, in sh arithmetic over stat's octal
+// modes, each checked to be octal first so a bad answer counts as private
 // rather than ends the shell.
 func posixFileProbe(statFormat, modeFormat string) gatherProbe {
 	return gatherProbe{
@@ -161,7 +162,7 @@ func posixFileProbe(statFormat, modeFormat string) gatherProbe {
 				`case $m in ''|*[!0-7]*) w=0;; *) [ $((0$m & 4)) -ne 0 ] || w=0;; esac; ` +
 				`while [ $w = 1 ]; do q=${q%/*}; [ -n "$q" ] || break; a=$(LC_ALL=C stat -L ` + modeFormat + ` -- "$q" 2>/dev/null); ` +
 				`case $a in ''|*[!0-7]*) w=0;; *) [ $((0$a & 1)) -ne 0 ] || w=0;; esac; done; ` +
-				`if [ $w = 0 ]; then echo 'digest-withheld'; elif [ -r "$p" ]; then printf 'sha:%s\n' "$(` + posixSHA256 + ` < "$p")"; else echo 'sha-unreadable'; fi; fi; ` +
+				`if [ $w = 1 ]; then t=sha; else t=raw; fi; if [ -r "$p" ]; then printf '%s:%s\n' "$t" "$(` + posixSHA256 + ` < "$p")"; else echo "$t-unreadable"; fi; fi; ` +
 				`if [ -L "$p" ]; then printf 'link:%s\n' "$(readlink -- "$p" | od -An -tx1 | tr -d ' \n')"; fi; ` +
 				`else case $e in *': No such file or directory'|*': Not a directory') echo absent;; *) echo unreadable;; esac; fi; done`
 		},
@@ -182,10 +183,6 @@ const (
 	modeFormatGNU = `-c '%a'`
 	modeFormatBSD = `-f '%Mp%Lp'`
 )
-
-// fileDigestWithheld is a file fact's digest field when the file is not
-// world-readable: the digest was never taken.
-const fileDigestWithheld = "withheld"
 
 // fileTypes maps each stat's word for a file's type (GNU's lower case, BSD's
 // title case) to one vocabulary.
@@ -249,27 +246,33 @@ func parseFileSection(section string) map[string]any {
 			if kind != "directory" {
 				value["size"] = int64(size)
 			}
-		case strings.HasPrefix(line, "sha:"):
-			// A file the login could read but whose digest did not come
-			// back (a read error part way, no SHA-256 tool at all) has no
-			// sha256 and no readable: what is unknown is left out.
-			digest := strings.ToLower(gatherFirstField(strings.TrimPrefix(line, "sha:")))
-			if b, err := hex.DecodeString(digest); err == nil && len(b) == 32 {
-				value["sha256"], value["readable"] = digest, true
+		case strings.HasPrefix(line, "sha:"), strings.HasPrefix(line, "raw:"):
+			// sha: a world-readable file's digest, kept plain; raw: any other
+			// file's, handed over under the field nothing keeps unkeyed. A
+			// file the login could read but whose digest did not come back (a
+			// read error part way, no SHA-256 tool at all) has neither, and
+			// no readable: what is unknown is left out.
+			world := strings.HasPrefix(line, "sha:")
+			field := "sha256"
+			if !world {
+				field = collection.RawDigestField
 			}
-			value["world_readable"] = true
-		case line == "sha-unreadable":
-			value["readable"], value["world_readable"] = false, true
-		case line == "digest-withheld":
-			value["digest"], value["world_readable"] = fileDigestWithheld, false
+			digest := strings.ToLower(gatherFirstField(line[len("sha:"):]))
+			if b, err := hex.DecodeString(digest); err == nil && len(b) == 32 {
+				value[field], value["readable"] = digest, true
+			}
+			value["world_readable"] = world
+		case line == "sha-unreadable", line == "raw-unreadable":
+			value["readable"], value["world_readable"] = false, line == "sha-unreadable"
 		case strings.HasPrefix(line, "link:"):
 			if b, err := hex.DecodeString(strings.TrimPrefix(line, "link:")); err == nil {
 				value["link_target"] = strings.TrimSuffix(string(b), "\n")
 			}
 		}
 	}
-	// A withheld file's size is a secret's length, and is not kept either.
-	if value["digest"] == fileDigestWithheld {
+	// A private file's size is a secret's length, and is not kept, nor any
+	// plain digest of it.
+	if value["world_readable"] == false {
 		delete(value, "size")
 		delete(value, "sha256")
 	}

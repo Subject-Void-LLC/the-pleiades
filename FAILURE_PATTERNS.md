@@ -881,6 +881,18 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 875. The Linux ports probe printed whole socket tables and every descriptor link, so a busy server would pass the 64 MiB output limit (fixed before push)
 876. An IPv6 zone index (Windows %4) in a port key moved when an adapter was added, renaming an unchanged listener (a sibling of 870) (fixed before push)
 877. The new tests repeated old test-quality classes: lab gates compared UDP counts read at different moments and waited with a fixed sleep, password asserts could not fail, the fact key bound was copied with no equality test, a filter dropping every path gathered nothing silently, and a malformed stat line was accepted (a repeat of 788, 211 and 422; LESSONS 136 and 134) (fixed before push)
+878. A Runner counted the dispatched credential's username as a secret, so every fact naming the login was refused on the Walk tier (a repeat of 120; 394's identifier allowlist lived on the CLI only, and 829's fix carried the gap into the fact guard) (fixed)
+879. The Runner invoker path returned before the digest rewrite, which a mapper's report said one call point covered on both tiers (a sibling of 860; LESSONS 244 and 363) (fixed before push)
+880. A session script that copied a method's Doc into catalogdata cut the Go literal at the wrong closing brace, twice, leaving a file that did not compile (fixed before push)
+881. The Controller read PLEIADES_FACTS_DIGEST_KEY after it had bound its listener and migrated the database (a repeat of 297; LESSONS 216) (fixed before push)
+882. The chart's existingSecret path could not deliver the new digest key, so two combinations rendered a controller that would not start (a repeat in kind of 234) (fixed before push)
+883. A digest the store could not keep was dropped without a word, in the engine and in the Controller (a sibling of 853) (fixed before push)
+884. The raw-digest scrub looked only at the top level of a fact, a typed in-process value skipped it, and the store trusted the sender to leave out a private file's plain digest (a repeat in kind of 696; LESSONS 350) (fixed before push)
+885. A sealed digest bound its device and fact but not its job, so one could be replayed into a later job, and a NUL in a bound field was accepted (the NUL class of 317 and 859) (fixed before push)
+886. Text the branch made false still said a private file's digest is "withheld" (a repeat of 789) (fixed before push)
+887. pleiades seal offered the fact-digest purpose, which only a Runner can use, so a hand-sealed value could only fail (a repeat in kind of 221) (fixed before push)
+888. The branch's tests repeated old test-quality classes: the Controller's digest wiring was untested, gates checked a digest's shape and not its value or a change, a purpose check could not fail, and the Walk gate used one string for device ID and name (a repeat of 467; LESSONS 235, 351 and 381) (fixed before push)
+889. The engine's result scrub wrote into an action's stats map, which an executor may share across the devices it runs on at once (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

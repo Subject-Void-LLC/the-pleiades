@@ -4,32 +4,35 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-04. Branch `feat/facts-41c-2`, three commits on `main` at `30de7528` (PR #110 merged): `e84c0dc3` (feat),
-`1fb1ebb1` (lab gates), `ae4c5657` (review fixes), plus the records (uncommitted). Reviewed; every finding fixed. Not
-through `make pr-check`, push or a pull request yet.**
+**2026-11-04. Branch `feat/facts-keyed-digest`, three commits on `main` at `f19fa172` (PR #111 merged): `98005436`
+(fix(native)), `3e6bb38c` (feat), `70d3032b` (review fixes), plus the records (uncommitted). Reviewed (fp-reviewer and
+two independent diff reviews); every finding fixed. Not through `make pr-check`, push or a pull request yet.**
 
 ### What works (each proven by a test that ran)
 
-- **Phase 41c-2: `facts.gather` gains `files`, `ports` and `users`** on Linux, FreeBSD, macOS and Windows, one fact
-  per item, in the one `gather_subset` registry (`TestGatherSelection_FollowsAnsiblesRules`,
-  `TestGatherSelection_FilesFollowItsPaths`).
-- `files`: at most 64 absolute paths; metadata, and SHA-256 and size only for a world-readable regular file (owner
-  decision 2026-11-04; any other file is `digest: withheld` and never hashed on the device). A path the login cannot
-  reach is `unreadable`, never `absent`; a path naming another machine or a Windows device is refused.
-  `TestGather_FilesReportDigestsAndNeverCallUnreadableAbsent`, `TestGatherFilePaths_RefusesWhatCannotBeReadSafely`,
-  `TestGatherFilesFor_HoldsEachPathToTheDevicesOwnForm`, `TestGather_RefusesAPathWrittenForTheOtherKindOfSystem`.
-- `ports`: `port.<proto>:<addr>:<port>`, from `/proc/net` plus `/proc/*/fd` (byte order asked of the device),
-  `sockstat -46lq`, `netstat -anvl`, and `Get-NetTCPConnection`/`Get-NetUDPEndpoint`.
-  `TestGather_PortsFindsAListenerAndItsProcess`, the `TestParse*` tests in `gather_items_internal_test.go`.
-- `users`: `/etc/passwd` and `/etc/group` through `cut -d: -f1,3-` (the password field never leaves the device),
-  `dscl . -readall`, `Get-LocalUser`/`Get-LocalGroup`. `TestGather_UsersMatchThisMachinesFilesAndCarryNoPassword`,
-  `TestUserProbes_NeverCarryThePasswordField`.
-- Every OS, all passing on 2026-11-04 after the review fixes: `TestCLI_FactsReleaseGate` (Alpine sshd container),
-  `TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools` (bsd-check, FreeBSD 15.1),
-  `TestCLI_FactsGatherOnMacOSMatchesItsOwnTools` (the lab Mac, macOS 27.0.1),
-  `TestCLI_FactsGatherOnWindowsMatchesItsOwnTools` (win-check, Server 2025). `FuzzGatherParsers` covers every new
-  parser (86 seeds in `testdata/parser-seeds.json`; about 3.4 million executions per two-minute run, clean).
-- Records: FAILURE_PATTERNS 866 to 877, LESSONS 390 to 392. Phase 41c is 7 of 11 (open gate: Fuzz/Stress Test).
+- **A private file's digest is kept keyed, never raw** (owner decisions 2026-11-04). `facts.gather` hands it over
+  only as `sha256_raw` (`collection.RawDigestField`, held equal to `internal/facts.RawDigestField` by
+  `TestFactCaps_AgreeAcrossTheBoundary`). `internal/engine/fact_digests.go` rewrites it right after a method returns,
+  on the in-process and the Runner paths: the CLI keys it with HMAC-SHA-256 under a key derived lazily from the
+  project's master key (`facts.NewLazyKeyer`, id `project:<16hex>`); a Runner seals it with HPKE (`internal/sealed`,
+  ML-KEM-768+X25519) to the Controller's key on `wire.DispatchPayload.FactSealKey`, bound to job, device and fact; an
+  executor told neither drops it, with a task warning. The executor scrubs every node's stats; `facts.ScrubDigests`
+  (in `Prepare`) drops raw at any depth and in typed values. Tests: `internal/facts/keyed_test.go`,
+  `internal/engine/fact_digests_test.go` (both paths; removing the rewrite fails three tests),
+  `internal/facts/entstore/digests_test.go` (real SQLite through `Handle`).
+- **The Controller** derives an HPKE key pair and an HMAC key (id `controller:<16hex>`) from
+  `PLEIADES_FACTS_DIGEST_KEY` (`entstore.DigestKeys`), read before it binds or migrates; without it no such digest is
+  stored and it warns. `cmd/controller/fact_digest_keys_test.go`, `TestFactDigestKeyReleaseGate_AMalformedKeyStopsTheControllerFirst`
+  (real binary: exit 1, no database, no listener). Helm `secrets.factsDigestKey` / `existingSecretHasFactsDigestKey`
+  with refusals, Compose pass-through, production guide "Digests of files only some may read".
+- **End to end, all passing 2026-11-04:** `TestFactsReleaseGate_APrivateFilesDigestIsStoredOnlyKeyed` (real Runner,
+  NATS and consumer: the stored value equals the Controller's HMAC of the real digest, no row holds the raw, device ID
+  and name differ); `TestCLI_FactsReleaseGate` (exact project HMAC, stable over two gathers, new after a change); the
+  FreeBSD, macOS and Windows lab gates (keyed shape, a change shows); `internal/archtest`; `make helm-lint`;
+  `GOOS=windows` vet.
+- **A Runner no longer counts the login's username as a secret** (`98005436`, FAILURE_PATTERNS 878): it calls
+  `engine.CredentialSecrets` as the CLI does, so facts naming the login are stored on the Walk tier.
+- Records: FAILURE_PATTERNS 878 to 888, LESSONS 393 to 395. Phase 41c is 8 of 11 (open gate: Fuzz/Stress Test).
 
 ### Current blocker
 
@@ -37,17 +40,18 @@ None. Next is the gate.
 
 ### Open
 
-- **Owner:** Windows keeps every bound UDP endpoint (it reports no peer), and every platform keeps unconnected UDP on
-  ephemeral ports. Deliberate (dropping the ephemeral range would hide WireGuard or a backdoor), but those facts churn
-  until 41d marks facts gone.
-- `~/pleiades-lab/bin/pleiades` (built 2026-10-24) hangs after sealing a run (`net.ssh.ping` finished in 0.15 s; the
-  process never exited). Main's build does not. This session's lab work used a fresh main build from the scratchpad;
-  the owner may want the lab binary refreshed.
-- Two `windowsAbsolute` copies (`internal/catalog/facts`, `internal/catalog/exec/winrm`) with different rules and no
-  test holding them together (867).
-- Whether to commit the argus fix, still uncommitted in `~/argus`.
-- Carried forward: a fish host onboarded before #110 stays raw until onboarded again (858); vuln-corpus finding
-  `C13_auto-roboto_2026-11-03` pending review; argus `expand_seeds` wrote fuzz files into the repository despite
+- `pleiades controller setup` does not generate `PLEIADES_FACTS_DIGEST_KEY` yet (follow-up pull request).
+- On a Runner a task's register holds `sha256_sealed`, not `hmac_sha256` (documented). CLI keyed digests re-key if the
+  project master key rotates. Private files are now read in full to hash them (audit and I/O cost for large or audited
+  paths, as Ansible's stat reads them).
+- The Runner now shows the login name in output as the CLI does (owner rule: allowlist identifiers). `pkg/netconf`
+  keeps its own copy of the identifier allowlist; `internal/loader` and the legacy adapter still mask the username
+  (stricter, so the tiers differ for external Collections).
+- `~/pleiades-lab/bin/pleiades` (built 2026-10-24) hangs after sealing a run; main's build does not.
+- The argus fix is still uncommitted in `~/argus`. API credit: $20.53 of $92 spent (2026-11-04).
+- Carried forward: Windows and ephemeral UDP endpoints churn until 41d (owner); two `windowsAbsolute` copies with no
+  test holding them together (867); a fish host onboarded before #110 stays raw until onboarded again (858);
+  vuln-corpus finding `C13_auto-roboto_2026-11-03` pending review; argus `expand_seeds` wrote fuzz files despite
   `persist:false`; `internal/archtest` misses zero-width characters (851); a Runner publish failing mid-split leaves
   earlier batches stored (853); no fact marks a package or service gone (41d); whether a Remote Management Users
   member alone can read the Windows probes is unproven.
@@ -59,24 +63,24 @@ None. Next is the gate.
 
 1. `make pr-check` through the monitor, push, `make branch-containers`, then the pull request (failure-pattern
    classes in the body, no AI attribution). Merge only when green, `record-actions`, pull `main` and clean.
-2. The keyed-digest pull request (owner's hybrid: plain digest for world-readable, HMAC at the store boundary for
-   restricted, stats stripped in the engine; the open 41c item).
-3. The sweep-fix pull request: an API Batch review of merged code ran on 2026-11-04; its results are in
-   `.IGNORE/claude-api/out/sweep-2026-11-04/` and are being verified.
+2. A small pull request: `controller setup` generates `PLEIADES_FACTS_DIGEST_KEY` .
+3. The verified sweep-fix pull request(s), from `.IGNORE/claude-api/out/sweep-2026-11-04/VERDICTS-*.md`.
 4. 41c-3, then 41d to 41g, 117b, 117c, 105, then release 0.4.0 (no tag until the owner says).
 
 ### Files changed this session
 
-`internal/catalog/facts/` (`gather.go`, `gather_subsets.go`, `gather_transport.go`, `gather_win.go`, new
-`gather_files.go`, `gather_ports.go`, `gather_users.go`, `gather_bsd_more.go`, `gather_win_items.go`, tests,
-`testdata/parser-seeds.json`, `testdata/fuzz/FuzzGatherParsers/c370165e73df7491`), `pkg/collection/facts.go`,
-`internal/engine/facts_test.go`, `internal/forge/catalogdata/collections_gating.go`, `cmd/pleiades/`
-(`facts_release_gate_test.go`, `facts_lab_release_gate_test.go`), generated `docs/reference/modules/facts/gather.md`,
-`docs/reference/modules/index.md`, `docs/reference/schemas/module-catalog.json`,
-`internal/api/wellknown/module-catalog.json`, `changelog/facts-files-ports-users.added.md`. Records:
-`FAILURE_PATTERNS.md` and its archive (866 to 877), `LESSONS_LEARNED.md` and its archive (390 to 392),
-`HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, and the ignored `.SPECIFICATION/IMPLEMENTATION.md` (41c) and
-`.SPECIFICATION/SECURITY_ATTESTATION.md` (PW.5).
+`internal/facts/` (`keyed.go`, `facts.go`, `entstore/digests.go`, `entstore/subscriber.go`, tests), `internal/engine/`
+(`fact_digests.go`, `collection_action.go`, `executor.go`, `facts.go`, `become.go`, tests), `internal/sealed/`
+(`key.go`, `sealed.go`, test), `internal/adapters/native/` (`adapter.go`, `fact_seal.go`, `ipc_parent.go`, tests),
+`internal/dispatch/` (`worker_config.go`, `worker_devices.go`), `internal/catalog/facts/` (`gather.go`,
+`gather_files.go`, `gather_win_items.go`, tests), `pkg/collection/facts.go`, `pkg/wire/dispatch.go`, `cmd/controller/`
+(`main.go`, `builtin_catalog.go`, `fact_digest_keys.go`, tests), `cmd/pleiades/` (`seal.go`, `run_pipeline.go`,
+tests, lab gates), `cmd/runner/facts_release_gate_test.go`, `internal/forge/catalogdata/collections_gating.go`,
+`helm/the-pleiades/` (values, schema, templates), `docker-compose.yml`, `docs/10-running-in-production.md`, generated
+`docs/reference/modules/facts/gather.md`, `docs/reference/schemas/module-catalog.json`,
+`internal/api/wellknown/module-catalog.json`, `changelog/facts-keyed-digests.security.md`,
+`changelog/facts-files-ports-users.added.md`. Records: `FAILURE_PATTERNS.md` and its archive (878 to 888),
+`LESSONS_LEARNED.md` and its archive (393 to 395), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, and the ignored
+`.SPECIFICATION/IMPLEMENTATION.md` (41c) and `.SPECIFICATION/SECURITY_ATTESTATION.md` (PW.5).
 
-Lab: bsd-check and win-check are powered off (ACPI); the lab Mac was used read-only; the `C:\pleiades-41c2` fixture on
-win-check is confirmed removed.
+Lab: unchanged. bsd-check and win-check are powered off (ACPI); the lab Mac was used for its gate.

@@ -16,6 +16,7 @@ package facts
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"net/netip"
 	"strings"
 )
@@ -63,12 +64,14 @@ if (Get-Command Get-LocalGroup -ErrorAction SilentlyContinue) {
   })
 }` + windowsJSONOut
 
-// windowsFilesScript is the files script (a file is hashed only when its ACL
-// lets Everyone, Authenticated Users or BUILTIN\Users read it and denies none
-// of them, as posixFileProbe hashes only a world-readable file; any other is
-// digest withheld, with no size; and a file another process holds open
-// for writing, such as a log, is still read, sharing it as that process
-// allows, rather than reported unreadable until the writer lets go) for the base64 JSON list of paths
+// windowsFilesScript is the files script (every regular file the login can
+// read is hashed; its digest is kept plain, with its size, only when its ACL
+// lets Everyone, Authenticated Users or BUILTIN\Users read it and denies none of
+// them, as posixFileProbe's, and any other's is handed over raw for the engine
+// to key or seal, with no size; a file another process holds open for
+// writing, such as a log, is still read, sharing it as that process allows,
+// rather than reported unreadable until the writer lets go) for the base64
+// JSON list of paths
 // b64: per path, in order, its state and, when present, type, size,
 // attributes, owner, digest and link target.
 func windowsFilesScript(b64 string) string {
@@ -102,15 +105,14 @@ $out = @(foreach ($p in @($paths)) {
       $world = $allow -and -not $deny
     } catch { }
     $r.world_readable = $world
-    if (-not $world) { $r.digest = 'withheld' } else {
-      try { $r.size = [int64](New-Object IO.FileInfo($p)).Length } catch { }
-      try {
-        $s = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite, Delete')
-        try { $h = [Security.Cryptography.SHA256]::Create().ComputeHash($s) } finally { $s.Dispose() }
-        $r.sha256 = -join ($h | ForEach-Object { $_.ToString('x2') })
-        $r.readable = $true
-      } catch { $r.readable = $false }
-    }
+    if ($world) { try { $r.size = [int64](New-Object IO.FileInfo($p)).Length } catch { } }
+    try {
+      $s = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite, Delete')
+      try { $h = [Security.Cryptography.SHA256]::Create().ComputeHash($s) } finally { $s.Dispose() }
+      $d = -join ($h | ForEach-Object { $_.ToString('x2') })
+      if ($world) { $r.sha256 = $d } else { $r.sha256_raw = $d }
+      $r.readable = $true
+    } catch { $r.readable = $false }
   }
   try { $r.owner = [string](Get-Acl -LiteralPath $p).Owner } catch { }
   $r
@@ -153,7 +155,7 @@ func parseWindowsFiles(out string) []gatherFact {
 		SHA256     string `json:"sha256"`
 		Readable   *bool  `json:"readable"`
 		World      *bool  `json:"world_readable"`
-		Digest     string `json:"digest"`
+		Raw        string `json:"sha256_raw"`
 		LinkTarget string `json:"link_target"`
 	}](out)
 	facts := make([]gatherFact, 0, len(items))
@@ -178,12 +180,17 @@ func parseWindowsFiles(out string) []gatherFact {
 			if it.World != nil {
 				value["world_readable"] = *it.World
 			}
-			if b, ok := windowsDigest(it.SHA256); ok && it.Digest != fileDigestWithheld {
+			// A world-readable file's digest is kept plain; any other's is
+			// handed over raw, for the engine to key or seal, and its size,
+			// a secret's length, is not kept.
+			private := it.World == nil || !*it.World
+			if b, ok := windowsDigest(it.SHA256); ok && !private {
 				value["sha256"] = b
 			}
-			// A withheld file's size is a secret's length, and is not kept.
-			if it.Digest == fileDigestWithheld {
-				value["digest"] = fileDigestWithheld
+			if b, ok := windowsDigest(it.Raw); ok && private {
+				value[collection.RawDigestField] = b
+			}
+			if private {
 				delete(value, "size")
 			}
 		}

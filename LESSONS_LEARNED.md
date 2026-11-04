@@ -425,6 +425,9 @@ story, per `.AGENTS/AGENTS.md`.
 390. **A fact a method emits is also a stat: protect a sensitive value where it is produced, or strip it in the engine before stats leave, because a value protected only at the fact store still reaches run reports, `result.<register>` and Walk job results (the class of FAILURE_PATTERNS 578 and 829) (2026-11-04).**
 391. **"Absent" is a claim only the system's own not-found answer may make: a layer that folds errors (PowerShell's provider) cannot judge it, so decide from the innermost error type (a repeat of 379) (2026-11-04).**
 392. **A second model's review and fuzz seeds taken from its output, given only the code, found defects the author's tests and the house reviewer missed; keep it as a step, and verify every claim it makes before acting on it (extends 312; 50's caution applies) (2026-11-04).**
+393. **A map from a mapper agent is a hypothesis: when it says one point covers several paths, hold each path it names to its own test before building on the claim (a repeat in kind of 363 and 244) (2026-11-04).**
+394. **Keep a store-side invariant even when the producer is meant to enforce it: here it turned a missed path into a drop instead of a leak (extends 390; 135's caution applies) (2026-11-04).**
+395. **Independent reviews by a second model earn their cost at both ends of a security change: a design review before coding changed the design, and two diff reviews after found gaps the house reviewer missed (extends 392) (2026-11-04).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

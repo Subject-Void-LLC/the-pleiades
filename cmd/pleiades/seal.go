@@ -78,6 +78,11 @@ func runSeal(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("usage: pleiades seal (--to <key> | --passphrase | --passphrase-stdin) [--secret-stdin] --out <file>")
 	}
+	// A fact digest is sealed only by a Runner, to its Controller; nothing a
+	// person seals is ever opened as one.
+	if *purpose == sealed.PurposeFactDigest {
+		return fmt.Errorf("--purpose %s is what a Runner seals for its controller, not something to seal by hand; seal a %s", sealed.PurposeFactDigest, sealed.PurposePassword)
+	}
 	ways := 0
 	for _, chosen := range []bool{*to != "", *promptPassphrase, *stdinPassphrase} {
 		if chosen {

@@ -64,15 +64,7 @@ func recordBecome(ctx context.Context, fqcn, user string, becomes, succeeded boo
 	if !succeeded {
 		return
 	}
-	warning := fmt.Sprintf("become: %s opened no SSH connection that ran as %s, so whatever it did ran as the login", fqcn, user)
-	switch existing := stats[sdk.StatWarnings].(type) {
-	case []string:
-		stats[sdk.StatWarnings] = append(existing, warning)
-	case []interface{}:
-		stats[sdk.StatWarnings] = append(existing, warning)
-	default:
-		stats[sdk.StatWarnings] = []string{warning}
-	}
+	appendWarning(stats, fmt.Sprintf("become: %s opened no SSH connection that ran as %s, so whatever it did ran as the login", fqcn, user))
 }
 
 // ranAs returns the account task's commands ran as, from the stats its

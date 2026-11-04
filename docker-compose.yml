@@ -504,6 +504,10 @@ services:
       - MASTER_ENCRYPTION_KEY_PREVIOUS=${MASTER_ENCRYPTION_KEY_PREVIOUS:-}
       - MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION=${MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION:-}
       - ROTATE_ENCRYPTION_KEYS=${ROTATE_ENCRYPTION_KEYS:-}
+      # The key the controller keeps digests of private files under (the
+      # production guide's "Digests of files only some may read"). Empty
+      # keeps no such digest, and the controller says so when it starts.
+      - PLEIADES_FACTS_DIGEST_KEY=${PLEIADES_FACTS_DIGEST_KEY:-}
       - RUNBOOK_DIR=/app/runbooks
       # There is deliberately no TLS_CERT_FILE and no TLS_KEY_FILE here,
       # and that absence is the whole configuration. It is a real decision

@@ -227,6 +227,26 @@ type refusal struct {
 
 var refusals = []refusal{
 	{
+		// The digest key set as a value while the chart writes no Secret: the
+		// controller would read it from the operator's Secret, which lacks
+		// it, and never start.
+		name: "a facts digest key value with the operator's own Secret",
+		values: []string{
+			"--set", "secrets.existingSecret=pleiades-mine",
+			"--set", "secrets.factsDigestKey=cmVuZGVyLW9ubHk=",
+		},
+		wantMessage: "secrets.factsDigestKey is set together with secrets.existingSecret",
+	},
+	{
+		// The operator's-Secret flag with no operator's Secret: the
+		// controller would read a key the chart's own Secret does not hold.
+		name: "a facts digest key said to be in a Secret the chart does not name",
+		values: []string{
+			"--set", "secrets.existingSecretHasFactsDigestKey=true",
+		},
+		wantMessage: "secrets.existingSecretHasFactsDigestKey is true but secrets.existingSecret is not set",
+	},
+	{
 		// The combination that installs cleanly and produces a broker
 		// refusing its own controller. Nothing about it looks wrong: both
 		// halves are real values and each is valid alone.

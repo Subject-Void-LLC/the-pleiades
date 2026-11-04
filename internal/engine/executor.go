@@ -502,6 +502,9 @@ type Executor struct {
 	// facts stores real runs' observed facts (WithFactRecorder, facts.go);
 	// nil stores none.
 	facts FactRecorder
+	// sealedDigests lets a sealed digest through to facts
+	// (WithSealedFactDigests, fact_digests.go).
+	sealedDigests bool
 
 	// renderer renders a task's params that hold a template (WithRenderer,
 	// render_params.go); nil refuses such a task.
@@ -1441,6 +1444,10 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 			err = fmt.Errorf("unknown execution mode %q, so nothing was run", mode)
 		}
 	}
+	// No raw digest outlives an action, whatever executor ran it, and a
+	// sealed one only where this run publishes to a Controller
+	// (fact_digests.go).
+	actionResult.Stats = scrubResultDigests(actionResult.Stats, r.x.sealedDigests)
 	// Which stats are facts is the engine's to read, never a result's: the
 	// list is taken off every result, and kept only from a real run that
 	// succeeded, whose facts the run stores (facts.go).

@@ -231,6 +231,14 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		defer session.Close()
 		invoke = session.invoke
 	}
+	// A raw digest of a file not everyone may read is sealed to the
+	// Controller's key when the dispatch carries one, and dropped otherwise
+	// (fact_seal.go).
+	sealActions, sealRun, sealErr := factSealing(payload)
+	if sealErr != nil {
+		a.logger.Warn("the dispatch's fact seal key does not parse; no digest of a private file is kept for this job",
+			slog.String("job", payload.JobID), slog.Any("error", sealErr))
+	}
 	actions := engine.NewCollectionActionExecutor(
 		// nil inventory.Repository: this per-task subprocess has no live
 		// database connection of its own (see
@@ -239,7 +247,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// here, exactly a direct connection.
 		engine.NewTransportActionExecutor(a.bindings, credentials, nil, engine.NewBuiltinActionExecutor()),
 		runbookContextFor(payload),
-		engine.WithCollectionInvoker(invoke),
+		append([]engine.CollectionActionExecutorOption{engine.WithCollectionInvoker(invoke)}, sealActions...)...,
 	)
 
 	// A fresh, private lock.Manager, never a real distributed one: this
@@ -328,6 +336,8 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// and the node it undoes, which is what a later rollback of that
 		// job resumes from.
 		rollbackOption,
+		// Sealed digests go on to the Controller, which opens them.
+		sealRun,
 	)
 
 	result, runErr := executor.Run(ctx, dag)

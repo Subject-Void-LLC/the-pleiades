@@ -183,9 +183,12 @@ func TestParseFileSection_ReadsEachStatAndTellsUnreadableFromAbsent(t *testing.T
 		// GNU coreutils (Debian 12) and BusyBox (Alpine 3.20) stat -c.
 		"gnu file": {"ok:regular file:870:0:0:644:root:root\nsha:" + sha + "  -\n",
 			map[string]any{"state": "present", "type": "file", "size": int64(870), "uid": 0, "gid": 0, "mode": "0644", "owner": "root", "group": "root", "sha256": sha, "readable": true, "world_readable": true}},
-		// Not world-readable: no digest was taken, and the size is dropped.
-		"withheld": {"ok:regular file:497:0:42:640:root:shadow\ndigest-withheld\n",
-			map[string]any{"state": "present", "type": "file", "uid": 0, "gid": 42, "mode": "0640", "owner": "root", "group": "shadow", "digest": "withheld", "world_readable": false}},
+		// Not world-readable: its digest is handed over raw, for the engine to
+		// key or seal, and its size is dropped.
+		"private": {"ok:regular file:497:0:42:640:root:shadow\nraw:" + sha + "  -\n",
+			map[string]any{"state": "present", "type": "file", "uid": 0, "gid": 42, "mode": "0640", "owner": "root", "group": "shadow", "sha256_raw": sha, "readable": true, "world_readable": false}},
+		"private unreadable": {"ok:regular file:497:0:42:640:root:shadow\nraw-unreadable\n",
+			map[string]any{"state": "present", "type": "file", "uid": 0, "gid": 42, "mode": "0640", "owner": "root", "group": "shadow", "readable": false, "world_readable": false}},
 		"gnu unreadable file": {"ok:regular file:497:0:42:640:root:shadow\nsha-unreadable\n",
 			map[string]any{"state": "present", "type": "file", "size": int64(497), "uid": 0, "gid": 42, "mode": "0640", "owner": "root", "group": "shadow", "readable": false, "world_readable": true}},
 		"gnu directory": {"ok:directory:4096:0:0:755:root:root\n",
@@ -267,7 +270,7 @@ func TestWindowsParsers_ReadWhatTheScriptsPrinted(t *testing.T) {
 		`{"name":"Orphaned","sid":"S-1-5-32-999","members":null}]`
 	files := `[{"state":"present","type":"file","size":7,"attributes":"Archive","owner":"BUILTIN\\Administrators","sha256":"cd2eca3535741f27a8ae40c31b0c41d4057a7a7b912b33b9aed86485d1c84676","readable":true,"world_readable":true},` +
 		`{"state":"present","type":"link","link_target":"C:\\pleiades-41c2\\locked","attributes":"Directory, ReparsePoint","owner":"BUILTIN\\Administrators"},` +
-		`{"state":"present","type":"file","attributes":"Hidden, System, Archive","world_readable":false,"digest":"withheld","size":5,"sha256":"cd2eca3535741f27a8ae40c31b0c41d4057a7a7b912b33b9aed86485d1c84676"},{"state":"absent"},{"state":"unreadable"}]`
+		`{"state":"present","type":"file","attributes":"Hidden, System, Archive","world_readable":false,"readable":true,"size":5,"sha256":"cd2eca3535741f27a8ae40c31b0c41d4057a7a7b912b33b9aed86485d1c84676","sha256_raw":"cd2eca3535741f27a8ae40c31b0c41d4057a7a7b912b33b9aed86485d1c84676"},{"state":"absent"},{"state":"unreadable"}]`
 	got := factsByKey(append(append(parseWindowsPorts(ports), parseWindowsUsers(users)...), parseWindowsGroups(groups)...))
 	got2 := factsByKey(filesFacts([]string{`C:\a.txt`, `C:\link`, `C:\pagefile.sys`, `C:\gone`, `C:\locked\x`}, parseWindowsFiles(files)))
 	for k, v := range got2 {
@@ -285,7 +288,7 @@ func TestWindowsParsers_ReadWhatTheScriptsPrinted(t *testing.T) {
 		"group.Orphaned":                          map[string]any{"sid": "S-1-5-32-999", "source": "sam"},
 		`file.C:\a.txt`:                           map[string]any{"state": "present", "type": "file", "size": int64(7), "attributes": "Archive", "owner": `BUILTIN\Administrators`, "sha256": "cd2eca3535741f27a8ae40c31b0c41d4057a7a7b912b33b9aed86485d1c84676", "readable": true, "world_readable": true},
 		`file.C:\link`:                            map[string]any{"state": "present", "type": "link", "attributes": "Directory, ReparsePoint", "owner": `BUILTIN\Administrators`, "link_target": `C:\pleiades-41c2\locked`},
-		`file.C:\pagefile.sys`:                    map[string]any{"state": "present", "type": "file", "attributes": "Hidden, System, Archive", "world_readable": false, "digest": "withheld"},
+		`file.C:\pagefile.sys`:                    map[string]any{"state": "present", "type": "file", "attributes": "Hidden, System, Archive", "world_readable": false, "readable": true, "sha256_raw": "cd2eca3535741f27a8ae40c31b0c41d4057a7a7b912b33b9aed86485d1c84676"},
 		`file.C:\gone`:                            map[string]any{"state": "absent"},
 		`file.C:\locked\x`:                        map[string]any{"state": "unreadable"},
 	}

@@ -120,6 +120,13 @@ generates one, because "required" without that is a puzzle.
 {{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) -}}
 {{- include "the-pleiades.refuse" "postgresql.auth.password is not set and the in-chart database is enabled.\n\n`controller setup --target helm` makes one, in the Secret it writes. Set by hand, it must need no URL escaping, since the chart places it in the database connection string.\n\nThere is no default because a default here would be the same database password on every installation of this chart. Set postgresql.enabled=false and use externalDatabase if you would rather point at a database you already run." -}}
 {{- end -}}
+{{- if .Values.secrets.existingSecretHasFactsDigestKey -}}
+{{- include "the-pleiades.refuse" "secrets.existingSecretHasFactsDigestKey is true but secrets.existingSecret is not set, so the controller would read PLEIADES_FACTS_DIGEST_KEY from this chart's own Secret, which holds it only when secrets.factsDigestKey is set. Set secrets.factsDigestKey instead, or name your own Secret in secrets.existingSecret." -}}
+{{- end -}}
+{{- else -}}
+{{- if .Values.secrets.factsDigestKey -}}
+{{- include "the-pleiades.refuse" "secrets.factsDigestKey is set together with secrets.existingSecret, which this chart does not write to, so the value would never reach the controller and its pod would not start. Put the key in your Secret as PLEIADES_FACTS_DIGEST_KEY and set secrets.existingSecretHasFactsDigestKey: true instead." -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
 

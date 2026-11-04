@@ -53,6 +53,14 @@ const MaxFactsPerObservation = 8192
 // tests, so a method can refuse a key at plan time that storage would drop.
 const MaxFactKeyBytes = 256
 
+// RawDigestField is the field of a fact's object value under which a method
+// hands over a digest of something not everyone may read (a file only its
+// owner reads): the engine keys or seals it before the run's report, a
+// register or the fact store sees it, and drops it otherwise, since a plain
+// digest of a small secret lets anyone who reads it test guesses. It is
+// internal/facts' RawDigestField, held equal to it by internal/engine's tests.
+const RawDigestField = "sha256_raw"
+
 // FactSpec declares one fact, or one family of facts sharing a prefix, that a
 // method may emit.
 type FactSpec struct {

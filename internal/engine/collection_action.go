@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -63,6 +64,11 @@ type collectionActionExecutor struct {
 	// for a method (WithDeviceRoutes); nil leaves every device direct.
 	routeRepo        hopChainInventory
 	routeCredentials credential.Store
+
+	// digestKeyer and digestSealer decide what becomes of a raw digest a
+	// method hands over (fact_digests.go); with neither it is dropped.
+	digestKeyer  *facts.Keyer
+	digestSealer DigestSealer
 }
 
 // CollectionInvoker replaces how a registered, StatusImplemented
@@ -235,6 +241,9 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		// Only this executor says which account a task ran as; a child's
 		// stats never do (become is refused above for this path anyway).
 		delete(stats, StatBecome)
+		// A Runner's child hands its raw digests back like any stat; none
+		// outlives this line here either, on failure as on success.
+		stats = e.digestsOf(device, stats)
 		if err != nil {
 			return ActionResult{Stats: failedStats(task.FQCN, mode, stats)}, methodError(task.FQCN, mode, err)
 		}
@@ -318,6 +327,8 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	if collector, isCollector := rc.(FactCollector); isCollector {
 		stats = collector.Facts()
 	}
+	// No raw digest outlives this line, on failure as on success.
+	stats = e.digestsOf(device, stats)
 	recordBecome(ctx, task.FQCN, becomeUser, becomes, err == nil, stats)
 	if err != nil {
 		return ActionResult{Stats: failedStats(task.FQCN, mode, stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
@@ -453,7 +464,14 @@ func methodError(fqcn string, mode collection.Mode, err error) error {
 // path under /root out of a run's report. Everything else is masked,
 // including a key this list has never heard of, so a secret field added to
 // a credential later is masked by default.
-func credentialSecrets(secrets map[string]string) []string {
+func credentialSecrets(secrets map[string]string) []string { return CredentialSecrets(secrets) }
+
+// CredentialSecrets is credentialSecrets for a Runner, which masks and guards
+// a dispatched credential the same way the Crawl tier does: before it took
+// this, a Runner counted the login's username as a secret, so every fact
+// naming the login (its own account, a file it owns) was refused as holding
+// a secret of the run.
+func CredentialSecrets(secrets map[string]string) []string {
 	out := make([]string, 0, len(secrets))
 	for key, value := range secrets {
 		switch key {
