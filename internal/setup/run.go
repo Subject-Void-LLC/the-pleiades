@@ -125,7 +125,7 @@ func runCompose(ctx context.Context, opts Options, dir *Dir, screen *Screen, out
 	if err != nil {
 		return Result{}, err
 	}
-	plan, err := NewPlanBuilder(file, display, opts).MasterKey().JWTSecret().Budget(answer).Build()
+	plan, err := NewPlanBuilder(file, display, opts).MasterKey().JWTSecret().FactsDigestKey().Budget(answer).Build()
 	if err != nil {
 		return Result{}, err
 	}
@@ -151,6 +151,13 @@ func runCompose(ctx context.Context, opts Options, dir *Dir, screen *Screen, out
 			return Result{}, err
 		}
 		file.Set(VarJWTSecret, jwt)
+	}
+	if plan.DigestKey != Keep {
+		digestKey, err := newSecretText()
+		if err != nil {
+			return Result{}, err
+		}
+		file.Set(VarFactsDigestKey, digestKey)
 	}
 	if plan.Budget != Keep {
 		file.Set(VarMaxOutage, shortDuration(plan.BudgetValue.Duration()))
@@ -288,7 +295,8 @@ func takePossession(key []byte, display string, screen *Screen) (keyregistry.Pos
 
 // newSecretText generates a secret as text: base64 of 32 bytes from the one
 // key generator, which is 44 characters and passes the controller's own
-// 32-byte minimum for a JWT secret with room to spare.
+// 32-byte minimum for a JWT secret with room to spare, and is exactly what it
+// reads as a facts digest key.
 func newSecretText() (string, error) {
 	raw, err := crypto.GenerateKey()
 	if err != nil {

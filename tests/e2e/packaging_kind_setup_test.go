@@ -187,6 +187,7 @@ func assertANewSecretChecksumRestartsTheController(t *testing.T, root, kubeconfi
 	secret, values, err := setup.RenderHelm(setup.HelmInput{
 		SecretName: setupSecretName, Namespace: setupNamespace,
 		MasterKey: key, JWTSecret: crypto.EncodeKey(newJWT),
+		FactsDigestKey:   manifest.StringData[setup.VarFactsDigestKey],
 		PostgresPassword: manifest.StringData["POSTGRES_PASSWORD"],
 		Budget:           topology.OutageBudget(2 * time.Hour),
 	})

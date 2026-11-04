@@ -20,6 +20,7 @@ func setupRender(checksum, fingerprint string) []manifest {
 			{Name: "POSTGRES_PASSWORD", ValueFrom: &envVarSource{SecretKeyRef: &secretKeyRef{Name: setupSecretName, Key: "POSTGRES_PASSWORD"}}},
 			{Name: "DB_DSN", Value: "postgres://pleiades:$(POSTGRES_PASSWORD)@r-the-pleiades-postgres:5432/pleiades?sslmode=disable"},
 			{Name: "MASTER_ENCRYPTION_KEY", ValueFrom: &envVarSource{SecretKeyRef: &secretKeyRef{Name: setupSecretName, Key: "MASTER_ENCRYPTION_KEY"}}},
+			{Name: setup.VarFactsDigestKey, ValueFrom: &envVarSource{SecretKeyRef: &secretKeyRef{Name: setupSecretName, Key: setup.VarFactsDigestKey}}},
 		},
 	}}
 	var postgres manifest
@@ -33,7 +34,7 @@ func setupRender(checksum, fingerprint string) []manifest {
 // could disagree.
 func TestCheckExistingSecretShape(t *testing.T) {
 	emitted := setupOutput{
-		keys:     map[string]bool{"MASTER_ENCRYPTION_KEY": true, "JWT_SECRET": true, "POSTGRES_PASSWORD": true},
+		keys:     map[string]bool{"MASTER_ENCRYPTION_KEY": true, "JWT_SECRET": true, setup.VarFactsDigestKey: true, "POSTGRES_PASSWORD": true},
 		checksum: strings.Repeat("c", 64), fingerprint: strings.Repeat("f", 16),
 	}
 	if got := checkExistingSecretShape(setupRender(emitted.checksum, emitted.fingerprint), emitted); len(got) != 0 {
@@ -60,6 +61,15 @@ func TestCheckExistingSecretShape(t *testing.T) {
 		},
 		"the wrong fingerprint": func(m []manifest) []manifest {
 			m[1].Spec.VolumeClaimTemplates[0].Metadata.Annotations[postgresStampAnnotation] = ""
+			return m
+		},
+		"a facts digest key the controller does not read": func(m []manifest) []manifest {
+			c := &m[0].Spec.Template.Spec.Containers[0]
+			c.Env = c.Env[:3]
+			return m
+		},
+		"a facts digest key read from another Secret": func(m []manifest) []manifest {
+			m[0].Spec.Template.Spec.Containers[0].Env[3].ValueFrom.SecretKeyRef.Name = "elsewhere"
 			return m
 		},
 		"a Secret of the chart's own under the operator's name": func(m []manifest) []manifest {

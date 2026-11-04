@@ -52,6 +52,7 @@ var validators = map[string]func(string) error{
 	VarRotate:             validateRotate,
 	VarJWTSecret:          validateJWTSecret,
 	VarMaxOutage:          validateMaxOutage,
+	VarFactsDigestKey:     validateKey,
 }
 
 // ParseEnvFile reads data as a compose env file.

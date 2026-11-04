@@ -99,8 +99,9 @@ docker run --rm -it --log-driver none --user "$(id -u):$(id -g)" \
 
 What the two files are:
 
-- `pleiades-secret.yaml` holds the key, the JWT secret and the database
-  password, at mode 0600, and is the only copy of the key. Keep it somewhere
+- `pleiades-secret.yaml` holds the key, the JWT secret, the facts digest key
+  (see [Digests of files only some may read](#digests-of-files-only-some-may-read))
+  and the database password, at mode 0600, and is the only copy of the key. Keep it somewhere
   safe that is not this machine. Create it with `kubectl create`, not `apply`:
   `create` refuses to replace a Secret that already exists, and replacing the key
   of a release that stores data makes that data permanently unreadable.
@@ -261,9 +262,13 @@ those files are stored with their other details but no digest at all. Changing i
 re-keys every such digest once, which reads as each of those files changing; their
 `hmac_key` field names the key, so the change is visible as a new key rather than
 new content. It is not derived from `MASTER_ENCRYPTION_KEY`, which rotates.
-`controller setup` does not write it yet: set it in `.env` for Compose, or for
-Helm as `secrets.factsDigestKey`, or as a `PLEIADES_FACTS_DIGEST_KEY` key in your
-own Secret with `secrets.existingSecretHasFactsDigestKey: true`.
+`controller setup` writes one: into `.env` for Compose, and into the Secret it
+writes for Helm, whose values file then sets
+`secrets.existingSecretHasFactsDigestKey: true`. Running setup again over a `.env`
+written before it did adds only this key and leaves every other value as it was.
+Setup never replaces one. To set your own, put it in `.env`, or for Helm in
+`secrets.factsDigestKey`, or as a `PLEIADES_FACTS_DIGEST_KEY` key in your own
+Secret with `secrets.existingSecretHasFactsDigestKey: true`.
 
 On the command line the same digest is keyed under a key derived from the project's
 master key, `project:` in its `hmac_key`, read only when such a file is gathered. On

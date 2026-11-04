@@ -95,6 +95,14 @@ func TestRun_FirstWriteWithNoDatabaseWritesAllThreeAndSaysNothingWasCounted(t *t
 	if budget, _ := f.Get(setup.VarMaxOutage); budget != "30m" {
 		t.Fatalf("PLEIADES_MAX_OUTAGE = %q, want the default 30m", budget)
 	}
+	jwt, _ := f.Get(setup.VarJWTSecret)
+	digestKey, _ := f.Get(setup.VarFactsDigestKey)
+	if digest, err := crypto.DecodeKey(digestKey, "test"); err != nil || len(digest) != 32 || digestKey == raw || digestKey == jwt {
+		t.Fatalf("PLEIADES_FACTS_DIGEST_KEY is not a fresh 32-byte key of its own: %v", err)
+	}
+	if strings.Contains(out, digestKey) || !strings.Contains(out, "PLEIADES_FACTS_DIGEST_KEY  new") {
+		t.Errorf("the output printed the facts digest key, or did not say it was new:\n%s", out)
+	}
 	if info, _ := os.Stat(filepath.Join(dir, setup.ComposeFile)); !ownerOnly(info) {
 		t.Fatalf(".env was written at %v, want 0600", info.Mode().Perm())
 	}
@@ -146,6 +154,7 @@ func TestRun_ReversibleChangesTakeForceAndTouchOnlyTheNamedField(t *testing.T) {
 	f, _ := readEnv(t, dir)
 	key0, _ := f.Get(setup.VarMasterKey)
 	jwt0, _ := f.Get(setup.VarJWTSecret)
+	digest0, _ := f.Get(setup.VarFactsDigestKey)
 
 	if _, _, err := runCompose(t, dir, setup.Options{NewJWTSecret: true}); !strings.Contains(refusalOf(t, err), "--force") {
 		t.Fatalf("--new-jwt-secret without --force was not refused for want of --force: %v", err)
@@ -160,6 +169,9 @@ func TestRun_ReversibleChangesTakeForceAndTouchOnlyTheNamedField(t *testing.T) {
 	if jwt, _ := f.Get(setup.VarJWTSecret); jwt == jwt0 {
 		t.Fatal("--new-jwt-secret --force left the JWT secret as it was")
 	}
+	if digest, _ := f.Get(setup.VarFactsDigestKey); digest != digest0 {
+		t.Fatal("replacing the JWT secret changed the facts digest key")
+	}
 
 	if _, out, err := runCompose(t, dir, setup.Options{MaxOutage: "10m", Force: true}); err != nil || !strings.Contains(out, "lowers PLEIADES_MAX_OUTAGE from 30m to 10m") {
 		t.Fatalf("lowering the budget: err = %v, output does not state the lowering:\n%s", err, out)
@@ -168,6 +180,62 @@ func TestRun_ReversibleChangesTakeForceAndTouchOnlyTheNamedField(t *testing.T) {
 	if budget, _ := f.Get(setup.VarMaxOutage); budget != "10m" {
 		t.Fatalf("PLEIADES_MAX_OUTAGE = %q, want 10m", budget)
 	}
+}
+
+// TestRun_AnOlderEnvFileGainsOnlyTheFactsDigestKey is the upgrade path: a
+// .env written before setup generated the facts digest key gets one on the
+// next run, and nothing it already held changes.
+func TestRun_AnOlderEnvFileGainsOnlyTheFactsDigestKey(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := runCompose(t, dir, setup.Options{}); err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	_, data := readEnv(t, dir)
+	var kept []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, setup.VarFactsDigestKey+"=") {
+			kept = append(kept, line)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, setup.ComposeFile), []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	older, _ := readEnv(t, dir)
+
+	_, out, err := runCompose(t, dir, setup.Options{})
+	if err != nil {
+		t.Fatalf("Run() over an older .env error = %v", err)
+	}
+	now, _ := readEnv(t, dir)
+	for _, name := range []string{setup.VarMasterKey, setup.VarJWTSecret, setup.VarMaxOutage} {
+		was, _ := older.Get(name)
+		if got, _ := now.Get(name); got != was {
+			t.Errorf("%s changed when only the facts digest key was missing", name)
+		}
+	}
+	if digest, _ := now.Get(setup.VarFactsDigestKey); validKey(digest) == nil {
+		t.Fatalf("PLEIADES_FACTS_DIGEST_KEY = %q, want a 32-byte key", digest)
+	}
+	for _, want := range []string{"MASTER_ENCRYPTION_KEY      unchanged", "PLEIADES_FACTS_DIGEST_KEY  new"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not say %q:\n%s", want, out)
+		}
+	}
+
+	// With it held, a run that asks for nothing is refused as before, and
+	// the key stays.
+	if _, _, err := runCompose(t, dir, setup.Options{}); err == nil {
+		t.Fatal("a re-run over a complete .env was not refused")
+	}
+}
+
+// validKey decodes an env file key, nil when it is not 32 bytes of base64.
+func validKey(text string) []byte {
+	raw, err := crypto.DecodeKey(text, "test")
+	if err != nil || len(raw) != 32 {
+		return nil
+	}
+	return raw
 }
 
 // TestRun_KeepsAnOperatorsOwnLines proves setup adds to a .env an operator

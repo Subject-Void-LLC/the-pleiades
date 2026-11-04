@@ -38,6 +38,10 @@ const (
 
 	// VarMaxOutage is the longest link outage the mesh must survive.
 	VarMaxOutage = "PLEIADES_MAX_OUTAGE"
+
+	// VarFactsDigestKey keys the stored digests of files not everyone may
+	// read, and seals them on their way from a Runner.
+	VarFactsDigestKey = "PLEIADES_FACTS_DIGEST_KEY"
 )
 
 // Class is how much it costs to get a field wrong, which decides the guard
@@ -120,6 +124,9 @@ var Fields = []Field{
 	{Name: VarMaxOutage, Class: OneWayDownward, Written: true},
 	{Name: VarJWTSecret, Class: Reissue, Written: true},
 	{Name: "DB_DSN", Class: Repoint},
+	// A new digest key reads as every private file having changed once, and
+	// putting the old one back makes them match again; nothing is lost.
+	{Name: VarFactsDigestKey, Class: Repoint, Written: true},
 	{Name: "POSTGRES_PASSWORD", Class: Repoint, Written: true},
 	{Name: "TLS_CERT_FILE", Class: SelfHealing},
 }
@@ -144,6 +151,6 @@ func ComposeVariables() []string {
 	return []string{
 		VarMasterKey, VarMasterKeyVersion,
 		VarPreviousKey, VarPreviousKeyVersion,
-		VarRotate, VarJWTSecret, VarMaxOutage,
+		VarRotate, VarJWTSecret, VarMaxOutage, VarFactsDigestKey,
 	}
 }

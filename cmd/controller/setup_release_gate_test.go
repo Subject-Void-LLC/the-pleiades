@@ -26,6 +26,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/setup"
 )
@@ -56,6 +57,24 @@ func readKeyFile(t *testing.T, dir string) (key []byte, jwt string) {
 	}
 	jwt, _ = f.Get(setup.VarJWTSecret)
 	return key, jwt
+}
+
+// readEnvValue returns the value setup wrote for name in dir's .env.
+func readEnvValue(t *testing.T, dir, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatalf("reading .env: %v", err)
+	}
+	f, err := setup.ParseEnvFile(data)
+	if err != nil {
+		t.Fatalf("parsing .env: %v", err)
+	}
+	value, ok := f.Get(name)
+	if !ok || value == "" {
+		t.Fatalf(".env holds no %s", name)
+	}
+	return value
 }
 
 // openUnder opens the database as the controller would, under key.
@@ -112,10 +131,25 @@ func TestSetupReleaseGate_NonInteractiveReachesAWorkingSignIn(t *testing.T) {
 	}
 
 	key, jwt := readKeyFile(t, dir)
-	for name, secret := range map[string]string{"key": crypto.EncodeKey(key), "JWT secret": jwt, "password": setupTestPassword} {
+	digestKey := readEnvValue(t, dir, setup.VarFactsDigestKey)
+	for name, secret := range map[string]string{"key": crypto.EncodeKey(key), "JWT secret": jwt, "facts digest key": digestKey, "password": setupTestPassword} {
 		if strings.Contains(string(out), secret) {
 			t.Fatalf("setup printed the %s:\n%s", name, out)
 		}
+	}
+	// The digest key setup wrote decodes and derives keys exactly as the
+	// controller's loader does it (crypto.DecodeKey, then
+	// entstore.DigestKeys); this package is outside main, so it takes the
+	// same two steps.
+	rawDigestKey, err := crypto.DecodeKey(digestKey, setup.VarFactsDigestKey)
+	if err != nil {
+		t.Fatalf("the facts digest key setup wrote does not decode: %v", err)
+	}
+	if _, _, err := entstore.DigestKeys(rawDigestKey); err != nil {
+		t.Fatalf("the controller cannot derive keys from the facts digest key setup wrote: %v", err)
+	}
+	if digestKey == crypto.EncodeKey(key) || digestKey == jwt {
+		t.Fatal("the facts digest key repeats another secret setup wrote")
 	}
 
 	client := openUnder(t, dbPath, key)
