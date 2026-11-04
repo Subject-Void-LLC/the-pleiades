@@ -258,7 +258,9 @@ func childRequest(desc collection.Descriptor, mode collection.Mode, params map[s
 // own summary all mask with it, so a secret added to the request cannot
 // be masked on one path and missed on another.
 func childSecretValues(payload wire.DispatchPayload) []string {
-	secrets := redact.MapValues(payload.Secrets)
+	// The credential's secrets, not its identifiers (the username, a
+	// certificate's public half), as the Crawl tier counts them.
+	secrets := engine.CredentialSecrets(payload.Secrets)
 	secrets = append(secrets, registrySecretValues(payload.Registry)...)
 	return append(secrets, databaseSecretValues(payload.Databases)...)
 }

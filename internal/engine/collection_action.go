@@ -453,7 +453,14 @@ func methodError(fqcn string, mode collection.Mode, err error) error {
 // path under /root out of a run's report. Everything else is masked,
 // including a key this list has never heard of, so a secret field added to
 // a credential later is masked by default.
-func credentialSecrets(secrets map[string]string) []string {
+func credentialSecrets(secrets map[string]string) []string { return CredentialSecrets(secrets) }
+
+// CredentialSecrets is credentialSecrets for a Runner, which masks and guards
+// a dispatched credential the same way the Crawl tier does: before it took
+// this, a Runner counted the login's username as a secret, so every fact
+// naming the login (its own account, a file it owns) was refused as holding
+// a secret of the run.
+func CredentialSecrets(secrets map[string]string) []string {
 	out := make([]string, 0, len(secrets))
 	for key, value := range secrets {
 		switch key {
