@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -210,5 +211,29 @@ func TestComposePublishesTheDatabaseAndBrokerOnLoopbackOnly(t *testing.T) {
 				t.Errorf("%s publishes %q on every interface; bind it to 127.0.0.1", name, p)
 			}
 		}
+	}
+}
+
+// TestMakefileRefusesEveryVariableSetupOwns holds the Makefile's
+// SETUP_OWNED_VARS, which make setup and make up refuse in the shell, to
+// setup.ComposeVariables(). A variable setup writes but the Makefile does not
+// list would pass that check while the shell's value, which docker compose
+// prefers to .env's, runs the controller (FAILURE_PATTERNS 183).
+func TestMakefileRefusesEveryVariableSetupOwns(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(testsupport.RepoRoot(t), "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if rest, ok := strings.CutPrefix(line, "SETUP_OWNED_VARS :="); ok {
+			listed = strings.Fields(rest)
+		}
+	}
+	want := append([]string(nil), setup.ComposeVariables()...)
+	slices.Sort(listed)
+	slices.Sort(want)
+	if !slices.Equal(listed, want) {
+		t.Fatalf("the Makefile's SETUP_OWNED_VARS is %v, want setup.ComposeVariables() %v", listed, want)
 	}
 }

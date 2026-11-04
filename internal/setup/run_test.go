@@ -213,8 +213,9 @@ func TestRun_AnOlderEnvFileGainsOnlyTheFactsDigestKey(t *testing.T) {
 			t.Errorf("%s changed when only the facts digest key was missing", name)
 		}
 	}
-	if digest, _ := now.Get(setup.VarFactsDigestKey); validKey(digest) == nil {
-		t.Fatalf("PLEIADES_FACTS_DIGEST_KEY = %q, want a 32-byte key", digest)
+	digest, _ := now.Get(setup.VarFactsDigestKey)
+	if validKey(digest) == nil {
+		t.Fatal("PLEIADES_FACTS_DIGEST_KEY is not base64 of 32 bytes")
 	}
 	for _, want := range []string{"MASTER_ENCRYPTION_KEY      unchanged", "PLEIADES_FACTS_DIGEST_KEY  new"} {
 		if !strings.Contains(out, want) {
@@ -226,6 +227,10 @@ func TestRun_AnOlderEnvFileGainsOnlyTheFactsDigestKey(t *testing.T) {
 	// the key stays.
 	if _, _, err := runCompose(t, dir, setup.Options{}); err == nil {
 		t.Fatal("a re-run over a complete .env was not refused")
+	}
+	after, _ := readEnv(t, dir)
+	if kept, _ := after.Get(setup.VarFactsDigestKey); kept != digest {
+		t.Fatal("a refused re-run changed the facts digest key")
 	}
 }
 

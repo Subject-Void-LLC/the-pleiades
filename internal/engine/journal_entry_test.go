@@ -615,14 +615,15 @@ func assertKeys(t *testing.T, field string, got, want []string) {
 // entry can hold no value a device, a credential store, a decrypted
 // envelope, or an injector produced.
 //
-// A planted value must not be one a random ID could spell. The entry's run
-// ID and DAG version are random hex, so a value such as "0644" turned up in
-// them by chance and failed the test with nothing leaked; a value made only
-// of hex digits and dashes is refused before the search.
+// A planted value must not be one the entry's own IDs could spell. Its run ID
+// is a random UUID (hex digits and dashes) and its DAG version is "sha256:"
+// and hex, so a value such as "0644" turned up in them by chance and failed
+// the test with nothing leaked. A value made only of hex digits and dashes,
+// or one inside the "sha256:" prefix, is refused before the search.
 func assertNoValueLeaked(t *testing.T, e engine.JournalEntry, values ...string) {
 	t.Helper()
 	for _, value := range values {
-		if value != "" && strings.Trim(value, "0123456789abcdefABCDEF-") == "" {
+		if value != "" && (strings.Trim(value, "0123456789abcdefABCDEF-") == "" || strings.Contains("sha256:", value)) {
 			t.Fatalf("planted value %q could appear in a random hex ID; plant one with other letters", value)
 		}
 	}

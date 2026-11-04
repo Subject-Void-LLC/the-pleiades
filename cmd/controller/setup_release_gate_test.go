@@ -5,6 +5,7 @@
 package main_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -77,6 +78,59 @@ func readEnvValue(t *testing.T, dir, name string) string {
 	return value
 }
 
+// assertControllerKeysDigestsWith starts the real controller binary with the
+// secrets setup wrote, as compose passes them, and waits for it to say it keeps
+// private files' digests keyed under the key digestKey derives. It stops the
+// controller once it has said so: the key is read before the database or the
+// broker, so nothing else has to be running.
+func assertControllerKeysDigestsWith(t *testing.T, dbPath string, key []byte, jwt, digestKey string) {
+	t.Helper()
+	raw, err := crypto.DecodeKey(digestKey, setup.VarFactsDigestKey)
+	if err != nil {
+		t.Fatalf("the facts digest key setup wrote does not decode: %v", err)
+	}
+	_, keyer, err := entstore.DigestKeys(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binPath)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(setupEnv(dbPath),
+		setup.VarJWTSecret+"="+jwt,
+		setup.VarMasterKey+"="+crypto.EncodeKey(key),
+		setup.VarFactsDigestKey+"="+digestKey)
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	var seen strings.Builder
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+		seen.WriteString(line + "\n")
+		if strings.Contains(line, "no digest of a file not everyone may read is kept") {
+			t.Fatalf("the controller started without the facts digest key setup wrote:\n%s", seen.String())
+		}
+		if strings.Contains(line, "keeping digests of files not everyone may read keyed") {
+			if !strings.Contains(line, keyer.ID()) {
+				t.Fatalf("the controller keys digests under another key than %s:\n%s", keyer.ID(), line)
+			}
+			if strings.Contains(seen.String(), digestKey) {
+				t.Fatal("the controller printed the facts digest key")
+			}
+			return
+		}
+	}
+	t.Fatalf("the controller never said it keeps digests keyed:\n%s", seen.String())
+}
+
 // openUnder opens the database as the controller would, under key.
 func openUnder(t *testing.T, dbPath string, key []byte) *ent.Client {
 	t.Helper()
@@ -137,17 +191,7 @@ func TestSetupReleaseGate_NonInteractiveReachesAWorkingSignIn(t *testing.T) {
 			t.Fatalf("setup printed the %s:\n%s", name, out)
 		}
 	}
-	// The digest key setup wrote decodes and derives keys exactly as the
-	// controller's loader does it (crypto.DecodeKey, then
-	// entstore.DigestKeys); this package is outside main, so it takes the
-	// same two steps.
-	rawDigestKey, err := crypto.DecodeKey(digestKey, setup.VarFactsDigestKey)
-	if err != nil {
-		t.Fatalf("the facts digest key setup wrote does not decode: %v", err)
-	}
-	if _, _, err := entstore.DigestKeys(rawDigestKey); err != nil {
-		t.Fatalf("the controller cannot derive keys from the facts digest key setup wrote: %v", err)
-	}
+	assertControllerKeysDigestsWith(t, dbPath, key, jwt, digestKey)
 	if digestKey == crypto.EncodeKey(key) || digestKey == jwt {
 		t.Fatal("the facts digest key repeats another secret setup wrote")
 	}

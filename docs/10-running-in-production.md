@@ -175,6 +175,13 @@ token works on one and fails on another. Replacing it rejects every API token si
 with the old one until the token is signed again. Browser sign-ins do not use it and
 are unaffected. It is not needed to read anything stored.
 
+**The facts digest key** keys the stored digest of every file not everyone may read
+(see [Digests of files only some may read](#digests-of-files-only-some-may-read)), and
+has to be the same on every controller replica. A new one makes each such file read
+as changed once, and digests a Runner sealed to the old one that are still on the
+broker are dropped. Putting the old one back makes stored digests match again. Back
+it up with the master key, and put it back when you restore onto a new machine.
+
 **The database** holds the work. It needs a backup of its own: the key cannot bring
 back a database that is gone, and a backup cannot be read without the key. `make
 backup` takes one, and keeps the key out of it; see
@@ -198,6 +205,7 @@ one start. See [One number sets how long an outage may last](#one-number-sets-ho
 | `PLEIADES_MAX_OUTAGE` | Lowering it discards broker messages | `--max-outage <duration> --force` |
 | `JWT_SECRET` | API tokens signed with the old one stop working | `--new-jwt-secret --force` |
 | The database password (Helm) | The controller cannot connect until it is put back | Written once, never regenerated |
+| `PLEIADES_FACTS_DIGEST_KEY` | Every private file's digest reads as changed once | Written once when missing, never regenerated; edit `.env` or the Secret yourself |
 
 Run again with nothing to change, setup refuses and names the file it would have
 destroyed. Before writing a key it counts, in the database the controller uses, every
@@ -266,7 +274,8 @@ new content. It is not derived from `MASTER_ENCRYPTION_KEY`, which rotates.
 writes for Helm, whose values file then sets
 `secrets.existingSecretHasFactsDigestKey: true`. Running setup again over a `.env`
 written before it did adds only this key and leaves every other value as it was.
-Setup never replaces one. To set your own, put it in `.env`, or for Helm in
+Setup never replaces one. On an existing Compose deployment, `make setup` then `make
+up` adds it. To set your own, put it in `.env`, or for Helm in
 `secrets.factsDigestKey`, or as a `PLEIADES_FACTS_DIGEST_KEY` key in your own
 Secret with `secrets.existingSecretHasFactsDigestKey: true`.
 
@@ -3029,6 +3038,12 @@ naming it by fingerprint, and reads it with echo off. It refuses a key whose
 fingerprint is not the one in the backup's name. Once every check passes, it writes
 the key to `.env`, with the version tag the backup's values carry. `make up` then
 adds a new JWT secret and asks the outage question, as setup always does.
+
+It also adds a new `PLEIADES_FACTS_DIGEST_KEY`, since the backup does not hold one.
+The digests of private files in the restored database were keyed under the old
+machine's key, so under the new one each such file reads as changed once, at its
+next gather. To keep them matching, put the old machine's value in `.env` in place
+of the new one and run `make up` again, before any facts are gathered.
 
 In a script, send the key on standard input:
 

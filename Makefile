@@ -1503,8 +1503,10 @@ setup: setup-env-check
 	@docker compose stop controller runner >/dev/null 2>&1 || true
 	docker compose run --rm --build --user "$$($(SETUP_USER))" setup $(SETUP_FLAGS)
 
-# SETUP_OWNED_VARS are the variables setup writes to, or reads from, .env.
-SETUP_OWNED_VARS := MASTER_ENCRYPTION_KEY MASTER_ENCRYPTION_KEY_VERSION MASTER_ENCRYPTION_KEY_PREVIOUS MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION ROTATE_ENCRYPTION_KEYS JWT_SECRET PLEIADES_MAX_OUTAGE
+# SETUP_OWNED_VARS are the variables setup writes to, or reads from, .env:
+# exactly setup.ComposeVariables(), which internal/setup's
+# TestMakefileRefusesEveryVariableSetupOwns holds it to.
+SETUP_OWNED_VARS := MASTER_ENCRYPTION_KEY MASTER_ENCRYPTION_KEY_VERSION MASTER_ENCRYPTION_KEY_PREVIOUS MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION ROTATE_ENCRYPTION_KEYS JWT_SECRET PLEIADES_MAX_OUTAGE PLEIADES_FACTS_DIGEST_KEY
 
 # setup-env-check refuses when the shell exports one of those variables.
 # docker compose uses a shell variable over the same one in .env, so the

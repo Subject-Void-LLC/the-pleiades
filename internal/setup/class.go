@@ -125,7 +125,8 @@ var Fields = []Field{
 	{Name: VarJWTSecret, Class: Reissue, Written: true},
 	{Name: "DB_DSN", Class: Repoint},
 	// A new digest key reads as every private file having changed once, and
-	// putting the old one back makes them match again; nothing is lost.
+	// drops digests still sealed to the old one on the broker; putting the
+	// old one back makes stored digests match again.
 	{Name: VarFactsDigestKey, Class: Repoint, Written: true},
 	{Name: "POSTGRES_PASSWORD", Class: Repoint, Written: true},
 	{Name: "TLS_CERT_FILE", Class: SelfHealing},
