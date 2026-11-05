@@ -7223,3 +7223,36 @@ still being verified. API spend for the session was $20.53 of a $92 credit.
 **Rule in practice.** For a change that handles a secret or a guessable value, ask for an independent design review
 before coding and an independent diff review after, as well as the house reviewer. Verify every claim against the code
 before acting on it (LESSONS 50), and record which claims were wrong as well as which were right.
+
+## 396. When a client's bug depends on what the server sends after the client's close or signal, test it against the real server: x/crypto/ssh's in-process server answers a CLOSE at once and drops a status sent after it, which OpenSSH does not (a repeat in kind of 136; FAILURE_PATTERNS 774's lesson) (2026-11-04).
+
+**Why.** Branch `fix/ssh-sweep-2026-11-04` (FAILURE_PATTERNS 891). The bug was that a cancelled command came back
+as a completed one, because `pkg/remoteexec` reported whatever status sshd sent after its SIGTERM and close. The
+first two tests of the fix ran against the in-process SSH server and passed on the old code: that server answers the
+client's CLOSE at once and drops any exit status sent after it, so the status the bug reported never arrived. Only the
+tests against the real OpenSSH sshd container (`internal/transport/ssh/ssh_cancel_container_test.go`) failed on the
+old code. LESSONS 136 (an in-process double may never develop the failing timing; restore the broken code to see which
+test you wrote) and 774's lesson (prove a stop against the real server) both applied. 136's check is what caught it
+here: the tests were run against the old code before they were trusted. It is recorded again because the reason is
+specific and will recur: the defect lived entirely in what the server does after the client closes, which is exactly
+what the in-process server simplifies.
+
+**Rule in practice.** For any client behavior that reads what the far side sends after the client signals, closes or
+cancels (a late status, a late EOF, a late error), write the test against the real server first, and run it on the old
+code to see it fail. Use the in-process server for what it models faithfully: the client's own requests.
+
+## 397. Never change the meaning of a persisted value in place: give the new meaning a new value, and read the old one by its old meaning or as unrecorded (2026-11-04).
+
+**Why.** Branch `fix/ssh-sweep-2026-11-04` (FAILURE_PATTERNS 893, the open half of 858). Onboarding recorded
+`shell: not posix` for a fish or tcsh login. #110 kept that string and made it mean "this device has no POSIX sh",
+which sends commands raw. A fish host onboarded before #110 therefore had its commands sent raw to fish, where a
+quoted value is not a boundary. The record carried no probe version, so nothing could tell an old record from a new
+one, and 858 left it to the user to onboard again. FAILURE_PATTERNS 381 (an older Runner drops a payload key it does
+not know) is the same family from the other side: a reader and a writer from different releases disagree about data
+neither can date.
+
+**Rule in practice.** When a stored or wire value's meaning changes, spell the new meaning differently
+(`no posix sh`), and decide what the old spelling means now, choosing the reading that fails closed. Write down what
+each mixed pair costs (an old record with a new reader, a new record with an old reader) in the changelog: here a
+no-`sh` device onboarded before #110 fails at `/bin/sh` until onboarded again, and an older Runner reads the new value
+as POSIX.

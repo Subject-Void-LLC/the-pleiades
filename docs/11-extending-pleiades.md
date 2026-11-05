@@ -696,9 +696,12 @@ defer client.Close()
 return client.Put(ctx, dst, src, size, 0o644)
 ```
 
-One gap to know about first: `sdk.Connect` dials the device directly. It does
-not yet follow the device's bastion route, so a method that has to reach a
-device behind a bastion needs that closed before it can ship.
+`sdk.Connect` follows the device's bastion route when `pleiades run` or
+`pleiades adhoc` runs the task: the connection is opened through the route's
+hops, and the device's host key is checked as it is for a direct connection.
+On a Runner, and from an external Collection, a route is not carried yet, so
+the device's address is dialed directly. Onboarding's SSH probe does not
+follow a route either.
 
 ## The three Windows execution modes
 

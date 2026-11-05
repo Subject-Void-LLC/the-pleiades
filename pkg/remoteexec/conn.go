@@ -7,7 +7,6 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -67,6 +66,11 @@ type Conn struct {
 	// holds the clients it dialed, closed with this Conn.
 	redial redialer
 	extra  []*ssh.Client
+
+	// severVia, set for a connection opened through a route (ConnectVia),
+	// cuts it from the route's first hop inward; a cancelled command's watch
+	// calls it before closing the clients (conn_watch.go).
+	severVia func()
 }
 
 // taint marks a borrowed connection as not to be reused. It does nothing
@@ -128,11 +132,24 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 // run is RunWithStdin and RunWithStdinBounded's one body. A limit above zero
 // holds each of standard output and standard error to that many bytes
 // (bounded.go); zero means the default bound, DefaultOutputLimit.
+//
+// A context already ended sends nothing, as os/exec's Start refuses one. A
+// context that ends while the command runs (cancelWatch) returns its own
+// error, never an exit status or output, which the ending itself may have
+// caused.
 func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit int) (Result, error) {
 	if limit <= 0 {
 		limit = defaultOutputLimit
 	}
 	if err := c.usable(); err != nil {
+		return Result{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, err)
+	}
+	// Refused here as well as in wire, since a detached command travels on
+	// standard input and never reaches wire.
+	if err := c.refuseNUL(command); err != nil {
 		return Result{}, err
 	}
 	// An async task's command runs detached on the device (detach.go).
@@ -143,19 +160,38 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	if err != nil {
 		return Result{}, err
 	}
+
+	watch := c.watch(ctx)
 	session, err := c.client.NewSession()
 	if err != nil {
+		cancelled := watch.finish()
 		c.taint()
+		if cancelled {
+			return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctx.Err())
+		}
 		return Result{}, fmt.Errorf("remoteexec: open session on %s: %w", c.addr, err)
 	}
+	if !watch.attach(session) {
+		// The context ended while the session was being opened.
+		_ = session.Close()
+		watch.finish()
+		c.taint()
+		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctx.Err())
+	}
 
-	// Registered before the session close below, so it runs after it:
-	// closing the session is what unblocks a copy still waiting on a
-	// remote that stopped reading, and this then reaps that goroutine
-	// rather than leaving it running past the call.
+	// release closes the session and then reaps the standard input copy:
+	// closing it is what unblocks a copy still waiting on a remote that
+	// stopped reading. It runs before the copy's result is read below, and
+	// deferred for the early returns.
 	var copying sync.WaitGroup
-	defer copying.Wait()
-	defer func() { _ = session.Close() }()
+	var released sync.Once
+	release := func() {
+		released.Do(func() {
+			_ = session.Close()
+			copying.Wait()
+		})
+	}
+	defer release()
 
 	// Stdout and Stderr go into SEPARATE buffers, never CombinedOutput:
 	// a caller that needs to tell an error message apart from real output
@@ -170,6 +206,7 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	session.Stderr = stderr
 
 	startCopy := func() {}
+	var source *stdinSource
 	if stdin != nil {
 		// Copied through an explicit pipe rather than assigned to
 		// session.Stdin, and the difference is not stylistic. With
@@ -189,9 +226,14 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		// finished, and its exit status is the answer.
 		pipe, pipeErr := session.StdinPipe()
 		if pipeErr != nil {
+			cancelled := watch.finish()
 			c.taint()
+			if cancelled {
+				return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctx.Err())
+			}
 			return Result{}, fmt.Errorf("remoteexec: open stdin on %s: %w", c.addr, pipeErr)
 		}
+		source = &stdinSource{r: stdin}
 		// The copy starts once the command has (Start below): an end of
 		// input sent before the exec request is never delivered to the
 		// command by OpenSSH's sshd, so an empty stdin, whose close is
@@ -202,48 +244,48 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 			copying.Add(1)
 			go func() {
 				defer copying.Done()
-				// Both errors are deliberately dropped. A short write means
-				// the remote stopped reading, and closing an already-closed
-				// pipe is the ordinary end of that. Neither says anything
-				// about whether the command succeeded.
-				_, _ = io.Copy(pipe, stdin)
-				_ = pipe.Close()
+				// A short write is dropped: it means the remote stopped
+				// reading, which says nothing about whether the command
+				// succeeded. A failed READ of the caller's input is
+				// different: sending the end of input then would let the
+				// command take the part it got as the whole, so the command
+				// is stopped instead and run reports the failure.
+				_, _ = io.Copy(pipe, source)
+				if source.failed() != nil {
+					watch.abort()
+					return
+				}
+				// No end of input once the command is being ended: the
+				// caller's reader may finish after the cancellation, and an
+				// end of input then is the one thing that would let the
+				// command take what it got as the whole.
+				if !watch.ending() {
+					_ = pipe.Close()
+				}
 			}()
 		}
 	}
 
-	// ssh.Session.Run takes no context, so cancellation is enforced by
-	// closing the session out from under it, the same shape realDial uses
-	// for the handshake. Without this a task's timeout could not reach a
-	// remote command that has decided to run forever, and the device lock
-	// that task holds would be pinned behind it. The goroutine exits as
-	// soon as either ctx is done or Run returns, since done is closed by
-	// the defer either way.
-	//
-	// Closing the session alone leaves the command running on the device:
-	// with no terminal, sshd sends it no hangup, so a task's timeout would
-	// end the task and not the work. The command is sent SIGTERM first (an
-	// SSH "signal" request, RFC 4254 section 6.9, which OpenSSH's sshd
-	// delivers to the process it started). Processes that command started
-	// in turn get nothing, and a server that ignores the request ends
-	// nothing; the session is closed either way.
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			// The errors are not actionable here: this goroutine exists only
-			// to unblock Run below, which is what reports the failure.
-			_ = session.Signal(ssh.SIGTERM) // #nosec G104 -- intentional, see comment above
-			_ = session.Close()             // #nosec G104 -- intentional, see comment above
-		case <-done:
-		}
-	}()
-
 	runErr := session.Start(line)
 	if runErr == nil {
 		startCopy()
-		runErr = waitOrAbandon(ctx, session)
+		runErr = session.Wait()
+	}
+	cancelled := watch.finish()
+	release()
+
+	// The caller's own cancellation is reported as such, whatever the
+	// session reported: an exit status from the signal, output cut short,
+	// or the I/O failure closing the session produced, which describes the
+	// mechanism rather than the cause and would send a reader looking for a
+	// network fault that never happened.
+	if cancelled {
+		c.taint()
+		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctx.Err())
+	}
+	if readErr := source.failed(); readErr != nil {
+		c.taint()
+		return Result{}, fmt.Errorf("remoteexec: read the standard input of a command on %s, which was stopped and may have run in part: %w", c.addr, readErr)
 	}
 
 	// A command cut off for writing past its bound has an unknown outcome on
@@ -254,10 +296,8 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w (%d bytes on one stream)", c.addr, ErrOutputTooLarge, limit)
 	}
 
-	// The buffers are read only once Wait has returned, in the two cases
-	// below: Wait is what joins x/crypto/ssh's goroutines copying the
-	// streams into them, and an abandoned command (waitOrAbandon gave up on
-	// it) may still be writing, so reading them then would race.
+	// The buffers are read only once Wait has returned: Wait is what joins
+	// x/crypto/ssh's goroutines copying the streams into them.
 	var exitErr *ssh.ExitError
 	switch {
 	case runErr == nil:
@@ -271,46 +311,10 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	default:
 		// The connection's state is now unknown (a command cut off
 		// mid-flight, or a transport failure), so a borrowed one is not
-		// handed to the next task.
-		c.taint()
-		// Report the caller's own cancellation as such. The raw error from
-		// Run in that case is whatever I/O failure resulted from the
-		// goroutine above closing the session, which describes the
-		// mechanism rather than the cause and would send a reader looking
-		// for a network fault that never happened.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, ctxErr)
-		}
-		// Anything else means the command's true outcome on the remote
+		// handed to the next task. The command's true outcome on the remote
 		// side is unknown, which is a genuine error and never an exit code.
+		c.taint()
 		return Result{}, fmt.Errorf("remoteexec: run command on %s: %w", c.addr, runErr)
-	}
-}
-
-// abandonGrace is how long a cancelled command's session is waited on after
-// its SIGTERM and close before the call returns without it.
-const abandonGrace = 2 * time.Second
-
-// waitOrAbandon waits for session's command, or, once ctx ends, for at most
-// abandonGrace more. OpenSSH's sshd answers a client's close only when the
-// command's output ends, and may not deliver the signal (measured on Debian's
-// sshd: "sleep 60 & wait" ran its whole minute past a three-second limit and
-// reported success), so waiting on Wait alone let a task's limit pass
-// unnoticed. An abandoned Wait ends when the connection closes; run taints the
-// connection so it does.
-func waitOrAbandon(ctx context.Context, session *ssh.Session) error {
-	waited := make(chan error, 1)
-	go func() { waited <- session.Wait() }()
-	select {
-	case err := <-waited:
-		return err
-	case <-ctx.Done():
-	}
-	select {
-	case err := <-waited:
-		return err
-	case <-time.After(abandonGrace):
-		return ctx.Err()
 	}
 }
 

@@ -3,6 +3,7 @@ package remoteexec
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -84,3 +85,59 @@ func dialThroughHop(hopClient *ssh.Client) dialFunc {
 		return ssh.NewClient(sshConn, chans, reqs), nil
 	}
 }
+
+// dialVia opens target's TCP connection through via (a device's route,
+// ConnectVia), then the SSH handshake over it, both under the bound realDial's
+// handshake runs under (FAILURE_PATTERNS 352). It returns the client and the
+// connection via opened, which the caller severs a cancelled command's
+// connection through.
+func dialVia(ctx context.Context, via NetDial, addr string, config *ssh.ClientConfig) (*ssh.Client, net.Conn, error) {
+	dialCtx, cancel := handshakeContext(ctx, config)
+	defer cancel()
+	conn, err := via(dialCtx, "tcp", addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open a connection to %s through its route: %w", addr, err)
+	}
+	defer closeOnDone(dialCtx, conn)()
+
+	// A route's connection need not report a TCP peer (DialThroughHops'
+	// is a pipe), and the host key check parses the peer as host:port
+	// even when it checks the name dialed, which it prefers.
+	routed := &routedConn{Conn: conn, remote: routeAddr(addr)}
+	sshConn, chans, reqs, err := ssh.NewClientConn(routed, addr, config)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("ssh handshake through the route to %s: %w", addr, err)
+	}
+	return ssh.NewClient(sshConn, chans, reqs), conn, nil
+}
+
+// severerFor is how a cancelled command's connection opened through raw is
+// cut: through the route's own sever when it has one (hopTunneledConn), which
+// closes its first hop first, otherwise by closing raw.
+func severerFor(raw net.Conn) func() {
+	if s, ok := raw.(interface{ sever() }); ok {
+		return s.sever
+	}
+	return func() { _ = raw.Close() }
+}
+
+// routedConn is a connection opened through a route, reporting as its peer
+// the address the route was asked for.
+type routedConn struct {
+	net.Conn
+	// remote is what RemoteAddr returns.
+	remote net.Addr
+}
+
+// RemoteAddr returns the address dialed through the route.
+func (c *routedConn) RemoteAddr() net.Addr { return c.remote }
+
+// routeAddr is a host:port reached through a route, as a net.Addr.
+type routeAddr string
+
+// Network returns "tcp", what a route carries.
+func (routeAddr) Network() string { return "tcp" }
+
+// String returns the host:port.
+func (a routeAddr) String() string { return string(a) }

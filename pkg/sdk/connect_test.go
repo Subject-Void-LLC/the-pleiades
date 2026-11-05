@@ -2,6 +2,7 @@ package sdk_test
 
 import (
 	"context"
+	"net"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -461,5 +462,51 @@ func TestConnect_HandsShTheCommandUnlessTheDeviceIsANetworkCLI(t *testing.T) {
 	wire := srv.WireCommands()
 	if len(wire) != 2 || wire[0] != shline.For("echo reachable") || wire[1] != "echo reachable" {
 		t.Fatalf("sent %q; want the host's encoded for sh and the CLI's as written", wire)
+	}
+}
+
+// routedContext is a pooledContext whose device is reached through a route
+// (sdk.Router): its dialer reaches the server whatever address it is asked
+// for, and counts its dials.
+type routedContext struct {
+	*pooledContext
+	srv   *remoteexectest.Server
+	dials *int
+}
+
+func (c *routedContext) DeviceRoute() sdk.RouteDial {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		*c.dials++
+		var d net.Dialer
+		return d.DialContext(ctx, network, c.srv.Addr())
+	}
+}
+
+// TestConnect_DialsARoutedDeviceThroughItsRoute: a device whose address only
+// its route reaches (here one nothing listens on) is reached through the
+// route's dialer, never directly and never through the run's pool, which
+// dials directly.
+func TestConnect_DialsARoutedDeviceThroughItsRoute(t *testing.T) {
+	srv := startServer(t)
+	// A port nothing listens on: a direct dial fails.
+	device := &sshDevice{Stub: newStub(), host: "127.0.0.1", port: 1}
+	pool := remoteexec.NewPool(0)
+	t.Cleanup(func() { _ = pool.Close() })
+	dials := 0
+	rc := &routedContext{pooledContext: &pooledContext{secretContext: newSecretContext(srv.Secrets()), pool: pool}, srv: srv, dials: &dials}
+
+	for range 2 {
+		conn, err := sdk.Connect(context.Background(), rc, device, map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}, "test.connect")
+		if err != nil {
+			t.Fatalf("Connect through the route: %v", err)
+		}
+		res, err := conn.Run(context.Background(), "echo routed")
+		_ = conn.Close()
+		if err != nil || strings.TrimSpace(res.Stdout) != "routed" {
+			t.Fatalf("Run through the route = %+v, %v", res, err)
+		}
+	}
+	if dials != 2 {
+		t.Fatalf("the route dialed %d times for two connections, want 2 (never pooled)", dials)
 	}
 }

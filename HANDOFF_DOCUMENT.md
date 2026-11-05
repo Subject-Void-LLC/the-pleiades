@@ -4,79 +4,77 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-04. Branch `fix/journal-test-planted-values`, from `main` at `f72af1bd` (PR #112 merged; its required checks
-passed first time, and the advisory `fast-macos (1)` failed on a repeat of FAILURE_PATTERNS 448). Two commits:
-`43942bd8` (the journal test flake) and `80c500de` (`controller setup` writes `PLEIADES_FACTS_DIGEST_KEY`), plus the
-records (uncommitted). fp-reviewer is running. Not through `make pr-check`, push or a pull request yet.**
+**2026-11-04. Branch `fix/ssh-sweep-2026-11-04`, from `main` at `a176a48b` (PR #113 merged; every required check
+passed first time, the advisory `fast-macos` included). Five commits: `a50bc048` (a cancelled command is never a
+completed one), `9ca3ef7c` (a routed device is dialed through its route), `01e5c792` (the pre-#110 shell value),
+`72474f70` (coverage tests), `bd004d1e` (fp-reviewer's findings), plus the records (uncommitted). Built from
+`.IGNORE/claude-api/out/sweep-2026-11-04/VERDICTS-ssh.md` items 1, 2, 3, 4, 5, 9 and 10. Not through `make pr-check`,
+push, `make branch-containers` or a pull request yet.**
 
-### What works (each proven by a test that ran)
+### What works (each proven by a test that failed on the old code and passes now)
 
-- **The journal test no longer fails by chance** (`43942bd8`, FAILURE_PATTERNS 890). `TestJournalAdmitsOnlyDeclaredKeys`
-  planted `"0644"`, which the entry's random hex run ID and DAG version can spell; it failed main's post-merge run after
-  PR #111 with nothing leaked. It now plants `"planted-mode-rw-r--r--"`, and `assertNoValueLeaked` fails at once on a
-  planted value made only of hex digits and dashes (negative control: `"0644"` put back is refused at once).
-  `internal/engine` `TestJournal*` passed three times.
-- **`controller setup` writes `PLEIADES_FACTS_DIGEST_KEY`** (`80c500de`): into `.env` for Compose, and into the Helm
-  Secret with `existingSecretHasFactsDigestKey: true` in the values. A re-run over an older `.env` adds only the key;
-  the key is never replaced (class Repoint). `RenderHelm` refuses a key the Controller would refuse. Passing:
-  `go test ./internal/setup`, `go test ./tools/helm-lint`, `make helm-lint` (the setup profile checks the Controller
-  reads the key, with a negative control), `cmd/controller` `TestSetupReleaseGate_NonInteractiveReachesAWorkingSignIn`
-  (the real binary writes a key the Controller's decode and `DigestKeys` accept, and never prints it) and
-  `TestLoadFactDigestKeys`. `tests/e2e` was vetted only, not run.
-- The argus fix is committed in `~/argus` (`b74c1b0`, `3fd801f`), not pushed.
-- Records: FAILURE_PATTERNS 890 (a repeat of 236) and a third occurrence added to 448; CI_LESSONS 25; ledger entries
-  annotated (890, 448).
+- **A cancelled SSH command fails with the cancellation** (FAILURE_PATTERNS 891). Against the real sshd container it
+  used to return partial stdout with no error, or exit 143; a done context still sent the command; a failed stdin read
+  was sent as a clean end of input. `internal/transport/ssh/ssh_cancel_container_test.go`,
+  `pkg/remoteexec/conn_cancel_test.go`.
+- **A Collection method and `net.ssh.ping` reach a routed device through its bastion** on `run` and `adhoc`
+  (892). `cmd/pleiades` `TestCLI_ACollectionMethodReachesARoutedDeviceThroughItsBastion`.
+- **A fish or tcsh host onboarded before #110 gets the `sh` wrapper** (893, closing 858's open half): new value
+  `no posix sh`, the old `not posix` read as unrecorded.
+- **fp-reviewer's two findings are fixed** (894, a repeat of 146 and 398; 895, C15):
+  `TestConnectVia_ARoutedTargetsCircuitRecovers`, `TestRun_ACancelledCommandThroughAStalledBastionIsBounded`.
+- Passing: `go test -race -tags integration` for `pkg/remoteexec` (94.7%, floor 94.5), `pkg/sdk` (100),
+  `pkg/inventory` (100), `internal/catalog/net/ssh` (94.9, floor 92.1), `internal/transport/ssh` (96.7); all of
+  `internal/archtest`; `GOOS=windows` vet of the changed packages.
+- PR #113: its fp-reviewer findings were closed except `internal/setup`'s `Fields` comment (still open); its gate
+  passed; `record-actions` ran for the PR and for run 41915386917 (nothing new).
+- Records: FAILURE_PATTERNS 891 to 895 (858's index line updated, its archive entry given the resolution), LESSONS
+  396 and 397.
 
 ### Current blocker
 
-None. Next is fp-reviewer's report, then the gate.
+None. Next is the gate.
 
 ### Open
 
-- **FAILURE_PATTERNS 448 is open: `pkg/tftpxfer` times out on macOS.** Third time on PR #112 (run 41904826019): a Put
-  request, the server sending to `127.0.0.1:<client port>` with no reply read by the client on `[::]`. Fix candidates:
-  pin the client to `udp4` and `127.0.0.1`, or a recorded, counted darwin retry.
-- On a Runner a task's register holds `sha256_sealed`, not `hmac_sha256` (documented). CLI keyed digests re-key if the
-  project master key rotates. Private files are now read in full to hash them (audit and I/O cost for large or audited
-  paths, as Ansible's stat reads them).
-- The Runner now shows the login name in output as the CLI does (owner rule: allowlist identifiers). `pkg/netconf`
-  keeps its own copy of the identifier allowlist; `internal/loader` and the legacy adapter still mask the username
-  (stricter, so the tiers differ for external Collections).
-- `~/pleiades-lab/bin/pleiades` (built 2026-10-24) hangs after sealing a run; main's build does not.
-- API credit: $20.53 of $92 spent (as of the last session, 2026-11-04).
-- Carried forward: Windows and ephemeral UDP endpoints churn until 41d (owner); two `windowsAbsolute` copies with no
-  test holding them together (867); a fish host onboarded before #110 stays raw until onboarded again (858);
-  vuln-corpus finding `C13_auto-roboto_2026-11-03` pending review; argus `expand_seeds` wrote fuzz files despite
-  `persist:false`; `internal/archtest` misses zero-width characters (851); a Runner publish failing mid-split leaves
-  earlier batches stored (853); no fact marks a package or service gone (41d); whether a Remote Management Users
-  member alone can read the Windows probes is unproven.
-- Owner decisions 2026-11-04 (to build): Phase 41 resolves facts at rest in 0.4.0; Landlock network rules are out of
-  0.4.0; the Controller checks a Runner's order token and label (a Phase 41b item); `secret_mask` residuals (836):
-  the approved fix holds affected facts until the masking tasks ran, then guards by value (a Phase 41b item);
-  `file.remove`'s check is configurable and refuses by default (a Phase 46 item); 41c's `pkg/` deviation is accepted,
-  and the listers move to `pkg/` when a second user appears.
+- **Carried to the next SSH pull request:** `pkg/remoteexec/stream.go` (`Conn.Start`, `Process`, subsystems) has
+  891's cancelled-as-completed bug (fp-reviewer F4); verdicts items 6, 7 and 12 (detach), 8 and 13 (redact `Attr`
+  kinds and groups), 11 (archtest invisible characters).
+- Smaller, noted: `Conn.Close` returns an error after a sever (only `tools/maccheck` reads it); a sever timer already
+  running when `finish` is called can close a non-pooled `Conn` that `stopDetached` then reuses (it redials).
+- Not confirmed by the verdicts, so not built: a session cut by the output cap is never signalled; a refused exec puts
+  the whole command (which may embed a secret) in the error.
+- Routes are not followed on a Runner, by external Collections, or by the onboarding SSH probe (stated in docs/11 and
+  the changelog). A no-`sh` device onboarded before #110 fails at `/bin/sh` until onboarded again, and an older Runner
+  reads `no posix sh` as POSIX.
+- Carried forward: FAILURE_PATTERNS 448 (`pkg/tftpxfer` on macOS) is still open; `internal/setup`'s `Fields`
+  comment; the other items in the archive's previous entry (867, 851, 853, 41d's items, vuln-corpus
+  `C13_auto-roboto_2026-11-03` pending review, the owner decisions of 2026-11-04).
+- API credit: $20.53 of $92 spent (no new spend this session); expires 2026-11-08.
 
 ### Next, in order
 
-1. This pull request: fp-reviewer's findings, `make pr-check` through the monitor, push, `make branch-containers`,
-   then the pull request (failure-pattern classes in the body, no AI attribution). Merge only when green,
-   `record-actions`, pull `main` and clean.
-2. The verified sweep fixes, from `.IGNORE/claude-api/out/sweep-2026-11-04/VERDICTS-*.md`.
-3. 41c-3.
-4. 41d to 41g.
-5. `file.remove`'s check refuses by default.
-6. 117b, 117c, 105.
-7. Release 0.4.0 (no tag until the owner says).
+1. This pull request: `make pr-check` through the monitor, push, `make branch-containers`, then the pull request
+   (failure-pattern classes in the body, no AI attribution). Merge only when green, `record-actions`, pull `main` and
+   clean.
+2. SSH PR B (the carried items above).
+3. Facts sweep PRs from `VERDICTS-facts.md`: security items 2, 3 and 12, plus 7 and 13, first; then correctness 1, 8,
+   9, 11, 14, 15 and 16; then churn 4, 5, 6 and 10.
+4. 41c-3.
+5. 41d to 41g.
+6. `file.remove`'s check refuses by default.
+7. 117b, 117c, 105.
+8. Release 0.4.0 (no tag until the owner says).
 
 ### Files changed this session
 
-`internal/engine/journal_entry_test.go` (`43942bd8`); `internal/setup/` (`class.go`, `envfile.go`, `helm.go`,
-`plan.go`, `run.go`, `run_helm.go`, `summary.go`, tests), `tools/helm-lint/setupprofile.go`,
-`cmd/controller/setup_release_gate_test.go`, `tests/e2e/packaging_kind_setup_test.go`,
-`docs/10-running-in-production.md`, `changelog/setup-writes-facts-digest-key.added.md` (`80c500de`). Records:
-`FAILURE_PATTERNS.md` and its archive (890, 448), `CI_LESSONS.md` (25), the ignored failure ledgers,
-`HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, and the ignored `.SPECIFICATION/IMPLEMENTATION.md` (a dated note on 41c's
-keyed-digest deviation; nothing ticked).
+`pkg/remoteexec/` (`conn.go`, `conn_watch.go` (new), `script.go`, `remoteexec.go`, `hop.go`, `tunnel.go`,
+`detach.go`, `abandon_test.go`, `conn_cancel_test.go`, `connectvia_test.go`), `pkg/sdk/` (`connect.go`,
+`connect_test.go`), `pkg/inventory/` (`execshell.go`, `execshell_test.go`), `internal/catalog/net/ssh/` (`ping.go`,
+`ping_route_test.go`), `internal/transport/ssh/ssh_cancel_container_test.go`, `cmd/pleiades/route_collection_test.go`,
+`docs/11-extending-pleiades.md`, `CLAUDE.md` (the shell value), `changelog/ssh-cancel-route-legacy-shell.security.md`,
+and `~/argus/MCP_USAGE_LOG.md` rows 198 to 207. Records: `FAILURE_PATTERNS.md` and its archive (891 to 895, 858),
+`LESSONS_LEARNED.md` and its archive (396, 397), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
 
-Lab: unchanged, as far as the facts given say. bsd-check and win-check are powered off (ACPI); none of this branch's tests
-needed a lab machine.
+Lab: unchanged, as far as the facts given say. bsd-check and win-check are powered off (ACPI); no test listed used a
+lab machine.

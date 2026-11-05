@@ -166,6 +166,21 @@ func (c *hopTunneledConn) Close() error {
 	return err
 }
 
+// sever cuts the connection at once, from the first hop's own TCP
+// connection inward, without waiting for the pumps: a cancelled command's
+// connection is severed because its far side stopped answering, and Close's
+// wait on the pumps, or a tunneled close sent through a hop that stopped
+// carrying anything, would then hold it. Ending the first hop's connection
+// ends every channel tunneled through it, which ends the pumps. Close still
+// runs afterward and returns once they have.
+func (c *hopTunneledConn) sever() {
+	for _, client := range c.chain {
+		_ = client.Close()
+	}
+	_ = c.real.Close()
+	_ = c.Conn.Close()
+}
+
 // finalDialFunc dials addr and returns a raw net.Conn, performing NO SSH
 // handshake - DialThroughHops' own analogue of dialFunc (dial.go), which
 // always includes one.
