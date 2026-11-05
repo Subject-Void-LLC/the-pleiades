@@ -136,9 +136,9 @@ func windowsFileProbe() gatherProbe {
 func windowsItemProbes() []gatherProbe {
 	return []gatherProbe{
 		windowsFileProbe(),
-		{subset: gatherSubsetPorts, family: gatherFamilyPort, command: windowsPortsScript, parse: parseWindowsPorts},
-		{subset: gatherSubsetUsers, family: gatherFamilyUser, command: windowsUsersScript, parse: parseWindowsUsers},
-		{subset: gatherSubsetUsers, family: gatherFamilyGroup, command: windowsGroupsScript, parse: parseWindowsGroups},
+		{subset: gatherSubsetPorts, family: gatherFamilyPort, command: windowsPortsScript, parse: parseWindowsPorts, check: checkWindowsArray},
+		{subset: gatherSubsetUsers, family: gatherFamilyUser, command: windowsUsersScript, parse: parseWindowsUsers, check: checkWindowsArray},
+		{subset: gatherSubsetUsers, family: gatherFamilyGroup, command: windowsGroupsScript, parse: parseWindowsGroups, check: checkWindowsArray},
 	}
 }
 

@@ -20,7 +20,8 @@ func freebsdPortProbe() gatherProbe {
 	return gatherProbe{
 		subset:  gatherSubsetPorts,
 		family:  gatherFamilyPort,
-		command: `command -v sockstat >/dev/null 2>&1 && LC_ALL=C sockstat -46lq`,
+		present: `command -v sockstat >/dev/null 2>&1`,
+		command: orFailed(`LC_ALL=C sockstat -46lq`),
 		parse:   parseSockstat,
 	}
 }
@@ -133,7 +134,8 @@ func darwinPortProbe() gatherProbe {
 		family: gatherFamilyPort,
 		// -l prints an IPv6 address whole; without it netstat cuts one to
 		// its column's width.
-		command: `command -v netstat >/dev/null 2>&1 && { LC_ALL=C netstat -anvl -p tcp; echo '` + portSectionMark + `'; LC_ALL=C netstat -anvl -p udp; }`,
+		present: `command -v netstat >/dev/null 2>&1`,
+		command: orFailed(`LC_ALL=C netstat -anvl -p tcp`) + `; echo '` + portSectionMark + `'; ` + orFailed(`LC_ALL=C netstat -anvl -p udp`),
 		parse:   parseDarwinNetstat,
 	}
 }
@@ -198,13 +200,17 @@ func darwinUserProbes() []gatherProbe {
 		{
 			subset:  gatherSubsetUsers,
 			family:  gatherFamilyUser,
-			command: `command -v dscl >/dev/null 2>&1 && dscl . -readall /Users RecordName UniqueID PrimaryGroupID NFSHomeDirectory UserShell`,
+			present: `command -v dscl >/dev/null 2>&1`,
+			command: orFailed(`dscl . -readall /Users RecordName UniqueID PrimaryGroupID NFSHomeDirectory UserShell`),
 			parse:   parseDsclUsers,
+			check:   listsSomething("dscl /Users"),
 		},
 		{
 			subset:  gatherSubsetUsers,
 			family:  gatherFamilyGroup,
-			command: `command -v dscl >/dev/null 2>&1 && dscl . -readall /Groups RecordName PrimaryGroupID GroupMembership`,
+			present: `command -v dscl >/dev/null 2>&1`,
+			command: orFailed(`dscl . -readall /Groups RecordName PrimaryGroupID GroupMembership`),
+			check:   listsSomething("dscl /Groups"),
 			parse:   parseDsclGroups,
 		},
 	}

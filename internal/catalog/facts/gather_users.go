@@ -11,6 +11,7 @@
 package facts
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -26,14 +27,18 @@ func posixUserProbes() []gatherProbe {
 		{
 			subset:  gatherSubsetUsers,
 			family:  gatherFamilyUser,
-			command: `[ -r /etc/passwd ] && cut -d: -f1,3- /etc/passwd`,
+			present: `[ -r /etc/passwd ]`,
+			command: orFailed(`cut -d: -f1,3- /etc/passwd`),
 			parse:   parsePasswd,
+			check:   listsSomething("/etc/passwd"),
 		},
 		{
 			subset:  gatherSubsetUsers,
 			family:  gatherFamilyGroup,
-			command: `[ -r /etc/group ] && cut -d: -f1,3- /etc/group`,
+			present: `[ -r /etc/group ]`,
+			command: orFailed(`cut -d: -f1,3- /etc/group`),
 			parse:   parseGroup,
+			check:   listsSomething("/etc/group"),
 		},
 	}
 }
@@ -93,4 +98,16 @@ func parseGroup(out string) []gatherFact {
 // not empty, not a comment, and not a NIS inclusion marker (+name, -name, +).
 func posixAccountName(name string) bool {
 	return name != "" && !strings.HasPrefix(name, "#") && !strings.HasPrefix(name, "+") && !strings.HasPrefix(name, "-")
+}
+
+// listsSomething is a check that an answer is not empty: what source lists
+// always holds an entry (an account database without root, a group file
+// without wheel or root, does not happen), so an empty one was not read.
+func listsSomething(source string) func(string) error {
+	return func(out string) error {
+		if strings.TrimSpace(out) == "" {
+			return fmt.Errorf("%s listed nothing, and it always lists something", source)
+		}
+		return nil
+	}
 }

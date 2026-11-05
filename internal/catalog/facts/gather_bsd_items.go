@@ -7,6 +7,7 @@
 package facts
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 )
@@ -17,7 +18,8 @@ func freebsdPackageProbes() []gatherProbe {
 	return []gatherProbe{{
 		subset:  gatherSubsetPackages,
 		family:  gatherFamilyPackage,
-		command: `pkg -N >/dev/null 2>&1 && pkg query '%n\t%v\t%q'`,
+		present: `pkg -N >/dev/null 2>&1`,
+		command: orFailed(`pkg query '%n\t%v\t%q'`),
 		parse:   func(out string) []gatherFact { return packageFacts(parsePkg(out)) },
 	}}
 }
@@ -47,9 +49,18 @@ func freebsdServiceProbes() []gatherProbe {
 	return []gatherProbe{{
 		subset: gatherSubsetServices,
 		family: gatherFamilyService,
-		command: `command -v service >/dev/null 2>&1 && { service -l; echo '` + serviceSectionMark + `'; service -e; echo '` + serviceSectionMark + `'; ` +
-			`set -f; for p in $(service -e); do s=${p##*/}; case $s in -*) continue;; esac; st=$(service "$s" onestatus 2>&1 | head -1); printf '%s\t%s\n' "$s" "$st"; done; }`,
+		// A non-root login on a host hiding other users' processes
+		// (security.bsd.see_other_uids=0) cannot see a running daemon, and rc
+		// then says it is not running; the probe says so first
+		// (procsHiddenMark), and such a daemon's state is unknown (sweep
+		// item 11, a repeat in kind of 818). Each listing that fails fails
+		// the probe.
+		present: `command -v service >/dev/null 2>&1`,
+		command: orFailed(`service -l`) + `; echo '` + serviceSectionMark + `'; ` + orFailed(`service -e`) + `; echo '` + serviceSectionMark + `'; ` +
+			`if [ "$(id -u)" != 0 ] && ! ps -p 1 >/dev/null 2>&1; then echo '` + procsHiddenMark + `'; fi; ` +
+			`set -f; for p in $(service -e); do s=${p##*/}; case $s in -*) continue;; esac; st=$(service "$s" onestatus 2>&1 | head -1); printf '%s\t%s\n' "$s" "$st"; done`,
 		parse: parseRC,
+		check: checkRC,
 	}}
 }
 
@@ -67,6 +78,7 @@ func parseRC(out string) []gatherFact {
 		}
 	}
 	state := map[string]string{}
+	hidden := strings.Contains(sections[2], procsHiddenMark)
 	for _, line := range strings.Split(sections[2], "\n") {
 		name, status, ok := strings.Cut(line, "\t")
 		if !ok {
@@ -75,7 +87,9 @@ func parseRC(out string) []gatherFact {
 		switch {
 		case strings.Contains(status, " is running"):
 			state[name] = "running"
-		case strings.Contains(status, " is not running"):
+		case strings.Contains(status, " is not running") && !hidden:
+			// Where other users' processes are hidden, rc cannot tell a
+			// stopped daemon from one it cannot see: unknown.
 			state[name] = "stopped"
 		}
 	}
@@ -125,16 +139,26 @@ func darwinPackageProbes() []gatherProbe {
 		{
 			subset: gatherSubsetPackages,
 			family: gatherFamilyPackage,
-			command: `for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do if [ -x "$b" ] && [ -O "$b" ] && [ "$(id -u)" != 0 ]; then ` +
-				`HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 "$b" list --versions --formula; echo '` + serviceSectionMark + `'; ` +
-				`HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 "$b" list --versions --cask; break; fi; done`,
+			// Present when a Homebrew this login owns is installed and the
+			// login is not root; each list that fails fails the probe, where
+			// the loop's break used to make every failure exit 0.
+			present: `( for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && [ -O "$b" ] && [ "$(id -u)" != 0 ] && exit 0; done; exit 1 )`,
+			command: `for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do if [ -x "$b" ] && [ -O "$b" ]; then ` +
+				orFailed(`HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 "$b" list --versions --formula`) + `; echo '` + serviceSectionMark + `'; ` +
+				orFailed(`HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 "$b" list --versions --cask`) + `; break; fi; done`,
 			parse: func(out string) []gatherFact { return packageFacts(parseBrew(out)) },
 		},
 		{
-			subset:  gatherSubsetPackages,
-			family:  gatherFamilyPackage,
-			command: `command -v pkgutil >/dev/null 2>&1 && set -f && for p in $(pkgutil --pkgs); do case $p in -*) continue;; esac; pkgutil --pkg-info "$p"; echo; done`,
-			parse:   func(out string) []gatherFact { return packageFacts(parsePkgutil(out)) },
+			subset: gatherSubsetPackages,
+			family: gatherFamilyPackage,
+			// pkgutil --pkgs failing ran the loop zero times and exited 0;
+			// it fails the probe now, and so does an empty listing, since
+			// macOS always holds Apple's own receipts.
+			present: `command -v pkgutil >/dev/null 2>&1`,
+			command: `set -f; if pkgs=$(pkgutil --pkgs); then for p in $pkgs; do case $p in -*) continue;; esac; pkgutil --pkg-info "$p"; echo; done; ` +
+				`else echo '` + gatherFailedMark + `'; fi`,
+			parse: func(out string) []gatherFact { return packageFacts(parsePkgutil(out)) },
+			check: listsSomething("pkgutil --pkgs"),
 		},
 	}
 }
@@ -152,7 +176,9 @@ func parseBrew(out string) []installedPackage {
 		}
 		for _, line := range strings.Split(part, "\n") {
 			fields := strings.Fields(line)
-			if len(fields) < 2 {
+			// Homebrew's own status lines ("==> Downloading ...") are not
+			// packages.
+			if len(fields) < 2 || strings.HasPrefix(fields[0], "==>") {
 				continue
 			}
 			pkgs = append(pkgs, installedPackage{name: fields[0], version: fields[len(fields)-1], source: source})
@@ -194,8 +220,10 @@ func darwinServiceProbes() []gatherProbe {
 	return []gatherProbe{{
 		subset:  gatherSubsetServices,
 		family:  gatherFamilyService,
-		command: `command -v launchctl >/dev/null 2>&1 && { launchctl print system; echo '` + serviceSectionMark + `'; launchctl print-disabled system; }`,
+		present: `command -v launchctl >/dev/null 2>&1`,
+		command: orFailed(`launchctl print system`) + `; echo '` + serviceSectionMark + `'; ` + orFailed(`launchctl print-disabled system`),
 		parse:   parseLaunchd,
+		check:   checkLaunchd,
 	}}
 }
 
@@ -242,4 +270,38 @@ func parseLaunchd(out string) []gatherFact {
 		}})
 	}
 	return facts
+}
+
+// procsHiddenMark is the line the FreeBSD services probe prints when this
+// login cannot see other users' processes.
+const procsHiddenMark = "--pleiades-procs-hidden--"
+
+// checkRC refuses an rc answer that lacks its three sections or lists no
+// script: rc always has some.
+func checkRC(out string) error {
+	sections := strings.Split(out, serviceSectionMark)
+	if len(sections) != 3 {
+		return fmt.Errorf("it did not print its three sections")
+	}
+	if strings.TrimSpace(sections[0]) == "" {
+		return fmt.Errorf("service -l named no script")
+	}
+	return nil
+}
+
+// checkLaunchd refuses a launchd answer without its two sections or without
+// the system domain's services block, which always exists: launchctl's print
+// output is not an API (launchctl(1)), and a layout this does not read would
+// otherwise answer "no services".
+func checkLaunchd(out string) error {
+	printed, _, found := strings.Cut(out, serviceSectionMark)
+	if !found {
+		return fmt.Errorf("it did not print its two sections")
+	}
+	for _, line := range strings.Split(printed, "\n") {
+		if strings.HasPrefix(line, "\tservices = {") {
+			return nil
+		}
+	}
+	return fmt.Errorf("launchctl print system has no services block this reads")
 }

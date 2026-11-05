@@ -16,7 +16,8 @@ const (
 )
 
 // linuxPackageProbes are the packages subset's probes on Linux: the dpkg,
-// rpm and apk databases, each read only where its tool exists. A device with
+// rpm and apk databases, each read only where its tool exists, and a listing
+// that fails failing the family (gather_outcome.go). A device with
 // two of them (rare) reports both; a name both hold is told apart where
 // Gather emits it (gatherNames).
 func linuxPackageProbes() []gatherProbe {
@@ -24,19 +25,22 @@ func linuxPackageProbes() []gatherProbe {
 		{
 			subset:  gatherSubsetPackages,
 			family:  gatherFamilyPackage,
-			command: `command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W -f='${db:Status-Abbrev}\t${binary:Package}\t${Version}\t${Architecture}\n'`,
+			present: `command -v dpkg-query >/dev/null 2>&1`,
+			command: orFailed(`dpkg-query -W -f='${db:Status-Abbrev}\t${binary:Package}\t${Version}\t${Architecture}\n'`),
 			parse:   func(out string) []gatherFact { return packageFacts(parseDpkg(out)) },
 		},
 		{
 			subset:  gatherSubsetPackages,
 			family:  gatherFamilyPackage,
-			command: `command -v rpm >/dev/null 2>&1 && rpm -qa --qf '%{NAME}\t%{EPOCH}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n'`,
+			present: `command -v rpm >/dev/null 2>&1`,
+			command: orFailed(`rpm -qa --qf '%{NAME}\t%{EPOCH}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n'`),
 			parse:   func(out string) []gatherFact { return packageFacts(parseRPM(out)) },
 		},
 		{
 			subset:  gatherSubsetPackages,
 			family:  gatherFamilyPackage,
-			command: `command -v apk >/dev/null 2>&1 && apk list --installed 2>/dev/null`,
+			present: `command -v apk >/dev/null 2>&1`,
+			command: orFailed(`apk list --installed 2>/dev/null`),
 			parse:   func(out string) []gatherFact { return packageFacts(parseAPK(out)) },
 		},
 	}

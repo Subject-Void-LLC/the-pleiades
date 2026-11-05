@@ -1,10 +1,11 @@
 // Package facts: the services subset's probes (Phase 41c). Each lists every
-// service one service manager knows in one fixed command, guarded so a
-// device without that manager prints nothing, and is parsed here into one
+// service one service manager knows in one fixed command, run only where that
+// manager is present (gather_outcome.go), and is parsed here into one
 // fact per service: service.<name> = {state, enabled, status, source}.
 package facts
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -23,9 +24,15 @@ func linuxServiceProbes() []gatherProbe {
 			// Every option before the verb: under POSIXLY_CORRECT (set by
 			// some shells and by the SSH test harness) systemctl's parser
 			// stops at the first word that is not an option, and options
-			// after list-unit-files were read as unit names.
-			command: `command -v systemctl >/dev/null 2>&1 && { systemctl --type=service --no-legend --no-pager --plain list-unit-files; ` +
-				`echo '` + serviceSectionMark + `'; systemctl --type=service --all --no-legend --no-pager --plain list-units; }`,
+			// after list-unit-files were read as unit names. Only where
+			// systemd booted (sweep item 8): an installed systemctl on a
+			// host it did not boot computes the unit files and lists no
+			// unit, which read as every service inactive. Each listing that
+			// fails fails the probe (gather_outcome.go).
+			present: `command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]`,
+			command: orFailed(`systemctl --type=service --no-legend --no-pager --plain list-unit-files`) + `; ` +
+				`echo '` + serviceSectionMark + `'; ` + orFailed(`systemctl --type=service --all --no-legend --no-pager --plain list-units`),
+			check: checkSystemd,
 			parse: parseSystemd,
 		},
 		{
@@ -34,9 +41,14 @@ func linuxServiceProbes() []gatherProbe {
 			// OpenRC (Alpine, Gentoo), where systemd is not what booted:
 			// every init script, the runlevels each is in, and, once OpenRC
 			// has booted (its softlevel exists), each one's state. None of
-			// it needs root.
-			command: `command -v rc-status >/dev/null 2>&1 && [ ! -d /run/systemd/system ] && { rc-service --list; echo '` + serviceSectionMark + `'; ` +
-				`rc-update show -v; echo '` + serviceSectionMark + `'; [ -e /run/openrc/softlevel ] && rc-status --all -f ini 2>/dev/null; }`,
+			// it needs root. rc-update's -v before its verb, as systemctl's
+			// options are (sweep item 15, a repeat of 844): glibc's getopt
+			// under POSIXLY_CORRECT stops at show and lists nothing.
+			present: `command -v rc-status >/dev/null 2>&1 && [ ! -d /run/systemd/system ]`,
+			command: orFailed(`rc-service --list`) + `; echo '` + serviceSectionMark + `'; ` +
+				orFailed(`rc-update -v show`) + `; echo '` + serviceSectionMark + `'; ` +
+				`[ -e /run/openrc/softlevel ] && rc-status --all -f ini 2>/dev/null`,
+			check: checkOpenRC,
 			parse: parseOpenRC,
 		},
 	}
@@ -74,6 +86,11 @@ func parseOpenRC(out string) []gatherFact {
 		}
 		name, st, ok := strings.Cut(line, "=")
 		if name, st = strings.TrimSpace(name), strings.TrimSpace(st); ok && name != "" && st != "" {
+			// The first word only: a supervised service's status carries its
+			// uptime and start count ("started 1 day(s) 02:13:07 (0)"),
+			// which stored whole was a new state on every gather (sweep
+			// item 9).
+			st = strings.Fields(st)[0]
 			if word, known := openrcStates[st]; known {
 				st = word
 			}
@@ -158,4 +175,34 @@ func parseSystemd(out string) []gatherFact {
 		}})
 	}
 	return out2
+}
+
+// checkOpenRC refuses an OpenRC answer that lacks its three sections, or
+// lists no init script: a booted OpenRC always has some.
+func checkOpenRC(out string) error {
+	sections := strings.Split(out, serviceSectionMark)
+	if len(sections) != 3 {
+		return fmt.Errorf("it did not print its three sections")
+	}
+	if strings.TrimSpace(sections[0]) == "" {
+		return fmt.Errorf("rc-service --list named no init script")
+	}
+	return nil
+}
+
+// checkSystemd refuses a systemd answer that lacks its two sections, or
+// whose loaded units name no service: a booted systemd always has loaded
+// services, so an empty listing is one that did not answer (sweep item 8).
+func checkSystemd(out string) error {
+	_, units, found := strings.Cut(out, serviceSectionMark)
+	if !found {
+		return fmt.Errorf("it did not print its two sections")
+	}
+	for _, line := range strings.Split(units, "\n") {
+		fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "●"))
+		if len(fields) >= 4 && strings.HasSuffix(fields[0], ".service") {
+			return nil
+		}
+	}
+	return fmt.Errorf("systemctl list-units named no loaded service, which a booted systemd always has")
 }

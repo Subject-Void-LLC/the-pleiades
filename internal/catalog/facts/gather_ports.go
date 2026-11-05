@@ -11,6 +11,7 @@ package facts
 
 import (
 	"encoding/hex"
+	"fmt"
 	"net/netip"
 	"sort"
 	"strconv"
@@ -38,10 +39,15 @@ func linuxPortProbes() []gatherProbe {
 	return []gatherProbe{{
 		subset: gatherSubsetPorts,
 		family: gatherFamilyPort,
-		command: `[ -r /proc/net/tcp ] && { printf '\001\000' | od -An -tx2; uname -m; ` + tables +
+		// grep exits 1 for a table with no listener, so the listings say
+		// nothing of their own failure; the answer is checked for every
+		// section instead (checkLinuxPorts).
+		present: `[ -r /proc/net/tcp ]`,
+		command: `{ printf '\001\000' | od -An -tx2; uname -m; ` + tables +
 			`echo '` + portSectionMark + ` fd'; ls -l /proc/[0-9]*/fd 2>/dev/null | grep -E '^/proc/|socket:'; ` +
 			`echo '` + portSectionMark + ` comm'; for d in /proc/[0-9]*; do read -r c < "$d/comm" 2>/dev/null && printf '%s\t%s\n' "${d#/proc/}" "$c"; done; }`,
 		parse: parseLinuxPorts,
+		check: checkLinuxPorts,
 	}}
 }
 
@@ -199,4 +205,14 @@ func socketOwners(fds, comms string) map[string]string {
 		}
 	}
 	return owners
+}
+
+// checkLinuxPorts refuses an answer missing any of its sections (the byte
+// order, four tables, descriptors and names): one cut short lists only some
+// of the device's listeners.
+func checkLinuxPorts(out string) error {
+	if n := strings.Count(out, portSectionMark); n != 6 {
+		return fmt.Errorf("it printed %d of its 6 section marks", n)
+	}
+	return nil
 }

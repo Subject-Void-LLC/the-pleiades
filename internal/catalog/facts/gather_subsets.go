@@ -83,6 +83,26 @@ func gatherSelection(params map[string]any) (map[string]bool, error) {
 	return chosen, nil
 }
 
+// gatherExplicit is the subsets a task names itself, not through all or the
+// default, and does not also leave out: those a task fails over when no
+// source on the device answers for them (familyVerdict). A malformed value
+// reads as naming none; gatherSelection refuses it first.
+func gatherExplicit(params map[string]any) map[string]bool {
+	names, _, _ := sdk.StringSlice(params, gatherParamSubset)
+	explicit := map[string]bool{}
+	for _, raw := range names {
+		if name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!"); !remove && name != gatherSubsetAll {
+			explicit[name] = true
+		}
+	}
+	for _, raw := range names {
+		if name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!"); remove {
+			delete(explicit, name)
+		}
+	}
+	return explicit
+}
+
 // gatherNamesFiles reports whether names asks for the files subset by name,
 // and whether it leaves it out by name (!files).
 func gatherNamesFiles(names []string) (named, removed bool) {

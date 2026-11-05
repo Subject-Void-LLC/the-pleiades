@@ -162,7 +162,7 @@ func gatherFactNames() []string {
 func gatherDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Gathers system facts from the target: OS, kernel, distribution, and on request its packages, services, listening ports, accounts and named files.",
-		Description: "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, one fact per service (service.<name>: state, enabled and status, from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager); ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+		Description: "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, one fact per service (service.<name>: state, enabled and status, from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager); ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. A family is read or the task says it was not: a source on the device whose listing fails, or answers without the structure it always prints, fails the task, so no item reads as removed; a family no source on the device answers fails a task that named its subset, and is a warning for one that reached it through all. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
 		Params: []collection.Param{
 			{Name: gatherParamFilter, Type: "list of string", Description: "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."},
 			{Name: gatherParamSubset, Type: "list of string", Description: "The subsets to gather: min and hardware as ansible.builtin.setup names them, packages and services (Ansible's package_facts and service_facts), ports, users and files, or all, every one; a name with a leading ! leaves that subset out, and a list of only such names starts from min and hardware. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. files is gathered whenever files names paths, all gathers it only then, and naming files with no paths is refused. An unknown name is refused."},
@@ -243,6 +243,15 @@ type gatherProbe struct {
 	// named (the files subset); probesFor sets command from it.
 	commandFor func(paths []string) string
 	parse      func(stdout string) []gatherFact
+	// present, for a family probe reached over SSH, is the shell test that
+	// its source is on the device; the command runs only where it succeeds
+	// (guarded), and the probe answers "absent" otherwise (gather_outcome.go).
+	present string
+	// check, when set, says whether a family probe's answer has the
+	// structure its source always prints; one that lacks it failed.
+	check func(stdout string) error
+	// label, when set, is how an error names the probe (name).
+	label string
 }
 
 // The platforms facts.gather reads, by what uname -s answers.
@@ -425,10 +434,36 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 
 	names := gatherNames{}
 	emitted := 0
+	// What each family's sources answered, in the order first seen, so the
+	// verdict below names them in a stable order.
+	families := map[string]*familyState{}
+	var familyOrder []string
 	for _, probe := range probes {
 		stdout, err := run(ctx, probe.command)
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, probe.name(), err)
+		}
+		// A family's listing says whether its source was read (sweep item
+		// 1): an empty answer is "none" only from a source that was there
+		// and answered. The files family names its paths and answers each,
+		// so it has no source to be absent.
+		if probe.family != "" && probe.commandFor == nil {
+			st, ok := families[probe.family]
+			if !ok {
+				st = &familyState{subset: probe.subset}
+				families[probe.family] = st
+				familyOrder = append(familyOrder, probe.family)
+			}
+			outcome, body, err := readOutcome(stdout, probe.check)
+			switch outcome {
+			case outcomeAbsent:
+				continue
+			case outcomeFailed:
+				st.failures = append(st.failures, fmt.Sprintf("%s: %v", probe.name(), err))
+				continue
+			}
+			st.read = true
+			stdout = body
 		}
 
 		var keep []gatherFact
@@ -465,7 +500,25 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			}
 		}
 	}
-
+	// A family a source failed to list, or one no source answers for a task
+	// that named its subset, fails the task: a failed task stores none of
+	// what it emitted, so no item reads as removed (FAILURE_PATTERNS 925).
+	var warnings []string
+	for _, family := range familyOrder {
+		st := families[family]
+		warning, err := familyVerdict(family, *st, choice.explicit[st.subset])
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, device.Name(), err)
+		}
+		if warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
+	if len(warnings) > 0 {
+		if err := sdk.RecordWarnings(rc, warnings); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
 	return collection.Result{Changed: false}, nil
 }
 
@@ -500,7 +553,7 @@ func gatherPlan(params map[string]any) (gatherChoice, error) {
 	if err != nil {
 		return gatherChoice{}, err
 	}
-	choice := gatherChoice{chosen: chosen, patterns: patterns, files: files}
+	choice := gatherChoice{chosen: chosen, explicit: gatherExplicit(params), patterns: patterns, files: files}
 	// Named paths a filter would drop are a contradiction, not a wish to
 	// read nothing.
 	if len(files) > 0 && chosen[gatherSubsetFiles] && !gatherFamilyWanted(patterns, gatherFamilyFile) {
@@ -518,7 +571,10 @@ func gatherPlan(params map[string]any) (gatherChoice, error) {
 
 // gatherChoice is what a task asked for: its subsets and filter.
 type gatherChoice struct {
-	chosen   map[string]bool
+	chosen map[string]bool
+	// explicit is the subsets the task named itself, not through all: a
+	// family no source answers fails only those (familyVerdict).
+	explicit map[string]bool
 	patterns []string
 	// files is the paths the files subset reads.
 	files []string
@@ -529,6 +585,12 @@ type gatherChoice struct {
 func (choice gatherChoice) probesFor(platform string) []gatherProbe {
 	probes := choice.narrow(gatherProbesFor(platform))
 	for i, p := range probes {
+		if p.present != "" {
+			// Named in an error by the listing it runs, not by the guard
+			// wrapped around it.
+			probes[i].label = p.command
+			probes[i].command = guarded(p.present, p.command)
+		}
 		if p.commandFor == nil {
 			continue
 		}

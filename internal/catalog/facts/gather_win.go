@@ -12,6 +12,8 @@ package facts
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 )
 
@@ -134,12 +136,14 @@ func windowsProbes() []gatherProbe {
 			family:  gatherFamilyPackage,
 			command: windowsPackagesScript,
 			parse:   func(out string) []gatherFact { return packageFacts(parseWindowsPackages(out)) },
+			check:   checkWindowsArray,
 		},
 		{
 			subset:  gatherSubsetServices,
 			family:  gatherFamilyService,
 			command: windowsServicesScript,
 			parse:   parseWindowsServices,
+			check:   checkWindowsArray,
 		},
 	}, windowsItemProbes()...)
 }
@@ -195,6 +199,15 @@ func parseWindowsObject(out string) []gatherFact {
 			facts = append(facts, gatherFact{key: key, value: value})
 		}
 	}
+	// The object must close, with nothing after it: one cut short after a
+	// complete member read as the whole answer, and text printed after it
+	// (a profile's Write-Host) as a well-formed one (sweep item 1).
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return nil
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil
+	}
 	return facts
 }
 
@@ -218,8 +231,9 @@ func windowsValue(v any) (any, bool) {
 	return nil, false
 }
 
-// windowsItems reads a JSON array of objects, each into a T. PowerShell prints an empty array as [] and a missing one as nothing,
-// which both read as no items.
+// windowsItems reads a JSON array of objects, each into a T. A family
+// probe's answer has passed checkWindowsArray first, so nothing here is read
+// as no items unless the host listed none.
 func windowsItems[T any](out string) []T {
 	var items []T
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &items); err != nil {
@@ -275,4 +289,17 @@ func parseWindowsServices(out string) []gatherFact {
 		}})
 	}
 	return facts
+}
+
+// checkWindowsArray refuses a family script's answer unless it is exactly
+// one JSON array with nothing before or after it. Every family script prints
+// one (ConvertTo-Json of an @() array, [] when the host has no items), so
+// anything else, such as a cmd.exe AutoRun's output before it or an answer
+// cut short, failed rather than meaning "no items" (sweep item 1).
+func checkWindowsArray(out string) error {
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasPrefix(trimmed, "[") || !json.Valid([]byte(trimmed)) {
+		return fmt.Errorf("it did not print one JSON array and nothing else")
+	}
+	return nil
 }
