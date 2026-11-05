@@ -30,6 +30,7 @@ func Run(t *testing.T, newStore NewStore) {
 	t.Run("a key whose kind changed reads its newest value", func(t *testing.T) { kindChange(t, newStore) })
 	t.Run("within one run, the clock orders its observations", func(t *testing.T) { sameRunByClock(t, newStore) })
 	t.Run("a time is kept to the microsecond and still verifies", func(t *testing.T) { microsecondTime(t, newStore) })
+	t.Run("a late change keeps a later confirmation in the history", func(t *testing.T) { lateChangeKeepsConfirmation(t, newStore) })
 }
 
 // entries prepares observed as a method declaring every key kind would.
@@ -222,5 +223,46 @@ func microsecondTime(t *testing.T, newStore NewStore) {
 	}
 	if v, err := s.Verify(context.Background(), dev); err != nil || v.Break != nil || v.Values != 1 {
 		t.Fatalf("verdict = %+v, %v", v, err)
+	}
+}
+
+// lateChangeKeepsConfirmation: run y confirmed a value at order 11 and stored
+// first; run x, ordered 10, saw another value and stored second. A
+// confirmation was kept only as a last sighting, so the history ended at x's
+// value, and run z at 12, finding the device unchanged since y, recorded a
+// change nobody saw (FAILURE_PATTERNS 923, a residue of 831). The history now
+// says the confirmed value came back at y's sighting, and z changes nothing.
+func lateChangeKeepsConfirmation(t *testing.T, newStore NewStore) {
+	s, dev := newStore(t)
+	const key = "ansible_kernel"
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.1"}, base, by("w", 5))
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.1"}, base.Add(11*time.Minute), by("y", 11))
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.2"}, base.Add(10*time.Minute), by("x", 10))
+	values := func(h []facts.Entry) []string {
+		var out []string
+		for _, e := range h {
+			out = append(out, e.Value.(string)+"@"+e.By.Run)
+		}
+		return out
+	}
+	want := []string{"6.1@w", "6.2@x", "6.1@y"}
+	if h := values(history(t, s, dev, key)); len(h) != len(want) || h[0] != want[0] || h[1] != want[1] || h[2] != want[2] {
+		t.Fatalf("history = %v, want %v: the value y confirmed after x's", h, want)
+	}
+	if e := current(t, s, dev, key); e.Value != "6.1" || e.LastBy.Run != "y" {
+		t.Fatalf("current = %+v, want 6.1 last confirmed by y", e)
+	}
+	// z sees what y saw: nothing changed, so nothing is written under z.
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.1"}, base.Add(12*time.Minute), by("z", 12))
+	h := history(t, s, dev, key)
+	if got := values(h); len(got) != 3 {
+		t.Fatalf("history after z = %v, want no change recorded for z", got)
+	}
+	if e := current(t, s, dev, key); e.LastBy.Run != "z" {
+		t.Fatalf("current = %+v, want 6.1 last confirmed by z", e)
+	}
+	// The line written for y's sighting is chained like any other.
+	if v, err := s.Verify(context.Background(), dev); err != nil || v.Break != nil || v.Values != 3 {
+		t.Fatalf("Verify = %+v, %v; want three chained values", v, err)
 	}
 }

@@ -80,6 +80,22 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 			byKey[l.Key] = append(byKey[l.Key], l)
 		}
 		var appended []byte
+		// add chains l after the head and appends it.
+		add := func(l line) error {
+			l.Prev = head
+			var err error
+			if l.Chain, err = ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
+				return fmt.Errorf("facts: %w", err)
+			}
+			raw, err := json.Marshal(l)
+			if err != nil {
+				return fmt.Errorf("facts: %w", err)
+			}
+			appended = append(append(appended, raw...), '\n')
+			byKey[l.Key] = append(byKey[l.Key], l)
+			head = l.Chain
+			return nil
+		}
 		for _, e := range entries {
 			if e.Kind == KindVolatile {
 				recordVolatile(st, e, at, by)
@@ -94,17 +110,22 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 			if cur, ok := valueAt(byKey[e.Key], by.Order, at); ok && cur.Hash == e.Hash {
 				continue
 			}
-			l := line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at, By: by, Prev: head}
-			if l.Chain, err = ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
-				return fmt.Errorf("facts: %w", err)
+			// The key's values before this one, with their last sightings,
+			// for Resumed below.
+			prior := make([]Entry, len(byKey[e.Key]))
+			for i, pl := range byKey[e.Key] {
+				prior[i] = stableEntry(st, pl)
 			}
-			raw, err := json.Marshal(l)
-			if err != nil {
-				return fmt.Errorf("facts: %w", err)
+			if err := add(line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at, By: by}); err != nil {
+				return err
 			}
-			appended = append(append(appended, raw...), '\n')
-			byKey[l.Key] = append(byKey[l.Key], l)
-			head = l.Chain
+			// A late change keeps the value confirmed after it in the
+			// history (FAILURE_PATTERNS 923).
+			if back, ok := Resumed(prior, Entry{Key: e.Key, Hash: e.Hash, ObservedAt: at, By: by}); ok {
+				if err := add(line{Key: back.Key, Value: back.Value, Hash: back.Hash, ObservedAt: back.ObservedAt, By: back.By}); err != nil {
+					return err
+				}
+			}
 		}
 		if len(appended) > 0 {
 			if err := appendLines(r, device, complete, appended); err != nil {

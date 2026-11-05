@@ -188,7 +188,8 @@ the run:
   clock: on the command line a tick of the project's run counter taken when the
   task finished, so two runs at once on one host order by when each observed; on
   the Controller the device lease's fencing token. A result stored late does not
-  replace a newer one. The clock decides only where two orders do not compare or
+  replace a newer one, and when it is a change, the value a later run confirmed
+  is written after it again, so the history ends at the current value. The clock decides only where two orders do not compare or
   are equal (one dispatch's own tasks, a dispatch on a shared lease, which has no
   token, or a lease store that started again), and the history says so.
 - Stored stable values form a hash chain per device: each carries the hash of the

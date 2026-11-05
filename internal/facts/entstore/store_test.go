@@ -150,8 +150,9 @@ func TestSubscriber_StoresOnlyWhatPassesAndWasDispatched(t *testing.T) {
 
 // TestStore_ALateBatchDoesNotReplaceANewerValue: a value observed before the
 // one confirmed after it, stored late (a redelivery, a Runner whose clock is
-// behind), joins the history without becoming current, and the same batch
-// stored twice writes one row.
+// behind), joins the history without becoming current, is followed in the
+// history by the value confirmed after it (FAILURE_PATTERNS 923), and the
+// same batch stored twice writes its rows once.
 func TestStore_ALateBatchDoesNotReplaceANewerValue(t *testing.T) {
 	client, device := open(t)
 	store := entstore.New(client)
@@ -168,8 +169,8 @@ func TestStore_ALateBatchDoesNotReplaceANewerValue(t *testing.T) {
 	if len(current) != 1 || current[0].Value != "A" {
 		t.Errorf("current = %+v, want A, confirmed after B was observed", current)
 	}
-	if n := client.Fact.Query().CountX(ctx); n != 2 {
-		t.Errorf("%d rows, want A and B once each", n)
+	if n := client.Fact.Query().CountX(ctx); n != 3 {
+		t.Errorf("%d rows, want A, the late B, and A as confirmed after it", n)
 	}
 }
 
