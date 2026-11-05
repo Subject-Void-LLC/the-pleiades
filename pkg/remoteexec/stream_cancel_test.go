@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,8 +20,9 @@ import (
 
 // refusingDial is a dialFunc to a server that accepts sessions and refuses
 // every exec request, as OpenSSH does when it cannot fork for the account.
-// confirmDelay holds each session's channel confirmation that long.
-func refusingDial(t *testing.T, confirmDelay time.Duration) dialFunc {
+// confirmDelay holds each session's channel confirmation that long. execs
+// counts the exec requests the server received.
+func refusingDial(t *testing.T, confirmDelay time.Duration, execs *atomic.Int64) dialFunc {
 	t.Helper()
 	config := &ssh.ServerConfig{PasswordCallback: func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) { return nil, nil }}
 	config.AddHostKey(generateTestHostKey(t))
@@ -40,6 +42,9 @@ func refusingDial(t *testing.T, confirmDelay time.Duration) dialFunc {
 			go func() {
 				defer func() { _ = channel.Close() }()
 				for req := range requests {
+					if req.Type == "exec" {
+						execs.Add(1)
+					}
 					if req.WantReply {
 						_ = req.Reply(false, nil)
 					}
@@ -62,7 +67,8 @@ func refusingDial(t *testing.T, confirmDelay time.Duration) dialFunc {
 // ErrCommandRefused, and the error holds neither the command nor its
 // shell-encoded form.
 func TestRefusedExec_NamesNoCommand(t *testing.T) {
-	conn, err := newTestRunner(refusingDial(t, 0), Options{}).Connect(context.Background(), nil, testTarget, testAuth)
+	var execs atomic.Int64
+	conn, err := newTestRunner(refusingDial(t, 0, &execs), Options{}).Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -118,7 +124,8 @@ func TestStart_AContextAlreadyDoneStartsNothing(t *testing.T) {
 // to confirm the session answers after the context ended; the stream is not
 // started and the error is the context's.
 func TestStart_AContextEndingWhileTheSessionOpensIsACancellation(t *testing.T) {
-	conn, err := newTestRunner(refusingDial(t, 500*time.Millisecond), Options{}).Connect(context.Background(), nil, testTarget, testAuth)
+	var execs atomic.Int64
+	conn, err := newTestRunner(refusingDial(t, 500*time.Millisecond, &execs), Options{}).Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -130,6 +137,11 @@ func TestStart_AContextEndingWhileTheSessionOpensIsACancellation(t *testing.T) {
 			_ = p.Close()
 		}
 		t.Fatalf("Start = %v; want context.DeadlineExceeded", err)
+	}
+	// Long enough for an exec sent after the late confirmation to arrive.
+	time.Sleep(300 * time.Millisecond)
+	if n := execs.Load(); n != 0 {
+		t.Fatalf("the server received %d exec requests after the context ended; want none", n)
 	}
 }
 
