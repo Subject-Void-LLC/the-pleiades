@@ -8,7 +8,9 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 facts review sweep of 2026-11-04 (`VERDICTS-facts.md` items 3, 2, 7, 12 and 13): `3e318af1` (the chain exempts no
 unchained value), `5999dd16` (a secret-named field inside a value), `9221ff2f` (a facts batch the database can never
 store), `b2f7ff6b` (the file store syncs its state and history), `185e1833` (a late change keeps a later
-confirmation in the history). Not through pr-check, push or a pull request yet.**
+confirmation in the history), and a sixth from the branch's review: the run journal and job result consumers get the
+same poison checks through one shared package, `internal/poison` (924). Not through pr-check, push or a pull request
+yet.**
 
 ### What works (each test failed on the old code where its entry says so)
 
@@ -19,6 +21,10 @@ confirmation in the history). Not through pr-check, push or a pull request yet.*
 - **A facts batch with a malformed ID, or one PostgreSQL refuses as data, is acknowledged, not redelivered** (919):
   `TestSubscriber_APoisonedBatchIsAcknowledgedOnPostgres`, `TestSubscriber_ADataExceptionIsAcknowledgedAndOthersRedelivered`
   (real PostgreSQL 15). The reviewer's own claim (a NUL or huge number in a value) was refuted by measurement.
+- **The run journal and job result consumers too** (924, found by fp-reviewer): `internal/poison` (`CheckID` with no
+  length limit, `Unstorable` logging only the SQLSTATE, `CleanText` for a result's reason) is shared by all three.
+  `TestConsumers_ARefusedValueIsAcknowledgedOnPostgres` was red on the old consumers in all five cases, the worst a NUL
+  in a result's reason (device output) losing the device's result; the `internal/dispatch` result tests likewise.
 - **The CLI's fact file store syncs before it renames, and reads an empty state file as no state** (922):
   `TestFileStore_AnEmptyStateFileIsReadAsNoState`. The sync itself cannot be tested without a crash.
 - **A late change no longer makes the next run record a change nobody saw** (923): the `factstest` conformance case
@@ -28,7 +34,8 @@ confirmation in the history). Not through pr-check, push or a pull request yet.*
   Fact` for `./internal/engine` and `./cmd/pleiades`. Coverage: `internal/facts` 91.1% (floor 89.1),
   `internal/facts/entstore` 90.0% (floor 88.2).
 - Docs: `docs/04-writing-runbooks.md`, `docs/09-control-plane-and-api.md`; gendocs regenerated the OpenAPI.
-- Records: FAILURE_PATTERNS 919 to 923, changelog fragment `changelog/facts-store-integrity.security.md`.
+- Also passing: `./internal/poison` (100%), `./internal/journal`, `./internal/dispatch`.
+- Records: FAILURE_PATTERNS 919 to 924, changelog fragment `changelog/facts-store-integrity.security.md`.
 
 ### Current blocker
 
@@ -46,6 +53,10 @@ None. Next is pr-check for this branch.
 - Carried: FAILURE_PATTERNS 448 (`pkg/tftpxfer` on macOS); `internal/setup`'s `Fields` comment; 867, 853, 41d's
   items, vuln-corpus `C13_auto-roboto_2026-11-03` pending review, the owner decisions of 2026-11-04 (see the
   archive's earlier entries).
+- From this branch's review, not fixed: a value `facts.Resumed` writes back is dated at its LAST sighting, so a value
+  confirmed at 11 and again at 15 comes back dated 15, and a later late observation at 12 can then add a same-value
+  row (A, B, A@12, A@15). Fixing it needs per-sighting history. Also: a `.jsonl` history written before the sync fix
+  could, after a crash, hold a NUL-filled partial line that `readLines` refuses.
 - API credit: $20.53 of $92 spent as of the last report. Expires 2026-11-08.
 
 ### Next, in order
@@ -65,6 +76,8 @@ None. Next is pr-check for this branch.
 `file_store.go`, `late.go` (new), `late_test.go` (new), `lock_other.go`, `lock_unix.go`, `lock_windows.go`,
 `nested.go` (new), `nested_test.go` (new), `factstest/conformance.go`), `internal/facts/entstore/` (`store.go`,
 `store_test.go`, `subscriber.go`, `postgres_poison_test.go` (new)), `internal/ent/data_exception.go` (new),
+`internal/poison/` (new), `internal/journal/subscriber.go`, `internal/dispatch/results.go`,
+`internal/dispatch/results_poison_test.go` (new), `internal/facts/entstore/postgres_test.go`,
 `internal/apispec/apispec.go`, `cmd/pleiades/facts_cmd.go`, `docs/04-writing-runbooks.md`,
 `docs/09-control-plane-and-api.md`, `docs/reference/schemas/openapi.json`, `internal/api/wellknown/openapi.json`.
 Records (uncommitted): `FAILURE_PATTERNS.md` and its archive, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`,

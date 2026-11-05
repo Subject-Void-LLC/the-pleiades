@@ -21854,7 +21854,7 @@ the string becomes them as masked text, otherwise it keeps its spelling. Both lo
 
 ## 919. A facts batch whose job or device ID held a NUL failed every PostgreSQL query made with it, so the Controller handed it back for redelivery until its delivery budget ran out (a repeat of 208, through the dialect gap of 371) (fixed before push)
 
-**Symptom.** Found by an API-model review sweep on 2026-11-04 (the facts verdicts, item 7); measured and fixed on
+**Symptom.** Found by an API-model review sweep on 2026-11-04 (the facts verdicts, item 2); measured and fixed on
 2026-11-05 on `fix/facts-sweep-security`. A facts batch whose device ID held a NUL failed its PostgreSQL query with
 SQLSTATE 22021 ("invalid byte sequence for encoding UTF8: 0x00"). `entstore.Subscriber.Handle` returned the error, so
 the bus redelivered the batch until its delivery budget ran out. Any Runner may publish on any job's facts subject, so
@@ -21879,10 +21879,14 @@ server that is down, and the facts subscriber was new code with its own list of 
 holds on the test dialect needs one run on the production dialect) was applied to sign-in; no test sent the facts
 subscriber a malformed ID on PostgreSQL.
 
-**Fix.** `9221ff2f`: `wellFormedID` (not empty, at most 256 bytes, valid UTF-8, no control characters) checks both IDs
-before any query, and a batch that fails it is acknowledged and logged as malformed. `ent.IsDataException`
-(`internal/ent/data_exception.go`, hand written) reports SQLSTATE class 22 anywhere in an error's chain, and `Handle`
-acknowledges and logs such a failure. Class 23 is left out on purpose: a unique violation is how two replicas racing
+**Fix.** `9221ff2f` checked both IDs before any query and acknowledged SQLSTATE class 22, inside the facts
+subscriber. The branch's review then found the same hole in the journal and result consumers (924), so the checks
+moved into one package all three call, `internal/poison`: `CheckID` (not empty, valid UTF-8, no control characters,
+and no length limit, since a device ID is the operator's and its column has none; the first version's 256-byte cap
+could refuse a real one) and `Unstorable`, over `ent.DataExceptionCode` (`internal/ent/data_exception.go`, hand
+written), which reports SQLSTATE class 22 anywhere in an error's chain. A refused batch is acknowledged and logged
+with the check that failed, and a class 22 failure with its SQLSTATE only, never the server's message, which can
+quote the value. Class 23 is left out on purpose: a unique violation is how two replicas racing
 on one chain learn to retry. `TestSubscriber_ADataExceptionIsAcknowledgedAndOthersRedelivered` uses real server
 errors: 22021, 22003 and 22012 are acknowledged; 23505 and a connection error are redelivered.
 
@@ -21994,3 +21998,34 @@ history shape and were updated: `TestFileStore_ALateObservationDoesNotReplaceANe
 
 **Lesson.** A fix for out-of-order arrival is tested by what the next in-order arrival does, not only by the state
 just after the late one.
+
+## 924. The run journal and job result consumers handed back for redelivery forever a message whose job or device ID held a NUL, and a result whose reason held one, so a device's own output could lose its result (a repeat of 919 at its sibling sites, and of 208) (fixed before push)
+
+**Symptom.** Found by the branch's fp-reviewer on 2026-11-05 while 919 was being fixed, and measured on real
+PostgreSQL 15 by `TestConsumers_ARefusedValueIsAcknowledgedOnPostgres` (in `internal/facts/entstore`, which has the
+PostgreSQL harness). On the old code every case returned SQLSTATE 22021 and asked for redelivery: a journal batch with
+a NUL in its job ID, its device ID or a task name, a job result with a NUL in its job or device ID, and a job result
+whose `reason` held a NUL. The last is the serious one. A result's reason is free text that can come from the device's
+own output, so a device printing a NUL lost its own result: the message was redelivered until its budget ran out, and
+the job stayed running until the reaper ended it.
+
+**Root cause.** 919's, in two more places. `journal.Subscriber.Handle` acknowledged only `journal.ErrUnstorable`, which
+covers an outcome the store does not know, and `dispatch.ResultConsumer.Handle` only an undecodable message, an unknown
+outcome and a negative count. Neither checked an ID before its first query, and neither knew a value the server refuses
+from a server that is down. `internal/journal`'s NUL hardening case runs on SQLite, which stores a NUL.
+
+**Why 919 did not hold.** 919's fix was written inside the facts subscriber. LESSONS 244 says a guard added at one
+site goes to its siblings in the same change; the three consumers of what a Runner publishes are siblings, and only one
+was fixed until the review named the other two.
+
+**Fix.** One package, `internal/poison`, used by all three consumers: `CheckID` before any query (the journal's device
+ID is checked when present, since a batch may name none), `Unstorable` (SQLSTATE class 22) acknowledged and logged with
+its code only, and `CleanText`, which replaces each NUL in a result's reason with U+FFFD so the result is recorded with
+the rest of its text. Tests: `TestConsumers_ARefusedValueIsAcknowledgedOnPostgres` (red on the old consumers, green
+now), and in `internal/dispatch` `TestResultConsumer_AnIDThatCannotNameOneIsDroppedBeforeAnyQuery`,
+`TestResultConsumer_ANULInTheReasonKeepsTheOutcome` and `TestResultConsumer_ADataExceptionIsAcknowledged`, each red on
+the old consumer.
+
+**Lesson.** A fix for how one consumer treats untrusted input belongs to every consumer of the same publisher; put it
+in one package they all call, so the next consumer starts from it.
+
