@@ -3,6 +3,7 @@
 package redact
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -23,7 +24,9 @@ func Value(secrets []string, v any) any {
 // the rest) is replaced by Marker whatever it holds: the name says the
 // value is a secret, which free text can never say, so this catches a
 // secret whose bytes nothing registered. Every other string, map key
-// included, is masked as Text masks it. A number or a bool whose written
+// included, is masked as Text masks it, and a string in standard base64 also
+// as the bytes it spells (maskString), since that is how a []byte reaches
+// the walk. A number or a bool whose written
 // form Text would change is replaced by that masked text.
 //
 // Maps and lists are walked, and the common shapes keep their type
@@ -49,7 +52,7 @@ func (m *Masker) value(extra []string, v any, depth int) any {
 	case nil:
 		return nil
 	case string:
-		return m.Text(extra, t)
+		return m.maskString(extra, t)
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, item := range t {
@@ -97,6 +100,43 @@ func (m *Masker) value(extra []string, v any, depth int) any {
 		return v
 	}
 	return m.value(extra, generic(v), depth+1)
+}
+
+// maskString masks s as Text does, and also as the bytes it spells when s
+// is standard base64: the walk converts a struct, and any []byte, through
+// encoding/json, which writes a []byte as base64, so a secret held in a
+// []byte (a struct field, a map entry, a list item) reaches here only in
+// that spelling, which Text cannot see. A string whose decoded bytes hold a
+// secret becomes those bytes as masked text; any other keeps its spelling.
+func (m *Masker) maskString(extra []string, s string) string {
+	if masked := m.Text(extra, s); masked != s {
+		return masked
+	}
+	if len(s) < 4 || len(s)%4 != 0 || !base64Alphabet(s) {
+		return s
+	}
+	raw, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return s
+	}
+	if masked := m.Text(extra, string(raw)); masked != string(raw) {
+		return masked
+	}
+	return s
+}
+
+// base64Alphabet reports whether every byte of s is in standard base64's
+// alphabet, padding included: a cheap refusal before decoding, since most
+// text (command output above all, which can be megabytes) stops at its
+// first space, and decoding would first allocate three quarters of it.
+func base64Alphabet(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/' || c == '=') {
+			return false
+		}
+	}
+	return true
 }
 
 // entry masks one map entry's value: all of it when its key is a secret's

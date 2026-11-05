@@ -6,6 +6,7 @@ package redact_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -217,5 +218,64 @@ func TestAttr_AValueWithNothingSecretKeepsItsShape(t *testing.T) {
 	loggers["json"].Info("hosts", "names", []string{"sw1", "sw2"}, "device", carrier{Host: "sw1", Output: "ok"})
 	if out := bufs["json"].String(); !strings.Contains(out, `"names":["sw1","sw2"]`) || !strings.Contains(out, `"device":{"Host":"sw1","Output":"ok"}`) {
 		t.Fatalf("a value with nothing secret lost its shape: %s", out)
+	}
+}
+
+// output is a struct carrying a device's raw output, as a method's result
+// can; JSON writes the []byte as base64 and %+v as decimal bytes.
+type output struct {
+	Host   string
+	Stdout []byte
+}
+
+// TestAttr_ASecretInAByteFieldIsMasked: a registered secret inside a []byte
+// field of a struct, a map entry or a list prints the same line for either of
+// two secrets under both handlers, so neither its base64 (JSON) nor its
+// decimal (text) spelling survives, and the rest of the value stays shown.
+func TestAttr_ASecretInAByteFieldIsMasked(t *testing.T) {
+	values := map[string]func(secret string) any{
+		"struct":         func(s string) any { return output{Host: "sw1", Stdout: []byte("stdout: " + s)} },
+		"struct pointer": func(s string) any { return &output{Host: "sw1", Stdout: []byte("stdout: " + s)} },
+		"map":            func(s string) any { return map[string]any{"host": "sw1", "stdout": []byte("stdout: " + s)} },
+		"list":           func(s string) any { return []any{"sw1", []byte("stdout: " + s)} },
+	}
+	logged := func(secret, format, name string) string {
+		m, err := redact.NewMasker(redact.DefaultRuleset())
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Literals().Add(secret)
+		loggers, bufs := handlers(m)
+		loggers[format].Info("task failed", "detail", values[name](secret))
+		return bufs[format].String()
+	}
+	for name := range values {
+		for _, format := range []string{"text", "json"} {
+			a, b := stripTime(logged(plantedA, format, name)), stripTime(logged(plantedB, format, name))
+			if a != b || !strings.Contains(a, "sw1") {
+				t.Errorf("%s through the %s handler depends on the secret, or lost the rest:\n%s\n%s", name, format, a, b)
+			}
+		}
+	}
+}
+
+// TestValue_ASecretInBytesIsMaskedAsItsText: a stat holding a registered
+// secret in a []byte (which JSON writes as base64) is masked, and bytes with
+// nothing secret in them keep their value.
+func TestValue_ASecretInBytesIsMaskedAsItsText(t *testing.T) {
+	m, err := redact.NewMasker(redact.DefaultRuleset())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Literals().Add(plantedA)
+	got, err := json.Marshal(m.Value(nil, map[string]any{"stdout": []byte("out " + plantedA), "plain": []byte("nothing here")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), base64.StdEncoding.EncodeToString([]byte("out "+plantedA))) || strings.Contains(string(got), plantedA) || !strings.Contains(string(got), `"stdout":"out `) {
+		t.Errorf("a secret in a []byte stat survived as base64: %s", got)
+	}
+	if !strings.Contains(string(got), base64.StdEncoding.EncodeToString([]byte("nothing here"))) {
+		t.Errorf("bytes with nothing secret lost their value: %s", got)
 	}
 }
