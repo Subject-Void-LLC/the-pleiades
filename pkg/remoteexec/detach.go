@@ -80,10 +80,10 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 		// call failed: stop it by the name it was given. A Raw view's device
 		// has no sh to have started it, and its CLI would take the stop
 		// script for a command.
-		if !c.raw {
-			c.stopDetached(jobByName(name))
+		if c.raw {
+			return Result{}, err
 		}
-		return Result{}, err
+		return Result{}, fmt.Errorf("remoteexec: a detached command's start on %s failed, and the job, if it started, %s: %w", c.addr, c.stopDetached(jobByName(name)), err)
 	}
 	switch started.ExitCode {
 	case 0:
@@ -100,11 +100,7 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 	dir := lastLine(started.Stdout)
 	if !jobDir.MatchString(dir) {
 		// Started, maybe: never run it a second time, and stop it by name.
-		outcome := "and may be running"
-		if c.stopDetached(jobByName(name)) {
-			outcome = "and was stopped"
-		}
-		return Result{}, fmt.Errorf("remoteexec: a detached command on %s answered with no job directory, %s: %q %q", c.addr, outcome, boundedText(dir), strings.TrimSpace(boundedText(started.Stderr)))
+		return Result{}, fmt.Errorf("remoteexec: a detached command on %s answered with no job directory, and the job, if it started, %s: %q %q", c.addr, c.stopDetached(jobByName(name)), boundedText(dir), strings.TrimSpace(boundedText(started.Stderr)))
 	}
 	qdir := QuoteArg(dir)
 
@@ -132,8 +128,11 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 				// A poll that cannot be made is no reason to leave the job
 				// running past its task: it is stopped, on a fresh
 				// connection when this one is gone.
-				if c.stopDetached(qdir) {
+				switch c.stopDetached(qdir) {
+				case stopSignalled:
 					return Result{}, fmt.Errorf("remoteexec: lost a detached command on %s, and stopped it: %w", c.addr, err)
+				case stopEnded:
+					return Result{}, fmt.Errorf("remoteexec: lost a detached command on %s, which had already finished: %w", c.addr, err)
 				}
 				return Result{}, fmt.Errorf("remoteexec: lost a detached command on %s, which may still be running in %q: %w", c.addr, dir, err)
 			}
@@ -149,11 +148,15 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 			c.stopDetached(qdir)
 			return Result{}, fmt.Errorf("remoteexec: a detached command on %s left an exit status that is not a number: %w", c.addr, err)
 		}
+		// The job has finished: its directory, which holds the command, is
+		// removed however its output reads.
+		remove := func() { _, _ = c.run(plain, "rm -rf "+qdir, nil, detachAnswerLimit) }
 		out, err := c.readJobFile(plain, qdir+"/out", name, limit)
 		if err != nil && ctx.Err() != nil {
 			return stopped()
 		}
 		if err != nil {
+			remove()
 			return Result{}, err
 		}
 		errOut, err := c.readJobFile(plain, qdir+"/err", name, limit)
@@ -161,9 +164,10 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 			return stopped()
 		}
 		if err != nil {
+			remove()
 			return Result{}, err
 		}
-		_, _ = c.run(plain, "rm -rf "+qdir, nil, detachAnswerLimit)
+		remove()
 		return Result{Stdout: out, Stderr: errOut, ExitCode: code}, nil
 	}
 }
@@ -219,27 +223,64 @@ func (c *Conn) reconnect(ctx context.Context, err error) bool {
 	return true
 }
 
+// stopOutcome is what the stop of a detached job found on the device.
+type stopOutcome int
+
+const (
+	// stopUnknown: the stop did not run, or found no job it could stop
+	// (nothing to read, or a base it may not trust).
+	stopUnknown stopOutcome = iota
+	// stopSignalled: the job's process group was running and was stopped.
+	stopSignalled
+	// stopEnded: the job's process group had already ended.
+	stopEnded
+)
+
+// String is how an error names the job after the stop, so it never claims a
+// stop that did not happen, nor leaves a finished job reading as one that
+// may run on.
+func (o stopOutcome) String() string {
+	switch o {
+	case stopSignalled:
+		return "was stopped"
+	case stopEnded:
+		return "had already finished"
+	}
+	return "may be running"
+}
+
 // stopDetached ends a detached job that ran past its limit through
 // detachStop's script. It runs on a fresh context, the job's own having
 // ended, and on a fresh connection, as the same account, when the job's own
 // is already gone: a Runner's child is told to stop by the same signal that
 // closes its connections, so the one the job started on is often closed by
-// the time the stop runs. It reports whether the stop signalled a job on the
-// device, so an error never claims a stop that did not happen.
-func (c *Conn) stopDetached(qdir string) bool {
+// the time the stop runs. It reports what the stop found.
+func (c *Conn) stopDetached(qdir string) stopOutcome {
 	ctx, cancel := context.WithTimeout(context.Background(), DetachStopBudget)
 	defer cancel()
 	ctx = withoutDetach(ctx)
 	stop := QuoteCommand([]string{"sh", "-c", detachStop(qdir)})
-	if res, err := c.run(ctx, stop, nil, 4096); err == nil || c.redial == nil {
-		return err == nil && res.ExitCode == 0
+	if res, err := c.run(ctx, stop, nil, detachAnswerLimit); err == nil || c.redial == nil {
+		return stopResult(res, err)
 	}
 	fresh, err := c.redial(ctx)
 	if err != nil {
-		return false
+		return stopUnknown
 	}
 	defer func() { _ = fresh.Close() }()
 	fresh.become, fresh.raw = c.become, c.raw
-	res, err := fresh.run(ctx, stop, nil, 4096)
-	return err == nil && res.ExitCode == 0
+	return stopResult(fresh.run(ctx, stop, nil, detachAnswerLimit))
+}
+
+// stopResult reads a stop script's answer.
+func stopResult(res Result, err error) stopOutcome {
+	switch {
+	case err != nil:
+		return stopUnknown
+	case res.ExitCode == 0:
+		return stopSignalled
+	case res.ExitCode == detachStopEnded:
+		return stopEnded
+	}
+	return stopUnknown
 }

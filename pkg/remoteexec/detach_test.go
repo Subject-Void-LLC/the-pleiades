@@ -203,11 +203,14 @@ func TestDetached_TheStopReconnectsWhenItsConnectionIsGone(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	child, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if child <= 0 {
+		t.Fatalf("the job never recorded its child's pid (%q), so nothing could show the stop reached it", raw)
+	}
 	// What a Runner's child sees at the limit: the signal that tells it to
 	// stop has already closed the connection the job was started on.
 	_ = conn.client.Close()
-	if !conn.stopDetached(QuoteArg(dir)) {
-		t.Error("the stop of a running job reported no stop")
+	if got := conn.stopDetached(QuoteArg(dir)); got != stopSignalled {
+		t.Errorf("the stop of a running job reported %q; want %q", got, stopSignalled)
 	}
 	if processAlive(child) {
 		t.Errorf("the job's child %d is still running after the stop", child)
@@ -416,5 +419,19 @@ func TestDetached_WhereItRanTellsTheTwoApart(t *testing.T) {
 		if err != nil || strings.TrimSpace(res.Stdout) != want {
 			t.Errorf("whereItRan = %q, %v; want %s", res.Stdout, err, want)
 		}
+	}
+}
+
+// TestDetached_OutputPastTheLimitLeavesNoJob: a finished job whose output
+// reads past the limit fails with ErrOutputTooLarge, and its directory,
+// which holds its command, is still removed.
+func TestDetached_OutputPastTheLimitLeavesNoJob(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	_, err := conn.run(WithDetach(context.Background()), `head -c 1000 /dev/zero | tr '\0' x`, nil, 100)
+	if !errors.Is(err, ErrOutputTooLarge) {
+		t.Fatalf("a detached run past its limit: %v; want ErrOutputTooLarge", err)
+	}
+	if left := jobsLeft(t, home); len(left) != 0 {
+		t.Errorf("job directories left behind: %v", left)
 	}
 }

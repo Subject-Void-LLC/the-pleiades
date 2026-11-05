@@ -143,11 +143,13 @@ func makeJobDir(t *testing.T, home, name, pid string) string {
 // runStopWithKillLogged runs detachStop's script for dir on this machine's sh
 // with HOME set to home and kill replaced by a shell function that records
 // its arguments and signals nothing, returning the exit status and the kill
-// calls. kill is a regular built-in, so the function stands in for it.
-func runStopWithKillLogged(t *testing.T, home, dir string) (int, []string) {
+// calls. kill is a regular built-in, so the function stands in for it. The
+// function answers a signal with killRC (0: the group was there; 1: it was
+// gone) and a kill -0 probe with 1, so the grace loop never waits.
+func runStopWithKillLogged(t *testing.T, home, dir string, killRC int) (int, []string) {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "kills")
-	script := "kill() { printf '%s\\n' \"$*\" >>" + QuoteArg(log) + "; return 1; }\n" + detachStop(QuoteArg(dir))
+	script := "kill() { printf '%s\\n' \"$*\" >>" + QuoteArg(log) + "; case $1 in -0) return 1;; esac; return " + strconv.Itoa(killRC) + "; }\n" + detachStop(QuoteArg(dir))
 	cmd := exec.Command("/bin/sh", "-c", script)
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	code := 0
@@ -183,9 +185,9 @@ func TestDetachStop_NeverSignalsAPidAJobCannotHave(t *testing.T) {
 	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
 	pid := strconv.Itoa(child.Process.Pid)
 	dir := makeJobDir(t, home, "control", pid)
-	code, kills := runStopWithKillLogged(t, home, dir)
-	if code != 0 || len(kills) == 0 || !slices.Contains(kills, "-TERM -"+pid) {
-		t.Fatalf("the control stop of pid %s: exit %d, kills %q; want exit 0 and a logged kill -TERM -%s", pid, code, kills, pid)
+	code, kills := runStopWithKillLogged(t, home, dir, 0)
+	if want := []string{"-TERM -" + pid, "-0 -" + pid, "-KILL -" + pid}; code != 0 || !slices.Equal(kills, want) {
+		t.Fatalf("the control stop of pid %s: exit %d, kills %q; want exit 0 and kills %q, the group only", pid, code, kills, want)
 	}
 	if !processAlive(child.Process.Pid) {
 		t.Fatal("the control's child was really signalled: kill is not the logging function, so no unsafe pid is tried")
@@ -196,7 +198,7 @@ func TestDetachStop_NeverSignalsAPidAJobCannotHave(t *testing.T) {
 
 	for i, pid := range []string{"", "0", "1", "01", "-1", " 1", "1 2", "+5", "not-a-pid", "12345678", "4294967297"} {
 		dir := makeJobDir(t, home, "p"+strconv.Itoa(i), pid)
-		code, kills := runStopWithKillLogged(t, home, dir)
+		code, kills := runStopWithKillLogged(t, home, dir, 0)
 		if code == 0 || len(kills) != 0 {
 			t.Errorf("pid %q: exit %d, kills %q; want a failed stop that signals nothing", pid, code, kills)
 		}
@@ -213,12 +215,50 @@ func TestDetachStop_NeverSignalsAPidAJobCannotHave(t *testing.T) {
 	if err := os.Symlink(filepath.Dir(target), filepath.Join(linkedHome, base)); err != nil {
 		t.Fatal(err)
 	}
-	code, kills = runStopWithKillLogged(t, linkedHome, filepath.Join(linkedHome, base, filepath.Base(target)))
+	code, kills = runStopWithKillLogged(t, linkedHome, filepath.Join(linkedHome, base, filepath.Base(target)), 0)
 	if code == 0 || len(kills) != 0 {
 		t.Errorf("a linked base: exit %d, kills %q; want a failed stop that signals nothing", code, kills)
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Error("a job through a linked base was removed")
+	}
+}
+
+// TestDetachStop_AJobWhoseGroupHadEndedIsNeverSignalledByPid: when the
+// job's process group is gone, the job has ended and its pid may belong to
+// another process by now, so nothing is sent to the pid alone; the stop
+// says the job had ended, and its directory is removed.
+func TestDetachStop_AJobWhoseGroupHadEndedIsNeverSignalledByPid(t *testing.T) {
+	home := t.TempDir()
+	dir := makeJobDir(t, home, "ended", "4242")
+	code, kills := runStopWithKillLogged(t, home, dir, 1)
+	if want := []string{"-TERM -4242"}; code != detachStopEnded || !slices.Equal(kills, want) {
+		t.Errorf("exit %d, kills %q; want exit %d and kills %q", code, kills, detachStopEnded, want)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Error("the ended job's directory was left")
+	}
+}
+
+// TestStopResult_NamesWhatTheStopFound: each exit status reads as its
+// outcome, and each outcome names the job's state in words an error can
+// carry.
+func TestStopResult_NamesWhatTheStopFound(t *testing.T) {
+	for _, tc := range []struct {
+		res  Result
+		err  error
+		want stopOutcome
+		text string
+	}{
+		{Result{ExitCode: 0}, nil, stopSignalled, "was stopped"},
+		{Result{ExitCode: detachStopEnded}, nil, stopEnded, "had already finished"},
+		{Result{ExitCode: 1}, nil, stopUnknown, "may be running"},
+		{Result{}, errors.New("closed"), stopUnknown, "may be running"},
+	} {
+		got := stopResult(tc.res, tc.err)
+		if got != tc.want || got.String() != tc.text {
+			t.Errorf("stopResult(%+v, %v) = %v %q; want %v %q", tc.res, tc.err, got, got.String(), tc.want, tc.text)
+		}
 	}
 }
 
@@ -234,7 +274,7 @@ func TestStopDetached_ReportsAStopOnlyWhenItSignalledAJob(t *testing.T) {
 	t.Setenv("HOME", home)
 	for _, pid := range []string{"", "not-a-pid"} {
 		dir := makeJobDir(t, home, "a"+strconv.Itoa(len(pid)), pid)
-		if conn.stopDetached(QuoteArg(dir)) {
+		if conn.stopDetached(QuoteArg(dir)) != stopUnknown {
 			t.Errorf("the stop of a job with pid %q reported a stop", pid)
 		}
 		if _, err := os.Stat(dir); err == nil {
@@ -247,7 +287,7 @@ func TestStopDetached_ReportsAStopOnlyWhenItSignalledAJob(t *testing.T) {
 		t.Skip("needs a /tmp the test's account does not own")
 	}
 	t.Setenv("HOME", "/tmp")
-	if conn.stopDetached(jobByName("b0")) {
+	if conn.stopDetached(jobByName("b0")) != stopUnknown {
 		t.Error("a by-name stop under a HOME the account does not own reported a stop")
 	}
 }
