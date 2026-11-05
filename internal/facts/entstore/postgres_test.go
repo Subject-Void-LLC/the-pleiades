@@ -39,6 +39,14 @@ var (
 // Controller migrates one, and one device in it.
 func postgresStore(t *testing.T) (facts.Store, string) {
 	t.Helper()
+	client, device := postgresClient(t)
+	return entstore.New(client), device
+}
+
+// postgresClient returns a client over a fresh database migrated the way the
+// Controller migrates one, and the ID of one device in it.
+func postgresClient(t *testing.T) (*ent.Client, string) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("starts a PostgreSQL container")
 	}
@@ -80,7 +88,7 @@ func postgresStore(t *testing.T) (facts.Store, string) {
 	}
 	client := ent.NewClient(ent.Driver(entsql.OpenDB("postgres", db)))
 	dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(context.Background())
-	return entstore.New(client), dev.DeviceID
+	return client, dev.DeviceID
 }
 
 // TestStore_ConformanceOnPostgres holds the Controller's store to the rules

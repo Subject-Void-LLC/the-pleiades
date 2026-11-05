@@ -21851,3 +21851,146 @@ the string becomes them as masked text, otherwise it keeps its spelling. Both lo
 `Attr` walks structured values through `Value`.
 
 **Lesson.** A masker that converts a value before matching must match every spelling the conversion can produce.
+
+## 919. A facts batch whose job or device ID held a NUL failed every PostgreSQL query made with it, so the Controller handed it back for redelivery until its delivery budget ran out (a repeat of 208, through the dialect gap of 371) (fixed before push)
+
+**Symptom.** Found by an API-model review sweep on 2026-11-04 (the facts verdicts, item 7); measured and fixed on
+2026-11-05 on `fix/facts-sweep-security`. A facts batch whose device ID held a NUL failed its PostgreSQL query with
+SQLSTATE 22021 ("invalid byte sequence for encoding UTF8: 0x00"). `entstore.Subscriber.Handle` returned the error, so
+the bus redelivered the batch until its delivery budget ran out. Any Runner may publish on any job's facts subject, so
+one Runner could do this to any job. `TestSubscriber_APoisonedBatchIsAcknowledgedOnPostgres`, on real PostgreSQL 15,
+showed it on the old code: the device case returned the 22021 error, and the job case reached the admission check,
+which in production queries with the IDs.
+
+The reviewer's claim was different, and measurement refuted it. The verdict said a NUL or an out-of-range number
+(`json.Number` "1e200000") in a fact's value would poison the batch. Both are stored fine: the store keeps the value's
+canonical JSON as a string inside its JSON column (payload `{"json": "<text>"}`), so `jsonb` never sees `\u0000`.
+Invalid UTF-8 cannot ride the wire at all, since `encoding/json` writes it as U+FFFD.
+
+**Root cause.** `Handle` checked only that each ID was not empty. It acknowledged the permanent failures it knew by
+name (a batch it cannot decode, nothing that passes, an unknown device, a job never dispatched) and returned every
+other error for redelivery. A value the server refuses as data is just as permanent, but it came back as a plain store
+error. SQLite keeps a NUL and simply matches no row, so the SQLite-backed tests could not see it.
+
+**Why 208 and 371 did not hold.** 208 is this class: a consumer that splits "retry" from "give up" on the wrong axis
+turns a permanent failure into a poison pill. Its fix was a sentinel (`journal.ErrUnstorable`) for the values the
+journal's own store validates, in that one consumer. It left no shared way to tell a value the server refuses from a
+server that is down, and the facts subscriber was new code with its own list of cases. 371's lesson (a property that
+holds on the test dialect needs one run on the production dialect) was applied to sign-in; no test sent the facts
+subscriber a malformed ID on PostgreSQL.
+
+**Fix.** `9221ff2f`: `wellFormedID` (not empty, at most 256 bytes, valid UTF-8, no control characters) checks both IDs
+before any query, and a batch that fails it is acknowledged and logged as malformed. `ent.IsDataException`
+(`internal/ent/data_exception.go`, hand written) reports SQLSTATE class 22 anywhere in an error's chain, and `Handle`
+acknowledges and logs such a failure. Class 23 is left out on purpose: a unique violation is how two replicas racing
+on one chain learn to retry. `TestSubscriber_ADataExceptionIsAcknowledgedAndOthersRedelivered` uses real server
+errors: 22021, 22003 and 22012 are acknowledged; 23505 and a connection error are redelivered.
+
+**Lesson.** Reproduce a reviewer's failure on the production dialect before fixing it. Here the path the reviewer
+named was safe and a neighboring one (the IDs) was not. A consumer decides between acknowledging and redelivering by
+whether the same bytes could ever succeed, and the server's own error class answers that better than a list of cases.
+
+## 920. A fact whose value held a field named like a secret was stored, because Prepare held only the fact's own key to the secret-name rule (a repeat of 696, and in kind of 884) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 2); fixed on 2026-11-05.
+`facts.Prepare` asked `SecretName` of the fact's key only (`nameOf(key)` in `facts.go`). An object fact such as
+`{"db": {"password": "..."}}`, or a list of objects each with an `api_token` field, passed and was stored whole: in
+the Crawl CLI's fact store, and again on the Controller, since `facts.Verify` calls `Prepare`. Only a known secret
+value, or text shaped like a secret, would have been caught.
+
+**Root cause.** A name rule applied at the top level only. It asked whether the fact is named for a secret, not
+whether the fact carries a field that is.
+
+**Why 696 and 884 did not hold.** 696 fixed this shape for device vars through `redact.CleanVars`, which the fact
+guard does not call. 884 made the facts digest scrub walk every depth, but only for raw digest fields; the
+secret-name check beside it stayed at the key. Both lessons say a guard over data walks the whole value, and neither
+fix reached this check. The verdict also named 854; that entry is about which keys may skip the name rule, so it is a
+neighbor of this one, not its class.
+
+**Fix.** `5999dd16`: `secretField` (`internal/facts/nested.go`) walks every field name at any depth of the normalized
+value with the same `SecretName` check. A fact with such a field is refused with a reason that names the field
+(`%q`), never the value. Tests: `TestPrepare_ASecretNamedInsideAValueIsNotStored` and
+`TestVerify_ASecretNamedInsideAPublishedValueIsDropped`, built from the production guard (`redact.SecretShaped`,
+`redact.SecretName`). Checked: no built-in declared object fact (the `package.`, `service.`, `file.`, `port.`, `user.`
+and `group.` families of `facts.gather`, and the `net.catalyst` and `net.ios` lists) has a field name the rule
+matches, so nothing a built-in method reports is newly refused.
+
+**Lesson.** A name rule over structured data is asked of every name in the value, not only of the outer one.
+
+## 921. VerifyChain passed unchained values at the start of a device's fact history as rows from before the chain, so anyone who could write the store could add rows there that verified (a repeat in kind of 154 and 854) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 3); fixed on 2026-11-05.
+`facts.VerifyChain` counted values with no chain and no provenance at the start of a history as `Unchained` and did
+not check them, as rows stored before Phase 41b. `chain_test.go` asserted that behavior. Anyone who could write the
+store could put such rows at the head of a device's history, and the verdict still said the chain held.
+
+**Root cause.** An exemption for old rows, inferred from what such a row lacks. Empty fields are what anyone can
+write, so the shape that marked a row as old marked a forged row equally well. And there are no old rows: the project
+is before 1.0, and nothing deployed predates the chain (the owner's rule is forward only before 1.0), so the
+exemption protected nothing.
+
+**Why 154 and 854 did not hold.** 154 is a zero value given a special meaning that a caller can produce without
+meaning it; its fix was one field of a test harness. 854's lesson (an exemption is declared by name, never inferred
+from a shape that other uses share) was written on 2026-11-03, a day after the chain landed (`462786a6`,
+2026-11-02), and nobody went back to the chain with it.
+
+**Fix.** `3e318af1`: a link with no chain is a break wherever it stands. `Verdict.Unchained` is removed, with its
+line in the CLI's output (`cmd/pleiades/facts_cmd.go`), its field in `internal/apispec` and the generated OpenAPI.
+Test: `TestVerifyChain_AnUnchainedValueAtTheStartIsABreak`. The chain was never in a release (it is not in `v0.3.0`),
+so no released output changes.
+
+**Lesson.** An integrity check does not exempt data by what it lacks. Before 1.0 there is no legacy data to exempt.
+
+## 922. The CLI's fact file store renamed its state file into place unsynced, so a crash could leave an empty state file that refused the device's facts until removed by hand (a repeat of 566) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 12); fixed on 2026-11-05.
+`writeState` (`internal/facts/file.go`) wrote a temporary file and renamed it into place with no sync of the file and
+none of the directory. A crash could persist the rename but not the data: an empty state file, or one filled with
+zero bytes on XFS. `readState` refused such a file forever, so `Record`, `Current` and `History` failed for that
+device until someone deleted the file by hand. The history append was not synced either, though the state file names
+what it holds. `TestFileStore_AnEmptyStateFileIsReadAsNoState` failed on the old code with `dev1.state.json: EOF`.
+
+**Root cause.** A rename makes the change of name atomic, not the content durable. Without a sync before the rename,
+a crash can leave the two on disk in the wrong order.
+
+**Why 566 did not hold.** 566 (and 46 before it) writes a key through a synced temporary file. 830 gave this store
+its temporary file and rename and left out the sync. A reader that refused an empty file then turned one lost write
+into a permanent refusal, which is 566's "refuses forever" again.
+
+**Fix.** `b2f7ff6b`: the temporary state file is synced before the rename, and the directory after it on a
+best-effort basis (`syncDir` in `lock_unix.go`; a no-op on Windows, where the read-only directory handle cannot be
+flushed, and on other platforms). The history append is synced before the state that names it. A state file that is
+empty or holds nothing but NUL bytes reads as no state: the history in `<device>.jsonl` is kept, and what is lost
+(last-confirmed times and volatile values) the next run observes again. Test:
+`TestFileStore_AnEmptyStateFileIsReadAsNoState` (empty and zero-filled). The syncs themselves cannot be tested
+without a real crash; that part rests on reading the code.
+
+**Lesson.** A file written by temporary name and rename is synced before the rename, and its reader decides what an
+empty file means rather than refusing it forever.
+
+## 923. A late change stored after a later confirmation ended the history at the late value, so the next run recorded a change nobody saw (a repeat of 831, a case its fix left) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 13); fixed on 2026-11-05. Both
+fact stores keep a value confirmed again only as a last sighting, not as a new history row. Run y confirmed value A
+at order 11 and was stored first; run x's change to B at order 10 was stored second. The history then ended at B
+while `Current` said A. Run z at order 12 found A unchanged and appended A under z: a change that no run saw. The
+Crawl file store (`file_store.go`, `Record`) and the Controller's ent store (`entstore/store.go`, `record`) both did
+this. The conformance case "a late change keeps a later confirmation in the history" in `factstest`, run for the file
+store and for ent on SQLite and on PostgreSQL, was red on all three before the fix.
+
+**Root cause.** 831's fix decides the current value by when each value was last seen, but the history holds only
+changes. A late change stored between a value and its later confirmation leaves that confirmation with no row of its
+own, so the history's last row disagrees with the current value, and the next run compares against the late one.
+
+**Why 831 did not hold.** 831's tests asked whether a late value replaced the current one, and after its fix it did
+not. Neither asked what the history looked like afterward, or what the next run in order would record.
+
+**Fix.** `185e1833`: `facts.Resumed` (`internal/facts/late.go`), used by both stores. After a late change is stored,
+the value that was current before it is written again, dated at its last sighting and attributed to that run, when
+that sighting is after the late change and no stored value lies between them. Tests: the conformance case above, and
+`TestResumed_OnlyAConfirmationAfterTheLateChangeWithNothingBetween` (eight cases). Two older tests asserted the old
+history shape and were updated: `TestFileStore_ALateObservationDoesNotReplaceANewerOne` and
+`TestStore_ALateBatchDoesNotReplaceANewerValue`.
+
+**Lesson.** A fix for out-of-order arrival is tested by what the next in-order arrival does, not only by the state
+just after the late one.

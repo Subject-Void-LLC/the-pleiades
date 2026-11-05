@@ -15,18 +15,23 @@ import (
 // time it runs.
 const dataExceptionClass = "22"
 
-// IsDataException reports whether err, anywhere in its chain, is the
-// PostgreSQL server refusing a value (SQLSTATE class 22). A consumer that
-// would hand a failed message back to be redelivered acknowledges such a
-// message instead, since redelivering it can only fail again until its
-// delivery budget runs out. Class 23 (integrity) is not included: a unique
-// violation is how two replicas racing for one row learn to try again.
-func IsDataException(err error) bool {
+// DataExceptionCode returns the SQLSTATE of err when err, anywhere in its
+// chain, is the PostgreSQL server refusing a value (class 22), and whether
+// it is. A consumer that would hand a failed message back to be redelivered
+// acknowledges such a message instead, since redelivering it can only fail
+// again until its delivery budget runs out. Class 23 (integrity) is not
+// included: a unique violation is how two replicas racing for one row learn
+// to try again. Only the code is returned: some class 22 messages quote the
+// value refused, which a log must not repeat.
+func DataExceptionCode(err error) (string, bool) {
 	var pqErr *pq.Error
 	if !errors.As(err, &pqErr) {
-		return false
+		return "", false
 	}
 	// A code is five characters; its first two are its class.
 	code := string(pqErr.Code)
-	return len(code) == 5 && code[:2] == dataExceptionClass
+	if len(code) != 5 || code[:2] != dataExceptionClass {
+		return "", false
+	}
+	return code, true
 }

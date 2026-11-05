@@ -21,6 +21,7 @@ import (
 	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -125,6 +126,12 @@ func (c *ResultConsumer) Subscribe(ctx context.Context, bus event.Bus) error {
 // lands once the row exists. This comment used to say the row always came
 // first, and a result acknowledged on that belief was lost for good.
 //
+// A result whose job or device ID cannot name one (internal/poison's
+// CheckID) is acknowledged before any query, and so is one the database
+// refuses as data (SQLSTATE class 22): no delivery of either can be stored.
+// A NUL in the reason, which a device's output can carry, is replaced
+// rather than costing the result.
+//
 // A store failure IS retried, because a database being briefly
 // unavailable is exactly what redelivery exists for.
 func (c *ResultConsumer) Handle(evt event.Event) error {
@@ -135,6 +142,20 @@ func (c *ResultConsumer) Handle(evt event.Event) error {
 			slog.String("error", err.Error()))
 		return nil
 	}
+
+	// Before any query: an ID PostgreSQL refuses (a NUL) failed every query
+	// made with it, so the result was redelivered until its budget ran out
+	// (FAILURE_PATTERNS 924).
+	if err := errors.Join(poison.CheckID(payload.JobID), poison.CheckID(payload.DeviceID)); err != nil {
+		c.logger.Error("dropping a job result whose job or device id cannot name one",
+			slog.String("event", evt.ID),
+			slog.String("reason", err.Error()))
+		return nil
+	}
+	// The reason is free text a device can supply (its own output), and one
+	// NUL in it made PostgreSQL refuse the whole result, losing the device's
+	// outcome. The NUL is replaced; the rest is kept.
+	payload.Reason = poison.CleanText(payload.Reason)
 
 	result, err := resultFor(payload.Outcome)
 	if err != nil {
@@ -178,6 +199,15 @@ func (c *ResultConsumer) Handle(evt event.Event) error {
 			slog.String("device_id", payload.DeviceID))
 		return nil
 	case err != nil:
+		// The database refused a value in the result itself (SQLSTATE class
+		// 22), which no delivery of it can change. Only the code is logged.
+		if code, ok := poison.Unstorable(err); ok {
+			c.logger.Error("dropping a job result the database refuses as data",
+				slog.String("job_id", payload.JobID),
+				slog.String("device_id", payload.DeviceID),
+				slog.String("sqlstate", code))
+			return nil
+		}
 		return fmt.Errorf("failed to record result for device %s on job %s: %w", payload.DeviceID, payload.JobID, err)
 	}
 

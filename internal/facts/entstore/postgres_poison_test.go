@@ -9,13 +9,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
 )
 
 // unchecked is an entry carrying the hash Prepare would give its value,
@@ -50,7 +55,9 @@ func TestSubscriber_APoisonedBatchIsAcknowledgedOnPostgres(t *testing.T) {
 			return facts.Batch{JobID: "j\x001", DeviceID: device, Entries: []facts.Entry{kernel()}}
 		}, nil},
 		// Invalid UTF-8 is no case here: encoding/json writes it as U+FFFD
-		// before the batch is published, so no batch carries it.
+		// when a Runner publishes, and the Controller's decoder does the same
+		// to raw bytes a hand-made message sends, so no batch reaches the
+		// database carrying it.
 		"a control character in the device": {func(string) facts.Batch {
 			return facts.Batch{JobID: "j1", DeviceID: "web\n1", Entries: []facts.Entry{kernel()}}
 		}, nil},
@@ -185,8 +192,8 @@ func TestSubscriber_ADataExceptionIsAcknowledgedAndOthersRedelivered(t *testing.
 		"a connection that went away": {errors.New("facts: driver: bad connection"), false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := ent.IsDataException(tc.err); got != tc.acknowledge {
-				t.Fatalf("IsDataException(%v) = %v, want %v", tc.err, got, tc.acknowledge)
+			if code, got := poison.Unstorable(tc.err); got != tc.acknowledge || got && len(code) != 5 {
+				t.Fatalf("Unstorable(%v) = %q, %v, want %v", tc.err, code, got, tc.acknowledge)
 			}
 			store, device := postgresStore(t)
 			sub := entstore.NewSubscriber(failingStore{Store: store, err: tc.err}, nil, nil)
@@ -197,4 +204,90 @@ func TestSubscriber_ADataExceptionIsAcknowledgedAndOthersRedelivered(t *testing.
 			}
 		})
 	}
+}
+
+// TestConsumers_ARefusedValueIsAcknowledgedOnPostgres holds the run journal
+// and job result consumers to what the facts consumer keeps, on the dialect
+// that refuses what SQLite takes (FAILURE_PATTERNS 924). They live here
+// because this package has the PostgreSQL harness: a NUL in a journal
+// batch's IDs or in a task name, and in a result's IDs, failed every
+// delivery and was handed back until its budget ran out, and a NUL a device
+// put in a result's reason lost the device's outcome.
+func TestConsumers_ARefusedValueIsAcknowledgedOnPostgres(t *testing.T) {
+	entryFor := func(job, device, task string) engine.JournalEntry {
+		return engine.JournalEntry{
+			JobID: job, DeviceID: device, RunID: "run-1", Sequence: 1, NodeID: "tasks[0]",
+			DAGID: "a-runbook", FQCN: "exec.command", TaskName: task, Outcome: engine.OutcomeChanged,
+			StartedAt: time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC), FinishedAt: time.Date(2026, 11, 5, 10, 0, 1, 0, time.UTC),
+		}
+	}
+	journalCases := map[string]struct {
+		job, device, task string
+	}{
+		"a journal batch with a NUL in the job":    {"job\x001", "dev-1", "a task"},
+		"a journal batch with a NUL in the device": {"job-1", "dev\x001", "a task"},
+		"a journal batch with a NUL in a task":     {"job-1", "dev-1", "a\x00task"},
+	}
+	for name, tc := range journalCases {
+		t.Run(name, func(t *testing.T) {
+			client, _ := postgresClient(t)
+			sub := journal.NewSubscriber(journal.NewEntStore(client), slog.New(slog.DiscardHandler))
+			batch := journal.Batch{JobID: tc.job, DeviceID: tc.device, Entries: []engine.JournalEntry{entryFor(tc.job, tc.device, tc.task)}}
+			data, err := json.Marshal(batch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := sub.Handle(event.Event{ID: "e1", Type: journal.EventType, Data: data}); err != nil {
+				t.Fatalf("Handle = %v; a batch that can never be stored was handed back to be redelivered", err)
+			}
+		})
+	}
+
+	t.Run("a result with a NUL in the job or the device", func(t *testing.T) {
+		client, _ := postgresClient(t)
+		consumer := dispatch.NewResultConsumer(dispatch.NewEntJobStore(client), slog.New(slog.DiscardHandler))
+		for _, ids := range [][2]string{{"job\x001", "dev-1"}, {"job-1", "dev\x001"}} {
+			if err := consumer.Handle(resultEventOf(t, ids[0], ids[1], "")); err != nil {
+				t.Fatalf("Handle(%q, %q) = %v; a result that can never be stored was handed back", ids[0], ids[1], err)
+			}
+		}
+	})
+
+	t.Run("a result whose reason holds a NUL is recorded", func(t *testing.T) {
+		client, _ := postgresClient(t)
+		store := dispatch.NewEntJobStore(client)
+		ctx := context.Background()
+		job := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "launcher"}
+		if err := store.Create(ctx, job); err != nil {
+			t.Fatal(err)
+		}
+		_, fence, err := store.BeginFanOut(ctx, job.JobID, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.RecordTask(ctx, job.JobID, fence, dispatch.JobTask{DeviceID: "dev-1", DeviceName: "dev-1", Outcome: dispatch.OutcomeDispatched}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SettleRunning(ctx, job.JobID, fence, 1, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		consumer := dispatch.NewResultConsumer(store, slog.New(slog.DiscardHandler))
+		if err := consumer.Handle(resultEventOf(t, job.JobID, "dev-1", "exit 1: bad\x00byte")); err != nil {
+			t.Fatalf("Handle = %v; the device's result was not recorded", err)
+		}
+		got, _, err := store.Get(ctx, job.JobID)
+		if err != nil || got.State != "completed" {
+			t.Fatalf("job = %+v, %v; want it ended by the device's recorded result", got, err)
+		}
+	})
+}
+
+// resultEventOf is a failed result the way a Runner publishes one.
+func resultEventOf(t *testing.T, jobID, deviceID, reason string) event.Event {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"id": jobID + ":" + deviceID, "job_id": jobID, "device_id": deviceID, "outcome": "failed", "reason": reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event.Event{ID: "r1", Data: body}
 }

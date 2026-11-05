@@ -18,6 +18,7 @@ import (
 	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -84,7 +85,9 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 // message at the head of the consumer group and blocks every batch
 // behind it, which is a worse outcome than losing the one batch that was
 // already unusable. It is acknowledged and logged at error, exactly like
-// an undecodable one.
+// an undecodable one. So is a batch whose job or device ID cannot name
+// one (internal/poison's CheckID), checked before any query, and one the
+// database itself refuses as data (SQLSTATE class 22).
 func (s *Subscriber) Handle(evt event.Event) error {
 	var batch Batch
 	if err := json.Unmarshal(evt.Data, &batch); err != nil {
@@ -116,6 +119,21 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		}
 	}
 
+	// Before any query: an ID PostgreSQL refuses (a NUL) failed every query
+	// made with it, the admission check's included, so the batch was
+	// redelivered until its budget ran out (FAILURE_PATTERNS 924). A batch
+	// may name no device; one it names is held to the same rule.
+	idErr := poison.CheckID(batch.JobID)
+	if batch.DeviceID != "" {
+		idErr = errors.Join(idErr, poison.CheckID(batch.DeviceID))
+	}
+	if idErr != nil {
+		s.logger.Error("dropping a run journal batch whose job or device id cannot name one",
+			slog.String("event", evt.ID),
+			slog.String("reason", idErr.Error()))
+		return nil
+	}
+
 	// A fresh context rather than one carried from the handler's caller:
 	// event.Bus.Subscribe hands a decoded Event and no context, and the
 	// write must not inherit a deadline nobody set for it.
@@ -145,6 +163,19 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			slog.Int("entries", len(batch.Entries)),
 			slog.Int("written", written),
 			slog.String("error", err.Error()))
+		return nil
+	}
+	// The database refused a value in the batch itself (SQLSTATE class 22),
+	// which no delivery of it can change. Only the code is logged: some such
+	// messages quote the value.
+	if code, ok := poison.Unstorable(err); ok {
+		s.logger.Error("dropping a run journal batch the database refuses as data",
+			slog.String("job", batch.JobID),
+			slog.String("device", batch.DeviceID),
+			slog.Int("attempt", batch.Attempt),
+			slog.Int("entries", len(batch.Entries)),
+			slog.Int("written", written),
+			slog.String("sqlstate", code))
 		return nil
 	}
 	if err != nil {
