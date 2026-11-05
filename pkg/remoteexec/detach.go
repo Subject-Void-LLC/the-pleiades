@@ -77,8 +77,12 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 	started, err := c.run(plain, QuoteCommand([]string{"sh", "-c", detachStart, "start", c.jobShell(), strconv.Itoa(len(command)), name}), strings.NewReader(command), detachAnswerLimit)
 	if err != nil {
 		// The command may have reached the device and started before the
-		// call failed: stop it by the name it was given.
-		c.stopDetached(jobByName(name))
+		// call failed: stop it by the name it was given. A Raw view's device
+		// has no sh to have started it, and its CLI would take the stop
+		// script for a command.
+		if !c.raw {
+			c.stopDetached(jobByName(name))
+		}
 		return Result{}, err
 	}
 	switch started.ExitCode {
@@ -215,24 +219,18 @@ func (c *Conn) reconnect(ctx context.Context, err error) bool {
 	return true
 }
 
-// stopDetached ends a detached job that ran past its limit: SIGTERM to its
-// process group (or the process, with no setsid), SIGKILL after a grace,
-// then its directory removed. The group is named as -pid after the signal,
-// not after "--", which dash's kill refuses. It runs on a fresh context, the
-// job's own having ended, and on a fresh connection, as the same account,
-// when the job's own is already gone: a Runner's child is told to stop by
-// the same signal that closes its connections, so the one the job started on
-// is often closed by the time the stop runs. It reports whether the stop ran
-// on the device, so an error never claims a stop that did not happen.
+// stopDetached ends a detached job that ran past its limit through
+// detachStop's script. It runs on a fresh context, the job's own having
+// ended, and on a fresh connection, as the same account, when the job's own
+// is already gone: a Runner's child is told to stop by the same signal that
+// closes its connections, so the one the job started on is often closed by
+// the time the stop runs. It reports whether the stop signalled a job on the
+// device, so an error never claims a stop that did not happen.
 func (c *Conn) stopDetached(qdir string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), DetachStopBudget)
 	defer cancel()
 	ctx = withoutDetach(ctx)
-	stop := QuoteCommand([]string{"sh", "-c", `p=$(cat ` + qdir + `/pid 2>/dev/null) || exit 0
-kill -TERM -"$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
-i=0; while [ $i -lt 3 ] && kill -0 "$p" 2>/dev/null; do sleep 1; i=$((i+1)); done
-kill -KILL -"$p" 2>/dev/null || kill -KILL "$p" 2>/dev/null
-rm -rf ` + qdir})
+	stop := QuoteCommand([]string{"sh", "-c", detachStop(qdir)})
 	if res, err := c.run(ctx, stop, nil, 4096); err == nil || c.redial == nil {
 		return err == nil && res.ExitCode == 0
 	}

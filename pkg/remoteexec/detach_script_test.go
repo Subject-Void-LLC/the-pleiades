@@ -10,8 +10,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -113,6 +117,160 @@ func TestAfterMarker_SkipsStartupOutput(t *testing.T) {
 		got, ok := afterMarker(tc.in, "m")
 		if ok != tc.ok || got != tc.want {
 			t.Errorf("afterMarker(%q) = %q, %v; want %q, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// makeJobDir makes a job directory under home holding a command and, unless
+// pid is empty, a pid file, as a start cut off at either point leaves it.
+func makeJobDir(t *testing.T, home, name, pid string) string {
+	t.Helper()
+	dir := filepath.Join(home, ".pleiades-async-"+strconv.Itoa(os.Getuid()), "job."+name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmd"), []byte("echo secret-bearing command"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if pid != "" {
+		if err := os.WriteFile(filepath.Join(dir, "pid"), []byte(pid+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// runStopWithKillLogged runs detachStop's script for dir on this machine's sh
+// with HOME set to home and kill replaced by a shell function that records
+// its arguments and signals nothing, returning the exit status and the kill
+// calls. kill is a regular built-in, so the function stands in for it.
+func runStopWithKillLogged(t *testing.T, home, dir string) (int, []string) {
+	t.Helper()
+	log := filepath.Join(t.TempDir(), "kills")
+	script := "kill() { printf '%s\\n' \"$*\" >>" + QuoteArg(log) + "; return 1; }\n" + detachStop(QuoteArg(dir))
+	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Fatalf("run the stop script: %v", err)
+		}
+		code = exit.ExitCode()
+	}
+	raw, _ := os.ReadFile(log)
+	return code, strings.FieldsFunc(string(raw), func(r rune) bool { return r == '\n' })
+}
+
+// TestDetachStop_NeverSignalsAPidAJobCannotHave: a pid file holding what $!
+// never is (empty, 0, 1, a leading zero, a sign, spaces, a value that would
+// wrap) signals nothing, and the job's directory, which holds its command,
+// is removed; a base that is a link is neither read nor removed. The script
+// runs on this machine, so kill is a logging function here: kill -TERM -1
+// from a real kill would signal every process this account owns, which is
+// how this test's first version, run on the old script, took down the WSL
+// machine it ran on. A control proves the function is what the script calls
+// before any such pid is tried.
+func TestDetachStop_NeverSignalsAPidAJobCannotHave(t *testing.T) {
+	home := t.TempDir()
+
+	// The control: a valid pid (a child of this test's own) reaches the
+	// logging kill, and the child is never really signalled.
+	child := exec.Command("sleep", "30")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	pid := strconv.Itoa(child.Process.Pid)
+	dir := makeJobDir(t, home, "control", pid)
+	code, kills := runStopWithKillLogged(t, home, dir)
+	if code != 0 || len(kills) == 0 || !slices.Contains(kills, "-TERM -"+pid) {
+		t.Fatalf("the control stop of pid %s: exit %d, kills %q; want exit 0 and a logged kill -TERM -%s", pid, code, kills, pid)
+	}
+	if !processAlive(child.Process.Pid) {
+		t.Fatal("the control's child was really signalled: kill is not the logging function, so no unsafe pid is tried")
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Error("the control's job directory was left")
+	}
+
+	for i, pid := range []string{"", "0", "1", "01", "-1", " 1", "1 2", "+5", "not-a-pid", "12345678", "4294967297"} {
+		dir := makeJobDir(t, home, "p"+strconv.Itoa(i), pid)
+		code, kills := runStopWithKillLogged(t, home, dir)
+		if code == 0 || len(kills) != 0 {
+			t.Errorf("pid %q: exit %d, kills %q; want a failed stop that signals nothing", pid, code, kills)
+		}
+		if _, err := os.Stat(dir); err == nil {
+			t.Errorf("pid %q: the job directory, which holds its command, was left", pid)
+		}
+	}
+
+	// A base that is a link (to a job with a valid pid) is not trusted.
+	other := t.TempDir()
+	target := makeJobDir(t, other, "linked", pid)
+	linkedHome := t.TempDir()
+	base := filepath.Base(filepath.Dir(target))
+	if err := os.Symlink(filepath.Dir(target), filepath.Join(linkedHome, base)); err != nil {
+		t.Fatal(err)
+	}
+	code, kills = runStopWithKillLogged(t, linkedHome, filepath.Join(linkedHome, base, filepath.Base(target)))
+	if code == 0 || len(kills) != 0 {
+		t.Errorf("a linked base: exit %d, kills %q; want a failed stop that signals nothing", code, kills)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Error("a job through a linked base was removed")
+	}
+}
+
+// TestStopDetached_ReportsAStopOnlyWhenItSignalledAJob: through the real
+// connection, a job directory with no pid (a start cut off before writing
+// it) or one that is not a number is removed and the stop reports that it
+// stopped nothing; a by-name stop under a HOME the account does not own
+// finds no job. Only pids no kill could act on belong here: this server's
+// commands run on this machine, so 1, 0 and the like are tried only in
+// TestDetachStop_NeverSignalsAPidAJobCannotHave, against a logging kill.
+func TestStopDetached_ReportsAStopOnlyWhenItSignalledAJob(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	t.Setenv("HOME", home)
+	for _, pid := range []string{"", "not-a-pid"} {
+		dir := makeJobDir(t, home, "a"+strconv.Itoa(len(pid)), pid)
+		if conn.stopDetached(QuoteArg(dir)) {
+			t.Errorf("the stop of a job with pid %q reported a stop", pid)
+		}
+		if _, err := os.Stat(dir); err == nil {
+			t.Errorf("the job directory with pid %q, which holds its command, was left", pid)
+		}
+	}
+
+	info, err := os.Stat("/tmp")
+	if os.Getuid() == 0 || err != nil || info.Sys().(*syscall.Stat_t).Uid == uint32(os.Getuid()) {
+		t.Skip("needs a /tmp the test's account does not own")
+	}
+	t.Setenv("HOME", "/tmp")
+	if conn.stopDetached(jobByName("b0")) {
+		t.Error("a by-name stop under a HOME the account does not own reported a stop")
+	}
+}
+
+// TestDetached_AFailedStartOnARawViewSendsNoStop: a Raw view's device has no
+// sh to have started a job, so a failed start sends no stop script (which its
+// CLI would take as a command); a plain view's failed start does, on a fresh
+// login.
+func TestDetached_AFailedStartOnARawViewSendsNoStop(t *testing.T) {
+	for _, raw := range []bool{true, false} {
+		conn, logins, _, _ := detachedConn(t)
+		view := conn
+		if raw {
+			view = conn.Raw()
+		}
+		_ = conn.client.Close()
+		before := logins()
+		if _, err := view.Run(WithDetach(context.Background()), "true"); err == nil {
+			t.Fatalf("raw %v: a detached run on a closed connection succeeded", raw)
+		}
+		stopped := logins() > before
+		if stopped == raw {
+			t.Errorf("raw %v: a stop was sent: %v", raw, stopped)
 		}
 	}
 }

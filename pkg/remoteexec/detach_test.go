@@ -206,7 +206,9 @@ func TestDetached_TheStopReconnectsWhenItsConnectionIsGone(t *testing.T) {
 	// What a Runner's child sees at the limit: the signal that tells it to
 	// stop has already closed the connection the job was started on.
 	_ = conn.client.Close()
-	conn.stopDetached(QuoteArg(dir))
+	if !conn.stopDetached(QuoteArg(dir)) {
+		t.Error("the stop of a running job reported no stop")
+	}
 	if processAlive(child) {
 		t.Errorf("the job's child %d is still running after the stop", child)
 	}

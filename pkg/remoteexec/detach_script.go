@@ -105,6 +105,37 @@ func jobByName(name string) string {
 	return `"$HOME/.pleiades-async-$(id -u)/job.` + name + `"`
 }
 
+// detachStop returns the script that stops the job in qdir (a directory as
+// the device's shell spells it: QuoteArg of a jobDir, or jobByName): SIGTERM
+// to its process group (or the process, with no setsid), SIGKILL after a
+// grace, then its directory removed. The group is named as -pid after the
+// signal, not after "--", which dash's kill refuses. It exits 0 only when the
+// job had a pid it could be stopped by and the stop ran to its end (a job
+// that had already ended by then is stopped all the same).
+//
+//   - The job's base must be a directory, not a link, owned by the account,
+//     inside a HOME the account owns, as detachStart requires: otherwise the
+//     pid file is another account's to write, and nothing is read or removed.
+//   - The pid must be what $! can be: digits with no leading zero, at most
+//     seven of them (Linux's pid_max is 4194304, so no value wraps), and more
+//     than 1. kill -TERM -1 signals every process the account may signal,
+//     and -0 the stop's own group; a value read from a file is never trusted
+//     that far. A job with no such pid (a start cut off before writing it)
+//     has its directory, which holds its command, removed, and nothing is
+//     signalled.
+func detachStop(qdir string) string {
+	return `d=` + qdir + `
+b=${d%/*}
+[ -d "$b" ] && [ ! -L "$b" ] && [ -O "$b" ] && [ -O "${b%/*}" ] || exit 1
+p=$(cat "$d/pid" 2>/dev/null) || p=
+case $p in ''|0*|*[!0-9]*) rm -rf "$d"; exit 1;; esac
+[ ${#p} -le 7 ] && [ "$p" -gt 1 ] || { rm -rf "$d"; exit 1; }
+kill -TERM -"$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
+i=0; while [ $i -lt 3 ] && kill -0 "$p" 2>/dev/null; do sleep 1; i=$((i+1)); done
+kill -KILL -"$p" 2>/dev/null || kill -KILL "$p" 2>/dev/null
+rm -rf "$d"`
+}
+
 // lastLine returns the last non-empty line of text, trimmed: a start
 // script's own answer, after whatever a login shell's startup files printed.
 func lastLine(text string) string {
