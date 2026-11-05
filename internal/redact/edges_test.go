@@ -39,11 +39,11 @@ func TestPackageTextUsesTheSharedState(t *testing.T) {
 // TestAttrLeavesNonStringValuesAlone pins the deliberate narrowness of the
 // attribute pass.
 //
-// Only a string value is scrubbed, because scrubbing a number or a duration
-// would mean formatting it, masking the text, and putting a string back,
-// which changes the type of the field in the structured output. A key rule
-// still catches a secret held in a non-string value, and that is the right
-// division: by name when the type is unknown, by content when it is text.
+// A number or a duration is never scrubbed, because it cannot carry text, and
+// masking it would mean formatting it and putting a string back, which changes
+// the type of the field in the structured output. A key rule still applies to
+// one. (A value that can carry text, an error or a struct, is masked by its
+// rendering: attr_values_test.go.)
 func TestAttrLeavesNonStringValuesAlone(t *testing.T) {
 	t.Parallel()
 

@@ -1,9 +1,11 @@
 package redact
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -178,34 +180,85 @@ func containsAny(lowered string, subs []string) bool {
 // do this job: it cannot see attributes added through Logger.With, and it
 // sees the message only as an opaque string.
 //
-// Three things happen here, in order:
+// Four things happen here, in order:
 //
 //  1. A group is returned untouched. The standard library recurses into a
-//     group's leaves and calls this again for each one, so masking the
-//     group itself would be both wrong and redundant.
+//     group's leaves and calls this again for each one, with the group's
+//     name in groups.
 //  2. An attribute whose NAME matches a key rule has its value replaced by
 //     Marker outright, whatever the value is. This is the channel that
-//     catches a secret this process does not know the bytes of.
-//  3. Any remaining string value, including the built-in msg, is run
-//     through Text.
+//     catches a secret this process does not know the bytes of. So is one
+//     inside a group whose name matches (a group named "password" holds
+//     secrets in its leaves "old" and "new"), unless its own key names an
+//     identifier (identifierKeys): a credential group's username is shown.
+//  3. A string value, including the built-in msg, is run through Text.
+//  4. A value of a kind that cannot carry text (a number, a bool, a
+//     duration, a time, the built-in level and source) is returned
+//     untouched. Any other value (an error, a []byte, a Stringer, a named
+//     string type, a struct, a map) is rendered the way a handler prints it,
+//     and when masking that text changes it the attribute becomes the masked
+//     text: a handler would otherwise print an error quoting a device's
+//     output, or marshal a struct whole, without Text ever seeing it. A
+//     value whose rendering masking leaves alone is returned untouched, so
+//     the structured output keeps its shape wherever nothing is secret.
 //
-// The attribute's key is never changed. Returning an Attr with an empty
-// key tells the standard library to drop the attribute entirely, which
-// would silently delete log lines rather than mask them.
-func (m *Masker) Attr(_ []string, a slog.Attr) slog.Attr {
+// The attribute's key is never changed.
+func (m *Masker) Attr(groups []string, a slog.Attr) slog.Attr {
 	if a.Value.Kind() == slog.KindGroup {
 		return a
 	}
 
-	if _, secret := m.keys[strings.ToLower(a.Key)]; secret {
+	if m.secretName(a.Key) || (slices.ContainsFunc(groups, m.secretName) && !identifierKeys[strings.ToLower(a.Key)]) {
 		return slog.String(a.Key, Marker)
 	}
 
-	if a.Value.Kind() == slog.KindString {
+	switch a.Value.Kind() {
+	case slog.KindString:
 		return slog.String(a.Key, m.Text(nil, a.Value.String()))
+	case slog.KindInt64, slog.KindUint64, slog.KindFloat64, slog.KindBool, slog.KindDuration, slog.KindTime:
+		return a
 	}
-
+	value := a.Value.Any()
+	switch value.(type) {
+	case nil, slog.Level, *slog.Source:
+		return a
+	}
+	for _, rendered := range renderings(value) {
+		if masked := m.Text(nil, rendered); masked != rendered {
+			return slog.String(a.Key, m.Text(nil, fmt.Sprintf("%+v", value)))
+		}
+	}
 	return a
+}
+
+// identifierKeys are the leaf keys that name an identifier, not a secret,
+// and stay shown inside a secret-named group: who and where, never what
+// proves it.
+var identifierKeys = map[string]bool{
+	"username": true, "user": true, "login": true, "name": true,
+	"host": true, "hostname": true, "address": true, "port": true, "id": true,
+}
+
+// secretName reports whether name matches a key rule, whatever its case.
+func (m *Masker) secretName(name string) bool {
+	_, secret := m.keys[strings.ToLower(name)]
+	return secret
+}
+
+// renderings is every text a handler may print for value: TextHandler's
+// %+v, and JSONHandler's encoding, which for a []byte is base64 and for a
+// struct is its fields, so both are masked. fmt recovers a panicking Error
+// or String method into its own text, which matters because ReplaceAttr runs
+// outside slog's own recovery.
+func renderings(value any) []string {
+	out := []string{fmt.Sprintf("%+v", value)}
+	if b, ok := value.([]byte); ok {
+		out = append(out, string(b))
+	}
+	if encoded, err := json.Marshal(value); err == nil {
+		out = append(out, string(encoded))
+	}
+	return out
 }
 
 // HandlerOptions returns slog handler options already carrying Attr.
