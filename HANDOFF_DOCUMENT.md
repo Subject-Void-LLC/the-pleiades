@@ -4,11 +4,11 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-05. Branch `fix/ssh-sweep-b` (SSH PR B), from `main` at `793377ff` (PR #114 merged). Eleven commits:
-`bd9fc13b`, `49688a6e`, `eaafb354`, `f041ed28`, `2dcb1f18`, `ec9b0a23` (2026-11-04), then `6bef8e91`, `987603a2`,
-`a1243fae`, `b34d029e`, `3aa5337a`, `44e72fe5` (records), `31af3e90` (2026-11-05), plus 916's record. `make
-pr-check` passed at `44e72fe5`; bsd-check of `pkg/remoteexec` passed at `31af3e90`. The tip needs pr-check again
-(the receipt is for `44e72fe5`), then push, `make branch-containers` and the pull request.**
+**2026-11-05. PR #115 (`fix/ssh-sweep-b`, SSH PR B) merged as `75f3a520`: every check green first time, the advisory
+`fast-macos` included; pr-check at `47f40deb` passed, bsd-check of `pkg/remoteexec` passed, branch-containers run
+42074118567 passed 6/6 after 917's fixture fix. Now on `fix/redact-nested-bytes` from `75f3a520`: 918 (a secret in
+nested `[]byte`, in logs and stats), cherry-picked as `c619cdf1` and `25b1fd27`; not through pr-check, push or a pull
+request yet.**
 
 ### What works (each fix's test failed on the old code where its entry says so)
 
@@ -46,7 +46,7 @@ and 399.
 
 ### Current blocker
 
-None. Next is pr-check at the tip.
+None. Next is pr-check for `fix/redact-nested-bytes`.
 
 ### Open
 
@@ -64,9 +64,11 @@ None. Next is pr-check at the tip.
 
 ### Next, in order
 
-1. `make pr-check` at the tip through the monitor (`.venv/bin/python tools/monitor/monitor.py run --cap 4600M`).
-2. Push, `make branch-containers`, then the pull request (failure-pattern classes in the body, no AI attribution
-   anywhere). Merge only when green, `record-actions`, pull `main` and clean.
+1. `fix/redact-nested-bytes`: `make pr-check` through the monitor (`--cap 5200M` fits; 4600M was stopped by the
+   memory guard at 119 packages), push, `make branch-containers` (it picks the container packages from the diff), the pull request.
+   Merge only when green, `record-actions`, pull `main` and clean.
+2. PR #115 is done: `record-actions` ran for it and both branch-containers runs; the 19 fixture failures are annotated
+   with 917.
 3. Facts sweep PRs from `VERDICTS-facts.md`: security items 2, 3 and 12, plus 7 and 13, first; then correctness 1, 8,
    9, 11, 14, 15 and 16; then churn 4, 5, 6 and 10.
 4. 41c-3, then 41d to 41g.
