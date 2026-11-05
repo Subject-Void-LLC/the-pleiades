@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
 // skippedDirs are directories no Go source this module owns lives in.
@@ -139,9 +140,8 @@ func TestScanGoSource_FindsWhatItMustAndOnlyThat(t *testing.T) {
 	write("notes.txt", "// "+string(rune(0x202E))+"\n")
 	write("._apple.go", "\x00\x05\x16\x07"+string(rune(0x202E)))
 	write("crlf.go", "package p\r\n// fine\r\n")
-	if err := os.Symlink(filepath.Join(root, "gone.go"), filepath.Join(root, ".#lock.go")); err != nil {
-		t.Fatal(err)
-	}
+	err := os.Symlink(filepath.Join(root, "gone.go"), filepath.Join(root, ".#lock.go"))
+	need.Require(t, "symlinks", err == nil, "this machine cannot make a symbolic link here")
 
 	findings, scanned, err := scanGoSource(root)
 	if err != nil {

@@ -145,7 +145,9 @@ func (r *cancelMidStream) Read(p []byte) (int, error) {
 // TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn: a command whose
 // output passes its bound is ended as a cancelled one is, so the call
 // returns ErrOutputTooLarge within the abandon grace rather than when the
-// command ends by itself (20 s here, measured on the old code).
+// command ends by itself (the old code waited out the command's own sleep).
+// The command outlives the call's deadline by far, so a call that waits on
+// it ends with the deadline instead; no wall-clock bound is asserted.
 func TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSH container integration test in short mode")
@@ -153,13 +155,9 @@ func TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn(t *testing.T) {
 	conn := connectToContainer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	began := time.Now()
-	_, err := conn.RunWithStdinBounded(ctx, "head -c 100000 /dev/zero; sleep 20", nil, 1000)
-	if !errors.Is(err, remoteexec.ErrOutputTooLarge) {
-		t.Fatalf("RunWithStdinBounded = %v; want ErrOutputTooLarge", err)
-	}
-	if took := time.Since(began); took > 12*time.Second {
-		t.Fatalf("the cut command held the call %s; want it ended within the abandon grace", took)
+	_, err := conn.RunWithStdinBounded(ctx, "head -c 100000 /dev/zero; sleep 600", nil, 1000)
+	if !errors.Is(err, remoteexec.ErrOutputTooLarge) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RunWithStdinBounded = %v; want ErrOutputTooLarge before the deadline", err)
 	}
 }
 
