@@ -921,6 +921,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 915. TestDetached_TheStopReconnectsWhenItsConnectionIsGone passed with nothing checked when the job's child pid file never appeared (a repeat in kind of 436 and 440) (fixed)
 916. TestProcess_ErrorsNeverCarryTheCommandText's own command wrote the marker to standard error, which an error carries by design, so it failed on FreeBSD when that stderr arrived before the close (a repeat in kind of LESSONS 368) (fixed)
 917. The docker host fixture's unpinned apk add of openssh-server broke when Alpine's index moved past the pinned dind image's own openssh client packages (a repeat in kind of 465) (fixed)
+918. A registered secret held in a []byte inside a struct, a map entry or a list reached the logs and the stats as base64, since the value walk converts through encoding/json and Text saw only that spelling (a repeat in kind of 904) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

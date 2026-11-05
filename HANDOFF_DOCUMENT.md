@@ -53,8 +53,6 @@ None. Next is pr-check at the tip.
 - `internal/catalog/gate/runner.go` `deviceRunner.stop` refuses only `pid <= 0`: a hostile device printing `1` as its
   pid marker would get `kill -TERM 1` and `kill -KILL 1`, as root to init under become. No group kill, low severity,
   needs a test seam. Not fixed, not yet a failure pattern.
-- `internal/redact`: a `[]byte` field inside a struct holding a registered secret is still printed as base64 (JSON)
-  or decimal (text), and missed (912's open note).
 - Carried: `Conn.Close` returns an error after a sever; a sever timer already running when `finish` is called can
   close a non-pooled `Conn` that `stopDetached` then reuses (it redials). Routes are not followed on a Runner, by
   external Collections, or by the onboarding SSH probe; a no-`sh` device onboarded before #110 fails at `/bin/sh`
