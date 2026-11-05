@@ -6,8 +6,9 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 **2026-11-05. Branch `fix/ssh-sweep-b` (SSH PR B), from `main` at `793377ff` (PR #114 merged). Eleven commits:
 `bd9fc13b`, `49688a6e`, `eaafb354`, `f041ed28`, `2dcb1f18`, `ec9b0a23` (2026-11-04), then `6bef8e91`, `987603a2`,
-`a1243fae`, `b34d029e`, `3aa5337a` (2026-11-05), plus the records (uncommitted). Not through `make pr-check`,
-bsd-check, push, `make branch-containers` or a pull request yet.**
+`a1243fae`, `b34d029e`, `3aa5337a`, `44e72fe5` (records), `31af3e90` (2026-11-05), plus 916's record. `make
+pr-check` passed at `44e72fe5`; bsd-check of `pkg/remoteexec` passed at `31af3e90`. The tip needs pr-check again
+(the receipt is for `44e72fe5`), then push, `make branch-containers` and the pull request.**
 
 ### What works (each fix's test failed on the old code where its entry says so)
 
@@ -23,12 +24,16 @@ bsd-check, push, `make branch-containers` or a pull request yet.**
 - **Log masking** (`internal/redact`): non-string values (903, 904) and secret-named keys inside maps and structs (912).
 - **archtest** refuses every invisible character class (905, closing 851's gap); its symlink case skips where links
   cannot be made (913).
-- Test fixes: FreeBSD `/dev/stdin` probe (906), wall-clock bound removed (914), a vacuous pass closed (915).
+- Test fixes: FreeBSD `/dev/stdin` probe (906), wall-clock bound removed (914), a vacuous pass closed (915), and a
+  fixture that wrote its own marker to stderr (916, found by bsd-check).
 - Passing on 2026-11-05 (all under `~/.local/bin/capped 2500M`, `GOMAXPROCS=4`, `-race -count=1`): `pkg/remoteexec`
   whole package (about 69 s, twice); `internal/redact`; `internal/archtest`'s GoSource tests;
   `TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn` (1.2 s, real sshd); `go vet -tags integration` of
-  `pkg/remoteexec`, `internal/archtest`, `internal/transport/ssh`.
-- Records: FAILURE_PATTERNS 896 to 915 (891 and 851 given their resolutions), LESSONS 398 and 399, CI_LESSONS 26,
+  `pkg/remoteexec`, `internal/archtest`, `internal/transport/ssh`. `make pr-check` at `44e72fe5` (monitor, `--cap
+  4600M`): pass, about 21 min, 63 packages (a first run at `--cap 4000M` was stopped by the memory guard after 10 s, no
+  test failed). bsd-check of `pkg/remoteexec`: failed at `44e72fe5` on 916 (1 run in 3), passed at `31af3e90` (5m20s),
+  so `detachStop`'s `${#p}`, `${d%/*}` and `[ -O ]` are proven on FreeBSD's sh.
+- Records: FAILURE_PATTERNS 896 to 916 (891 and 851 given their resolutions), LESSONS 398 and 399, CI_LESSONS 26,
   changelog fragment `changelog/ssh-detach-stop-and-log-masking.security.md`.
 
 ### Incident this session
@@ -41,7 +46,7 @@ and 399.
 
 ### Current blocker
 
-None. Next is the gate.
+None. Next is pr-check at the tip.
 
 ### Open
 
@@ -50,8 +55,6 @@ None. Next is the gate.
   needs a test seam. Not fixed, not yet a failure pattern.
 - `internal/redact`: a `[]byte` field inside a struct holding a registered secret is still printed as base64 (JSON)
   or decimal (text), and missed (912's open note).
-- bsd-check of `pkg/remoteexec` has not run since `detachStop` changed; it uses `${#p}`, `${d%/*}` and `[ -O ]`, which
-  FreeBSD's sh is reasoned, not proven, to support.
 - Carried: `Conn.Close` returns an error after a sever; a sever timer already running when `finish` is called can
   close a non-pooled `Conn` that `stopDetached` then reuses (it redials). Routes are not followed on a Runner, by
   external Collections, or by the onboarding SSH probe; a no-`sh` device onboarded before #110 fails at `/bin/sh`
@@ -63,16 +66,15 @@ None. Next is the gate.
 
 ### Next, in order
 
-1. `make pr-check` through the monitor (`.venv/bin/python tools/monitor/monitor.py run`).
-2. bsd-check of `pkg/remoteexec`.
-3. Push, `make branch-containers`, then the pull request (failure-pattern classes in the body, no AI attribution
+1. `make pr-check` at the tip through the monitor (`.venv/bin/python tools/monitor/monitor.py run --cap 4600M`).
+2. Push, `make branch-containers`, then the pull request (failure-pattern classes in the body, no AI attribution
    anywhere). Merge only when green, `record-actions`, pull `main` and clean.
-4. Facts sweep PRs from `VERDICTS-facts.md`: security items 2, 3 and 12, plus 7 and 13, first; then correctness 1, 8,
+3. Facts sweep PRs from `VERDICTS-facts.md`: security items 2, 3 and 12, plus 7 and 13, first; then correctness 1, 8,
    9, 11, 14, 15 and 16; then churn 4, 5, 6 and 10.
-5. 41c-3, then 41d to 41g.
-6. `file.remove`'s check refuses by default.
-7. 117b, 117c, 105.
-8. Release 0.4.0 (no tag until the owner says).
+4. 41c-3, then 41d to 41g.
+5. `file.remove`'s check refuses by default.
+6. 117b, 117c, 105.
+7. Release 0.4.0 (no tag until the owner says).
 
 ### Files changed on this branch
 
@@ -84,5 +86,4 @@ None. Next is the gate.
 `FAILURE_PATTERNS.md` and its archive, `LESSONS_LEARNED.md` and its archive, `CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`,
 `HANDOFF_ARCHIVE.md`, `changelog/ssh-detach-stop-and-log-masking.security.md` (new).
 
-Lab: no lab machine was used this session, as far as the facts given say. bsd-check ran on 2026-11-04 (906's
-failure); its state after that run was not reported.
+Lab: bsd-check was started twice on 2026-11-05 by `tools/bsdcheck` for `pkg/remoteexec` and shut down after each run.

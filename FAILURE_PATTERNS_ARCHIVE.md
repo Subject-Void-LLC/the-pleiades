@@ -21781,3 +21781,24 @@ only when its pid file existed, so a job that never recorded its child passed.
 **Fix.** `a1243fae`: the test fails when the job never records its child.
 
 **Lesson.** CI_LESSONS 15: a precondition a test relies on is asserted, never skipped over.
+
+## 916. TestProcess_ErrorsNeverCarryTheCommandText's own command wrote the marker to standard error, which an error carries by design, so it failed on FreeBSD when that stderr arrived before the close (a repeat in kind of LESSONS 368) (fixed)
+
+**Symptom.** 2026-11-05, `bsdcheck` of `pkg/remoteexec` on branch `fix/ssh-sweep-b` at `44e72fe5`: the test failed in
+one of three runs with `Write() error = "remoteexec: write to remote command on 127.0.0.1:...: EOF (server stderr:
+\"cat: /srv/secret-looking-path: No such file or directory\\n\")"`. It passed in every Linux run.
+
+**Root cause.** The test started `cat '/srv/secret-looking-path'` and asserted the marker never reaches the `Write`
+error. The path does not exist, so `cat` itself printed the marker to standard error, and a stream's errors append the
+server's stderr deliberately (`stream.stderrSuffix`). Whether that stderr was drained before `Close` depended on
+timing, which FreeBSD's scheduler made come out the other way. The code was right; the fixture produced the very text
+the test says must be absent.
+
+**Why LESSONS 368 did not hold.** 368 is about a test watching for a mark another path can also leave; this is its
+mirror (an absence a second path can break), and the test was on `main` from before 368 was written.
+
+**Fix.** `pkg/remoteexec/process_test.go`: the marker is an argument to `:`, which ignores it, then `cat` runs, so the
+command's own output can never hold it. 20 runs pass locally under `-race`; rerun on bsd-check.
+
+**Lesson.** A test asserting a value is absent from an output must make sure no other legitimate channel into that
+output (a remote program's stderr, a log line, an echo) can produce it.

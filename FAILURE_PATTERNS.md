@@ -919,6 +919,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 913. TestScanGoSource_FindsWhatItMustAndOnlyThat failed rather than skipped where symbolic links cannot be made, such as Windows without the privilege (a repeat of 567 and 544) (fixed before push)
 914. TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn bounded the call's elapsed time from above (a repeat of 479, 422 and 211) (fixed before push)
 915. TestDetached_TheStopReconnectsWhenItsConnectionIsGone passed with nothing checked when the job's child pid file never appeared (a repeat in kind of 436 and 440) (fixed)
+916. TestProcess_ErrorsNeverCarryTheCommandText's own command wrote the marker to standard error, which an error carries by design, so it failed on FreeBSD when that stderr arrived before the close (a repeat in kind of LESSONS 368) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
