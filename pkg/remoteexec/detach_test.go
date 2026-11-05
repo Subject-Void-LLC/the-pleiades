@@ -359,6 +359,13 @@ func TestDetached_ALoginBannerBeforeTheDirectoryIsSkipped(t *testing.T) {
 	}
 }
 
+// whereItRan prints whether it ran detached or attached. A detached job is
+// sh reading its job's cmd file, so its $0 ends in /cmd; an attached command
+// is read by sh -c, whose $0 is sh. It does not ask whether standard input is
+// a pipe: FreeBSD's /dev/stdin is not one without fdescfs mounted, so that
+// check read every command as detached there.
+const whereItRan = `case $0 in */cmd) echo detached;; *) echo attached;; esac`
+
 func TestDetached_AHomeTheAccountDoesNotOwnRunsTheCommandWhereItStands(t *testing.T) {
 	conn, _, _, _ := detachedConn(t)
 	// A HOME owned by someone else is what become looks like under a sudo
@@ -370,9 +377,7 @@ func TestDetached_AHomeTheAccountDoesNotOwnRunsTheCommandWhereItStands(t *testin
 		t.Skip("needs a writable /tmp the test's account does not own")
 	}
 	t.Setenv("HOME", "/tmp")
-	// A command run where it stands reads the session's pipe; a detached
-	// job's standard input is /dev/null.
-	res, err := conn.Run(WithDetach(context.Background()), `if [ -p /dev/stdin ]; then echo attached; else echo detached; fi`)
+	res, err := conn.Run(WithDetach(context.Background()), whereItRan)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -388,13 +393,26 @@ func TestDetached_ALinkedBaseIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A finished job removes its directory, so whether one was made through
-	// the link is read from the command itself: a detached job's standard
-	// input is /dev/null, an attached command's the session's pipe.
-	res, err := conn.Run(WithDetach(context.Background()), `if [ -p /dev/stdin ]; then echo attached; else echo detached; fi`)
+	// the link is read from the command itself.
+	res, err := conn.Run(WithDetach(context.Background()), whereItRan)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if strings.TrimSpace(res.Stdout) != "attached" {
 		t.Fatalf("the command ran %s through a linked base; want attached", strings.TrimSpace(res.Stdout))
+	}
+}
+
+// TestDetached_WhereItRanTellsTheTwoApart is the control for whereItRan: it
+// reads detached for a detached run and attached for a plain one, so the
+// two tests reading attached from it cannot pass on a check that always
+// says so.
+func TestDetached_WhereItRanTellsTheTwoApart(t *testing.T) {
+	conn, _, _, _ := detachedConn(t)
+	for want, ctx := range map[string]context.Context{"detached": WithDetach(context.Background()), "attached": context.Background()} {
+		res, err := conn.Run(ctx, whereItRan)
+		if err != nil || strings.TrimSpace(res.Stdout) != want {
+			t.Errorf("whereItRan = %q, %v; want %s", res.Stdout, err, want)
+		}
 	}
 }
