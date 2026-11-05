@@ -430,6 +430,8 @@ story, per `.AGENTS/AGENTS.md`.
 395. **Independent reviews by a second model earn their cost at both ends of a security change: a design review before coding changed the design, and two diff reviews after found gaps the house reviewer missed (extends 392) (2026-11-04).**
 396. **When a client's bug depends on what the server sends after the client's close or signal, test it against the real server: x/crypto/ssh's in-process server answers a CLOSE at once and drops a status sent after it, which OpenSSH does not (a repeat in kind of 136; FAILURE_PATTERNS 774's lesson) (2026-11-04).**
 397. **Never change the meaning of a persisted value in place: give the new meaning a new value, and read the old one by its old meaning or as unrecorded (2026-11-04).**
+398. **A test whose harness runs commands on this machine (remoteexectest, any fake device on the local sh) never lets a red-first test hand a destructive command an untrusted value: replace the command with a logging shell function, prove with a control that the function is what runs, and send through the harness only values the command cannot act on (extends 321 and 327) (2026-11-05).**
+399. **When the session dies during a test run, read the user manager's journal before blaming memory: a "WSL crash" can be a kill (2026-11-05).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
