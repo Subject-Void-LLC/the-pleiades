@@ -87,7 +87,8 @@ func (c *Conn) Start(ctx context.Context, command string) (*Process, error) {
 		c.lease.started()
 	}
 	s, err := c.openStream(ctx, "remote command", func(session *ssh.Session) error {
-		return session.Start(line)
+		// A refused exec's error names the command, which can hold a secret.
+		return withoutCommand(session.Start(line), line)
 	})
 	if err != nil {
 		// Whether the command began on the far side is unknown.

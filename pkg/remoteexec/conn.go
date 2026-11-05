@@ -199,7 +199,12 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 	// session so the remote stops writing (cappedBuffer).
 	var exceeded atomic.Bool
 	var cut sync.Once
-	cutSession := func() { cut.Do(func() { _ = session.Close() }) }
+	// A command cut off for its output is ended as a cancelled one is: sent
+	// SIGTERM, its session closed, and its connection closed after the
+	// abandon grace. A session close alone left the call waiting until the
+	// command ended by itself (measured on OpenSSH 10.3: 20 s for a
+	// "sleep 20" after its output passed the bound).
+	cutSession := func() { cut.Do(watch.abort) }
 	stdout := &cappedBuffer{limit: limit, exceeded: &exceeded, cut: cutSession}
 	stderr := &cappedBuffer{limit: limit, exceeded: &exceeded, cut: cutSession}
 	session.Stdout = stdout
@@ -266,7 +271,7 @@ func (c *Conn) run(ctx context.Context, command string, stdin io.Reader, limit i
 		}
 	}
 
-	runErr := session.Start(line)
+	runErr := withoutCommand(session.Start(line), line)
 	if runErr == nil {
 		startCopy()
 		runErr = session.Wait()

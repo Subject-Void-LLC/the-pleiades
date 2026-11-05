@@ -1,9 +1,12 @@
 package redact
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -178,34 +181,160 @@ func containsAny(lowered string, subs []string) bool {
 // do this job: it cannot see attributes added through Logger.With, and it
 // sees the message only as an opaque string.
 //
-// Three things happen here, in order:
+// Four things happen here, in order:
 //
 //  1. A group is returned untouched. The standard library recurses into a
-//     group's leaves and calls this again for each one, so masking the
-//     group itself would be both wrong and redundant.
+//     group's leaves and calls this again for each one, with the group's
+//     name in groups.
 //  2. An attribute whose NAME matches a key rule has its value replaced by
 //     Marker outright, whatever the value is. This is the channel that
-//     catches a secret this process does not know the bytes of.
-//  3. Any remaining string value, including the built-in msg, is run
-//     through Text.
+//     catches a secret this process does not know the bytes of. So is one
+//     inside a group whose name matches (a group named "password" holds
+//     secrets in its leaves "old" and "new"), unless its own key names an
+//     identifier (identifierKeys): a credential group's username is shown.
+//  3. A string value, including the built-in msg, is run through Text.
+//  4. A value of a kind that cannot carry text (a number, a bool, a
+//     duration, a time, the built-in level and source) is returned
+//     untouched. A map, a list or a struct (not an error, which a handler
+//     prints by its text) is masked as Value masks a method's stats, key
+//     rules included, so {"password": ...} in a map or a Password field
+//     is masked by name as a top-level attribute is, and the attribute
+//     becomes the masked value, keeping its shape, when that changes
+//     anything. Any other value (an error, a []byte, a Stringer, a named
+//     string type, a struct, a map) is rendered the way a handler prints it,
+//     and when masking that text changes it the attribute becomes the masked
+//     text: a handler would otherwise print an error quoting a device's
+//     output, or marshal a struct whole, without Text ever seeing it. A
+//     value whose rendering masking leaves alone is returned untouched, so
+//     the structured output keeps its shape wherever nothing is secret.
 //
-// The attribute's key is never changed. Returning an Attr with an empty
-// key tells the standard library to drop the attribute entirely, which
-// would silently delete log lines rather than mask them.
-func (m *Masker) Attr(_ []string, a slog.Attr) slog.Attr {
+// The attribute's key is never changed. Rendering calls a value's Error,
+// String and MarshalJSON methods whichever handler is in use, so a value
+// logged here must not take, in one of them, a lock its logging caller may
+// hold.
+func (m *Masker) Attr(groups []string, a slog.Attr) slog.Attr {
 	if a.Value.Kind() == slog.KindGroup {
 		return a
 	}
 
-	if _, secret := m.keys[strings.ToLower(a.Key)]; secret {
+	if m.secretName(a.Key) || (slices.ContainsFunc(groups, m.secretName) && !shownIdentifier(a)) {
 		return slog.String(a.Key, Marker)
 	}
 
-	if a.Value.Kind() == slog.KindString {
+	switch a.Value.Kind() {
+	case slog.KindString:
 		return slog.String(a.Key, m.Text(nil, a.Value.String()))
+	case slog.KindInt64, slog.KindUint64, slog.KindFloat64, slog.KindBool, slog.KindDuration, slog.KindTime:
+		return a
 	}
-
+	value := a.Value.Any()
+	switch value.(type) {
+	case nil, slog.Level, *slog.Source:
+		return a
+	}
+	if masked, changed := m.structured(value); changed {
+		return slog.Any(a.Key, masked)
+	}
+	shown, others := renderings(value)
+	for _, rendered := range append([]string{shown}, others...) {
+		if m.Text(nil, rendered) != rendered {
+			return slog.String(a.Key, m.Text(nil, shown))
+		}
+	}
 	return a
+}
+
+// structured masks value as Value masks stats when it is a map, a list or
+// a struct (or a pointer to one) other than an error or a byte slice,
+// reporting whether masking changed it. Value walks a struct as the maps
+// JSON writes it as, so the comparison is with that form. A value that
+// cannot be marshalled (a panicking MarshalJSON among them, which Value's
+// conversion would not survive) is left to the text renderings.
+func (m *Masker) structured(value any) (any, bool) {
+	if _, isErr := value.(error); isErr {
+		return nil, false
+	}
+	v := reflect.Indirect(reflect.ValueOf(value))
+	switch v.Kind() {
+	case reflect.Map, reflect.Struct, reflect.Array:
+	case reflect.Slice:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			return nil, false
+		}
+	default:
+		return nil, false
+	}
+	if _, ok := marshalJSON(value); !ok {
+		return nil, false
+	}
+	masked := m.Value(nil, value)
+	if reflect.DeepEqual(masked, value) || reflect.DeepEqual(masked, generic(value)) {
+		return nil, false
+	}
+	return masked, true
+}
+
+// shownIdentifier reports whether a, inside a secret-named group, is an
+// identifier that stays shown: an identifier key (identifierKeys) holding a
+// string or a scalar. A struct or a map under such a key can hold anything.
+func shownIdentifier(a slog.Attr) bool {
+	if !identifierKeys[strings.ToLower(a.Key)] {
+		return false
+	}
+	switch a.Value.Kind() {
+	case slog.KindString, slog.KindInt64, slog.KindUint64, slog.KindFloat64, slog.KindBool:
+		return true
+	}
+	return false
+}
+
+// identifierKeys are the leaf keys that name an identifier, not a secret,
+// and stay shown inside a secret-named group: who and where, never what
+// proves it.
+var identifierKeys = map[string]bool{
+	"username": true, "user": true, "login": true, "name": true,
+	"host": true, "hostname": true, "address": true, "port": true, "id": true,
+}
+
+// secretName reports whether name matches a key rule, whatever its case.
+func (m *Masker) secretName(name string) bool {
+	_, secret := m.keys[strings.ToLower(name)]
+	return secret
+}
+
+// renderings is every text a handler may print for value. shown is the one
+// a masked attribute is replaced with: a byte slice's bytes as text (of any
+// named byte-slice type, json.RawMessage among them), otherwise TextHandler's
+// %+v, which for a byte slice would be its decimal bytes, the secret in
+// another spelling. others are the rest a handler may print, all checked:
+// the %+v, and JSONHandler's encoding, which for a []byte is base64 and for a
+// struct is its fields. fmt recovers a panicking Error or String method into
+// its own text; a panicking MarshalJSON is recovered here and that rendering
+// skipped, since ReplaceAttr runs outside slog's own recovery and a panic
+// there would end the logging goroutine.
+func renderings(value any) (shown string, others []string) {
+	formatted := fmt.Sprintf("%+v", value)
+	shown = formatted
+	if v := reflect.ValueOf(value); v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+		shown = string(v.Bytes())
+		others = append(others, formatted)
+	}
+	if encoded, ok := marshalJSON(value); ok {
+		others = append(others, encoded)
+	}
+	return shown, others
+}
+
+// marshalJSON is json.Marshal with a panic in a MarshalJSON method recovered
+// into a failure.
+func marshalJSON(value any) (encoded string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			encoded, ok = "", false
+		}
+	}()
+	b, err := json.Marshal(value)
+	return string(b), err == nil
 }
 
 // HandlerOptions returns slog handler options already carrying Attr.

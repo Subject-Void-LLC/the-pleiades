@@ -1,5 +1,5 @@
-// Package ssh: tests that a command whose context ends never comes back from a
-// real OpenSSH sshd as a completed command. sshd reports an exit status after
+// Package ssh: tests that a command whose context ends, or whose output passes
+// its bound, never comes back from a real OpenSSH sshd as a completed command. sshd reports an exit status after
 // the client's close (the signal's, or the remote's own once it drained a
 // cut-off input), which the in-process server in pkg/remoteexec never does,
 // so only a real sshd shows it.
@@ -140,4 +140,58 @@ func (r *cancelMidStream) Read(p []byte) (int, error) {
 	// the close and not this end of input.
 	time.Sleep(200 * time.Millisecond)
 	return 0, io.EOF
+}
+
+// TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn: a command whose
+// output passes its bound is ended as a cancelled one is, so the call
+// returns ErrOutputTooLarge within the abandon grace rather than when the
+// command ends by itself (the old code waited out the command's own sleep).
+// The command outlives the call's deadline by far, so a call that waits on
+// it ends with the deadline instead; no wall-clock bound is asserted.
+func TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSH container integration test in short mode")
+	}
+	conn := connectToContainer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_, err := conn.RunWithStdinBounded(ctx, "head -c 100000 /dev/zero; sleep 600", nil, 1000)
+	if !errors.Is(err, remoteexec.ErrOutputTooLarge) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RunWithStdinBounded = %v; want ErrOutputTooLarge before the deadline", err)
+	}
+}
+
+// TestSSHContainer_AStartedCommandCancelledIsNotACompletedOne: a command
+// started as a live Process whose context ends reports the context's error
+// from Wait, never the 143 its SIGTERM produced; and a context already done
+// starts nothing.
+func TestSSHContainer_AStartedCommandCancelledIsNotACompletedOne(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSH container integration test in short mode")
+	}
+	conn := connectToContainer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	p, err := conn.Start(ctx, "echo started; sleep 30")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	_, _ = io.ReadAll(p)
+	code, err := p.Wait()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Wait = %d, %v; want context.DeadlineExceeded", code, err)
+	}
+
+	marker := fmt.Sprintf("/tmp/done-start-%d", time.Now().UnixNano())
+	done, cancelDone := context.WithCancel(context.Background())
+	cancelDone()
+	if p, err := connectToContainer(t).Start(done, "touch "+marker); err == nil {
+		_ = p.Close()
+		t.Fatal("Start on a context already done started a command")
+	}
+	time.Sleep(time.Second)
+	if got := strings.TrimSpace(runOnFreshConnection(t, "[ -e "+marker+" ] && echo present || echo absent")); got != "absent" {
+		t.Fatalf("the marker is %s; a command was started on a context already done", got)
+	}
 }

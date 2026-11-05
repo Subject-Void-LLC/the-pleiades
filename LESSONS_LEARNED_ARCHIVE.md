@@ -7256,3 +7256,34 @@ neither can date.
 each mixed pair costs (an old record with a new reader, a new record with an old reader) in the changelog: here a
 no-`sh` device onboarded before #110 fails at `/bin/sh` until onboarded again, and an older Runner reads the new value
 as POSIX.
+
+## 398. A test whose harness runs commands on this machine (remoteexectest, any fake device on the local sh) never lets a red-first test hand a destructive command an untrusted value: replace the command with a logging shell function, prove with a control that the function is what runs, and send through the harness only values the command cannot act on (extends 321 and 327) (2026-11-05).
+
+**Why.** Branch `fix/ssh-sweep-b` (FAILURE_PATTERNS 907). A red-first test of the detached stop wrote a pid file
+holding `1` and ran the old stop script through `remoteexectest`'s in-process SSH server. That server runs every
+command through this machine's `/bin/sh`, so the old script's `kill -KILL -1` ran as the developer account and killed
+every process the account owned, the user manager (`user@1000.service`) included. It happened twice before the cause
+was found. A red-first test is written to fail on the old code; when the old code's failure is a destructive command,
+failing means doing the damage, on whatever machine the harness runs the command. LESSONS 321 asks what a destructive
+device command does when its argument names the operator's own file, and LESSONS 327 says to stop a process by its
+group and confirm it. Both are about the product's command; neither says where the test of it runs.
+
+**Rule in practice.** Before a test sends a destructive command (`kill`, `rm -rf`, `shutdown`, a write to a device
+path) a value meant to show the old code acting wrongly, ask where the command runs. If it runs here, run the script
+locally with the command replaced by a shell function that logs its arguments (`kill() { echo "kill $*" >>log; }`),
+and add a control first: a real child's pid must reach the function and the child must still be alive afterwards,
+which proves the function, not the builtin, is what ran. Send through the harness only values no command acts on.
+`TestDetachStop_NeverSignalsAPidAJobCannotHave` is the model.
+
+## 399. When the session dies during a test run, read the user manager's journal before blaming memory: a "WSL crash" can be a kill (2026-11-05).
+
+**Why.** Branch `fix/ssh-sweep-b` (FAILURE_PATTERNS 907). The first time the old stop script ran `kill -KILL -1`
+here, the session died and it was read as "WSL crashed", a cause this machine has had before. The second time,
+`journalctl -u user@1000.service` showed "Main process exited, code=killed, status=9/KILL" two seconds after the test
+started, and the cause was found. The wrong reading cost a second kill. After it, `~/.local/bin/capped` failed with
+"Failed to connect to bus" until the owner started `user@1000.service` again.
+
+**Rule in practice.** When a shell, an agent or the whole session disappears during a test run, run `journalctl -u
+user@1000.service` for the minute it happened, before naming memory, and line its time up with what the test was
+running. If `capped` then reports "Failed to connect to bus", the user manager is down and the owner must start it
+again (`sudo systemctl start user@1000.service`).

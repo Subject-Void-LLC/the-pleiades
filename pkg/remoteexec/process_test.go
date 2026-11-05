@@ -236,11 +236,15 @@ func TestProcess_RefusedSessionIsAnError(t *testing.T) {
 // TestProcess_ErrorsNeverCarryTheCommandText pins a deliberate choice:
 // a started command can hold a runbook-authored remote path, and an
 // error message is logged and shown where that value does not belong.
+// The marker is an argument to ":", which ignores it, so the command's own
+// standard error, which an error carries by design (stderrSuffix), can
+// never hold it: "cat <missing path>" wrote the path there itself, and on
+// FreeBSD it sometimes arrived before the close.
 func TestProcess_ErrorsNeverCarryTheCommandText(t *testing.T) {
 	_, conn := startShellServer(t, remoteexectest.Options{})
 
 	const marker = "/srv/secret-looking-path"
-	proc, err := conn.Start(context.Background(), "cat "+QuoteArg(marker))
+	proc, err := conn.Start(context.Background(), ": "+QuoteArg(marker)+"; cat")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

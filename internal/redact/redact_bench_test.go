@@ -1,6 +1,7 @@
 package redact_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -157,5 +158,19 @@ func BenchmarkTextWithExplicitSecrets(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		_ = m.Text(secrets, benchLine)
+	}
+}
+
+// BenchmarkAttrNonStringValue is the cost Masker.Attr adds to logging an
+// error value: rendering it as each handler would and masking each rendering.
+func BenchmarkAttrNonStringValue(b *testing.B) {
+	m, err := redact.NewMasker(redact.DefaultRuleset())
+	if err != nil {
+		b.Fatal(err)
+	}
+	a := slog.Any("err", errors.New("connect sw1: dial tcp 10.0.0.1:22: i/o timeout"))
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = m.Attr(nil, a)
 	}
 }

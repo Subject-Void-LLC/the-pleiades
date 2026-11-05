@@ -20441,6 +20441,10 @@ code). The habit was not followed, and the archtest covers the characters a term
 **Fix.** `ab881c13`: the character is built in code, `string(rune(0x200b))`. **Not fixed:** the archtest still
 passes a zero-width character in Go source. Widening it (or `termsafe.Unsafe`) is open.
 
+**Resolution of the archtest gap (2026-11-04, branch `fix/ssh-sweep-b`).** `f041ed28` widens the archtest, not
+`termsafe.Unsafe`: it also refuses Unicode's Cf, Zl, Zp, Variation_Selector and Other_Default_Ignorable_Code_Point,
+with a negative control over a tree of its own. It found raw U+2028 and U+2029 in two test files. See 905.
+
 **Lesson.** A backstop's list is part of what it proves: an invisible-character check that does not name zero-width
 characters lets them through. Build such characters in code, and treat the archtest as the backstop it is.
 
@@ -21285,6 +21289,9 @@ so it never shows what OpenSSH shows. They were replaced by the real-sshd tests 
 **Open.** `pkg/remoteexec/stream.go` (`Conn.Start`, `Process`, subsystems) has the same cancelled-as-completed shape
 (fp-reviewer finding F4), carried to the next SSH pull request.
 
+**Resolution of the open part (2026-11-05, branch `fix/ssh-sweep-b`).** `bd9fc13b` gives the streamed path `run`'s
+cancel watch, and `987603a2` makes its test count the exec requests sent after the context ended. See 896.
+
 **Lesson.** After a cancel, the context's error is the answer, whatever the server sends next: a status that arrives
 after the client asked the command to stop is not the command's result. When a guard lives in one function, list the
 routes that skip it (here the detached branch), as LESSONS 363 says.
@@ -21391,3 +21398,431 @@ closes the first hop's client first, without waiting on the pumps, then the rest
 **Class.** C15 (unbounded wait on a peer; CWE-1088, CWE-400)
 
 **Lesson.** A close used to end a wait must itself not wait on the peer. On a tunnel, cut from the outermost hop.
+
+## 896. A started SSH command (Conn.Start, Process, a subsystem) ran on after its context ended and Wait reported exit 0 with a nil error (the open part of 891) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`, measured against OpenSSH 10.3 before the fix. A cancelled
+`echo started; sleep 30` started through `Conn.Start` ran its full 30 s, and `Wait` reported 0 with a nil error. A
+context already done still started the command. The old watchdog only closed the session, so on a silent connection
+`Wait` was held forever.
+
+**Root cause.** `pkg/remoteexec/stream.go` had its own watchdog, written before 891. 891 fixed `run`'s path
+(`cancelWatch`) and left the streamed path as it was.
+
+**Why 891 did not hold.** It did not reach this path, and said so: 891's entry carried `stream.go` as open
+(fp-reviewer finding F4). This entry closes that part.
+
+**Fix.** `bd9fc13b`: the stream uses `run`'s cancel watch. When the context ends it sends SIGTERM and closes the
+session, closes the connection after the abandon grace, taints the lease, and `Wait` reports the context's error. A
+done context starts nothing. Tests, each failing on the old code: `TestSSHContainer_AStartedCommandCancelledIsNotACompletedOne`
+(`internal/transport/ssh/ssh_cancel_container_test.go`, real sshd), and in `pkg/remoteexec/stream_cancel_test.go`
+`TestStart_AContextAlreadyDoneStartsNothing`, `TestStart_AContextEndingWhileTheSessionOpensIsACancellation` and
+`TestProcess_ACancelledCommandOnASilentConnectionIsBounded`. `987603a2`: the second of those checked only the error;
+it now counts the exec requests the server receives and requires none after the context ended. On `stream.go` from
+before `bd9fc13b` it fails with "the server received 1 exec requests after the context ended".
+
+**Lesson.** 891's: after a cancel, the context's error is the answer. A fix to one path of a shared shape is not done
+until each path that has the shape uses the fixed code (LESSONS 244).
+
+## 897. A command cut off for passing its output bound held the call until the command ended by itself (a sibling of 891) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`, measured against OpenSSH 10.3 before the fix. A `sleep 20` whose
+output passed the call's bound held the call for the full 20 s after the cut.
+
+**Root cause.** The output cap stopped reading but did nothing to the command. Only a cancel ended a command, and the
+cap is not a cancel.
+
+**Fix.** `bd9fc13b`: the cut ends the command as a cancellation does (SIGTERM, session close, connection closed after
+the grace). `TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn` (`internal/transport/ssh/ssh_cancel_container_test.go`,
+real sshd). Its first version bounded the elapsed time from above; see 914.
+
+**Lesson.** Every exit that stops reading a command's output must also end the command. A cap is one more exit, as
+LESSONS 214 lists them.
+
+## 898. A command sshd refused to start came back as "ssh: command <line> failed", the whole command in the error, where a secret in shell-encoded form escapes masking by value (a repeat in kind of 23) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`. When sshd could not start the command (it could not fork for the
+account), `golang.org/x/crypto/ssh` returned an error quoting the whole command line. A secret in that line carries
+the shell's quoting (quotes, `$` escapes), so the by-value mask, which looks for the secret as stored, does not find
+it. Measured against a second sshd run under `ulimit -u 1`, which refuses the exec for real.
+
+**Root cause.** `Run` and `Start` returned the library's error as it came.
+
+**Why 23 did not hold.** 23 taught that an error path can carry a secret and masked the transport error by value. That
+works only when the secret appears as stored. Here it appears encoded, so masking cannot be the defense; the text must
+not be there.
+
+**Fix.** `bd9fc13b`: `Run` and `Start` return `ErrCommandRefused`, which names no command. Tests, failing on the old
+code: `TestSSHContainer_ARefusedCommandIsNotInItsError` (`internal/transport/ssh/ssh_refused_exec_container_test.go`),
+`TestRefusedExec_NamesNoCommand`, and `TestWithoutCommand_KeepsOtherErrors` (other errors are kept).
+
+**Lesson.** Masking by value finds a secret only in the spelling it was stored in. An error that would quote a command
+must name no command at all.
+
+## 899. A detached command that reached the device cut short was started as the job, because cat took the prefix and an end of input (a repeat in kind of 891) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`. Under `async:`, a command whose channel ended partway through the
+send was written to the job file as its prefix and started.
+
+**Root cause.** The start script read the command with `cat` until end of input, and a cut channel looks like an end
+of input to `cat`.
+
+**Why 891 did not hold.** 891 stopped a failed read of the local input from being sent as a clean end of input. That
+is the client's side. On the device's side a cut channel still reads as a clean end, and nothing there could tell.
+
+**Fix.** `49688a6e`: the start script takes the command's length as an argument and starts nothing on a mismatch.
+`TestDetached_ACommandThatArrivesCutShortIsNeverStarted`.
+
+**Lesson.** When the receiver cannot tell a cut stream from a whole one, send the length and check it there.
+
+## 900. A login whose shell prints startup output (~/.ssh/rc) broke every poll of a detached job, which was abandoned as "may still be running" (a repeat of 779) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`, measured against the sshd container before the fix. With
+`~/.ssh/rc` printing ahead of every command, the poll's 64-byte answer bound overflowed at the first poll, and the job
+was given up as possibly still running.
+
+**Root cause.** Each poll read all of standard output as the job's status.
+
+**Why 779 did not hold.** 779 fixed the same banner for the start's answer (the job directory is the last line). The
+poll is a second command on the same login with the same banner, and it was not given the same treatment (LESSONS
+244).
+
+**Fix.** `49688a6e`: the poll's answer is a marked last line under a 4 KiB bound (64 KiB since `a1243fae`, see 910),
+and job files are read after a marker line, so the banner reaches neither the status nor the output.
+`TestSSHContainer_ADetachedCommandSurvivesStartupOutput` (`internal/transport/ssh/ssh_detach_container_test.go`),
+`TestPollRC_ReadsOnlyTheMarkedLine`, `TestAfterMarker_SkipsStartupOutput`, `TestReadJobFile_RefusesWhatItCannotRead`.
+
+**Lesson.** Every command a feature sends on a login meets that login's startup output, not only the first. Mark the
+answer of each.
+
+## 901. On BusyBox ash with no setsid, a detached job had no process group, so the async limit stopped the wrapper and the command ran on (a repeat in kind of 504) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`, measured against the sshd container before the fix. The job's
+marker appeared after the async limit had stopped it.
+
+**Root cause.** Without `setsid`, the start script relied on `set -m` for a process group. A shell has no job control
+without a terminal, so the job got no group and the group kill reached only the wrapper.
+
+**Why 504 did not hold.** 504 found that dash's `set -m` gives no group without a terminal, in the OS checks' stop
+scripts. That knowledge stayed in those scripts and their entry; the detach script's fallback was written apart from
+it and tested where `setsid` exists.
+
+**Fix.** `49688a6e`: where neither gives a group, the script refuses to detach and the command runs attached, under
+the same limit. `TestSSHContainer_ADetachedCommandWithNoSetsidIsStillStopped`.
+
+**Lesson.** A stop by process group first proves the group exists. Without job control, `set -m` proves nothing.
+
+## 902. A detached start that failed after reaching the device, a start with no job directory in its answer, and a poll that could no longer be made each left the job running, unnamed and unstopped (a repeat in kind of 777 and 783) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`. Each of these exits returned an error saying the job may be running,
+and nothing stopped it, since the client did not know the job's directory.
+
+**Root cause.** The device chose the job's name and told the client. When that answer was lost, the client had no
+handle to stop the job by.
+
+**Why 777 and 783 did not hold.** 777 made the stop run on the exits where the limit lands, and 783 fixed a failed
+job-id record. Both stopped a job they could name. These exits had no name to stop by, and were left as reports.
+
+**Fix.** `49688a6e`: the client chooses the job's name (`newJobName`, `jobByName`), so each of these exits stops the
+job, and the error says whether the stop ran. `TestDetached_FailuresAreNamedAndNeverRunTwice` covers the start with
+no job directory. The script and its parsing moved to `pkg/remoteexec/detach_script.go`.
+
+**Lesson.** A handle that the far side assigns is lost with its answer. When a lost answer must still allow a stop,
+choose the handle on the near side.
+
+## 903. internal/redact's Masker.Attr masked only string values, so an error, a byte slice, a Stringer, a URL with a password or a struct reached both log handlers whole, and a secret-named group's leaves were not masked by name (a repeat in kind of 23) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`. A log attribute whose value was not a string (an error quoting
+device output, a `[]byte`, a `fmt.Stringer`, a `*url.URL` with a password, a named string type, a struct) reached the
+text and JSON handlers with a registered secret in it. `slog.Group("password", ...)` or `WithGroup` did not mask the
+group's leaves, whose own keys are ordinary words.
+
+**Root cause.** `Attr` ran only `string` values through `Text`, and judged a key by its own name only.
+
+**Why 23 did not hold.** 23's lesson was to mask every path a value can leave by, not only the common one. The common
+one here was a string value; the other kinds were the uncommon paths, unexamined.
+
+**Fix.** `eaafb354`: such a value is rendered as a handler prints it (`%+v`, and its JSON encoding) and replaced by the
+masked text when masking changes it; a value with nothing secret keeps its shape. A secret-named group masks its
+leaves by name, keeping an identifier (username, host, port and the like) shown. `TestAttr_ASecretInAValueThatIsNotAStringIsMasked`
+and `TestAttr_ASecretNamedGroupMasksItsLeaves` run through the real handlers and failed on the old code;
+`TestAttr_AValueWithNothingSecretKeepsItsShape`. Two gaps in this first fix are 904 and 912.
+
+**Lesson.** A masker is held to every kind of value its callers pass, and a test of it runs each kind through the real
+handler.
+
+## 904. The first fix of 903 rendered a byte slice as its decimal bytes, the secret in another spelling, and a panicking MarshalJSON ended the logging goroutine (a repeat in kind of 455 and 898) (fixed before push)
+
+**Symptom.** 2026-11-04, the branch review of `eaafb354`. A `[]byte` or `json.RawMessage` holding a known secret was
+replaced by its masked `%+v`, which for a byte slice is its decimal bytes: a substring check cannot see the secret
+there, and anyone can read it back. A value whose `MarshalJSON` panicked panicked the logging goroutine, since
+`ReplaceAttr` runs outside slog's recovery. An identifier key inside a secret-named group stayed shown for a struct,
+which can hold anything.
+
+**Root cause.** The rendering was chosen for its general case (`%+v`) without asking what it does to a byte slice, and
+it called third-party code (`MarshalJSON`) in a place with no recovery.
+
+**Why 455 and 898 did not hold.** Both found a secret in an encoded spelling (a base64 header, shell quoting) and fixed
+that one site. Masking by value cannot see any encoding, and the new rendering made a new one.
+
+**Fix.** `ec9b0a23`: a byte slice of any named type is rendered and replaced as its text; a panic in a marshaller is
+recovered and that rendering skipped; an identifier under a secret-named group stays shown only for a string or a
+scalar. The value test logs each value with two different secrets and requires the same line (LESSONS 195), which the
+decimal form fails. `TestAttr_APanickingMarshallerDoesNotEndTheLogCall`,
+`TestAttr_AStructUnderAnIdentifierKeyInASecretGroupIsMasked`; `BenchmarkAttrNonStringValue` measures the added cost
+(about 390 ns for an error value).
+
+**Lesson.** LESSONS 195: prove a message does not depend on the secret, not that the secret's spelling is absent.
+
+## 905. internal/archtest's invisible-character check passed U+2028, U+2029, zero-width and other format characters, tag characters, variation selectors and the Hangul fillers, and two test files held raw U+2028 and U+2029 (the archtest gap of 851) (fixed)
+
+**Symptom.** 2026-11-04, branch `fix/ssh-sweep-b`. `TestNoInvisibleControlCharactersInGoSource` asked
+`termsafe.Unsafe`, which answers what a terminal acts on. Raw U+2028 and U+2029 (a line break to some viewers, so a
+comment's tail can read as code) sat in string literals in `pkg/aitask/fuzz_test.go` and `pkg/iosparse/py_internal_test.go`.
+The walk stopped on an editor's dangling lock link, an AppleDouble file or a file gone mid-walk.
+
+**Root cause.** 851's: the check's list was a terminal's list, not the list of characters a reader cannot see.
+
+**Fix.** `f041ed28`: the check also refuses Unicode's Cf, Zl, Zp, Variation_Selector and
+Other_Default_Ignorable_Code_Point. The two literals are escapes now, with the same value. The walk is factored out
+with a negative control over a tree of its own (`TestScanGoSource_FindsWhatItMustAndOnlyThat`) and passes over a
+dangling link, an AppleDouble file and a vanished file. See 913 for that test's symlink case on Windows.
+
+**Lesson.** 851's: a backstop's list is part of what it proves. Name the reader the check protects, then take that
+reader's list.
+
+## 906. Two detach tests read where a command ran with [ -p /dev/stdin ], which on FreeBSD is not a pipe without fdescfs, so they failed on bsd-check, on main as well as on the branch (a repeat of 505) (fixed)
+
+**Symptom.** 2026-11-04, bsd-check of branch `fix/ssh-sweep-b`. `TestDetached_AHomeTheAccountDoesNotOwnRunsTheCommandWhereItStands`
+and `TestDetached_ALinkedBaseIsRefused` read every command as detached and failed. They fail on `main` there too.
+
+**Root cause.** The tests used a Linux device file as their probe. FreeBSD has no `/dev/stdin` pipe without fdescfs
+mounted.
+
+**Why 505 did not hold.** 505 found tests assuming a Linux or macOS host and fixed those instances; nothing checks a
+test's shell probe for portability. These tests reached `main`, so no FreeBSD run judged them before the merge.
+
+**Fix.** `2dcb1f18`: the tests read `$0`, which ends in `/cmd` only for a job sh reads from its file, and
+`TestDetached_WhereItRanTellsTheTwoApart` is the control that it reads both ways. CI_LESSONS 26.
+
+**Lesson.** A test asks the shell what it knows, not a device file; and a probe that decides a test's verdict gets a
+control that reads both answers.
+
+## 907. The detached stop script signalled whatever its pid file held, so a red-first test that wrote pid 1 through remoteexectest's local-sh server ran kill -KILL -1 as the developer account and killed the user session twice (a repeat in kind of 689) (fixed)
+
+**Symptom.** On branch `fix/ssh-sweep-b`, the first version of `TestStopDetached_ReportsAStopOnlyWhenItSignalledAJob`
+(`pkg/remoteexec/detach_script_test.go`) wrote a job's pid file holding `1` and called `conn.stopDetached` through
+`remoteexectest`'s in-process SSH server. That server runs each command through this machine's own `/bin/sh`
+(`pkg/remoteexec/remoteexectest/server.go`, `exec.Command("/bin/sh", "-c", command)`). The old stop script ran
+`kill -TERM -"$p"` and `kill -KILL -"$p"`, that is `kill -KILL -1` as the developer account, which signals every
+process the account may signal. The first time, the session died and it was read as "WSL crashed". The second time,
+2026-11-05 at 08:56:03 to 08:56:05 EST, `journalctl` shows `user@1000.service` "Main process exited, code=killed,
+status=9/KILL" two seconds after the capped `go test -race -run ...` started. Afterwards `~/.local/bin/capped` failed
+with "Failed to connect to bus" until the owner ran `sudo systemctl start user@1000.service`.
+
+**Root cause.** Two. In the product, the stop script trusted a value read from a file: a pid of 1 is a kill of every
+process the account may signal, 0 its own group, and `01` or a value past 2^32 can reach the same through the shell's
+parsing; a file under a base another account wrote could name any of them. In the test, a red-first test (written to
+fail on the old code) sent the old code a destructive value through a harness that runs on this machine, so failing
+meant doing the damage.
+
+**Why 689 did not hold.** 689 (and 153) was a kill on this machine whose target nobody proved: `pgrep -f` matched the
+agent's own shell. Its guard covers the agent's own `pkill` and `pgrep` commands. A kill run by product code inside a
+test harness on the local shell is a path no guard looks at.
+
+**Fix.** `6bef8e91`, `a1243fae`: `detachStop` (`pkg/remoteexec/detach_script.go`, beside `detachStart`) signals only a
+pid that is digits with no leading zero, at most seven of them, and more than 1, and only after checking the base is a
+directory the account owns, not a link, inside a HOME the account owns, as the start already requires. It signals
+only the process group (see 909). A job with no such pid has its directory, which holds its command, removed, and the
+stop reports that it stopped nothing. A Raw view's failed start sends no stop (`TestDetached_AFailedStartOnARawViewSendsNoStop`),
+since its CLI would take the script for a command. The dangerous pids (0, 1, 01, -1, " 1", "1 2", +5, 12345678,
+4294967297) are tried only by running the script locally with `kill` replaced by a logging shell function
+(`TestDetachStop_NeverSignalsAPidAJobCannotHave`), behind a control that requires a real child's pid to reach the
+function and the child to stay alive. The round trip through the server uses only values no kill acts on. On the old
+script the new test fails every case, each kill logged and none sent.
+
+**Lesson.** LESSONS 398 and 399. A script that acts on a value read from a file trusts it only as far as its shape and
+its owner allow.
+
+## 908. The detached stop reported "was stopped" for a job that had already finished, so an error could lead a reader to run the command a second time (a repeat of 789, 571 and 228; LESSONS 156) (fixed before push)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. The stop script exited 0 after its `rm` whenever the
+pid was well formed, whether or not a job was running, and `49688a6e`'s errors said the job was stopped.
+
+**Root cause.** The script's exit status said "the script finished", and the error read it as "a job was stopped".
+
+**Why 789, 571 and 228 did not hold.** Each was text claiming more than the code does, fixed at its site. Here the
+text was new and claimed what the exit status never said.
+
+**Fix.** `a1243fae`: the script exits 2 (`detachStopEnded`) when the job's process group is gone, and `stopDetached`
+returns a `stopOutcome` (stopped, had already finished, may be running) that every error carries.
+`TestStopResult_NamesWhatTheStopFound`, `TestDetachStop_AJobWhoseGroupHadEndedIsNeverSignalledByPid`.
+
+**Lesson.** An error that says what happened on a device takes that from a status that distinguishes the cases, never
+from "the script ran".
+
+## 909. After a detached job's group was gone, the stop sent TERM and KILL to its pid alone, which by then may be an unrelated process, as root under become (a repeat in kind of LESSONS 327; the family of 153 and 689) (fixed)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. The stop script on `main` ran
+`kill -TERM -"$p" ... || kill -TERM "$p"`, and the same for KILL. When the group had ended, the fallback signalled the
+pid alone, and a pid is reused.
+
+**Root cause.** The fallback was for a job with no group (no `setsid`). Since 901, `detachStart` makes `$!` a group
+leader or starts nothing, so the fallback could only ever reach a process that is not the job.
+
+**Why LESSONS 327 did not hold.** 327 says a process is stopped by its group, not a pid. The fallback predates the
+start's guarantee and was not revisited when the start changed.
+
+**Fix.** `a1243fae`: only the group is ever signalled, and the grace loop probes the group (`kill -0 -"$p"`). Run
+against the logging kill only: `TestDetachStop_AJobWhoseGroupHadEndedIsNeverSignalledByPid`, and the control's exact
+kill list.
+
+**Lesson.** When a guarantee changes upstream (every job has a group), remove the fallback written for its absence; a
+fallback with no remaining case can only act on the wrong thing.
+
+## 910. A failed detached start threw away the stop's result, and a 4 KiB answer bound let a chatty ~/.ssh/rc cut a stop short (a repeat in kind of 777 and 783; LESSONS 244) (fixed)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. When a start failed after reaching the device, its
+error did not say what the stop found. The start, poll and stop answers were bounded at 4 KiB (the stop's 4096 bound
+was on `main`), so enough startup output from `~/.ssh/rc` could fail the stop's own command.
+
+**Root cause.** The start's error path called the stop and dropped its return; the bound was sized for the script's
+own answer, not for a banner ahead of it (900's cause, at one more site).
+
+**Why 777 and 783 did not hold.** Both made a stop run on an exit; neither made the exit report it. LESSONS 244 (a
+guard on one of two sibling paths) applies to the bound: 900 fixed the poll's parse and the bound beside it stayed small.
+
+**Fix.** `a1243fae`: a failed start's error carries the stop's outcome; the start, poll and stop answers are bounded at
+64 KiB (`detachAnswerLimit`).
+
+**Lesson.** A stop run on an error path reports what it found in that error. A bound on an answer that a login banner
+precedes is sized for the banner too.
+
+## 911. A finished detached job whose output passed its limit or could not be read left its directory, which holds the command, on the device (a repeat in kind of 452, 563, 638 and 728; LESSONS 214) (fixed)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. On `main`, `runDetached` returned the read error
+before its `rm -rf`, so the job's directory (its command, which may hold a secret, and its output) stayed in the
+account's home.
+
+**Root cause.** The cleanup sat after reads that can fail, the shape of 452, 563, 638 and 728, where an undo was
+recorded only after such reads.
+
+**Why those did not hold.** Each fixed the order in its own methods. Nothing checks, for a cleanup in general, that
+every early return passes it.
+
+**Fix.** `a1243fae`: the directory is removed on those exits too. `TestDetached_OutputPastTheLimitLeavesNoJob`.
+
+**Lesson.** LESSONS 214: list every early return against what it leaves behind. A cleanup belongs before the reads
+that can fail, or on every exit after them.
+
+## 912. Masker.Attr masked a map or struct value only by its text, so a "password" map key or a Password field whose bytes were never registered reached both log handlers whole (a repeat in kind of 696 and 884; LESSONS 350) (fixed)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. `{"password": ...}` in a map, or a `Password`
+field in a struct, was printed in full by the text and JSON handlers when its value was not a registered secret,
+though `Masker.Value` already masks such keys by name for stats. This was true on `main` and after 903's fix.
+
+**Root cause.** 903 masked non-string values by registered text only; masking by key name lived in `Value`, which
+`Attr` did not call.
+
+**Why 696 and 884 did not hold.** Both looked only at the top level of a nested value and were fixed at their sites.
+LESSONS 350 says one function, looking inside nested values, for every tier; `Value` was that function and `Attr` did
+not use it.
+
+**Fix.** `b34d029e`: a map, list or struct (not an error, not a byte slice) goes through `Value`, and the attribute
+becomes the masked value, keeping its JSON shape, when that changes anything. A value that will not marshal is left to
+the text renderings, so a panicking `MarshalJSON` still cannot end the logging goroutine.
+`TestAttr_ASecretNamedKeyInsideAValueIsMasked` fails 12 times on the old code (six shapes, two handlers). `Attr`'s
+comment now says rendering calls `Error`, `String` and `MarshalJSON`, whichever the handler uses.
+
+**Open.** A `[]byte` field inside a struct that holds a registered secret is still printed as base64 (JSON) or as
+decimal bytes (text), and missed.
+
+**Lesson.** LESSONS 350: two maskers of one value are one function.
+
+## 913. TestScanGoSource_FindsWhatItMustAndOnlyThat failed rather than skipped where symbolic links cannot be made, such as Windows without the privilege (a repeat of 567 and 544) (fixed before push)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. 905's new test called `t.Fatal` when it could not
+make its dangling link.
+
+**Root cause.** It assumed unprivileged symbolic links, which the Windows leg does not have.
+
+**Why 567 and 544 did not hold.** Their rule is CI_LESSONS 3, and `need.Require` exists for it; the new test was
+written without either.
+
+**Fix.** `3aa5337a`: the symlink case uses `need.Require`, as the other symlink tests do.
+
+**Lesson.** CI_LESSONS 3.
+
+## 914. TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn bounded the call's elapsed time from above (a repeat of 479, 422 and 211) (fixed before push)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. 897's test required the call to end within 12 s, a
+wall-clock upper bound that a stalled runner can miss with nothing wrong.
+
+**Root cause.** The test measured time to prove "not waited on", where an outcome can prove it.
+
+**Why 479, 422 and 211 did not hold.** Each removed a timing bound at its site; CI_LESSONS 6 and 19 are rules, not a
+check.
+
+**Fix.** `3aa5337a`: the command now outlives the call's 60 s deadline by far, and the test requires
+`ErrOutputTooLarge` and not `DeadlineExceeded`, so a call that waits on the command fails without a timer. Passed
+against the real sshd container in 1.2 s on 2026-11-05.
+
+**Lesson.** Prove "did not wait" by an outcome that waiting would change (which error came back), not by a stopwatch.
+
+## 915. TestDetached_TheStopReconnectsWhenItsConnectionIsGone passed with nothing checked when the job's child pid file never appeared (a repeat in kind of 436 and 440) (fixed)
+
+**Symptom.** 2026-11-05, fp-reviewer on branch `fix/ssh-sweep-b`. The test, on `main` since 777, checked the child
+only when its pid file existed, so a job that never recorded its child passed.
+
+**Root cause.** A missing precondition was read as nothing to check.
+
+**Why 436 and 440 did not hold.** Each was a vacuous pass fixed at its site; CI_LESSONS 15 is a rule, not a check.
+
+**Fix.** `a1243fae`: the test fails when the job never records its child.
+
+**Lesson.** CI_LESSONS 15: a precondition a test relies on is asserted, never skipped over.
+
+## 916. TestProcess_ErrorsNeverCarryTheCommandText's own command wrote the marker to standard error, which an error carries by design, so it failed on FreeBSD when that stderr arrived before the close (a repeat in kind of LESSONS 368) (fixed)
+
+**Symptom.** 2026-11-05, `bsdcheck` of `pkg/remoteexec` on branch `fix/ssh-sweep-b` at `44e72fe5`: the test failed in
+one of three runs with `Write() error = "remoteexec: write to remote command on 127.0.0.1:...: EOF (server stderr:
+\"cat: /srv/secret-looking-path: No such file or directory\\n\")"`. It passed in every Linux run.
+
+**Root cause.** The test started `cat '/srv/secret-looking-path'` and asserted the marker never reaches the `Write`
+error. The path does not exist, so `cat` itself printed the marker to standard error, and a stream's errors append the
+server's stderr deliberately (`stream.stderrSuffix`). Whether that stderr was drained before `Close` depended on
+timing, which FreeBSD's scheduler made come out the other way. The code was right; the fixture produced the very text
+the test says must be absent.
+
+**Why LESSONS 368 did not hold.** 368 is about a test watching for a mark another path can also leave; this is its
+mirror (an absence a second path can break), and the test was on `main` from before 368 was written.
+
+**Fix.** `pkg/remoteexec/process_test.go`: the marker is an argument to `:`, which ignores it, then `cat` runs, so the
+command's own output can never hold it. 20 runs pass locally under `-race`; rerun on bsd-check.
+
+**Lesson.** A test asserting a value is absent from an output must make sure no other legitimate channel into that
+output (a remote program's stderr, a log line, an echo) can produce it.
+
+## 917. The docker host fixture's unpinned apk add of openssh-server broke when Alpine's index moved past the pinned dind image's own openssh client packages (a repeat in kind of 465) (fixed)
+
+**Symptom.** 2026-11-05, `make branch-containers` run 42062491556 for `fix/ssh-sweep-b` at `da5be229`: shards 2 and 6
+failed, every test that builds the docker host fixture (`internal/testsupport` `TestDockerHost_*`,
+`internal/adapters/native` `TestContainerExec_RunnerChildReachesTheDevicesEngine`, eight `internal/inventory/onboard`
+engine tests) with `apk add`: `openssh-client-common-10.3_p1-r1: breaks: openssh-client-default-10.3_p1-r2`. Each
+failed again when re-run alone. Reproduced here with `docker build --no-cache`; unrelated to the branch's diff, so `main`
+was broken the same way.
+
+**Root cause.** `testdata/docker-sshd/Dockerfile` pins its base (`docker:29.9.0-dind`) but installs `openssh-server`
+from Alpine's live index. The base ships OpenSSH's client packages at r1; the index moved to r2, whose server package
+needs the r2 client packages, and `apk add` does not upgrade an installed package unless asked, so it could not
+resolve. A warm local image cache hid it; CI builds the fixture fresh.
+
+**Why 465 did not hold.** 465 made pr-check ask a registry whether each pinned image is served; it says nothing about
+packages a Dockerfile installs from a moving index on top of a pinned image.
+
+**Fix.** `apk add --no-cache --upgrade openssh-server openssh-client-common openssh-client-default`: the client
+packages move with the server. The engine is not an apk package in that image, so Docker stays 29.9.0 (checked in the
+rebuilt image). `TestDockerHost_*` pass against the cold-built fixture.
+
+**Lesson.** A fixture that adds a package from a live index onto a pinned base that already carries part of that
+package's family upgrades the family with it, or it breaks the day the index moves.

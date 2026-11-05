@@ -5,7 +5,9 @@ package remoteexec
 
 import (
 	"context"
+	"errors"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +50,12 @@ type cancelWatch struct {
 	// the route).
 	clients  []*ssh.Client
 	severVia func()
+	// taint marks a borrowed connection not to be lent again once the
+	// command is being ended, before its connection may be closed.
+	taint func()
+	// finishOnce makes finish safe to call again (a stream's wait, then its
+	// close).
+	finishOnce sync.Once
 
 	// done is closed by finish, ending the goroutine if it has not fired.
 	done chan struct{}
@@ -62,7 +70,7 @@ func (c *Conn) watch(ctx context.Context) *cancelWatch {
 	clients := make([]*ssh.Client, 0, len(c.chain)+len(c.extra))
 	clients = append(clients, c.chain...)
 	clients = append(clients, c.extra...)
-	w := &cancelWatch{done: make(chan struct{}), clients: clients, severVia: c.severVia}
+	w := &cancelWatch{done: make(chan struct{}), clients: clients, severVia: c.severVia, taint: c.taint}
 	go func() {
 		select {
 		case <-w.done:
@@ -89,6 +97,7 @@ func (w *cancelWatch) end(cancelled bool) {
 	if cancelled {
 		w.fired = true
 	}
+	w.taint()
 	if w.sever == nil {
 		// Armed before the signal is sent, since sending it can block on a
 		// connection that stopped carrying anything, which is what the
@@ -131,8 +140,8 @@ func (w *cancelWatch) ending() bool {
 
 // finish ends the watch and reports whether it fired before the command's
 // own end, in which case the command's outcome is the firing's. It stops a
-// connection close not yet made; one already made stays made. It is called
-// once.
+// connection close not yet made; one already made stays made. Calling it
+// again changes nothing and reports the same.
 func (w *cancelWatch) finish() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -140,8 +149,29 @@ func (w *cancelWatch) finish() bool {
 	if w.sever != nil {
 		w.sever.Stop()
 	}
-	close(w.done)
+	w.finishOnce.Do(func() { close(w.done) })
 	return w.fired
+}
+
+// ErrCommandRefused is the error for a command the server would not start
+// (an exec request it answered with a failure, as OpenSSH does when it
+// cannot fork for the account). It names no command.
+var ErrCommandRefused = errors.New("the server refused to start the command")
+
+// withoutCommand returns err from starting line with the command taken out.
+// x/crypto/ssh reports a refused exec as "ssh: command <line> failed", and a
+// line can carry a secret a method put in the command, in the shell-encoded
+// form a mask by value does not match. Such an error becomes
+// ErrCommandRefused; any other start error (a dropped connection) names no
+// command and is returned as it is.
+func withoutCommand(err error, line string) error {
+	if err == nil {
+		return nil
+	}
+	if line != "" && strings.Contains(err.Error(), line) {
+		return ErrCommandRefused
+	}
+	return err
 }
 
 // endSession sends a cancelled command SIGTERM (an SSH "signal" request, RFC

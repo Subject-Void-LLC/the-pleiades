@@ -4,77 +4,86 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-04. Branch `fix/ssh-sweep-2026-11-04`, from `main` at `a176a48b` (PR #113 merged; every required check
-passed first time, the advisory `fast-macos` included). Five commits: `a50bc048` (a cancelled command is never a
-completed one), `9ca3ef7c` (a routed device is dialed through its route), `01e5c792` (the pre-#110 shell value),
-`72474f70` (coverage tests), `bd004d1e` (fp-reviewer's findings), plus the records (uncommitted). Built from
-`.IGNORE/claude-api/out/sweep-2026-11-04/VERDICTS-ssh.md` items 1, 2, 3, 4, 5, 9 and 10. Not through `make pr-check`,
-push, `make branch-containers` or a pull request yet.**
+**2026-11-05. Branch `fix/ssh-sweep-b` (SSH PR B), from `main` at `793377ff` (PR #114 merged). Eleven commits:
+`bd9fc13b`, `49688a6e`, `eaafb354`, `f041ed28`, `2dcb1f18`, `ec9b0a23` (2026-11-04), then `6bef8e91`, `987603a2`,
+`a1243fae`, `b34d029e`, `3aa5337a`, `44e72fe5` (records), `31af3e90` (2026-11-05), plus 916's record. `make
+pr-check` passed at `44e72fe5`; bsd-check of `pkg/remoteexec` passed at `31af3e90`. The tip needs pr-check again
+(the receipt is for `44e72fe5`), then push, `make branch-containers` and the pull request.**
 
-### What works (each proven by a test that failed on the old code and passes now)
+### What works (each fix's test failed on the old code where its entry says so)
 
-- **A cancelled SSH command fails with the cancellation** (FAILURE_PATTERNS 891). Against the real sshd container it
-  used to return partial stdout with no error, or exit 143; a done context still sent the command; a failed stdin read
-  was sent as a clean end of input. `internal/transport/ssh/ssh_cancel_container_test.go`,
-  `pkg/remoteexec/conn_cancel_test.go`.
-- **A Collection method and `net.ssh.ping` reach a routed device through its bastion** on `run` and `adhoc`
-  (892). `cmd/pleiades` `TestCLI_ACollectionMethodReachesARoutedDeviceThroughItsBastion`.
-- **A fish or tcsh host onboarded before #110 gets the `sh` wrapper** (893, closing 858's open half): new value
-  `no posix sh`, the old `not posix` read as unrecorded.
-- **fp-reviewer's two findings are fixed** (894, a repeat of 146 and 398; 895, C15):
-  `TestConnectVia_ARoutedTargetsCircuitRecovers`, `TestRun_ACancelledCommandThroughAStalledBastionIsBounded`.
-- Passing: `go test -race -tags integration` for `pkg/remoteexec` (94.7%, floor 94.5), `pkg/sdk` (100),
-  `pkg/inventory` (100), `internal/catalog/net/ssh` (94.9, floor 92.1), `internal/transport/ssh` (96.7); all of
-  `internal/archtest`; `GOOS=windows` vet of the changed packages.
-- PR #113: its fp-reviewer findings were closed except `internal/setup`'s `Fields` comment (still open); its gate
-  passed; `record-actions` ran for the PR and for run 41915386917 (nothing new).
-- Records: FAILURE_PATTERNS 891 to 895 (858's index line updated, its archive entry given the resolution), LESSONS
-  396 and 397.
+- **Streamed SSH commands cancel** (FAILURE_PATTERNS 896, closing 891's open part), a command cut for its output is
+  ended (897), and a command sshd refuses names no command in its error (898). Real sshd tests in
+  `internal/transport/ssh`.
+- **Detached (`async:`) commands:** a cut-short command never starts (899), `~/.ssh/rc` output no longer breaks polls
+  (900), no `setsid` on BusyBox runs attached (901), lost starts and polls stop the job by a client-chosen name (902).
+- **The stop never signals a pid a job cannot have** (907): only digits, no leading zero, at most 7 digits, more than
+  1, under an owned base in an owned HOME, and only the process group (909). It says whether the job was stopped, had
+  already finished, or may be running (908, 910), and a finished job leaves no directory (911). Dangerous pids are
+  tested only against a logging `kill` behind a control (`TestDetachStop_NeverSignalsAPidAJobCannotHave`).
+- **Log masking** (`internal/redact`): non-string values (903, 904) and secret-named keys inside maps and structs (912).
+- **archtest** refuses every invisible character class (905, closing 851's gap); its symlink case skips where links
+  cannot be made (913).
+- Test fixes: FreeBSD `/dev/stdin` probe (906), wall-clock bound removed (914), a vacuous pass closed (915), and a
+  fixture that wrote its own marker to stderr (916, found by bsd-check).
+- Passing on 2026-11-05 (all under `~/.local/bin/capped 2500M`, `GOMAXPROCS=4`, `-race -count=1`): `pkg/remoteexec`
+  whole package (about 69 s, twice); `internal/redact`; `internal/archtest`'s GoSource tests;
+  `TestSSHContainer_ACommandCutForItsOutputIsEndedNotWaitedOn` (1.2 s, real sshd); `go vet -tags integration` of
+  `pkg/remoteexec`, `internal/archtest`, `internal/transport/ssh`. `make pr-check` at `44e72fe5` (monitor, `--cap
+  4600M`): pass, about 21 min, 63 packages (a first run at `--cap 4000M` was stopped by the memory guard after 10 s, no
+  test failed). bsd-check of `pkg/remoteexec`: failed at `44e72fe5` on 916 (1 run in 3), passed at `31af3e90` (5m20s),
+  so `detachStop`'s `${#p}`, `${d%/*}` and `[ -O ]` are proven on FreeBSD's sh.
+- Records: FAILURE_PATTERNS 896 to 916 (891 and 851 given their resolutions), LESSONS 398 and 399, CI_LESSONS 26,
+  changelog fragment `changelog/ssh-detach-stop-and-log-masking.security.md`.
+
+### Incident this session
+
+The first version of a red-first test ran the old stop script's `kill -KILL -1` through `remoteexectest`'s local sh
+and killed the user session twice (the second time at 2026-11-05 08:56:03 EST, proven by `journalctl -u
+user@1000.service`; the first was read then as "WSL crashed"). The owner
+restarted it with `sudo systemctl start user@1000.service`; `capped` works again. FAILURE_PATTERNS 907, LESSONS 398
+and 399.
 
 ### Current blocker
 
-None. Next is the gate.
+None. Next is pr-check at the tip.
 
 ### Open
 
-- **Carried to the next SSH pull request:** `pkg/remoteexec/stream.go` (`Conn.Start`, `Process`, subsystems) has
-  891's cancelled-as-completed bug (fp-reviewer F4); verdicts items 6, 7 and 12 (detach), 8 and 13 (redact `Attr`
-  kinds and groups), 11 (archtest invisible characters).
-- Smaller, noted: `Conn.Close` returns an error after a sever (only `tools/maccheck` reads it); a sever timer already
-  running when `finish` is called can close a non-pooled `Conn` that `stopDetached` then reuses (it redials).
-- Not confirmed by the verdicts, so not built: a session cut by the output cap is never signalled; a refused exec puts
-  the whole command (which may embed a secret) in the error.
-- Routes are not followed on a Runner, by external Collections, or by the onboarding SSH probe (stated in docs/11 and
-  the changelog). A no-`sh` device onboarded before #110 fails at `/bin/sh` until onboarded again, and an older Runner
-  reads `no posix sh` as POSIX.
-- Carried forward: FAILURE_PATTERNS 448 (`pkg/tftpxfer` on macOS) is still open; `internal/setup`'s `Fields`
-  comment; the other items in the archive's previous entry (867, 851, 853, 41d's items, vuln-corpus
-  `C13_auto-roboto_2026-11-03` pending review, the owner decisions of 2026-11-04).
-- API credit: $20.53 of $92 spent (no new spend this session); expires 2026-11-08.
+- `internal/catalog/gate/runner.go` `deviceRunner.stop` refuses only `pid <= 0`: a hostile device printing `1` as its
+  pid marker would get `kill -TERM 1` and `kill -KILL 1`, as root to init under become. No group kill, low severity,
+  needs a test seam. Not fixed, not yet a failure pattern.
+- `internal/redact`: a `[]byte` field inside a struct holding a registered secret is still printed as base64 (JSON)
+  or decimal (text), and missed (912's open note).
+- Carried: `Conn.Close` returns an error after a sever; a sever timer already running when `finish` is called can
+  close a non-pooled `Conn` that `stopDetached` then reuses (it redials). Routes are not followed on a Runner, by
+  external Collections, or by the onboarding SSH probe; a no-`sh` device onboarded before #110 fails at `/bin/sh`
+  until onboarded again, and an older Runner reads `no posix sh` as POSIX.
+- Carried: FAILURE_PATTERNS 448 (`pkg/tftpxfer` on macOS); `internal/setup`'s `Fields` comment; 867, 853, 41d's
+  items, vuln-corpus `C13_auto-roboto_2026-11-03` pending review, the owner decisions of 2026-11-04 (see the
+  archive's earlier entries).
+- API credit: $20.53 of $92 spent as of the last report; no new spend was reported this session. Expires 2026-11-08.
 
 ### Next, in order
 
-1. This pull request: `make pr-check` through the monitor, push, `make branch-containers`, then the pull request
-   (failure-pattern classes in the body, no AI attribution). Merge only when green, `record-actions`, pull `main` and
-   clean.
-2. SSH PR B (the carried items above).
+1. `make pr-check` at the tip through the monitor (`.venv/bin/python tools/monitor/monitor.py run --cap 4600M`).
+2. Push, `make branch-containers`, then the pull request (failure-pattern classes in the body, no AI attribution
+   anywhere). Merge only when green, `record-actions`, pull `main` and clean.
 3. Facts sweep PRs from `VERDICTS-facts.md`: security items 2, 3 and 12, plus 7 and 13, first; then correctness 1, 8,
    9, 11, 14, 15 and 16; then churn 4, 5, 6 and 10.
-4. 41c-3.
-5. 41d to 41g.
-6. `file.remove`'s check refuses by default.
-7. 117b, 117c, 105.
-8. Release 0.4.0 (no tag until the owner says).
+4. 41c-3, then 41d to 41g.
+5. `file.remove`'s check refuses by default.
+6. 117b, 117c, 105.
+7. Release 0.4.0 (no tag until the owner says).
 
-### Files changed this session
+### Files changed on this branch
 
-`pkg/remoteexec/` (`conn.go`, `conn_watch.go` (new), `script.go`, `remoteexec.go`, `hop.go`, `tunnel.go`,
-`detach.go`, `abandon_test.go`, `conn_cancel_test.go`, `connectvia_test.go`), `pkg/sdk/` (`connect.go`,
-`connect_test.go`), `pkg/inventory/` (`execshell.go`, `execshell_test.go`), `internal/catalog/net/ssh/` (`ping.go`,
-`ping_route_test.go`), `internal/transport/ssh/ssh_cancel_container_test.go`, `cmd/pleiades/route_collection_test.go`,
-`docs/11-extending-pleiades.md`, `CLAUDE.md` (the shell value), `changelog/ssh-cancel-route-legacy-shell.security.md`,
-and `~/argus/MCP_USAGE_LOG.md` rows 198 to 207. Records: `FAILURE_PATTERNS.md` and its archive (891 to 895, 858),
-`LESSONS_LEARNED.md` and its archive (396, 397), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+`pkg/remoteexec/` (`conn.go`, `conn_watch.go`, `detach.go`, `detach_script.go` (new), `detach_script_test.go` (new),
+`detach_test.go`, `process.go`, `stream.go`, `stream_cancel_test.go` (new)), `internal/transport/ssh/`
+(`ssh_cancel_container_test.go`, `ssh_detach_container_test.go` (new), `ssh_refused_exec_container_test.go` (new)),
+`internal/redact/` (`masker.go`, `attr_values_test.go` (new), `edges_test.go`, `redact_bench_test.go`),
+`internal/archtest/source_chars_test.go`, `pkg/aitask/fuzz_test.go`, `pkg/iosparse/py_internal_test.go`. Records:
+`FAILURE_PATTERNS.md` and its archive, `LESSONS_LEARNED.md` and its archive, `CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`,
+`HANDOFF_ARCHIVE.md`, `changelog/ssh-detach-stop-and-log-masking.security.md` (new).
 
-Lab: unchanged, as far as the facts given say. bsd-check and win-check are powered off (ACPI); no test listed used a
-lab machine.
+Lab: bsd-check was started twice on 2026-11-05 by `tools/bsdcheck` for `pkg/remoteexec` and shut down after each run.

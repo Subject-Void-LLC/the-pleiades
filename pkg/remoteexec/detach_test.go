@@ -55,7 +55,7 @@ func waitForPoll(t *testing.T, srv *remoteexectest.Server) {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		for _, cmd := range srv.Commands() {
-			if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "/rc") {
+			if strings.Contains(cmd, rcPrefix) && strings.Contains(cmd, "/rc") {
 				return
 			}
 		}
@@ -190,7 +190,8 @@ func TestDetached_ADeviceThatCannotDetachRunsTheCommandWhereItStands(t *testing.
 
 func TestDetached_TheStopReconnectsWhenItsConnectionIsGone(t *testing.T) {
 	conn, _, _, home := detachedConn(t)
-	started, err := conn.run(context.Background(), QuoteCommand([]string{"sh", "-c", detachStart, "start", ""}), strings.NewReader(`sleep 30 & echo $! >"$HOME/child"; wait`), 4096)
+	job := `sleep 30 & echo $! >"$HOME/child"; wait`
+	started, err := conn.run(context.Background(), QuoteCommand([]string{"sh", "-c", detachStart, "start", "", strconv.Itoa(len(job)), newJobName()}), strings.NewReader(job), 4096)
 	if err != nil || started.ExitCode != 0 {
 		t.Fatalf("start: %+v, %v", started, err)
 	}
@@ -202,10 +203,15 @@ func TestDetached_TheStopReconnectsWhenItsConnectionIsGone(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	child, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if child <= 0 {
+		t.Fatalf("the job never recorded its child's pid (%q), so nothing could show the stop reached it", raw)
+	}
 	// What a Runner's child sees at the limit: the signal that tells it to
 	// stop has already closed the connection the job was started on.
 	_ = conn.client.Close()
-	conn.stopDetached(QuoteArg(dir))
+	if got := conn.stopDetached(QuoteArg(dir)); got != stopSignalled {
+		t.Errorf("the stop of a running job reported %q; want %q", got, stopSignalled)
+	}
 	if processAlive(child) {
 		t.Errorf("the job's child %d is still running after the stop", child)
 	}
@@ -235,14 +241,11 @@ func TestDetached_FailuresAreNamedAndNeverRunTwice(t *testing.T) {
 	if _, err := conn.Run(WithDetach(context.Background()), "echo once >> count"); err == nil || !strings.Contains(err.Error(), "no job directory") {
 		t.Errorf("a start with no job directory: %v", err)
 	}
-	// The job did start; it must have run exactly once.
-	var raw []byte
-	for deadline := time.Now().Add(5 * time.Second); len(raw) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		raw, _ = os.ReadFile(filepath.Join(home, "count"))
-	}
-	time.Sleep(300 * time.Millisecond)
-	if raw, _ = os.ReadFile(filepath.Join(home, "count")); string(raw) != "once\n" {
-		t.Errorf("the command ran %q times' worth; want exactly once", raw)
+	// The job may have started before it was stopped by name; it never runs
+	// a second time.
+	time.Sleep(500 * time.Millisecond)
+	if raw, _ := os.ReadFile(filepath.Join(home, "count")); len(raw) > len("once\n") {
+		t.Errorf("the command ran %q times' worth; want at most once", raw)
 	}
 }
 
@@ -257,6 +260,8 @@ func TestDetached_ALostConnectionThatCannotBeRedialedIsNamed(t *testing.T) {
 	}()
 	waitForPoll(t, srv)
 	drop()
+	// No connection is left to stop it on, so the error says the job may
+	// still run, and where.
 	if err := <-done; err == nil || !strings.Contains(err.Error(), "may still be running") {
 		t.Errorf("a lost connection: %v, want one naming the job that may still run", err)
 	}
@@ -359,6 +364,13 @@ func TestDetached_ALoginBannerBeforeTheDirectoryIsSkipped(t *testing.T) {
 	}
 }
 
+// whereItRan prints whether it ran detached or attached. A detached job is
+// sh reading its job's cmd file, so its $0 ends in /cmd; an attached command
+// is read by sh -c, whose $0 is sh. It does not ask whether standard input is
+// a pipe: FreeBSD's /dev/stdin is not one without fdescfs mounted, so that
+// check read every command as detached there.
+const whereItRan = `case $0 in */cmd) echo detached;; *) echo attached;; esac`
+
 func TestDetached_AHomeTheAccountDoesNotOwnRunsTheCommandWhereItStands(t *testing.T) {
 	conn, _, _, _ := detachedConn(t)
 	// A HOME owned by someone else is what become looks like under a sudo
@@ -370,9 +382,7 @@ func TestDetached_AHomeTheAccountDoesNotOwnRunsTheCommandWhereItStands(t *testin
 		t.Skip("needs a writable /tmp the test's account does not own")
 	}
 	t.Setenv("HOME", "/tmp")
-	// A command run where it stands reads the session's pipe; a detached
-	// job's standard input is /dev/null.
-	res, err := conn.Run(WithDetach(context.Background()), `if [ -p /dev/stdin ]; then echo attached; else echo detached; fi`)
+	res, err := conn.Run(WithDetach(context.Background()), whereItRan)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -388,13 +398,40 @@ func TestDetached_ALinkedBaseIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A finished job removes its directory, so whether one was made through
-	// the link is read from the command itself: a detached job's standard
-	// input is /dev/null, an attached command's the session's pipe.
-	res, err := conn.Run(WithDetach(context.Background()), `if [ -p /dev/stdin ]; then echo attached; else echo detached; fi`)
+	// the link is read from the command itself.
+	res, err := conn.Run(WithDetach(context.Background()), whereItRan)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if strings.TrimSpace(res.Stdout) != "attached" {
 		t.Fatalf("the command ran %s through a linked base; want attached", strings.TrimSpace(res.Stdout))
+	}
+}
+
+// TestDetached_WhereItRanTellsTheTwoApart is the control for whereItRan: it
+// reads detached for a detached run and attached for a plain one, so the
+// two tests reading attached from it cannot pass on a check that always
+// says so.
+func TestDetached_WhereItRanTellsTheTwoApart(t *testing.T) {
+	conn, _, _, _ := detachedConn(t)
+	for want, ctx := range map[string]context.Context{"detached": WithDetach(context.Background()), "attached": context.Background()} {
+		res, err := conn.Run(ctx, whereItRan)
+		if err != nil || strings.TrimSpace(res.Stdout) != want {
+			t.Errorf("whereItRan = %q, %v; want %s", res.Stdout, err, want)
+		}
+	}
+}
+
+// TestDetached_OutputPastTheLimitLeavesNoJob: a finished job whose output
+// reads past the limit fails with ErrOutputTooLarge, and its directory,
+// which holds its command, is still removed.
+func TestDetached_OutputPastTheLimitLeavesNoJob(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	_, err := conn.run(WithDetach(context.Background()), `head -c 1000 /dev/zero | tr '\0' x`, nil, 100)
+	if !errors.Is(err, ErrOutputTooLarge) {
+		t.Fatalf("a detached run past its limit: %v; want ErrOutputTooLarge", err)
+	}
+	if left := jobsLeft(t, home); len(left) != 0 {
+		t.Errorf("job directories left behind: %v", left)
 	}
 }

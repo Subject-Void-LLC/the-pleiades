@@ -45,6 +45,11 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     interrupted leave Go's work and test folders behind, and that is the normal case. The check clears the login's
     Go build cache and those folders before each run (this refines 4 for such machines); a machine someone else
     uses is still left alone. FAILURE_PATTERNS 537, 688.
+26. **A test tells how a command ran by asking the shell, not a device file.** `/dev/stdin`, `/dev/fd` and `/proc`
+    have Linux's shape; FreeBSD's `/dev/stdin` is not a pipe without fdescfs mounted, so `[ -p /dev/stdin ]` read
+    every command as detached on the FreeBSD leg, and the tests had reached `main` that way. Read what the shell
+    itself holds (`$0`, a file the test wrote), and give the probe a control that reads both answers.
+    FAILURE_PATTERNS 505, 906.
 
 ## Tests that do not fail by luck
 

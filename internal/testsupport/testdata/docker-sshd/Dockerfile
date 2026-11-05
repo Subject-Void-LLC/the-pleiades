@@ -9,9 +9,16 @@
 # outsider is not, so a test can see the engine refuse a login that may
 # not open its socket. The passwords are throwaway values for a container
 # started fresh for each test, never a real device.
+#
+# The base ships OpenSSH's client packages at its own release, and Alpine's
+# index moves on: openssh-server at the index's release cannot sit beside
+# the base's openssh-client-common, so apk refused to install it (2026-11-05,
+# 10.3_p1-r1 in the image against r2 in the index). --upgrade moves the
+# client packages to the index's release with the server. The engine is not
+# an apk package here, so its pinned version is unchanged.
 ARG BASE
 FROM ${BASE}
-RUN apk add --no-cache openssh-server \
+RUN apk add --no-cache --upgrade openssh-server openssh-client-common openssh-client-default \
  && ssh-keygen -A \
  && adduser -D -s /bin/sh testuser \
  && adduser -D -s /bin/sh outsider \
