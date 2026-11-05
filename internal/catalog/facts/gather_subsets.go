@@ -84,20 +84,16 @@ func gatherSelection(params map[string]any) (map[string]bool, error) {
 }
 
 // gatherExplicit is the subsets a task names itself, not through all or the
-// default, and does not also leave out: those a task fails over when no
-// source on the device answers for them (familyVerdict). A malformed value
-// reads as naming none; gatherSelection refuses it first.
+// default: those a task fails over when no source on the device answers for
+// them (familyVerdict). An exclusion does not take a name back, as it does
+// not in gatherNamed. A malformed value reads as naming none;
+// gatherSelection refuses it first.
 func gatherExplicit(params map[string]any) map[string]bool {
 	names, _, _ := sdk.StringSlice(params, gatherParamSubset)
 	explicit := map[string]bool{}
 	for _, raw := range names {
 		if name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!"); !remove && name != gatherSubsetAll {
 			explicit[name] = true
-		}
-	}
-	for _, raw := range names {
-		if name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!"); remove {
-			delete(explicit, name)
 		}
 	}
 	return explicit
@@ -115,8 +111,14 @@ func gatherNamesFiles(names []string) (named, removed bool) {
 	return named, removed
 }
 
-// gatherNamed is the subsets names chooses, by Ansible's rules, before files
-// is settled.
+// gatherNamed is the subsets names chooses, before files is settled, by
+// Ansible's own rule (get_collector_names), whatever order they come in: all
+// adds every subset, a name adds itself, !name and !all (every subset but
+// min) exclude, and a subset is gathered when it was added and not excluded,
+// or named itself, which an exclusion does not take back. So [!packages, all]
+// leaves packages out, where reading the list in order once gathered them
+// (sweep item 16). A list of exclusions alone starts from the default, and
+// min is gathered unless !min is named.
 func gatherNamed(names []string, set bool) (map[string]bool, error) {
 	chosen := map[string]bool{}
 	if !set || len(names) == 0 {
@@ -125,42 +127,45 @@ func gatherNamed(names []string, set bool) (map[string]bool, error) {
 		}
 		return chosen, nil
 	}
-	onlyRemovals := true
-	for _, n := range names {
-		if !strings.HasPrefix(n, "!") {
-			onlyRemovals = false
+	named, excluded := map[string]bool{}, map[string]bool{}
+	added := false
+	for _, raw := range names {
+		name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!")
+		if name != gatherSubsetAll && !knownSubset(name) {
+			return nil, fmt.Errorf("%s %q is not a subset this method gathers (%s, %s)", gatherParamSubset, raw, strings.Join(gatherSubsets, ", "), gatherSubsetAll)
+		}
+		switch {
+		case name == gatherSubsetAll && remove:
+			for _, s := range gatherSubsets {
+				if s != gatherSubsetMin {
+					excluded[s] = true
+				}
+			}
+		case name == gatherSubsetAll:
+			added = true
+			for _, s := range gatherSubsets {
+				chosen[s] = true
+			}
+		case remove:
+			excluded[name] = true
+		default:
+			added = true
+			named[name] = true
+			chosen[name] = true
 		}
 	}
-	if onlyRemovals {
+	if !added {
 		for _, s := range gatherDefaultSubsets {
 			chosen[s] = true
 		}
 	}
-	keepMin := true
-	for _, raw := range names {
-		name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!")
-		switch {
-		case name == gatherSubsetAll && remove:
-			for _, s := range gatherSubsets {
-				delete(chosen, s)
-			}
-		case name == gatherSubsetAll:
-			for _, s := range gatherSubsets {
-				chosen[s] = true
-			}
-		case !knownSubset(name):
-			return nil, fmt.Errorf("%s %q is not a subset this method gathers (%s, %s)", gatherParamSubset, raw, strings.Join(gatherSubsets, ", "), gatherSubsetAll)
-		case remove:
-			delete(chosen, name)
-			if name == gatherSubsetMin {
-				keepMin = false
-			}
-		default:
-			chosen[name] = true
-		}
-	}
-	if keepMin {
+	if !excluded[gatherSubsetMin] || named[gatherSubsetMin] {
 		chosen[gatherSubsetMin] = true
+	}
+	for name := range excluded {
+		if !named[name] {
+			delete(chosen, name)
+		}
 	}
 	return chosen, nil
 }

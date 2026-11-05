@@ -48,11 +48,46 @@ func TestFamilyVerdict(t *testing.T) {
 	}
 }
 
-// TestGatherExplicit: all is not a name, and a later !name takes a name back.
+// TestGatherExplicit: all is not a name, and an exclusion does not take a
+// name back, as Ansible's rule has it.
 func TestGatherExplicit(t *testing.T) {
-	got := gatherExplicit(map[string]any{gatherParamSubset: []any{"all", " packages", "services", "!packages"}})
-	if len(got) != 1 || !got["services"] {
-		t.Fatalf("explicit = %v, want services alone", got)
+	got := gatherExplicit(map[string]any{gatherParamSubset: []any{"all", " packages", "!services"}})
+	if len(got) != 1 || !got["packages"] {
+		t.Fatalf("explicit = %v, want packages alone", got)
+	}
+}
+
+// TestGatherNamed_FollowsAnsiblesRuleInAnyOrder: an exclusion removes what
+// all added whatever its place in the list, a name survives its own
+// exclusion, !all keeps min, and exclusions alone start from the default
+// (sweep item 16).
+func TestGatherNamed_FollowsAnsiblesRuleInAnyOrder(t *testing.T) {
+	cases := map[string]struct {
+		names []string
+		want  []string
+	}{
+		"an exclusion before all":  {[]string{"!packages", "all"}, []string{"min", "hardware", "services", "files", "ports", "users"}},
+		"an exclusion after all":   {[]string{"all", "!packages"}, []string{"min", "hardware", "services", "files", "ports", "users"}},
+		"a name and its exclusion": {[]string{"packages", "!packages"}, []string{"min", "packages"}},
+		"not all, then a name":     {[]string{"!all", "packages"}, []string{"min", "packages"}},
+		"exclusions alone, spaced": {[]string{" !hardware"}, []string{"min"}},
+		"min excluded":             {[]string{"all", "!min"}, []string{"hardware", "packages", "services", "files", "ports", "users"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := gatherNamed(tc.names, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("gatherNamed(%q) = %v, want %v", tc.names, got, tc.want)
+			}
+			for _, s := range tc.want {
+				if !got[s] {
+					t.Fatalf("gatherNamed(%q) = %v, want %v", tc.names, got, tc.want)
+				}
+			}
+		})
 	}
 }
 

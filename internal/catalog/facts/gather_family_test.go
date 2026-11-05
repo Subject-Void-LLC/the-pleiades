@@ -49,6 +49,7 @@ func TestGather_AFamilyIsReadOrTheRunSaysItWasNot(t *testing.T) {
 		wantErr  string
 		wantFact string
 		warns    []string
+		noWarn   string
 	}{
 		"a source that answers": {
 			tools:    map[string]string{"dpkg-query": `printf 'ii \thello\t1.0\tamd64\n'`},
@@ -68,10 +69,23 @@ func TestGather_AFamilyIsReadOrTheRunSaysItWasNot(t *testing.T) {
 			params: map[string]any{"gather_subset": []any{"all", "!users", "!ports"}},
 			warns:  []string{"package facts", "service facts"},
 		},
-		"no source, named and then left out": {
-			params: map[string]any{"gather_subset": []any{"packages", "services", "!packages"}},
-			// services is named, so it fails; packages is left out.
-			wantErr: "no source this method reads for service facts",
+		"no source, all with one left out": {
+			params: map[string]any{"gather_subset": []any{"!packages", "all", "!users", "!ports"}},
+			// packages is left out whatever its place, so only services warns.
+			warns:  []string{"service facts"},
+			noWarn: "package facts",
+		},
+		"a filter matching the key a second database's item is stored under": {
+			tools: map[string]string{
+				"dpkg-query": `printf 'ii \thello\t1.0\tamd64\n'`,
+				"rpm":        `printf 'hello\t(none)\t2.0-1\tx86_64\n'`,
+			},
+			params:   map[string]any{"gather_subset": []any{"packages"}, "filter": []any{"package.hello:*"}},
+			wantFact: "package.hello:x86_64",
+		},
+		"a filter naming a family alone": {
+			params:  map[string]any{"gather_subset": []any{"packages"}, "filter": []any{"package"}},
+			wantErr: "matches none of the facts",
 		},
 		"an answer without its structure": {
 			tools:   map[string]string{"cut": `exit 0`},
@@ -107,6 +121,11 @@ func TestGather_AFamilyIsReadOrTheRunSaysItWasNot(t *testing.T) {
 				}
 				if !found {
 					t.Errorf("warnings = %q, want one naming %q", warnings, want)
+				}
+			}
+			for _, w := range warnings {
+				if tc.noWarn != "" && strings.Contains(w, tc.noWarn) {
+					t.Errorf("warnings = %q, want none naming %q", warnings, tc.noWarn)
 				}
 			}
 			if len(tc.warns) == 0 && len(warnings) > 0 {
