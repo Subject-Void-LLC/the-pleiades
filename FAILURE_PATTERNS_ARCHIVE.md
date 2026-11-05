@@ -21802,3 +21802,27 @@ command's own output can never hold it. 20 runs pass locally under `-race`; reru
 
 **Lesson.** A test asserting a value is absent from an output must make sure no other legitimate channel into that
 output (a remote program's stderr, a log line, an echo) can produce it.
+
+## 917. The docker host fixture's unpinned apk add of openssh-server broke when Alpine's index moved past the pinned dind image's own openssh client packages (a repeat in kind of 465) (fixed)
+
+**Symptom.** 2026-11-05, `make branch-containers` run 42062491556 for `fix/ssh-sweep-b` at `da5be229`: shards 2 and 6
+failed, every test that builds the docker host fixture (`internal/testsupport` `TestDockerHost_*`,
+`internal/adapters/native` `TestContainerExec_RunnerChildReachesTheDevicesEngine`, eight `internal/inventory/onboard`
+engine tests) with `apk add`: `openssh-client-common-10.3_p1-r1: breaks: openssh-client-default-10.3_p1-r2`. Each
+failed again when re-run alone. Reproduced here with `docker build --no-cache`; unrelated to the branch's diff, so `main`
+was broken the same way.
+
+**Root cause.** `testdata/docker-sshd/Dockerfile` pins its base (`docker:29.9.0-dind`) but installs `openssh-server`
+from Alpine's live index. The base ships OpenSSH's client packages at r1; the index moved to r2, whose server package
+needs the r2 client packages, and `apk add` does not upgrade an installed package unless asked, so it could not
+resolve. A warm local image cache hid it; CI builds the fixture fresh.
+
+**Why 465 did not hold.** 465 made pr-check ask a registry whether each pinned image is served; it says nothing about
+packages a Dockerfile installs from a moving index on top of a pinned image.
+
+**Fix.** `apk add --no-cache --upgrade openssh-server openssh-client-common openssh-client-default`: the client
+packages move with the server. The engine is not an apk package in that image, so Docker stays 29.9.0 (checked in the
+rebuilt image). `TestDockerHost_*` pass against the cold-built fixture.
+
+**Lesson.** A fixture that adds a package from a live index onto a pinned base that already carries part of that
+package's family upgrades the family with it, or it breaks the day the index moves.
