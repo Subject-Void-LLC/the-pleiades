@@ -18,6 +18,7 @@ import (
 	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -84,7 +85,9 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 // message at the head of the consumer group and blocks every batch
 // behind it, which is a worse outcome than losing the one batch that was
 // already unusable. It is acknowledged and logged at error, exactly like
-// an undecodable one.
+// an undecodable one. So is a batch whose job or device ID cannot name
+// one (internal/poison's CheckID), checked before any query, and one the
+// database itself refuses as data (SQLSTATE class 22).
 func (s *Subscriber) Handle(evt event.Event) error {
 	var batch Batch
 	if err := json.Unmarshal(evt.Data, &batch); err != nil {
@@ -116,6 +119,21 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		}
 	}
 
+	// Before any query: an ID PostgreSQL refuses (a NUL) failed every query
+	// made with it, the admission check's included, so the batch was
+	// redelivered until its budget ran out (FAILURE_PATTERNS 924). A batch
+	// may name no device; one it names is held to the same rule.
+	idErr := poison.CheckID(batch.JobID)
+	if batch.DeviceID != "" {
+		idErr = errors.Join(idErr, poison.CheckID(batch.DeviceID))
+	}
+	if idErr != nil {
+		s.logger.Error("dropping a run journal batch whose job or device id cannot name one",
+			slog.String("event", evt.ID),
+			slog.String("reason", idErr.Error()))
+		return nil
+	}
+
 	// A fresh context rather than one carried from the handler's caller:
 	// event.Bus.Subscribe hands a decoded Event and no context, and the
 	// write must not inherit a deadline nobody set for it.
@@ -137,14 +155,18 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	}
 
 	written, err := s.store.Save(context.Background(), batch.Entries)
-	if err != nil && errors.Is(err, ErrUnstorable) {
+	// A batch no delivery can store: a value the store's own checks refuse
+	// (ErrUnstorable), or one the database itself refuses as data (SQLSTATE
+	// class 22, FAILURE_PATTERNS 924). Of the second only the code is logged,
+	// since some such messages quote the value (poison.Describe).
+	if _, refused := poison.Unstorable(err); refused || errors.Is(err, ErrUnstorable) {
 		s.logger.Error("dropping a run journal batch the store can never accept",
 			slog.String("job", batch.JobID),
 			slog.String("device", batch.DeviceID),
 			slog.Int("attempt", batch.Attempt),
 			slog.Int("entries", len(batch.Entries)),
 			slog.Int("written", written),
-			slog.String("error", err.Error()))
+			slog.String("error", poison.Describe(err)))
 		return nil
 	}
 	if err != nil {

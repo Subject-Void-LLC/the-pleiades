@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -93,9 +94,10 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 }
 
 // Handle decodes one batch and stores what passes. A batch that cannot be
-// decoded, names no job or device, holds nothing that passes, names a device
-// the database lacks, or was never dispatched is acknowledged and logged:
-// redelivery would never change it. A database failure, or a dispatch not
+// decoded, names no job or device or one that is not well formed, holds
+// nothing that passes, names a device the database lacks, was never
+// dispatched, or holds a value the database refuses as data is acknowledged
+// and logged: redelivery would never change it. A database failure, or a dispatch not
 // recorded yet, is returned, so the bus redelivers.
 func (s *Subscriber) Handle(evt event.Event) error {
 	// Numbers as written, so a value hashes here as it did on the Runner
@@ -103,8 +105,15 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	var batch facts.Batch
 	dec := json.NewDecoder(bytes.NewReader(evt.Data))
 	dec.UseNumber()
-	if err := dec.Decode(&batch); err != nil || batch.JobID == "" || batch.DeviceID == "" {
+	if err := dec.Decode(&batch); err != nil {
 		s.logger.Error("dropping a malformed facts batch", slog.String("event", evt.ID))
+		return nil
+	}
+	// Before any query: an ID PostgreSQL refuses failed every query made
+	// with it, the admission check's included (FAILURE_PATTERNS 919).
+	if err := errors.Join(poison.CheckID(batch.JobID), poison.CheckID(batch.DeviceID)); err != nil {
+		s.logger.Error("dropping a facts batch whose job or device id cannot name one",
+			slog.String("event", evt.ID), slog.String("reason", err.Error()))
 		return nil
 	}
 	// The run that observed them, held to the batch's own job and attempt
@@ -150,6 +159,14 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		if errors.Is(err, ErrUnknownDevice) {
 			s.logger.Error("dropping a facts batch for a device the database does not hold",
 				slog.String("job", batch.JobID), slog.String("device", batch.DeviceID))
+			return nil
+		}
+		// The server refused a value itself, so storing this batch again
+		// fails again: redelivering it would only spend its delivery budget
+		// and hold up the batches behind it (FAILURE_PATTERNS 919).
+		if code, ok := poison.Unstorable(err); ok {
+			s.logger.Error("dropping a facts batch the database refuses as data",
+				slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("sqlstate", code))
 			return nil
 		}
 		return fmt.Errorf("failed to store the facts for job %s: %w", batch.JobID, err)

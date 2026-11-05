@@ -117,16 +117,39 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 			}
 			continue
 		}
-		chain, err := facts.ChainHash(device, head, e.Key, e.Hash, at, obs.By)
-		if err != nil {
-			return fmt.Errorf("facts: %w", err)
+		if head, err = chainStable(ctx, tx, dev, device, head, e, at, obs.By); err != nil {
+			return err
 		}
-		if err := create(tx, dev, e, at, by).SetKind(entfact.KindStable).SetChainPrev(head).SetChain(chain).Exec(ctx); err != nil {
-			return fmt.Errorf("facts: %w", err)
+		// A late change keeps the value confirmed after it in the history
+		// (FAILURE_PATTERNS 923).
+		prior := make([]facts.Entry, len(rows))
+		for i, row := range rows {
+			prior[i] = entry(row)
 		}
-		head = chain
+		if back, ok := facts.Resumed(prior, facts.Entry{Key: e.Key, Hash: e.Hash, ObservedAt: at, By: obs.By}); ok {
+			if head, err = chainStable(ctx, tx, dev, device, head, back, back.ObservedAt, back.By); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// chainStable writes e as a stable row first observed at at by p, chained
+// after head, and returns the new head.
+func chainStable(ctx context.Context, tx *ent.Tx, dev *ent.Device, device, head string, e facts.Entry, at time.Time, p facts.Provenance) (string, error) {
+	by, err := encode(p)
+	if err != nil {
+		return "", err
+	}
+	chain, err := facts.ChainHash(device, head, e.Key, e.Hash, at, p)
+	if err != nil {
+		return "", fmt.Errorf("facts: %w", err)
+	}
+	if err := create(tx, dev, e, at, by).SetKind(entfact.KindStable).SetChainPrev(head).SetChain(chain).Exec(ctx); err != nil {
+		return "", fmt.Errorf("facts: %w", err)
+	}
+	return chain, nil
 }
 
 // recordVolatile keeps e as its key's one volatile row when obs is the

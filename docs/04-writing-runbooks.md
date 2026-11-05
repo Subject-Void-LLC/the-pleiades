@@ -188,7 +188,8 @@ the run:
   clock: on the command line a tick of the project's run counter taken when the
   task finished, so two runs at once on one host order by when each observed; on
   the Controller the device lease's fencing token. A result stored late does not
-  replace a newer one. The clock decides only where two orders do not compare or
+  replace a newer one, and when it is a change, the value a later run confirmed
+  is written after it again, so the history ends at the current value. The clock decides only where two orders do not compare or
   are equal (one dispatch's own tasks, a dispatch on a shared lease, which has no
   token, or a lease store that started again), and the history says so.
 - Stored stable values form a hash chain per device: each carries the hash of the
@@ -199,9 +200,9 @@ the run:
   shorter chain that still verifies, so keep the printed head somewhere else to
   notice that.
 - A check stores nothing, nor does a task that failed or was skipped. A fact
-  named like a secret (a password, a token), or whose value holds one of the
-  run's secrets or text shaped like one (a private key, a bearer token), is never
-  stored, and neither is a value over 64 KiB, nor a field a `secret_mask:` in the
+  named like a secret (a password, a token), whose value has a field at any depth
+  named like one, or whose value holds one of the run's secrets or text shaped
+  like one (a private key, a bearer token), is never stored, and neither is a value over 64 KiB, nor a field a `secret_mask:` in the
   same runbook marks secret; each is named in the run's log with the reason.
   That is a strip list, not a proof: a secret the run does not know, in a shape
   it does not recognize, is not caught.

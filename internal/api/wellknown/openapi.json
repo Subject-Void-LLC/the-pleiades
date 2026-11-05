@@ -6130,12 +6130,8 @@
                       "description": "The last value's chain hash; record it elsewhere to notice the end being cut off later.",
                       "type": "string"
                     },
-                    "unchained": {
-                      "description": "Values stored before the chain existed, which are not checked.",
-                      "type": "integer"
-                    },
                     "values": {
-                      "description": "How many chained values were checked.",
+                      "description": "How many stored values were checked; every one must carry the chain.",
                       "type": "integer"
                     }
                   },

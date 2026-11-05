@@ -233,7 +233,8 @@ func TestVerify_RechecksWhatARunnerPublished(t *testing.T) {
 
 // TestFileStore_ALateObservationDoesNotReplaceANewerOne: a value observed
 // earlier than the one confirmed after it, recorded late, joins the history
-// without becoming current.
+// without becoming current, and the history goes on to the value confirmed
+// after it rather than ending at the late one (FAILURE_PATTERNS 923).
 func TestFileStore_ALateObservationDoesNotReplaceANewerOne(t *testing.T) {
 	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
 	if err != nil {
@@ -250,8 +251,9 @@ func TestFileStore_ALateObservationDoesNotReplaceANewerOne(t *testing.T) {
 	if len(current) != 1 || current[0].Value != "A" {
 		t.Errorf("current = %+v, want A, confirmed after B was observed", current)
 	}
-	if history, _ := store.History(ctx, "dev", "k"); len(history) != 2 || history[1].Value != "B" {
-		t.Errorf("history = %+v, want A then B", history)
+	if history, _ := store.History(ctx, "dev", "k"); len(history) != 3 || history[1].Value != "B" || history[2].Value != "A" ||
+		!history[2].ObservedAt.Equal(t0.Add(5*time.Hour)) {
+		t.Errorf("history = %+v, want A, then B, then A as confirmed five hours in", history)
 	}
 }
 

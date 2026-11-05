@@ -922,6 +922,12 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 916. TestProcess_ErrorsNeverCarryTheCommandText's own command wrote the marker to standard error, which an error carries by design, so it failed on FreeBSD when that stderr arrived before the close (a repeat in kind of LESSONS 368) (fixed)
 917. The docker host fixture's unpinned apk add of openssh-server broke when Alpine's index moved past the pinned dind image's own openssh client packages (a repeat in kind of 465) (fixed)
 918. A registered secret held in a []byte inside a struct, a map entry or a list reached the logs and the stats as base64, since the value walk converts through encoding/json and Text saw only that spelling (a repeat in kind of 904) (fixed)
+919. A facts batch whose job or device ID held a NUL failed every PostgreSQL query made with it, so the Controller handed it back for redelivery until its delivery budget ran out (a repeat of 208, through the dialect gap of 371) (fixed before push)
+920. A fact whose value held a field named like a secret was stored, because Prepare held only the fact's own key to the secret-name rule (a repeat of 696, and in kind of 884) (fixed before push)
+921. VerifyChain passed unchained values at the start of a device's fact history as rows from before the chain, so anyone who could write the store could add rows there that verified (a repeat in kind of 154 and 854) (fixed before push)
+922. The CLI's fact file store renamed its state file into place unsynced, so a crash could leave an empty state file that refused the device's facts until removed by hand (a repeat of 566) (fixed before push)
+923. A late change stored after a later confirmation ended the history at the late value, so the next run recorded a change nobody saw (a repeat of 831, a case its fix left) (fixed before push)
+924. The run journal and job result consumers handed back for redelivery forever a message whose job or device ID held a NUL, and a result whose reason held one, so a device's own output could lose its result (a repeat of 919 at its sibling sites, and of 208) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

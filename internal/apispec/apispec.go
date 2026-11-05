@@ -555,10 +555,9 @@ func factProvenanceSchema(description string) map[string]any {
 var factChainResponseSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"device":    map[string]any{"type": "string"},
-		"values":    map[string]any{"type": "integer", "description": "How many chained values were checked."},
-		"unchained": map[string]any{"type": "integer", "description": "Values stored before the chain existed, which are not checked."},
-		"head":      map[string]any{"type": "string", "description": "The last value's chain hash; record it elsewhere to notice the end being cut off later."},
+		"device": map[string]any{"type": "string"},
+		"values": map[string]any{"type": "integer", "description": "How many stored values were checked; every one must carry the chain."},
+		"head":   map[string]any{"type": "string", "description": "The last value's chain hash; record it elsewhere to notice the end being cut off later."},
 		"break": map[string]any{"type": "object", "description": "The first value that fails; absent when every one verifies.",
 			"properties": map[string]any{
 				"index":  map[string]any{"type": "integer"},

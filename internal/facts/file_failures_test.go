@@ -35,6 +35,46 @@ func TestRunOrdered_TakesATickForEachObservation(t *testing.T) {
 	}
 }
 
+// TestFileStore_AnEmptyStateFileIsReadAsNoState: a state file a crash left
+// empty or zero-filled (its rename reached the disk and its data did not, before writeState
+// synced) refused every read and write of the device's facts forever
+// (FAILURE_PATTERNS 922). It now reads as no state: the history is kept and
+// the next observation writes a whole state again.
+func TestFileStore_AnEmptyStateFileIsReadAsNoState(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "facts")
+	store, err := facts.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	first := facts.Observation{Entries: prepared(t, map[string]any{"ansible_kernel": "6.1"}), At: at}
+	if err := store.Record(ctx, "dev1", first); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(dir, "dev1.state.json")
+	// Empty on most filesystems, zero-filled to its old length on XFS.
+	for name, crashed := range map[string][]byte{"empty": nil, "zero-filled": make([]byte, 64)} {
+		if err := os.WriteFile(statePath, crashed, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		current, err := store.Current(ctx, "dev1")
+		if err != nil || len(current) != 1 || current[0].Value != "6.1" {
+			t.Fatalf("Current over a state file left %s = %+v, %v; want the history's 6.1", name, current, err)
+		}
+	}
+	next := facts.Observation{Entries: prepared(t, map[string]any{"ansible_kernel": "6.2"}), At: at.Add(time.Minute)}
+	if err := store.Record(ctx, "dev1", next); err != nil {
+		t.Fatalf("Record over an empty state: %v", err)
+	}
+	if info, err := os.Stat(statePath); err != nil || info.Size() == 0 {
+		t.Fatalf("the state was not written whole again: %v, %v", info, err)
+	}
+	if v, err := store.Verify(ctx, "dev1"); err != nil || v.Break != nil || v.Values != 2 {
+		t.Errorf("Verify = %+v, %v; want two chained values", v, err)
+	}
+}
+
 // TestFileStore_FailuresAreReportedAndLeaveNoTemporaryFile covers a store
 // over something that is not a directory, a state file that does not decode,
 // and a directory that refuses the state's temporary file, which leaves no

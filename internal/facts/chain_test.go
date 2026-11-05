@@ -80,12 +80,37 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 	// whose chain was removed is a break, not an older value.
 	stripped := chained(t, 2)
 	stripped[0].Chain, stripped[0].Prev = "", ""
-	if v := facts.VerifyChain("dev1", stripped); v.Break == nil || v.Break.Index != 0 || v.Unchained != 0 {
+	if v := facts.VerifyChain("dev1", stripped); v.Break == nil || v.Break.Index != 0 {
 		t.Errorf("a stripped chain with provenance verified: %+v", v)
 	}
-	legacy := append([]facts.Link{{Key: "old", Value: "x"}}, chained(t, 2)...)
-	if v := facts.VerifyChain("dev1", legacy); v.Break != nil || v.Unchained != 1 || v.Values != 2 {
-		t.Fatalf("an unchained value first: %+v", v)
+}
+
+// TestVerifyChain_AnUnchainedValueAtTheStartIsABreak: a row with no chain and
+// no provenance, put in front of a real chain by someone who can write the
+// store, is found rather than passed over as an older value
+// (FAILURE_PATTERNS 921). Its hash describes its value, so only the missing
+// chain can give it away.
+func TestVerifyChain_AnUnchainedValueAtTheStartIsABreak(t *testing.T) {
+	hash, err := facts.Hash("ansible_kernel", "forged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := []facts.Link{{Key: "ansible_kernel", Value: "forged", Hash: hash}}
+	for name, links := range map[string][]facts.Link{
+		"alone":                 forged,
+		"before a real chain":   append(append([]facts.Link{}, forged...), chained(t, 2)...),
+		"two before a real one": append(append(append([]facts.Link{}, forged...), forged...), chained(t, 1)...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := facts.VerifyChain("dev1", links)
+			if v.Break == nil || v.Break.Index != 0 || !strings.Contains(v.Break.Reason, "carries no chain") {
+				t.Fatalf("verdict = %+v, want a break at the forged value", v)
+			}
+		})
+	}
+	// The control: the same chain without the forged row verifies.
+	if v := facts.VerifyChain("dev1", chained(t, 2)); v.Break != nil {
+		t.Fatalf("the real chain alone: %+v", v)
 	}
 }
 

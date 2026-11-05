@@ -156,6 +156,11 @@ func appendLines(r *os.Root, device string, complete int64, appended []byte) err
 	if _, err := f.WriteAt(appended, complete); err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
+	// On disk before the state that names these values is renamed into
+	// place, so a crash cannot leave a state ahead of its history.
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
 	return nil
 }
 
@@ -197,7 +202,15 @@ func readLines(r *os.Root, device string) ([]line, int64, error) {
 	}
 }
 
-// readState reads device's state; a missing file is an empty one.
+// readState reads device's state; a missing file is an empty one, and so is
+// a file of nothing but NUL bytes, or none. writeState never writes either
+// (an empty state encodes as an object), so such a file is what a crash left
+// of a rename that reached the disk before the data did, empty on most
+// filesystems and zero-filled on XFS, on a store written before writeState
+// synced (FAILURE_PATTERNS 922). Refusing it refused the device's
+// facts forever; what it held is when values were last confirmed and the
+// volatile values, which the next run observes again, while the history
+// itself is in <device>.jsonl.
 func readState(r *os.Root, device string) (state, error) {
 	st := state{Seen: map[string]map[string]sighting{}, Volatile: map[string]volatileValue{}}
 	f, err := r.Open(device + ".state.json")
@@ -208,7 +221,14 @@ func readState(r *os.Root, device string) (state, error) {
 		return state{}, fmt.Errorf("facts: %w", err)
 	}
 	defer func() { _ = f.Close() }()
-	dec := json.NewDecoder(f)
+	raw, err := io.ReadAll(f)
+	if err != nil {
+		return state{}, fmt.Errorf("facts: %s.state.json: %w", device, err)
+	}
+	if len(bytes.Trim(raw, "\x00")) == 0 {
+		return st, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if err := dec.Decode(&st); err != nil {
 		return state{}, fmt.Errorf("facts: %s.state.json: %w", device, err)
@@ -223,7 +243,10 @@ func readState(r *os.Root, device string) (state, error) {
 }
 
 // writeState rewrites device's state through a temporary file of its own
-// name and a rename, so a reader never meets half of one.
+// name and a rename, so a reader never meets half of one. The temporary file
+// is synced before the rename: without it a crash could leave the rename on
+// disk and the data not, an empty state file (FAILURE_PATTERNS 922, a repeat
+// of 566).
 func writeState(r *os.Root, device string, st state) error {
 	raw, err := json.Marshal(st)
 	if err != nil {
@@ -243,6 +266,11 @@ func writeState(r *os.Root, device string, st state) error {
 		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
 	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = r.Remove(tmp)
+		return fmt.Errorf("facts: %w", err)
+	}
 	if err := f.Close(); err != nil {
 		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
@@ -251,5 +279,9 @@ func writeState(r *os.Root, device string, st state) error {
 		_ = r.Remove(tmp)
 		return fmt.Errorf("facts: %w", err)
 	}
+	// The rename itself, on disk. Best effort: the state is in place and
+	// whole either way, and a crash before this reaches the disk leaves the
+	// previous state, which is whole too.
+	syncDir(r)
 	return nil
 }
