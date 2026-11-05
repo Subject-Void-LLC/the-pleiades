@@ -139,8 +139,9 @@ type Problem struct {
 // secrets, and two checks a caller supplies from internal/redact (this package
 // imports only the standard library): Shaped, whether text holds something
 // shaped like a secret (a private key, a bearer token, a URL with a
-// password), and SecretName, whether a key is named like one (password,
-// token). Either may be nil. It is a strip list, never a proof: a secret the
+// password), and SecretName, whether a name marks one (password,
+// token), asked of a fact's key and of every field name inside its value.
+// Either may be nil. It is a strip list, never a proof: a secret the
 // run does not know, in a shape redact does not recognize, is not caught.
 type Guard struct {
 	Secrets    []string
@@ -176,8 +177,9 @@ func nameOf(key string, guard Guard) string {
 // Prepare checks an observation and returns the facts that may be stored,
 // each with its hash, and why each other key was not: a key that is not
 // ValidKey or is named like a secret, a value that will not encode or is past
-// MaxValueBytes, or one holding a known secret or text shaped like one (a
-// secret is never stored, masked or not). An observation with more than
+// MaxValueBytes, one holding a known secret or text shaped like one, or one
+// with a field at any depth named like a secret (a secret is never stored,
+// masked or not). An observation with more than
 // MaxFactsPerObservation keys, or whose stored values come to more than
 // MaxObservationBytes, is refused whole.
 func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
@@ -239,6 +241,14 @@ func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 		if spec.Type != "" {
 			if reason := checkType(spec.Type, normalized); reason != "" {
 				problems = append(problems, Problem{Key: key, Reason: reason})
+				continue
+			}
+		}
+		// A field inside the value is held to the rule the key was: an
+		// object fact may carry a password as well as be named for one.
+		if guard.SecretName != nil {
+			if field, ok := secretField(normalized, guard.SecretName); ok {
+				problems = append(problems, Problem{Key: key, Reason: fmt.Sprintf("its value has a field named like a secret (%q), which is never stored", field)})
 				continue
 			}
 		}

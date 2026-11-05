@@ -199,9 +199,9 @@ the run:
   shorter chain that still verifies, so keep the printed head somewhere else to
   notice that.
 - A check stores nothing, nor does a task that failed or was skipped. A fact
-  named like a secret (a password, a token), or whose value holds one of the
-  run's secrets or text shaped like one (a private key, a bearer token), is never
-  stored, and neither is a value over 64 KiB, nor a field a `secret_mask:` in the
+  named like a secret (a password, a token), whose value has a field at any depth
+  named like one, or whose value holds one of the run's secrets or text shaped
+  like one (a private key, a bearer token), is never stored, and neither is a value over 64 KiB, nor a field a `secret_mask:` in the
   same runbook marks secret; each is named in the run's log with the reason.
   That is a strip list, not a proof: a secret the run does not know, in a shape
   it does not recognize, is not caught.

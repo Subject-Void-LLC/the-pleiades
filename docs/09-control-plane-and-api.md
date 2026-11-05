@@ -136,8 +136,8 @@ publishes each task's facts on the job's own facts subject
 size and hash) and stores them only for a device it dispatched that job to. A
 value is stored again only when it changes, so a fact's stored values are its
 history, and each says when a run last confirmed it. A check stores nothing. A
-fact named like a secret, or whose value holds one of the run's secrets or text
-shaped like one, is never stored: the Runner leaves it out and the Controller
+fact named like a secret, whose value has a field named like one, or whose value
+holds one of the run's secrets or text shaped like one, is never stored: the Runner leaves it out and the Controller
 refuses it again. Every fact a built-in method declares is held to that
 declaration's kind and type, read from the module catalog the Controller serves
 (it links no Collection), whatever method a batch names; a key no built-in declares
