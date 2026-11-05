@@ -19,3 +19,14 @@ func lockFile(f *os.File) error {
 func unlockFile(f *os.File) error {
 	return unix.Flock(int(f.Fd()), unix.LOCK_UN) // #nosec G115 -- an open file's descriptor fits an int
 }
+
+// syncDir flushes r's directory, so a rename in it reaches the disk. A
+// failure is ignored: see writeState.
+func syncDir(r *os.Root) {
+	d, err := r.Open(".")
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	_ = d.Close()
+}

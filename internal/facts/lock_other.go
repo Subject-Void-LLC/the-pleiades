@@ -12,3 +12,6 @@ func lockFile(*os.File) error { return nil }
 
 // unlockFile releases nothing on this platform.
 func unlockFile(*os.File) error { return nil }
+
+// syncDir does nothing where the platform is neither Unix nor Windows.
+func syncDir(*os.Root) {}

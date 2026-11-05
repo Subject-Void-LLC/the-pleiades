@@ -21,3 +21,8 @@ func unlockFile(f *os.File) error {
 	var o windows.Overlapped
 	return windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &o)
 }
+
+// syncDir does nothing on Windows: the read-only directory handle os.Root
+// opens cannot be flushed there (FlushFileBuffers needs write access), and
+// the state file's own data was synced before the rename.
+func syncDir(*os.Root) {}
