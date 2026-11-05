@@ -21737,6 +21737,8 @@ comment now says rendering calls `Error`, `String` and `MarshalJSON`, whichever 
 **Open.** A `[]byte` field inside a struct that holds a registered secret is still printed as base64 (JSON) or as
 decimal bytes (text), and missed.
 
+**Resolution (2026-11-05).** Fixed by 918.
+
 **Lesson.** LESSONS 350: two maskers of one value are one function.
 
 ## 913. TestScanGoSource_FindsWhatItMustAndOnlyThat failed rather than skipped where symbolic links cannot be made, such as Windows without the privilege (a repeat of 567 and 544) (fixed before push)
@@ -21826,3 +21828,26 @@ rebuilt image). `TestDockerHost_*` pass against the cold-built fixture.
 
 **Lesson.** A fixture that adds a package from a live index onto a pinned base that already carries part of that
 package's family upgrades the family with it, or it breaks the day the index moves.
+
+## 918. A registered secret held in a []byte inside a struct, a map entry or a list reached the logs and the stats as base64, since the value walk converts through encoding/json and Text saw only that spelling (a repeat in kind of 904) (fixed)
+
+**Symptom.** 2026-11-05, 912's open note, on branch `fix/ssh-sweep-b`. `output{Host: "sw1", Stdout: []byte("stdout: "
++ secret)}` logged through either handler, `map[string]any{"stdout": []byte(...)}` and `[]any{..., []byte(...)}`
+printed the secret as base64 (JSON) or decimal bytes (text); `Masker.Value` on a stat map holding such bytes returned
+the base64 unmasked. `TestAttr_ASecretInAByteFieldIsMasked` and `TestValue_ASecretInBytesIsMaskedAsItsText` fail 9
+times on the old code (four shapes under two handlers, and the stat).
+
+**Root cause.** `Value` turns any shape it does not know (a struct, a nested `[]byte`) into what `encoding/json` writes,
+and JSON writes a `[]byte` as standard base64. `Text` knows a secret's literal and shell-encoded spellings, not its
+base64, so the walk compared nothing it could match. 904 fixed the same spelling problem only for a `[]byte` at the
+top of an attribute.
+
+**Why 904 did not hold.** It handled the top-level value's renderings; nested bytes go through `Value`'s JSON
+conversion, a different path.
+
+**Fix.** `Masker.maskString`: a string the walk masks is also checked, when it is standard base64 (alphabet scanned
+first, so megabytes of command output are refused without allocating), as the bytes it spells; if those hold a secret
+the string becomes them as masked text, otherwise it keeps its spelling. Both log handlers and every stat gain it, since
+`Attr` walks structured values through `Value`.
+
+**Lesson.** A masker that converts a value before matching must match every spelling the conversion can produce.
