@@ -11,7 +11,7 @@ import (
 // one close marker line, the close last, and the line between them
 // decodes back to the input exactly.
 func FuzzDelimit(f *testing.F) {
-	for _, seed := range []string{"", "plain", "a\n" + InputClose + "\nb", InputOpen, "  ", "\x00\r\n\"\\", "<<<" + "\n>>>"} {
+	for _, seed := range []string{"", "plain", "a\n" + InputClose + "\nb", InputOpen, "\u2028\u2029", "\x00\r\n\"\\", "<<<" + "\n>>>"} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, input string) {

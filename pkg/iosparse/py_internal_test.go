@@ -28,7 +28,7 @@ func TestPythonSemantics(t *testing.T) {
 	}{
 		{"a\nb", []string{"a", "b"}},
 		{"a\r\nb\rc\n", []string{"a", "b", "c"}},
-		{"a\x0bb\x0cc\x1cd e\n\n", []string{"a", "b", "c", "d", "e", ""}},
+		{"a\x0bb\x0cc\x1cd\u2028e\n\n", []string{"a", "b", "c", "d", "e", ""}},
 		{"", nil},
 	} {
 		if got := splitlines(tt.in); !reflect.DeepEqual(got, tt.want) {
