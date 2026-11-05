@@ -49,6 +49,18 @@ const (
 	// is stated in this method's Doc rather than left for somebody to
 	// discover.
 	removeParamRecurse = "recurse"
+
+	// removeParamCheckForbidden says what a check does when the device's
+	// permissions say this login may not remove the path: refuse (the
+	// default, owner decision 2026-11-04) or warn. Not Ansible's: its check
+	// mode never asks.
+	removeParamCheckForbidden = "check_forbidden"
+)
+
+// The values removeParamCheckForbidden takes.
+const (
+	checkForbiddenRefuse = "refuse"
+	checkForbiddenWarn   = "warn"
 )
 
 func init() {
@@ -110,6 +122,8 @@ func removeDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: removeParamPath, Type: "string", Required: true, Description: "The path that must not exist when this task finishes. A symbolic link is removed as the link, so whatever it points at is left alone."},
 			{Name: removeParamRecurse, Type: "bool", Default: "false", Description: "Permit removing a directory that is not empty, and everything inside it. Without it, a non-empty directory is refused rather than emptied. Ansible's state=absent recurses without asking; this does not."},
+			{Name: removeParamCheckForbidden, Type: "string", Default: checkForbiddenRefuse, Choices: []string{checkForbiddenRefuse, checkForbiddenWarn},
+				Description: "What a check does when the device's permissions say this login may not remove the path (the directory holding it is not writable and searchable for it, or is sticky and not its own): refuse, the default, fails the check naming why, since the real run will likely be refused; warn predicts nothing about the path and says so in the check's warnings. Choose warn where the device's permissions cannot be read as they apply, such as root under BusyBox, whose answer is no where it cannot tell. A real run ignores it."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -213,6 +227,12 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	// Read on every run, so a misspelled value is refused whatever the mode,
+	// rather than only when a check meets a forbidden removal.
+	forbidden, err := checkForbiddenParam(params)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
@@ -296,11 +316,17 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			removable = err == nil && allowed
 			// The check's own answer: the device's rules say this login may
 			// not remove the path, so the real run will likely be refused.
-			// A warning, not a refusal, because Removable answers no when it
-			// cannot tell (root under BusyBox), and a check that refused a
-			// removal the real run makes would be wrong the other way.
+			// A refusal by default (owner decision 2026-11-04); a warning when
+			// the task asks, since Removable answers no where it cannot tell
+			// (root under BusyBox), where a refusal would be wrong the other
+			// way.
 			if err == nil && !allowed {
-				if werr := sdk.RecordWarnings(rc, []string{fmt.Sprintf("the device's permissions say this login may not remove %s (the directory holding it is not writable and searchable for it, or is sticky and not its own); the real run will likely be refused", path)}); werr != nil {
+				why := fmt.Sprintf("the device's permissions say this login may not remove %s (the directory holding it is not writable and searchable for it, or is sticky and not its own)", path)
+				if forbidden == checkForbiddenRefuse {
+					return collection.Result{}, fmt.Errorf("%s: refusing: %s, so the real run will likely be refused. Set %s: %s where the device's permissions cannot be read as they apply",
+						fqcn, why, removeParamCheckForbidden, checkForbiddenWarn)
+				}
+				if werr := sdk.RecordWarnings(rc, []string{why + "; the real run will likely be refused"}); werr != nil {
 					return collection.Result{}, fmt.Errorf("%s: %w", fqcn, werr)
 				}
 			}
@@ -417,4 +443,18 @@ func predictedEmpty(ctx context.Context, conn *remoteexec.Conn, rc sdk.RunbookCo
 		}
 	}
 	return true, true, nil
+}
+
+// checkForbiddenParam reads removeParamCheckForbidden: refuse when it is
+// absent, and an error for any value but the two it takes.
+func checkForbiddenParam(params map[string]any) (string, error) {
+	raw, ok := params[removeParamCheckForbidden]
+	if !ok || raw == nil {
+		return checkForbiddenRefuse, nil
+	}
+	value, ok := raw.(string)
+	if !ok || (value != checkForbiddenRefuse && value != checkForbiddenWarn) {
+		return "", fmt.Errorf("%s must be %s or %s, not %v", removeParamCheckForbidden, checkForbiddenRefuse, checkForbiddenWarn, raw)
+	}
+	return value, nil
 }
