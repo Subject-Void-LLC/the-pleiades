@@ -59,11 +59,8 @@ type Break struct {
 
 // Verdict is what VerifyChain found.
 type Verdict struct {
-	// Values is how many chained values were checked.
+	// Values is how many stored values were checked.
 	Values int `json:"values"`
-	// Unchained is how many stored values carry no chain at all (stored
-	// before Phase 41b); they come first and are not checked.
-	Unchained int `json:"unchained"`
 	// Head is the last value's chain hash, which a caller may record
 	// elsewhere to notice the end being cut off later.
 	Head string `json:"head,omitempty"`
@@ -75,20 +72,15 @@ type Verdict struct {
 // that fails: a value whose fact hash does not describe it (an edited value),
 // one whose Prev is not the chain hash of the value before it (one deleted or
 // moved), or one whose own chain hash does not match what it covers (an
-// edited key, time or provenance). Links with no chain at all may only come
-// first, and only with no provenance: they were stored before the chain
-// existed, which is also before provenance was, so an unchained value that
-// names its run had its chain removed.
+// edited key, time or provenance). A link with no chain at all is a break
+// wherever it stands: every stable value has been chained since Phase 41b,
+// and nothing deployed predates it, so no value is exempt. An exemption for
+// an unchained prefix let anyone who can write the store add rows at the
+// start of a device's history that verified (FAILURE_PATTERNS 921).
 func VerifyChain(device string, links []Link) Verdict {
 	var v Verdict
 	prev := ""
-	chained := false
 	for i, l := range links {
-		if l.Chain == "" && !chained && l.By == (Provenance{}) {
-			v.Unchained++
-			continue
-		}
-		chained = true
 		v.Values++
 		fail := func(reason string) Verdict {
 			v.Break = &Break{Index: i, Key: l.Key, Reason: reason}

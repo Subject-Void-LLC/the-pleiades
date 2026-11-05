@@ -153,7 +153,7 @@ func chainVerifies(t *testing.T, newStore NewStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.Break != nil || v.Values != 3 || v.Unchained != 0 || len(v.Head) != 64 {
+	if v.Break != nil || v.Values != 3 || len(v.Head) != 64 {
 		t.Fatalf("verdict = %+v, want three chained values and no break", v)
 	}
 	empty, _ := newStore(t)

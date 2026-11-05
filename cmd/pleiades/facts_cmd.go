@@ -172,8 +172,5 @@ func printVerdict(rep factChainReport) {
 		return
 	}
 	fmt.Printf("%s: %d stored value(s) chained, the chain unbroken; head %s\n", host, rep.Values, rep.Head)
-	if rep.Unchained > 0 {
-		fmt.Printf("  %d older value(s) were stored before the chain existed and are not checked\n", rep.Unchained)
-	}
 	fmt.Println("  tamper-evident only: values cut off the end leave a shorter chain that still verifies; keep the head elsewhere to notice that")
 }
