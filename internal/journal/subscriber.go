@@ -155,27 +155,18 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	}
 
 	written, err := s.store.Save(context.Background(), batch.Entries)
-	if err != nil && errors.Is(err, ErrUnstorable) {
+	// A batch no delivery can store: a value the store's own checks refuse
+	// (ErrUnstorable), or one the database itself refuses as data (SQLSTATE
+	// class 22, FAILURE_PATTERNS 924). Of the second only the code is logged,
+	// since some such messages quote the value (poison.Describe).
+	if _, refused := poison.Unstorable(err); refused || errors.Is(err, ErrUnstorable) {
 		s.logger.Error("dropping a run journal batch the store can never accept",
 			slog.String("job", batch.JobID),
 			slog.String("device", batch.DeviceID),
 			slog.Int("attempt", batch.Attempt),
 			slog.Int("entries", len(batch.Entries)),
 			slog.Int("written", written),
-			slog.String("error", err.Error()))
-		return nil
-	}
-	// The database refused a value in the batch itself (SQLSTATE class 22),
-	// which no delivery of it can change. Only the code is logged: some such
-	// messages quote the value.
-	if code, ok := poison.Unstorable(err); ok {
-		s.logger.Error("dropping a run journal batch the database refuses as data",
-			slog.String("job", batch.JobID),
-			slog.String("device", batch.DeviceID),
-			slog.Int("attempt", batch.Attempt),
-			slog.Int("entries", len(batch.Entries)),
-			slog.Int("written", written),
-			slog.String("sqlstate", code))
+			slog.String("error", poison.Describe(err)))
 		return nil
 	}
 	if err != nil {

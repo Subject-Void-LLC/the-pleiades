@@ -58,6 +58,16 @@ func Unstorable(err error) (string, bool) {
 	return ent.DataExceptionCode(err)
 }
 
+// Describe is what a log may say about err: its SQLSTATE when the database
+// refused a value as data, whose message can quote the value, and err's own
+// text otherwise.
+func Describe(err error) string {
+	if code, ok := Unstorable(err); ok {
+		return "the database refused a value as data (SQLSTATE " + code + ")"
+	}
+	return err.Error()
+}
+
 // CleanText returns s with every NUL replaced by U+FFFD, for free text a
 // device can supply (a job result's reason, from a device's own output),
 // which a PostgreSQL text column refuses whole over one NUL. The rest of

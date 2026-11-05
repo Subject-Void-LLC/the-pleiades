@@ -69,3 +69,15 @@ func TestCleanText(t *testing.T) {
 		t.Errorf("CleanText = %q, want %q", got, want)
 	}
 }
+
+// TestDescribe never repeats a server's message for a data exception, and
+// keeps any other error's text.
+func TestDescribe(t *testing.T) {
+	refused := &pq.Error{Code: "22P02", Message: "invalid input syntax for type integer: \"hunter2\""}
+	if got := poison.Describe(refused); strings.Contains(got, "hunter2") || !strings.Contains(got, "22P02") {
+		t.Errorf("Describe(data exception) = %q, want its code and not its message", got)
+	}
+	if got := poison.Describe(errors.New("journal: unstorable outcome")); got != "journal: unstorable outcome" {
+		t.Errorf("Describe(other) = %q", got)
+	}
+}
