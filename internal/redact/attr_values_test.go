@@ -6,6 +6,7 @@ package redact_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,13 +17,18 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 )
 
-// planted is a secret value this process knows the bytes of.
-const planted = "Zq7-planted-device-secret-41"
+// Two secrets of the same length and shape: a masked line must come out the
+// same for either, which a line still carrying a secret in any spelling (its
+// text, its decimal bytes, its base64) cannot (LESSONS 195).
+const (
+	plantedA = "Zq7-planted-device-secret-41"
+	plantedB = "Wm3-planted-device-secret-98"
+)
 
-// stringer is a fmt.Stringer whose text carries the secret.
-type stringer struct{}
+// stringer is a fmt.Stringer whose text carries a secret.
+type stringer struct{ secret string }
 
-func (stringer) String() string { return "token=" + planted }
+func (s stringer) String() string { return "token=" + s.secret }
 
 // token is a named string type, which slog holds as KindAny, not KindString.
 type token string
@@ -32,6 +38,11 @@ type carrier struct {
 	Host   string
 	Output string
 }
+
+// panicky is a value whose MarshalJSON panics, as a buggy one can.
+type panicky struct{}
+
+func (panicky) MarshalJSON() ([]byte, error) { panic("broken marshaller") }
 
 // handlers returns a text and a JSON logger writing into their own buffers,
 // both built from m's HandlerOptions.
@@ -44,33 +55,87 @@ func handlers(m *redact.Masker) (map[string]*slog.Logger, map[string]*bytes.Buff
 }
 
 // TestAttr_ASecretInAValueThatIsNotAStringIsMasked: an error quoting device
-// output, a []byte, a Stringer, a *url.URL with a password, a named string
-// type, and a struct, each carrying a registered secret, print without it,
-// under both handlers.
+// output, a []byte, a json.RawMessage, a Stringer, a *url.URL with a
+// password, a named string type, and a struct, each carrying a registered
+// secret, print the same line for either of two secrets under both handlers:
+// no spelling of the secret survives.
 func TestAttr_ASecretInAValueThatIsNotAStringIsMasked(t *testing.T) {
+	values := map[string]func(secret string) any{
+		"error":    func(s string) any { return fmt.Errorf("run failed: %w", errors.New("device said: "+s)) },
+		"bytes":    func(s string) any { return []byte("stdout: " + s) },
+		"raw json": func(s string) any { return json.RawMessage(`{"out":"` + s + `"}`) },
+		"stringer": func(s string) any { return stringer{s} },
+		"url": func(s string) any {
+			link, _ := url.Parse("https://admin:" + s + "@device.example/api")
+			return link
+		},
+		"named":  func(s string) any { return token(s) },
+		"struct": func(s string) any { return carrier{Host: "sw1", Output: s} },
+	}
+	logged := func(secret, format, name string) string {
+		m, err := redact.NewMasker(redact.DefaultRuleset())
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Literals().Add(secret)
+		loggers, bufs := handlers(m)
+		loggers[format].Info("task failed", "detail", values[name](secret))
+		return bufs[format].String()
+	}
+	for name := range values {
+		for _, format := range []string{"text", "json"} {
+			a, b := stripTime(logged(plantedA, format, name)), stripTime(logged(plantedB, format, name))
+			if a != b || strings.Contains(a, plantedA) {
+				t.Errorf("%s through the %s handler depends on the secret:\n%s\n%s", name, format, a, b)
+			}
+		}
+	}
+}
+
+// stripTime drops a log line's timestamp, the one part that differs between
+// two runs.
+func stripTime(line string) string {
+	for _, prefix := range []string{`time=`, `"time":"`} {
+		if i := strings.Index(line, prefix); i >= 0 {
+			end := strings.IndexAny(line[i+len(prefix):], " \",")
+			if end >= 0 {
+				line = line[:i] + line[i+len(prefix)+end:]
+			}
+		}
+	}
+	return line
+}
+
+// TestAttr_APanickingMarshallerDoesNotEndTheLogCall: a value whose MarshalJSON
+// panics is logged, not a panic in the logging goroutine, since ReplaceAttr
+// runs outside slog's recovery.
+func TestAttr_APanickingMarshallerDoesNotEndTheLogCall(t *testing.T) {
 	m, err := redact.NewMasker(redact.DefaultRuleset())
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Literals().Add(planted)
-	link, _ := url.Parse("https://admin:" + planted + "@device.example/api")
-	values := map[string]any{
-		"error":    fmt.Errorf("run failed: %w", errors.New("device said: "+planted)),
-		"bytes":    []byte("stdout: " + planted),
-		"stringer": stringer{},
-		"url":      link,
-		"named":    token(planted),
-		"struct":   carrier{Host: "sw1", Output: planted},
-	}
 	loggers, bufs := handlers(m)
-	for name, value := range values {
-		for format, logger := range loggers {
-			bufs[format].Reset()
-			logger.Info("task failed", "detail", value)
-			if out := bufs[format].String(); strings.Contains(out, planted) {
-				t.Errorf("%s through the %s handler printed the secret: %s", name, format, out)
-			}
+	for format, logger := range loggers {
+		logger.Info("odd value", "detail", panicky{})
+		if !strings.Contains(bufs[format].String(), "odd value") {
+			t.Errorf("the %s handler wrote nothing for a panicking marshaller", format)
 		}
+	}
+}
+
+// TestAttr_AStructUnderAnIdentifierKeyInASecretGroupIsMasked: an identifier
+// key stays shown only for a string or a scalar; a struct under one can hold
+// a secret whose bytes are not known.
+func TestAttr_AStructUnderAnIdentifierKeyInASecretGroupIsMasked(t *testing.T) {
+	m, err := redact.NewMasker(redact.DefaultRuleset())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const unknown = "never-registered-struct-secret"
+	loggers, bufs := handlers(m)
+	loggers["json"].Info("login", slog.Group("credential", "user", carrier{Host: "sw1", Output: unknown}))
+	if out := bufs["json"].String(); strings.Contains(out, unknown) {
+		t.Fatalf("a struct under an identifier key in a secret group was shown: %s", out)
 	}
 }
 

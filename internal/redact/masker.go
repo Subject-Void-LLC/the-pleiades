@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -208,7 +209,7 @@ func (m *Masker) Attr(groups []string, a slog.Attr) slog.Attr {
 		return a
 	}
 
-	if m.secretName(a.Key) || (slices.ContainsFunc(groups, m.secretName) && !identifierKeys[strings.ToLower(a.Key)]) {
+	if m.secretName(a.Key) || (slices.ContainsFunc(groups, m.secretName) && !shownIdentifier(a)) {
 		return slog.String(a.Key, Marker)
 	}
 
@@ -223,12 +224,27 @@ func (m *Masker) Attr(groups []string, a slog.Attr) slog.Attr {
 	case nil, slog.Level, *slog.Source:
 		return a
 	}
-	for _, rendered := range renderings(value) {
-		if masked := m.Text(nil, rendered); masked != rendered {
-			return slog.String(a.Key, m.Text(nil, fmt.Sprintf("%+v", value)))
+	shown, others := renderings(value)
+	for _, rendered := range append([]string{shown}, others...) {
+		if m.Text(nil, rendered) != rendered {
+			return slog.String(a.Key, m.Text(nil, shown))
 		}
 	}
 	return a
+}
+
+// shownIdentifier reports whether a, inside a secret-named group, is an
+// identifier that stays shown: an identifier key (identifierKeys) holding a
+// string or a scalar. A struct or a map under such a key can hold anything.
+func shownIdentifier(a slog.Attr) bool {
+	if !identifierKeys[strings.ToLower(a.Key)] {
+		return false
+	}
+	switch a.Value.Kind() {
+	case slog.KindString, slog.KindInt64, slog.KindUint64, slog.KindFloat64, slog.KindBool:
+		return true
+	}
+	return false
 }
 
 // identifierKeys are the leaf keys that name an identifier, not a secret,
@@ -245,20 +261,39 @@ func (m *Masker) secretName(name string) bool {
 	return secret
 }
 
-// renderings is every text a handler may print for value: TextHandler's
-// %+v, and JSONHandler's encoding, which for a []byte is base64 and for a
-// struct is its fields, so both are masked. fmt recovers a panicking Error
-// or String method into its own text, which matters because ReplaceAttr runs
-// outside slog's own recovery.
-func renderings(value any) []string {
-	out := []string{fmt.Sprintf("%+v", value)}
-	if b, ok := value.([]byte); ok {
-		out = append(out, string(b))
+// renderings is every text a handler may print for value. shown is the one
+// a masked attribute is replaced with: a byte slice's bytes as text (of any
+// named byte-slice type, json.RawMessage among them), otherwise TextHandler's
+// %+v, which for a byte slice would be its decimal bytes, the secret in
+// another spelling. others are the rest a handler may print, all checked:
+// the %+v, and JSONHandler's encoding, which for a []byte is base64 and for a
+// struct is its fields. fmt recovers a panicking Error or String method into
+// its own text; a panicking MarshalJSON is recovered here and that rendering
+// skipped, since ReplaceAttr runs outside slog's own recovery and a panic
+// there would end the logging goroutine.
+func renderings(value any) (shown string, others []string) {
+	formatted := fmt.Sprintf("%+v", value)
+	shown = formatted
+	if v := reflect.ValueOf(value); v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+		shown = string(v.Bytes())
+		others = append(others, formatted)
 	}
-	if encoded, err := json.Marshal(value); err == nil {
-		out = append(out, string(encoded))
+	if encoded, ok := marshalJSON(value); ok {
+		others = append(others, encoded)
 	}
-	return out
+	return shown, others
+}
+
+// marshalJSON is json.Marshal with a panic in a MarshalJSON method recovered
+// into a failure.
+func marshalJSON(value any) (encoded string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			encoded, ok = "", false
+		}
+	}()
+	b, err := json.Marshal(value)
+	return string(b), err == nil
 }
 
 // HandlerOptions returns slog handler options already carrying Attr.
