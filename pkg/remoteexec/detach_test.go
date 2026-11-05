@@ -55,7 +55,7 @@ func waitForPoll(t *testing.T, srv *remoteexectest.Server) {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		for _, cmd := range srv.Commands() {
-			if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "/rc") {
+			if strings.Contains(cmd, rcPrefix) && strings.Contains(cmd, "/rc") {
 				return
 			}
 		}
@@ -190,7 +190,8 @@ func TestDetached_ADeviceThatCannotDetachRunsTheCommandWhereItStands(t *testing.
 
 func TestDetached_TheStopReconnectsWhenItsConnectionIsGone(t *testing.T) {
 	conn, _, _, home := detachedConn(t)
-	started, err := conn.run(context.Background(), QuoteCommand([]string{"sh", "-c", detachStart, "start", ""}), strings.NewReader(`sleep 30 & echo $! >"$HOME/child"; wait`), 4096)
+	job := `sleep 30 & echo $! >"$HOME/child"; wait`
+	started, err := conn.run(context.Background(), QuoteCommand([]string{"sh", "-c", detachStart, "start", "", strconv.Itoa(len(job)), newJobName()}), strings.NewReader(job), 4096)
 	if err != nil || started.ExitCode != 0 {
 		t.Fatalf("start: %+v, %v", started, err)
 	}
@@ -235,14 +236,11 @@ func TestDetached_FailuresAreNamedAndNeverRunTwice(t *testing.T) {
 	if _, err := conn.Run(WithDetach(context.Background()), "echo once >> count"); err == nil || !strings.Contains(err.Error(), "no job directory") {
 		t.Errorf("a start with no job directory: %v", err)
 	}
-	// The job did start; it must have run exactly once.
-	var raw []byte
-	for deadline := time.Now().Add(5 * time.Second); len(raw) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		raw, _ = os.ReadFile(filepath.Join(home, "count"))
-	}
-	time.Sleep(300 * time.Millisecond)
-	if raw, _ = os.ReadFile(filepath.Join(home, "count")); string(raw) != "once\n" {
-		t.Errorf("the command ran %q times' worth; want exactly once", raw)
+	// The job may have started before it was stopped by name; it never runs
+	// a second time.
+	time.Sleep(500 * time.Millisecond)
+	if raw, _ := os.ReadFile(filepath.Join(home, "count")); len(raw) > len("once\n") {
+		t.Errorf("the command ran %q times' worth; want at most once", raw)
 	}
 }
 
@@ -257,6 +255,8 @@ func TestDetached_ALostConnectionThatCannotBeRedialedIsNamed(t *testing.T) {
 	}()
 	waitForPoll(t, srv)
 	drop()
+	// No connection is left to stop it on, so the error says the job may
+	// still run, and where.
 	if err := <-done; err == nil || !strings.Contains(err.Error(), "may still be running") {
 		t.Errorf("a lost connection: %v, want one naming the job that may still run", err)
 	}
