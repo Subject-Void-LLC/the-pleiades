@@ -68,13 +68,16 @@ type stream struct {
 	// the case the guidance carves out.
 	ctx context.Context
 
-	// closeOnce guards both close and the watchdog goroutine's exit, so
-	// closing twice is safe and the goroutine is always reaped. drained
-	// is closed by the stderr drain when it returns, which is what lets
-	// close wait for it.
+	// closeOnce makes closing twice safe. drained is closed by the stderr
+	// drain when it returns, which is what lets close wait for it.
 	closeOnce sync.Once
-	done      chan struct{}
 	drained   chan struct{}
+
+	// watch ends the session when ctx does, as a one-shot command's run
+	// does (conn_watch.go): SIGTERM and a session close, then the
+	// connection closed after the abandon grace. wait reports a session the
+	// watch ended as ctx's error, never as an exit status.
+	watch *cancelWatch
 
 	// waitOnce caches the one answer ssh.Session.Wait can give, because
 	// a second call to it would block forever waiting for an exit status
@@ -109,25 +112,43 @@ func (c *Conn) openStream(ctx context.Context, desc string, request func(*ssh.Se
 	if err := c.usable(); err != nil {
 		return nil, err
 	}
+	// A context already ended sends nothing, as run refuses one.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("remoteexec: request %s on %s: %w", desc, c.addr, err)
+	}
+	// Started before the session opens: opening it, and the request below,
+	// each wait on a reply only a closed connection ends.
+	watch := c.watch(ctx)
+	// failed ends the watch for a stream that never started, reporting the
+	// context's error when it is what ended the attempt.
+	failed := func(session *ssh.Session, err error) (*stream, error) {
+		if session != nil {
+			_ = session.Close()
+		}
+		if watch.finish() {
+			return nil, fmt.Errorf("remoteexec: request %s on %s: %w", desc, c.addr, ctx.Err())
+		}
+		return nil, err
+	}
 	session, err := c.client.NewSession()
 	if err != nil {
-		return nil, fmt.Errorf("remoteexec: open session on %s: %w", c.addr, err)
+		return failed(nil, fmt.Errorf("remoteexec: open session on %s: %w", c.addr, err))
+	}
+	if !watch.attach(session) {
+		return failed(session, nil)
 	}
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
-		_ = session.Close()
-		return nil, fmt.Errorf("remoteexec: open %s stdin on %s: %w", desc, c.addr, err)
+		return failed(session, fmt.Errorf("remoteexec: open %s stdin on %s: %w", desc, c.addr, err))
 	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
-		_ = session.Close()
-		return nil, fmt.Errorf("remoteexec: open %s stdout on %s: %w", desc, c.addr, err)
+		return failed(session, fmt.Errorf("remoteexec: open %s stdout on %s: %w", desc, c.addr, err))
 	}
 	stderr, err := session.StderrPipe()
 	if err != nil {
-		_ = session.Close()
-		return nil, fmt.Errorf("remoteexec: open %s stderr on %s: %w", desc, c.addr, err)
+		return failed(session, fmt.Errorf("remoteexec: open %s stderr on %s: %w", desc, c.addr, err))
 	}
 
 	s := &stream{
@@ -135,8 +156,8 @@ func (c *Conn) openStream(ctx context.Context, desc string, request func(*ssh.Se
 		stdin:   stdin,
 		stdout:  stdout,
 		ctx:     ctx,
-		done:    make(chan struct{}),
 		drained: make(chan struct{}),
+		watch:   watch,
 		desc:    desc,
 		addr:    c.addr,
 	}
@@ -146,20 +167,6 @@ func (c *Conn) openStream(ctx context.Context, desc string, request func(*ssh.Se
 	// only on success would miss exactly the bytes that make the refusal
 	// diagnosable.
 	go s.drainStderr(stderr)
-
-	// The pipes are wired first so this watchdog covers the request
-	// itself: the request blocks waiting for the server's reply, and
-	// without this a caller's deadline could not reach a device that
-	// accepts the channel and then never answers.
-	go func() {
-		select {
-		case <-ctx.Done():
-			// Not actionable here: this goroutine exists only to unblock
-			// whatever call is waiting, which is what reports the failure.
-			_ = s.session.Close() // #nosec G104 -- intentional, see comment above
-		case <-s.done:
-		}
-	}()
 
 	if err := request(session); err != nil {
 		_ = s.close()
@@ -226,7 +233,9 @@ func (s *stream) closeWrite() error {
 // same rule Conn.Run follows through Result.ExitCode: the remote side
 // ran to completion and reported failure, which is information rather
 // than a breakdown. Anything else (a session that ended with no exit
-// status, a dropped connection, ctx ending the session) is a real error.
+// status, a dropped connection, ctx ending the session) is a real error,
+// and a session ctx ended is reported as ctx's error whatever status the
+// server sent for it.
 // The answer is computed once and cached, so calling wait again is safe
 // and returns the same result.
 func (s *stream) wait() (int, error) {
@@ -234,6 +243,13 @@ func (s *stream) wait() (int, error) {
 		err := s.session.Wait()
 		var exitErr *ssh.ExitError
 		switch {
+		case s.watch.finish():
+			// The context ended the session: a status now is the signal's,
+			// or the remote's own after sshd ended its input, never the
+			// command's answer.
+			s.exitCode = -1
+			s.waitErr = fmt.Errorf("remoteexec: wait for %s on %s: %w%s",
+				s.desc, s.addr, s.ctx.Err(), s.stderrSuffix())
 		case err == nil:
 			s.exitCode = 0
 		case errors.As(err, &exitErr):
@@ -270,7 +286,7 @@ func (s *stream) stderrText() string {
 func (s *stream) close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		close(s.done)
+		s.watch.finish()
 		err = s.session.Close()
 		// Closing the session ends the stderr pipe, so this returns as
 		// soon as the drain has consumed what the server sent, which is
