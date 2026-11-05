@@ -164,6 +164,48 @@ func TestAttr_ASecretNamedGroupMasksItsLeaves(t *testing.T) {
 	}
 }
 
+// credentialed is a struct whose field name says it holds a secret.
+type credentialed struct {
+	Host     string
+	Password string
+}
+
+// TestAttr_ASecretNamedKeyInsideAValueIsMasked: a map entry or a struct
+// field named for a secret is masked by its name, as a top-level attribute
+// is, though its bytes were never registered, under both handlers; the
+// value keeps its shape and the rest of it stays shown.
+func TestAttr_ASecretNamedKeyInsideAValueIsMasked(t *testing.T) {
+	const unknown = "never-registered-field-secret"
+	values := map[string]any{
+		"map":            map[string]any{"host": "sw1", "password": unknown},
+		"string map":     map[string]string{"host": "sw1", "password": unknown},
+		"struct":         credentialed{Host: "sw1", Password: unknown},
+		"struct pointer": &credentialed{Host: "sw1", Password: unknown},
+		"nested":         map[string]any{"device": map[string]any{"host": "sw1", "token": unknown}},
+		"list":           []any{map[string]any{"host": "sw1", "secret": unknown}},
+	}
+	m, err := redact.NewMasker(redact.DefaultRuleset())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loggers, bufs := handlers(m)
+	for name, value := range values {
+		for format, logger := range loggers {
+			bufs[format].Reset()
+			logger.Info("params", "detail", value)
+			out := bufs[format].String()
+			if strings.Contains(out, unknown) || !strings.Contains(out, redact.Marker) || !strings.Contains(out, "sw1") {
+				t.Errorf("%s through the %s handler: %s", name, format, out)
+			}
+		}
+	}
+	bufs["json"].Reset()
+	loggers["json"].Info("params", "detail", map[string]any{"host": "sw1", "password": unknown})
+	if out := bufs["json"].String(); !strings.Contains(out, `"detail":{"host":"sw1","password":"`+redact.Marker+`"}`) {
+		t.Errorf("a masked map lost its shape: %s", out)
+	}
+}
+
 // TestAttr_AValueWithNothingSecretKeepsItsShape: a list with nothing secret in
 // it is still a JSON array, not a string: only masking changes a value.
 func TestAttr_AValueWithNothingSecretKeepsItsShape(t *testing.T) {
@@ -172,8 +214,8 @@ func TestAttr_AValueWithNothingSecretKeepsItsShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	loggers, bufs := handlers(m)
-	loggers["json"].Info("hosts", "names", []string{"sw1", "sw2"})
-	if out := bufs["json"].String(); !strings.Contains(out, `"names":["sw1","sw2"]`) {
-		t.Fatalf("a list with nothing secret lost its shape: %s", out)
+	loggers["json"].Info("hosts", "names", []string{"sw1", "sw2"}, "device", carrier{Host: "sw1", Output: "ok"})
+	if out := bufs["json"].String(); !strings.Contains(out, `"names":["sw1","sw2"]`) || !strings.Contains(out, `"device":{"Host":"sw1","Output":"ok"}`) {
+		t.Fatalf("a value with nothing secret lost its shape: %s", out)
 	}
 }

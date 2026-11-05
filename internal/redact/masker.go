@@ -195,7 +195,12 @@ func containsAny(lowered string, subs []string) bool {
 //  3. A string value, including the built-in msg, is run through Text.
 //  4. A value of a kind that cannot carry text (a number, a bool, a
 //     duration, a time, the built-in level and source) is returned
-//     untouched. Any other value (an error, a []byte, a Stringer, a named
+//     untouched. A map, a list or a struct (not an error, which a handler
+//     prints by its text) is masked as Value masks a method's stats, key
+//     rules included, so {"password": ...} in a map or a Password field
+//     is masked by name as a top-level attribute is, and the attribute
+//     becomes the masked value, keeping its shape, when that changes
+//     anything. Any other value (an error, a []byte, a Stringer, a named
 //     string type, a struct, a map) is rendered the way a handler prints it,
 //     and when masking that text changes it the attribute becomes the masked
 //     text: a handler would otherwise print an error quoting a device's
@@ -203,7 +208,10 @@ func containsAny(lowered string, subs []string) bool {
 //     value whose rendering masking leaves alone is returned untouched, so
 //     the structured output keeps its shape wherever nothing is secret.
 //
-// The attribute's key is never changed.
+// The attribute's key is never changed. Rendering calls a value's Error,
+// String and MarshalJSON methods whichever handler is in use, so a value
+// logged here must not take, in one of them, a lock its logging caller may
+// hold.
 func (m *Masker) Attr(groups []string, a slog.Attr) slog.Attr {
 	if a.Value.Kind() == slog.KindGroup {
 		return a
@@ -224,6 +232,9 @@ func (m *Masker) Attr(groups []string, a slog.Attr) slog.Attr {
 	case nil, slog.Level, *slog.Source:
 		return a
 	}
+	if masked, changed := m.structured(value); changed {
+		return slog.Any(a.Key, masked)
+	}
 	shown, others := renderings(value)
 	for _, rendered := range append([]string{shown}, others...) {
 		if m.Text(nil, rendered) != rendered {
@@ -231,6 +242,36 @@ func (m *Masker) Attr(groups []string, a slog.Attr) slog.Attr {
 		}
 	}
 	return a
+}
+
+// structured masks value as Value masks stats when it is a map, a list or
+// a struct (or a pointer to one) other than an error or a byte slice,
+// reporting whether masking changed it. Value walks a struct as the maps
+// JSON writes it as, so the comparison is with that form. A value that
+// cannot be marshalled (a panicking MarshalJSON among them, which Value's
+// conversion would not survive) is left to the text renderings.
+func (m *Masker) structured(value any) (any, bool) {
+	if _, isErr := value.(error); isErr {
+		return nil, false
+	}
+	v := reflect.Indirect(reflect.ValueOf(value))
+	switch v.Kind() {
+	case reflect.Map, reflect.Struct, reflect.Array:
+	case reflect.Slice:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			return nil, false
+		}
+	default:
+		return nil, false
+	}
+	if _, ok := marshalJSON(value); !ok {
+		return nil, false
+	}
+	masked := m.Value(nil, value)
+	if reflect.DeepEqual(masked, value) || reflect.DeepEqual(masked, generic(value)) {
+		return nil, false
+	}
+	return masked, true
 }
 
 // shownIdentifier reports whether a, inside a secret-named group, is an
