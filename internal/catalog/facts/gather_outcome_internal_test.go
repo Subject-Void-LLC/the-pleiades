@@ -168,3 +168,29 @@ func TestParseBrew_SkipsHomebrewsOwnLines(t *testing.T) {
 		t.Fatalf("parseBrew = %+v, want jq alone", got)
 	}
 }
+
+// TestItemKey_ABytesThatIsNotUTF8IsItsOwn: two names differing only in a
+// byte that is not UTF-8, or in that byte against a real U+FFFD, take
+// different keys (sweep item 16, a repeat of 328).
+func TestItemKey_ABytesThatIsNotUTF8IsItsOwn(t *testing.T) {
+	a, b, c := itemKey(gatherFamilyPackage, "x\xff"), itemKey(gatherFamilyPackage, "x\xfe"), itemKey(gatherFamilyPackage, "x�")
+	if a == b || a == c || b == c {
+		t.Fatalf("keys collide: %q %q %q", a, b, c)
+	}
+	if a != "package.x%FF" {
+		t.Errorf("itemKey = %q, want package.x%%FF", a)
+	}
+}
+
+// TestGatherMatches_ReadsFnmatchsNegation: Ansible's filter is fnmatch,
+// where [!d] is every character but d (sweep item 16).
+func TestGatherMatches_ReadsFnmatchsNegation(t *testing.T) {
+	for key, want := range map[string]bool{"package.xz": true, "package.dash": false, "package.!x": true} {
+		if got := gatherMatches([]string{"package.[!d]*"}, key); got != want {
+			t.Errorf("gatherMatches([!d]*, %q) = %v, want %v", key, got, want)
+		}
+	}
+	if got := fnmatchPattern(`a\[!b]`); got != `a\[!b]` {
+		t.Errorf("an escaped bracket was rewritten: %q", got)
+	}
+}

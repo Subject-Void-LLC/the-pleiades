@@ -85,12 +85,14 @@ func TestDarwinParsers_ReadBrewPkgutilAndLaunchd(t *testing.T) {
 	}
 	out := "system = {\n\ttype = system\n\tservices = {\n\t\t    1016      - \tcom.apple.IOUserBluetoothSerialDriver-0x10000110d\n" +
 		"\t\t       0   (pe) \tcom.apple.kernelmanager_helper\n\t\t     420      - \tcom.apple.runningboardd\n\t}\n\tother = {\n\t\t5 - x.y\n\t}\n}\n" +
-		serviceSectionMark + "\n\tdisabled services = {\n\t\t\"com.apple.runningboardd\" => disabled\n\t\t\"com.apple.screensharing\" => enabled\n\t}\n"
+		serviceSectionMark + "\n\tdisabled services = {\n\t\t\"com.apple.runningboardd\" => disabled\n\t\t\"com.apple.screensharing\" => enabled\n\t\t\"com.apple.ftp-proxy\" => disabled\n\t}\n"
 	got := valuesOf(parseLaunchd(out))
 	want := map[string]any{
-		"service.com.apple.IOUserBluetoothSerialDriver-0x10000110d": map[string]any{"state": "running", "enabled": true, "status": "-", "source": "launchd"},
-		"service.com.apple.kernelmanager_helper":                    map[string]any{"state": "stopped", "enabled": true, "status": "(pe)", "source": "launchd"},
-		"service.com.apple.runningboardd":                           map[string]any{"state": "running", "enabled": false, "status": "-", "source": "launchd"},
+		"service.com.apple.IOUserBluetoothSerialDriver-0x10000110d": map[string]any{"state": "running", "enabled": true, "status": "enabled", "source": "launchd"},
+		"service.com.apple.kernelmanager_helper":                    map[string]any{"state": "stopped", "enabled": true, "status": "enabled", "source": "launchd"},
+		"service.com.apple.runningboardd":                           map[string]any{"state": "running", "enabled": false, "status": "disabled", "source": "launchd"},
+		// Disabled and so never loaded: reported from print-disabled.
+		"service.com.apple.ftp-proxy": map[string]any{"state": "stopped", "enabled": false, "status": "disabled", "source": "launchd"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("launchd = %v\nwant %v", got, want)

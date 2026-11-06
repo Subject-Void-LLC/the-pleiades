@@ -8,6 +8,7 @@ package facts
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -243,6 +244,7 @@ func parseLaunchd(out string) []gatherFact {
 		}
 	}
 	var facts []gatherFact
+	listed := map[string]bool{}
 	in := false
 	for _, line := range strings.Split(printed, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -265,11 +267,38 @@ func parseLaunchd(out string) []gatherFact {
 		if fields[0] != "0" && fields[0] != "-" {
 			state = "running"
 		}
+		listed[label] = true
 		facts = append(facts, gatherFact{key: itemKey(gatherFamilyService, label), value: map[string]any{
-			"state": state, "enabled": !disabled[label], "status": fields[1], "source": "launchd",
+			"state": state, "enabled": !disabled[label], "status": launchdStatus(disabled[label]), "source": "launchd",
+		}})
+	}
+	// launchd does not load a disabled daemon, so the services block never
+	// lists one: it is reported from print-disabled, where it was missing,
+	// and one disabled since boot vanished at reboot (sweep item 16).
+	var off []string
+	for label := range disabled {
+		if !listed[label] {
+			off = append(off, label)
+		}
+	}
+	sort.Strings(off)
+	for _, label := range off {
+		facts = append(facts, gatherFact{key: itemKey(gatherFamilyService, label), value: map[string]any{
+			"state": "stopped", "enabled": false, "status": launchdStatus(true), "source": "launchd",
 		}})
 	}
 	return facts
+}
+
+// launchdStatus is a launchd daemon's status as the other managers' word
+// it: enabled or disabled. It was the last exit status, which moves on an
+// unchanged Mac each time an on-demand daemon runs or is killed, and meant
+// what no other source's status means.
+func launchdStatus(disabled bool) string {
+	if disabled {
+		return "disabled"
+	}
+	return "enabled"
 }
 
 // procsHiddenMark is the line the FreeBSD services probe prints when this

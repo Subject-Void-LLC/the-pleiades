@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -202,20 +203,27 @@ const (
 
 // itemKey is the fact key of one item of family: the family's prefix and the
 // item's name, with the characters a fact key cannot hold (a space, a slash,
-// anything unprintable) and the percent sign percent-encoded, byte by byte, so the key reads back
-// to the item exactly and two names never meet in one key.
+// anything unprintable), the percent sign and every byte that is not UTF-8
+// percent-encoded, byte by byte, so the key reads back to the item exactly
+// and two names never meet in one key. A byte that is not UTF-8 is encoded as
+// itself: ranging over the string read each as U+FFFD, a printable rune, so
+// two names differing only there shared a key (sweep item 16, a repeat of
+// 328).
 func itemKey(family, name string) string {
 	var b strings.Builder
 	b.WriteString(family)
-	for _, r := range name {
-		if r == '/' || r == '%' || unicode.IsSpace(r) || !unicode.IsPrint(r) {
+	for i := 0; i < len(name); {
+		r, size := utf8.DecodeRuneInString(name[i:])
+		raw := name[i : i+size]
+		i += size
+		if (r == utf8.RuneError && size == 1) || r == '/' || r == '%' || unicode.IsSpace(r) || !unicode.IsPrint(r) {
 			// Every byte of the rune, so one outside ASCII stays exact.
-			for _, c := range []byte(string(r)) {
+			for _, c := range []byte(raw) {
 				fmt.Fprintf(&b, "%%%02X", c)
 			}
 			continue
 		}
-		b.WriteRune(r)
+		b.WriteString(raw)
 	}
 	return b.String()
 }

@@ -186,7 +186,7 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactProcessorVCPUs, Type: "int", Returned: "when /proc/cpuinfo lists processors", Description: "The number of logical processors, counted as the processor entries in /proc/cpuinfo."},
 			{Name: gatherFactProcessorCores, Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
 			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm, apk, pkg, brew, brew-cask, pkgutil or registry). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source, then #2 and on in the order the source lists them. A package its source gives no version has none."},
-			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart) and status the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status the last exit status launchctl prints; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."},
+			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart) and status the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status enabled or disabled, a daemon launchd has not loaded because it is disabled being reported stopped and disabled; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."},
 			{Name: "file.<path>", Type: "map", Returned: "with the files subset, for each path in files", Description: "One named path: state (present, absent or unreadable); when present, type (file, directory, link, fifo, socket, char or block), size (not for a directory, nor a file not everyone may read), uid, gid, owner, group and mode as four octal digits on a POSIX device, attributes and owner on Windows, for a regular file world_readable and, when anyone may read it, sha256 and size, or when not, hmac_sha256 and hmac_key (a keyed digest the store can compare and nobody without the key can test guesses against; on a Runner the task's own result holds it sealed to the Controller, as sha256_sealed, and only the stored fact holds it keyed), readable, and link_target for a link. The path is percent-encoded in the key as any item name is."},
 			{Name: "port.<protocol>:<address>:<port>", Type: "map", Returned: "with the ports subset, for each listening socket", Description: "One listening TCP socket, or UDP socket bound with no peer: protocol (tcp or udp), address (0.0.0.0 or :: for any; in brackets in the key when it is IPv6), port, uid on Linux, and process, the owning process's name, where the login may see it (on Linux its own processes, or every one as root; on FreeBSD every one unless security.bsd.see_other_uids is off; every one on macOS; on Windows every one an administrator sees). A socket taking both families is ::."},
 			{Name: "user.<name>", Type: "map", Returned: "with the users subset, for each local account", Description: "One local account: uid, gid, home, shell and source (files from /etc/passwd, dslocal from a Mac's local directory), or on Windows sid, enabled and source sam. Accounts a directory service adds (LDAP, SSSD, a domain) are not local and not listed; the password field is never read."},
@@ -549,7 +549,7 @@ func gatherPlan(params map[string]any) (gatherChoice, error) {
 	// nothing, which is what path.Match's own error exists to say. Checked
 	// once here, so matching later need not.
 	for _, pattern := range patterns {
-		if _, err := path.Match(pattern, ""); err != nil {
+		if _, err := path.Match(fnmatchPattern(pattern), ""); err != nil {
 			return gatherChoice{}, fmt.Errorf("%s pattern %q is malformed: %w", gatherParamFilter, pattern, err)
 		}
 	}
@@ -675,11 +675,42 @@ func gatherMatches(patterns []string, key string) bool {
 		return true
 	}
 	for _, pattern := range patterns {
-		if matched, _ := path.Match(pattern, key); matched {
+		if matched, _ := path.Match(fnmatchPattern(pattern), key); matched {
 			return true
 		}
 	}
 	return false
+}
+
+// fnmatchPattern is pattern, written for Python's fnmatch as Ansible's
+// filter reads it, in path.Match's grammar: a class fnmatch negates with !
+// ([!d]) is negated with ^ here, where [!d] would be a class holding ! and d
+// (sweep item 16). Keys hold no slash, so the two agree on what * spans.
+func fnmatchPattern(pattern string) string {
+	var b strings.Builder
+	inClass := false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch {
+		case c == '\\' && i+1 < len(pattern):
+			b.WriteByte(c)
+			i++
+			b.WriteByte(pattern[i])
+			continue
+		case !inClass && c == '[':
+			inClass = true
+			b.WriteByte(c)
+			if i+1 < len(pattern) && pattern[i+1] == '!' {
+				b.WriteByte('^')
+				i++
+			}
+			continue
+		case inClass && c == ']':
+			inClass = false
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // gatherWanted reports whether key survived the filter for its probe.
