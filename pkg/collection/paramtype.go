@@ -128,6 +128,9 @@ func checkParamTypes(d Descriptor) error {
 		if err := checkChoices(d, p); err != nil {
 			return err
 		}
+		if err := checkRunSetting(d, p); err != nil {
+			return err
+		}
 	}
 	return nil
 }
