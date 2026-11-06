@@ -150,6 +150,13 @@ type FieldSpec struct {
 	// Choices is every value a TypeChoice field accepts, in the order a
 	// form offers them.
 	Choices []string
+
+	// Check, when set, holds a value that already has the field's type to a
+	// rule of the kind's own (a TypeMap whose keys and values must name
+	// something the kind knows: method_settings). It is called wherever a
+	// value is normalized, so a form, a saved configuration and a launch
+	// refuse the same values.
+	Check func(value any) error
 }
 
 // Bounded reports whether this field constrains its range.

@@ -72,6 +72,12 @@ type RollbackRequest struct {
 	Leave, AllowPartial, AllowUnknown []string
 	// DespiteJobs names later jobs to undo beneath.
 	DespiteJobs []string
+	// MethodSettings are run settings for the rollback's tasks, over the
+	// job's own (launch.MethodSettingsField), each already held to its method
+	// (collection.RunSettings.Check). An undo step has no task an author
+	// could set a parameter on, so this is how a rollback check of a recorded
+	// file.remove says check_forbidden: warn.
+	MethodSettings collection.RunSettings
 }
 
 // RollbackRefusedError is a rollback the Controller will not stand behind,
@@ -158,6 +164,16 @@ func (d *Dispatcher) Rollback(ctx context.Context, actor, jobID string, req Roll
 		fields = launch.Fields{}
 	}
 	fields[launch.ModeField] = string(req.Mode)
+	if len(req.MethodSettings) > 0 {
+		merged := map[string]any{}
+		for k, v := range launch.MethodSettings(fields) {
+			merged[k] = v
+		}
+		for k, v := range req.MethodSettings {
+			merged[k] = v
+		}
+		fields[launch.MethodSettingsField] = merged
+	}
 	rb := &dispatch.Job{
 		JobID:          newJobID(),
 		RunbookID:      job.RunbookID,
@@ -396,6 +412,9 @@ type rollbackBody struct {
 	AllowPartial []string `json:"allow_partial"`
 	AllowUnknown []string `json:"allow_unknown"`
 	DespiteJob   []string `json:"despite_job"`
+	// MethodSettings are run settings over the job's own, keyed
+	// <method>.<parameter>.
+	MethodSettings map[string]string `json:"method_settings"`
 }
 
 // rollbackRefusedDTO is a refused rollback's body: every problem, each
@@ -433,10 +452,15 @@ func (d *Dispatcher) RollbackJob(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, r, http.StatusBadRequest, "mode must be execute or check")
 		return
 	}
+	settings := collection.RunSettings(body.MethodSettings)
+	if err := settings.Check(); err != nil {
+		RespondError(w, r, http.StatusBadRequest, "method_settings: "+err.Error())
+		return
+	}
 
 	newJobID, err := d.Rollback(r.Context(), identity.Subject, jobID, RollbackRequest{
 		Mode: mode, Leave: body.Leave, AllowPartial: body.AllowPartial,
-		AllowUnknown: body.AllowUnknown, DespiteJobs: body.DespiteJob,
+		AllowUnknown: body.AllowUnknown, DespiteJobs: body.DespiteJob, MethodSettings: settings,
 	})
 	var refused *RollbackRefusedError
 	switch {

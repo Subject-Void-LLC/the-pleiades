@@ -651,3 +651,83 @@ func TestRollback_AJobThatCannotBeStoredIsNotPublished(t *testing.T) {
 		t.Error("a rollback job that was never stored was launched")
 	}
 }
+
+// TestRollbackJob_CarriesMethodSettingsToTheRollbacksJob proves a rollback's
+// request may set run settings for its undo steps, which have no task an
+// author could set a parameter on, that they land in the rollback job's
+// method_settings over the job's own, and that one naming no run setting, or a
+// value outside its choices, is refused before any job is created.
+func TestRollbackJob_CarriesMethodSettingsToTheRollbacksJob(t *testing.T) {
+	f := newRollbackFixture(t, nil, nil)
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/jobs/"+f.jobID+"/rollback", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", f.jobID)
+		req = req.WithContext(context.WithValue(contextWithIdentity(req, dispatchTestIdentity), chi.RouteCtxKey, rctx))
+		rec := httptest.NewRecorder()
+		f.dispatcher.RollbackJob(rec, req)
+		return rec
+	}
+	for body, want := range map[string]string{
+		`{"mode":"check","leave":["tasks[1]"],"method_settings":{"file.remove.check_forbidden":"maybe"}}`: "must be one of refuse, warn",
+		`{"mode":"check","leave":["tasks[1]"],"method_settings":{"file.remove.recurse":"true"}}`:          "declares no run setting",
+	} {
+		if rec := post(body); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("%s: %d %s, want 400 saying %q", body, rec.Code, rec.Body, want)
+		}
+	}
+	rec := post(`{"mode":"check","leave":["tasks[1]"],"method_settings":{"file.remove.check_forbidden":"warn"}}`)
+	var accepted struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &accepted); err != nil || rec.Code != http.StatusAccepted {
+		t.Fatalf("a rollback check with method settings: %d %s", rec.Code, rec.Body)
+	}
+	job, _, err := f.jobs.Get(t.Context(), accepted.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := launch.MethodSettings(job.Fields); got["file.remove.check_forbidden"] != "warn" {
+		t.Errorf("the rollback job's method settings = %v, want the request's", got)
+	}
+}
+
+// TestRollback_MethodSettingsGoOverTheJobsOwn proves a rollback keeps the
+// method settings the job ran with and its request's own win over them.
+func TestRollback_MethodSettingsGoOverTheJobsOwn(t *testing.T) {
+	f := newRollbackFixture(t, nil, nil)
+	// settingOf rolls back a fresh job that ran with check_forbidden: refuse,
+	// a fresh one each time since a job rolled back once is not planned again,
+	// beneath every job before it, whose journals name the same device.
+	earlier := []string{f.jobID}
+	settingOf := func(req api.RollbackRequest) string {
+		t.Helper()
+		job := &dispatch.Job{RunbookID: "rb-1", GroupName: "web", Actor: "ada@example.com", Kind: "runbook",
+			Fields: launch.Fields{launch.MethodSettingsField: map[string]any{"file.remove.check_forbidden": "refuse"}}}
+		f.finish(t, job, true)
+		for _, e := range f.journal.entries[f.jobID] {
+			e.JobID = job.JobID
+			f.journal.entries[job.JobID] = append(f.journal.entries[job.JobID], e)
+		}
+		req.DespiteJobs = append([]string(nil), earlier...)
+		earlier = append(earlier, job.JobID)
+		id, err := f.dispatcher.Rollback(t.Context(), "grace@example.com", job.JobID, req)
+		if err != nil {
+			t.Fatalf("%v: %+v", err, refusedProblems(err))
+		}
+		rb, _, err := f.jobs.Get(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return launch.MethodSettings(rb.Fields)["file.remove.check_forbidden"]
+	}
+	check := api.RollbackRequest{Mode: collection.ModeCheck, Leave: []string{"tasks[1]"}}
+	if got := settingOf(check); got != "refuse" {
+		t.Errorf("with no request setting = %q, want the job's own refuse", got)
+	}
+	check.MethodSettings = collection.RunSettings{"file.remove.check_forbidden": "warn"}
+	if got := settingOf(check); got != "warn" {
+		t.Errorf("with the request saying warn = %q, want warn over the job's refuse", got)
+	}
+}
