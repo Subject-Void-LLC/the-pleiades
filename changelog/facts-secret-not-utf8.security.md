@@ -1,0 +1,1 @@
+A run's secret holding a byte that is not valid UTF-8 is now found in a gathered fact and keeps that fact out of the store, where before it could be stored with the rest of the secret in it (builds after 0.3.0 only). Such a secret is also now masked in a run's report when it appears inside a structured result, which before showed it with that byte replaced.
