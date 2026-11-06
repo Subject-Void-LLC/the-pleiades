@@ -98,7 +98,7 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 		return c.run(plain, command, nil, limit)
 	}
 	dir := lastLine(started.Stdout)
-	if !jobDir.MatchString(dir) {
+	if !answeredJobDir(dir, name) {
 		// Started, maybe: never run it a second time, and stop it by name.
 		return Result{}, fmt.Errorf("remoteexec: a detached command on %s answered with no job directory, and the job, if it started, %s: %q %q", c.addr, c.stopDetached(jobByName(name)), boundedText(dir), strings.TrimSpace(boundedText(started.Stderr)))
 	}
@@ -145,8 +145,7 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 		}
 		code, err := pollRC(rc.Stdout)
 		if err != nil {
-			c.stopDetached(qdir)
-			return Result{}, fmt.Errorf("remoteexec: a detached command on %s left an exit status that is not a number: %w", c.addr, err)
+			return Result{}, fmt.Errorf("remoteexec: a detached command on %s left an exit status that is not a number, and the job %s: %w", c.addr, c.stopDetached(qdir), err)
 		}
 		// The job has finished: its directory, which holds the command, is
 		// removed however its output reads.

@@ -314,3 +314,23 @@ func TestDetached_AFailedStartOnARawViewSendsNoStop(t *testing.T) {
 		}
 	}
 }
+
+// TestAnsweredJobDir accepts only this job's directory: a job directory at
+// all, under the name the client chose, so another job's directory in a
+// start's answer is never polled, read or removed.
+func TestAnsweredJobDir(t *testing.T) {
+	const name = "0123456789abcdef01234567"
+	for dir, want := range map[string]bool{
+		"/home/u/.pleiades-async-1000/job." + name:                  true,
+		"/home/u/.pleiades-async-1000/job.ffffffffffffffffffffffff": false,
+		"/home/u/.pleiades-async-1000/job." + name + "0":            false,
+		"/home/u/.pleiades-async-1000/job.x" + name[1:]:             false,
+		"relative/.pleiades-async-1000/job." + name:                 false,
+		"/home/u/.pleiades-async-1000/job." + name + "\n":           false,
+		"/home/u/.pleiades-async-1000/other/../job." + name:         false,
+	} {
+		if got := answeredJobDir(dir, name); got != want {
+			t.Errorf("answeredJobDir(%q) = %v, want %v", dir, got, want)
+		}
+	}
+}

@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"sync"
 	"time"
 
@@ -161,14 +160,16 @@ var ErrCommandRefused = errors.New("the server refused to start the command")
 // withoutCommand returns err from starting line with the command taken out.
 // x/crypto/ssh reports a refused exec as "ssh: command <line> failed", and a
 // line can carry a secret a method put in the command, in the shell-encoded
-// form a mask by value does not match. Such an error becomes
-// ErrCommandRefused; any other start error (a dropped connection) names no
-// command and is returned as it is.
+// form a mask by value does not match. Such an error, matched by its whole
+// text ("ssh: command %v failed" in x/crypto/ssh's session.go) so a short
+// line that happens to appear inside some other error is never taken for a
+// refusal, becomes ErrCommandRefused; any other start error (a dropped
+// connection) names no command and is returned as it is.
 func withoutCommand(err error, line string) error {
 	if err == nil {
 		return nil
 	}
-	if line != "" && strings.Contains(err.Error(), line) {
+	if line != "" && err.Error() == "ssh: command "+line+" failed" {
 		return ErrCommandRefused
 	}
 	return err

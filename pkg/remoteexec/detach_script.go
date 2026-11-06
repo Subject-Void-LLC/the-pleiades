@@ -101,6 +101,15 @@ func newJobName() string {
 	return hex.EncodeToString(b)
 }
 
+// answeredJobDir reports whether dir, the start script's answer, is the
+// directory of the job named name: a job directory at all, and this job's.
+// The script names the directory after the name the client chose, so any
+// other job's directory in its answer is an answer this run cannot trust,
+// and polling, reading and removing it would act on another job's files.
+func answeredJobDir(dir, name string) bool {
+	return jobDir.MatchString(dir) && strings.HasSuffix(dir, "/job."+name)
+}
+
 // jobByName is the job directory for name as the device's shell spells it,
 // for stopDetached when the device never answered with the directory. name
 // is newJobName's hex, so it needs no quoting.

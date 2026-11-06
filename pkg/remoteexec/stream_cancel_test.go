@@ -96,6 +96,16 @@ func TestWithoutCommand_KeepsOtherErrors(t *testing.T) {
 	if got := withoutCommand(dropped, "echo hi"); got != dropped {
 		t.Fatalf("withoutCommand(%v) = %v; want it unchanged", dropped, got)
 	}
+	// A short line (a Raw view's command) inside some other start error is
+	// not a refusal: only x/crypto/ssh's whole "ssh: command <line> failed"
+	// is. Matched by substring, this channel failure read as one.
+	other := errors.New("ssh: rejected: administratively prohibited (open failed)")
+	if got := withoutCommand(other, "open"); got != other {
+		t.Fatalf("withoutCommand(%v, open) = %v; want it unchanged", other, got)
+	}
+	if got := withoutCommand(errors.New("ssh: command open failed"), "open"); !errors.Is(got, ErrCommandRefused) {
+		t.Fatalf("the refusal itself = %v; want ErrCommandRefused", got)
+	}
 }
 
 // TestStart_AContextAlreadyDoneStartsNothing: Start on a done context opens no
