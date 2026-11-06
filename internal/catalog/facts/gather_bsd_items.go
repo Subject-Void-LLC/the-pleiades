@@ -297,7 +297,9 @@ func parseLaunchd(out string) []gatherFact {
 	for label := range disabled {
 		// Reported only where its plist is still installed, when the probe
 		// listed them (FAILURE_PATTERNS 935).
-		if !listedLabel[label] && (!listed || installed[label]) {
+		// An instance job is left out here too, unless its own plist
+		// installs it.
+		if !listedLabel[label] && (!listed || installed[label]) && (!launchdInstance(label) || installed[label]) {
 			off = append(off, label)
 		}
 	}

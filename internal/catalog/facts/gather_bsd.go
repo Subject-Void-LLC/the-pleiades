@@ -81,7 +81,8 @@ func parseSwVers(out string) []gatherFact {
 		switch strings.TrimSpace(key) {
 		case "ProductName":
 			if value != "" {
-				facts = append(facts, gatherFact{key: gatherFactDistribution, value: "MacOSX"}, osFamilyFact("MacOSX"))
+				family, _ := osFamilyFact("MacOSX", true)
+				facts = append(facts, gatherFact{key: gatherFactDistribution, value: "MacOSX"}, family)
 			}
 		case "ProductVersion":
 			if value != "" {

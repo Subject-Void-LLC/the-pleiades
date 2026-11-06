@@ -7107,7 +7107,7 @@
         "key": "ansible_distribution",
         "kind": "stable",
         "type": "string",
-        "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), otherwise NAME, as Ansible's own fallback reports it (openSUSE Leap, SLES); MacOSX on macOS and the edition's caption on Windows."
+        "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, Kali, Devuan, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), NAME on the SUSE family as Ansible's SUSE parser reports it (openSUSE Leap, SLES), and NAME for any other, which is Ansible's own fallback but not always its answer, since Ansible names some derivatives by a word in the file; MacOSX on macOS and the edition's caption on Windows."
       },
       {
         "key": "ansible_distribution_version",
@@ -7119,7 +7119,7 @@
         "key": "ansible_memtotal_mb",
         "kind": "stable",
         "type": "integer",
-        "description": "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it."
+        "description": "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it; on Windows rounded up, as Ansible's Windows setup rounds it."
       },
       {
         "key": "ansible_processor_count",
@@ -7155,13 +7155,13 @@
         "key": "ansible_os_family",
         "kind": "stable",
         "type": "string",
-        "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list, the distribution itself, as Ansible reports it."
+        "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list but this method names as Ansible does, the distribution itself, as Ansible reports it. A distribution reported by its NAME alone has a family only where Ansible's table lists that NAME, since Ansible may name it otherwise: a family is never guessed."
       },
       {
         "key": "ansible_distribution_release",
         "kind": "stable",
         "type": "string",
-        "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out."
+        "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out. FreeBSD and macOS report none yet, where Ansible reports the kernel release."
       },
       {
         "key": "ansible_swaptotal_mb",
@@ -7245,7 +7245,7 @@
         {
           "name": "filter",
           "type": "list of string",
-          "description": "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."
+          "description": "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out. A service's state is service_state.<name>, which a pattern for service.<name> alone does not match."
         },
         {
           "name": "gather_subset",
@@ -7287,7 +7287,7 @@
           "name": "ansible_distribution",
           "type": "string",
           "returned": "when the device names one",
-          "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), otherwise NAME, as Ansible's own fallback reports it (openSUSE Leap, SLES); MacOSX on macOS and the edition's caption on Windows."
+          "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, Kali, Devuan, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), NAME on the SUSE family as Ansible's SUSE parser reports it (openSUSE Leap, SLES), and NAME for any other, which is Ansible's own fallback but not always its answer, since Ansible names some derivatives by a word in the file; MacOSX on macOS and the edition's caption on Windows."
         },
         {
           "name": "ansible_distribution_version",
@@ -7299,7 +7299,7 @@
           "name": "ansible_memtotal_mb",
           "type": "int",
           "returned": "when /proc/meminfo reports it",
-          "description": "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it."
+          "description": "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it; on Windows rounded up, as Ansible's Windows setup rounds it."
         },
         {
           "name": "ansible_processor_count",
@@ -7335,13 +7335,13 @@
           "name": "ansible_os_family",
           "type": "string",
           "returned": "when the device names its distribution",
-          "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list, the distribution itself, as Ansible reports it."
+          "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list but this method names as Ansible does, the distribution itself, as Ansible reports it. A distribution reported by its NAME alone has a family only where Ansible's table lists that NAME, since Ansible may name it otherwise: a family is never guessed."
         },
         {
           "name": "ansible_distribution_release",
           "type": "string",
           "returned": "when the distribution names one",
-          "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out."
+          "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out. FreeBSD and macOS report none yet, where Ansible reports the kernel release."
         },
         {
           "name": "ansible_swaptotal_mb",

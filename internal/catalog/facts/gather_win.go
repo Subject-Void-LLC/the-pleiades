@@ -63,7 +63,7 @@ $out = [ordered]@{
 }` + windowsJSONOut
 
 // windowsHardwareScript prints the hardware subset's facts: memory in whole
-// megabytes, swap as 0 (ansible.windows' setup reports it so, since a page
+// megabytes, rounded up as ansible.windows' setup rounds it, swap as 0 (ansible.windows' setup reports it so, since a page
 // file is not swap; the page files' allocated size, which this read before,
 // was not Ansible's value and grows with a system-managed page file), the
 // processor packages, logical processors and the first package's cores, and
@@ -75,7 +75,7 @@ $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $cpu = @(Get-CimInstance Win32_Processor)
 $mem = $null
-if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Floor([double]$cs.TotalPhysicalMemory / 1MB) }
+if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Ceiling([double]$cs.TotalPhysicalMemory / 1MB) }
 $cores = $null
 if ($cpu.Count -gt 0) { $cores = $cpu[0].NumberOfCores }
 $up = $null
@@ -118,30 +118,41 @@ $out = @(foreach ($r in $roots) {
 // never lists the template (Type SERVICE_USER_SERVICE, 0x40, without 0x80),
 // so each template is read from the registry instead, with its start mode and
 // no state, and marked per_user. Win32_Service gives an instance's type as
-// Unknown, so the registry's Type is what tells one apart. The Services key
-// always holds hundreds of services, so reading none of their types is a
-// failure, not an answer.
+// Unknown, so the registry's Type is what tells one apart, and an instance
+// whose key this login cannot read is still told apart by its name: its
+// template's and a hexadecimal LUID. A Type, Start or DelayedAutostart that is
+// not a DWORD is not taken for one (a template's start mode is then unknown),
+// so one odd key never fails the task. The Services key always holds hundreds
+// of services, so reading none of their types is a failure, not an answer.
 const windowsServicesScript = `$ErrorActionPreference = 'Stop'
 $types = @{}
 $templates = @()
 foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue)) {
   $t = $k.GetValue('Type')
-  if ($null -eq $t) { continue }
-  $types[[string]$k.PSChildName] = [int]$t
-  if (([int]$t -band 0x40) -and -not ([int]$t -band 0x80)) { $templates += $k }
+  if ($t -isnot [int]) { continue }
+  $types[[string]$k.PSChildName] = $t
+  if (($t -band 0x40) -and -not ($t -band 0x80)) { $templates += $k }
 }
 if ($types.Count -eq 0) { throw 'no service type could be read from the registry' }
 $modes = @{ 0 = 'Boot'; 1 = 'System'; 2 = 'Auto'; 3 = 'Manual'; 4 = 'Disabled' }
+$named = @{}
+foreach ($k in $templates) { $named[[string]$k.PSChildName] = $true }
 $seen = @{}
 $out = @(foreach ($s in @(Get-CimInstance Win32_Service)) {
-  $t = $types[[string]$s.Name]
+  $n = [string]$s.Name
+  $t = $types[$n]
   if ($null -ne $t -and ($t -band 0x80)) { continue }
-  $seen[[string]$s.Name] = $true
-  [ordered]@{ name = [string]$s.Name; state = [string]$s.State; mode = [string]$s.StartMode; delayed = [bool]$s.DelayedAutoStart }
+  if ($null -eq $t -and $n -match '^(.+)_[0-9a-fA-F]+$' -and $named.ContainsKey($Matches[1])) { continue }
+  $seen[$n] = $true
+  [ordered]@{ name = $n; state = [string]$s.State; mode = [string]$s.StartMode; delayed = [bool]$s.DelayedAutoStart }
 }
 foreach ($k in $templates) {
   if ($seen.ContainsKey([string]$k.PSChildName)) { continue }
-  [ordered]@{ name = [string]$k.PSChildName; mode = [string]$modes[[int]$k.GetValue('Start', 3)]; delayed = ([int]$k.GetValue('DelayedAutostart', 0) -eq 1); per_user = $true }
+  $start = $k.GetValue('Start')
+  $mode = 'Unknown'
+  if ($start -is [int] -and $modes.ContainsKey($start)) { $mode = $modes[$start] }
+  $delayed = $k.GetValue('DelayedAutostart')
+  [ordered]@{ name = [string]$k.PSChildName; mode = $mode; delayed = ($delayed -is [int] -and $delayed -eq 1); per_user = $true }
 })` + windowsJSONOut
 
 // windowsProbes are the Windows probes, each a PowerShell script.

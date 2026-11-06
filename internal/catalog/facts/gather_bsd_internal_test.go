@@ -122,6 +122,13 @@ func TestParseLaunchd_LeavesOutEachLoginsInstanceJobs(t *testing.T) {
 			"\t}\n}\n" + serviceSectionMark + "\n\tdisabled services = {\n\t}\n" + serviceSectionMark +
 			"\nssh.plist\ncom.example.agent.5B2E25F4-F19F-5994-8284-D0EAA3707931.plist\n"
 	}
+	// A disabled instance job is not reported from print-disabled either,
+	// even where the plists were not listed.
+	disabledOnly := "system = {\n\tservices = {\n\t}\n}\n" + serviceSectionMark +
+		"\n\tdisabled services = {\n\t\t\"com.openssh.sshd.677D95B9-A003-4228-8829-EB98EC1DA5B5\" => disabled\n\t\t\"com.apple.ftp-proxy\" => disabled\n\t}\n"
+	if got := valuesOf(parseLaunchd(disabledOnly)); len(got) != 1 || got["service.com.apple.ftp-proxy"] == nil {
+		t.Errorf("print-disabled alone: %v, want only com.apple.ftp-proxy", got)
+	}
 	first := valuesOf(parseLaunchd(listing("677D95B9-A003-4228-8829-EB98EC1DA5B5")))
 	second := valuesOf(parseLaunchd(listing("79A2B1BE-9FE9-4FE6-AD87-8796E3A5524F")))
 	if !reflect.DeepEqual(first, second) {

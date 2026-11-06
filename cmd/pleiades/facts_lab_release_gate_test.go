@@ -371,7 +371,8 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 	if stats["ansible_os_family"] != "Windows" || numberStat(stats, "ansible_swaptotal_mb") != 0 {
 		t.Errorf("family %v, swap %v, want Windows and 0 as Ansible reports them", stats["ansible_os_family"], stats["ansible_swaptotal_mb"])
 	}
-	if want := labAtoi(t, labPowerShell(t, m, `[int64][math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)`)); numberStat(stats, "ansible_memtotal_mb") != want {
+	// Rounded up, as ansible.windows' setup rounds it.
+	if want := labAtoi(t, labPowerShell(t, m, `[int64][math]::Ceiling((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)`)); numberStat(stats, "ansible_memtotal_mb") != want {
 		t.Errorf("ansible_memtotal_mb = %v, the host says %d", stats["ansible_memtotal_mb"], want)
 	}
 	if want := labAtoi(t, labPowerShell(t, m, `[Environment]::ProcessorCount`)); numberStat(stats, "ansible_processor_vcpus") != want {

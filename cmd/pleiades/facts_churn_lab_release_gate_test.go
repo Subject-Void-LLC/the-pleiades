@@ -105,6 +105,9 @@ func TestCLI_FactsGatherOnWindowsReportsPerUserServicesByTemplate(t *testing.T) 
 	if got := labPowerShell(t, m, setup); got != "ready" {
 		t.Fatalf("setting up the sign-in printed %q", got)
 	}
+	// What the services are before anyone signs in, held below to what they
+	// are after: a sign-in changes nothing a stable fact describes.
+	before := labServices(t, m)
 	if rep, raw, code := runPleiadesJSONWithHome(t, m.dir, "", "adhoc", m.host, "win.reboot", "post_reboot_delay=60"); code != 0 || len(rep.Tasks) != 1 {
 		t.Fatalf("restarting %s (exit %d):\n%s", m.host, code, raw)
 	}
@@ -116,6 +119,9 @@ func TestCLI_FactsGatherOnWindowsReportsPerUserServicesByTemplate(t *testing.T) 
 		t.Fatalf("the sign-in made no per-user service instance (templates %v), so this proves nothing", templates)
 	}
 	services := labServices(t, m)
+	if diff := labServicesDiffer(before, services); len(diff) > 0 {
+		t.Errorf("a user signing in changed the services: %v", diff)
+	}
 	for _, name := range instances {
 		if _, ok := services["service."+name]; ok {
 			t.Errorf("service.%s is a signed-in user's instance, whose name changes with every sign-in", name)

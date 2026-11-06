@@ -30,7 +30,7 @@ func TestGatherOSRelease_MatchesAnsibleOnEveryMeasuredDistribution(t *testing.T)
 	if err := json.Unmarshal(raw, &measured); err != nil {
 		t.Fatal(err)
 	}
-	if len(measured.Images) < 20 {
+	if len(measured.Images) < 22 {
 		t.Fatalf("ansible.json holds %d images, want every one measured", len(measured.Images))
 	}
 	for slug, ansible := range measured.Images {
@@ -60,15 +60,21 @@ func TestGatherOSRelease_ReadsWhatTheFileSays(t *testing.T) {
 		want      map[string]any
 	}{
 		// An os-release with no ID reports its NAME, as Ansible's fallback
-		// does, and no family Ansible names, so the family is the name.
-		{"no ID", "NAME=\"Example OS\"\nVERSION_ID=3.1\n", map[string]any{gatherFactDistribution: "Example OS", gatherFactOSFamily: "Example OS",
+		// does, and no family: Ansible may name it otherwise (as its Debian
+		// parser names Raspbian Debian), so a family is not guessed.
+		{"no ID", "NAME=\"Example OS\"\nVERSION_ID=3.1\n", map[string]any{gatherFactDistribution: "Example OS",
 			gatherFactDistributionVersion: "3.1", gatherFactDistributionMajor: "3"}},
+		{"unlisted derivative", "NAME=\"Raspbian GNU/Linux\"\nID=raspbian\nID_LIKE=debian\nVERSION_ID=\"11\"\nVERSION_CODENAME=bullseye\n", map[string]any{
+			gatherFactDistribution: "Raspbian GNU/Linux", gatherFactDistributionVersion: "11", gatherFactDistributionMajor: "11", gatherFactDistributionRelease: "bullseye"}},
 		// A NAME Ansible's family table lists finds its family.
 		{"listed NAME", "NAME=\"Linux Mint\"\nID=linuxmint\nVERSION_ID=\"22\"\nVERSION_CODENAME=wilma\n", map[string]any{gatherFactDistribution: "Linux Mint",
 			gatherFactOSFamily: "Debian", gatherFactDistributionVersion: "22", gatherFactDistributionMajor: "22", gatherFactDistributionRelease: "wilma"}},
 		// Debian's VERSION_ID wins over a debian_version no more precise.
 		{"debian no point", "NAME=\"Debian GNU/Linux\"\nID=debian\nVERSION_ID=\"12\"\n" + debianVersionMark + "\n12\n", map[string]any{gatherFactDistribution: "Debian",
 			gatherFactOSFamily: "Debian", gatherFactDistributionVersion: "12", gatherFactDistributionMajor: "12"}},
+		// Only debian_version's first line is the version, as distro reads it.
+		{"debian two lines", "NAME=\"Debian GNU/Linux\"\nID=debian\nVERSION_ID=\"12\"\n" + debianVersionMark + "\n12.12\n# built 2026.11.06\n", map[string]any{gatherFactDistribution: "Debian",
+			gatherFactOSFamily: "Debian", gatherFactDistributionVersion: "12.12", gatherFactDistributionMajor: "12"}},
 		// A debian_version on a distribution that is not Debian is not read.
 		{"ubuntu sid", "NAME=\"Ubuntu\"\nID=ubuntu\nVERSION_ID=\"24.04\"\n" + debianVersionMark + "\ntrixie/sid\n", map[string]any{gatherFactDistribution: "Ubuntu",
 			gatherFactOSFamily: "Debian", gatherFactDistributionVersion: "24.04", gatherFactDistributionMajor: "24"}},
@@ -76,11 +82,11 @@ func TestGatherOSRelease_ReadsWhatTheFileSays(t *testing.T) {
 		{"sles first", "NAME=\"SLES\"\nID=\"sles\"\nVERSION_ID=\"15\"\n", map[string]any{gatherFactDistribution: "SLES", gatherFactOSFamily: "Suse",
 			gatherFactDistributionVersion: "15", gatherFactDistributionMajor: "15", gatherFactDistributionRelease: "0"}},
 		// A codename after a comma, as the distro library reads one.
-		{"comma codename", "NAME=Example\nID=example\nVERSION=\"7, Hydrogen\"\n", map[string]any{gatherFactDistribution: "Example", gatherFactOSFamily: "Example",
+		{"comma codename", "NAME=Example\nID=example\nVERSION=\"7, Hydrogen\"\n", map[string]any{gatherFactDistribution: "Example",
 			gatherFactDistributionRelease: "Hydrogen"}},
 		// UBUNTU_CODENAME, where there is no VERSION_CODENAME.
 		{"ubuntu codename", "NAME=Example\nID=example\nUBUNTU_CODENAME=noble\nVERSION=\"1 (Other)\"\n", map[string]any{gatherFactDistribution: "Example",
-			gatherFactOSFamily: "Example", gatherFactDistributionRelease: "noble"}},
+			gatherFactDistributionRelease: "noble"}},
 		// A SUSE VERSION_ID with no number in it names no release.
 		{"suse no version", "NAME=\"openSUSE Tumbleweed\"\nID=\"opensuse-tumbleweed\"\n", map[string]any{gatherFactDistribution: "openSUSE Tumbleweed",
 			gatherFactOSFamily: "Suse"}},

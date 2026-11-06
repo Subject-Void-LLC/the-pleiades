@@ -6,8 +6,11 @@
 // distribution's own container). Ansible reaches those values through
 // module_utils/facts/system/distribution.py and the distro library it
 // vendors; the rules here are the parts of both that decide a value on the
-// distributions in ansibleDistributionByID, and a distribution not in that
-// table reports what Ansible's own fallback reports: NAME and VERSION_ID.
+// distributions in ansibleDistributionByID and the SUSE family. One not in
+// either reports NAME and VERSION_ID, which is Ansible's own fallback but not
+// always its answer (its parsers name some derivatives by a word in the
+// file), so its family is reported only where Ansible's family table lists
+// that NAME: a family Ansible might not give is left out, not guessed.
 package facts
 
 import (
@@ -40,6 +43,8 @@ const osReleaseCommand = "cat /etc/os-release; echo '" + debianVersionMark + "';
 var ansibleDistributionByID = map[string]string{
 	"debian":    "Debian",
 	"ubuntu":    "Ubuntu",
+	"kali":      "Kali",
+	"devuan":    "Devuan",
 	"rhel":      "RedHat",
 	"centos":    "CentOS",
 	"rocky":     "Rocky",
@@ -104,13 +109,14 @@ var ansibleOSFamily = func() map[string]string {
 }()
 
 // osFamilyFact is distribution's ansible_os_family: its family in Ansible's
-// map, or the distribution itself, as Ansible reports one the map does not
-// list.
-func osFamilyFact(distribution string) gatherFact {
+// map, or, when known says the distribution is Ansible's own name for it, the
+// distribution itself, as Ansible reports one the map does not list. ok is
+// false for a name Ansible may not report, whose family is left out.
+func osFamilyFact(distribution string, known bool) (gatherFact, bool) {
 	if family, ok := ansibleOSFamily[distribution]; ok {
-		return gatherFact{key: gatherFactOSFamily, value: family}
+		return gatherFact{key: gatherFactOSFamily, value: family}, true
 	}
-	return gatherFact{key: gatherFactOSFamily, value: distribution}
+	return gatherFact{key: gatherFactOSFamily, value: distribution}, known
 }
 
 // versionCodename is the distro library's codename in os-release's VERSION:
@@ -131,18 +137,25 @@ func gatherOSRelease(stdout string) []gatherFact {
 	values := gatherKeyValues(osRelease)
 	id := values["ID"]
 
-	distribution := ansibleDistributionByID[id]
+	distribution, known := ansibleDistributionByID[id]
+	known = known || isSUSE(id)
 	if distribution == "" {
 		// Ansible's fallback (parse_distribution_file_NA) and its SUSE parser
 		// both report NAME.
 		distribution = values["NAME"]
 	}
-	version := distributionVersion(id, values, strings.TrimSpace(debianVersion))
+	// Its first line only, as distro reads it (readline), so a second line
+	// in the file never reaches the version.
+	firstLine, _, _ := strings.Cut(strings.TrimLeft(debianVersion, "\n"), "\n")
+	version := distributionVersion(id, values, strings.TrimSpace(firstLine))
 	release := distributionRelease(id, values)
 
 	var facts []gatherFact
 	if distribution != "" {
-		facts = append(facts, gatherFact{key: gatherFactDistribution, value: distribution}, osFamilyFact(distribution))
+		facts = append(facts, gatherFact{key: gatherFactDistribution, value: distribution})
+		if family, ok := osFamilyFact(distribution, known); ok {
+			facts = append(facts, family)
+		}
 	}
 	if version != "" {
 		major, _, _ := strings.Cut(version, ".")

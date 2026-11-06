@@ -160,6 +160,22 @@
       "ansible_distribution_version": "15.6",
       "ansible_distribution_major_version": "15",
       "ansible_distribution_release": "6"
+    },
+    "kalilinux-kali-rolling": {
+      "image": "kalilinux/kali-rolling",
+      "ansible_distribution": "Kali",
+      "ansible_os_family": "Debian",
+      "ansible_distribution_version": "2026.3",
+      "ansible_distribution_major_version": "2026",
+      "ansible_distribution_release": "kali-rolling"
+    },
+    "dyne-devuan-daedalus": {
+      "image": "dyne/devuan:daedalus",
+      "ansible_distribution": "Devuan",
+      "ansible_os_family": "Debian",
+      "ansible_distribution_version": "5",
+      "ansible_distribution_major_version": "5",
+      "ansible_distribution_release": "daedalus"
     }
   }
 }
