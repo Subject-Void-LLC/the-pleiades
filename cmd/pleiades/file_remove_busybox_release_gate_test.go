@@ -4,8 +4,9 @@
 // path cannot be read from the device, so a check warns rather than refusing,
 // whatever check_forbidden says, and a rollback check of a recorded undo is
 // not refused either. As an account without root, the device answers, and a
-// path in a directory it may not write is refused unless the task asks to be
-// warned.
+// path in a directory it may not write is refused unless the task, or the
+// run's --setting, asks to be warned, including in a rollback check, whose
+// undo has no task to ask on.
 package main_test
 
 import (
@@ -79,5 +80,61 @@ func TestCLI_FileRemoveCheckOnBusyBox(t *testing.T) {
 	}
 	if _, code := device.exec(t, "test", "-e", forbidden); code != 0 {
 		t.Fatal("a check removed the file")
+	}
+
+	// The run setting (collection.Param.RunSetting): --setting says warn for
+	// every task leaving the parameter out, the task's own value still wins,
+	// and a setting no method declares, or a value outside its choices, is
+	// refused before any device is contacted.
+	const warnSetting = "file.remove.check_forbidden=warn"
+	writeFile(t, dir, "runbooks/remove.yaml", removeCheckRunbook(forbidden))
+	if out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/remove.yaml", "--mode", "check", "--setting", warnSetting); err != nil || !strings.Contains(out, "may not remove "+forbidden) {
+		t.Fatalf("a check with --setting %s: %v, want a warning:\n%s", warnSetting, err, out)
+	}
+	writeFile(t, dir, "runbooks/remove.yaml", removeCheckRunbook(forbidden, "check_forbidden: refuse"))
+	if out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/remove.yaml", "--mode", "check", "--setting", warnSetting); err == nil || !strings.Contains(out, "refusing") {
+		t.Fatalf("a task saying refuse under --setting %s: %v, want the task's refusal:\n%s", warnSetting, err, out)
+	}
+	for setting, want := range map[string]string{
+		"file.remove.check_forbidden=maybe": "must be one of refuse, warn",
+		"file.remove.recurse=true":          "declares no run setting \"recurse\"",
+		"file.nothing.check_forbidden=warn": "not a method this build knows",
+	} {
+		out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/remove.yaml", "--mode", "check", "--setting", setting)
+		if err == nil || !strings.Contains(out, want) || strings.Contains(out, "refusing") {
+			t.Errorf("--setting %s: %v, want it refused before the run, saying %q:\n%s", setting, err, want, out)
+		}
+	}
+
+	// A rollback check, whose undo comes from the journal and has no task to
+	// set the parameter on: a file deploy wrote in a directory it has since
+	// been denied writing. Refused by default, naming the run setting, and
+	// warned about with --setting.
+	const deniedDir = "/tmp/pleiades-busybox-gate-denied"
+	if _, code := device.exec(t, "sh", "-c", "mkdir -p "+deniedDir+" && chown deploy "+deniedDir); code != 0 {
+		t.Fatal("could not make deploy's directory")
+	}
+	makeDenied := "# Writes one file in deploy's directory on the gate's device.\n# Changes: creates " + deniedDir + "/f.\n# Undo: pleiades rollback removes it.\n" +
+		"id: make\nhosts: alpine\ntasks:\n  - name: write a file\n    file.copy:\n      dest: " + deniedDir + "/f\n      content: \"made for the gate\\n\"\n"
+	writeFile(t, dir, "runbooks/make.yaml", makeDenied)
+	out, err = runPleiadesWithHome(t, dir, home, "run", "runbooks/make.yaml")
+	if err != nil {
+		t.Fatalf("run as deploy: %v\n%s", err, out)
+	}
+	m = regexp.MustCompile(`run ([0-9a-f-]{36}), journal `).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("the run named no run id:\n%s", out)
+	}
+	if _, code := device.exec(t, "chmod", "0555", deniedDir); code != 0 {
+		t.Fatal("could not deny deploy its directory")
+	}
+	if out, err := runPleiadesWithHome(t, dir, home, "rollback", m[1], "--mode", "check"); err == nil || !strings.Contains(out, "file.remove.check_forbidden=warn") {
+		t.Fatalf("a rollback check of an undo deploy may not make: %v, want a refusal naming the run setting:\n%s", err, out)
+	}
+	if out, err := runPleiadesWithHome(t, dir, home, "rollback", m[1], "--mode", "check", "--setting", warnSetting); err != nil || !strings.Contains(out, "may not remove "+deniedDir+"/f") {
+		t.Fatalf("the same rollback check with --setting %s: %v, want a warning:\n%s", warnSetting, err, out)
+	}
+	if _, code := device.exec(t, "test", "-e", deniedDir+"/f"); code != 0 {
+		t.Fatal("a rollback check removed the file")
 	}
 }

@@ -244,6 +244,17 @@ func secretRefsNote(refs bool) string {
 	return "**Accepts `{{ secret.<name>.<field> }}`:** "
 }
 
+// runSettingNote is the lead a run setting's description gets in the
+// reference (collection.Param.RunSetting): a run may set it for every task
+// leaving it out, so a reader looking for where a value came from knows to
+// look at the run's settings as well as the task.
+func runSettingNote(setting bool) string {
+	if !setting {
+		return ""
+	}
+	return "**Run setting** (`--setting`, `method_settings`): "
+}
+
 // choicesNote is the tail a parameter's description gets in the reference
 // when it declares a closed set: every value it takes, each as code, so a
 // reader copies one rather than guessing (Phase 131, R2).
@@ -277,7 +288,7 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 
 	rows := make([][]string, len(params))
 	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + aliasNote(p.AliasOf) + p.Description + choicesNote(p)}
+		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + runSettingNote(p.RunSetting) + aliasNote(p.AliasOf) + p.Description + choicesNote(p)}
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))

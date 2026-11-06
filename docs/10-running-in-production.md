@@ -1895,6 +1895,43 @@ setting existed.
 A Controller older than this setting sends dispatches without it, and a Runner reads
 that as off. A Runner older than it ignores it and logs in per task.
 
+### Method settings
+
+Some method parameters can be set for a whole run as well as on each task. Every task
+that leaves such a parameter out takes the run's value. The first one is `file.remove`'s
+`check_forbidden`, which says what a check does when the device's permissions say the
+login may not remove a path: `refuse` (the default) or `warn`. A rollback check needs it
+most, because its steps come from the journal and have no task to set it on. Each such
+parameter's reference page marks it **Run setting**, and `pleiades doc <method>` says
+so too.
+
+A setting is named `<method>.<parameter>` and its value must be one of the parameter's
+choices:
+
+- **On the CLI**, `--setting file.remove.check_forbidden=warn` on `pleiades run`,
+  `adhoc` or `rollback`. It can be repeated.
+- **On the Controller**, the `method_settings` launch field: a map such as
+  `{"file.remove.check_forbidden": "warn"}` on a job template, a saved configuration or a
+  launch. It merges across those layers setting by setting, and the most specific layer
+  wins each one. A rollback job keeps the settings of the job it undoes, and
+  `POST /jobs/{id}/rollback` takes its own `method_settings` on top of those.
+
+The task's own value always wins over the run's, so a runbook that writes
+`check_forbidden: refuse` keeps it whatever the run says. A key that no method declares
+as a run setting, or a value outside its choices, never takes effect quietly. The CLI
+refuses it before any device is contacted. The Controller refuses it when a template or
+a rollback request is saved. On a saved configuration or a launch it is reported as an
+ignored field, as an invalid value for any other launch field is, and the template's own
+settings stand. A Runner checks every setting again
+against its own methods and refuses the dispatch if it does not know one. A Runner
+older than this field never reads it, so its tasks get each parameter's default:
+`refuse`, for `check_forbidden`.
+
+Only an optional text parameter with a closed set of choices can be a run setting, never
+a target, a path or a secret. A setting's value is stored on the job and travels on the
+dispatch as plain text. Settings at the System, Organization and Project levels are not
+built yet. When they are, they will sit beneath the template.
+
 ### Bastions and hop chains
 
 A device that is only reachable through a jump host does not need a second
