@@ -33,6 +33,7 @@ func fullyPopulatedDoc() collection.Doc {
 			Description:       "The package to install.",
 			AliasOf:           "package",
 			SecretRefs:        true,
+			RunSetting:        true,
 			Format:            collection.ParamFormatCommand,
 			Risk:              collection.ParamRiskHostEscape,
 		}},
