@@ -119,7 +119,25 @@ func change(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			return collection.Result{}, err
 		}
 	}
+	if err := settle(ctx, s, c.ID); err != nil {
+		// The change was made; only the read after it failed.
+		return collection.Result{Changed: true}, fmt.Errorf("%s: container %s: %w", a.fqcn, name, err)
+	}
 	return collection.Result{Changed: true}, rc.SetStat(statState, a.after)
+}
+
+// settle waits until the engine's container list shows the change just
+// made, by inspecting the container once more. Docker before 28.3.0
+// (moby issue 50133) answers a stop while its exit handler still holds the
+// container's lock and has not yet written the new state to the copy a
+// list reads, so a list right after the stop can still say "running";
+// inspect takes that lock, so once it answers the list is written too. On
+// an engine with the fix, and on Podman, it is one more read. A container
+// gone by then (removed when it stopped) is settled; the state read is not
+// compared, since another client may have changed it since.
+func settle(ctx context.Context, s *containerengine.Session, id string) error {
+	_, _, err := inspect(ctx, s, id)
+	return err
 }
 
 // stopSeconds reads the stop timeout, in whole seconds.
