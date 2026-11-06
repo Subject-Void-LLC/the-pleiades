@@ -1,0 +1,1 @@
+`net.ios.parse` with `show interfaces` no longer fails on output holding an "Encapsulation ..., medium is ..." line: it now records that interface's medium. Cisco's genieparser, whose parser this one follows, still fails on such a line, so this is a deliberate difference from it.

@@ -1,0 +1,1 @@
+`net.ios.parse` with `show vlan` now reads a long run of wrapped lines in time that grows with its length, where it used to grow with the square of it, so a device's unusual output can no longer slow a run down that way. Its results are unchanged. No real device's output has been seen to do this.
