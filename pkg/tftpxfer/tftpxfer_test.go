@@ -72,6 +72,13 @@ func (l *transferLog) String() string {
 // plus the store itself so a test can pre-seed or inspect it.
 func testServer(t *testing.T) (port int, files *sync.Map) {
 	t.Helper()
+	return testServerOn(t, "127.0.0.1:0")
+}
+
+// testServerOn is testServer listening on listenAddr, so a test can reach
+// a server over IPv6 too.
+func testServerOn(t *testing.T, listenAddr string) (port int, files *sync.Map) {
+	t.Helper()
 	files = &sync.Map{}
 
 	readHandler := func(filename string, rf io.ReaderFrom) error {
@@ -104,7 +111,7 @@ func testServer(t *testing.T) (port int, files *sync.Map) {
 			t.Logf("what the TFTP server saw:\n%s", hook.String())
 		}
 	})
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	conn, err := net.ListenPacket("udp", listenAddr)
 	if err != nil {
 		t.Fatalf("net.ListenPacket: %v", err)
 	}

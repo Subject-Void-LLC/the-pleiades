@@ -85,8 +85,8 @@
 //
 // tftp.NewClient failing is real defensive coverage but not reachable
 // from this package's own test suite: it only fails on a malformed
-// address string, and newClient always builds one from a validated
-// host/port pair via net.JoinHostPort. The identical class of gap
+// address string, and newClient always hands it an address it has already
+// resolved itself (localaddr.go says why). The identical class of gap
 // pkg/serialexec, pkg/serialtcp, pkg/telnetexec and pkg/rfc2217 each
 // already document for their own always-valid construction paths.
 package tftpxfer
@@ -95,8 +95,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
-	"strconv"
 	"time"
 
 	tftp "github.com/pin/tftp/v3"
@@ -164,11 +162,33 @@ func preflight(ctx context.Context, opts Options, remoteFilename string) error {
 	return nil
 }
 
+// newClient builds one transfer's client for the server at host:port, bound
+// to the local address localaddr.go chooses so that an IPv4 server's replies
+// cannot be taken by another socket, with the caller's timeout, retries and
+// block size.
 func newClient(host string, port int, opts Options) (*tftp.Client, error) {
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	raddr, err := resolveServer(host, port)
+	if err != nil {
+		return nil, err
+	}
+	// The library is handed the address already resolved, so it sends to
+	// the same address localIPFor chose a source for.
+	addr := raddr.String()
 	c, err := tftp.NewClient(addr)
 	if err != nil {
 		return nil, fmt.Errorf("tftpxfer: creating client for %s: %w", addr, err)
+	}
+	localIP, err := localIPFor(raddr)
+	if err != nil {
+		return nil, err
+	}
+	if localIP != "" {
+		// An IPv4 address from the kernel's own route lookup always parses,
+		// so SetLocalAddr's refusals of an empty or malformed address
+		// cannot be reached here.
+		if err := c.SetLocalAddr(localIP); err != nil {
+			return nil, fmt.Errorf("tftpxfer: binding the client to %s: %w", localIP, err)
+		}
 	}
 
 	timeout := opts.Timeout
