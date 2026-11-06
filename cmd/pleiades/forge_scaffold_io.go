@@ -84,8 +84,9 @@ func writeGeneratedFile(dir, relPath string, content []byte) (string, error) {
 }
 
 // firstExistingFile returns the first of relPaths that already exists
-// under dir, or "" when none of them do. It is how `--skip-existing`
-// decides, and it takes the whole set rather than one path at a time on
+// under dir, or "" when none of them do. It is the first question
+// `--skip-existing` asks (forge new-collection's registeredElsewhere is the
+// second), and it takes the whole set rather than one path at a time on
 // purpose.
 //
 // The unit a `forge new-*` subcommand generates is one entry, not one

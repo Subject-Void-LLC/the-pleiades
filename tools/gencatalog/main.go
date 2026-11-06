@@ -170,8 +170,9 @@ func newPluginArgs(cfg pluginscaffold.Config) ([]string, error) {
 
 // writeCatalogBuiltins writes internal/catalog/builtins.go: a blank
 // import of every distinct generated Collection package, computed from
-// collections' own PackagePath(), deduplicated and sorted for a stable
-// diff. This is internal/inventory/builtins.go's identical pattern
+// collections' own PackagePath() (or, for a method registered from a parent
+// package, that parent: see holdingPackage), deduplicated and sorted for a
+// stable diff. This is internal/inventory/builtins.go's identical pattern
 // applied to Collections instead of device types: a generated package's
 // own init() only runs once something imports it, and nothing else in
 // this codebase has a reason to import a generated catalog package for
@@ -187,7 +188,12 @@ func writeCatalogBuiltins(root string, collections []collectionscaffold.Config) 
 	seen := make(map[string]bool)
 	var paths []string
 	for _, cfg := range collections {
-		p := cfg.PackagePath()
+		// The package that registers the entry's method, which is not
+		// always the one its scaffold names (see holdingPackage).
+		p, err := holdingPackage(root, cfg.PackagePath())
+		if err != nil {
+			return err
+		}
 		if !seen[p] {
 			seen[p] = true
 			paths = append(paths, p)

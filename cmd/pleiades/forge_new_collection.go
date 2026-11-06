@@ -35,7 +35,7 @@ func runForgeNewCollection(args []string) error {
 	device := fs.String("device", "required", "whether the method acts on a device: required, optional (decided per call by a DeviceCall) or none")
 	engineVersion := fs.String("engine-version", "", "minimum core engine version constraint (unparsed, e.g. >=1.0.0)")
 	docJSON := fs.String("doc-json", "", "reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file")
-	skipExisting := fs.Bool("skip-existing", false, "leave an already-written file alone instead of refusing, for regenerating a catalog in place")
+	skipExisting := fs.Bool("skip-existing", false, "leave an entry already there alone (any of its files, or its method already registered in this binary) instead of refusing, for regenerating a catalog in place")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -80,6 +80,12 @@ func runForgeNewCollection(args []string) error {
 			fmt.Printf("skipped %s (%s already exists)\n", cfg.Name, existing)
 			return nil
 		}
+		if registeredElsewhere(cfg.Name) {
+			// The method is registered from a file the scaffold would not
+			// have named, so its own files are absent; see the function.
+			fmt.Printf("skipped %s (already registered from another file)\n", cfg.Name)
+			return nil
+		}
 	}
 
 	for _, f := range files {
@@ -92,4 +98,30 @@ func runForgeNewCollection(args []string) error {
 
 	fmt.Printf("%q is registered and reachable through the real dispatcher, which refuses it with \"declared but not implemented\" until it is really implemented; see the generated package's own doc comment.\n", cfg.Name)
 	return nil
+}
+
+// registeredElsewhere reports whether fqcn is already registered in this
+// binary. It is the second of the two questions `--skip-existing` asks,
+// put only when firstExistingFile found none of the entry's own files.
+//
+// firstExistingFile knows an entry by the names of the files the scaffold
+// would write, and a method registered from a file of another name is
+// invisible to it: virt.cml.link.start and stop come from a table in
+// state.go, virt.cml.capture.start and stop from capture.go, and every
+// virt.clab method from a map in internal/catalog/virt/clab, the parent of
+// the package the scaffold would write. Each run of tools/gencatalog wrote
+// all of them again, a stub per method that registered it a second time
+// (FAILURE_PATTERNS 677).
+//
+// The registry is the method itself rather than a file name chosen for it.
+// This binary links the whole built-in catalog (catalog_builtins.go), and
+// tools/gencatalog builds it from the very tree it then writes into, so a
+// name registered here is a name that tree already registers. A binary
+// built from another tree answers for that tree, so the answer is only as
+// current as the build: use the one built from the tree being written, as
+// tools/gencatalog does. The decision stays one per entry
+// (FAILURE_PATTERNS 160): it is made before any file is written.
+func registeredElsewhere(fqcn string) bool {
+	_, ok := collection.Lookup(fqcn)
+	return ok
 }
