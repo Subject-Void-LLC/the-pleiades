@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -268,6 +269,11 @@ func savedValue(spec launch.FieldSpec, defaults launch.Fields) string {
 		return ""
 	case launch.TypeMap:
 		if m := defaults.Map(spec.Name); len(m) > 0 {
+			// Method settings are choice words, never secrets, so they are
+			// named; extra variables may hold anything and are only counted.
+			if spec.Name == launch.MethodSettingsField {
+				return strings.Join(methodSettingsText(m), ", ")
+			}
 			return strconv.Itoa(len(m)) + " variables"
 		}
 		return ""
@@ -547,3 +553,14 @@ func copyAction(store launch.Store) view.RecordAction {
 // templateID2String keeps load's string-parented signature usable from a
 // path that has already parsed the id.
 func templateID2String(id int) string { return strconv.Itoa(id) }
+
+// methodSettingsText is a method_settings map as key=value entries, in key
+// order, as the form takes them.
+func methodSettingsText(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, fmt.Sprintf("%s=%v", k, v))
+	}
+	sort.Strings(out)
+	return out
+}

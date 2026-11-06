@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
@@ -37,6 +38,7 @@ const (
 	rollbackAllowPartial = "allow_partial"
 	rollbackAllowUnknown = "allow_unknown"
 	rollbackDespiteJob   = "despite_job"
+	rollbackSettings     = "method_settings"
 )
 
 // rollbackFields is the rollback form.
@@ -65,6 +67,11 @@ var rollbackFields = []view.Field{
 	{
 		Name: rollbackDespiteJob, Label: "UNDO BENEATH A LATER JOB", Kind: view.KindTags, InForm: true,
 		Help: "Later jobs that changed the same devices, to undo this one beneath anyway.",
+	},
+	{
+		Name: rollbackSettings, Label: "METHOD SETTINGS", Kind: view.KindTags, InForm: true,
+		Help: "Run settings for the undo steps, over the job's own, each <method>.<parameter>=<value>, such as file.remove.check_forbidden=warn " +
+			"to check past a path the device says the login may not remove. Only when the job's template lets a launch set method settings.",
 	},
 }
 
@@ -97,17 +104,24 @@ func rollbackAction(rollbacker Rollbacker) view.RecordAction {
 			if !ok || identity == nil {
 				return "", nil, errors.New("no identity on the request context")
 			}
+			settings, problems := rollbackRunSettings(v)
+			if problems != nil {
+				return "", problems, nil
+			}
 			newJobID, err := rollbacker.Rollback(ctx, identity.Subject, id, api.RollbackRequest{
-				Mode:         collection.Mode(v.Get(rollbackMode)),
-				Leave:        v.Tags(rollbackLeave),
-				AllowPartial: v.Tags(rollbackAllowPartial),
-				AllowUnknown: v.Tags(rollbackAllowUnknown),
-				DespiteJobs:  v.Tags(rollbackDespiteJob),
+				Mode:           collection.Mode(v.Get(rollbackMode)),
+				Leave:          v.Tags(rollbackLeave),
+				AllowPartial:   v.Tags(rollbackAllowPartial),
+				AllowUnknown:   v.Tags(rollbackAllowUnknown),
+				DespiteJobs:    v.Tags(rollbackDespiteJob),
+				MethodSettings: settings,
 			})
 			var refused *api.RollbackRefusedError
 			switch {
 			case errors.As(err, &refused):
 				return "", rollbackProblems(refused.Problems), nil
+			case errors.Is(err, api.ErrSettingLocked):
+				return "", view.FieldErrors{rollbackSettings: {"the job's template does not let a launch set method settings, so a rollback cannot either"}}, nil
 			case errors.Is(err, api.ErrNotRollbackable):
 				return "", view.FieldErrors{"": {err.Error()}}, nil
 			case err != nil:
@@ -138,4 +152,27 @@ func rollbackProblems(problems []api.RollbackProblem) view.FieldErrors {
 		errs[p.Field] = append(errs[p.Field], fmt.Sprintf("%s. Add %s here to accept it.", msg, p.Value))
 	}
 	return errs
+}
+
+// rollbackRunSettings reads the form's method settings, each
+// <method>.<parameter>=<value>, held to its method as the API holds them, so
+// a mistyped one comes back under its field rather than as a failed request.
+func rollbackRunSettings(v view.Values) (collection.RunSettings, view.FieldErrors) {
+	var settings collection.RunSettings
+	for _, entry := range v.Tags(rollbackSettings) {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			// Not echoed: what was typed may be anything, and the shape is
+			// what the operator needs.
+			return nil, view.FieldErrors{rollbackSettings: {"each entry is <method>.<parameter>=<value>, such as file.remove.check_forbidden=warn"}}
+		}
+		if settings == nil {
+			settings = collection.RunSettings{}
+		}
+		settings[key] = value
+	}
+	if err := settings.Check(); err != nil {
+		return nil, view.FieldErrors{rollbackSettings: {err.Error()}}
+	}
+	return settings, nil
 }

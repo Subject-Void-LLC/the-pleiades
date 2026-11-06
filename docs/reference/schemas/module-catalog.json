@@ -8412,7 +8412,8 @@
             "refuse",
             "warn"
           ],
-          "description": "What a check does when the device's permissions say this login may not remove the path (the directory holding it is not writable and searchable for it, or is sticky and not its own): refuse, the default, fails the check naming why, since the real run will likely be refused; warn predicts nothing about the path and says so in the check's warnings. Choose warn where the device's permissions cannot be read as they apply, such as root under BusyBox, whose answer is no where it cannot tell. A real run ignores it."
+          "description": "What a check does when the device's permissions say this login may not remove the path (the directory holding it is not writable and searchable for it, or is sticky and not its own): refuse, the default, fails the check naming why, since the real run will likely be refused; warn predicts nothing about the path and says so in the check's warnings. Where the device cannot say (root under a BusyBox shell) the check warns whatever this is. A run setting: a run may set it for every task leaving it out, as file.remove.check_forbidden, which is how a rollback check of a recorded removal, whose undo has no task to set it on, says warn. A real run ignores it.",
+          "runSetting": true
         },
         {
           "name": "insecure_skip_host_key_verify",

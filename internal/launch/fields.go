@@ -143,6 +143,18 @@ func (f Fields) Map(name string) map[string]any {
 // every consumer handling float64-or-int-or-string, and the one that
 // forgets is the one that silently reads zero.
 func normalize(spec FieldSpec, value any) (any, error) {
+	typed, err := normalizeType(spec, value)
+	if err != nil || spec.Check == nil {
+		return typed, err
+	}
+	if err := spec.Check(typed); err != nil {
+		return nil, fmt.Errorf("%w: %q: %w", ErrInvalidField, spec.Name, err)
+	}
+	return typed, nil
+}
+
+// normalizeType is normalize's type check, before the field's own Check.
+func normalizeType(spec FieldSpec, value any) (any, error) {
 	switch spec.Type {
 	case TypeString:
 		s, ok := value.(string)

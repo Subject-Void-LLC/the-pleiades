@@ -460,6 +460,7 @@ var Root = Command{
 				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000; the default is Ansible's own"},
 				{Name: "limit", Type: "string", Default: "", Doc: "run on only these of the runbook's hosts: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit; a device a task names outside the hosts is not limited, and a limit matching none of the hosts is refused"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says"},
+				{Name: "setting", Type: "string", Default: "", Doc: "a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable)"},
 				{Name: "extra-vars", Type: "string", Default: "", Doc: "a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, a name given twice is refused, and a runbook reading one none of these gives is refused before any task runs"},
 				{Name: "e", Type: "string", Default: "", Doc: "shorthand for --extra-vars"},
 			},
@@ -489,6 +490,7 @@ var Root = Command{
 				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000"},
 				{Name: "limit", Type: "string", Default: "", Doc: "run on only these of the hosts given: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open; =false logs in afresh"},
+				{Name: "setting", Type: "string", Default: "", Doc: "a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable)"},
 				{Name: "timeout", Type: "seconds", Default: "0", Doc: "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)"},
 			},
 			Examples: []string{
@@ -520,10 +522,12 @@ var Root = Command{
 				{Name: "allow-unchecked", Type: "string", Default: "", Doc: "with --mode check, a method that may go unchecked without making the check incomplete"},
 				{Name: "forks", Type: "int", Default: "5", Doc: "how many devices are worked on at once, 1 to 1000"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open; =false logs in afresh"},
+				{Name: "setting", Type: "string", Default: "", Doc: "a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable)"},
 			},
 			Examples: []string{
 				"pleiades journal list",
 				"pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --mode check",
+				"pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --mode check --setting file.remove.check_forbidden=warn",
 				"pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706",
 				"pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --leave 'tasks[3]' --json",
 			},

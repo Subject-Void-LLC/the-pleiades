@@ -9,6 +9,7 @@ package runbook
 import (
 	"fmt"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
@@ -71,6 +72,12 @@ func init() {
 				Help:    "on keeps one SSH connection per device open between its tasks; off logs in afresh for every task. A device, group or inventory whose own persist_connections is false stays off whatever this says.",
 			},
 			{
+				Name: launch.MethodSettingsField, Type: launch.TypeMap,
+				Check: checkMethodSettings,
+				Label: "METHOD SETTINGS",
+				Help:  "Values for a method's parameters that a run may set, for every task that leaves the parameter out, each named <method>.<parameter> (file.remove.check_forbidden=warn on a form, {\"file.remove.check_forbidden\": \"warn\"} in JSON). Only a parameter its method declares a run setting is accepted, and only one of its choices; the task's own value always wins. These merge across layers setting by setting rather than replacing, and one value refused drops every setting its layer gave.",
+			},
+			{
 				Name: "labels", Type: launch.TypeStringList,
 				Label: "LABELS",
 				Help:  "Free-text markers for finding this run later.",
@@ -116,4 +123,31 @@ func validateRunbookID(reference string) error {
 		return fmt.Errorf("runbook id %q contains a character that is not allowed in one: it reaches both a subject name and a file path", id)
 	}
 	return fmt.Errorf("runbook id %q contains a character that is not a letter, digit, hyphen or underscore", id)
+}
+
+// checkMethodSettings holds a method_settings value to the methods it names:
+// each key a run setting a method this build knows declares, and each value
+// text and one of that setting's choices (collection.CheckRunSetting). A
+// Controller links no Collection and answers from the module catalog it
+// installs at start, which carries every built-in method's parameters.
+func checkMethodSettings(value any) error {
+	settings, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("method settings must be a set of key and value pairs")
+	}
+	keys := make([]string, 0, len(settings))
+	for k := range settings {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		text, isText := settings[key].(string)
+		if !isText {
+			return fmt.Errorf("run setting %q must be text, one of its choices", key)
+		}
+		if err := collection.CheckRunSetting(key, text); err != nil {
+			return err
+		}
+	}
+	return nil
 }

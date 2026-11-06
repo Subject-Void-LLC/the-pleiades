@@ -554,14 +554,22 @@ var RollbackJob = Endpoint{
 			"allow_partial": namesSchema("Node ids whose partial undo to run, knowing it does not put back everything the task overwrote."),
 			"allow_unknown": namesSchema("Node ids whose unknown effect to accept, and \"unsealed\" for a job some device never reported back from."),
 			"despite_job":   namesSchema("Ids of later jobs whose changes to the same devices to undo this one beneath."),
+			"method_settings": map[string]any{
+				"type":                 "object",
+				"additionalProperties": map[string]any{"type": "string"},
+				"description": "Run settings for the rollback's tasks, over the job's own method_settings, each named <method>.<parameter> " +
+					"(file.remove.check_forbidden: warn). Only a parameter its method declares a run setting is accepted, and only one of its choices, " +
+					"and for a job launched from a template only when the template lets a launch set method_settings.",
+			},
 		},
 	},
 	Responses: []Response{
 		{Status: http.StatusAccepted, Description: "A rollback job was persisted and will fan out asynchronously.", Schema: launchAcceptedSchema},
-		{Status: http.StatusBadRequest, Description: "id is not a UUID, the body is malformed, or mode is neither execute nor check.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "id is not a UUID, the body is malformed, mode is neither execute nor check, or a method setting names no run setting or a value outside its choices.", Schema: errorSchema("")},
 		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No job with that id.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "The rollback was refused. Either the job cannot be rolled back at all (it is running, a check, a rollback, a playbook job, or journaled nothing), " +
+			"or the request sets method_settings the job's template does not open to a launch, " +
 			"with an error saying why, or the plan has problems, each listed with the field and value that accept it.", Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

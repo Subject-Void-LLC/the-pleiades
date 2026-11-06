@@ -122,8 +122,8 @@ func removeDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: removeParamPath, Type: "string", Required: true, Description: "The path that must not exist when this task finishes. A symbolic link is removed as the link, so whatever it points at is left alone."},
 			{Name: removeParamRecurse, Type: "bool", Default: "false", Description: "Permit removing a directory that is not empty, and everything inside it. Without it, a non-empty directory is refused rather than emptied. Ansible's state=absent recurses without asking; this does not."},
-			{Name: removeParamCheckForbidden, Type: "string", Default: checkForbiddenRefuse, Choices: []string{checkForbiddenRefuse, checkForbiddenWarn},
-				Description: "What a check does when the device's permissions say this login may not remove the path (the directory holding it is not writable and searchable for it, or is sticky and not its own): refuse, the default, fails the check naming why, since the real run will likely be refused; warn predicts nothing about the path and says so in the check's warnings. Choose warn where the device's permissions cannot be read as they apply, such as root under BusyBox, whose answer is no where it cannot tell. A real run ignores it."},
+			{Name: removeParamCheckForbidden, Type: "string", Default: checkForbiddenRefuse, Choices: []string{checkForbiddenRefuse, checkForbiddenWarn}, RunSetting: true,
+				Description: "What a check does when the device's permissions say this login may not remove the path (the directory holding it is not writable and searchable for it, or is sticky and not its own): refuse, the default, fails the check naming why, since the real run will likely be refused; warn predicts nothing about the path and says so in the check's warnings. Where the device cannot say (root under a BusyBox shell) the check warns whatever this is. A run setting: a run may set it for every task leaving it out, as file.remove.check_forbidden, which is how a rollback check of a recorded removal, whose undo has no task to set it on, says warn. A real run ignores it."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -317,7 +317,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			// The check's own answer: the device's rules say this login may
 			// not remove the path, so the real run will likely be refused.
 			// A refusal by default (owner decision 2026-11-04), a warning when
-			// the task asks; and a warning, never a refusal, where the device
+			// the task or the run's setting asks; and a warning, never a refusal, where the device
 			// cannot say (root under BusyBox), since a refusal there would be
 			// wrong the other way and its advice could not be followed by a
 			// rollback check, whose undo's params come from the journal.
@@ -329,8 +329,8 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 					return collection.Result{}, fmt.Errorf("%s: %w", fqcn, werr)
 				}
 			case !allowed && forbidden == checkForbiddenRefuse:
-				return collection.Result{}, fmt.Errorf("%s: refusing: %s, so the real run will likely be refused. Set %s: %s where the device's permissions cannot be read as they apply",
-					fqcn, why, removeParamCheckForbidden, checkForbiddenWarn)
+				return collection.Result{}, fmt.Errorf("%s: refusing: %s, so the real run will likely be refused. To check past it, set %s: %s on the task, or the run setting %s.%s=%s for every task (--setting, or method_settings on the Controller)",
+					fqcn, why, removeParamCheckForbidden, checkForbiddenWarn, fqcn, removeParamCheckForbidden, checkForbiddenWarn)
 			case !allowed:
 				if werr := sdk.RecordWarnings(rc, []string{why + "; the real run will likely be refused"}); werr != nil {
 					return collection.Result{}, fmt.Errorf("%s: %w", fqcn, werr)

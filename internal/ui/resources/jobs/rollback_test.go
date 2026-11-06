@@ -5,11 +5,13 @@ package jobs
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file" // file.remove, the run setting the form names
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds" // the registered kinds the gate reads
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -99,4 +101,32 @@ type rollbackerFunc func(ctx context.Context, actor, jobID string, req api.Rollb
 // Rollback calls f.
 func (f rollbackerFunc) Rollback(ctx context.Context, actor, jobID string, req api.RollbackRequest) (string, error) {
 	return f(ctx, actor, jobID, req)
+}
+
+// TestRollbackRunSettings_HoldsEachToItsMethod proves the form's method
+// settings are read as <method>.<parameter>=<value> and held to the method,
+// each refusal written under the field without echoing what was typed.
+func TestRollbackRunSettings_HoldsEachToItsMethod(t *testing.T) {
+	values := func(settings string) view.Values {
+		v, _ := view.NewValues(rollbackFields, url.Values{rollbackSettings: {settings}}, false)
+		return v
+	}
+	got, errs := rollbackRunSettings(values("file.remove.check_forbidden=warn"))
+	if errs != nil || got["file.remove.check_forbidden"] != "warn" {
+		t.Errorf("a valid setting: %v, %v", got, errs)
+	}
+	if got, errs := rollbackRunSettings(values("")); errs != nil || got != nil {
+		t.Errorf("none: %v, %v", got, errs)
+	}
+	for typed, want := range map[string]string{
+		"hunter2":                           "each entry is <method>.<parameter>=<value>",
+		"=hunter2":                          "each entry is <method>.<parameter>=<value>",
+		"file.remove.check_forbidden=maybe": "must be one of refuse, warn",
+	} {
+		_, errs := rollbackRunSettings(values(typed))
+		msg := strings.Join(errs[rollbackSettings], " ")
+		if !strings.Contains(msg, want) || strings.Contains(msg, "hunter2") || strings.Contains(msg, "maybe") {
+			t.Errorf("%q: %q, want it refused saying %q and not echoed", typed, msg, want)
+		}
+	}
 }

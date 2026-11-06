@@ -22426,3 +22426,90 @@ this branch merges. The Actions ledger holds the run (`record-actions`); its ent
 take the released fix as its own commit on the branch in hand, and report it as a security finding. A rerun cannot
 turn it green.
 
+## 939. POST /jobs/{id}/rollback merged a request's method_settings over the job's own without the template's lock that a launch is held to, so a caller could set on a rollback what the template's author had locked (a repeat in kind of 268; LESSONS 363) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer on 2026-11-06, on `feat/method-run-settings`, before push, by reading the code;
+not observed on a Controller. A launch takes the runbook kind's `method_settings` field only when the template opens
+it (`Promptable`). `Dispatcher.Rollback` (`internal/api/dispatcher_rollback.go`) took `RollbackRequest.MethodSettings`
+and merged them over the job's own settings without asking the template. So a caller could set, on the rollback job,
+a run setting the template's author had locked: `file.remove.check_forbidden: warn` over a template that keeps the
+default `refuse`.
+
+**Security finding.** The weakness: a per-template lock on a launch field was enforced at launch and not on a route
+that builds a job from a job. Our code reached it through `POST /jobs/{id}/rollback` into `Dispatcher.Rollback`'s
+merge. A caller needed `runbook:execute` (the route's scope) and a finished job from a template that does not open
+`method_settings`. What it got: today, only a check's refusal turned into a warning, since the one run setting is
+`file.remove`'s `check_forbidden` and a real run ignores it. A later run setting that changes what a real run does
+would have widened this. No upstream code is involved. Confidence: reasoned from the code; the fix's test proves the
+lock now holds.
+
+**Root cause.** The rollback route does not go through `LaunchTemplate`'s resolver, which is where a launch meets the
+template's open fields. It already applied one template rule of its own (`refuseUnrepeatableCredentials`), so the
+lock had to be added there by hand, and the new field's lock was not.
+
+**Why 268 did not hold.** 268's lesson is that any mechanism which causes work to happen has to check the permission
+to do that work. Its fix was a scope check at a schedule's write. A rollback is a second door into a job, and the
+rule a new launch field carries (the template's lock) has to be added at each door. LESSONS 363 (check a rule along
+every route a method can take, each path that runs an undo included) names this. The branch carried the settings
+themselves to every route (the CLI's rollback, the Runner, the rollback route), but carried the template's lock only
+along the launch.
+
+**Fix.** `0c44e498`. A job launched from a template takes a rollback request's `method_settings` only when the
+template opens the field (`tmpl.Promptable(launch.MethodSettingsField)`), and is refused otherwise with a 422
+(`api.ErrSettingLocked`). A job launched without a template is unchanged. The job page's rollback form gained the
+field, each entry held to its method. `TestRollback_MethodSettingsAreHeldToTheTemplatesLock`
+(`internal/api/dispatcher_rollback_test.go`) and `TestRollbackRunSettings_HoldsEachToItsMethod`
+(`internal/ui/resources/jobs/rollback_test.go`). No end-to-end test runs the rollback route through to a Runner yet.
+
+**Lesson.** A new launch field is held to the template's lock at every route that creates a job, not only at
+launch: list the routes (launch, saved configuration, schedule, relaunch, rollback, check) when the field is added,
+and give each one a test.
+
+## 940. internal/forge/collectionscaffold's renderDoc dropped the new collection.Param.RunSetting, and its every-field fixture would have failed only in CI's fast job, since pr-check selects neither that package nor its census (a repeat of 631, which is open; LESSONS 380) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer on 2026-11-06, on `feat/method-run-settings`, before push. Commit `6f79f42f`
+added `RunSetting` to `collection.Param`. `renderDoc` (`internal/forge/collectionscaffold/docrender.go`), which writes
+a method's `Doc` as Go source for `forge new-collection --doc-json` and for `go generate` over
+`internal/forge/catalogdata`, wrote every `Param` field but the new one. A scaffolded method would have come out with
+no run setting. The package's fixture test (`fullyPopulatedDoc`, held by `assertNoZeroFields` through `reflect`) fails
+when a field is left zero, so it would have failed once `collectionscaffold` was tested.
+
+**Root cause.** `tools/prscope` selects the packages a branch changes plus a fixed census. `collectionscaffold` was
+unchanged and is not on the census list for `pkg/collection`, so `make pr-check` would not have run its tests. The
+first run to see it would have been CI's `fast` job, after the push.
+
+**Why 631 did not hold.** 631 is still open: prscope does not add the packages that import a changed package. Its
+lesson (select reverse dependents from the module graph) has not been built. LESSONS 380's rule (run `tools/gendocs`'
+tests when a counted property moves) covers one known consumer, not this one.
+
+**Fix.** `6cebdd23`. `renderDoc` writes `RunSetting: true`, and the fixture sets the field. The scope gap stays open
+under 631.
+
+**Lesson.** A field added to a type that a renderer or scaffold reflects over needs that consumer's tests run in the
+same commit, whatever pr-check selects. Until 631 is built, list a changed type's reverse dependents by hand
+(`go_symbol_references` on the type) and run the ones that copy or render every field.
+
+## 941. A run setting's refusal quoted the value it refused ("got %q"), so a value pasted into the wrong place would be printed back in the CLI's message and the API's 422 (a repeat of 457, the class of 298 and LESSONS 266) (fixed before push)
+
+**Symptom.** Found by the fp-reviewer on 2026-11-06, on `feat/method-run-settings`, before push.
+`collection.CheckRunSetting` (`pkg/collection/run_settings.go`) refused a value outside a setting's choices with `run
+setting %q must be one of %s, got %q`, quoting the value. That error reaches the terminal for `--setting`, a launch's
+or a rollback's 422, and a Runner's refusal of a dispatch (`RunSettings.Check`).
+
+**Root cause.** The class of 298 and 457: a validator's error quotes the input it refused. A run setting is one word
+of a closed set, so a correct value is never secret; a wrong one can be anything, a secret typed into the wrong field
+included.
+
+**Why 457 did not hold.** 457's lesson is to name the problem instead of the input when the input can carry a secret.
+It was read as being about inputs that are meant to hold one (addresses, URLs). A field of choice words looks safe,
+and the thing it can carry is a mistake, not its purpose.
+
+**Fix.** `f5cb8a61`. The refusal names the setting and its choices, never the value. `0c44e498` gave the job page's
+rollback form the same rule: a malformed entry is refused without echoing what was typed.
+`TestRollbackRunSettings_HoldsEachToItsMethod` (`internal/ui/resources/jobs/rollback_test.go`) asserts that the form's
+refusals hold neither a typed secret nor the refused value. `TestCheckRunSetting_NamesWhatIsWrong` and the BusyBox
+gate's refused cases assert the message `must be one of refuse, warn`, not the value's absence.
+
+**Lesson.** A refusal of a value that should be one of a closed set lists the set and never quotes the value: what
+fails to match the set is exactly what nobody checked.
+

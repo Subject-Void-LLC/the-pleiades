@@ -8045,6 +8045,13 @@
                     },
                     "type": "array"
                   },
+                  "method_settings": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Run settings for the rollback's tasks, over the job's own method_settings, each named <method>.<parameter> (file.remove.check_forbidden: warn). Only a parameter its method declares a run setting is accepted, and only one of its choices, and for a job launched from a template only when the template lets a launch set method_settings.",
+                    "type": "object"
+                  },
                   "mode": {
                     "description": "execute (the default), or check to see what the rollback would change without changing it.",
                     "type": "string"
@@ -8130,7 +8137,7 @@
                 }
               }
             },
-            "description": "id is not a UUID, the body is malformed, or mode is neither execute nor check."
+            "description": "id is not a UUID, the body is malformed, mode is neither execute nor check, or a method setting names no run setting or a value outside its choices."
           },
           "401": {
             "content": {
@@ -8210,7 +8217,7 @@
                 }
               }
             },
-            "description": "The rollback was refused. Either the job cannot be rolled back at all (it is running, a check, a rollback, a playbook job, or journaled nothing), with an error saying why, or the plan has problems, each listed with the field and value that accept it."
+            "description": "The rollback was refused. Either the job cannot be rolled back at all (it is running, a check, a rollback, a playbook job, or journaled nothing), or the request sets method_settings the job's template does not open to a launch, with an error saying why, or the plan has problems, each listed with the field and value that accept it."
           },
           "500": {
             "content": {

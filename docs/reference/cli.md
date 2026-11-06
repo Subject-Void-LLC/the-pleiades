@@ -474,6 +474,7 @@ build, validate, and run a runbook
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000; the default is Ansible's own |
 | --limit | `string` | - | run on only these of the runbook's hosts: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit; a device a task names outside the hosts is not limited, and a limit matching none of the hosts is refused |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says |
+| --setting | `string` | - | a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable) |
 | --extra-vars | `string` | - | a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, a name given twice is refused, and a runbook reading one none of these gives is refused before any task runs |
 | --e | `string` | - | shorthand for --extra-vars |
 
@@ -512,6 +513,7 @@ run one method against a device, a tag or a comma list of devices, or with - (or
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
 | --limit | `string` | - | run on only these of the hosts given: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
+| --setting | `string` | - | a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable) |
 | --timeout | `seconds` | `0` | how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound) |
 
 `pleiades adhoc web01 facts.gather`
@@ -551,10 +553,13 @@ undo a run from its journal: every device it changed, newest change first
 | --allow-unchecked | `string` | - | with --mode check, a method that may go unchecked without making the check incomplete |
 | --forks | `int` | `5` | how many devices are worked on at once, 1 to 1000 |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
+| --setting | `string` | - | a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable) |
 
 `pleiades journal list`
 
 `pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --mode check`
+
+`pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706 --mode check --setting file.remove.check_forbidden=warn`
 
 `pleiades rollback 063e6492-c80b-4739-9f04-516fce16f706`
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -73,11 +74,12 @@ type runFlags struct {
 	forks           *int
 	limit           *string
 	allowUnchecked  map[string]bool
+	settings        collection.RunSettings
 }
 
 // addRunFlags registers the shared run flags on fs.
 func addRunFlags(fs *flag.FlagSet) *runFlags {
-	f := &runFlags{allowUnchecked: map[string]bool{}}
+	f := &runFlags{allowUnchecked: map[string]bool{}, settings: collection.RunSettings{}}
 	f.dir = fs.String("dir", ".", "project directory")
 	f.mode = fs.String("mode", string(collection.ModeExecute), "execute applies changes; check reports what each task would change and changes nothing")
 	f.verbose = fs.Bool("verbose", false, "print each task's own output (stdout, exit status, diffs), not just whether it changed")
@@ -91,6 +93,22 @@ func addRunFlags(fs *flag.FlagSet) *runFlags {
 			return errors.New("needs a method name")
 		}
 		f.allowUnchecked[v] = true
+		return nil
+	})
+	// settings are run settings: a value for a method's parameter that it
+	// declares a run may set (collection.Param.RunSetting), for every task
+	// leaving it out, as the Controller's method_settings launch field gives.
+	// Each is held to its method once external Collections have loaded
+	// (carryOut), since one of theirs may declare one.
+	fs.Func("setting", "a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out (repeatable)", func(v string) error {
+		key, value, ok := strings.Cut(v, "=")
+		if !ok || key == "" {
+			return errors.New("needs <method>.<parameter>=<value>")
+		}
+		if _, given := f.settings[key]; given {
+			return fmt.Errorf("%s is given twice", key)
+		}
+		f.settings[key] = value
 		return nil
 	})
 	f.persist = fs.Bool("persist-connections", true, "keep one SSH connection per device open between its tasks; =false logs in afresh for every task")
@@ -120,6 +138,6 @@ func (f *runFlags) options() (runOptions, error) {
 	return runOptions{
 		dir: *f.dir, mode: mode, forks: *f.forks, persist: *f.persist, failOnRescue: *f.failOnRescue,
 		allowUnchecked: f.allowUnchecked, verbose: *f.verbose, asJSON: *f.asJSON,
-		limit: limit, limitText: *f.limit,
+		limit: limit, limitText: *f.limit, settings: f.settings,
 	}, nil
 }

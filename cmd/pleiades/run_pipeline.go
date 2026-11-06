@@ -68,6 +68,9 @@ type runOptions struct {
 	// rollback, an onboarding probe), so validation never advises a flag
 	// the command does not have.
 	variablesFlag string
+	// settings are --setting's run settings, filling the parameters a task
+	// leaves out (engine.WithRunSettings); empty for none.
+	settings collection.RunSettings
 
 	// rollbackOf, set only by `pleiades rollback`, names the run this run
 	// undoes; undoes says which node and step of it each of this run's
@@ -139,6 +142,11 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// built-in one is.
 	if _, err := loadExternalCollections(context.Background(), opts.dir); err != nil {
 		return nil, err
+	}
+	// A run setting names a method's parameter, so it is held to the method
+	// once every method is registered, before anything is loaded or run.
+	if err := opts.settings.Check(); err != nil {
+		return nil, fmt.Errorf("--setting: %w", err)
 	}
 	items, dag, err := loadSource(opts.dir, src)
 	if err != nil {
@@ -536,6 +544,8 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// key derived from the project's master key, which is read only when
 		// such a digest turns up (internal/facts' keyed digests).
 		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return credential.ResolveMasterKey(opts.dir) }, "project")),
+		// --setting's values, for every task leaving the parameter out.
+		engine.WithRunSettings(opts.settings),
 	)
 
 	// Every named secret of the project is masked from the run's start, not

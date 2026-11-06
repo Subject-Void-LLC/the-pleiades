@@ -219,6 +219,18 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// names and this device, never a value.
 		return wire.Outcome{}, a.refuse(ctx, payload, err)
 	}
+	// The job's method settings, held to this Runner's own methods as the
+	// Controller held them to its catalog: a setting this build does not know,
+	// or a value outside its choices, refuses the dispatch rather than running
+	// every task with the parameter's default in its place.
+	raw, err := launch.StrictMethodSettings(launch.Fields(payload.Fields))
+	if err != nil {
+		return wire.Outcome{}, a.refuse(ctx, payload, err)
+	}
+	settings := collection.RunSettings(raw)
+	if err := settings.Check(); err != nil {
+		return wire.Outcome{}, a.refuse(ctx, payload, err)
+	}
 	credentials := credential.NewStaticStore(payload.Secrets)
 
 	// A dispatch whose connections persist runs its Collection calls
@@ -247,7 +259,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		// here, exactly a direct connection.
 		engine.NewTransportActionExecutor(a.bindings, credentials, nil, engine.NewBuiltinActionExecutor()),
 		runbookContextFor(payload),
-		append([]engine.CollectionActionExecutorOption{engine.WithCollectionInvoker(invoke)}, sealActions...)...,
+		append([]engine.CollectionActionExecutorOption{engine.WithCollectionInvoker(invoke), engine.WithRunSettings(settings)}, sealActions...)...,
 	)
 
 	// A fresh, private lock.Manager, never a real distributed one: this

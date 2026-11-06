@@ -55,6 +55,25 @@ type Param struct {
 	// never renders one, validation refuses one in any parameter not marked,
 	// and a string holding one may hold no other template expression.
 	SecretRefs bool `json:"secretRefs,omitempty"`
+
+	// RunSetting marks a parameter a run may set for every task that leaves
+	// it out: the Controller's method_settings launch field (a template's
+	// default, a saved configuration, a launch, a rollback's request) and the
+	// command line's --setting, each naming it <method>.<parameter>. The task's
+	// own value always wins, and the parameter's Default applies when neither
+	// says. It is for a choice about how a method behaves, never its target:
+	// Register allows it only on an optional text parameter with Choices and
+	// a Default, no alias, no secret references, not the target and not a
+	// call shape's parameter, so a run setting is always one of a closed set
+	// of words and never holds a secret (RunSettings).
+	//
+	// Its Default must be the stricter choice. A Runner built before run
+	// settings ignores them and runs the Default, and validation, admission,
+	// a Descriptor's CheckCall and DeviceCall all read the task's own
+	// parameters before a run's settings fill them, so a run setting may
+	// change only how the method itself behaves. A generic dispatcher
+	// (svc.*, pkg.*) is filled by its own Doc, not by the concrete method's.
+	RunSetting bool `json:"runSetting,omitempty"`
 }
 
 // ParamRisk is the kind of reach a parameter's setting adds.

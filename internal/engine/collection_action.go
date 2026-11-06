@@ -69,6 +69,20 @@ type collectionActionExecutor struct {
 	// method hands over (fact_digests.go); with neither it is dropped.
 	digestKeyer  *facts.Keyer
 	digestSealer DigestSealer
+
+	// settings, set by WithRunSettings, fill a method's run-setting
+	// parameters a task leaves out (collection.RunSettings.Fill).
+	settings collection.RunSettings
+}
+
+// WithRunSettings gives every task this run's method settings: a parameter
+// its method declares a run setting (collection.Param.RunSetting), left out
+// by the task, takes the run's value. The task's own value always wins. The
+// caller has already held each setting to its method (RunSettings.Check).
+func WithRunSettings(settings collection.RunSettings) CollectionActionExecutorOption {
+	return func(e *collectionActionExecutor) {
+		e.settings = settings
+	}
 }
 
 // CollectionInvoker replaces how a registered, StatusImplemented
@@ -164,6 +178,16 @@ func refuseEngineActionBecome(task *Task) error {
 // declared stub, or of a method against a device missing its capability,
 // fails exactly the way the real run would.
 func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device inventory.InventoryItem, desc collection.Descriptor, mode collection.Mode) (ActionResult, error) {
+	// The run's method settings fill the parameters the task left out, on a
+	// copy, so every step below (the call's shape, the method itself, the
+	// read-only hold) sees the parameters the method is handed. Validation
+	// and admission read the task's own, which is why a run setting may not
+	// select a call shape (collection.Param.RunSetting).
+	if filled, changed := e.settings.Fill(task.FQCN, desc.Manifest.Doc, task.Params); changed {
+		withSettings := *task
+		withSettings.Params = filled
+		task = &withSettings
+	}
 
 	// A declared method is a stub by definition. Refusing here rather than
 	// calling it is the run-time half of the guardrail internal/validate's

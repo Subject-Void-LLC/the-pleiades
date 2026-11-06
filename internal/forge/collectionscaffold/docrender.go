@@ -70,6 +70,11 @@ func renderDoc(doc collection.Doc) string {
 			if p.SecretRefs {
 				fields = append(fields, "SecretRefs: true")
 			}
+			// A run setting: dropping the mark would leave the generated
+			// method with a parameter no run may set.
+			if p.RunSetting {
+				fields = append(fields, "RunSetting: true")
+			}
 			// Format is a named constant rather than a quoted string, so a
 			// generated method reads as a hand-written one does.
 			// A format with no constant here is kept by value rather than
