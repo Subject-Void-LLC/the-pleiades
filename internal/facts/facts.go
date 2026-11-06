@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Bounds on what one observation may hold. A fact is device-supplied data
@@ -115,10 +116,12 @@ func Hash(key string, value any) (string, error) {
 }
 
 // ValidKey reports whether key may name a fact: non-empty, within
-// MaxKeyBytes, and printable with no space, so a key reads the same in a
-// report, a URL and a file.
+// MaxKeyBytes, valid UTF-8, and printable with no space, so a key reads the
+// same in a report, a URL and a file. Ranging over a string reads a byte that
+// is not UTF-8 as U+FFFD, which is printable, so validity is asked first
+// (sweep item 16).
 func ValidKey(key string) bool {
-	if key == "" || len(key) > MaxKeyBytes {
+	if key == "" || len(key) > MaxKeyBytes || !utf8.ValidString(key) {
 		return false
 	}
 	for _, r := range key {
@@ -275,6 +278,31 @@ func holdsSecret(canon []byte, secrets []string) bool {
 		if quoted, err := json.Marshal(s); err == nil && strings.Contains(text, strings.Trim(string(quoted), `"`)) {
 			return true
 		}
+		// A secret holding a byte that is not UTF-8 reaches canonical text
+		// with each such byte a literal U+FFFD, since Canonical decodes and
+		// encodes again; neither form above is that one (sweep item 16).
+		if stored := asStoredText(s); stored != s && strings.Contains(text, stored) {
+			return true
+		}
 	}
 	return false
+}
+
+// asStoredText is s as canonical JSON text holds it: each byte that is not
+// UTF-8 a U+FFFD, as encoding/json writes one per byte.
+func asStoredText(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			b.WriteRune(utf8.RuneError)
+		} else {
+			b.WriteString(s[i : i+size])
+		}
+		i += size
+	}
+	return b.String()
 }
