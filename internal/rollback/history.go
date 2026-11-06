@@ -155,17 +155,25 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 			}
 		}
 		later, basis := laterOn(req.Target, r, devices)
-		theirs, _ := changesOf(r)
+		// A task that failed during its action may have changed its device
+		// partway (plan.go's Unknown), so the run counts as a later change
+		// there exactly as a recorded change does: the journal cannot say
+		// the device is as the run being undone left it.
+		theirs, failedActing := changesOf(r)
+		onDevices := func(e engine.JournalEntry) bool { return devices[e.DeviceID] }
 		// A run ordered by clock is named only when the order decided
-		// something: it changed one of the devices this rollback undoes on.
-		if basis == byClock && slices.ContainsFunc(theirs, func(e engine.JournalEntry) bool { return devices[e.DeviceID] }) {
+		// something: it changed, or may have changed, one of the devices
+		// this rollback undoes on.
+		if basis == byClock && (slices.ContainsFunc(theirs, onDevices) || slices.ContainsFunc(failedActing, onDevices)) {
 			byClockRuns = append(byClockRuns, r.ID)
 		}
-		var shared, irreversible []string
+		var shared, irreversible, unknown []string
 		undoable := false
-		for _, e := range theirs {
+		// share notes e's device as one both runs changed when the other
+		// run came later there, and reports whether it did.
+		share := func(e engine.JournalEntry) bool {
 			if !devices[e.DeviceID] || !later[e.DeviceID] {
-				continue
+				return false
 			}
 			name := deviceName(req, e.DeviceID)
 			if name == "" {
@@ -173,6 +181,12 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 			}
 			if !slices.Contains(shared, name) {
 				shared = append(shared, name)
+			}
+			return true
+		}
+		for _, e := range theirs {
+			if !share(e) {
+				continue
 			}
 			switch {
 			case e.AuthoredRollbackEmpty:
@@ -182,12 +196,18 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 				irreversible = append(irreversible, e.FQCN)
 			}
 		}
+		for _, e := range failedActing {
+			if share(e) && !slices.Contains(unknown, e.FQCN) {
+				unknown = append(unknown, e.FQCN)
+			}
+		}
 		if len(shared) == 0 {
 			continue
 		}
 		slices.Sort(shared)
 		slices.Sort(irreversible)
-		p := laterRun(r.ID, strings.Join(shared, ", "), undoable, irreversible)
+		slices.Sort(unknown)
+		p := laterRun(r.ID, strings.Join(shared, ", "), undoable, irreversible, unknown)
 		switch basis {
 		case byUnfinished:
 			p.Reason += "; it never recorded its end on the project's run counter, and no run began after it stopped to record that it was gone, so it may have changed them at any time after this run began"
@@ -212,6 +232,11 @@ const (
 	// KindNothingToUndo is a later run whose every change on the shared
 	// devices its runbook says needs no undo (rollback: []).
 	KindNothingToUndo = "nothing_to_undo"
+	// KindUnknownEffect is a later run that recorded no change on the shared
+	// devices, but a task of which failed there during its action, so it may
+	// have changed them partway: read it, and step over it once the devices
+	// are known to be as the run being undone left them.
+	KindUnknownEffect = "unknown_effect"
 	// KindNoRunbook is a change whose undo needs the runbook the run ran,
 	// which was not found as it ran: naming it with --runbook may answer
 	// it, where --leave gives the change up.
@@ -219,17 +244,27 @@ const (
 )
 
 // laterRun is the refusal over run id, which changed devices (named) after
-// the run being undone began: which kind it is, and what to do about it.
-func laterRun(id, devices string, undoable bool, irreversible []string) Problem {
+// the run being undone began, or may have (unknown names the methods that
+// failed there during their action): which kind it is, and what to do
+// about it.
+func laterRun(id, devices string, undoable bool, irreversible, unknown []string) Problem {
 	head := fmt.Sprintf("run %s changed %s after this run began, so undoing this run beneath it could undo on top of its changes", id, devices)
-	p := Problem{Accept: "--despite-run " + id}
+	failed := ""
+	if len(unknown) > 0 {
+		failed = "; " + strings.Join(unknown, ", ") + " failed during its action there, so it may have changed part of what it meant to, and the journal cannot say what"
+	}
+	p := Problem{Accept: "--despite-run " + id, UnknownEffects: unknown}
 	switch {
 	case undoable:
 		p.Kind = KindUndoFirst
-		p.Reason = head + "; it has changes of its own to undo, so roll it back first (pleiades rollback " + id + "), or step over it"
+		p.Reason = head + failed + "; it has changes of its own to undo, so roll it back first (pleiades rollback " + id + "), or step over it"
 	case len(irreversible) > 0:
 		p.Kind = KindCannotUndo
-		p.Reason = head + "; its changes there cannot be undone (" + strings.Join(irreversible, ", ") + " recorded no undo), so read it (pleiades journal show " + id + ") and step over it"
+		p.Reason = head + failed + "; its changes there cannot be undone (" + strings.Join(irreversible, ", ") + " recorded no undo), so read it (pleiades journal show " + id + ") and step over it"
+	case len(unknown) > 0:
+		p.Kind = KindUnknownEffect
+		p.Reason = fmt.Sprintf("run %s may have changed %s after this run began", id, devices) + failed +
+			", so read it (pleiades journal show " + id + ") and step over it once those devices are known to be as this run left them"
 	default:
 		p.Kind = KindNothingToUndo
 		p.Reason = head + "; its runbook says none of its changes there needs undoing (rollback: []), so stepping over it is safe when that still holds"
