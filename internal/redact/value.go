@@ -36,7 +36,33 @@ func Value(secrets []string, v any) any {
 // and scalars JSON writes it as, so none of its fields escapes the walk.
 // v itself is never changed.
 func (m *Masker) Value(extra []string, v any) any {
-	return m.value(extra, v, 0)
+	return m.value(withJSONSpellings(extra), v, 0)
+}
+
+// withJSONSpellings is secrets with, beside each that holds a byte that is
+// not UTF-8, its spelling after encoding/json (jsonSpelling): a struct or
+// typed map reaches the walk through a JSON round trip (generic), which
+// turns each such byte into U+FFFD, a spelling the raw secret never matches
+// (FAILURE_PATTERNS 933). A list of valid secrets is
+// returned as it is.
+func withJSONSpellings(secrets []string) []string {
+	var out []string
+	for i, s := range secrets {
+		if spelled := jsonSpelling(s); spelled != s {
+			if out == nil {
+				out = append([]string(nil), secrets[:i]...)
+			}
+			out = append(out, s, spelled)
+			continue
+		}
+		if out != nil {
+			out = append(out, s)
+		}
+	}
+	if out == nil {
+		return secrets
+	}
+	return out
 }
 
 // maxDepth bounds the walk. Stats are shallow; a deeper value is a cycle

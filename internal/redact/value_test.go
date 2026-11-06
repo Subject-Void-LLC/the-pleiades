@@ -104,3 +104,29 @@ func TestValueScalarsAndDepth(t *testing.T) {
 		t.Errorf("a deep value leaked: %s", text)
 	}
 }
+
+// TestValue_ASecretThatIsNotUTF8IsMaskedAfterJSON: a struct reaches the walk
+// through JSON, which writes each byte of the secret that is not UTF-8 as
+// U+FFFD; the secret is masked in that spelling too, whether it came in the
+// call's own list or the shared literal set.
+func TestValue_ASecretThatIsNotUTF8IsMaskedAfterJSON(t *testing.T) {
+	secret := "pa\xffss-Word9"
+	in := map[string]any{"struct": reported{User: "admin " + secret}, "lines": []string{"x " + secret}}
+	for name, mask := range map[string]func() any{
+		"the call's list": func() any { return Value([]string{secret}, in) },
+		"the shared set": func() any {
+			m := Shared()
+			m.Literals().Add(secret)
+			defer m.Literals().Forget(secret)
+			return m.Value(nil, in)
+		},
+	} {
+		text, err := json.Marshal(mask())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(text), "ss-Word9") {
+			t.Errorf("%s: the secret survived: %s", name, text)
+		}
+	}
+}
