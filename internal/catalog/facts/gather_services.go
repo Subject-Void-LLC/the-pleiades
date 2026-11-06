@@ -30,8 +30,11 @@ func linuxServiceProbes() []gatherProbe {
 			// unit, which read as every service inactive. Each listing that
 			// fails fails the probe (gather_outcome.go).
 			present: `command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]`,
+			// The third listing, the loaded sockets, tells a per-connection
+			// instance from a service (sessionUnit).
 			command: orFailed(`systemctl --type=service --no-legend --no-pager --plain list-unit-files`) + `; ` +
-				`echo '` + serviceSectionMark + `'; ` + orFailed(`systemctl --type=service --all --no-legend --no-pager --plain list-units`),
+				`echo '` + serviceSectionMark + `'; ` + orFailed(`systemctl --type=service --all --no-legend --no-pager --plain list-units`) + `; ` +
+				`echo '` + serviceSectionMark + `'; ` + orFailed(`systemctl --type=socket --all --no-legend --no-pager --plain list-units`),
 			check: checkSystemd,
 			parse: parseSystemd,
 		},
@@ -129,14 +132,24 @@ func parseOpenRC(out string) []gatherFact {
 // systemdEnabled are the unit-file states that start a unit at boot.
 var systemdEnabled = map[string]bool{"enabled": true, "enabled-runtime": true}
 
-// parseSystemd reads the two listings: unit files (unit, state, preset)
-// then loaded units (unit, load, active, sub, description). A unit file that
-// no loaded unit names is inactive; a template (name@.service) is a pattern
-// for units, not a service, and is left out.
+// parseSystemd reads the listings: unit files (unit, state, preset), loaded
+// units (unit, load, active, sub, description), then loaded sockets. A unit
+// file that no loaded unit names is inactive; a template (name@.service) is
+// a pattern for units, not a service, and is left out, and so is a unit that
+// lasts only as long as a login, a connection or a process (sessionUnit).
 func parseSystemd(out string) []gatherFact {
 	files, units, found := strings.Cut(out, serviceSectionMark)
 	if !found {
 		return nil
+	}
+	// The socket listing follows its own mark; without one there are no
+	// sockets to read, and only the connection rule needs them.
+	units, socketList, _ := strings.Cut(units, serviceSectionMark)
+	sockets := map[string]bool{}
+	for _, line := range strings.Split(socketList, "\n") {
+		if fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "●")); len(fields) > 0 && strings.HasSuffix(fields[0], ".socket") {
+			sockets[fields[0]] = true
+		}
 	}
 	type service struct{ state, status string }
 	services := map[string]*service{}
@@ -169,11 +182,57 @@ func parseSystemd(out string) []gatherFact {
 	out2 := make([]gatherFact, 0, len(order))
 	for _, name := range order {
 		s := services[name]
+		if sessionUnit(name, s.status, sockets) {
+			continue
+		}
 		out2 = append(out2, gatherFact{key: itemKey(gatherFamilyService, name), value: map[string]any{
 			"state": s.state, "enabled": systemdEnabled[s.status], "status": s.status, "source": "systemd",
 		}})
 	}
 	return out2
+}
+
+// loginUnitTemplates are the templates systemd-logind starts one instance of
+// per user while that user has a session or lingers: who is logged in, not
+// a service anyone configured. The gathering login makes its own, too.
+var loginUnitTemplates = map[string]bool{"user@.service": true, "user-runtime-dir@.service": true}
+
+// sessionUnit reports whether a loaded unit lasts only as long as a login, a
+// connection or a process, so its key would come and go on a host that did
+// not change (each measured on a systemd 252 host, but the coredump
+// instance, which systemd names the same way):
+//
+//   - a transient unit (unit file state "transient"): made at run time by
+//     systemd-run, by dbus-broker for a bus name with no unit of its own
+//     (dbus-:1.<n>-<name>@0.service), or by a container engine, and gone when
+//     it stops;
+//   - an instance of user@.service or user-runtime-dir@.service;
+//   - a per-connection instance of a socket with Accept=yes (sshd@<n>-<local
+//     address>-<peer address>.service under Fedora CoreOS's and Flatcar's
+//     sshd.socket, where every gather is itself a connection, or
+//     systemd-coredump@<n>-<pid>-<uid>.service): systemd names each
+//     <socket>@<n>-..., n counting the connections, and only while
+//     <socket>.socket is loaded. Its key would also store the peer's address
+//     and port, which says who connected rather than what runs.
+//
+// Every other instance stays, getty@tty1.service among them: enabled through
+// getty.target.wants, it lasts as long as the host does.
+func sessionUnit(name, status string, sockets map[string]bool) bool {
+	if status == "transient" {
+		return true
+	}
+	prefix, instance, isInstance := strings.Cut(strings.TrimSuffix(name, ".service"), "@")
+	if !isInstance {
+		return false
+	}
+	if loginUnitTemplates[prefix+"@.service"] {
+		return true
+	}
+	// The connection's number, then a dash: systemd's own shape for every
+	// socket family, which a template of the socket's name and an instance
+	// of that shape can only have been made for.
+	digits := len(instance) - len(strings.TrimLeft(instance, "0123456789"))
+	return digits > 0 && strings.HasPrefix(instance[digits:], "-") && sockets[prefix+".socket"]
 }
 
 // checkOpenRC refuses an OpenRC answer that lacks its three sections, or

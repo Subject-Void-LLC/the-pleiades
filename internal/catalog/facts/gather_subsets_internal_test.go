@@ -157,6 +157,51 @@ func TestParseSystemd_MergesUnitFilesAndLoadedUnits(t *testing.T) {
 	}
 }
 
+// TestParseSystemd_LeavesOutUnitsThatLastOnlyAsLongAsALogin feeds the three
+// listings as a systemd 252 host printed them during a gather, under an
+// Accept=yes sshd.socket and dbus-broker: the connection's own sshd
+// instance, the login's user units, a lingering user's, a bus name's
+// transient unit and a crash's coredump instance are left out; getty@tty1,
+// boot-time instances and a template's numbered instances with no socket of
+// their name stay.
+func TestParseSystemd_LeavesOutUnitsThatLastOnlyAsLongAsALogin(t *testing.T) {
+	out := "sshd.service disabled disabled\nsshd@.service static -\ngetty@.service enabled enabled\nworker@.service static -\n" +
+		"dbus-:1.1-org.pleiades.Probe@0.service transient -\nuser@.service static -\n" +
+		serviceSectionMark + "\n" +
+		"sshd@6-172.17.0.4:22-172.17.0.1:58134.service loaded active running OpenSSH per-connection server daemon (172.17.0.1:58134)\n" +
+		"user@0.service loaded active running User Manager for UID 0\n" +
+		"user-runtime-dir@0.service loaded active exited User Runtime Directory /run/user/0\n" +
+		"user@1000.service loaded active running User Manager for UID 1000\n" +
+		"dbus-:1.1-org.pleiades.Probe@0.service loaded active running dbus-:1.1-org.pleiades.Probe@0.service\n" +
+		"systemd-coredump@0-1234-0.service loaded active running Process Core Dump (PID 1234/UID 0)\n" +
+		"getty@tty1.service loaded active running Getty on tty1\n" +
+		"modprobe@drm.service loaded inactive dead Load Kernel Module drm\n" +
+		"worker@1-2.service loaded active running A numbered worker\n" +
+		serviceSectionMark + "\n" +
+		"sshd.socket loaded active listening OpenSSH Server Socket\n" +
+		"systemd-coredump.socket loaded active listening Process Core Dump Socket\n" +
+		"systemd-journald.socket loaded active running Journal Socket\n"
+	got := map[string]bool{}
+	for _, f := range parseSystemd(out) {
+		got[f.key] = true
+	}
+	for _, kept := range []string{"service.sshd.service", "service.getty@tty1.service", "service.modprobe@drm.service", "service.worker@1-2.service"} {
+		if !got[kept] {
+			t.Errorf("%s, which lasts as long as the host, was left out", kept)
+		}
+	}
+	for key := range got {
+		for _, gone := range []string{"sshd@6-", "user@", "user-runtime-dir@", "dbus-:", "systemd-coredump@"} {
+			if strings.Contains(key, gone) {
+				t.Errorf("%s, which lasts only as long as a login, a connection or a process, was reported", key)
+			}
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("services %v, want the four that stay", got)
+	}
+}
+
 // distinctAll is facts as Gather emits them from one run: a key an earlier
 // fact took told apart (gatherNames).
 func distinctAll(facts []gatherFact) []gatherFact {
