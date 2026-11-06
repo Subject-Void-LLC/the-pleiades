@@ -7287,3 +7287,21 @@ started, and the cause was found. The wrong reading cost a second kill. After it
 user@1000.service` for the minute it happened, before naming memory, and line its time up with what the test was
 running. If `capped` then reports "Failed to connect to bus", the user manager is down and the owner must start it
 again (`sudo systemctl start user@1000.service`).
+
+## 400. A new value may ride on an existing message only where an old consumer that drops it does the safe thing: a run setting rides in a dispatch's launch fields, which a Runner older than run settings drops, so every run setting declares its Default and that default is the stricter choice (the other side of 254; FAILURE_PATTERNS 381) (2026-11-06).
+
+**Why.** Branch `feat/method-run-settings`. A run setting (`collection.Param.RunSetting`) reaches a Runner in the
+dispatch payload's `Fields` (the runbook kind's `method_settings` launch field). A Runner built before run settings
+decodes the payload, ignores the field, and runs each task with the parameter's own default. LESSONS 254 answers that
+shape with a subject of its own, so an old consumer never sees the new kind of message. That is right when dropping
+the field makes the old consumer do the wrong thing (a rollback re-running the undone runbook, FAILURE_PATTERNS 381).
+A run setting is not a new kind of message: it is a value inside an ordinary dispatch, and a subject per setting would
+split every dispatch. The fp-reviewer noted on 2026-11-06 that the design was safe only because `file.remove`'s
+`check_forbidden` happened to default to `refuse`. Nothing required the next run setting to do the same.
+
+**Rule in practice.** Before a new value rides on a message older consumers read, say what an old consumer does
+without it. If that is the stricter outcome (a refusal, a wait, a warning not shown), the field may ride. If not,
+give it its own subject (254). Here `f5cb8a61` makes `collection.Register` refuse a run setting with no `Default`, and
+the doc comment says the default must be the stricter choice. Register cannot tell which choice is stricter; the
+author decides, and the fp-reviewer should ask. A new Runner also refuses a dispatch whose `method_settings` holds a
+value that is not text (`launch.StrictMethodSettings`) rather than dropping it.

@@ -432,6 +432,7 @@ story, per `.AGENTS/AGENTS.md`.
 397. **Never change the meaning of a persisted value in place: give the new meaning a new value, and read the old one by its old meaning or as unrecorded (2026-11-04).**
 398. **A test whose harness runs commands on this machine (remoteexectest, any fake device on the local sh) never lets a red-first test hand a destructive command an untrusted value: replace the command with a logging shell function, prove with a control that the function is what runs, and send through the harness only values the command cannot act on (extends 321 and 327) (2026-11-05).**
 399. **When the session dies during a test run, read the user manager's journal before blaming memory: a "WSL crash" can be a kill (2026-11-05).**
+400. **A new value may ride on an existing message only where an old consumer that drops it does the safe thing: a run setting rides in a dispatch's launch fields, which a Runner older than run settings drops, so every run setting declares its Default and that default is the stricter choice (the other side of 254; FAILURE_PATTERNS 381) (2026-11-06).**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
