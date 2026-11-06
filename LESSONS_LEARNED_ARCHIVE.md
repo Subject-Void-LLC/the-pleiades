@@ -7373,3 +7373,43 @@ places it looks.
 timing bound from both measurements, with room on each side, and write both into the commit. When a proposal decides
 whether something exists, list every way the code creates that thing (a map, a parent package, generated code) and
 test each. Say in the commit what was corrected and why.
+
+## 404. A fact named after Ansible's holds Ansible's value only when measured: run ansible.builtin.setup (or the module itself) in the same image or on the same machine and hold the fact to the recorded value in a test; a matching name proves nothing, and reading Ansible's source finds the rules but not which one wins (a repeat of 234; FAILURE_PATTERNS 947 and 951) (2026-11-06).
+
+**Why.** Branch `fix/facts-churn`. `facts.gather` used Ansible's fact names, so a converted playbook's conditions read
+them unchanged. The values were never compared with Ansible's: `ansible_distribution` was os-release's `NAME`
+("Debian GNU/Linux", "Rocky Linux"), the version was `VERSION_ID` without Debian's point release, there was no
+`ansible_os_family`, a Mac reported a swap total Ansible does not emit, and Windows reported its page file as swap and
+rounded memory down (FAILURE_PATTERNS 947 and 951). A converted `when: ansible_distribution == "Debian"` was false on
+every Debian host. The 2026-11-04 sweep found it by reading. The fix was held to `ansible.builtin.setup` itself
+(ansible-core 2.17.1) in 22 container images, with Ansible's answers recorded in
+`internal/catalog/facts/testdata/distribution/ansible.json`.
+
+**Why 234 did not hold.** 234 says to test a "does what X does" claim against X itself. It was applied to the
+converter (334's `ansible-doc` check, 848's `gather_subset` meanings), not to the values `facts.gather` emits under
+Ansible's names. Reading Ansible's source was not enough either: it shows the rules (the `ID` table, distro's version
+choice, the family map), but which rule wins on a given image showed only when Ansible ran there. The first version of
+the fix still guessed a family for a derivative the map does not list, which fp-reviewer caught; Kali and Devuan were
+then measured against `ansible.builtin.setup` and added to the `ID` table (947).
+
+**Rule in practice.** For each fact that carries an Ansible name, record what Ansible reports for it on the same
+image or machine and keep that record beside the test that holds the fact to it. Add an image when a new distribution
+is claimed. Where a value cannot be measured (a movement not seen, as macOS swap in 951), say it is reasoned.
+
+## 405. Every gather is itself a login, so a source that makes an item per connection, session or sign-in adds one and drops one each run: test every family by gathering twice on an unchanged machine and once across a sign-in or reboot, not by reading the code; systemd's sshd@ and user@ units are the open Linux case (a repeat in kind of 388; FAILURE_PATTERNS 948 and 949) (2026-11-06).
+
+**Why.** Branch `fix/facts-churn`. On macOS, launchd lists a job for each SSH connection and session
+(`com.openssh.sshd.<UUID>` and others), so each gather recorded one new service and the last gather's as removed
+(948). On Windows, an interactive sign-in makes an instance of each per-user service (`<template>_<LUID>`), so the
+instance keys changed across boots (949). Neither showed in a single gather, and a gather over WinRM makes no
+instance, so gathering twice over WinRM alone would not show 949 either; it took a real sign-in. The same two-gather
+lab gates are what caught service states moving on their own on both hosts (950). Each earlier drift fix (870, 874,
+927, 935) lived in its own probe and nothing asked the question of every family.
+
+**Why 388 did not hold.** 388 says to test a property by running the suite with the fixture switched, not by reading
+code. It was written for the login shell. A gather's own login is the same kind of property: the code reads fine, and
+only running it twice, and across a sign-in, shows what the login itself adds.
+
+**Rule in practice.** For each family a gatherer reports (packages, services, ports, users, files), a lab gate
+gathers twice on an unchanged machine and compares the two, and a second gate compares across a sign-in or a reboot.
+The open case is Linux: systemd lists `sshd@` and `user@` units per login, which a follow-up branch is taking.

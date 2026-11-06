@@ -1,0 +1,1 @@
+`facts.gather` now reports `ansible_os_family` (for example `Debian`, `RedHat`, `Darwin`, `FreeBSD` or `Windows`) from Ansible's own family table, and leaves it out for a distribution that table does not list rather than guessing.

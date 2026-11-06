@@ -22777,3 +22777,188 @@ real in-process SSH server, with HOME a fresh directory) also asserts that no jo
 **Lesson.** Every exit that runs a stop says what the stop found. An error built from a library's error over a
 device's text is bounded like any other quote of that text: `strconv` quotes its input.
 
+## 947. facts.gather reported ansible_distribution and its version from os-release NAME and VERSION_ID, which are not Ansible's values, and emitted no ansible_os_family, so a converted `when: ansible_distribution == "Debian"` was false on every Debian host (a repeat in kind of 848 and 334) (fixed)
+
+**Symptom.** Found by the facts sweep of 2026-11-04, by reading; fixed on 2026-11-06 on `fix/facts-churn`. The defect
+was on `main`, and the Linux part shipped in 0.3.0. `facts.gather` gave `ansible_distribution` from `NAME` and
+`ansible_distribution_version` from `VERSION_ID` in `/etc/os-release`, and no `ansible_os_family` at all. Measured on
+2026-11-06 with ansible-core 2.17.1 (`ansible.builtin.setup` through the `community.docker` connection) in 22 container
+images: Debian 12.12, 13 and testing, Ubuntu 22.04 and 24.04, Rocky 9.6 (full and minimal), AlmaLinux 9.6, RHEL UBI
+9.6, CentOS Stream 9, Oracle Linux 9, Fedora 42, Amazon Linux 2 and 2023, Alpine 3.20.10 and 3.22.8, Arch, openSUSE
+Leap 15.6 and Tumbleweed, SLES 15 SP6, Kali and Devuan. Examples of the gap:
+
+- Debian: "Debian GNU/Linux" and "12", where Ansible says "Debian" and "12.12" (the point release, from
+  `/etc/debian_version`, which is distro's best version).
+- "Rocky Linux" where Ansible says "Rocky"; "Red Hat Enterprise Linux" where it says "RedHat"; "Alpine Linux" where it
+  says "Alpine".
+- No release where Ansible gives one: Blue Onyx or Plow (the parenthetical in `VERSION`), Stream, the SUSE minor.
+
+So a playbook converted with `when: ansible_distribution == "Debian"` skipped on every Debian host, and a condition
+on `ansible_os_family` had no fact to read.
+
+**Root cause.** The facts carried Ansible's names, but their values were never measured against Ansible. The class of
+334 and 848: another program's interface written from its names, not from what that program does with them.
+
+**Why 848 and 334 did not hold.** 334's test checks the converter's argument names and values against `ansible-doc`.
+848's fix made the converter map `gather_subset` by its meaning. Both cover what the converter passes in; neither
+compares a value `facts.gather` emits with the value Ansible emits for the same host.
+
+**Fix.** `3660d3e5` and `a9c1a6a2`: `internal/catalog/facts/gather_distribution.go` (new) maps the os-release `ID`
+through a table of Ansible's names, reads the first line of Debian's `debian_version`, takes the codename by distro's
+rule, and handles CentOS Stream and the SUSE release. `ansible_os_family` comes from Ansible's `OS_FAMILY_MAP`, and only
+where that map knows the name; it is never guessed for a `NAME` the map does not list. The `min` probe is now
+`cat /etc/os-release; echo MARK; cat /etc/debian_version 2>/dev/null`. Tests:
+`TestGatherOSRelease_MatchesAnsibleOnEveryMeasuredDistribution` (each image's files in
+`internal/catalog/facts/testdata/distribution`, with Ansible's recorded values in `ansible.json`),
+`TestGatherOSRelease_ReadsWhatTheFileSays`, and the live `TestGatherDistribution_MatchesAnsibleOnRealDistributions`
+(`internal/catalog/facts/live/distribution_test.go`, 4 containers).
+
+**Found on review.** The branch's fp-reviewer agent, before push: the first version guessed a family for a derivative
+the map does not list (Raspbian, Kali and Devuan would have read the family "Kali GNU/Linux" and the like). Fixed in
+`a9c1a6a2`: a family only where Ansible's map lists the name, and Kali and Devuan, measured against
+`ansible.builtin.setup`, are in the `ID` table. An independent second-model review found that Debian's
+`debian_version` must be read to its first line, as distro reads it; fixed in the same commit.
+
+**Lesson.** A fact named after Ansible's is held to Ansible's recorded value for the same image or machine (LESSONS 404).
+
+## 948. On macOS every gather added one launchd job and removed the last one's, because launchd lists a job per SSH connection and per session (com.openssh.sshd.<UUID>), and a gather is itself a login (a repeat in kind of 935 and 870) (fixed)
+
+**Symptom.** Fixed on 2026-11-06 on `fix/facts-churn`; the defect was on `main`. `launchctl print system` lists a job
+for each SSH connection and each session: `com.openssh.sshd.<UUID>`, and on the lab Mac also
+`com.apple.loginwindow.<UUID>`, `com.apple.security.agent.login.<id>`, `com.apple.security.authhost.<id>`,
+`com.apple.diskimagesiod.<UUID>` and `com.apple.metadata.mds.index.<UUID>`. Each gather logs in, so each one recorded a
+new service and the last gather's as removed. Reproduced: three gathers 20 seconds apart on the lab Mac each swapped
+one `com.openssh.sshd.<UUID>` for another.
+
+**Root cause.** The services list took every label launchd prints, and some of those labels name one login, not a
+configured service.
+
+**Why 935 and 870 did not hold.** 935 fixed disabled daemons and the exit-status field, not instance labels. 870 and
+927 were drift fixed inside their own probes. The Mac lab gate gathered once and compared counts at one moment, so a
+label that changes with each login could not show.
+
+**Fix.** `3660d3e5` and `a9c1a6a2` (`internal/catalog/facts/gather_bsd_items.go`): `parseLaunchd` skips a label whose
+last dot part is a UUID unless a plist of that name is installed (`launchdInstance`), in the loaded list and in the
+disabled-daemon loop. Tests: `TestParseLaunchd_LeavesOutEachLoginsInstanceJobs`, and the lab gate
+`TestCLI_FactsGatherOnMacOSKeepsItsServicesAcrossLogins` (`cmd/pleiades/facts_churn_lab_release_gate_test.go`), which
+passes with the fix and fails on `main`'s code.
+
+**Lesson.** A source that makes an item per login changes on every gather; gather twice on an unchanged machine
+(LESSONS 405).
+
+## 949. On Windows a per-user service gets an instance per signed-in user (Template_<LUID>), so its instance keys changed across two boots of an unchanged machine, and the template Windows never lists was missing (a repeat in kind of 935, 870 and 874) (fixed)
+
+**Symptom.** Fixed on 2026-11-06 on `fix/facts-churn`; the defect was on `main`. Windows makes an instance of each
+per-user service for each signed-in user, named `<template>_<LUID>` (for example `WpnUserService_3d08a`).
+`Win32_Service` lists the instances and never the template. Across two boots of an unchanged win-check, with a
+throwaway user signed in by autologon, the four instance keys changed from `_3d08a` to `_2151b`. Measured on
+win-check: CIM gives an instance's `ServiceType` as "Unknown"; the registry `Type` is `0x60` for a template and `0xe0`
+for an instance (`0x80` is `SERVICE_USERSERVICE_INSTANCE`); a WinRM network logon and an S4U scheduled-task logon make
+no instance, only an interactive sign-in does.
+
+**Root cause.** The list came from what the service manager reports, which names one user's sign-in, not from the
+configured services in the registry.
+
+**Why 935, 870 and 874 did not hold.** Each fixed drift inside its own probe. None gathered across a sign-in or a
+reboot, and a gather over WinRM makes no instance, so a test gathering twice over WinRM alone sees no change.
+
+**Fix.** `3660d3e5` and `a9c1a6a2` (`internal/catalog/facts/gather_win.go`): the services script reads every service's
+registry `Type` and skips `0x80`. Where a key cannot be read, it skips a name made of a known template and a hex LUID.
+It lists each template from the registry with `per_user` true and no state. Tests:
+`TestParseWindowsServices_ATemplateHasNoState`, and the lab gate
+`TestCLI_FactsGatherOnWindowsReportsPerUserServicesByTemplate` (opt-in with `PLEIADES_WINRM_SIGN_IN=1`: it signs a
+throwaway user in through autologon, with a password made in the guest, and compares the services gathered before and
+after the sign-in). The gate passes with the fix and fails on `main`'s code.
+
+**Found on review.** The branch's fp-reviewer agent, before push: a `Type`, `Start` or `DelayedAutostart` value that
+is not a DWORD failed the whole task. Fixed in `a9c1a6a2`: such a value is read as unknown.
+
+**Lesson.** A sign-in makes items a network logon never does; gather across a sign-in or a reboot (LESSONS 405).
+
+## 950. A service's running state was part of its stable service.<name> fact, and it moves on its own, so an unchanged Mac or Windows host recorded changes between gathers (a repeat in kind of 927 and 870) (fixed)
+
+**Symptom.** Fixed on 2026-11-06 on `fix/facts-churn`; the defect was on `main`. The state (running or stopped) was a
+field of `service.<name>`, a stable fact, so every change was kept. On the lab Mac, `com.apple.ManagedClient` and
+`com.apple.mdmclient.daemon` each flipped between running and stopped within 3 minutes. On win-check, `KeyIso`,
+`TrustedInstaller`, `WaaSMedicSvc` and `wlidsvc` started on their own within 30 seconds. Nobody changed either host.
+
+**Root cause.** A runtime value was stored as configuration. On-demand services start and stop without anyone changing
+the machine.
+
+**Why 927 and 870 did not hold.** 927 took the uptime out of an OpenRC status but kept the state inside the stable
+fact. Its entry named the rest of the question, sweep item 10 (service runtime state and other fields that move on
+their own), as still open. This is that item.
+
+**Fix.** `3660d3e5`: `splitServiceState` and `familyItems` (`internal/catalog/facts/gather_subsets.go`) move the state
+to a volatile `service_state.<name>` (a string), after `gatherNames.distinct` so the two keys pair, in `Gather` and in
+`Probe.Read`; the planner learns the second family (`familiesOf`). `service.<name>` keeps `enabled`, `status` and
+`source`. Checked on win-check with `pleiades facts win-check --json`: the store keeps `service_state.WinRM` as volatile
+and `service.WinRM` as stable without a state. Tests: `gatherHoldsServiceStatesApart` in
+`TestGather_PackagesAndServicesMatchThisMachine`, `TestGatherFacts_AServicesStateIsVolatileAndTheRestStable`,
+`TestFamilyItems_SplitsAServicesStateUnderItsOwnKey`, and the lab gate
+`TestCLI_FactsGatherOnWindowsKeepsItsServicesAcrossGathers`.
+
+**Lesson.** A field that can change with nobody changing the machine is its own volatile fact, not part of a stable
+one (LESSONS 405).
+
+## 951. Hardware facts held values Ansible does not report: a swap total on macOS, the page file size on Windows where Ansible reports 0, and Windows memory rounded down where Ansible rounds up (the class of 947) (fixed)
+
+**Symptom.** Fixed on 2026-11-06 on `fix/facts-churn`; the defect was on `main`.
+
+- macOS: `ansible_swaptotal_mb` came from `vm.swapusage`. Ansible does not emit it on Darwin (`hardware/darwin.py` has
+  `memtotal_mb` and `memfree_mb` only), and macOS changes it as it makes and removes swap files. That movement is
+  reasoned, not seen: the fact did not move on the lab Mac in 3 days. Ansible's absence was measured from its source.
+- Windows: `ansible_swaptotal_mb` came from `Win32_PageFileUsage` `AllocatedBaseSize` (4864 on win-check), where
+  ansible.windows' `setup.ps1` sets it to 0.
+- Windows: memory was rounded down (4095), where `setup.ps1` uses `[Math]::Ceiling` (4096 on win-check).
+  `GlobalMemoryStatusEx` and CIM gave the same byte count.
+
+**Root cause.** 947's: the facts carried Ansible's names, and their values were not held to Ansible's.
+
+**Why 947 did not hold.** 947 is on the same branch and covered the distribution facts; these are the hardware ones.
+
+**Fix.** `3660d3e5` and `a9c1a6a2`: no swap probe on Darwin, 0 on Windows, and Windows memory rounded up. Tests:
+`TestBSDHostProbes_AMacReportsNoSwap`, `TestWindowsProbes_ReportAnsiblesSwapAndFamily`, and the Windows and Mac lab
+gates (`TestCLI_FactsGatherOnWindowsMatchesItsOwnTools`, `TestCLI_FactsGatherOnMacOSMatchesItsOwnTools`).
+
+**Lesson.** As 947 (LESSONS 404).
+
+## 952. The Mac lab gate compared the launchd fact count with the services block's line count, which 935's fix had made unequal wherever an installed daemon is disabled, and the gate runs only where a Mac is configured, so nothing noticed (a repeat in kind of 790) (fixed)
+
+**Symptom.** Found on 2026-11-06 on `fix/facts-churn` when the Mac lab gate ran; the test defect was on `main`.
+`TestCLI_FactsGatherOnMacOSMatchesItsOwnTools` (`cmd/pleiades/facts_lab_release_gate_test.go`) wanted as many launchd
+facts as lines in `launchctl print system`'s services block. Since 935's fix a disabled daemon with an installed plist
+is a fact too, and launchd never lists it, so the counts differ whenever one exists
+(`com.apple.mdmclient.daemon.runatboot` on the lab Mac).
+
+**Root cause.** 790's class: a change to a behavior an older test reads, where that test does not run in the passes
+the change was checked with. Here the test runs only where `PLEIADES_MAC` is set.
+
+**Why 790 did not hold.** 790's rule is to run the whole package an older test lives in before the push. A lab gate
+skips in that run unless its machine is configured, so the package passed with the gate unchecked.
+
+**Fix.** `3660d3e5`: every label launchd lists, except a per-login instance (948), must be a fact, and any fact
+launchd does not list must be a disabled daemon.
+
+**Lesson.** A change to what a family reports runs the lab gates that read that family on their machines, not only
+the package in a pass where those gates skip.
+
+## 953. win-check hung at a black screen on the boot after a guest restart, so win.reboot timed out after 600 s, and the sign-in test's cleanup could not reach the guest (possibly in kind of 362; open: cause not proven)
+
+**Symptom.** 2026-11-06, during the Windows sign-in lab gate on `fix/facts-churn`. After a guest restart, win-check
+showed a black screen. `win.reboot` timed out after 600 seconds, and an ACPI shutdown went unanswered for 2 minutes.
+The guest's log shows a clean shutdown (event 1074, then 6006) and nothing from the hung boot (no 41, no 6008), so the
+boot stopped before Windows started. Five other restarts of the same VM that day worked.
+
+**Cost.** The sign-in test's cleanup could not reach the guest. After a power cycle, autologon signed the throwaway
+user in again from the `DefaultPassword` value. It was cleaned by hand and checked.
+
+**Root cause.** Not proven. It fits the boot hangs seen under NEM (WHPX) on this host, such as 362's EFI hang, but
+nothing ties it to them.
+
+**Fix.** None yet. The knowledge is written to Groundconfig as
+`knowledge/unreviewed/virtualbox_whpx_guest_restart_boot_hang.txt`, awaiting the owner's review.
+
+**Lesson.** A lab test that changes a guest's sign-in settings must expect its cleanup to fail when a restart hangs;
+after a power cycle, check the guest for what the test left before anything else runs.
+

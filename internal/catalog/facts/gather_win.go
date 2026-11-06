@@ -4,7 +4,9 @@
 // change a name on its way here; the parsing is in Go, as every other
 // platform's is. The min and hardware facts come from CIM, the packages from
 // the registry's Uninstall keys (the machine's, both views), and the
-// services from the service control manager through Win32_Service. Every
+// services from the service control manager through Win32_Service, with each
+// service's registry Type telling a per-user service's template and instances
+// apart. Every
 // script only reads. The lab gate runs them with an administrator's login;
 // whether a member of Remote Management Users alone reads all of it is not
 // yet proven.
@@ -39,9 +41,10 @@ $json = ConvertTo-Json -InputObject $out -Compress -Depth 4
 
 // windowsMinScript prints the min subset's facts as Ansible names them on
 // Windows: the host name the computer name (COMPUTERNAME), the system Win32NT, the kernel and the distribution version the
-// OS version, the distribution the edition's caption, the architecture
-// OSArchitecture's 64-bit. The node name is the DNS name, with the domain
-// when the host is joined to one.
+// OS version, the distribution the edition's caption, the family Windows
+// (ansible.windows' setup sets it so), the architecture OSArchitecture's
+// 64-bit. The node name is the DNS name, with the domain when the host is
+// joined to one.
 const windowsMinScript = `$ErrorActionPreference = 'Stop'
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
@@ -55,30 +58,31 @@ $out = [ordered]@{
   ansible_kernel = $v
   ansible_architecture = [string]$os.OSArchitecture
   ansible_distribution = ([string]$os.Caption).Trim()
+  ansible_os_family = 'Windows'
   ansible_distribution_version = $v
 }` + windowsJSONOut
 
-// windowsHardwareScript prints the hardware subset's facts: memory and the
-// page files' allocated size in whole megabytes, the processor packages,
-// logical processors and the first package's cores, and the seconds since
-// boot by the host's own clock. A value CIM does not give is null, which the
-// parser leaves out, never 0.
+// windowsHardwareScript prints the hardware subset's facts: memory in whole
+// megabytes, rounded up as ansible.windows' setup rounds it, swap as 0 (ansible.windows' setup reports it so, since a page
+// file is not swap; the page files' allocated size, which this read before,
+// was not Ansible's value and grows with a system-managed page file), the
+// processor packages, logical processors and the first package's cores, and
+// the seconds since boot by the host's own clock. A value CIM does not give is
+// null, which the parser leaves out, never 0.
 const windowsHardwareScript = `$ErrorActionPreference = 'Stop'
 function N($v) { if ($null -eq $v) { $null } else { [int64]$v } }
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $cpu = @(Get-CimInstance Win32_Processor)
-$swap = 0
-foreach ($p in @(Get-CimInstance Win32_PageFileUsage)) { $swap += [int64]$p.AllocatedBaseSize }
 $mem = $null
-if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Floor([double]$cs.TotalPhysicalMemory / 1MB) }
+if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Ceiling([double]$cs.TotalPhysicalMemory / 1MB) }
 $cores = $null
 if ($cpu.Count -gt 0) { $cores = $cpu[0].NumberOfCores }
 $up = $null
 if ($null -ne $os.LastBootUpTime) { $up = [math]::Floor(((Get-Date) - $os.LastBootUpTime).TotalSeconds) }
 $out = [ordered]@{
   ansible_memtotal_mb = N $mem
-  ansible_swaptotal_mb = [int64]$swap
+  ansible_swaptotal_mb = 0
   ansible_processor_count = N $cs.NumberOfProcessors
   ansible_processor_vcpus = N $cs.NumberOfLogicalProcessors
   ansible_processor_cores = N $cores
@@ -108,10 +112,47 @@ $out = @(foreach ($r in $roots) {
 
 // windowsServicesScript prints every service the service control manager
 // knows: its name, state, start mode and whether an automatic start is
-// delayed.
+// delayed. A per-user service's instance (Template_<LUID>, made for each
+// signed-in user, its registry Type holding SERVICE_USERSERVICE_INSTANCE,
+// 0x80) is left out, since its name changes with every sign-in; Win32_Service
+// never lists the template (Type SERVICE_USER_SERVICE, 0x40, without 0x80),
+// so each template is read from the registry instead, with its start mode and
+// no state, and marked per_user. Win32_Service gives an instance's type as
+// Unknown, so the registry's Type is what tells one apart, and an instance
+// whose key this login cannot read is still told apart by its name: its
+// template's and a hexadecimal LUID. A Type, Start or DelayedAutostart that is
+// not a DWORD is not taken for one (a template's start mode is then unknown),
+// so one odd key never fails the task. The Services key always holds hundreds
+// of services, so reading none of their types is a failure, not an answer.
 const windowsServicesScript = `$ErrorActionPreference = 'Stop'
+$types = @{}
+$templates = @()
+foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue)) {
+  $t = $k.GetValue('Type')
+  if ($t -isnot [int]) { continue }
+  $types[[string]$k.PSChildName] = $t
+  if (($t -band 0x40) -and -not ($t -band 0x80)) { $templates += $k }
+}
+if ($types.Count -eq 0) { throw 'no service type could be read from the registry' }
+$modes = @{ 0 = 'Boot'; 1 = 'System'; 2 = 'Auto'; 3 = 'Manual'; 4 = 'Disabled' }
+$named = @{}
+foreach ($k in $templates) { $named[[string]$k.PSChildName] = $true }
+$seen = @{}
 $out = @(foreach ($s in @(Get-CimInstance Win32_Service)) {
-  [ordered]@{ name = [string]$s.Name; state = [string]$s.State; mode = [string]$s.StartMode; delayed = [bool]$s.DelayedAutoStart }
+  $n = [string]$s.Name
+  $t = $types[$n]
+  if ($null -ne $t -and ($t -band 0x80)) { continue }
+  if ($null -eq $t -and $n -match '^(.+)_[0-9a-fA-F]+$' -and $named.ContainsKey($Matches[1])) { continue }
+  $seen[$n] = $true
+  [ordered]@{ name = $n; state = [string]$s.State; mode = [string]$s.StartMode; delayed = [bool]$s.DelayedAutoStart }
+}
+foreach ($k in $templates) {
+  if ($seen.ContainsKey([string]$k.PSChildName)) { continue }
+  $start = $k.GetValue('Start')
+  $mode = 'Unknown'
+  if ($start -is [int] -and $modes.ContainsKey($start)) { $mode = $modes[$start] }
+  $delayed = $k.GetValue('DelayedAutostart')
+  [ordered]@{ name = [string]$k.PSChildName; mode = $mode; delayed = ($delayed -is [int] -and $delayed -eq 1); per_user = $true }
 })` + windowsJSONOut
 
 // windowsProbes are the Windows probes, each a PowerShell script.
@@ -120,7 +161,7 @@ func windowsProbes() []gatherProbe {
 		{
 			subset: gatherSubsetMin,
 			keys: []string{gatherFactHostname, gatherFactNodename, gatherFactSystem, gatherFactKernel, gatherFactArchitecture,
-				gatherFactDistribution, gatherFactDistributionVersion, gatherFactDistributionMajor},
+				gatherFactDistribution, gatherFactOSFamily, gatherFactDistributionVersion, gatherFactDistributionMajor},
 			command: windowsMinScript,
 			parse:   parseWindowsMin,
 		},
@@ -265,7 +306,7 @@ func parseWindowsPackages(out string) []installedPackage {
 // manager words it, lower-cased (running, stopped, start pending), enabled
 // when the service starts with Windows (auto, delayed, boot, system), and
 // status the start mode, delayed for an automatic start the manager holds
-// back.
+// back. A per-user service's template has no state, and says per_user.
 func parseWindowsServices(out string) []gatherFact {
 	var facts []gatherFact
 	for _, s := range windowsItems[struct {
@@ -273,6 +314,7 @@ func parseWindowsServices(out string) []gatherFact {
 		State   string `json:"state"`
 		Mode    string `json:"mode"`
 		Delayed bool   `json:"delayed"`
+		PerUser bool   `json:"per_user"`
 	}](out) {
 		if s.Name == "" {
 			continue
@@ -281,14 +323,19 @@ func parseWindowsServices(out string) []gatherFact {
 		if mode == "auto" && s.Delayed {
 			mode = "delayed"
 		}
-		state := strings.ToLower(strings.TrimSpace(s.State))
-		if state == "" {
-			state = "unknown"
-		}
 		enabled := mode == "auto" || mode == "delayed" || mode == "boot" || mode == "system"
-		facts = append(facts, gatherFact{key: itemKey(gatherFamilyService, s.Name), value: map[string]any{
-			"state": state, "enabled": enabled, "status": mode, "source": sourceSCM,
-		}})
+		value := map[string]any{"enabled": enabled, "status": mode, "source": sourceSCM}
+		if s.PerUser {
+			// A template never runs: each signed-in user's instance does.
+			value["per_user"] = true
+		} else {
+			state := strings.ToLower(strings.TrimSpace(s.State))
+			if state == "" {
+				state = "unknown"
+			}
+			value["state"] = state
+		}
+		facts = append(facts, gatherFact{key: itemKey(gatherFamilyService, s.Name), value: value})
 	}
 	return facts
 }

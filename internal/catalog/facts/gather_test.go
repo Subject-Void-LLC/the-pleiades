@@ -787,9 +787,11 @@ func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
 			}
 		}
 	}
-	if units := gatherCommandOutput(t, "sh", "-c", `command -v systemctl >/dev/null && [ -d /run/systemd/system ] && systemctl list-unit-files --type=service --no-legend --no-pager --plain | grep -vc '@\.service' || echo skip`); units != "skip" && services == 0 {
+	units := gatherCommandOutput(t, "sh", "-c", `command -v systemctl >/dev/null && [ -d /run/systemd/system ] && systemctl list-unit-files --type=service --no-legend --no-pager --plain | grep -vc '@\.service' || echo skip`)
+	if units != "skip" && services == 0 {
 		t.Errorf("systemd lists %s unit files and no service fact was gathered", units)
 	}
+	gatherHoldsServiceStatesApart(t, server, rc.facts, units != "skip")
 	// Only min unless asked: the default gathers no package or service.
 	plain := newGatherContext(server)
 	if _, err := gatherRun(t, server, plain, nil); err != nil {
@@ -818,5 +820,58 @@ func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
 	}
 	if _, ok := one.facts[named]; !ok || len(one.facts) != 1 {
 		t.Errorf("a filter naming %s kept %d facts", named, len(one.facts))
+	}
+}
+
+// gatherHoldsServiceStatesApart holds the services facts a run gathered to
+// the split a service's state needs (sweep 2026-11-04, item 10): its state
+// moves on its own (a timer's job runs and exits on a machine nobody
+// changed), so it is service_state.<name>, kept as its latest value only,
+// and service.<name> holds no state for it to move. A service systemd says
+// is running here (sshd, which the harness logs in through, when systemd
+// runs it) is running there, and a filter naming the states gathers the
+// states alone.
+func gatherHoldsServiceStatesApart(t *testing.T, server gatherServer, facts map[string]any, systemd bool) {
+	t.Helper()
+	states := 0
+	for key, value := range facts {
+		if name, ok := strings.CutPrefix(key, "service."); ok {
+			if v, _ := value.(map[string]any); v == nil || v["state"] != nil {
+				t.Errorf("%s = %v, want its state in service_state.%s", key, value, name)
+			}
+			if _, ok := facts["service_state."+name].(string); !ok {
+				t.Errorf("%s has no service_state.%s", key, name)
+			}
+		}
+		if name, ok := strings.CutPrefix(key, "service_state."); ok {
+			states++
+			if _, ok := facts["service."+name]; !ok {
+				t.Errorf("%s names no service.%s", key, name)
+			}
+		}
+	}
+	if states == 0 {
+		if systemd {
+			t.Error("systemd runs here and no service_state fact was gathered")
+		}
+		return
+	}
+	running := gatherCommandOutput(t, "sh", "-c", `systemctl --type=service --state=running --no-legend --no-pager --plain list-units 2>/dev/null | awk 'NR==1{print $1}'`)
+	if running != "" && facts["service_state."+running] != "running" {
+		t.Errorf("service_state.%s = %v, systemd says it is running", running, facts["service_state."+running])
+	}
+	only := newGatherContext(server)
+	if _, err := gatherRun(t, server, only, map[string]any{"gather_subset": []any{"services"}, "filter": []any{"service_state.*"}}); err != nil {
+		t.Fatal(err)
+	}
+	for key := range only.facts {
+		if !strings.HasPrefix(key, "service_state.") {
+			t.Errorf("a filter of service_state.* gathered %s", key)
+		}
+	}
+	// Not held to the first run's count: a busy systemd host starts and
+	// ends transient units between two gathers.
+	if len(only.facts) == 0 {
+		t.Errorf("a filter of service_state.* gathered nothing, where the run gathered %d states", states)
 	}
 }

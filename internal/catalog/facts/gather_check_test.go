@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -52,6 +53,12 @@ func TestGatherCheck_OnlyReads(t *testing.T) {
 		c, ok2 := strings.CutSuffix(c, "'")
 		if !ok || !ok2 {
 			t.Errorf("the check sent %q, not one read run in sh", sent)
+			continue
+		}
+		// The min probe's os-release read is two cats around a fixed mark,
+		// held to the exact command, since a pattern for it would also admit
+		// what is not a read.
+		if osRelease := facts.Probes("Linux", "min", "/etc/os-release"); len(osRelease) == 1 && strings.ReplaceAll(c, `'\''`, `'`) == osRelease[0].Command {
 			continue
 		}
 		if !strings.HasPrefix(c, "uname ") && !strings.HasPrefix(c, "cat ") || strings.ContainsAny(c, ">|;&`$'") {

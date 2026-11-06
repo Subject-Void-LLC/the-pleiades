@@ -171,8 +171,8 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	}
 	mine := labPrivateFile(t, m, "/home/"+labShell(t, m, "id -un"))
 	stats := labGatherAll(t, m, "/etc/hosts", "/root/.cshrc", "/nonexistent", "/etc/master.passwd", mine)
-	if stats["ansible_system"] != "FreeBSD" || stats["ansible_distribution"] != "FreeBSD" {
-		t.Errorf("system %v, distribution %v", stats["ansible_system"], stats["ansible_distribution"])
+	if stats["ansible_system"] != "FreeBSD" || stats["ansible_distribution"] != "FreeBSD" || stats["ansible_os_family"] != "FreeBSD" {
+		t.Errorf("system %v, distribution %v, family %v", stats["ansible_system"], stats["ansible_distribution"], stats["ansible_os_family"])
 	}
 	if want := labAtoi(t, labShell(t, m, "sysctl -n hw.physmem")) / (1 << 20); numberStat(stats, "ansible_memtotal_mb") != want {
 		t.Errorf("ansible_memtotal_mb = %v, sysctl says %d", stats["ansible_memtotal_mb"], want)
@@ -188,8 +188,8 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	if want := labAtoi(t, labShell(t, m, `service -l | grep -c '[a-z]'`)); labCount(stats, "service.", "rc") != want {
 		t.Errorf("%d service facts, rc lists %d scripts", labCount(stats, "service.", "rc"), want)
 	}
-	if sshd, _ := stats["service.sshd"].(map[string]any); sshd["state"] != "running" || sshd["enabled"] != true {
-		t.Errorf("service.sshd = %v, want the running, enabled daemon this test logged in through", sshd)
+	if sshd, _ := stats["service.sshd"].(map[string]any); stats["service_state.sshd"] != "running" || sshd["enabled"] != true {
+		t.Errorf("service.sshd = %v, state %v, want the running, enabled daemon this test logged in through", sshd, stats["service_state.sshd"])
 	}
 	// Phase 41c-2. Every listener sockstat lists (a UDP one only unconnected).
 	if want := labAtoi(t, labShell(t, m, `sockstat -46lq | awk '$5 ~ /^tcp/ || $7 == "*:*"' | wc -l`)); labCount(stats, "port.", "") != want {
@@ -236,8 +236,12 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	stats := labGatherAll(t, m, "/etc/hosts", "/etc", "/private/var/root/.forward", "/nonexistent", mine)
 	labHoldsKeyedDigest(t, stats, labFileKey(mine))
 	labChangeShows(t, m, stats, mine, func() { labShell(t, m, "printf 'pin5678\\n' > "+mine+" && echo written") })
-	if stats["ansible_distribution"] != "MacOSX" || stats["ansible_distribution_version"] != labShell(t, m, "sw_vers -productVersion") {
-		t.Errorf("distribution %v %v", stats["ansible_distribution"], stats["ansible_distribution_version"])
+	if stats["ansible_distribution"] != "MacOSX" || stats["ansible_os_family"] != "Darwin" || stats["ansible_distribution_version"] != labShell(t, m, "sw_vers -productVersion") {
+		t.Errorf("distribution %v %v, family %v", stats["ansible_distribution"], stats["ansible_distribution_version"], stats["ansible_os_family"])
+	}
+	// Ansible reports no swap on a Mac, whose swap files come and go.
+	if v, ok := stats["ansible_swaptotal_mb"]; ok {
+		t.Errorf("ansible_swaptotal_mb = %v on a Mac", v)
 	}
 	if want := labAtoi(t, labShell(t, m, "sysctl -n hw.memsize")) / (1 << 20); numberStat(stats, "ansible_memtotal_mb") != want {
 		t.Errorf("ansible_memtotal_mb = %v, sysctl says %d", stats["ansible_memtotal_mb"], want)
@@ -249,9 +253,26 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	if brew != "" && labCount(stats, "package.", "brew") != labAtoi(t, brew) {
 		t.Errorf("%d brew facts, brew lists %s formulae", labCount(stats, "package.", "brew"), brew)
 	}
-	daemons := labAtoi(t, labShell(t, m, `launchctl print system | awk '/^\tservices = \{/{f=1;next} f&&/^\t\}/{exit} f' | wc -l`))
-	if got := labCount(stats, "service.", "launchd"); got == 0 || got != daemons {
-		t.Errorf("%d launchd facts, launchd lists %d daemons", got, daemons)
+	// Every job launchd lists but those it makes per connection or session,
+	// whose label ends in a UUID; and beside them only daemons it never
+	// loaded because they are disabled (FAILURE_PATTERNS 935).
+	listed := map[string]bool{}
+	for _, label := range strings.Fields(labShell(t, m, `launchctl print system | awk '/^\tservices = \{/{f=1;next} f&&/^\t\}/{exit} f{print $NF}' | grep -vE '\.[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'`)) {
+		listed[label] = true
+		if _, ok := stats["service."+label]; !ok {
+			t.Errorf("launchd lists %s and no service fact names it", label)
+		}
+	}
+	for key, v := range stats {
+		label, ok := strings.CutPrefix(key, "service.")
+		if ok && !listed[label] {
+			if f, _ := v.(map[string]any); f["enabled"] != false {
+				t.Errorf("%s = %v, which launchd does not list and is not a disabled daemon", key, v)
+			}
+		}
+	}
+	if len(listed) == 0 {
+		t.Error("launchd listed no daemon")
 	}
 	// Phase 41c-2. TCP listeners, counted against netstat: a UDP endpoint
 	// may open or close between the gather and the count, a listener rarely.
@@ -292,6 +313,14 @@ func labPowerShell(t *testing.T, m labMachine, script string) string {
 	}
 	return strings.TrimSpace(stringStat(rep.Tasks[0].Stats, "stdout"))
 }
+
+// labServiceTypes reads every service's registry Type into $t, by name.
+const labServiceTypes = `$t = @{}; foreach ($k in @(Get-ChildItem -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services')) { $v = $k.GetValue('Type'); if ($null -ne $v) { $t[[string]$k.PSChildName] = [int]$v } }; `
+
+// labServiceCount counts what the services subset reports on Windows: each
+// service Get-Service lists but an instance of a per-user service (Type
+// 0x80), and each per-user template (Type 0x40 without 0x80).
+const labServiceCount = labServiceTypes + `@(Get-Service | Where-Object { -not ($t[$_.Name] -band 0x80) }).Count + @($t.Keys | Where-Object { ($t[$_] -band 0x40) -and -not ($t[$_] -band 0x80) }).Count`
 
 // The machine's own Uninstall keys, both views.
 const labUninstallKeys = `'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'`
@@ -337,7 +366,13 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 	if want := labPowerShell(t, m, `[Environment]::OSVersion.Version.ToString()`); stats["ansible_kernel"] != want || stats["ansible_distribution_version"] != want {
 		t.Errorf("kernel %v, distribution version %v, the host says %s", stats["ansible_kernel"], stats["ansible_distribution_version"], want)
 	}
-	if want := labAtoi(t, labPowerShell(t, m, `[int64][math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)`)); numberStat(stats, "ansible_memtotal_mb") != want {
+	// ansible.windows' setup: the family Windows, and swap 0, since a page
+	// file is not swap.
+	if stats["ansible_os_family"] != "Windows" || numberStat(stats, "ansible_swaptotal_mb") != 0 {
+		t.Errorf("family %v, swap %v, want Windows and 0 as Ansible reports them", stats["ansible_os_family"], stats["ansible_swaptotal_mb"])
+	}
+	// Rounded up, as ansible.windows' setup rounds it.
+	if want := labAtoi(t, labPowerShell(t, m, `[int64][math]::Ceiling((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)`)); numberStat(stats, "ansible_memtotal_mb") != want {
 		t.Errorf("ansible_memtotal_mb = %v, the host says %d", stats["ansible_memtotal_mb"], want)
 	}
 	if want := labAtoi(t, labPowerShell(t, m, `[Environment]::ProcessorCount`)); numberStat(stats, "ansible_processor_vcpus") != want {
@@ -356,11 +391,13 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 		t.Errorf("%s:x86 = %v, want 1.2.2 from the 32-bit view", key, wow)
 	}
 
-	if want := labAtoi(t, labPowerShell(t, m, `@(Get-Service).Count`)); labCount(stats, "service.", "scm") != want {
-		t.Errorf("%d service facts, Get-Service lists %d", labCount(stats, "service.", "scm"), want)
+	// Every service Get-Service lists but a signed-in user's instance of a
+	// per-user service, and each per-user template, which it never lists.
+	if want := labAtoi(t, labPowerShell(t, m, labServiceCount)); labCount(stats, "service.", "scm") != want {
+		t.Errorf("%d service facts, the host lists %d services and per-user templates", labCount(stats, "service.", "scm"), want)
 	}
-	if winrm, _ := stats["service.WinRM"].(map[string]any); winrm["state"] != "running" || winrm["enabled"] != true {
-		t.Errorf("service.WinRM = %v, want the running, enabled service this test came in through", winrm)
+	if winrm, _ := stats["service.WinRM"].(map[string]any); stats["service_state.WinRM"] != "running" || winrm["enabled"] != true {
+		t.Errorf("service.WinRM = %v, state %v, want the running, enabled service this test came in through", winrm, stats["service_state.WinRM"])
 	}
 	// Phase 41c-2.
 	// TCP listeners only: a UDP endpoint may come and go between the two reads.

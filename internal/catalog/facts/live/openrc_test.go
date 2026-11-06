@@ -34,11 +34,12 @@ func TestGatherServices_ReadsARealOpenRC(t *testing.T) {
 	// Not booted: every script listed, its runlevels read, its state unknown.
 	before := read()
 	scripts, err := strconv.Atoi(strings.TrimSpace(run(t, c, "rc-service --list | wc -l")))
-	if err != nil || len(before) != scripts || scripts == 0 {
+	// Each script is two facts: the service and its state (service_state.).
+	if err != nil || len(before) != 2*scripts || scripts == 0 {
 		t.Fatalf("%d service facts; rc-service lists %d (%v)", len(before), scripts, err)
 	}
-	if got := before["service.sshd"]; !reflect.DeepEqual(got, map[string]any{"state": "unknown", "enabled": true, "status": "default", "source": "openrc"}) {
-		t.Errorf("before boot, service.sshd = %v", got)
+	if got := before["service.sshd"]; !reflect.DeepEqual(got, map[string]any{"enabled": true, "status": "default", "source": "openrc"}) || before["service_state.sshd"] != "unknown" {
+		t.Errorf("before boot, service.sshd = %v, state %v", got, before["service_state.sshd"])
 	}
 
 	// Booted, with one default service stopped and one started by hand.
@@ -46,21 +47,22 @@ func TestGatherServices_ReadsARealOpenRC(t *testing.T) {
 		"rc-service crond stop >/dev/null 2>&1; rc-service local start >/dev/null 2>&1; true")
 	after := read()
 	want := map[string]map[string]any{
-		"sshd":   {"state": "running", "enabled": true, "status": "default", "source": "openrc"},
-		"crond":  {"state": "stopped", "enabled": true, "status": "default", "source": "openrc"},
-		"syslog": {"state": "running", "enabled": true, "status": "boot", "source": "openrc"},
-		"local":  {"state": "running", "enabled": false, "status": "disabled", "source": "openrc"},
+		"sshd":   {"enabled": true, "status": "default", "source": "openrc"},
+		"crond":  {"enabled": true, "status": "default", "source": "openrc"},
+		"syslog": {"enabled": true, "status": "boot", "source": "openrc"},
+		"local":  {"enabled": false, "status": "disabled", "source": "openrc"},
 	}
+	states := map[string]string{"sshd": "running", "crond": "stopped", "syslog": "running", "local": "running"}
 	for name, w := range want {
-		if got := after["service."+name]; !reflect.DeepEqual(got, w) {
-			t.Errorf("service.%s = %v, want %v", name, got, w)
+		if got := after["service."+name]; !reflect.DeepEqual(got, w) || after["service_state."+name] != states[name] {
+			t.Errorf("service.%s = %v, state %v, want %v, %s", name, got, after["service_state."+name], w, states[name])
 		}
 	}
 	// Each state held to rc-status's own answer for that script.
 	for _, name := range []string{"sshd", "crond", "syslog", "local"} {
 		status, _ := runAs(t, c, "gather", "rc-service "+name+" status 2>&1")
 		running := strings.Contains(status, "started")
-		if got := after["service."+name].(map[string]any)["state"] == "running"; got != running {
+		if got := after["service_state."+name] == "running"; got != running {
 			t.Errorf("%s: fact says running %v, rc-service says %q", name, got, strings.TrimSpace(status))
 		}
 	}

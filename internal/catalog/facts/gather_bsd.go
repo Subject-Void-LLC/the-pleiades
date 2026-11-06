@@ -1,7 +1,7 @@
 // Package facts: the min and hardware probes of FreeBSD and macOS (Phase
 // 41c). Both answer uname as Linux does; FreeBSD has /etc/os-release, and
-// macOS names itself through sw_vers; memory, processors, swap and the boot
-// time come from sysctl rather than /proc, which neither has.
+// macOS names itself through sw_vers; memory, processors, FreeBSD's swap and
+// the boot time come from sysctl rather than /proc, which neither has.
 package facts
 
 import (
@@ -23,14 +23,25 @@ func bsdHostProbes(platform string) []gatherProbe {
 	if platform == platformDarwin {
 		probes = append(probes, gatherProbe{
 			subset:  gatherSubsetMin,
-			keys:    []string{gatherFactDistribution, gatherFactDistributionVersion, gatherFactDistributionMajor},
+			keys:    []string{gatherFactDistribution, gatherFactOSFamily, gatherFactDistributionVersion, gatherFactDistributionMajor},
 			command: "sw_vers",
 			parse:   parseSwVers,
 		})
 	}
-	memory, swap := "hw.physmem", "vm.swap_total"
+	memory := "hw.physmem"
 	if platform == platformDarwin {
-		memory, swap = "hw.memsize", "vm.swapusage"
+		memory = "hw.memsize"
+	} else {
+		// FreeBSD's configured swap. A Mac reports none, as Ansible does
+		// (its Darwin hardware facts have no swap): macOS makes and removes
+		// swap files as memory is needed, so vm.swapusage's total moves on
+		// a Mac nobody changed.
+		probes = append(probes, gatherProbe{
+			subset:  gatherSubsetHardware,
+			keys:    []string{gatherFactSwapTotalMB},
+			command: "sysctl -n vm.swap_total",
+			parse:   bytesToMB(gatherFactSwapTotalMB),
+		})
 	}
 	return append(probes,
 		gatherProbe{
@@ -38,12 +49,6 @@ func bsdHostProbes(platform string) []gatherProbe {
 			keys:    []string{gatherFactMemTotalMB},
 			command: "sysctl -n " + memory,
 			parse:   bytesToMB(gatherFactMemTotalMB),
-		},
-		gatherProbe{
-			subset:  gatherSubsetHardware,
-			keys:    []string{gatherFactSwapTotalMB},
-			command: "sysctl -n " + swap,
-			parse:   parseSwap,
 		},
 		gatherProbe{
 			subset:  gatherSubsetHardware,
@@ -63,8 +68,8 @@ func bsdHostProbes(platform string) []gatherProbe {
 }
 
 // parseSwVers reads sw_vers (ProductName, ProductVersion), naming the
-// distribution MacOSX as Ansible does, so a converted condition reads the
-// same.
+// distribution MacOSX and its family Darwin as Ansible does, so a converted
+// condition reads the same.
 func parseSwVers(out string) []gatherFact {
 	var facts []gatherFact
 	for _, line := range strings.Split(out, "\n") {
@@ -76,7 +81,8 @@ func parseSwVers(out string) []gatherFact {
 		switch strings.TrimSpace(key) {
 		case "ProductName":
 			if value != "" {
-				facts = append(facts, gatherFact{key: gatherFactDistribution, value: "MacOSX"})
+				family, _ := osFamilyFact("MacOSX", true)
+				facts = append(facts, gatherFact{key: gatherFactDistribution, value: "MacOSX"}, family)
 			}
 		case "ProductVersion":
 			if value != "" {
@@ -110,21 +116,6 @@ func wholeNumber(key string) func(string) []gatherFact {
 		}
 		return []gatherFact{{key: key, value: n}}
 	}
-}
-
-// parseSwap reads FreeBSD's vm.swap_total (bytes) or macOS's vm.swapusage
-// ("total = 1024.00M  used = ..."), as megabytes.
-func parseSwap(out string) []gatherFact {
-	out = strings.TrimSpace(out)
-	if total, ok := strings.CutPrefix(out, "total = "); ok {
-		field, _, _ := strings.Cut(total, " ")
-		mb, err := strconv.ParseFloat(strings.TrimSuffix(field, "M"), 64)
-		if err != nil || !strings.HasSuffix(field, "M") || mb < 0 {
-			return nil
-		}
-		return []gatherFact{{key: gatherFactSwapTotalMB, value: int(mb)}}
-	}
-	return bytesToMB(gatherFactSwapTotalMB)(out)
 }
 
 // parseBoottime reads kern.boottime ("{ sec = 1793718135, usec = 706058 }
