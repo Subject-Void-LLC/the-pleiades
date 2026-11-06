@@ -311,21 +311,27 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		// allow its removal, cannot be checked.
 		removable := located && !(before.Kind == remotefile.KindDirectory && recurse)
 		if removable {
-			var allowed bool
-			allowed, err = remotefile.Removable(ctx, conn, path)
-			removable = err == nil && allowed
+			var allowed, known bool
+			allowed, known, err = remotefile.RemovableKnown(ctx, conn, path)
+			removable = err == nil && allowed && known
 			// The check's own answer: the device's rules say this login may
 			// not remove the path, so the real run will likely be refused.
-			// A refusal by default (owner decision 2026-11-04); a warning when
-			// the task asks, since Removable answers no where it cannot tell
-			// (root under BusyBox), where a refusal would be wrong the other
-			// way.
-			if err == nil && !allowed {
-				why := fmt.Sprintf("the device's permissions say this login may not remove %s (the directory holding it is not writable and searchable for it, or is sticky and not its own)", path)
-				if forbidden == checkForbiddenRefuse {
-					return collection.Result{}, fmt.Errorf("%s: refusing: %s, so the real run will likely be refused. Set %s: %s where the device's permissions cannot be read as they apply",
-						fqcn, why, removeParamCheckForbidden, checkForbiddenWarn)
+			// A refusal by default (owner decision 2026-11-04), a warning when
+			// the task asks; and a warning, never a refusal, where the device
+			// cannot say (root under BusyBox), since a refusal there would be
+			// wrong the other way and its advice could not be followed by a
+			// rollback check, whose undo's params come from the journal.
+			why := fmt.Sprintf("the device's permissions say this login may not remove %s (the directory holding it is not writable and searchable for it, or is sticky and not its own)", path)
+			switch {
+			case err != nil:
+			case !known:
+				if werr := sdk.RecordWarnings(rc, []string{fmt.Sprintf("whether this login may remove %s cannot be read from the device (root under a BusyBox shell), so the check predicts nothing about it", path)}); werr != nil {
+					return collection.Result{}, fmt.Errorf("%s: %w", fqcn, werr)
 				}
+			case !allowed && forbidden == checkForbiddenRefuse:
+				return collection.Result{}, fmt.Errorf("%s: refusing: %s, so the real run will likely be refused. Set %s: %s where the device's permissions cannot be read as they apply",
+					fqcn, why, removeParamCheckForbidden, checkForbiddenWarn)
+			case !allowed:
 				if werr := sdk.RecordWarnings(rc, []string{why + "; the real run will likely be refused"}); werr != nil {
 					return collection.Result{}, fmt.Errorf("%s: %w", fqcn, werr)
 				}
