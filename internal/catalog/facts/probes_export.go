@@ -37,8 +37,13 @@ func (p Probe) Read(stdout string) map[string]any {
 	names := gatherNames{}
 	out := map[string]any{}
 	for _, f := range p.parse(stdout) {
-		f = names.distinct(f)
-		out[f.key] = f.value
+		if !p.family {
+			out[f.key] = f.value
+			continue
+		}
+		for _, item := range familyItems(names, f) {
+			out[item.key] = item.value
+		}
 	}
 	return out
 }

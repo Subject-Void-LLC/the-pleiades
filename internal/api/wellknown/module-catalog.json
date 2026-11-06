@@ -7107,13 +7107,13 @@
         "key": "ansible_distribution",
         "kind": "stable",
         "type": "string",
-        "description": "The distribution name, read from NAME in /etc/os-release, for example Ubuntu."
+        "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), otherwise NAME, as Ansible's own fallback reports it (openSUSE Leap, SLES); MacOSX on macOS and the edition's caption on Windows."
       },
       {
         "key": "ansible_distribution_version",
         "kind": "stable",
         "type": "string",
-        "description": "The distribution version, read from VERSION_ID in /etc/os-release. A rolling release that publishes no VERSION_ID reports no such fact."
+        "description": "The distribution version as Ansible reports it: VERSION_ID in /etc/os-release, on Debian the point release /etc/debian_version holds when it is more precise (12.12 where VERSION_ID is 12), and on the SUSE family VERSION_ID's major and minor parts. A rolling release that publishes no VERSION_ID reports no such fact."
       },
       {
         "key": "ansible_memtotal_mb",
@@ -7149,19 +7149,25 @@
         "key": "ansible_distribution_major_version",
         "kind": "stable",
         "type": "string",
-        "description": "VERSION_ID up to its first dot, such as 24 for 24.04."
+        "description": "The distribution version up to its first dot, such as 24 for 24.04."
+      },
+      {
+        "key": "ansible_os_family",
+        "kind": "stable",
+        "type": "string",
+        "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list, the distribution itself, as Ansible reports it."
       },
       {
         "key": "ansible_distribution_release",
         "kind": "stable",
         "type": "string",
-        "description": "VERSION_CODENAME from /etc/os-release, such as noble."
+        "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out."
       },
       {
         "key": "ansible_swaptotal_mb",
         "kind": "stable",
         "type": "integer",
-        "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."
+        "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo (vm.swap_total on FreeBSD); 0 on a device with no swap, and always 0 on Windows, as Ansible reports it there, since a page file is not swap. macOS reports none, as Ansible does: its swap files are made and removed as memory is needed, so their total moves on its own."
       },
       {
         "key": "ansible_processor_vcpus",
@@ -7189,7 +7195,15 @@
         "item_names": true,
         "kind": "stable",
         "type": "object",
-        "description": "One service: state, enabled, status (the manager's own word for it) and source."
+        "description": "One service: enabled, status (the manager's own word for its start setting) and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "What one service is doing (running, stopped, the manager's own word), its latest value only."
       },
       {
         "key": "file.",
@@ -7226,7 +7240,7 @@
     ],
     "doc": {
       "summary": "Gathers system facts from the target: OS, kernel, distribution, and on request its packages, services, listening ports, accounts and named files.",
-      "description": "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, one fact per service (service.<name>: state, enabled and status, from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager); ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. A family is read or the task says it was not: a source on the device whose listing fails, or answers without the structure it always prints, fails the task, so no item reads as removed; a family no source on the device answers fails a task that named its subset, and is a warning for one that reached it through all. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+      "description": "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, two facts per service (service.<name>: enabled and status, and service_state.<name>: its state, which moves on its own and so is kept as its latest value only, never as drift), from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager; ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. A family is read or the task says it was not: a source on the device whose listing fails, or answers without the structure it always prints, fails the task, so no item reads as removed; a family no source on the device answers fails a task that named its subset, and is a warning for one that reached it through all. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
       "params": [
         {
           "name": "filter",
@@ -7272,14 +7286,14 @@
         {
           "name": "ansible_distribution",
           "type": "string",
-          "returned": "when /etc/os-release names one",
-          "description": "The distribution name, read from NAME in /etc/os-release, for example Ubuntu."
+          "returned": "when the device names one",
+          "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), otherwise NAME, as Ansible's own fallback reports it (openSUSE Leap, SLES); MacOSX on macOS and the edition's caption on Windows."
         },
         {
           "name": "ansible_distribution_version",
           "type": "string",
-          "returned": "when /etc/os-release names one",
-          "description": "The distribution version, read from VERSION_ID in /etc/os-release. A rolling release that publishes no VERSION_ID reports no such fact."
+          "returned": "when the device names one",
+          "description": "The distribution version as Ansible reports it: VERSION_ID in /etc/os-release, on Debian the point release /etc/debian_version holds when it is more precise (12.12 where VERSION_ID is 12), and on the SUSE family VERSION_ID's major and minor parts. A rolling release that publishes no VERSION_ID reports no such fact."
         },
         {
           "name": "ansible_memtotal_mb",
@@ -7314,20 +7328,26 @@
         {
           "name": "ansible_distribution_major_version",
           "type": "string",
-          "returned": "when /etc/os-release names a version",
-          "description": "VERSION_ID up to its first dot, such as 24 for 24.04."
+          "returned": "when the device names a version",
+          "description": "The distribution version up to its first dot, such as 24 for 24.04."
+        },
+        {
+          "name": "ansible_os_family",
+          "type": "string",
+          "returned": "when the device names its distribution",
+          "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list, the distribution itself, as Ansible reports it."
         },
         {
           "name": "ansible_distribution_release",
           "type": "string",
-          "returned": "when /etc/os-release names a codename",
-          "description": "VERSION_CODENAME from /etc/os-release, such as noble."
+          "returned": "when the distribution names one",
+          "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out."
         },
         {
           "name": "ansible_swaptotal_mb",
           "type": "int",
-          "returned": "when /proc/meminfo reports it",
-          "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."
+          "returned": "when the device reports it, never on macOS",
+          "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo (vm.swap_total on FreeBSD); 0 on a device with no swap, and always 0 on Windows, as Ansible reports it there, since a page file is not swap. macOS reports none, as Ansible does: its swap files are made and removed as memory is needed, so their total moves on its own."
         },
         {
           "name": "ansible_processor_vcpus",
@@ -7351,7 +7371,13 @@
           "name": "service.<name>",
           "type": "map",
           "returned": "with the services subset, for each service the service manager lists",
-          "description": "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart) and status the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status enabled or disabled, a daemon launchd has not loaded because it is disabled being reported stopped and disabled; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."
+          "description": "One service by its manager's name for it: enabled, status and source; what it is doing now is service_state.<name>. From systemd (source systemd), status is the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), status is the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, status is enabled or disabled; from launchd, status is enabled or disabled, a daemon launchd has not loaded because it is disabled being listed all the same, and a job launchd starts once per connection or session (a label ending in a UUID, such as com.openssh.sshd.<UUID>) not listed, since a new one comes with every login; from the Windows service control manager (scm), status is the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows, and a per-user service is listed once by its template's name with per_user true, never by the instance Windows makes for each signed-in user (Template_<LUID>), whose name changes with every sign-in."
+        },
+        {
+          "name": "service_state.<name>",
+          "type": "string",
+          "returned": "with the services subset, for each service its manager says the state of",
+          "description": "What the service service.<name> names is doing, kept as its latest value only and never as drift, since services start and stop on their own (a timer's job, a service started when something asks for it). From systemd, the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart); from OpenRC, running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted; from FreeBSD's rc, running, stopped or unknown (an rc script that is not enabled, or whose status only root may read); from launchd, running or stopped; from Windows, the manager's own word lower-cased (running, stopped, start pending). A per-user service's template has none."
         },
         {
           "name": "file.<path>",

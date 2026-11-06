@@ -221,7 +221,7 @@ const backupNote = "the backup is kept as the task's backup stat, not written to
 // must be rewritten for.
 const (
 	packageFactsNote = "facts.gather records each package as package.<name> = {version, arch, source}, not Ansible's ansible_facts.packages[name] list; a condition reading ansible_facts.packages needs rewriting to result.<register>[\"package.<name>\"]"
-	serviceFactsNote = "facts.gather records each service as service.<unit> = {state, enabled, status, source}, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>[\"service.<unit>\"]. It reads systemd, OpenRC, FreeBSD's rc, launchd and Windows, not SysV init's service --status-all; a host with none of them is a warning, where Ansible skips"
+	serviceFactsNote = "facts.gather records each service as service.<unit> = {enabled, status, source} and its state as service_state.<unit>, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>[\"service.<unit>\"], or result.<register>[\"service_state.<unit>\"] for its state. It reads systemd, OpenRC, FreeBSD's rc, launchd and Windows, not SysV init's service --status-all; a host with none of them is a warning, where Ansible skips"
 )
 
 // serviceFactsSubsets is the gather_subset a converted service_facts takes:

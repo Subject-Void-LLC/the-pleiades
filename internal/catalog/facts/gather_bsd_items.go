@@ -8,6 +8,7 @@ package facts
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -272,6 +273,14 @@ func parseLaunchd(out string) []gatherFact {
 			continue
 		}
 		label := fields[len(fields)-1]
+		// A job launchd made for one connection or session (sshd's for each
+		// login, loginwindow's for each console session) is left out: a new
+		// one comes with each, so every gather, itself a login, would add one
+		// service and remove another on a Mac nobody changed. One installed
+		// under its own plist is a daemon like any other.
+		if launchdInstance(label) && !installed[label] {
+			continue
+		}
 		state := "stopped"
 		if fields[0] != "0" && fields[0] != "-" {
 			state = "running"
@@ -299,6 +308,18 @@ func parseLaunchd(out string) []gatherFact {
 		}})
 	}
 	return facts
+}
+
+// launchdInstanceSuffix is a UUID as launchd ends an instance job's label
+// with it (com.openssh.sshd.79A2B1BE-9FE9-4FE6-AD87-8796E3A5524F), after a
+// dot.
+var launchdInstanceSuffix = regexp.MustCompile(`\.[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
+
+// launchdInstance reports whether label is an instance of another job: its
+// last dot-separated part a UUID, as launchd names the job it starts for each
+// sshd connection, console session, mounted disk image or indexed volume.
+func launchdInstance(label string) bool {
+	return launchdInstanceSuffix.MatchString(label)
 }
 
 // launchdStatus is a launchd daemon's status as the other managers' word

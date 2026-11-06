@@ -116,15 +116,20 @@ func init() {
 		// is on the device now, which is exactly what a real run would.
 		Check: Gather,
 	}
-	// Only the uptime moves on its own; every other fact changes when the
-	// device does.
+	// Only the uptime and a service's state move on their own; every other
+	// fact changes when the device does.
 	d.Manifest.Facts = append(collection.DeclareFacts(d.Manifest.Doc.Returns, gatherFactNames(), gatherFactUptimeSeconds),
 		// One fact per item (Phase 41c): a package's version or a service's
-		// state changing is the device changing.
+		// start setting changing is the device changing.
 		collection.FactSpec{Key: gatherFamilyPackage, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
 			Description: "One installed package: version, arch and source (the database it was read from)."},
 		collection.FactSpec{Key: gatherFamilyService, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
-			Description: "One service: state, enabled, status (the manager's own word for it) and source."},
+			Description: "One service: enabled, status (the manager's own word for its start setting) and source."},
+		// A service's state is not: a timer's job runs and exits, a service
+		// started on demand comes and goes, on a device nobody changed, so it
+		// is kept as its latest value and never shown as drift.
+		collection.FactSpec{Key: gatherFamilyServiceState, Prefix: true, ItemNames: true, Kind: collection.FactVolatile, Type: collection.FactString,
+			Description: "What one service is doing (running, stopped, the manager's own word), its latest value only."},
 		// A path's digest or owner changing, a new listener, an account
 		// added: each is the device changing.
 		collection.FactSpec{Key: gatherFamilyFile, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
@@ -162,7 +167,7 @@ func gatherFactNames() []string {
 func gatherDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Gathers system facts from the target: OS, kernel, distribution, and on request its packages, services, listening ports, accounts and named files.",
-		Description: "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, one fact per service (service.<name>: state, enabled and status, from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager); ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. A family is read or the task says it was not: a source on the device whose listing fails, or answers without the structure it always prints, fails the task, so no item reads as removed; a family no source on the device answers fails a task that named its subset, and is a warning for one that reached it through all. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+		Description: "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, two facts per service (service.<name>: enabled and status, and service_state.<name>: its state, which moves on its own and so is kept as its latest value only, never as drift), from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager; ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. A family is read or the task says it was not: a source on the device whose listing fails, or answers without the structure it always prints, fails the task, so no item reads as removed; a family no source on the device answers fails a task that named its subset, and is a warning for one that reached it through all. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
 		Params: []collection.Param{
 			{Name: gatherParamFilter, Type: "list of string", Description: "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out."},
 			{Name: gatherParamSubset, Type: "list of string", Description: "The subsets to gather: min and hardware as ansible.builtin.setup names them, packages and services (Ansible's package_facts and service_facts), ports, users and files, or all, every one; a name with a leading ! leaves that subset out wherever it stands in the list, unless the task also names that subset itself, as Ansible reads it (files with paths in files and !files together are still refused), and a list of only such names starts from min and hardware. min is gathered unless !min is named. Leaving this out gathers min and hardware, what this method always read, so a task never starts listing a host's packages without asking. files is gathered whenever files names paths, all gathers it only then, and naming files with no paths is refused. An unknown name is refused."},
@@ -173,20 +178,22 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactHostname, Type: "string", Returned: "when the device reports one", Description: "The short host name, which is everything before the first dot of what uname reports."},
 			{Name: gatherFactKernel, Type: "string", Returned: "when the device reports one", Description: "The kernel release, as uname -r reports it."},
 			{Name: gatherFactArchitecture, Type: "string", Returned: "when the device reports one", Description: "The machine hardware name, as uname -m reports it, for example x86_64."},
-			{Name: gatherFactDistribution, Type: "string", Returned: "when /etc/os-release names one", Description: "The distribution name, read from NAME in /etc/os-release, for example Ubuntu."},
-			{Name: gatherFactDistributionVersion, Type: "string", Returned: "when /etc/os-release names one", Description: "The distribution version, read from VERSION_ID in /etc/os-release. A rolling release that publishes no VERSION_ID reports no such fact."},
+			{Name: gatherFactDistribution, Type: "string", Returned: "when the device names one", Description: "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), otherwise NAME, as Ansible's own fallback reports it (openSUSE Leap, SLES); MacOSX on macOS and the edition's caption on Windows."},
+			{Name: gatherFactDistributionVersion, Type: "string", Returned: "when the device names one", Description: "The distribution version as Ansible reports it: VERSION_ID in /etc/os-release, on Debian the point release /etc/debian_version holds when it is more precise (12.12 where VERSION_ID is 12), and on the SUSE family VERSION_ID's major and minor parts. A rolling release that publishes no VERSION_ID reports no such fact."},
 			{Name: gatherFactMemTotalMB, Type: "int", Returned: "when /proc/meminfo reports it", Description: "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it."},
 			{Name: gatherFactProcessorCount, Type: "int", Returned: "when /proc/cpuinfo reports it", Description: "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo. An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."},
 			{Name: gatherFactUptimeSeconds, Type: "int", Returned: "when /proc/uptime reports it", Description: "How long the device has been up, in whole seconds, from the first field of /proc/uptime."},
 			{Name: gatherFactNodename, Type: "string", Returned: "when the device reports one", Description: "The full node name uname -n reports, before ansible_hostname cuts it at the first dot."},
 			{Name: gatherFactSystem, Type: "string", Returned: "when the device reports one", Description: "The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin."},
-			{Name: gatherFactDistributionMajor, Type: "string", Returned: "when /etc/os-release names a version", Description: "VERSION_ID up to its first dot, such as 24 for 24.04."},
-			{Name: gatherFactDistributionRelease, Type: "string", Returned: "when /etc/os-release names a codename", Description: "VERSION_CODENAME from /etc/os-release, such as noble."},
-			{Name: gatherFactSwapTotalMB, Type: "int", Returned: "when /proc/meminfo reports it", Description: "Total swap in megabytes, from SwapTotal in /proc/meminfo; 0 on a device with no swap."},
+			{Name: gatherFactDistributionMajor, Type: "string", Returned: "when the device names a version", Description: "The distribution version up to its first dot, such as 24 for 24.04."},
+			{Name: gatherFactOSFamily, Type: "string", Returned: "when the device names its distribution", Description: "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list, the distribution itself, as Ansible reports it."},
+			{Name: gatherFactDistributionRelease, Type: "string", Returned: "when the distribution names one", Description: "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out."},
+			{Name: gatherFactSwapTotalMB, Type: "int", Returned: "when the device reports it, never on macOS", Description: "Total swap in megabytes, from SwapTotal in /proc/meminfo (vm.swap_total on FreeBSD); 0 on a device with no swap, and always 0 on Windows, as Ansible reports it there, since a page file is not swap. macOS reports none, as Ansible does: its swap files are made and removed as memory is needed, so their total moves on its own."},
 			{Name: gatherFactProcessorVCPUs, Type: "int", Returned: "when /proc/cpuinfo lists processors", Description: "The number of logical processors, counted as the processor entries in /proc/cpuinfo."},
 			{Name: gatherFactProcessorCores, Type: "int", Returned: "when /proc/cpuinfo reports cpu cores", Description: "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."},
 			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm, apk, pkg, brew, brew-cask, pkgutil or registry). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source, then #2 and on in the order the source lists them. A package its source gives no version has none."},
-			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: state, enabled, status and source. From systemd (source systemd), state is the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart) and status the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), state is running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted, and status the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, state is running, stopped or unknown (an rc script that is not enabled, or whose status only root may read) and status enabled or disabled; from launchd, state is running or stopped and status enabled or disabled, a daemon launchd has not loaded because it is disabled being reported stopped and disabled; from the Windows service control manager (scm), state is the manager's own word lower-cased (running, stopped, start pending) and status the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows."},
+			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: enabled, status and source; what it is doing now is service_state.<name>. From systemd (source systemd), status is the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime; from OpenRC (openrc), status is the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, status is enabled or disabled; from launchd, status is enabled or disabled, a daemon launchd has not loaded because it is disabled being listed all the same, and a job launchd starts once per connection or session (a label ending in a UUID, such as com.openssh.sshd.<UUID>) not listed, since a new one comes with every login; from the Windows service control manager (scm), status is the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows, and a per-user service is listed once by its template's name with per_user true, never by the instance Windows makes for each signed-in user (Template_<LUID>), whose name changes with every sign-in."},
+			{Name: "service_state.<name>", Type: "string", Returned: "with the services subset, for each service its manager says the state of", Description: "What the service service.<name> names is doing, kept as its latest value only and never as drift, since services start and stop on their own (a timer's job, a service started when something asks for it). From systemd, the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart); from OpenRC, running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted; from FreeBSD's rc, running, stopped or unknown (an rc script that is not enabled, or whose status only root may read); from launchd, running or stopped; from Windows, the manager's own word lower-cased (running, stopped, start pending). A per-user service's template has none."},
 			{Name: "file.<path>", Type: "map", Returned: "with the files subset, for each path in files", Description: "One named path: state (present, absent or unreadable); when present, type (file, directory, link, fifo, socket, char or block), size (not for a directory, nor a file not everyone may read), uid, gid, owner, group and mode as four octal digits on a POSIX device, attributes and owner on Windows, for a regular file world_readable and, when anyone may read it, sha256 and size, or when not, hmac_sha256 and hmac_key (a keyed digest the store can compare and nobody without the key can test guesses against; on a Runner the task's own result holds it sealed to the Controller, as sha256_sealed, and only the stored fact holds it keyed), readable, and link_target for a link. The path is percent-encoded in the key as any item name is."},
 			{Name: "port.<protocol>:<address>:<port>", Type: "map", Returned: "with the ports subset, for each listening socket", Description: "One listening TCP socket, or UDP socket bound with no peer: protocol (tcp or udp), address (0.0.0.0 or :: for any; in brackets in the key when it is IPv6), port, uid on Linux, and process, the owning process's name, where the login may see it (on Linux its own processes, or every one as root; on FreeBSD every one unless security.bsd.see_other_uids is off; every one on macOS; on Windows every one an administrator sees). A socket taking both families is ::."},
 			{Name: "user.<name>", Type: "map", Returned: "with the users subset, for each local account", Description: "One local account: uid, gid, home, shell and source (files from /etc/passwd, dslocal from a Mac's local directory), or on Windows sid, enabled and source sam. Accounts a directory service adds (LDAP, SSSD, a domain) are not local and not listed; the password field is never read."},
@@ -354,9 +361,10 @@ func gatherHostProbes() []gatherProbe {
 			parse:   gatherSingle(gatherFactArchitecture),
 		},
 		{
-			subset:  gatherSubsetMin,
-			keys:    []string{gatherFactDistribution, gatherFactDistributionVersion, gatherFactDistributionMajor, gatherFactDistributionRelease},
-			command: "cat /etc/os-release",
+			subset: gatherSubsetMin,
+			keys: []string{gatherFactDistribution, gatherFactOSFamily, gatherFactDistributionVersion, gatherFactDistributionMajor,
+				gatherFactDistributionRelease},
+			command: osReleaseCommand,
 			parse:   gatherOSRelease,
 		},
 		{
@@ -472,23 +480,25 @@ func Gather(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 			// only one of them, so the keys are checked again here. Dropping
 			// this would emit ansible_distribution_version to a task that
 			// asked for ansible_distribution alone.
-			if probe.family != "" {
-				// Two databases may both list a package (dpkg and rpm,
-				// Homebrew and pkgutil): one never overwrites the other. Told
-				// apart before the filter, and whether or not it keeps the
-				// item, so the filter reads the key that is stored
-				// (package.glibc:i686 for package.glibc:*, FAILURE_PATTERNS 930) and
-				// a key does not change with the filter.
-				fact = names.distinct(fact)
-				// A family's member is held to the filter itself: its key
-				// was not known until the device listed it.
-				if !gatherMatches(patterns, fact.key) {
-					continue
+			if probe.family == "" {
+				if gatherWanted(probe.keys, fact.key) {
+					keep = append(keep, fact)
 				}
-			} else if !gatherWanted(probe.keys, fact.key) {
 				continue
 			}
-			keep = append(keep, fact)
+			// Two databases may both list a package (dpkg and rpm, Homebrew
+			// and pkgutil): one never overwrites the other. Told apart before
+			// the filter, and whether or not it keeps the item, so the filter
+			// reads the key that is stored (package.glibc:i686 for
+			// package.glibc:*, FAILURE_PATTERNS 930) and a key does not change
+			// with the filter. A service's state is split off here too.
+			for _, item := range familyItems(names, fact) {
+				// A family's member is held to the filter itself: its key was
+				// not known until the device listed it.
+				if gatherMatches(patterns, item.key) {
+					keep = append(keep, item)
+				}
+			}
 		}
 		// One task's observation is stored only whole and only up to
 		// collection.MaxFactsPerObservation facts, so a device listing more
@@ -614,8 +624,12 @@ func (choice gatherChoice) narrow(probes []gatherProbe) []gatherProbe {
 			continue
 		}
 		if probe.family != "" {
-			if gatherFamilyWanted(choice.patterns, probe.family) {
-				planned = append(planned, probe)
+			// A services probe is wanted for its states alone too.
+			for _, family := range familiesOf(probe.family) {
+				if gatherFamilyWanted(choice.patterns, family) {
+					planned = append(planned, probe)
+					break
+				}
 			}
 			continue
 		}
@@ -765,9 +779,11 @@ func gatherAllKeys(chosen map[string]bool) []string {
 			continue
 		}
 		if probe.family != "" {
-			if !seen[probe.family] {
-				keys = append(keys, probe.family+"*")
-				seen[probe.family] = true
+			for _, family := range familiesOf(probe.family) {
+				if !seen[family] {
+					keys = append(keys, family+"*")
+					seen[family] = true
+				}
 			}
 			continue
 		}
@@ -803,31 +819,6 @@ func gatherSingle(key string) func(string) []gatherFact {
 func gatherShortName(name string) string {
 	short, _, _ := strings.Cut(name, ".")
 	return short
-}
-
-// gatherOSRelease reads the distribution name and version out of
-// /etc/os-release.
-//
-// Both are optional. A distribution that publishes NAME and no VERSION_ID
-// (a rolling release does exactly this) reports one fact and not the
-// other, rather than a version of "" that a later condition would compare
-// against and get a wrong answer from.
-func gatherOSRelease(stdout string) []gatherFact {
-	values := gatherKeyValues(stdout)
-
-	var facts []gatherFact
-	if name := values["NAME"]; name != "" {
-		facts = append(facts, gatherFact{key: gatherFactDistribution, value: name})
-	}
-	if version := values["VERSION_ID"]; version != "" {
-		facts = append(facts, gatherFact{key: gatherFactDistributionVersion, value: version})
-		major, _, _ := strings.Cut(version, ".")
-		facts = append(facts, gatherFact{key: gatherFactDistributionMajor, value: major})
-	}
-	if release := values["VERSION_CODENAME"]; release != "" {
-		facts = append(facts, gatherFact{key: gatherFactDistributionRelease, value: release})
-	}
-	return facts
 }
 
 // gatherKeyValues parses the KEY=VALUE lines of an os-release file.

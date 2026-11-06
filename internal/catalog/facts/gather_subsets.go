@@ -195,11 +195,58 @@ func chosenNames(chosen map[string]bool) []string {
 const (
 	gatherFamilyPackage = "package."
 	gatherFamilyService = "service."
-	gatherFamilyFile    = "file."
-	gatherFamilyPort    = "port."
-	gatherFamilyUser    = "user."
-	gatherFamilyGroup   = "group."
+	// gatherFamilyServiceState is each service's state, split off its
+	// service. fact by splitServiceState, since it moves on its own and the
+	// rest does not.
+	gatherFamilyServiceState = "service_state."
+	gatherFamilyFile         = "file."
+	gatherFamilyPort         = "port."
+	gatherFamilyUser         = "user."
+	gatherFamilyGroup        = "group."
 )
+
+// familiesOf is the families a probe of family emits: a services probe's
+// facts are its services and their states.
+func familiesOf(family string) []string {
+	if family == gatherFamilyService {
+		return []string{gatherFamilyService, gatherFamilyServiceState}
+	}
+	return []string{family}
+}
+
+// familyItems is one item a family probe parsed, as Gather emits it: under a
+// key no earlier item took (gatherNames.distinct) and, for a service, split
+// in two by splitServiceState.
+func familyItems(names gatherNames, f gatherFact) []gatherFact {
+	return splitServiceState(names, names.distinct(f))
+}
+
+// splitServiceState takes the state out of a service. fact and returns it as
+// the service_state. fact of the same item, its key the service's own after
+// the family's prefix, so the two pair even where distinct told the service
+// apart from another of its name. A fact of another family, or a service with
+// no state (a Windows per-user template), is returned as it is.
+func splitServiceState(names gatherNames, f gatherFact) []gatherFact {
+	value, ok := f.value.(map[string]any)
+	name, isService := strings.CutPrefix(f.key, gatherFamilyService)
+	if !ok || !isService {
+		return []gatherFact{f}
+	}
+	state, hasState := value["state"].(string)
+	rest := make(map[string]any, len(value))
+	for k, v := range value {
+		if k != "state" {
+			rest[k] = v
+		}
+	}
+	out := []gatherFact{{key: f.key, value: rest}}
+	if hasState && state != "" {
+		key := gatherFamilyServiceState + name
+		names[key] = true
+		out = append(out, gatherFact{key: key, value: state})
+	}
+	return out
+}
 
 // itemKey is the fact key of one item of family: the family's prefix and the
 // item's name, with the characters a fact key cannot hold (a space, a slash,
