@@ -43,32 +43,41 @@ func startOwnSSHD(t *testing.T) (*testsupport.SSHD, *remoteexec.Conn) {
 // account's ~/.ssh/rc before every command, and its output reaches the
 // client ahead of the command's own (as a shell's startup files do). A
 // detached command's polls read past it: the command finishes, its output
-// is its own, and no job directory is left.
+// is its own, and no job directory is left. Startup output that ends with no
+// newline (a printf, or zsh's echo -n in .zshenv) runs into the first line of
+// every answer, so each answer leads with one of its own.
 func TestSSHContainer_ADetachedCommandSurvivesStartupOutput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSH container integration test in short mode")
 	}
-	srv, conn := startOwnSSHD(t)
 	banner := "welcome to this host, " + strings.Repeat("=", 80)
-	script := fmt.Sprintf("mkdir -p %[1]s/.ssh && printf 'echo %[2]s\\n' > %[1]s/.ssh/rc && chown -R %[3]s %[1]s/.ssh", testsupport.SSHDHome, banner, testsupport.SSHDUser)
-	if out, err := srv.RootExec(context.Background(), script); err != nil {
-		t.Fatalf("writing ~/.ssh/rc: %v\n%s", err, out)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	res, err := conn.Run(remoteexec.WithDetach(ctx), "echo out; echo problem >&2")
-	if err != nil {
-		t.Fatalf("a detached command under startup output: %v", err)
-	}
-	if res.Stdout != "out\n" || res.Stderr != "problem\n" || res.ExitCode != 0 {
-		t.Fatalf("a detached command under startup output = %+v; want its own output only", res)
-	}
-	left, err := srv.RootExec(context.Background(), "ls -d "+testsupport.SSHDHome+"/.pleiades-async-*/job.* 2>/dev/null | wc -l")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(left) != "0" {
-		t.Fatalf("%s job directories were left on the device", strings.TrimSpace(left))
+	for name, rc := range map[string]string{
+		"a banner line":            "echo " + banner + "\\n",
+		"a banner with no newline": "printf " + banner,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, conn := startOwnSSHD(t)
+			script := fmt.Sprintf("mkdir -p %[1]s/.ssh && printf '%%s\\n' '%[2]s' > %[1]s/.ssh/rc && chown -R %[3]s %[1]s/.ssh", testsupport.SSHDHome, rc, testsupport.SSHDUser)
+			if out, err := srv.RootExec(context.Background(), script); err != nil {
+				t.Fatalf("writing ~/.ssh/rc: %v\n%s", err, out)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			res, err := conn.Run(remoteexec.WithDetach(ctx), "echo out; echo problem >&2")
+			if err != nil {
+				t.Fatalf("a detached command under startup output: %v", err)
+			}
+			if res.Stdout != "out\n" || res.Stderr != "problem\n" || res.ExitCode != 0 {
+				t.Fatalf("a detached command under startup output = %+v; want its own output only", res)
+			}
+			left, err := srv.RootExec(context.Background(), "ls -d "+testsupport.SSHDHome+"/.pleiades-async-*/job.* 2>/dev/null | wc -l")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(left) != "0" {
+				t.Fatalf("%s job directories were left on the device", strings.TrimSpace(left))
+			}
+		})
 	}
 }
 

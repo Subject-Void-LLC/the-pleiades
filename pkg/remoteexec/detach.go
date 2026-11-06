@@ -98,7 +98,7 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 		return c.run(plain, command, nil, limit)
 	}
 	dir := lastLine(started.Stdout)
-	if !jobDir.MatchString(dir) {
+	if !answeredJobDir(dir, name) {
 		// Started, maybe: never run it a second time, and stop it by name.
 		return Result{}, fmt.Errorf("remoteexec: a detached command on %s answered with no job directory, and the job, if it started, %s: %q %q", c.addr, c.stopDetached(jobByName(name)), boundedText(dir), strings.TrimSpace(boundedText(started.Stderr)))
 	}
@@ -119,7 +119,9 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 		case <-time.After(wait):
 		}
 		wait = min(wait*2, detachMaxPoll)
-		rc, err := c.run(plain, "printf '"+rcPrefix+"'; cat "+qdir+"/rc 2>/dev/null", nil, detachAnswerLimit)
+		// The answer leads with a newline of its own, so startup output with
+		// none (a printf in ~/.ssh/rc) does not run into the marked line.
+		rc, err := c.run(plain, "printf '\\n"+rcPrefix+"'; cat "+qdir+"/rc 2>/dev/null", nil, detachAnswerLimit)
 		if err != nil && ctx.Err() != nil {
 			return stopped()
 		}
@@ -145,8 +147,7 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 		}
 		code, err := pollRC(rc.Stdout)
 		if err != nil {
-			c.stopDetached(qdir)
-			return Result{}, fmt.Errorf("remoteexec: a detached command on %s left an exit status that is not a number: %w", c.addr, err)
+			return Result{}, fmt.Errorf("remoteexec: a detached command on %s left an exit status that is not a number, and the job %s: %w", c.addr, c.stopDetached(qdir), err)
 		}
 		// The job has finished: its directory, which holds the command, is
 		// removed however its output reads.
@@ -177,7 +178,9 @@ func (c *Conn) runDetached(ctx context.Context, command string, limit int) (Resu
 // files print ahead of it is not taken for the file's contents.
 func (c *Conn) readJobFile(ctx context.Context, path, name string, limit int) (string, error) {
 	marker := "pleiades-job-" + name
-	res, err := c.run(ctx, "echo "+marker+"; cat "+path, nil, limit+detachAnswerLimit)
+	// echo first, so startup output with no newline ends its own line and
+	// the marker starts one (afterMarker reads it after a newline).
+	res, err := c.run(ctx, "echo; echo "+marker+"; cat "+path, nil, limit+detachAnswerLimit)
 	if err != nil {
 		return "", err
 	}

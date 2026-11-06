@@ -96,6 +96,17 @@ func TestWithoutCommand_KeepsOtherErrors(t *testing.T) {
 	if got := withoutCommand(dropped, "echo hi"); got != dropped {
 		t.Fatalf("withoutCommand(%v) = %v; want it unchanged", dropped, got)
 	}
+	// A short line (a Raw view's command) inside another error Start returns
+	// is not a refusal: only x/crypto/ssh's whole "ssh: command <line> failed"
+	// is. Matched by substring, Start's own "ssh: session already started"
+	// read as the server refusing a command named "session".
+	other := errors.New("ssh: session already started")
+	if got := withoutCommand(other, "session"); got != other {
+		t.Fatalf("withoutCommand(%v, session) = %v; want it unchanged", other, got)
+	}
+	if got := withoutCommand(errors.New("ssh: command session failed"), "session"); !errors.Is(got, ErrCommandRefused) {
+		t.Fatalf("the refusal itself = %v; want ErrCommandRefused", got)
+	}
 }
 
 // TestStart_AContextAlreadyDoneStartsNothing: Start on a done context opens no

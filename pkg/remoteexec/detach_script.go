@@ -70,6 +70,7 @@ else
   sh -c "$job" job "$d" "$um" "$shell" </dev/null >/dev/null 2>&1 &
 fi
 echo $! >"$d/pid"
+echo
 echo "$d"`
 
 // Exit statuses of detachStart that mean nothing was started.
@@ -99,6 +100,15 @@ func newJobName() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b) // crypto/rand.Read does not fail (Go 1.24 and later)
 	return hex.EncodeToString(b)
+}
+
+// answeredJobDir reports whether dir, the start script's answer, is the
+// directory of the job named name: a job directory at all, and this job's.
+// The script names the directory after the name the client chose, so any
+// other job's directory in its answer is an answer this run cannot trust,
+// and polling, reading and removing it would act on another job's files.
+func answeredJobDir(dir, name string) bool {
+	return jobDir.MatchString(dir) && strings.HasSuffix(dir, "/job."+name)
 }
 
 // jobByName is the job directory for name as the device's shell spells it,
@@ -166,7 +176,13 @@ func pollRC(stdout string) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("no exit status line in %q", boundedText(stdout))
 	}
-	return strconv.Atoi(strings.TrimSpace(text))
+	code, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil {
+		// Atoi's own error quotes the whole text, which a job's rc file can
+		// make as long as the poll's bound; the device's text is bounded here.
+		return 0, fmt.Errorf("the exit status line holds %q, not a number", boundedText(text))
+	}
+	return code, nil
 }
 
 // afterMarker returns what follows the first line that is exactly marker in

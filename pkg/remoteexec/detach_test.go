@@ -435,3 +435,18 @@ func TestDetached_OutputPastTheLimitLeavesNoJob(t *testing.T) {
 		t.Errorf("job directories left behind: %v", left)
 	}
 }
+
+// TestDetached_AnExitStatusThatIsNotANumberSaysWhatTheStopDid: a job whose rc
+// file holds something that is not a number (written here by the command
+// itself, while it runs on) fails the run, and the error says the stop
+// stopped it rather than nothing about the job, which is left running nowhere.
+func TestDetached_AnExitStatusThatIsNotANumberSaysWhatTheStopDid(t *testing.T) {
+	conn, _, _, home := detachedConn(t)
+	_, err := conn.Run(WithDetach(context.Background()), `for d in "$HOME"/.pleiades-async-*/job.*; do printf 'garbage' > "$d/rc"; done; sleep 30`)
+	if err == nil || !strings.Contains(err.Error(), "not a number, and the job was stopped") {
+		t.Fatalf("a non-numeric exit status: %v, want an error saying the job was stopped", err)
+	}
+	if left := jobsLeft(t, home); len(left) != 0 {
+		t.Fatalf("job directories left behind: %v", left)
+	}
+}
