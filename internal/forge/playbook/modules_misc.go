@@ -123,7 +123,11 @@ var miscModules = []Entry{
 		Module:  "ansible.builtin.service_facts",
 		Aliases: []string{"service_facts"},
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "listing services reads and changes nothing",
-			Fixed: map[string]any{"gather_subset": []any{"services"}}, Note: serviceFactsNote},
+			// Reached through all rather than named, so a host with no
+			// service manager facts.gather reads is a warning, as Ansible's
+			// service_facts skips there, not a failed task (FAILURE_PATTERNS
+			// 925); min is gathered beside it.
+			Fixed: map[string]any{"gather_subset": serviceFactsSubsets}, Note: serviceFactsNote},
 	},
 	{
 		Module:  "ansible.posix.firewalld",
@@ -217,5 +221,9 @@ const backupNote = "the backup is kept as the task's backup stat, not written to
 // must be rewritten for.
 const (
 	packageFactsNote = "facts.gather records each package as package.<name> = {version, arch, source}, not Ansible's ansible_facts.packages[name] list; a condition reading ansible_facts.packages needs rewriting to result.<register>[\"package.<name>\"]"
-	serviceFactsNote = "facts.gather records each service as service.<unit> = {state, enabled, status, source}, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>[\"service.<unit>\"]"
+	serviceFactsNote = "facts.gather records each service as service.<unit> = {state, enabled, status, source}, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>[\"service.<unit>\"]. It reads systemd, OpenRC, FreeBSD's rc, launchd and Windows, not SysV init's service --status-all; a host with none of them is a warning, where Ansible skips"
 )
+
+// serviceFactsSubsets is the gather_subset a converted service_facts takes:
+// services reached through all, every other subset but min left out.
+var serviceFactsSubsets = []any{"all", "!hardware", "!packages", "!ports", "!users"}

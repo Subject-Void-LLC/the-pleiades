@@ -437,7 +437,7 @@ Also written as `service_facts`.
 
 | When | Native call | Class |
 |---|---|---|
-| otherwise | `facts.gather` with `gather_subset: [services]` (review: facts.gather records each service as service.<unit> = {state, enabled, status, source}, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>["service.<unit>"]) | observe |
+| otherwise | `facts.gather` with `gather_subset: [all !hardware !packages !ports !users]` (review: facts.gather records each service as service.<unit> = {state, enabled, status, source}, not Ansible's ansible_facts.services[unit]; a condition reading ansible_facts.services needs rewriting to result.<register>["service.<unit>"]. It reads systemd, OpenRC, FreeBSD's rc, launchd and Windows, not SysV init's service --status-all; a host with none of them is a warning, where Ansible skips) | observe |
 
 | Argument | Becomes |
 |---|---|
