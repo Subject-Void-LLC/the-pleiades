@@ -7305,3 +7305,30 @@ give it its own subject (254). Here `f5cb8a61` makes `collection.Register` refus
 the doc comment says the default must be the stricter choice. Register cannot tell which choice is stricter; the
 author decides, and the fp-reviewer should ask. A new Runner also refuses a dispatch whose `method_settings` holds a
 value that is not text (`launch.StrictMethodSettings`) rather than dropping it.
+
+## 401. "Passed alone" can be a property of collision odds, not of load: a failure whose chance grows with the number of sockets, files or processes in use passes alone just as a load failure does, so before calling a container failure contention, read the engine's own logs and the host side of the failure, and on Docker Desktop on Linux run `make doctor` (a repeat of 283, whose "contention-shaped" timeout let this class through; FAILURE_PATTERNS 470) (2026-11-06).
+
+**Why.** Branch `fix/docker-desktop-lost-ports`. FAILURE_PATTERNS 470, 471 and 481 (a published port refusing every
+connection for two minutes while the server said it listened) and the local sightings of 483 were read as contention
+from 2026-10-15 to 2026-11-06, because each passed when re-run alone. LESSONS 283 already said to read a tolerated
+failure's output before accepting contention, but it named a timeout in provisioning "contention-shaped", and these
+were timeouts in provisioning, so 283 let them through. LESSONS 357 said to instrument such a failure; 470's
+instrument (`8fb70883`) reported what Docker's API and the container said, and both were right. The cause was in
+neither place. Docker Desktop's engine picks a host port in a network namespace of its own, without seeing the tests'
+sockets; its forwarder then cannot bind a port a socket of the tests' own already holds, logs one warning in Docker
+Desktop's host-side logs, and never retries. A test alone holds few sockets and rarely draws such a port; a full gate
+holds thousands. Load raised the odds of a collision, not the cost of one.
+
+Two readings would have found it sooner. The values across sightings: every refused port in the ledger is even, the
+parity Linux gives an outgoing connection's local port, which points at the tests' own sockets and away from load.
+And the engine's own logs for the minute of the failure, which said "failed to expose port" each time. Outside
+diagnoses, given the records, ranked this cause first three times in four; that made it the hypothesis to prove
+(LESSONS 392), and the proof on this machine is what settled it.
+
+**Rule in practice.** When a failure passes alone, ask what "alone" changes besides CPU time: the number of open
+sockets, ports, files, processes or names in use. A failure whose odds grow with any of those also passes alone. Before
+writing "contention" into a record, look at the failing values across every sighting (ports, IDs, timings) for a
+pattern, read the engine's or daemon's own logs for the minute it failed (on Docker Desktop, its host-side
+`monitor.log` and `com.docker.backend.exe.log`), and look at the host side as well as the API's (who holds the port in
+the tests' own socket table). On Docker Desktop on Linux, `make doctor` says whether the ephemeral port range overlaps
+the range Docker Desktop publishes from.
