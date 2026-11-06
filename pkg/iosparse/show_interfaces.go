@@ -215,8 +215,8 @@ func (s *intfState) addressLines(line string) bool {
 	return false
 }
 
-// encapsulation handles an Encapsulation line and the VLAN tags the rest
-// of it may carry.
+// encapsulation handles an Encapsulation line and the VLAN tags and
+// medium the rest of it may carry.
 func (s *intfState) encapsulation(m *mo) {
 	encap := strings.ReplaceAll(strings.ToLower(m.g("encapsulation")), "802.1q virtual lan", "dot1q")
 	encaps := s.cur().sub("encapsulations")
@@ -233,9 +233,11 @@ func (s *intfState) encapsulation(m *mo) {
 		if m1.g("first_dot1q") != "" {
 			encaps.set("first_dot1q", m1.g("first_dot1q"))
 		}
-		// genieparser reads medium from the Encapsulation line's match,
-		// which has no such group, so this raises KeyError in Genie too.
-		s.cur().set("medium", m.g("medium"))
+		// genieparser reads the medium from the Encapsulation line's own
+		// match, which has no such group, and raises KeyError. The port
+		// reads it from m1, the match that has it, as genieparser means
+		// to: a deliberate difference that doc.go lists.
+		s.cur().set("medium", m1.g("medium"))
 	case m3 != nil:
 		encaps.set("first_dot1q", m3.g("first"))
 		encaps.set("second_dot1q", m3.g("second"))

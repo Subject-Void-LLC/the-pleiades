@@ -40,12 +40,6 @@ func TestParse_Refusals(t *testing.T) {
 		{name: "nothing recognized", command: "show ip ospf neighbor", output: "no neighbors here\n",
 			check: func(err error) bool { return errors.Is(err, iosparse.ErrEmpty) }},
 		{
-			// genieparser reads medium from the wrong match and raises
-			// KeyError; the port keeps that.
-			name: "medium line", command: "show interfaces", exception: "KeyError",
-			output: "GigabitEthernet1 is up, line protocol is up\n  Encapsulation ARPA, medium is broadcast\n",
-		},
-		{
 			// A host route with no "is subnetted" line before it reads
 			// netmask before genieparser ever assigns it.
 			name: "route before any mask", command: "show ip route", exception: "NameError",

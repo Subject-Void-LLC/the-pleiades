@@ -43,9 +43,14 @@
 //     would carry on.
 //   - Where genieparser raises a Python exception on malformed output, the
 //     port returns a *ParserError naming it, rather than a result Genie
-//     never returns. That includes genieparser's own defects, which are
-//     kept: ShowInterfaces fails on an "Encapsulation ..., medium is ..."
-//     line, as genieparser does.
+//     never returns. genieparser's own defects are kept the same way,
+//     unless this list names one.
+//   - ShowInterfaces records the medium an "Encapsulation X, medium is Y"
+//     line carries, as the interface's medium. genieparser's code means
+//     to, but reads the medium from the wrong match and raises KeyError,
+//     so the whole output fails to parse; it still does at genieparser
+//     26.7. No genieparser fixture has such a line, so
+//     show_interfaces_test.go holds this one.
 //   - A remote SPAN range wider than every VLAN number is refused, where
 //     genieparser would enumerate it, so untrusted output cannot make a
 //     parse run unbounded.
