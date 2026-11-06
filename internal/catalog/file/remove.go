@@ -312,7 +312,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		removable := located && !(before.Kind == remotefile.KindDirectory && recurse)
 		if removable {
 			var allowed, known bool
-			allowed, known, err = remotefile.RemovableKnown(ctx, conn, path)
+			allowed, known, err = removableKnown(ctx, conn, path)
 			removable = err == nil && allowed && known
 			// The check's own answer: the device's rules say this login may
 			// not remove the path, so the real run will likely be refused.
@@ -464,3 +464,9 @@ func checkForbiddenParam(params map[string]any) (string, error) {
 	}
 	return value, nil
 }
+
+// removableKnown is remotefile.RemovableKnown, a variable so a test can give
+// the answer a device's shell gives where it cannot tell (root under
+// BusyBox), which this machine's tests cannot be; the script's own answer
+// there is measured in pkg/remotefile.
+var removableKnown = remotefile.RemovableKnown

@@ -108,6 +108,7 @@ func TestStructureChecks(t *testing.T) {
 		{"openrc, no script", checkOpenRC, "\n" + serviceSectionMark + "\n" + serviceSectionMark + "\n", false},
 		{"rc, three sections", checkRC, "/etc/rc.d/sshd\n" + serviceSectionMark + "\n" + serviceSectionMark + "\n", true},
 		{"rc, two sections", checkRC, "/etc/rc.d/sshd\n" + serviceSectionMark + "\n", false},
+		{"rc, no script", checkRC, "\n" + serviceSectionMark + "\n" + serviceSectionMark + "\n", false},
 		{"launchd, a services block", checkLaunchd, "system = {\n\tservices = {\n\t}\n}\n" + serviceSectionMark + "\n", true},
 		{"launchd, a layout it does not read", checkLaunchd, "system = {\n}\n" + serviceSectionMark + "\n", false},
 		{"windows, an array", checkWindowsArray, "[]\r\n", true},
@@ -130,7 +131,7 @@ func TestStructureChecks(t *testing.T) {
 // TestParseWindowsObject_OnlyAWholeObject: an object cut short after a
 // complete member, or followed by other text, is no answer; a whole one is.
 func TestParseWindowsObject_OnlyAWholeObject(t *testing.T) {
-	for _, out := range []string{`{"ansible_hostname":"web1",`, `{"ansible_hostname":"web1"} trailing`, `{"ansible_hostname":"web1"}{}`} {
+	for _, out := range []string{`{"ansible_hostname":"web1",`, `{"ansible_hostname":"web1"} trailing`, `{"ansible_hostname":"web1"}{}`, `{"ansible_hostname":"web1"]`} {
 		if got := parseWindowsObject(out); got != nil {
 			t.Errorf("parseWindowsObject(%q) = %v, want nothing", out, got)
 		}
@@ -204,5 +205,22 @@ func TestGatherMatches_ReadsFnmatchsNegation(t *testing.T) {
 		if got := gatherMatches([]string{"package.[^a]", `package.a\b`}, key); got != want {
 			t.Errorf("gatherMatches(%q) = %v, want %v", key, got, want)
 		}
+	}
+}
+
+// TestProbes_JudgeAFamilysAnswerAsGatherDoes: the probes the live suite
+// drives say an absent source is absent and read nothing from it, as Gather
+// reads nothing from one.
+func TestProbes_JudgeAFamilysAnswerAsGatherDoes(t *testing.T) {
+	probes := Probes(platformLinux, gatherSubsetPackages, "rpm -qa")
+	if len(probes) != 1 || !strings.HasPrefix(probes[0].Command, "if ") {
+		t.Fatalf("probes = %+v, want the one guarded rpm probe", probes)
+	}
+	absent := gatherAbsentMark + "\n"
+	if !probes[0].Absent(absent) || len(probes[0].Read(absent)) != 0 {
+		t.Errorf("an absent rpm read as present or read something")
+	}
+	if probes[0].Absent("hello\t(none)\t1-1\tx86_64\n") || len(probes[0].Read("hello\t(none)\t1-1\tx86_64\n")) != 1 {
+		t.Errorf("an answering rpm read as absent or read nothing")
 	}
 }

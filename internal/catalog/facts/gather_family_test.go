@@ -134,3 +134,16 @@ func TestGather_AFamilyIsReadOrTheRunSaysItWasNot(t *testing.T) {
 		})
 	}
 }
+
+// TestGather_AWarningThatCannotBeRecordedFailsTheTask: a family reached
+// through all with no source is a warning, and a run that cannot record it
+// fails rather than dropping it.
+func TestGather_AWarningThatCannotBeRecordedFailsTheTask(t *testing.T) {
+	server := startGatherServer(t)
+	rc := newGatherContext(server)
+	rc.failStats = true
+	toolsOnly(t, nil)
+	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"all", "!users", "!ports"}}); err == nil || !strings.Contains(err.Error(), "recording the fact failed") {
+		t.Fatalf("Gather = %v, want the warning's recording failure", err)
+	}
+}

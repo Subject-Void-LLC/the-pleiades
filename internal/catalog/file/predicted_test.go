@@ -13,7 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -123,7 +125,15 @@ func checkRemove(t *testing.T, server *remoteexectest.Server, snap *wire.Predict
 // checkRemoveWith is checkRemove with extra params.
 func checkRemoveWith(t *testing.T, server *remoteexectest.Server, snap *wire.Predictions, target string, extra map[string]any) (collection.Result, *removeContext, error) {
 	t.Helper()
+	return checkRemoveIn(t, server, snap, target, extra, nil)
+}
+
+// checkRemoveIn is checkRemoveWith in a context whose stats fail with
+// statErr when it is set.
+func checkRemoveIn(t *testing.T, server *remoteexectest.Server, snap *wire.Predictions, target string, extra map[string]any, statErr error) (collection.Result, *removeContext, error) {
+	t.Helper()
 	rc := &predictingContext{removeContext: newRemoveContext(server), snap: snap}
+	rc.statErr = statErr
 	result, err := checkOf(t, "file.remove")(context.Background(), rc, newRemoveDevice(server), removeParams(target, extra))
 	return result, rc.removeContext, err
 }
@@ -418,5 +428,61 @@ func TestCheckRemove_AForbiddenRemovalIsRefusedByDefault(t *testing.T) {
 	}
 	if _, _, err := checkRemoveWith(t, server, snapshotOf(), allowed, map[string]any{"check_forbidden": "maybe"}); err == nil || !strings.Contains(err.Error(), "check_forbidden must be refuse or warn") {
 		t.Fatalf("a value that is neither: %v, want it refused", err)
+	}
+}
+
+// TestCheckRemove_AnAnswerTheDeviceCannotGiveIsAWarning: where the device's
+// shell cannot say whether the login may remove the path (root under
+// BusyBox, whose test reads mode bits itself), the check warns and predicts
+// nothing, whatever check_forbidden says, rather than refusing: a refusal
+// there could not be lifted for a rollback's recorded undo (FAILURE_PATTERNS
+// 937). The device's answer is a stand-in here, since BusyBox's sh runs its
+// own id ahead of PATH; the script's real answer as root under BusyBox is
+// measured in pkg/remotefile's TestRemovableScript_RefusesWhatItCannotVouchFor.
+func TestCheckRemove_AnAnswerTheDeviceCannotGiveIsAWarning(t *testing.T) {
+	server := startRemoveServer(t, -1)
+	target := filepath.Join(tempDir(t), "f")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(file.SetRemovableKnown(func(context.Context, *remoteexec.Conn, string) (bool, bool, error) { return false, false, nil }))
+
+	for _, forbidden := range []string{"refuse", "warn"} {
+		_, rc, err := checkRemoveWith(t, server, snapshotOf(), target, map[string]any{"check_forbidden": forbidden})
+		if err != nil {
+			t.Fatalf("check_forbidden %s: %v, want a warning, not a refusal", forbidden, err)
+		}
+		warnings, _ := rc.stats[sdk.StatWarnings].([]string)
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "cannot be read from the device") {
+			t.Errorf("check_forbidden %s: warnings = %#v", forbidden, rc.stats[sdk.StatWarnings])
+		}
+		if rc.stats[sdk.StatPredictedPaths] != "unknown" {
+			t.Errorf("check_forbidden %s: recorded %#v, want unknown", forbidden, rc.stats[sdk.StatPredictedPaths])
+		}
+	}
+	// A warning that cannot be recorded fails the check.
+	if _, _, err := checkRemoveIn(t, server, snapshotOf(), target, nil, errors.New("stats refused")); err == nil || !strings.Contains(err.Error(), "stats refused") {
+		t.Errorf("an unrecordable warning: %v", err)
+	}
+}
+
+// TestCheckRemove_AForbiddenRemovalsWarningMustBeRecorded: asked to warn, a
+// check whose warning cannot be recorded fails rather than dropping it.
+func TestCheckRemove_AForbiddenRemovalsWarningMustBeRecorded(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes from any directory, so none refuses it here")
+	}
+	server := startRemoveServer(t, -1)
+	sealed := filepath.Join(tempDir(t), "sealed")
+	empty := filepath.Join(sealed, "empty")
+	if err := os.MkdirAll(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o700) })
+	if _, _, err := checkRemoveIn(t, server, snapshotOf(), empty, map[string]any{"check_forbidden": "warn"}, errors.New("stats refused")); err == nil || !strings.Contains(err.Error(), "stats refused") {
+		t.Fatalf("an unrecordable warning: %v", err)
 	}
 }

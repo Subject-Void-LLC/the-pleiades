@@ -132,6 +132,9 @@ type gatherContext struct {
 	// failOn, when set, makes EmitFact fail for that one key, so the
 	// branch where a probe answered and recording did not is reachable.
 	failOn string
+	// failStats, when set, makes SetStat fail, so the branch where a
+	// warning could not be recorded is reachable.
+	failStats bool
 }
 
 func newGatherContext(server gatherServer) *gatherContext {
@@ -145,6 +148,9 @@ func newGatherContext(server gatherServer) *gatherContext {
 func (c *gatherContext) InjectSecrets() map[string]string { return c.secrets }
 
 func (c *gatherContext) SetStat(key string, value any) error {
+	if c.failStats {
+		return errGatherEmit
+	}
 	c.stats[key] = value
 	return nil
 }
