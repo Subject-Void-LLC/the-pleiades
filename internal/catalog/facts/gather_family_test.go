@@ -1,5 +1,5 @@
-// Tests that a family's source is read or the run says it was not (sweep item
-// 1, FAILURE_PATTERNS 925): through the real SSH harness and a real /bin/sh,
+// Tests that a family's source is read or the run says it was not (FAILURE_PATTERNS 925): through the real
+// SSH harness and a real /bin/sh,
 // with PATH narrowed to a directory of small read-only stand-ins for the
 // tools the probes call. No stand-in changes anything on this machine.
 package facts_test
@@ -57,7 +57,7 @@ func TestGather_AFamilyIsReadOrTheRunSaysItWasNot(t *testing.T) {
 			wantFact: "package.hello",
 		},
 		"a source whose listing fails": {
-			tools:   map[string]string{"dpkg-query": `printf 'ii \thello\t1.0\tamd64\n'`, "rpm": `echo 'error: rpmdb: lock held' >&2; exit 1`},
+			tools:   map[string]string{"dpkg-query": `printf 'ii \thello\t1.0\tamd64\n'`, "rpm": `[ "$1" = --eval ] && { echo /; exit 0; }; echo 'error: rpmdb: lock held' >&2; exit 1`},
 			params:  map[string]any{"gather_subset": []any{"packages"}},
 			wantErr: "could not read package facts",
 		},
@@ -78,7 +78,7 @@ func TestGather_AFamilyIsReadOrTheRunSaysItWasNot(t *testing.T) {
 		"a filter matching the key a second database's item is stored under": {
 			tools: map[string]string{
 				"dpkg-query": `printf 'ii \thello\t1.0\tamd64\n'`,
-				"rpm":        `printf 'hello\t(none)\t2.0-1\tx86_64\n'`,
+				"rpm":        `[ "$1" = --eval ] && { echo /; exit 0; }; printf 'hello\t(none)\t2.0-1\tx86_64\n'`,
 			},
 			params:   map[string]any{"gather_subset": []any{"packages"}, "filter": []any{"package.hello:*"}},
 			wantFact: "package.hello:x86_64",

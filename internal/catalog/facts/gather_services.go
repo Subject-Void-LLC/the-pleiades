@@ -25,7 +25,7 @@ func linuxServiceProbes() []gatherProbe {
 			// some shells and by the SSH test harness) systemctl's parser
 			// stops at the first word that is not an option, and options
 			// after list-unit-files were read as unit names. Only where
-			// systemd booted (sweep item 8): an installed systemctl on a
+			// systemd booted (FAILURE_PATTERNS 926): an installed systemctl on a
 			// host it did not boot computes the unit files and lists no
 			// unit, which read as every service inactive. Each listing that
 			// fails fails the probe (gather_outcome.go).
@@ -42,7 +42,7 @@ func linuxServiceProbes() []gatherProbe {
 			// every init script, the runlevels each is in, and, once OpenRC
 			// has booted (its softlevel exists), each one's state. None of
 			// it needs root. rc-update's -v before its verb, as systemctl's
-			// options are (sweep item 15, a repeat of 844): glibc's getopt
+			// options are (FAILURE_PATTERNS 929, a repeat of 844): glibc's getopt
 			// under POSIXLY_CORRECT stops at show and lists nothing.
 			present: `command -v rc-status >/dev/null 2>&1 && [ ! -d /run/systemd/system ]`,
 			command: orFailed(`rc-service --list`) + `; echo '` + serviceSectionMark + `'; ` +
@@ -88,8 +88,7 @@ func parseOpenRC(out string) []gatherFact {
 		if name, st = strings.TrimSpace(name), strings.TrimSpace(st); ok && name != "" && st != "" {
 			// The first word only: a supervised service's status carries its
 			// uptime and start count ("started 1 day(s) 02:13:07 (0)"),
-			// which stored whole was a new state on every gather (sweep
-			// item 9).
+			// which stored whole was a new state on every gather (FAILURE_PATTERNS 927).
 			st = strings.Fields(st)[0]
 			if word, known := openrcStates[st]; known {
 				st = word
@@ -192,7 +191,7 @@ func checkOpenRC(out string) error {
 
 // checkSystemd refuses a systemd answer that lacks its two sections, or
 // whose loaded units name no service: a booted systemd always has loaded
-// services, so an empty listing is one that did not answer (sweep item 8).
+// services, so an empty listing is one that did not answer (FAILURE_PATTERNS 926).
 func checkSystemd(out string) error {
 	_, units, found := strings.Cut(out, serviceSectionMark)
 	if !found {

@@ -30,9 +30,12 @@ func linuxPackageProbes() []gatherProbe {
 			parse:   func(out string) []gatherFact { return packageFacts(parseDpkg(out)) },
 		},
 		{
-			subset:  gatherSubsetPackages,
-			family:  gatherFamilyPackage,
-			present: `command -v rpm >/dev/null 2>&1`,
+			subset: gatherSubsetPackages,
+			family: gatherFamilyPackage,
+			// The database, not just the tool: Debian and Ubuntu can carry an
+			// rpm with no database of its own, whose failing listing would
+			// fail the family dpkg answered (FAILURE_PATTERNS 925).
+			present: `command -v rpm >/dev/null 2>&1 && d=$(rpm --eval '%_dbpath' 2>/dev/null) && [ -d "$d" ]`,
 			command: orFailed(`rpm -qa --qf '%{NAME}\t%{EPOCH}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n'`),
 			parse:   func(out string) []gatherFact { return packageFacts(parseRPM(out)) },
 		},

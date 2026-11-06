@@ -59,8 +59,8 @@ func Resumed(prior []Entry, late Entry) (Entry, bool) {
 // last confirmed as whichever was confirmed later. Two stored values in a row
 // can be the same when a late observation of a value lands just before a
 // row Resumed wrote for it (A, B, A at 12, A at 15): the device held A from
-// 12 on, which is one value, not a change from A to A (the branch review of
-// FAILURE_PATTERNS 923). The stored rows, and so the chain, are untouched.
+// 12 on, which is one value, not a change from A to A (FAILURE_PATTERNS 936). The stored rows, and so the
+// chain, are untouched.
 func mergeRepeats(entries []Entry) []Entry {
 	out := entries[:0]
 	for _, e := range entries {

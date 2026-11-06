@@ -1,5 +1,5 @@
-// Package facts: whether a family's source was read (sweep item 1,
-// FAILURE_PATTERNS 925). A family (package., service., port., user., group.)
+// Package facts: whether a family's source was read (FAILURE_PATTERNS 925). A family (package., service.,
+// port., user., group.)
 // lists items, so an empty answer means "none" only when the source was
 // there and its listing succeeded. Over SSH an exit status never reaches
 // Gather (the run closure keeps stdout alone, by design for the single

@@ -119,7 +119,7 @@ func Hash(key string, value any) (string, error) {
 // MaxKeyBytes, valid UTF-8, and printable with no space, so a key reads the
 // same in a report, a URL and a file. Ranging over a string reads a byte that
 // is not UTF-8 as U+FFFD, which is printable, so validity is asked first
-// (sweep item 16).
+// (FAILURE_PATTERNS 932).
 func ValidKey(key string) bool {
 	if key == "" || len(key) > MaxKeyBytes || !utf8.ValidString(key) {
 		return false
@@ -280,7 +280,7 @@ func holdsSecret(canon []byte, secrets []string) bool {
 		}
 		// A secret holding a byte that is not UTF-8 reaches canonical text
 		// with each such byte a literal U+FFFD, since Canonical decodes and
-		// encodes again; neither form above is that one (sweep item 16).
+		// encodes again; neither form above is that one (FAILURE_PATTERNS 933).
 		if stored := asStoredText(s); stored != s && strings.Contains(text, stored) {
 			return true
 		}

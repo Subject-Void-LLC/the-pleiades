@@ -89,7 +89,7 @@ func TestVerify_ASecretNamedInsideAPublishedValueIsDropped(t *testing.T) {
 
 // TestPrepare_ASecretThatIsNotUTF8IsStillFound: encoding/json writes a byte
 // that is not UTF-8 as U+FFFD, so a run's secret holding one is compared in
-// the form the stored value takes (sweep item 16).
+// the form the stored value takes (FAILURE_PATTERNS 933).
 func TestPrepare_ASecretThatIsNotUTF8IsStillFound(t *testing.T) {
 	secret := "pa\xffss-word"
 	kept, problems, err := facts.Prepare(map[string]any{"app_banner": "login " + secret + " here", "ansible_kernel": "6.1"},
@@ -100,7 +100,7 @@ func TestPrepare_ASecretThatIsNotUTF8IsStillFound(t *testing.T) {
 }
 
 // TestValidKey_RefusesWhatIsNotUTF8: a byte that is not UTF-8 read as the
-// printable U+FFFD, so such a key passed (sweep item 16).
+// printable U+FFFD, so such a key passed (FAILURE_PATTERNS 932).
 func TestValidKey_RefusesWhatIsNotUTF8(t *testing.T) {
 	if facts.ValidKey("package.a\xffb") {
 		t.Error("a key that is not UTF-8 is valid")

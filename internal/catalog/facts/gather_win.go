@@ -201,7 +201,7 @@ func parseWindowsObject(out string) []gatherFact {
 	}
 	// The object must close, with nothing after it: one cut short after a
 	// complete member read as the whole answer, and text printed after it
-	// (a profile's Write-Host) as a well-formed one (sweep item 1).
+	// (a profile's Write-Host) as a well-formed one (FAILURE_PATTERNS 925).
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
 		return nil
 	}
@@ -231,9 +231,11 @@ func windowsValue(v any) (any, bool) {
 	return nil, false
 }
 
-// windowsItems reads a JSON array of objects, each into a T. A family
-// probe's answer has passed checkWindowsArray first, so nothing here is read
-// as no items unless the host listed none.
+// windowsItems reads a JSON array of objects, each into a T. Every family
+// script's answer but the files script's has passed checkWindowsArray first,
+// so it reads no items only where the host listed none; the files script's
+// is matched to its paths by filesFacts, which reads an answer that does not
+// decode as every path unreadable.
 func windowsItems[T any](out string) []T {
 	var items []T
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &items); err != nil {
@@ -295,7 +297,7 @@ func parseWindowsServices(out string) []gatherFact {
 // one JSON array with nothing before or after it. Every family script prints
 // one (ConvertTo-Json of an @() array, [] when the host has no items), so
 // anything else, such as a cmd.exe AutoRun's output before it or an answer
-// cut short, failed rather than meaning "no items" (sweep item 1).
+// cut short, failed rather than meaning "no items" (FAILURE_PATTERNS 925).
 func checkWindowsArray(out string) error {
 	trimmed := strings.TrimSpace(out)
 	if !strings.HasPrefix(trimmed, "[") || !json.Valid([]byte(trimmed)) {

@@ -206,3 +206,27 @@ func TestGather_AFailedWindowsScriptFailsTheTask(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// TestGather_AWindowsHostWithoutTheCmdletsSaysSo: a host without
+// Get-LocalUser or the TCP/IP cmdlets says the source is absent, where its
+// script once printed [] and read as no accounts and no listeners: a task
+// naming the subset fails, and one reaching it through all warns.
+func TestGather_AWindowsHostWithoutTheCmdletsSaysSo(t *testing.T) {
+	absent := winrmexec.Result{Stdout: gatherAbsentMark + "\r\n"}
+	answerWindows(t, map[string]winrmexec.Result{
+		gatherSubsetMin:   {Stdout: `{"ansible_system":"Win32NT"}`},
+		gatherSubsetUsers: absent,
+		gatherSubsetPorts: absent,
+	})
+	_, err := Gather(context.Background(), &winTestContext{facts: map[string]any{}}, newWinTestHost(), map[string]any{gatherParamSubset: []any{"users"}})
+	if err == nil || !strings.Contains(err.Error(), "no source this method reads for user facts") {
+		t.Fatalf("users named on a host without Get-LocalUser: %v", err)
+	}
+	rc := &winTestContext{facts: map[string]any{}}
+	if _, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{gatherParamSubset: []any{"all", "!hardware", "!packages", "!services"}}); err != nil {
+		t.Fatalf("through all: %v", err)
+	}
+	if rc.facts[gatherFactSystem] != "Win32NT" {
+		t.Errorf("facts %v", rc.facts)
+	}
+}

@@ -118,7 +118,7 @@ func gatherNamesFiles(names []string) (named, removed bool) {
 // min) exclude, and a subset is gathered when it was added and not excluded,
 // or named itself, which an exclusion does not take back. So [!packages, all]
 // leaves packages out, where reading the list in order once gathered them
-// (sweep item 16). A list of exclusions alone starts from the default, and
+// (FAILURE_PATTERNS 931). A list of exclusions alone starts from the default, and
 // min is gathered unless !min is named.
 func gatherNamed(names []string, set bool) (map[string]bool, error) {
 	chosen := map[string]bool{}
@@ -207,7 +207,7 @@ const (
 // percent-encoded, byte by byte, so the key reads back to the item exactly
 // and two names never meet in one key. A byte that is not UTF-8 is encoded as
 // itself: ranging over the string read each as U+FFFD, a printable rune, so
-// two names differing only there shared a key (sweep item 16, a repeat of
+// two names differing only there shared a key (FAILURE_PATTERNS 932, a repeat of
 // 328).
 func itemKey(family, name string) string {
 	var b strings.Builder

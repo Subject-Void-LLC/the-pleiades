@@ -754,7 +754,10 @@ func TestGather_FactRecordFailureIsReported(t *testing.T) {
 func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
 	server := startGatherServer(t)
 	rc := newGatherContext(server)
-	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"packages", "services"}}); err != nil {
+	// Reached through all, so a test host with no service manager (a
+	// container, WSL without systemd) warns rather than failing: a task
+	// naming services on such a host is refused (FAILURE_PATTERNS 925).
+	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"all", "!ports", "!users"}}); err != nil {
 		t.Fatal(err)
 	}
 	packages, services := 0, 0

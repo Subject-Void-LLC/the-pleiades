@@ -91,8 +91,7 @@ func VerifyChain(device string, links []Link) Verdict {
 			return fail("the stored value is not the one its fact hash describes")
 		}
 		// Before the link to the value before it, so a row with no chain is
-		// named for that rather than for the link it also lacks (sweep item
-		// 16).
+		// named for that rather than for the link it also lacks (FAILURE_PATTERNS 921).
 		if l.Chain == "" {
 			return fail("it carries no chain, though every stored value is chained")
 		}

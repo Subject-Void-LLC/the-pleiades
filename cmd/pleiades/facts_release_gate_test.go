@@ -145,10 +145,21 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 		t.Errorf("facts of a host not in the inventory: exit 0\n%s", out)
 	}
 
+	// This Alpine sshd image runs sshd with no service manager, so a task
+	// naming services is refused, saying so, rather than storing no services
+	// as if the device had none (FAILURE_PATTERNS 925).
+	before = lines()
+	if out, code := g.pleiades(t, "adhoc", "container1", "facts.gather", "gather_subset:=[services]"); code == 0 || !strings.Contains(out, "no source this method reads for service facts") {
+		t.Errorf("services on a device with no service manager: exit %d\n%s", code, out)
+	}
+	if got := lines(); got != before {
+		t.Errorf("a refused gather stored %d lines", got-before)
+	}
+
 	// Phase 41c: the packages subset reports every package the device's own
 	// database lists (this sshd image is Alpine, so apk), each with apk's
 	// version, stored one fact each and readable by key.
-	gather("gather_subset:=[packages, services]")
+	gather("gather_subset:=[packages]")
 	all := read()
 	packages := map[string]string{}
 	for _, f := range all.Facts {

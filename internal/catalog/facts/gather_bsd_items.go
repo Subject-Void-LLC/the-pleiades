@@ -51,14 +51,15 @@ func freebsdServiceProbes() []gatherProbe {
 		subset: gatherSubsetServices,
 		family: gatherFamilyService,
 		// A non-root login on a host hiding other users' processes
-		// (security.bsd.see_other_uids=0) cannot see a running daemon, and rc
-		// then says it is not running; the probe says so first
-		// (procsHiddenMark), and such a daemon's state is unknown (sweep
-		// item 11, a repeat in kind of 818). Each listing that fails fails
+		// (security.bsd.see_other_uids=0, which anyone may read) cannot see a
+		// running daemon, and rc then says it is not running; the probe says
+		// so first. Not "ps -p 1 fails": inside a jail pid 1 is never seen
+		// (procsHiddenMark), and such a daemon's state is unknown (FAILURE_PATTERNS 928, a repeat in kind of
+		// 818). Each listing that fails fails
 		// the probe.
 		present: `command -v service >/dev/null 2>&1`,
 		command: orFailed(`service -l`) + `; echo '` + serviceSectionMark + `'; ` + orFailed(`service -e`) + `; echo '` + serviceSectionMark + `'; ` +
-			`if [ "$(id -u)" != 0 ] && ! ps -p 1 >/dev/null 2>&1; then echo '` + procsHiddenMark + `'; fi; ` +
+			`if [ "$(id -u)" != 0 ] && [ "$(sysctl -n security.bsd.see_other_uids 2>/dev/null)" = 0 ]; then echo '` + procsHiddenMark + `'; fi; ` +
 			`set -f; for p in $(service -e); do s=${p##*/}; case $s in -*) continue;; esac; st=$(service "$s" onestatus 2>&1 | head -1); printf '%s\t%s\n' "$s" "$st"; done`,
 		parse: parseRC,
 		check: checkRC,
@@ -156,7 +157,7 @@ func darwinPackageProbes() []gatherProbe {
 			// it fails the probe now, and so does an empty listing, since
 			// macOS always holds Apple's own receipts.
 			present: `command -v pkgutil >/dev/null 2>&1`,
-			command: `set -f; if pkgs=$(pkgutil --pkgs); then for p in $pkgs; do case $p in -*) continue;; esac; pkgutil --pkg-info "$p"; echo; done; ` +
+			command: `set -f; if pkgs=$(pkgutil --pkgs); then for p in $pkgs; do case $p in -*) continue;; esac; ` + orFailed(`pkgutil --pkg-info "$p"`) + `; echo; done; ` +
 				`else echo '` + gatherFailedMark + `'; fi`,
 			parse: func(out string) []gatherFact { return packageFacts(parsePkgutil(out)) },
 			check: listsSomething("pkgutil --pkgs"),
@@ -222,9 +223,10 @@ func darwinServiceProbes() []gatherProbe {
 		subset:  gatherSubsetServices,
 		family:  gatherFamilyService,
 		present: `command -v launchctl >/dev/null 2>&1`,
-		command: orFailed(`launchctl print system`) + `; echo '` + serviceSectionMark + `'; ` + orFailed(`launchctl print-disabled system`),
-		parse:   parseLaunchd,
-		check:   checkLaunchd,
+		command: orFailed(`launchctl print system`) + `; echo '` + serviceSectionMark + `'; ` + orFailed(`launchctl print-disabled system`) +
+			`; echo '` + serviceSectionMark + `'; ls /System/Library/LaunchDaemons /Library/LaunchDaemons 2>/dev/null`,
+		parse: parseLaunchd,
+		check: checkLaunchd,
 	}}
 }
 
@@ -232,9 +234,16 @@ func darwinServiceProbes() []gatherProbe {
 // exit status, label; a pid of 0 is not running) and print-disabled's
 // ("label" => disabled) list. A daemon launchd lists as neither is enabled.
 func parseLaunchd(out string) []gatherFact {
-	printed, disabledList, found := strings.Cut(out, serviceSectionMark)
+	printed, rest, found := strings.Cut(out, serviceSectionMark)
 	if !found {
 		return nil
+	}
+	// The installed daemons' plists, which print-disabled outlives: it keeps
+	// the override of a daemon long since removed.
+	disabledList, plists, listed := strings.Cut(rest, serviceSectionMark)
+	installed := map[string]bool{}
+	for _, name := range strings.Fields(plists) {
+		installed[strings.TrimSuffix(name, ".plist")] = true
 	}
 	disabled := map[string]bool{}
 	for _, line := range strings.Split(disabledList, "\n") {
@@ -244,7 +253,7 @@ func parseLaunchd(out string) []gatherFact {
 		}
 	}
 	var facts []gatherFact
-	listed := map[string]bool{}
+	listedLabel := map[string]bool{}
 	in := false
 	for _, line := range strings.Split(printed, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -267,17 +276,19 @@ func parseLaunchd(out string) []gatherFact {
 		if fields[0] != "0" && fields[0] != "-" {
 			state = "running"
 		}
-		listed[label] = true
+		listedLabel[label] = true
 		facts = append(facts, gatherFact{key: itemKey(gatherFamilyService, label), value: map[string]any{
 			"state": state, "enabled": !disabled[label], "status": launchdStatus(disabled[label]), "source": "launchd",
 		}})
 	}
 	// launchd does not load a disabled daemon, so the services block never
 	// lists one: it is reported from print-disabled, where it was missing,
-	// and one disabled since boot vanished at reboot (sweep item 16).
+	// and one disabled since boot vanished at reboot (FAILURE_PATTERNS 935).
 	var off []string
 	for label := range disabled {
-		if !listed[label] {
+		// Reported only where its plist is still installed, when the probe
+		// listed them (FAILURE_PATTERNS 935).
+		if !listedLabel[label] && (!listed || installed[label]) {
 			off = append(off, label)
 		}
 	}

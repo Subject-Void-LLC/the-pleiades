@@ -81,7 +81,7 @@ type listeningSocket struct {
 // listening socket: a TCP socket in state LISTEN (0A), and a UDP socket bound
 // and unconnected (state 07, no remote port), which is UDP's listening.
 func parseLinuxPorts(out string) []gatherFact {
-	sections := strings.Split(out, portSectionMark)
+	sections := markedSections(out, portSectionMark)
 	if len(sections) < 2 {
 		return nil
 	}
@@ -211,8 +211,30 @@ func socketOwners(fds, comms string) map[string]string {
 // order, four tables, descriptors and names): one cut short lists only some
 // of the device's listeners.
 func checkLinuxPorts(out string) error {
-	if n := strings.Count(out, portSectionMark); n != 6 {
+	if n := len(markedSections(out, portSectionMark)) - 1; n != 6 {
 		return fmt.Errorf("it printed %d of its 6 section marks", n)
 	}
 	return nil
+}
+
+// markedSections is out split as strings.Split would split it on mark, but
+// only where mark starts a line: a mark inside a line is data, such as a
+// file a local user named with it, which a root gather's descriptor listing
+// prints (FAILURE_PATTERNS 925).
+func markedSections(out, mark string) []string {
+	var sections []string
+	var cur strings.Builder
+	for i, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(line, mark); ok {
+			sections = append(sections, cur.String())
+			cur.Reset()
+			cur.WriteString(rest)
+			continue
+		}
+		if i > 0 {
+			cur.WriteByte('\n')
+		}
+		cur.WriteString(line)
+	}
+	return append(sections, cur.String())
 }

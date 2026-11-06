@@ -60,7 +60,7 @@ func TestGatherExplicit(t *testing.T) {
 // TestGatherNamed_FollowsAnsiblesRuleInAnyOrder: an exclusion removes what
 // all added whatever its place in the list, a name survives its own
 // exclusion, !all keeps min, and exclusions alone start from the default
-// (sweep item 16).
+// (FAILURE_PATTERNS 931).
 func TestGatherNamed_FollowsAnsiblesRuleInAnyOrder(t *testing.T) {
 	cases := map[string]struct {
 		names []string
@@ -116,6 +116,9 @@ func TestStructureChecks(t *testing.T) {
 		{"windows, nothing", checkWindowsArray, "", false},
 		{"linux ports, every section", checkLinuxPorts, strings.Repeat(portSectionMark+"\n", 6), true},
 		{"linux ports, cut short", checkLinuxPorts, strings.Repeat(portSectionMark+"\n", 3), false},
+		// A file a local user named with the mark shows in a root gather's
+		// descriptor listing; inside a line it is data, not a section.
+		{"linux ports, a mark inside a line", checkLinuxPorts, strings.Repeat(portSectionMark+"\n", 6) + "lrwx 1 u u 64 3 -> /tmp/x" + portSectionMark + "socket:[1]\n", true},
 	}
 	for _, tc := range cases {
 		if err := tc.check(tc.out); (err == nil) != tc.ok {
@@ -138,7 +141,7 @@ func TestParseWindowsObject_OnlyAWholeObject(t *testing.T) {
 }
 
 // TestParseOpenRC_ASupervisedServiceIsRunning: supervise-daemon's status
-// carries the uptime, which is not part of the state (sweep item 9).
+// carries the uptime, which is not part of the state (FAILURE_PATTERNS 927).
 func TestParseOpenRC_ASupervisedServiceIsRunning(t *testing.T) {
 	out := "sshd\n" + serviceSectionMark + "\nsshd | default\n" + serviceSectionMark + "\n[default]\nsshd =  started 1 day(s) 02:13:07 (0)\n"
 	got := parseOpenRC(out)
@@ -148,8 +151,8 @@ func TestParseOpenRC_ASupervisedServiceIsRunning(t *testing.T) {
 }
 
 // TestParseRC_AHiddenDaemonIsUnknown: where this login cannot see other
-// users' processes, rc's "not running" is unknown, not stopped (sweep item
-// 11); where it can, it is stopped.
+// users' processes, rc's "not running" is unknown, not stopped (FAILURE_PATTERNS 928); where it can, it is
+// stopped.
 func TestParseRC_AHiddenDaemonIsUnknown(t *testing.T) {
 	base := "sshd\n" + serviceSectionMark + "\n/etc/rc.d/sshd\n" + serviceSectionMark + "\n"
 	for prefix, want := range map[string]string{"": "stopped", procsHiddenMark + "\n": "unknown"} {
@@ -171,7 +174,7 @@ func TestParseBrew_SkipsHomebrewsOwnLines(t *testing.T) {
 
 // TestItemKey_ABytesThatIsNotUTF8IsItsOwn: two names differing only in a
 // byte that is not UTF-8, or in that byte against a real U+FFFD, take
-// different keys (sweep item 16, a repeat of 328).
+// different keys (FAILURE_PATTERNS 932, a repeat of 328).
 func TestItemKey_ABytesThatIsNotUTF8IsItsOwn(t *testing.T) {
 	a, b, c := itemKey(gatherFamilyPackage, "x\xff"), itemKey(gatherFamilyPackage, "x\xfe"), itemKey(gatherFamilyPackage, "x�")
 	if a == b || a == c || b == c {
@@ -183,14 +186,23 @@ func TestItemKey_ABytesThatIsNotUTF8IsItsOwn(t *testing.T) {
 }
 
 // TestGatherMatches_ReadsFnmatchsNegation: Ansible's filter is fnmatch,
-// where [!d] is every character but d (sweep item 16).
+// where [!d] is every character but d (FAILURE_PATTERNS 934).
 func TestGatherMatches_ReadsFnmatchsNegation(t *testing.T) {
 	for key, want := range map[string]bool{"package.xz": true, "package.dash": false, "package.!x": true} {
 		if got := gatherMatches([]string{"package.[!d]*"}, key); got != want {
 			t.Errorf("gatherMatches([!d]*, %q) = %v, want %v", key, got, want)
 		}
 	}
-	if got := fnmatchPattern(`a\[!b]`); got != `a\[!b]` {
-		t.Errorf("an escaped bracket was rewritten: %q", got)
+	// fnmatch has no escape: a backslash is a character, so it is doubled
+	// for path.Match; and a class opening with ^ holds a ^.
+	for in, want := range map[string]string{`a\[!b]`: `a\\[^b]`, `[^a]`: `[\^a]`} {
+		if got := fnmatchPattern(in); got != want {
+			t.Errorf("fnmatchPattern(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for key, want := range map[string]bool{"package.^": true, "package.b": false, `package.a\b`: true} {
+		if got := gatherMatches([]string{"package.[^a]", `package.a\b`}, key); got != want {
+			t.Errorf("gatherMatches(%q) = %v, want %v", key, got, want)
+		}
 	}
 }
