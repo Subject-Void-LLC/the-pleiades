@@ -53,3 +53,25 @@ func Resumed(prior []Entry, late Entry) (Entry, bool) {
 		By: before.LastBy, LastBy: before.LastBy,
 	}, true
 }
+
+// mergeRepeats reads a history in run order with each value that follows
+// itself merged into the one before it: first observed as the earlier says,
+// last confirmed as whichever was confirmed later. Two stored values in a row
+// can be the same when a late observation of a value lands just before a
+// row Resumed wrote for it (A, B, A at 12, A at 15): the device held A from
+// 12 on, which is one value, not a change from A to A (FAILURE_PATTERNS 936). The stored rows, and so the
+// chain, are untouched.
+func mergeRepeats(entries []Entry) []Entry {
+	out := entries[:0]
+	for _, e := range entries {
+		if n := len(out); n > 0 && out[n-1].Hash == e.Hash && out[n-1].Kind == e.Kind {
+			prev := &out[n-1]
+			if after, _ := Later(e.LastBy.Order, e.LastSeenAt, prev.LastBy.Order, prev.LastSeenAt); after {
+				prev.LastSeenAt, prev.LastBy = e.LastSeenAt, e.LastBy
+			}
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}

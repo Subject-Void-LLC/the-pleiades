@@ -90,11 +90,13 @@ func VerifyChain(device string, links []Link) Verdict {
 		if err != nil || hash != l.Hash {
 			return fail("the stored value is not the one its fact hash describes")
 		}
+		// Before the link to the value before it, so a row with no chain is
+		// named for that rather than for the link it also lacks (FAILURE_PATTERNS 921).
+		if l.Chain == "" {
+			return fail("it carries no chain, though every stored value is chained")
+		}
 		if l.Prev != prev {
 			return fail(fmt.Sprintf("it names %s as the value stored before it, and the value stored before it is %s", short(l.Prev), short(prev)))
-		}
-		if l.Chain == "" {
-			return fail("it carries no chain, though it was stored after the chain existed")
 		}
 		want, err := ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By)
 		if err != nil || want != l.Chain {

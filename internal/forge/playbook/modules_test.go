@@ -112,7 +112,7 @@ func TestModules_Map(t *testing.T) {
 		{name: "setup network", task: "{setup: {gather_subset: [network, '!min']}}", fqcns: []string{"facts.gather"}, code: "module.semantics", params: map[string]any{"gather_subset": []any{"min"}}},
 		{name: "windows setup", task: "{ansible.windows.setup: {gather_subset: [min, hardware]}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"min", "hardware"}}, class: playbook.ClassObserve},
 		{name: "package_facts", task: "{package_facts: {manager: auto}}", fqcns: []string{"facts.gather"}, code: "args.ignored", params: map[string]any{"gather_subset": []any{"packages"}}, class: playbook.ClassObserve},
-		{name: "service_facts", task: "{service_facts: {}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"services"}}, class: playbook.ClassObserve},
+		{name: "service_facts", task: "{service_facts: {}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"all", "!hardware", "!packages", "!ports", "!users"}}, class: playbook.ClassObserve},
 		{name: "firewalld service", task: "{firewalld: {service: http, state: enabled}}", fqcns: []string{"fw.firewalld.allow"}, params: map[string]any{"permanent": false, "immediate": true}},
 		{name: "firewalld permanent", task: "{firewalld: {service: http, state: disabled, permanent: yes}}", fqcns: []string{"fw.firewalld.deny"}, params: map[string]any{"permanent": true, "immediate": false}},
 		{name: "firewalld both", task: "{firewalld: {service: http, state: enabled, permanent: yes, immediate: yes}}", fqcns: []string{"fw.firewalld.allow"}, params: map[string]any{"permanent": true, "immediate": true}},

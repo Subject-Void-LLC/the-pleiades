@@ -2,7 +2,9 @@ package redact
 
 import (
 	"sort"
+	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // maxLiterals bounds how many distinct secret values one process will
@@ -87,11 +89,38 @@ func (l *Literals) Add(values ...string) int {
 		}
 		l.m[v] = struct{}{}
 		added++
+		// A secret holding a byte that is not UTF-8 reaches text that went
+		// through JSON (a stat converted by value.go's generic, a stored
+		// fact) with each such byte a U+FFFD, a spelling the raw value never
+		// matches; that spelling is masked too (FAILURE_PATTERNS 933).
+		if spelled := jsonSpelling(v); spelled != v && len(l.m) < maxLiterals {
+			l.m[spelled] = struct{}{}
+		}
 	}
 	if added > 0 {
 		l.sorted = nil
 	}
 	return added
+}
+
+// jsonSpelling is v as text that went through encoding/json holds it: each
+// byte that is not UTF-8 a U+FFFD, one per byte, as encoding/json writes
+// them. A valid v is returned as it is.
+func jsonSpelling(v string) string {
+	if utf8.ValidString(v) {
+		return v
+	}
+	var b strings.Builder
+	for i := 0; i < len(v); {
+		r, size := utf8.DecodeRuneInString(v[i:])
+		if r == utf8.RuneError && size == 1 {
+			b.WriteRune(utf8.RuneError)
+		} else {
+			b.WriteString(v[i : i+size])
+		}
+		i += size
+	}
+	return b.String()
 }
 
 // Forget removes values from the set.
@@ -109,6 +138,7 @@ func (l *Literals) Forget(values ...string) {
 
 	for _, v := range values {
 		delete(l.m, v)
+		delete(l.m, jsonSpelling(v))
 	}
 	l.sorted = nil
 }

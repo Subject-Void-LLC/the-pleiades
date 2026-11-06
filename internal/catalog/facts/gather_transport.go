@@ -86,6 +86,9 @@ func lastLine(out string) string {
 // name is how an error names the probe: its command, or for a Windows
 // script or a command built from paths, which subset's it is.
 func (p gatherProbe) name() string {
+	if p.label != "" {
+		return p.label
+	}
 	// A command built from the task's paths is named by its subset: the
 	// paths are the task's own, and a list of them is no name.
 	if p.commandFor != nil {

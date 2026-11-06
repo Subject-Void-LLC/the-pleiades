@@ -275,7 +275,8 @@ func volatileEntry(key string, v volatileValue) Entry {
 // do not, and marks each value the clock placed after the one before it. Both
 // stores' histories use it. With orders of several sources mixed the
 // comparison need not be transitive (the reviewer's F7), so the order among
-// such values follows how they were stored; each such value is marked.
+// such values follows how they were stored; each such value is marked. A
+// value that follows itself is one value and is read as one (mergeRepeats).
 func InRunOrder(entries []Entry) []Entry {
 	sort.SliceStable(entries, func(i, j int) bool {
 		after, _ := Later(entries[j].By.Order, entries[j].ObservedAt, entries[i].By.Order, entries[i].ObservedAt)
@@ -287,7 +288,7 @@ func InRunOrder(entries []Entry) []Entry {
 			_, entries[i].OrderedByClock = Later(entries[i].By.Order, entries[i].ObservedAt, entries[i-1].By.Order, entries[i-1].ObservedAt)
 		}
 	}
-	return entries
+	return mergeRepeats(entries)
 }
 
 // locked runs fn on the store's directory under device's lock.

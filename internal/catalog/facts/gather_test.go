@@ -132,6 +132,9 @@ type gatherContext struct {
 	// failOn, when set, makes EmitFact fail for that one key, so the
 	// branch where a probe answered and recording did not is reachable.
 	failOn string
+	// failStats, when set, makes SetStat fail, so the branch where a
+	// warning could not be recorded is reachable.
+	failStats bool
 }
 
 func newGatherContext(server gatherServer) *gatherContext {
@@ -145,6 +148,9 @@ func newGatherContext(server gatherServer) *gatherContext {
 func (c *gatherContext) InjectSecrets() map[string]string { return c.secrets }
 
 func (c *gatherContext) SetStat(key string, value any) error {
+	if c.failStats {
+		return errGatherEmit
+	}
 	c.stats[key] = value
 	return nil
 }
@@ -754,7 +760,10 @@ func TestGather_FactRecordFailureIsReported(t *testing.T) {
 func TestGather_PackagesAndServicesMatchThisMachine(t *testing.T) {
 	server := startGatherServer(t)
 	rc := newGatherContext(server)
-	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"packages", "services"}}); err != nil {
+	// Reached through all, so a test host with no service manager (a
+	// container, WSL without systemd) warns rather than failing: a task
+	// naming services on such a host is refused (FAILURE_PATTERNS 925).
+	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"all", "!ports", "!users"}}); err != nil {
 		t.Fatal(err)
 	}
 	packages, services := 0, 0

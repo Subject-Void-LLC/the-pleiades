@@ -31,13 +31,14 @@ func TestGatherPackages_ReadsARealRPMDatabase(t *testing.T) {
 	if b, _ := got["package.bash"].(map[string]any); b["version"] != version || b["arch"] != arch || b["source"] != "rpm" {
 		t.Errorf("package.bash = %v; rpm says %s %s", b, version, arch)
 	}
-	// The dpkg and apk probes print nothing here, being guarded.
+	// The dpkg and apk probes say their source is absent here, being
+	// guarded, and print nothing else.
 	for _, p := range facts.Probes("Linux", "packages", "") {
 		if p.Command == probes[0].Command {
 			continue
 		}
-		if out, _ := runAs(t, c, "", p.Command); strings.TrimSpace(out) != "" {
-			t.Errorf("%q printed something on a system without its tool", p.Command)
+		if out, _ := runAs(t, c, "", p.Command); !p.Absent(out) || len(p.Read(out)) != 0 {
+			t.Errorf("%q printed %q on a system without its tool, want only that its source is absent", p.Command, out)
 		}
 	}
 }

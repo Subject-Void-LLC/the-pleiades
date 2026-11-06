@@ -24,45 +24,42 @@ import (
 // windowsPortsScript lists every listening TCP socket and every UDP
 // endpoint (Windows keeps no peer for one, so every bound endpoint is
 // listed), each with its owning process's name where Get-Process names it.
-// A host without the TCP/IP cmdlets (before Windows 8 and Server 2012)
-// lists none; the cmdlets' "no such object" when nothing listens is no
-// error, and any other failure ends the script.
+// A host without the TCP/IP cmdlets (before Windows 8 and Server 2012) says
+// its source is absent (gather_outcome.go), where it once listed none; the
+// cmdlets' "no such object" when nothing listens is no error, and any other
+// failure ends the script.
 const windowsPortsScript = `$ErrorActionPreference = 'Stop'
-$out = @()
-if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
-  $names = @{}
-  foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) { $names[[int]$p.Id] = [string]$p.ProcessName }
-  $tcp = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue -ErrorVariable te)
-  $udp = @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue -ErrorVariable ue)
-  foreach ($e in @($te) + @($ue)) { if ($e.CategoryInfo.Category -ne 'ObjectNotFound') { throw $e } }
-  $out = @(
-    foreach ($c in $tcp) { [ordered]@{ protocol = 'tcp'; address = [string]$c.LocalAddress; port = [int]$c.LocalPort; process = $names[[int]$c.OwningProcess] } }
-    foreach ($u in $udp) { [ordered]@{ protocol = 'udp'; address = [string]$u.LocalAddress; port = [int]$u.LocalPort; process = $names[[int]$u.OwningProcess] } }
-  )
-}` + windowsJSONOut
+if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) { '` + gatherAbsentMark + `'; exit 0 }
+$names = @{}
+foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) { $names[[int]$p.Id] = [string]$p.ProcessName }
+$tcp = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue -ErrorVariable te)
+$udp = @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue -ErrorVariable ue)
+foreach ($e in @($te) + @($ue)) { if ($e.CategoryInfo.Category -ne 'ObjectNotFound') { throw $e } }
+$out = @(
+  foreach ($c in $tcp) { [ordered]@{ protocol = 'tcp'; address = [string]$c.LocalAddress; port = [int]$c.LocalPort; process = $names[[int]$c.OwningProcess] } }
+  foreach ($u in $udp) { [ordered]@{ protocol = 'udp'; address = [string]$u.LocalAddress; port = [int]$u.LocalPort; process = $names[[int]$u.OwningProcess] } }
+)` + windowsJSONOut
 
 // windowsUsersScript lists the local accounts: name, SID and whether each
 // is enabled. Get-LocalUser has no password or hash to give. A host without
-// it (PowerShell before 5.1, or the 32-bit shell) lists none, as a POSIX
-// device without the files does.
+// it (PowerShell before 5.1, or the 32-bit shell) says its source is absent,
+// as a POSIX device without the files does, where it once listed none and
+// read as having no accounts.
 const windowsUsersScript = `$ErrorActionPreference = 'Stop'
-$out = @()
-if (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) {
-  $out = @(foreach ($u in @(Get-LocalUser)) { [ordered]@{ name = [string]$u.Name; sid = [string]$u.SID.Value; enabled = [bool]$u.Enabled } })
-}` + windowsJSONOut
+if (-not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue)) { '` + gatherAbsentMark + `'; exit 0 }
+$out = @(foreach ($u in @(Get-LocalUser)) { [ordered]@{ name = [string]$u.Name; sid = [string]$u.SID.Value; enabled = [bool]$u.Enabled } })` + windowsJSONOut
 
 // windowsGroupsScript lists the local groups with their members. A group
 // whose members Get-LocalGroupMember cannot list (it throws on an orphaned
-// SID or some cloud members) reports none, not an empty list.
+// SID or some cloud members) reports none, not an empty list. A host without
+// Get-LocalGroup says its source is absent.
 const windowsGroupsScript = `$ErrorActionPreference = 'Stop'
-$out = @()
-if (Get-Command Get-LocalGroup -ErrorAction SilentlyContinue) {
-  $out = @(foreach ($g in @(Get-LocalGroup)) {
-    $m = $null
-    try { $m = @(foreach ($x in @(Get-LocalGroupMember -Group $g -ErrorAction Stop)) { [string]$x.Name }) } catch { }
-    [ordered]@{ name = [string]$g.Name; sid = [string]$g.SID.Value; members = $m }
-  })
-}` + windowsJSONOut
+if (-not (Get-Command Get-LocalGroup -ErrorAction SilentlyContinue)) { '` + gatherAbsentMark + `'; exit 0 }
+$out = @(foreach ($g in @(Get-LocalGroup)) {
+  $m = $null
+  try { $m = @(foreach ($x in @(Get-LocalGroupMember -Group $g -ErrorAction Stop)) { [string]$x.Name }) } catch { }
+  [ordered]@{ name = [string]$g.Name; sid = [string]$g.SID.Value; members = $m }
+})` + windowsJSONOut
 
 // windowsFilesScript is the files script (every regular file the login can
 // read is hashed; its digest is kept plain, with its size, only when its ACL
@@ -136,9 +133,9 @@ func windowsFileProbe() gatherProbe {
 func windowsItemProbes() []gatherProbe {
 	return []gatherProbe{
 		windowsFileProbe(),
-		{subset: gatherSubsetPorts, family: gatherFamilyPort, command: windowsPortsScript, parse: parseWindowsPorts},
-		{subset: gatherSubsetUsers, family: gatherFamilyUser, command: windowsUsersScript, parse: parseWindowsUsers},
-		{subset: gatherSubsetUsers, family: gatherFamilyGroup, command: windowsGroupsScript, parse: parseWindowsGroups},
+		{subset: gatherSubsetPorts, family: gatherFamilyPort, command: windowsPortsScript, parse: parseWindowsPorts, check: checkWindowsArray},
+		{subset: gatherSubsetUsers, family: gatherFamilyUser, command: windowsUsersScript, parse: parseWindowsUsers, check: checkWindowsArray},
+		{subset: gatherSubsetUsers, family: gatherFamilyGroup, command: windowsGroupsScript, parse: parseWindowsGroups, check: checkWindowsArray},
 	}
 }
 

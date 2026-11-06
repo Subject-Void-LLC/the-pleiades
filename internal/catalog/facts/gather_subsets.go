@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -83,6 +84,22 @@ func gatherSelection(params map[string]any) (map[string]bool, error) {
 	return chosen, nil
 }
 
+// gatherExplicit is the subsets a task names itself, not through all or the
+// default: those a task fails over when no source on the device answers for
+// them (familyVerdict). An exclusion does not take a name back, as it does
+// not in gatherNamed. A malformed value reads as naming none;
+// gatherSelection refuses it first.
+func gatherExplicit(params map[string]any) map[string]bool {
+	names, _, _ := sdk.StringSlice(params, gatherParamSubset)
+	explicit := map[string]bool{}
+	for _, raw := range names {
+		if name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!"); !remove && name != gatherSubsetAll {
+			explicit[name] = true
+		}
+	}
+	return explicit
+}
+
 // gatherNamesFiles reports whether names asks for the files subset by name,
 // and whether it leaves it out by name (!files).
 func gatherNamesFiles(names []string) (named, removed bool) {
@@ -95,8 +112,14 @@ func gatherNamesFiles(names []string) (named, removed bool) {
 	return named, removed
 }
 
-// gatherNamed is the subsets names chooses, by Ansible's rules, before files
-// is settled.
+// gatherNamed is the subsets names chooses, before files is settled, by
+// Ansible's own rule (get_collector_names), whatever order they come in: all
+// adds every subset, a name adds itself, !name and !all (every subset but
+// min) exclude, and a subset is gathered when it was added and not excluded,
+// or named itself, which an exclusion does not take back. So [!packages, all]
+// leaves packages out, where reading the list in order once gathered them
+// (FAILURE_PATTERNS 931). A list of exclusions alone starts from the default, and
+// min is gathered unless !min is named.
 func gatherNamed(names []string, set bool) (map[string]bool, error) {
 	chosen := map[string]bool{}
 	if !set || len(names) == 0 {
@@ -105,42 +128,45 @@ func gatherNamed(names []string, set bool) (map[string]bool, error) {
 		}
 		return chosen, nil
 	}
-	onlyRemovals := true
-	for _, n := range names {
-		if !strings.HasPrefix(n, "!") {
-			onlyRemovals = false
+	named, excluded := map[string]bool{}, map[string]bool{}
+	added := false
+	for _, raw := range names {
+		name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!")
+		if name != gatherSubsetAll && !knownSubset(name) {
+			return nil, fmt.Errorf("%s %q is not a subset this method gathers (%s, %s)", gatherParamSubset, raw, strings.Join(gatherSubsets, ", "), gatherSubsetAll)
+		}
+		switch {
+		case name == gatherSubsetAll && remove:
+			for _, s := range gatherSubsets {
+				if s != gatherSubsetMin {
+					excluded[s] = true
+				}
+			}
+		case name == gatherSubsetAll:
+			added = true
+			for _, s := range gatherSubsets {
+				chosen[s] = true
+			}
+		case remove:
+			excluded[name] = true
+		default:
+			added = true
+			named[name] = true
+			chosen[name] = true
 		}
 	}
-	if onlyRemovals {
+	if !added {
 		for _, s := range gatherDefaultSubsets {
 			chosen[s] = true
 		}
 	}
-	keepMin := true
-	for _, raw := range names {
-		name, remove := strings.CutPrefix(strings.TrimSpace(raw), "!")
-		switch {
-		case name == gatherSubsetAll && remove:
-			for _, s := range gatherSubsets {
-				delete(chosen, s)
-			}
-		case name == gatherSubsetAll:
-			for _, s := range gatherSubsets {
-				chosen[s] = true
-			}
-		case !knownSubset(name):
-			return nil, fmt.Errorf("%s %q is not a subset this method gathers (%s, %s)", gatherParamSubset, raw, strings.Join(gatherSubsets, ", "), gatherSubsetAll)
-		case remove:
-			delete(chosen, name)
-			if name == gatherSubsetMin {
-				keepMin = false
-			}
-		default:
-			chosen[name] = true
-		}
-	}
-	if keepMin {
+	if !excluded[gatherSubsetMin] || named[gatherSubsetMin] {
 		chosen[gatherSubsetMin] = true
+	}
+	for name := range excluded {
+		if !named[name] {
+			delete(chosen, name)
+		}
 	}
 	return chosen, nil
 }
@@ -177,20 +203,27 @@ const (
 
 // itemKey is the fact key of one item of family: the family's prefix and the
 // item's name, with the characters a fact key cannot hold (a space, a slash,
-// anything unprintable) and the percent sign percent-encoded, byte by byte, so the key reads back
-// to the item exactly and two names never meet in one key.
+// anything unprintable), the percent sign and every byte that is not UTF-8
+// percent-encoded, byte by byte, so the key reads back to the item exactly
+// and two names never meet in one key. A byte that is not UTF-8 is encoded as
+// itself: ranging over the string read each as U+FFFD, a printable rune, so
+// two names differing only there shared a key (FAILURE_PATTERNS 932, a repeat of
+// 328).
 func itemKey(family, name string) string {
 	var b strings.Builder
 	b.WriteString(family)
-	for _, r := range name {
-		if r == '/' || r == '%' || unicode.IsSpace(r) || !unicode.IsPrint(r) {
+	for i := 0; i < len(name); {
+		r, size := utf8.DecodeRuneInString(name[i:])
+		raw := name[i : i+size]
+		i += size
+		if (r == utf8.RuneError && size == 1) || r == '/' || r == '%' || unicode.IsSpace(r) || !unicode.IsPrint(r) {
 			// Every byte of the rune, so one outside ASCII stays exact.
-			for _, c := range []byte(string(r)) {
+			for _, c := range []byte(raw) {
 				fmt.Fprintf(&b, "%%%02X", c)
 			}
 			continue
 		}
-		b.WriteRune(r)
+		b.WriteString(raw)
 	}
 	return b.String()
 }

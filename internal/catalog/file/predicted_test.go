@@ -13,7 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -117,8 +119,22 @@ func fullDirectory(t *testing.T) string {
 // checkRemove runs file.remove's check of target with snap.
 func checkRemove(t *testing.T, server *remoteexectest.Server, snap *wire.Predictions, target string) (collection.Result, *removeContext, error) {
 	t.Helper()
+	return checkRemoveWith(t, server, snap, target, nil)
+}
+
+// checkRemoveWith is checkRemove with extra params.
+func checkRemoveWith(t *testing.T, server *remoteexectest.Server, snap *wire.Predictions, target string, extra map[string]any) (collection.Result, *removeContext, error) {
+	t.Helper()
+	return checkRemoveIn(t, server, snap, target, extra, nil)
+}
+
+// checkRemoveIn is checkRemoveWith in a context whose stats fail with
+// statErr when it is set.
+func checkRemoveIn(t *testing.T, server *remoteexectest.Server, snap *wire.Predictions, target string, extra map[string]any, statErr error) (collection.Result, *removeContext, error) {
+	t.Helper()
 	rc := &predictingContext{removeContext: newRemoveContext(server), snap: snap}
-	result, err := checkOf(t, "file.remove")(context.Background(), rc, newRemoveDevice(server), removeParams(target, nil))
+	rc.statErr = statErr
+	result, err := checkOf(t, "file.remove")(context.Background(), rc, newRemoveDevice(server), removeParams(target, extra))
 	return result, rc.removeContext, err
 }
 
@@ -290,9 +306,10 @@ func TestCheckRemove_FailsWhenRemovingNothingCannotBeRecorded(t *testing.T) {
 // refused removal coming, so a removal in a directory that does not allow it,
 // or of a whole tree, records the predictions unknown rather than gone; and a
 // directory found empty only through earlier predictions, in a parent that
-// does not allow its removal, cannot be checked. A removal the parent does
-// not allow is also warned about in the check's own result, since the real
-// run will likely be refused.
+// does not allow its removal, cannot be checked. Asked to warn
+// (check_forbidden: warn), a removal the parent does not allow is warned
+// about in the check's own result; by default it is refused
+// (TestCheckRemove_AForbiddenRemovalIsRefusedByDefault).
 func TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root removes from any directory, so none refuses it here")
@@ -330,7 +347,8 @@ func TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake(t *testing.T) {
 	if err := os.Chmod(sealed, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	_, rc, err = checkRemove(t, server, snapshotOf(), empty)
+	warn := map[string]any{"check_forbidden": "warn"}
+	_, rc, err = checkRemoveWith(t, server, snapshotOf(), empty, warn)
 	if err != nil || rc.stats[sdk.StatPredictedPaths] != "unknown" {
 		t.Errorf("a directory its parent does not let go: %v, recorded %#v; want unknown", err, rc.stats[sdk.StatPredictedPaths])
 	}
@@ -339,7 +357,7 @@ func TestCheckRemove_RecordsOnlyARemovalTheRealRunCanMake(t *testing.T) {
 		t.Errorf("the check's warnings = %#v, want one saying the login may not remove %s", rc.stats[sdk.StatWarnings], empty)
 	}
 	// Nor is one found empty only through predictions: that cannot be checked.
-	_, _, err = checkRemove(t, server, snapshotOf(gone(locateOn(t, server, filepath.Join(dir, "f")))), dir)
+	_, _, err = checkRemoveWith(t, server, snapshotOf(gone(locateOn(t, server, filepath.Join(dir, "f")))), dir, warn)
 	var cannot *collection.CannotCheckError
 	if !errors.As(err, &cannot) {
 		t.Errorf("a directory empty only through predictions, in a parent that does not let it go: %v, want CannotCheck", err)
@@ -365,5 +383,106 @@ func TestCheckRemove_AnUnansweredRemovalQuestionRecordsUnknown(t *testing.T) {
 	result, rc, err := checkRemove(t, server, snapshotOf(), target)
 	if err != nil || !result.Changed || rc.stats[sdk.StatPredictedPaths] != "unknown" {
 		t.Errorf("check = %+v, %v, recorded %#v; want a predicted removal recorded unknown", result, err, rc.stats[sdk.StatPredictedPaths])
+	}
+}
+
+// TestCheckRemove_AForbiddenRemovalIsRefusedByDefault: a check of a removal
+// the device's permissions forbid this login fails, naming the path and the
+// way to ask for a warning instead (owner decision 2026-11-04), records no
+// prediction, and a removal they allow is untouched by the rule. A value
+// that is neither refuse nor warn is refused before the device is reached.
+func TestCheckRemove_AForbiddenRemovalIsRefusedByDefault(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes from any directory, so none refuses it here")
+	}
+	server := startRemoveServer(t, -1)
+	sealed := filepath.Join(tempDir(t), "sealed")
+	empty := filepath.Join(sealed, "empty")
+	if err := os.MkdirAll(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o700) })
+
+	for name, extra := range map[string]map[string]any{"by default": nil, "asked to refuse": {"check_forbidden": "refuse"}} {
+		t.Run(name, func(t *testing.T) {
+			_, rc, err := checkRemoveWith(t, server, snapshotOf(), empty, extra)
+			if err == nil || !strings.Contains(err.Error(), "may not remove "+empty) || !strings.Contains(err.Error(), "check_forbidden: warn") {
+				t.Fatalf("check = %v, want a refusal naming %s and check_forbidden: warn", err, empty)
+			}
+			if _, ok := rc.stats[sdk.StatPredictedPaths]; ok {
+				t.Errorf("a refused check recorded predictions: %#v", rc.stats[sdk.StatPredictedPaths])
+			}
+		})
+	}
+	// The control: a file in a directory that allows its removal is checked
+	// as before, under the default.
+	allowed := filepath.Join(tempDir(t), "f")
+	if err := os.WriteFile(allowed, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := checkRemove(t, server, snapshotOf(), allowed); err != nil {
+		t.Fatalf("a removable file under the default: %v", err)
+	}
+	if _, _, err := checkRemoveWith(t, server, snapshotOf(), allowed, map[string]any{"check_forbidden": "maybe"}); err == nil || !strings.Contains(err.Error(), "check_forbidden must be refuse or warn") {
+		t.Fatalf("a value that is neither: %v, want it refused", err)
+	}
+}
+
+// TestCheckRemove_AnAnswerTheDeviceCannotGiveIsAWarning: where the device's
+// shell cannot say whether the login may remove the path (root under
+// BusyBox, whose test reads mode bits itself), the check warns and predicts
+// nothing, whatever check_forbidden says, rather than refusing: a refusal
+// there could not be lifted for a rollback's recorded undo (FAILURE_PATTERNS
+// 937). The device's answer is a stand-in here, since BusyBox's sh runs its
+// own id ahead of PATH; the script's real answer as root under BusyBox is
+// measured in pkg/remotefile's TestRemovableScript_RefusesWhatItCannotVouchFor.
+func TestCheckRemove_AnAnswerTheDeviceCannotGiveIsAWarning(t *testing.T) {
+	server := startRemoveServer(t, -1)
+	target := filepath.Join(tempDir(t), "f")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(file.SetRemovableKnown(func(context.Context, *remoteexec.Conn, string) (bool, bool, error) { return false, false, nil }))
+
+	for _, forbidden := range []string{"refuse", "warn"} {
+		_, rc, err := checkRemoveWith(t, server, snapshotOf(), target, map[string]any{"check_forbidden": forbidden})
+		if err != nil {
+			t.Fatalf("check_forbidden %s: %v, want a warning, not a refusal", forbidden, err)
+		}
+		warnings, _ := rc.stats[sdk.StatWarnings].([]string)
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "cannot be read from the device") {
+			t.Errorf("check_forbidden %s: warnings = %#v", forbidden, rc.stats[sdk.StatWarnings])
+		}
+		if rc.stats[sdk.StatPredictedPaths] != "unknown" {
+			t.Errorf("check_forbidden %s: recorded %#v, want unknown", forbidden, rc.stats[sdk.StatPredictedPaths])
+		}
+	}
+	// A warning that cannot be recorded fails the check.
+	if _, _, err := checkRemoveIn(t, server, snapshotOf(), target, nil, errors.New("stats refused")); err == nil || !strings.Contains(err.Error(), "stats refused") {
+		t.Errorf("an unrecordable warning: %v", err)
+	}
+}
+
+// TestCheckRemove_AForbiddenRemovalsWarningMustBeRecorded: asked to warn, a
+// check whose warning cannot be recorded fails rather than dropping it.
+func TestCheckRemove_AForbiddenRemovalsWarningMustBeRecorded(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes from any directory, so none refuses it here")
+	}
+	server := startRemoveServer(t, -1)
+	sealed := filepath.Join(tempDir(t), "sealed")
+	empty := filepath.Join(sealed, "empty")
+	if err := os.MkdirAll(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o700) })
+	if _, _, err := checkRemoveIn(t, server, snapshotOf(), empty, map[string]any{"check_forbidden": "warn"}, errors.New("stats refused")); err == nil || !strings.Contains(err.Error(), "stats refused") {
+		t.Fatalf("an unrecordable warning: %v", err)
 	}
 }

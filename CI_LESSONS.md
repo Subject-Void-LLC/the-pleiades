@@ -123,3 +123,8 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     retry and have a test log the count, so testgate prints it as a `note: ` line in every pass. A count of zero says
     the race did not recur in that run, not that the cause is gone; the failure pattern stays open until a run
     reproduces it. FAILURE_PATTERNS 448, 842.
+27. **A govulncheck failure on a commit that already passed is a new advisory, not a regression.** The scan reads a
+    live database, so a pull request's green govulncheck holds for the day it ran; main's push run and the scheduled
+    `vulns` job are where a later advisory shows. Read the trace, take the released fix as its own commit on the
+    branch in hand, and report it as a security finding. A rerun cannot turn it green, and `main` stays red until the
+    fix merges. FAILURE_PATTERNS 552, 938.

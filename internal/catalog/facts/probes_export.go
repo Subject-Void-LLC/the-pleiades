@@ -8,14 +8,32 @@ import "strings"
 // Probe is one probe facts.gather runs: the command it sends, and Read,
 // which is what its parser makes of that command's output.
 type Probe struct {
-	// Command is the probe's fixed command (a PowerShell script on Windows).
+	// Command is the probe's command as Gather sends it (a PowerShell script
+	// on Windows), a family's guarded by the test for its source.
 	Command string
 	parse   func(stdout string) []gatherFact
+	family  bool
+	check   func(stdout string) error
+}
+
+// Absent reports whether stdout says the probe's source is not on the
+// system.
+func (p Probe) Absent(stdout string) bool {
+	outcome, _, _ := readOutcome(stdout, nil)
+	return p.family && outcome == outcomeAbsent
 }
 
 // Read is the facts the probe reads from stdout, by key, a key an earlier
-// item took told apart as Gather tells it.
+// item took told apart as Gather tells it. A family's answer is judged as
+// Gather judges it first, and one that was absent or failed reads nothing.
 func (p Probe) Read(stdout string) map[string]any {
+	if p.family {
+		outcome, body, _ := readOutcome(stdout, p.check)
+		if outcome != outcomeRead {
+			return map[string]any{}
+		}
+		stdout = body
+	}
 	names := gatherNames{}
 	out := map[string]any{}
 	for _, f := range p.parse(stdout) {
@@ -31,7 +49,11 @@ func Probes(platform, subset, text string) []Probe {
 	var out []Probe
 	for _, p := range gatherProbesFor(platform) {
 		if p.subset == subset && strings.Contains(p.command, text) {
-			out = append(out, Probe{Command: p.command, parse: p.parse})
+			command := p.command
+			if p.present != "" {
+				command = guarded(p.present, p.command)
+			}
+			out = append(out, Probe{Command: command, parse: p.parse, family: p.family != "", check: p.check})
 		}
 	}
 	return out

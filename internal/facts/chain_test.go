@@ -62,7 +62,7 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 		"an unchained value after the chain began": {func(l []facts.Link) []facts.Link {
 			l[2].Chain, l[2].Prev = "", ""
 			return l
-		}, 2, "stored before it"},
+		}, 2, "carries no chain"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

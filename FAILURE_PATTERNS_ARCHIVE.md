@@ -22029,3 +22029,400 @@ the old consumer.
 **Lesson.** A fix for how one consumer treats untrusted input belongs to every consumer of the same publisher; put it
 in one package they all call, so the next consumer starts from it.
 
+## 925. facts.gather stored a family source it could not read as an empty set, since over SSH a probe's exit status never reached Gather and every family parser read "could not read" as "nothing there", so every item read as removed and came back the next run (a repeat of 13, 451, 723 and 845) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 1); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. Every `facts.gather` family (`package.`, `service.`, `port.`, `user.`,
+`group.`) stored a source it failed to list as a source that lists nothing. A locked rpmdb, a busy systemd or a broken
+Homebrew made every package or service read as removed, and the next good run read them all as added again. On
+Windows, a JSON answer that was malformed or had text printed before it read as no items, and an object cut short
+after a complete member read as the whole answer. `TestGather_AFamilyIsReadOrTheRunSaysItWasNot`, through the real
+SSH harness and a real `/bin/sh` with stand-in tools on `PATH`, failed 5 of its first 6 cases on the old code; the
+control (a source that answers) passed on both.
+
+**Root cause.** Two halves that each looked safe alone. Over SSH the run closure in `gather_transport.go` keeps only
+stdout, and `pkg/remoteexec`'s `Conn.Run` returns a non-zero exit as `Result.ExitCode` with a nil error, so a failed
+listing reached the parser as empty output. And every family parser returned the same nil for "could not read" as
+for "nothing there", so nothing downstream could tell them apart.
+
+**Why 13, 451, 723 and 845 did not hold.** 13 says a tool that can return nothing needs a positive control; 451 and
+723 each fixed one reader (docker inspect, `wait.routes`) that took a failed look as absence. Each fix lives in its own
+code, and the facts families were written later with the same shape. 845 saw this exact path on 2026-11-03: its entry
+says "the SSH path reads no exit status for a probe, so the task succeeded". Its fix moved every probe under `sh -c`,
+which cured the shell that caused that failure, and left the exit status unread, so any other failure still reached
+the store as an empty set. LESSONS 138 (give "I could not look" a third answer) was not applied.
+
+**Fix.** `55ea70bc`, `internal/catalog/facts/gather_outcome.go`. Each family probe runs its listing only where its
+source is present (`guarded`, printing `gatherAbsentMark` otherwise), and each listing whose failure matters prints
+`gatherFailedMark` when it fails (`orFailed`). `readOutcome` splits a probe's answer into read, absent or failed, and
+a per-source check refuses an answer without the structure its source always prints (`checkSystemd`, `checkOpenRC`,
+`checkRC`, `checkLaunchd`, `listsSomething` for pkgutil, `checkWindowsArray` on Windows). `familyVerdict` decides the
+task: a failed source fails it, whatever else answered, so a failed task stores none of what it emitted; a family no
+source answers fails a task that named its subset itself, and is a warning for one reached through `all`.
+`parseWindowsObject` needs its closing brace and nothing after it. Tests: `TestGather_AFamilyIsReadOrTheRunSaysItWasNot`,
+`TestReadOutcome`, `TestFamilyVerdict`, `TestStructureChecks`, `TestParseWindowsObject_OnlyAWholeObject`. The live
+suite (`internal/catalog/facts/live`, real Rocky and Alpine OpenRC containers) passes; its RPM test now asserts that
+the dpkg and apk probes say their source is absent there. `2393a634` extends `FuzzGatherParsers` to run each answer
+through `readOutcome` and its check first (90 s, about 2.6 million inputs, no failure).
+
+**Found on review.** The branch's fp-reviewer agent, 2026-11-05, before push, found two things the fix left.
+
+(a) The stricter rule broke three callers that named services where no service manager runs. Fixed in `529c032c`
+and `9deef5c8`. `cmd/pleiades/facts_release_gate_test.go` runs an Alpine sshd image with no `rc-status` and no
+systemd; it now gathers `[packages]`, and asserts that a gather naming `[services]` is refused, saying so, and stores
+nothing. `TestCLI_FactsReleaseGate` passes against the real container. `TestGather_PackagesAndServicesMatchThisMachine`
+now reaches the families through `all` (`[all, !ports, !users]`), so a test host with no manager warns rather than
+fails. The playbook converter's `service_facts` now emits `gather_subset: [all, !hardware, !packages, !ports, !users]`
+(`internal/forge/playbook/modules_misc.go`, `serviceFactsSubsets`), so a host with no manager is a warning, as
+Ansible's `service_facts` skips there; its note says SysV init's `service --status-all` is not read. Test:
+`TestModules_Map`'s `service_facts` case.
+
+(b) Sibling sources still read "could not look" as "none", fixed in `529c032c`. The Windows ports, users and groups
+scripts printed `[]` when `Get-NetTCPConnection`, `Get-LocalUser` or `Get-LocalGroup` was missing, which read as no
+listeners or accounts; each now prints `gatherAbsentMark` (`internal/catalog/facts/gather_win_items.go`). Test:
+`TestGather_AWindowsHostWithoutTheCmdletsSaysSo`, on a modeled host; it has not yet run on a real Windows host. rpm
+counts as present only with its database (`rpm --eval '%_dbpath'` and that directory, `gather_packages.go`), so a
+Debian host carrying an rpm with no database does not fail the family dpkg answered. A failing `pkgutil --pkg-info`
+now fails the macOS probe (`orFailed`, `gather_bsd_items.go`). Linux port sections split only at the start of a line
+(`markedSections`, `gather_ports.go`), so a file a local user names with the mark, seen in a root gather's descriptor
+listing, cannot fail that gather. Test: `TestStructureChecks`' "linux ports, a mark inside a line" case. The live suite
+still passes on real Rocky and Alpine OpenRC containers.
+
+**Lesson.** A reader whose answer is a list has three answers, not two: the items, none, or "could not read". Where
+the transport drops the exit status, the probe has to say which one itself, and the parser cannot be the place that
+decides.
+
+## 926. facts.gather's systemd probe read a host systemd did not boot, where systemctl lists unit files and no units, so every service read inactive, and a failed list-units read the same (a repeat of 13 and 723; LESSONS 244) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 8); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. The systemd probe ran wherever `systemctl` was installed. On a host where
+systemd is not PID 1 (a container, or a host booted by another init), `systemctl list-unit-files` still lists the unit
+files and `list-units` lists no unit, so every service was stored with no running state. A `list-units` that failed
+on a booted host gave the same answer.
+
+**Root cause.** The probe asked only whether the tool exists, not whether the manager it reads is running. Its sibling,
+the OpenRC probe, already carried the mirror test (`[ ! -d /run/systemd/system ]`).
+
+**Why 13, 723 and LESSONS 244 did not hold.** 13 and 723 are the empty-read class (925). LESSONS 244 says that when
+one of two sibling paths carries a guard, the other is checked too. The OpenRC probe's guard asked the booted question,
+and nobody asked it of the systemd probe beside it.
+
+**Fix.** `55ea70bc`: the probe's source is present only when `systemctl` exists and `[ -d /run/systemd/system ]`
+(`internal/catalog/facts/gather_services.go`), and `checkSystemd` refuses an answer whose loaded units name no
+service, which a booted systemd always has. Test: `TestStructureChecks` (the "systemd, no loaded service" and
+"systemd, one section" cases). The booted test itself is a shell condition; it rests on reading the code.
+
+**Lesson.** A probe for a service manager asks whether that manager is running, not only whether its tool is
+installed.
+
+## 927. An OpenRC supervise-daemon service's status line, which carries its uptime, was stored whole as its state, so the state was a new value on every gather (a repeat in kind of 870 and 874) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 9); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. For a service run by `supervise-daemon`, `rc-status --all -f ini` prints a
+status such as `started 1 day(s) 02:13:07 (0)`. `parseOpenRC` stored all of it as the service's state, so an unchanged
+service showed a change on every run.
+
+**Root cause.** The parser mapped known state words through `openrcStates` but compared the whole value, so a status
+with more than one word matched nothing and was kept as written.
+
+**Why 870 and 874 did not hold.** Both are drift on an unchanged device caused by how a source prints (sockstat's one
+line per descriptor, Windows' share mode). Each fix lives in its own probe; nothing asks of every field a family
+records whether it moves on an unchanged device. Sweep item 10 (service runtime state and other fields that move on
+their own) is the rest of that question and is still open.
+
+**Fix.** `55ea70bc`: the state is the status's first word (`internal/catalog/facts/gather_services.go`). Test:
+`TestParseOpenRC_ASupervisedServiceIsRunning`.
+
+**Lesson.** A parser that maps a source's words reads only the word it maps, and a test feeds it the longest status
+the source prints.
+
+## 928. FreeBSD with security.bsd.see_other_uids=0 and a non-root login stored a running daemon it could not see as stopped (a repeat in kind of 818) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 11); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. Where `security.bsd.see_other_uids=0` hides other users' processes, a
+non-root login's `service <name> onestatus` says "is not running" for a daemon that is running as another user.
+`parseRC` stored it as `stopped`.
+
+**Root cause.** rc's status answer is built from a process lookup, and the lookup cannot see what the sysctl hides.
+"I could not see it" came back in the same words as "it is not there".
+
+**Why 818 did not hold.** 818 fixed a PowerShell guard (`Test-Path`) that answered no for a path it could not read,
+and LESSONS 379 says a primitive is measured for what it answers when it cannot look. That rule was written for
+existence guards, and rc's status check is the same kind of primitive in another place.
+
+**Fix.** `55ea70bc`: the FreeBSD services probe prints `procsHiddenMark` when the login is not root and `ps -p 1`
+fails, and under that mark a "not running" status is left unknown rather than stopped
+(`internal/catalog/facts/gather_bsd_items.go`). Test: `TestParseRC_AHiddenDaemonIsUnknown`.
+
+**Found on review.** The branch's fp-reviewer agent, 2026-11-05, before push: the hidden test used `ps -p 1`, and pid 1
+never shows inside a FreeBSD jail, so every non-root gather in a jail would have read every stopped daemon as unknown.
+Fixed in `529c032c`: the probe prints `procsHiddenMark` only when the login is not root and `sysctl -n
+security.bsd.see_other_uids` (which any login may read) says `0`. `TestParseRC_AHiddenDaemonIsUnknown` covers the
+parser; the probe's condition is a shell test and rests on reading the code.
+
+**Lesson.** A status that is built by looking for something says "absent" when the look is blocked; ask first whether
+the look can see.
+
+## 929. rc-update show -v put its option after the verb, so under POSIXLY_CORRECT glibc's getopt listed nothing and every OpenRC service read disabled (a repeat of 844) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 15); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. The OpenRC probe ran `rc-update show -v`. Where `POSIXLY_CORRECT` is set and
+the userland uses glibc's getopt, parsing stops at `show` and `-v` is not read as an option, so the listing names
+nothing and every OpenRC service read as disabled.
+
+**Root cause.** 844's: an option after the first non-option word is not an option to a non-permuting parser.
+
+**Why 844 did not hold.** 844 fixed the systemctl command and wrote the lesson "put a command's options before its
+first operand or verb, always". The OpenRC command in the same probe file was not changed with it.
+
+**Fix.** `55ea70bc`: `rc-update -v show` (`internal/catalog/facts/gather_services.go`). No unit test names this case;
+the live suite's real Alpine OpenRC container passes with the new order.
+
+**Lesson.** No new lesson: 844's, applied to every command in the file it touched, not only the one that failed.
+
+## 930. facts.gather's filter matched a family member before gatherNames.distinct told apart a name two databases share, so package.glibc:* matched nothing, and a filter naming a family alone passed the typo refusal and matched nothing (the first a repeat of 849, a case its fix left) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 14); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. Where two databases list the same package name, the second is stored as
+`package.glibc:i686` (or `@source`, or `#2`). A filter `package.glibc:*` was matched against the key before that
+suffix was added, so it matched neither item. And a pattern with no wildcard, such as `package`, passed
+`gatherFamilyWanted`, which refuses a filter that can match no fact, and then matched no member. Both cases in
+`TestGather_AFamilyIsReadOrTheRunSaysItWasNot` ("a filter matching the key a second database's item is stored under"
+and "a filter naming a family alone") were red on the old code.
+
+**Root cause.** The filter read a different key from the one the store keeps. And `gatherFamilyWanted` took the text
+before the first wildcard as a prefix even when there was no wildcard, so the whole pattern counted as a prefix of
+every member.
+
+**Why 849 did not hold.** 849's fix (`ab881c13`) made names distinct across every probe of a run, and placed that
+step after the filter. 849's lesson (a test calls the code the way the run does) was met for the plain run, but no
+test ran it with a filter.
+
+**Fix.** `564bbe70`: `names.distinct` runs before the filter, whether or not the filter keeps the item, so the filter
+reads the stored key and a key does not change with the filter. A pattern with no wildcard names one key, and is a
+member only when it is longer than the family's prefix (`internal/catalog/facts/gather.go`). Tests: the two cases
+above.
+
+**Lesson.** A filter matches the key that is stored, so every step that shapes the key runs before it.
+
+## 931. gather_subset was read in order, so [!packages, all] gathered packages (a repeat of 848, a case its fix left) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 16); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. `gatherNamed` applied each name in turn, so `all` after `!packages` added
+packages back, and the "only removals start from the default" rule did not see the change. Ansible gathers the same
+set whatever the order. Two cases of `TestGatherNamed_FollowsAnsiblesRuleInAnyOrder` were red on the old code.
+
+**Root cause.** The list was read as a sequence of edits, where Ansible's `get_collector_names` reads it as sets: what
+is added, minus what is excluded and not also named.
+
+**Why 848 did not hold.** 848's fix gave the playbook converter Ansible's order-free rule (`setupSubset`) and left
+`facts.gather`'s own reading of the list as it was. Its lesson (map a value's meaning, not its spelling) was applied
+to the converter only.
+
+**Fix.** `564bbe70`: `gatherNamed` (`internal/catalog/facts/gather_subsets.go`) follows `get_collector_names`: `all`
+adds every subset, a name adds itself, `!name` and `!all` exclude (`!all` every subset but `min`), and a subset is
+gathered when it was added and not excluded, or named itself. A list of exclusions alone starts from the default, and
+`min` is gathered unless `!min` is named. `gatherExplicit` records which subsets the task named itself, for 925's
+verdict. Tests: `TestGatherNamed_FollowsAnsiblesRuleInAnyOrder`, `TestGatherExplicit`.
+
+**Lesson.** No new lesson: 848's, applied to the method itself as well as to its converter.
+
+## 932. itemKey read a byte that is not UTF-8 as the printable U+FFFD, so two names differing only there shared one fact key, and facts.ValidKey accepted such a key (a repeat of 328 and 370) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 16); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. `itemKey` ranged over an item's name as runes. A byte that is not UTF-8
+came back as U+FFFD, which is printable, so it was written into the key as U+FFFD rather than percent-encoded, and two
+names differing only in that byte got the same key: one item overwrote the other. `facts.ValidKey` also ranged over
+runes, so it accepted a key holding such a byte.
+
+**Root cause.** Ranging over a Go string replaces each invalid byte with U+FFFD, and the code checked the rune it got
+rather than the bytes it was given.
+
+**Why 328 and 370 did not hold.** 328 fixed one argument splitter and 370 one email normalizer; each refuses or keeps
+invalid UTF-8 in its own code. 370's lesson (a normalizer that repairs turns a malformed value into a valid key) is
+this exact shape, and nothing carries it to new code that builds a key from device text.
+
+**Fix.** `7f7a8ed3`: `itemKey` (`internal/catalog/facts/gather_subsets.go`) decodes each rune with
+`utf8.DecodeRuneInString` and percent-encodes a byte that is not UTF-8 as itself. `77a1da13`: `ValidKey`
+(`internal/facts/facts.go`) asks `utf8.ValidString` first. Tests: `TestItemKey_ABytesThatIsNotUTF8IsItsOwn`,
+`TestValidKey_RefusesWhatIsNotUTF8`.
+
+**Lesson.** Code that builds or checks a key from outside text works on its bytes; a rune loop silently repairs what it
+should encode or refuse.
+
+## 933. facts.holdsSecret missed a run's secret holding a byte that is not UTF-8, because the stored text holds U+FFFD where the secret holds that byte, so the fact was stored with the secret in it (a repeat in kind of 918 and 904) (fixed before push)
+
+**Symptom.** A security finding, low severity. Found by the API-model review sweep on 2026-11-04 (facts verdicts,
+item 16); fixed on 2026-11-05 on `fix/facts-sweep-gatherers`, before push. `facts.Canonical` decodes a value and encodes it again, and `encoding/json`
+writes each byte that is not UTF-8 as U+FFFD. A run's secret holding such a byte therefore reaches the canonical text
+in a third spelling. `holdsSecret` compared the raw secret and its JSON-escaped form only, found neither, and the fact
+was stored with the rest of the secret in it. Measured by `TestPrepare_ASecretThatIsNotUTF8IsStillFound`, red on the
+old code. Severity is low: it needs a secret that is not valid UTF-8, and what is stored is that secret with each such
+byte replaced.
+
+**Root cause.** A matcher that runs after a conversion compared fewer spellings than the conversion can produce.
+
+**Why 918 and 904 did not hold.** 918's lesson is this one ("a masker that converts a value before matching must match
+every spelling the conversion can produce"), and 904's before it. Both fixes are in `internal/redact`'s `Masker`.
+`holdsSecret` is a separate matcher in `internal/facts`, and neither fix reached it.
+
+**Fix.** `77a1da13`: `holdsSecret` (`internal/facts/facts.go`) also compares `asStoredText(secret)`, the secret with
+each byte that is not UTF-8 written as U+FFFD, as the stored text holds it. Test:
+`TestPrepare_ASecretThatIsNotUTF8IsStillFound`.
+
+**Found on review.** The branch's fp-reviewer agent, 2026-11-05, before push, applying LESSONS 244 (check the sibling
+path): the same gap was in `internal/redact`. `redact.Value` converts a struct or a typed map through JSON, so a secret
+that is not UTF-8 reached a run's report in its U+FFFD spelling, which the raw secret never matches. Measured red on
+the old code by `TestValue_ASecretThatIsNotUTF8IsMaskedAfterJSON`, both through the call's own list of secrets and
+through the shared literal set. Fixed in `93894ddd`: `withJSONSpellings` (`internal/redact/value.go`) masks that
+spelling beside the raw one, `Literals.Add` registers it too, so the shared set and its snapshot carry both, and
+`Literals.Forget` removes it with the raw value (`internal/redact/literals.go`).
+
+**Lesson.** No new lesson: 918's, applied to every matcher that runs after a conversion, not only the masker.
+
+## 934. facts.gather's filter matched Ansible's fnmatch patterns with path.Match, which reads [!d] as a class holding ! and d where fnmatch reads every character but d (a repeat in kind of 334 and 848) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 16); fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. The `filter` parameter takes `ansible.builtin.setup`'s patterns, which
+Ansible matches with Python's `fnmatch`. The code matched them with `path.Match`, and a comment said the two were the
+same. They differ on a negated class: `[!d]` is "not d" to fnmatch and "! or d" to `path.Match`. A filter using one
+selected different facts from what it does in Ansible. This was in `v0.3.0` for the single facts.
+
+**Root cause.** Two pattern grammars taken as one because their common cases look alike.
+
+**Why 334 and 848 did not hold.** Both are "equal words taken as equal meanings" for Ansible's interface, and their
+fixes checked argument names (334) and `gather_subset`'s meaning (848). Neither looked at the filter's grammar.
+
+**Fix.** `7f7a8ed3`: `fnmatchPattern` (`internal/catalog/facts/gather.go`) translates a pattern into `path.Match`'s
+grammar (`[!` becomes `[^`) before both the malformed-pattern check and every match. Keys hold no slash, so the two
+agree on what `*` spans. Test: `TestGatherMatches_ReadsFnmatchsNegation`.
+
+**Found on review.** The branch's fp-reviewer agent, 2026-11-05, before push: two more constructs the grammars spell
+differently. fnmatch also reads `[^a]` as a class holding `^` and `a`, where `path.Match` reads every character but
+`a`, and fnmatch has no escape, so a backslash is an ordinary character, where `path.Match` reads it as an escape.
+Fixed in `529c032c`: `fnmatchPattern` escapes a `^` that opens a class and doubles each backslash. Tests: new cases in
+`TestGatherMatches_ReadsFnmatchsNegation` (`[^a]` becomes `[\^a]`, `a\[!b]` becomes `a\\[^b]`, and the matches each
+gives).
+
+**Lesson.** When a parameter takes another program's pattern language, translate it into the matcher's, and test the
+constructs the two spell differently.
+
+## 935. launchd never reported a disabled daemon, so it vanished from the facts at reboot, and its status was the last exit status, which moves on an unchanged Mac (its status a repeat in kind of 870 and 874) (fixed before push)
+
+**Symptom.** Found by the API-model review sweep on 2026-11-04 (facts verdicts, item 16) and the macOS review; fixed
+on 2026-11-05 on `fix/facts-sweep-gatherers`, before push. launchd does not load a disabled daemon, so `launchctl
+print system`'s services block never lists one. `parseLaunchd` read only that block, so a daemon disabled since boot
+was missing from the facts and read as removed after a reboot. And the stored `status` was the last exit status
+`launchctl` prints, which changes each time an on-demand daemon runs or is killed, on a Mac nobody changed.
+
+**Root cause.** The list came from the loaded set, not the configured one. The status field held a runtime value no
+other service source puts there.
+
+**Why 870 and 874 did not hold.** As in 927, a field that moves on its own was stored as stable state, and each
+earlier fix lives in its own probe. Sweep item 10 holds the rest of the question.
+
+**Fix.** `7f7a8ed3` (`internal/catalog/facts/gather_bsd_items.go`): each label in `launchctl print-disabled system`
+that the services block does not list is reported `stopped`, not enabled, status `disabled`; every status is now
+`enabled` or `disabled` (`launchdStatus`). `55ea70bc` added `checkLaunchd`, which refuses an answer with no services
+block. Test: `TestDarwinParsers_ReadBrewPkgutilAndLaunchd`, updated for both changes.
+
+**Found on review.** The branch's fp-reviewer agent, 2026-11-05, before push: `launchctl print-disabled system` keeps
+an override for a daemon after it is uninstalled, so the fix would have reported a removed daemon as present and
+disabled for as long as its override stayed. Fixed in `529c032c`: the probe also lists `/System/Library/LaunchDaemons`
+and `/Library/LaunchDaemons`, and a disabled daemon is reported only while its plist is in one of them
+(`gather_bsd_items.go`). Test: the fixture case `com.example.removed` in
+`TestDarwinParsers_ReadBrewPkgutilAndLaunchd`.
+
+**Lesson.** A service list comes from what is configured, not only from what is loaded, and each field means the same
+thing across every source that fills it.
+
+## 936. After facts.Resumed wrote a value back at its last sighting, a late observation of the same value just before it added a second row of that value, which read as a change from A to A (a repeat of 923, a case its fix opened) (fixed before push)
+
+**Symptom.** Found on PR #117's own review on 2026-11-05, not by the sweep; fixed on 2026-11-05 on
+`fix/facts-sweep-gatherers`, before push. 923's fix (`facts.Resumed`) writes back the value that was current before a
+late change, dated at its last sighting. A value A confirmed at 11 and again at 15 comes back dated 15. A late
+observation of A at 12 then lands just before that row, and the history reads A, B, A@12, A@15: two rows of one value
+in a row, which a reader takes as a change from A to A. The conformance case "a value that follows itself in the
+history reads as one" was red on the old code.
+
+**Root cause.** Write-on-change keeps one row per change and only the last sighting of each value, so a written-back
+value cannot be dated at the sighting that actually followed the late change.
+
+**Why 923 did not hold.** 923's fix was tested by what the next in-order run records; no case sent a second late
+observation of the value it had written back.
+
+**Fix.** `a21b15e7`: `InRunOrder` (`internal/facts/file_store.go`), which both stores' histories use, merges
+consecutive entries of the same hash and kind on read (`mergeRepeats`, `internal/facts/late.go`): first observed as
+the earlier says, last confirmed as whichever was confirmed later. The stored rows and the chain are untouched. Test:
+the conformance case above, in `internal/facts/factstest`, run by both stores.
+
+**Open.** Dating a written-back value exactly needs per-sighting history, which conflicts with write-on-change. The
+choice (leave it documented, keep per-sighting rows with a retention bound, or keep the first and last sighting per
+spell) is the owner's, before Phase 41d.
+
+**Lesson.** A fix that writes a row back is tested with the late arrivals that land next to the row it wrote.
+
+## 937. file.remove's new check refusal took remotefile.Removable's no as the device's no, but Removable also answered no where it could not tell (root under a BusyBox shell), so every rollback check of a recorded file.remove undo on an Alpine root login would have failed, with advice a recorded undo cannot follow (a repeat in kind of 270, 488, 600 and 621; LESSONS 138) (fixed before push)
+
+**Symptom.** Found by the branch's fp-reviewer agent on 2026-11-05, on `fix/facts-sweep-gatherers`, before push.
+`6539ed41`, this branch's own change, made `file.remove`'s check refuse a removal by default when
+`remotefile.Removable` answered no, and its message told the author to set `check_forbidden: warn` "where the
+device's permissions cannot be read as they apply". `Removable` answers no for a root login under a BusyBox shell
+whether or not the removal would work, because there it cannot tell. So a check of `file.remove` as root on an Alpine
+host failed by default. A rollback check is worse: the undo's params come from the run journal, so an author has no
+task on which to set `check_forbidden: warn`, and every rollback check of a recorded `file.remove` undo on such a
+login would have failed with advice that cannot be followed.
+
+**Root cause.** `Removable` has two answers (yes, or no) for three states (allowed, refused, cannot tell). 812's fix
+mapped "cannot tell" to no on purpose, which was safe while every caller leaned only on a yes (the check's ledger of
+predicted removals). `6539ed41` added the first caller that acts on a no, and it read the folded answer as the
+device's own.
+
+**Why 270, 488, 600 and 621 did not hold.** Each is a refusal whose advice does not work for the person who sees it,
+and each lesson says to follow the advice once from every place the refusal can be shown. Here the advice was written
+for a task an author writes, and the refusal is also shown by a rollback check, whose undo nobody writes by hand.
+LESSONS 138 (give "I could not look" a third answer) was applied in 925 on this branch to the facts families and not
+to `Removable`, whose own comment already said it answers no where it cannot tell.
+
+**Fix.** `c70f147e`. The removable script (`pkg/remotefile/locate.go`) exits 3 for "the shell cannot tell" (root
+under BusyBox), where it exited 1. `remotefile.RemovableKnown` reports whether the answer was known; `Removable` keeps
+its meaning for its other callers (no unless known and allowed). `file.remove`'s check
+(`internal/catalog/file/remove.go`) refuses only a no the device gave, warns (`sdk.RecordWarnings`) where the device
+cannot say, and still warns on a no when the task sets `check_forbidden: warn`. Measured:
+`TestRemovableScript_RefusesWhatItCannotVouchFor` runs the script under BusyBox as root through `unshare -r` on this
+machine and now expects exit 3. No test drives `file.remove`'s new warning through a real BusyBox root login; that
+branch rests on the measured exit code and on reading the code.
+
+**Lesson.** When a new caller acts on an answer that an older caller only leaned on, read what that answer folds
+together before refusing on it. A refusal's advice is followed once from every path that can show it, the
+generated ones (a rollback, a converted playbook) included.
+
+## 938. govulncheck failed main's push run after pull request #117 merged, on GO-2026-6865 in klauspost/compress v1.20.0, an advisory published after the pull request's checks had passed (a repeat in kind of 552) (fixed)
+
+**Symptom.** 2026-11-05, GitHub Actions run 42131068662, the push run on `main` at `dd91a345` after pull request #117
+merged. Only govulncheck failed, in the `ci (ubuntu-24.04, true)` job: GO-2026-6865, a panic on two-block frames in
+`klauspost/compress` v1.20.0 (its `fse` and `huff0` packages). The trace: `internal/api/projects.go:407`,
+`api.ProjectHandler.StreamSyncLogs` calls `middleware.compressResponseWriter.Flush`, which eventually calls
+`fse.Compress`. The pull request's own checks had passed; no code changed between them and the push run.
+
+**Root cause.** The commit had not changed; the advisory database had. GO-2026-6865 was published after the pull
+request's checks ran, so the first scan to see it was main's push run. The module is an indirect dependency.
+
+**Security finding.** The weakness is a panic in the compressor on two-block frames. This module reaches it when the
+Controller compresses a project's sync log stream (the trace above). What input triggers it, and so what an attacker
+would need, was not measured here. A fixed release exists, v1.20.2, and taking it changed only `go.mod` and `go.sum`;
+the build and vet are unchanged. Confidence: reasoned from govulncheck's call trace, not reproduced.
+
+**Why 552 did not hold.** 552 is the same cause (a check's answer moved without the commit moving, because the
+advisory database moved), seen there as a memory kill at pr-check. Its fix pinned the toolchain and moved where the
+scan runs; nothing can make a scan see an advisory before it is published, and this one surfaced where the design
+expects: main's push run and the scheduled `vulns` job.
+
+**Fix.** `60f50721` on `fix/facts-sweep-gatherers`: `klauspost/compress` v1.20.2. `main` stays red on govulncheck until
+this branch merges. The Actions ledger holds the run (`record-actions`); its entry is a job (`leg`) entry, which
+`tools/failures annotate` does not match, so it carries no pattern number.
+
+**Lesson.** A govulncheck failure on a commit that already passed is a new advisory, not a regression: read its trace,
+take the released fix as its own commit on the branch in hand, and report it as a security finding. A rerun cannot
+turn it green.
+

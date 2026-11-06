@@ -48,6 +48,18 @@ func FuzzGatherParsers(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, out string) {
 		for _, p := range probes {
+			// A family's answer is judged before it is parsed: whatever the
+			// device printed, the judgment does not panic, and a body it
+			// keeps holds neither mark (gather_outcome.go).
+			if p.family != "" && p.commandFor == nil {
+				if outcome, body, _ := readOutcome(out, p.check); outcome == outcomeRead {
+					for _, line := range strings.Split(body, "\n") {
+						if l := strings.TrimSpace(line); l == gatherAbsentMark || l == gatherFailedMark {
+							t.Fatalf("a kept answer still holds a mark: %q", body)
+						}
+					}
+				}
+			}
 			facts := p.parse(out)
 			if p.commandFor != nil {
 				// A probe built from paths is keyed by them as Gather keys it.

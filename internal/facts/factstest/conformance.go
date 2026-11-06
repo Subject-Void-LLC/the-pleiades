@@ -31,6 +31,7 @@ func Run(t *testing.T, newStore NewStore) {
 	t.Run("within one run, the clock orders its observations", func(t *testing.T) { sameRunByClock(t, newStore) })
 	t.Run("a time is kept to the microsecond and still verifies", func(t *testing.T) { microsecondTime(t, newStore) })
 	t.Run("a late change keeps a later confirmation in the history", func(t *testing.T) { lateChangeKeepsConfirmation(t, newStore) })
+	t.Run("a value that follows itself in the history reads as one", func(t *testing.T) { repeatsReadAsOne(t, newStore) })
 }
 
 // entries prepares observed as a method declaring every key kind would.
@@ -264,5 +265,36 @@ func lateChangeKeepsConfirmation(t *testing.T, newStore NewStore) {
 	// The line written for y's sighting is chained like any other.
 	if v, err := s.Verify(context.Background(), dev); err != nil || v.Break != nil || v.Values != 3 {
 		t.Fatalf("Verify = %+v, %v; want three chained values", v, err)
+	}
+}
+
+// repeatsReadAsOne: A was confirmed at 11 and 15 and a late change to B at 10
+// came after, so A was written back at its last sighting, 15. A late
+// observation of A at 12 then found B current as of 12 and wrote A at 12, so
+// the stored rows read A, B, A, A. The history reads A, B, A: the device held
+// A from 12 on, first seen then and last confirmed at 15.
+func repeatsReadAsOne(t *testing.T, newStore NewStore) {
+	s, dev := newStore(t)
+	const key = "ansible_kernel"
+	at := func(token int) time.Time { return base.Add(time.Duration(token) * time.Minute) }
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.1"}, at(5), by("w", 5))
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.1"}, at(11), by("y", 11))
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.1"}, at(15), by("v", 15))
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.2"}, at(10), by("x", 10))
+	record(t, s, dev, facts.KindStable, map[string]any{key: "6.1"}, at(12), by("u", 12))
+	h := history(t, s, dev, key)
+	var got []string
+	for _, e := range h {
+		got = append(got, e.Value.(string)+"@"+e.By.Run)
+	}
+	if len(h) != 3 || got[0] != "6.1@w" || got[1] != "6.2@x" || got[2] != "6.1@u" {
+		t.Fatalf("history = %v, want 6.1@w, 6.2@x, 6.1@u", got)
+	}
+	if h[2].LastBy.Run != "v" || !h[2].LastSeenAt.Equal(at(15)) {
+		t.Fatalf("the merged value = %+v, want it last confirmed by v at 15", h[2])
+	}
+	// The rows are all still stored and chained.
+	if v, err := s.Verify(context.Background(), dev); err != nil || v.Break != nil || v.Values != 4 {
+		t.Fatalf("Verify = %+v, %v; want four chained values", v, err)
 	}
 }

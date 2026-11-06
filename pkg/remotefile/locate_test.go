@@ -227,8 +227,8 @@ func TestRemovableScript_RefusesWhatItCannotVouchFor(t *testing.T) {
 		}
 	}
 	if unshare, err := exec.LookPath("unshare"); err == nil && exec.Command(unshare, "-r", "true").Run() == nil { // #nosec G204 -- probing for user namespaces
-		if got := run(append([]string{unshare, "-r"}, bb...), nil); got != 1 {
-			t.Errorf("under BusyBox as root: exit %d, want 1", got)
+		if got := run(append([]string{unshare, "-r"}, bb...), nil); got != 3 {
+			t.Errorf("under BusyBox as root: exit %d, want 3, the shell cannot tell", got)
 		}
 	}
 }

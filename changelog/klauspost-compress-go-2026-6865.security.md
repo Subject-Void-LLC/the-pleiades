@@ -1,0 +1,1 @@
+The Controller now builds with `github.com/klauspost/compress` v1.20.2, which fixes GO-2026-6865, a panic on two-block frames in the compressor the Controller uses for compressed responses such as a project's streamed sync log.

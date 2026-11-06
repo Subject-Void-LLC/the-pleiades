@@ -11,6 +11,7 @@ package facts
 
 import (
 	"encoding/hex"
+	"fmt"
 	"net/netip"
 	"sort"
 	"strconv"
@@ -38,10 +39,15 @@ func linuxPortProbes() []gatherProbe {
 	return []gatherProbe{{
 		subset: gatherSubsetPorts,
 		family: gatherFamilyPort,
-		command: `[ -r /proc/net/tcp ] && { printf '\001\000' | od -An -tx2; uname -m; ` + tables +
+		// grep exits 1 for a table with no listener, so the listings say
+		// nothing of their own failure; the answer is checked for every
+		// section instead (checkLinuxPorts).
+		present: `[ -r /proc/net/tcp ]`,
+		command: `{ printf '\001\000' | od -An -tx2; uname -m; ` + tables +
 			`echo '` + portSectionMark + ` fd'; ls -l /proc/[0-9]*/fd 2>/dev/null | grep -E '^/proc/|socket:'; ` +
 			`echo '` + portSectionMark + ` comm'; for d in /proc/[0-9]*; do read -r c < "$d/comm" 2>/dev/null && printf '%s\t%s\n' "${d#/proc/}" "$c"; done; }`,
 		parse: parseLinuxPorts,
+		check: checkLinuxPorts,
 	}}
 }
 
@@ -75,7 +81,7 @@ type listeningSocket struct {
 // listening socket: a TCP socket in state LISTEN (0A), and a UDP socket bound
 // and unconnected (state 07, no remote port), which is UDP's listening.
 func parseLinuxPorts(out string) []gatherFact {
-	sections := strings.Split(out, portSectionMark)
+	sections := markedSections(out, portSectionMark)
 	if len(sections) < 2 {
 		return nil
 	}
@@ -199,4 +205,36 @@ func socketOwners(fds, comms string) map[string]string {
 		}
 	}
 	return owners
+}
+
+// checkLinuxPorts refuses an answer missing any of its sections (the byte
+// order, four tables, descriptors and names): one cut short lists only some
+// of the device's listeners.
+func checkLinuxPorts(out string) error {
+	if n := len(markedSections(out, portSectionMark)) - 1; n != 6 {
+		return fmt.Errorf("it printed %d of its 6 section marks", n)
+	}
+	return nil
+}
+
+// markedSections is out split as strings.Split would split it on mark, but
+// only where mark starts a line: a mark inside a line is data, such as a
+// file a local user named with it, which a root gather's descriptor listing
+// prints (FAILURE_PATTERNS 925).
+func markedSections(out, mark string) []string {
+	var sections []string
+	var cur strings.Builder
+	for i, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(line, mark); ok {
+			sections = append(sections, cur.String())
+			cur.Reset()
+			cur.WriteString(rest)
+			continue
+		}
+		if i > 0 {
+			cur.WriteByte('\n')
+		}
+		cur.WriteString(line)
+	}
+	return append(sections, cur.String())
 }
