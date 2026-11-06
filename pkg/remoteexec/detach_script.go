@@ -70,6 +70,7 @@ else
   sh -c "$job" job "$d" "$um" "$shell" </dev/null >/dev/null 2>&1 &
 fi
 echo $! >"$d/pid"
+echo
 echo "$d"`
 
 // Exit statuses of detachStart that mean nothing was started.
@@ -175,7 +176,13 @@ func pollRC(stdout string) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("no exit status line in %q", boundedText(stdout))
 	}
-	return strconv.Atoi(strings.TrimSpace(text))
+	code, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil {
+		// Atoi's own error quotes the whole text, which a job's rc file can
+		// make as long as the poll's bound; the device's text is bounded here.
+		return 0, fmt.Errorf("the exit status line holds %q, not a number", boundedText(text))
+	}
+	return code, nil
 }
 
 // afterMarker returns what follows the first line that is exactly marker in

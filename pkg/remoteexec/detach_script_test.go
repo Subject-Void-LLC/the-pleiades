@@ -334,3 +334,25 @@ func TestAnsweredJobDir(t *testing.T) {
 		}
 	}
 }
+
+// TestPollRC_BoundsWhatItQuotes: an exit status line that is not a number
+// is refused quoting a bounded piece of it, not the whole line a job's rc
+// file can make as long as the poll's answer.
+func TestPollRC_BoundsWhatItQuotes(t *testing.T) {
+	long := rcPrefix + strings.Repeat("x", 60<<10)
+	_, err := pollRC("banner\n" + long + "\n")
+	if err == nil || !strings.Contains(err.Error(), "not a number") || len(err.Error()) > 4<<10 {
+		t.Fatalf("pollRC on a 60 KiB status line: error of %d bytes (%.80v); want a bounded refusal", len(errText(err)), err)
+	}
+	if code, err := pollRC("banner\n" + rcPrefix + "7\n"); err != nil || code != 7 {
+		t.Fatalf("pollRC on a real status = %d, %v", code, err)
+	}
+}
+
+// errText is err's text, empty for nil.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
