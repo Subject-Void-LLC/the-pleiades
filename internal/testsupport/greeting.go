@@ -78,15 +78,17 @@ func (g *greeting) WaitUntilReady(ctx context.Context, target wait.StrategyTarge
 		if err == nil {
 			return nil
 		}
+		if state, stateErr := target.State(ctx); stateErr == nil && !state.Running {
+			return fmt.Errorf("the container stopped (exit %d) before port %s sent the %s greeting: %w", state.ExitCode, g.port, g.protocol, err)
+		}
 		// A refused host port a socket of ours holds is lost for good, so
-		// waiting out the bound would only delay the same failure.
+		// waiting out the bound would only delay the same failure. Asked
+		// after the state, so a container that stopped is reported as that
+		// even when a socket of ours has since taken its freed port.
 		if errors.Is(err, syscall.ECONNREFUSED) {
 			if lost := g.lostPort(ctx, target); lost != nil {
 				return lost
 			}
-		}
-		if state, stateErr := target.State(ctx); stateErr == nil && !state.Running {
-			return fmt.Errorf("the container stopped (exit %d) before port %s sent the %s greeting: %w", state.ExitCode, g.port, g.protocol, err)
 		}
 		select {
 		case <-ctx.Done():
@@ -118,18 +120,19 @@ func (g *greeting) attempt(ctx context.Context, target wait.StrategyTarget) erro
 	return readGreeting(addr, g.prefix, g.protocol, natsGreetingAttempt)
 }
 
-// lostPort returns lostPortError when a socket of this user holds the host
-// port the wait dials, and nil otherwise.
+// lostPort returns lostHostPort's failure when the wait dials this
+// machine's loopback and a socket of this user holds the host port, and nil
+// otherwise.
 func (g *greeting) lostPort(ctx context.Context, target wait.StrategyTarget) error {
+	host, err := target.Host(ctx)
+	if err != nil {
+		return nil
+	}
 	mapped, err := target.MappedPort(ctx, g.port)
 	if err != nil {
 		return nil
 	}
-	hostPort := mapped.Num()
-	if holders := ownSocketsOn(int(hostPort)); len(holders) > 0 {
-		return lostPortError(g.port, int(hostPort), holders)
-	}
-	return nil
+	return lostHostPort("port "+g.port, host, int(mapped.Num()))
 }
 
 // readGreeting makes one connection to addr, under a deadline of timeout,

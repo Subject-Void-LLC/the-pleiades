@@ -173,8 +173,8 @@ func TestCheckGo_AnOlderToolchainIsAFix(t *testing.T) {
 
 // TestCheckPortRange answers for each engine and range: Docker Desktop on
 // Linux with ephemeral ports reaching its published ones is a fix naming
-// the command, the same range moved below them is ok, a native engine or
-// Docker Desktop on macOS needs nothing, an unreadable range is a fix, and
+// the command, the same range moved below them is ok, a native engine needs
+// nothing, Docker Desktop off Linux is not checked, an unreadable range is a fix, and
 // an unreachable daemon is left to checkDocker.
 func TestCheckPortRange(t *testing.T) {
 	const info = "docker info --format {{.OperatingSystem}}"
@@ -190,7 +190,7 @@ func TestCheckPortRange(t *testing.T) {
 		{"desktop, unreadable", "linux", map[string]string{info: "Docker Desktop"}, "fix", "could not read"},
 		{"desktop, garbage", "linux", map[string]string{info: "Docker Desktop", rng: "60999 32768"}, "fix", "could not read"},
 		{"native engine", "linux", map[string]string{info: "Ubuntu 24.04.3 LTS"}, "ok", "where the tests run"},
-		{"desktop on macOS", "darwin", map[string]string{info: "Docker Desktop"}, "ok", "where the tests run"},
+		{"desktop on macOS", "darwin", map[string]string{info: "Docker Desktop"}, "info", "not checked"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fakeMachine{commands: tc.commands}.install(t)

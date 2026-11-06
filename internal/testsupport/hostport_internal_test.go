@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 )
 
 // TestSocketsOwnedOn reads /proc/net/tcp and tcp6 lines as the kernel
@@ -31,10 +34,11 @@ func TestSocketsOwnedOn(t *testing.T) {
 	if got, want := socketsOwnedOn(text, 54998, 1000), []string{"ESTABLISHED", "LISTEN"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("uid 1000: %v, want %v (its client socket and its tcp6 listener, not the remote-port match)", got, want)
 	}
-	// Root: the root listener (a forwarder that did bind) and the TIME_WAIT
-	// (owned by no user) are not collisions.
-	if got := socketsOwnedOn(text, 54998, 0); len(got) != 1 || got[0] != "TIME_WAIT" {
-		t.Errorf("uid 0: %v, want only the TIME_WAIT, never a root listener", got)
+	// A TIME_WAIT is left out for every owner (it does not block an
+	// SO_REUSEADDR bind), so even read for uid 0 only the root listener and
+	// nothing else shows; ownSocketsOn never reads for root at all.
+	if got := socketsOwnedOn(text, 54998, 0); len(got) != 1 || got[0] != "LISTEN" {
+		t.Errorf("uid 0: %v, want only the root listener, never the TIME_WAIT", got)
 	}
 	if got := socketsOwnedOn(text, 40000, 1000); got != nil {
 		t.Errorf("a port only remote (0x9C40): %v, want none", got)
@@ -52,9 +56,10 @@ func TestSocketsOwnedOn(t *testing.T) {
 
 // TestGreeting_FailsAtOnceOnAPortASocketOfOursHolds is the collision as the
 // kernel shows it: a real socket of this process holds local port P, P
-// refuses (no listener), and the wait fails with ErrPublishedPortLost and
-// the fix at once, not after its bound. The control is a free port that
-// also refuses: the wait waits out its bound and says no socket holds it.
+// refuses (no listener), and the greeting, connect-only and NATS waits fail
+// with ErrPublishedPortLost and the fix rather than after their bound. A
+// container that stopped is still reported as stopped, and the control, a
+// refused port /proc shows no holder for, waits out its bound.
 func TestGreeting_FailsAtOnceOnAPortASocketOfOursHolds(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("reads /proc/net/tcp, which only Linux has")
@@ -80,33 +85,60 @@ func TestGreeting_FailsAtOnceOnAPortASocketOfOursHolds(t *testing.T) {
 	t.Cleanup(func() { _ = holder.Close() })
 	held := holder.LocalAddr().(*net.TCPAddr).Port
 
+	if os.Getuid() == 0 {
+		t.Skip("a root run reads no holder (hostport.go), so there is no fast failure to see")
+	}
+	// The bound is minutes, so only the fast path can return the sentinel:
+	// the bound's own failure wraps the refusal, never ErrPublishedPortLost.
+	heldAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(held))
 	for _, g := range []*greeting{
-		{port: "22/tcp", prefix: "SSH-", protocol: "SSH", timeout: 30 * time.Second},
-		{port: "5432/tcp", protocol: "Postgres", timeout: 30 * time.Second, connectOnly: true},
+		{port: "22/tcp", prefix: "SSH-", protocol: "SSH", timeout: 5 * time.Minute},
+		{port: "5432/tcp", protocol: "Postgres", timeout: 5 * time.Minute, connectOnly: true},
 	} {
-		start := time.Now()
-		err := g.WaitUntilReady(context.Background(), fakeTarget{addr: net.JoinHostPort("127.0.0.1", strconv.Itoa(held)), running: true})
+		err := g.WaitUntilReady(context.Background(), fakeTarget{addr: heldAddr, running: true})
 		if !errors.Is(err, ErrPublishedPortLost) || !strings.Contains(err.Error(), "ip_local_port_range") || !strings.Contains(err.Error(), "ESTABLISHED") {
 			t.Fatalf("%s: err = %v, want ErrPublishedPortLost naming the holder and the fix", g.protocol, err)
 		}
-		if took := time.Since(start); took > 5*time.Second {
-			t.Errorf("%s: a lost port took %v to be reported, want at once", g.protocol, took)
-		}
+	}
+	if err := waitForNATSGreeting(heldAddr, 5*time.Minute, time.Second); !errors.Is(err, ErrPublishedPortLost) {
+		t.Errorf("NATS on a held port: %v, want ErrPublishedPortLost", err)
 	}
 
-	free, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// A container that stopped is reported as that, even on a held port.
+	g := &greeting{port: "22/tcp", prefix: "SSH-", protocol: "SSH", timeout: 5 * time.Minute}
+	if err := g.WaitUntilReady(context.Background(), fakeTarget{addr: heldAddr, running: false, exit: 2}); err == nil || !strings.Contains(err.Error(), "stopped (exit 2)") {
+		t.Errorf("a stopped container on a held port: %v, want it reported as stopped", err)
 	}
-	freePort := free.Addr().(*net.TCPAddr).Port
-	_ = free.Close()
-	g := &greeting{port: "22/tcp", prefix: "SSH-", protocol: "SSH", timeout: time.Second}
-	err = g.WaitUntilReady(context.Background(), fakeTarget{addr: net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort)), running: true})
-	if err == nil || errors.Is(err, ErrPublishedPortLost) || !strings.Contains(err.Error(), "no socket of this user holds host port "+strconv.Itoa(freePort)) {
-		t.Errorf("a refused port nothing holds: %v, want the bound's failure saying no socket holds it", err)
+
+	// The control: a bound, unlistened port, which refuses and which no
+	// other socket can take, waits out its bound and says what it saw.
+	control := refusing.Port(t)
+	g = &greeting{port: "22/tcp", prefix: "SSH-", protocol: "SSH", timeout: time.Second}
+	err = g.WaitUntilReady(context.Background(), fakeTarget{addr: net.JoinHostPort("127.0.0.1", strconv.Itoa(control)), running: true})
+	if err == nil || errors.Is(err, ErrPublishedPortLost) || !strings.Contains(err.Error(), "lists no listening or connected socket of this user on host port "+strconv.Itoa(control)) {
+		t.Errorf("a refused port with no holder /proc shows: %v, want the bound's failure saying what /proc showed", err)
 	}
 	if !strings.Contains(hostSideEvidence(held), "Docker Desktop's forwarder cannot bind it") {
 		t.Errorf("the evidence for a held port: %q", hostSideEvidence(held))
+	}
+}
+
+// TestLostHostPort_OnlyOnLoopback leaves a remote engine's port alone: a
+// local socket with the same number there is a coincidence.
+func TestLostHostPort_OnlyOnLoopback(t *testing.T) {
+	for host, want := range map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true, "127.0.0.2": true, "10.0.0.5": false, "docker.example": false, "": false} {
+		if got := loopbackHost(host); got != want {
+			t.Errorf("loopbackHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+	if err := lostHostPort("port 22/tcp", "10.0.0.5", 1); err != nil {
+		t.Errorf("a remote host: %v, want nil", err)
+	}
+	if err := lostAddr("x", "no port here"); err != nil {
+		t.Errorf("an address that does not split: %v", err)
+	}
+	if err := lostAddr("x", "127.0.0.1:http"); err != nil {
+		t.Errorf("a port that is not a number: %v", err)
 	}
 }
 

@@ -2,7 +2,11 @@
 package testsupport
 
 import (
+	"errors"
 	"fmt"
+	"net"
+	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -21,6 +25,10 @@ const natsGreetingAttempt = 2 * time.Second
 // waits (FAILURE_PATTERNS 353). This absorbs a short gap. More usefully, a
 // port that never answers fails here, naming the port, rather than in the
 // code under test as a first-connection timeout that reads like a defect.
+//
+// The two minutes of 353 were Docker Desktop losing the port to a socket of
+// this machine's own, which it never retries (hostport.go, FAILURE_PATTERNS
+// 470), so a refused port a socket of this user holds fails at once.
 func waitForNATSGreeting(addr string, within, attempt time.Duration) error {
 	deadline := time.Now().Add(within)
 	for {
@@ -28,11 +36,29 @@ func waitForNATSGreeting(addr string, within, attempt time.Duration) error {
 		if err == nil {
 			return nil
 		}
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			if lost := lostAddr("the NATS client port", addr); lost != nil {
+				return lost
+			}
+		}
 		if !time.Now().Add(200 * time.Millisecond).Before(deadline) {
 			return fmt.Errorf("nothing at %s sent a NATS greeting within %v: %w", addr, within, err)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// lostAddr is lostHostPort for a host:port address.
+func lostAddr(what, addr string) error {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return nil
+	}
+	return lostHostPort(what, host, n)
 }
 
 // readNATSGreeting makes one connection to addr, under a deadline of
