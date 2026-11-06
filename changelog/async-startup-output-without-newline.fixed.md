@@ -1,0 +1,1 @@
+A task run with `async:` on an SSH device whose login prints startup output that does not end in a newline (a `printf` in `~/.ssh/rc`, or `echo -n` in a shell's startup file) no longer fails: the run used to misread the job it had just started, stop it and fail the task. `async:` is new since 0.3.0, so only builds after it are affected.

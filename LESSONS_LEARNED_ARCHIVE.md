@@ -7332,3 +7332,19 @@ pattern, read the engine's or daemon's own logs for the minute it failed (on Doc
 `monitor.log` and `com.docker.backend.exe.log`), and look at the host side as well as the API's (who holds the port in
 the tests' own socket table). On Docker Desktop on Linux, `make doctor` says whether the ephemeral port range overlaps
 the range Docker Desktop publishes from.
+
+## 402. Carry work out of an old stash or branch one hunk at a time, checked against today's `main`: keep a hunk only when a test of it fails on `main`'s code, and say in the commit what was left out and why; of the 2026-11-04 stash, `main` already held half in a stronger form (extends 338) (2026-11-06).
+
+**Why.** Branch `fix/remoteexec-detach-hardening`. `stash@{0}` held uncommitted work from 2026-11-04 on
+`fix/ssh-sweep-b`, two days and several merged pull requests behind `main`. Read hunk by hunk against `main`, its stop
+script, its ownership checks and its skip for a Raw view were already on `main` in a stronger form (`detachStop`), so
+applying the stash whole would have set an older version of that code against the newer one. Its `notSentError` only
+saved a stop round trip that does no harm, so it was not carried either. Three hunks were real defects on `main`
+(FAILURE_PATTERNS 944, 945 and the first half of 946), and each was kept with a test that fails when its code is
+reverted to `main`'s. The carried diff then went to an independent review (LESSONS 392), which found 943 in the code
+beside it.
+
+**Rule in practice.** Before carrying old work, read `main`'s current version of each function the work touches, not
+just whether the patch applies: a patch can apply cleanly over code that has since moved past it. Keep a hunk only
+with a test that fails on `main`'s code. Name what was left out, and why, in the commit message and the handoff. Drop
+the stash or branch only once the pull request carrying its kept part has merged.

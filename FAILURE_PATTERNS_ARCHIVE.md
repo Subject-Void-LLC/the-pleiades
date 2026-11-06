@@ -22614,3 +22614,108 @@ and the proof checks its precondition at the moment it measures (the socket tabl
 own count. A proof that contradicts a well-supported diagnosis is a reason to test the proof first (LESSONS 357: an
 instrument is a check too).
 
+## 943. Startup output with no trailing newline (a printf in ~/.ssh/rc) ran into the first line of each answer a detached run reads, so the start's answer named no job directory and the job just started was stopped and its task failed (a repeat of 900, a case its fix left) (fixed before push)
+
+**Symptom.** 2026-11-06, branch `fix/remoteexec-detach-hardening`, before push. Found by an independent review of
+`1bb5288e`'s diff by a second model (LESSONS 392; Batch API, $1.25), then measured against the sshd container before
+the fix. With `~/.ssh/rc` printing text that does not end in a newline (a `printf`, or `echo -n` in zsh's `.zshenv`),
+the start's answer read `welcome/config/.pleiades-async-1000/job.<name>`: the banner and the job directory on one line.
+That is no job directory, so the run stopped the job it had just started and failed the task. The poll's marked line
+(`xpleiades-rc=0`) and the job file's marker line would break the same way; that part is read from the code, not run
+on its own.
+
+**Root cause.** `lastLine` and `afterMarker` read each answer from a line of its own. The start script, the poll and
+`readJobFile` printed their answer first, which starts a line only when the output before it ended one.
+
+**Why 900 did not hold.** 900 (and 779 before it, for the start) made each answer a marked line: the directory as the
+last line, the status after `rcPrefix`, a job file after a marker line. Both assumed that whatever the login printed
+first ended with a newline. 900's test, `TestSSHContainer_ADetachedCommandSurvivesStartupOutput`, wrote `~/.ssh/rc` as
+`echo <banner>`, which does, so the other case was never run.
+
+**Fix.** `649d5890`. Every answer leads with a newline of its own: an `echo` before the start script's `echo "$d"`, the
+poll's `printf '\n<rcPrefix>'`, and an `echo` before the job file's marker (`pkg/remoteexec/detach.go`,
+`detach_script.go`). `TestSSHContainer_ADetachedCommandSurvivesStartupOutput`
+(`internal/transport/ssh/ssh_detach_container_test.go`) is now a table over a banner line and a banner with no
+newline; before the fix the second failed with the error above, and both pass now.
+`TestSSHContainer_ADetachedCommandWithNoSetsidIsStillStopped` and `TestAsyncReleaseGate_DetachedOnARunner`
+(`cmd/runner`) pass with it.
+
+**Lesson.** A marker that must start a line writes that newline itself, because text a login prints ahead of it need
+not end in one. A test of startup output includes a banner with no trailing newline.
+
+## 944. withoutCommand took any start error holding the command line for the server's refusal, so a short Raw-view command inside another error ("session" in "ssh: session already started") came back as ErrCommandRefused and the real cause was lost (a repeat in kind of 820, at a case 898's fix opened) (fixed before push)
+
+**Symptom.** Carried on 2026-11-06 from work left in `stash@{0}` on 2026-11-04 (branch `fix/ssh-sweep-b`), after
+checking that work hunk by hunk against `main`. `withoutCommand` (`pkg/remoteexec/conn_watch.go`), added by 898's fix,
+replaced a start error with `ErrCommandRefused` whenever the error's text contained the command line. A Raw view sends
+a command as written, so the line can be one short word, and a short word can sit inside an unrelated error. With the
+line `session`, Start's own `ssh: session already started` was read as the server refusing a command, and the caller
+was told the wrong thing. Not seen in a run. `TestWithoutCommand_KeepsOtherErrors` shows it and fails on `main`'s
+code. (`1bb5288e`'s message gives a channel-open failure as its example; `649d5890` changed the test to an error Start
+really returns.)
+
+**Root cause.** The class of 820: a match on text that a path other than the intended one can produce too. Here the
+matched text was a value the caller supplies (the command), tested for as a substring of text from somewhere else.
+
+**Why 898's fix did not hold.** 898 asked "does this error quote the command?" and answered it with `strings.Contains`,
+which is true of the refusal and of any error that happens to hold a short command. Its test used a dropped connection
+and the line `echo hi`, which no other error holds.
+
+**Fix.** `1bb5288e`: only x/crypto/ssh's whole text, `"ssh: command " + line + " failed"` (`ssh: command %v failed` in
+its `session.go`), becomes `ErrCommandRefused`; any other error is returned as it is. The test asserts both: Start's
+own error with the line `session` is kept, and the refusal itself is still `ErrCommandRefused`. The exact match depends
+on the library's format; `TestSSHContainer_ARefusedCommandIsNotInItsError`
+(`internal/transport/ssh/ssh_refused_exec_container_test.go`, from 898) runs a real refusal and fails if an update
+changes that text, which would otherwise put the command back in the error.
+
+**Lesson.** Classify an error by the whole text its source writes, or by its type, never by whether it contains a
+value the caller supplied: a short value turns up inside other errors.
+
+## 945. A detached start's answer was accepted as any job directory, not this job's own, so a damaged answer could have had the run poll, read and remove another job's directory (a repeat of 902, a case its fix left; the class of 313) (fixed before push)
+
+**Symptom.** Carried on 2026-11-06 from the same 2026-11-04 stash as 944. `runDetached` (`pkg/remoteexec/detach.go`)
+checked the last line of the start's answer against `jobDir`, the shape of any job directory. Since 902 the client
+chooses the job's name (`newJobName`) and the script names the directory `job.<name>`, but the answer was never held
+to that name. An answer naming another job's directory would have been polled, its files read, and the directory
+removed with `rm -rf` when that job finished. Not seen on a device. `TestAnsweredJobDir`
+(`pkg/remoteexec/detach_script_test.go`) shows it and fails with `main`'s check.
+
+**Root cause.** The class of 313: trusting the far side's answer for a name the near side already knows.
+
+**Why 902's fix did not hold.** 902 moved the choice of name to the client, so that a lost answer could still be
+stopped by name (`jobByName`). It kept reading the directory from the answer and checked only its shape.
+
+**Fix.** `1bb5288e`: `answeredJobDir` (`pkg/remoteexec/detach_script.go`) requires a `jobDir` match and the suffix
+`/job.<name>`. An answer that is not this job's is handled as no job directory at all: the job is stopped by its own
+name and the run fails. `TestAnsweredJobDir` refuses another job's name, a longer name, a relative path, a trailing
+newline and a `..` step.
+
+**Lesson.** When this side chose a name, an answer that names it is checked against that name, not only its shape.
+Act only on what this run created.
+
+## 946. A poll whose exit status was not a number stopped the job and threw away the stop's result, and quoted strconv's error, which holds the whole status line up to the poll's 64 KiB bound (a repeat of 910 and of 627; LESSONS 244) (fixed before push)
+
+**Symptom.** Branch `fix/remoteexec-detach-hardening`. The first half was carried on 2026-11-06 from the same
+2026-11-04 stash as 944; the second was found by the same independent review that found 943 (Fable 5.1, Batch API) and is fixed in `649d5890`. When a job's `rc` file held something that is not a number,
+`runDetached` called `stopDetached` and dropped its return, so the error said nothing about the job. And `pollRC`
+returned `strconv.Atoi`'s error, which quotes the whole text, and a job's `rc` file can make that text as long as the
+poll's answer bound (64 KiB, `detachAnswerLimit`). `pollRC`'s other refusal ("no exit status line") already quoted
+`boundedText`.
+
+**Root cause.** LESSONS 244, a guard on one of two sibling paths. The start's error path reported the stop (910), and
+`pollRC`'s other branch bounded its text; this exit and this branch had neither.
+
+**Why 910 and 627 did not hold.** 910 made a failed start's error carry the stop's outcome, at that one exit; the poll
+loop's exit for a status that is not a number kept the old shape. 627 says each new error that quotes a device's text
+needs its own bound and nothing finds one that lacks it. A standard-library error that quotes its input does not look
+like a quote of device text, so nobody bounded it.
+
+**Fix.** `1bb5288e`: the error now ends "not a number, and the job <the stop's outcome>", such as "and the job was
+stopped". `TestDetached_AnExitStatusThatIsNotANumberSaysWhatTheStopDid` (`pkg/remoteexec/detach_test.go`, against the
+real in-process SSH server, with HOME a fresh directory) also asserts that no job directory is left. `649d5890`:
+`pollRC`'s refusal quotes `boundedText(text)`. `TestPollRC_BoundsWhatItQuotes` holds a 60 KiB status line's error under
+4 KiB. Both tests fail on `main`'s code.
+
+**Lesson.** Every exit that runs a stop says what the stop found. An error built from a library's error over a
+device's text is bounded like any other quote of that text: `strconv` quotes its input.
+
