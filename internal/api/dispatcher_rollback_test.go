@@ -731,3 +731,35 @@ func TestRollback_MethodSettingsGoOverTheJobsOwn(t *testing.T) {
 		t.Errorf("with the request saying warn = %q, want warn over the job's refuse", got)
 	}
 }
+
+// TestRollback_MethodSettingsAreHeldToTheTemplatesLock proves a rollback of a
+// job launched from a template may set method_settings only when the template
+// opens the field to a launch, as a launch is held, and the route answers a
+// locked one with 422.
+func TestRollback_MethodSettingsAreHeldToTheTemplatesLock(t *testing.T) {
+	warn := collection.RunSettings{"file.remove.check_forbidden": "warn"}
+	tmpl := launchableTemplate()
+	tmpl.Definition = "rb-1"
+	tmpl.Prompts = nil
+	f := newRollbackFixture(t, &tmpl, nil)
+	req := api.RollbackRequest{Mode: collection.ModeCheck, Leave: []string{"tasks[1]"}, MethodSettings: warn}
+	if _, err := f.dispatcher.Rollback(t.Context(), "g", f.jobID, req); !errors.Is(err, api.ErrSettingLocked) {
+		t.Errorf("a template that does not open method_settings: %v, want ErrSettingLocked", err)
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/jobs/"+f.jobID+"/rollback", strings.NewReader(`{"mode":"check","leave":["tasks[1]"],"method_settings":{"file.remove.check_forbidden":"warn"}}`))
+	httpReq.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", f.jobID)
+	httpReq = httpReq.WithContext(context.WithValue(contextWithIdentity(httpReq, dispatchTestIdentity), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+	f.dispatcher.RollbackJob(rec, httpReq)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "does not let a launch set them") {
+		t.Errorf("the route: %d %s, want 422 saying the template locks the field", rec.Code, rec.Body)
+	}
+
+	tmpl.Prompts = []string{launch.MethodSettingsField}
+	open := newRollbackFixture(t, &tmpl, nil)
+	if _, err := open.dispatcher.Rollback(t.Context(), "g", open.jobID, req); err != nil {
+		t.Errorf("a template that opens method_settings: %v, want the rollback created", err)
+	}
+}

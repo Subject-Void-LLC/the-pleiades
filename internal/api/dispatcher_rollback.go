@@ -63,6 +63,10 @@ func WithRollback(journal RollbackJournal, names DeviceNamer) DispatcherOption {
 // whatever the request accepts.
 var ErrNotRollbackable = errors.New("api: this job cannot be rolled back")
 
+// ErrSettingLocked is returned when a rollback request sets method settings
+// the job's template does not open to a launch.
+var ErrSettingLocked = errors.New("api: the job's template does not let a launch set method_settings")
+
 // RollbackRequest is what a caller asked a rollback to do and accept.
 type RollbackRequest struct {
 	// Mode is execute, or check to see what the rollback would do.
@@ -74,7 +78,8 @@ type RollbackRequest struct {
 	DespiteJobs []string
 	// MethodSettings are run settings for the rollback's tasks, over the
 	// job's own (launch.MethodSettingsField), each already held to its method
-	// (collection.RunSettings.Check). An undo step has no task an author
+	// (collection.RunSettings.Check). A job launched from a template may set
+	// them only when the template opens the field to a launch. An undo step has no task an author
 	// could set a parameter on, so this is how a rollback check of a recorded
 	// file.remove says check_forbidden: warn.
 	MethodSettings collection.RunSettings
@@ -151,6 +156,11 @@ func (d *Dispatcher) Rollback(ctx context.Context, actor, jobID string, req Roll
 		}
 		if err := d.refuseUnrepeatableCredentials(ctx, tmpl); err != nil {
 			return "", fmt.Errorf("%w: %w", ErrNotRollbackable, err)
+		}
+		// A rollback's settings are a launch's, held to the same lock: a
+		// template that does not open method_settings keeps its own.
+		if len(req.MethodSettings) > 0 && !tmpl.Promptable(launch.MethodSettingsField) {
+			return "", ErrSettingLocked
 		}
 	}
 
@@ -473,6 +483,9 @@ func (d *Dispatcher) RollbackJob(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, launch.ErrNotFound):
 		RespondError(w, r, http.StatusUnprocessableEntity, "the template this job ran no longer exists")
+		return
+	case errors.Is(err, ErrSettingLocked):
+		RespondError(w, r, http.StatusUnprocessableEntity, "method_settings: the job's template does not let a launch set them, so a rollback cannot either; open the field on the template, or leave it out")
 		return
 	case errors.Is(err, ErrNotRollbackable), errors.Is(err, journal.ErrTooMuchToPlan):
 		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())

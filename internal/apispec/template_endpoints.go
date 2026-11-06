@@ -558,7 +558,8 @@ var RollbackJob = Endpoint{
 				"type":                 "object",
 				"additionalProperties": map[string]any{"type": "string"},
 				"description": "Run settings for the rollback's tasks, over the job's own method_settings, each named <method>.<parameter> " +
-					"(file.remove.check_forbidden: warn). Only a parameter its method declares a run setting is accepted, and only one of its choices.",
+					"(file.remove.check_forbidden: warn). Only a parameter its method declares a run setting is accepted, and only one of its choices, " +
+					"and for a job launched from a template only when the template lets a launch set method_settings.",
 			},
 		},
 	},
@@ -568,6 +569,7 @@ var RollbackJob = Endpoint{
 		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No job with that id.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "The rollback was refused. Either the job cannot be rolled back at all (it is running, a check, a rollback, a playbook job, or journaled nothing), " +
+			"or the request sets method_settings the job's template does not open to a launch, " +
 			"with an error saying why, or the plan has problems, each listed with the field and value that accept it.", Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
