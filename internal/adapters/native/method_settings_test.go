@@ -21,6 +21,7 @@ func TestExecute_RefusesAMethodSettingThisRunnerDoesNotKnow(t *testing.T) {
 	for name, settings := range map[string]map[string]any{
 		"not a method this build knows": {"nothing.here.mode": "warn"},
 		"declares no parameter a run":   {"valfixture.write.path": "/etc"},
+		"is not text":                   {"valfixture.write.path": true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			bus := &mockBus{}

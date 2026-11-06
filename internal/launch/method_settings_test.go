@@ -62,3 +62,15 @@ func TestFieldCheck_RefusesWhatTheKindRefuses(t *testing.T) {
 		t.Errorf("a value of the wrong type: %v, Check called %d times, want refused by type alone", err, checked-before)
 	}
 }
+
+// TestStrictMethodSettings refuses a value that is not text, naming its key,
+// where MethodSettings drops it.
+func TestStrictMethodSettings(t *testing.T) {
+	if _, err := launch.StrictMethodSettings(launch.Fields{launch.MethodSettingsField: map[string]any{"a.b": 1}}); err == nil || !strings.Contains(err.Error(), `"a.b"`) {
+		t.Errorf("a number: %v, want it refused naming the key", err)
+	}
+	got, err := launch.StrictMethodSettings(launch.Fields{launch.MethodSettingsField: map[string]any{"a.b": "c"}})
+	if err != nil || got["a.b"] != "c" {
+		t.Errorf("text: %v, %v", got, err)
+	}
+}

@@ -6,6 +6,7 @@
 package main_test
 
 import (
+	"encoding/json"
 	"net"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
@@ -44,6 +46,7 @@ func TestMethodSettingsReleaseGate_ARunSettingReachesTheMethodOnARunner(t *testi
 	h.startCheckAgent(t)
 	addr := net.JoinHostPort(h.sshHost, strconv.Itoa(h.sshPort))
 
+	logs := map[string]*jobWatch{}
 	check := func(t *testing.T, runbookID string, settings map[string]any) runner.ResultEntry {
 		t.Helper()
 		payload := wire.DispatchPayload{
@@ -57,6 +60,7 @@ func TestMethodSettingsReleaseGate_ARunSettingReachesTheMethodOnARunner(t *testi
 			payload.Fields = map[string]any{launch.MethodSettingsField: settings}
 		}
 		results := h.results(t, payload.JobID)
+		logs[runbookID+fmtSettings(settings)] = h.watchJob(t, payload.JobID)
 		h.publish(t, topology.CheckSubject(payload.DeviceID), payload)
 		select {
 		case entry := <-results:
@@ -74,6 +78,9 @@ func TestMethodSettingsReleaseGate_ARunSettingReachesTheMethodOnARunner(t *testi
 	if got := check(t, "remove", warn); got.Outcome != "completed" {
 		t.Errorf("the check with method_settings saying warn = %+v, want it completed", got)
 	}
+	if !logs["remove"+fmtSettings(warn)].logHolds(t, "may not remove "+settingsGatePath, 10*time.Second) {
+		t.Error("the check with method_settings saying warn logged no warning naming the path")
+	}
 	if got := check(t, "refuse", warn); got.Outcome != "failed" || !strings.Contains(got.Reason, "refusing") {
 		t.Errorf("a task saying refuse under method_settings saying warn = %+v, want the task's refusal", got)
 	}
@@ -83,4 +90,32 @@ func TestMethodSettingsReleaseGate_ARunSettingReachesTheMethodOnARunner(t *testi
 	if got := readOverSSH(t, addr, "if [ -e "+settingsGatePath+" ]; then echo present; else echo absent; fi"); got != "present" {
 		t.Fatal("a check removed the file")
 	}
+}
+
+// fmtSettings is settings as a stable key for the job it ran under.
+func fmtSettings(settings map[string]any) string {
+	if settings == nil {
+		return ""
+	}
+	raw, _ := json.Marshal(settings)
+	return string(raw)
+}
+
+// logHolds reports whether any of the job's log events, read off its real log
+// subject, holds want within the bound.
+func (w *jobWatch) logHolds(t *testing.T, want string, within time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		msgs, err := w.consumer.Fetch(8, jetstream.FetchMaxWait(time.Second))
+		if err != nil {
+			t.Fatalf("fetch log events: %v", err)
+		}
+		for msg := range msgs.Messages() {
+			if strings.Contains(string(msg.Data()), want) {
+				return true
+			}
+		}
+	}
+	return false
 }

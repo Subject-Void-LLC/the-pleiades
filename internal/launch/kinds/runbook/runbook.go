@@ -75,7 +75,7 @@ func init() {
 				Name: launch.MethodSettingsField, Type: launch.TypeMap,
 				Check: checkMethodSettings,
 				Label: "METHOD SETTINGS",
-				Help:  "Values for a method's parameters that a run may set, for every task that leaves the parameter out, each named <method>.<parameter> (file.remove.check_forbidden: warn). Only a parameter its method declares a run setting is accepted, and only one of its choices; the task's own value always wins. These merge across layers rather than replacing.",
+				Help:  "Values for a method's parameters that a run may set, for every task that leaves the parameter out, each named <method>.<parameter> (file.remove.check_forbidden=warn on a form, {\"file.remove.check_forbidden\": \"warn\"} in JSON). Only a parameter its method declares a run setting is accepted, and only one of its choices; the task's own value always wins. These merge across layers setting by setting rather than replacing, and one value refused drops every setting its layer gave.",
 			},
 			{
 				Name: "labels", Type: launch.TypeStringList,

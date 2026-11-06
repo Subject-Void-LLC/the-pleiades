@@ -4,7 +4,7 @@
 # root under BusyBox. The deploy account logs in without root, for the case
 # the device can answer: a directory it may not write. A throwaway test
 # container, never a device.
-FROM alpine:3.22
+FROM alpine:3.22.8
 RUN apk add --no-cache openssh \
  && ssh-keygen -A \
  && echo 'root:release-gate-alpine-password' | chpasswd \

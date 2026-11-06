@@ -177,9 +177,9 @@ var builtinCheckable = map[string]bool{
 // would only ever report unchecked is caught here too. Validation uses
 // it to refuse check_mode on a task that could never honor it.
 //
-// params are the task's own, exactly as its method receives them: the
-// engine renders nothing into a Collection method's parameters, so the
-// answer here is the answer the run would give.
+// params are the task's own, without a run's settings
+// (collection.Param.RunSetting), which fill a parameter only when the method
+// runs, so a CheckCall must not decide by one; a run setting's doc says so.
 func Checkable(fqcn string, params map[string]any) (bool, string) {
 	if builtinCheckable[fqcn] {
 		return true, ""

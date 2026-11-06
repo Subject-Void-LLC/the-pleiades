@@ -75,7 +75,10 @@ func CheckRunSetting(key, value string) error {
 		return err
 	}
 	if !p.choiceAllowed(value) {
-		return fmt.Errorf("run setting %q must be one of %s, got %q", key, p.ChoiceList(), value)
+		// The value is not echoed: a run setting is one word of a closed set,
+		// so the set is all a reader needs, and a value pasted into the wrong
+		// place is not printed back.
+		return fmt.Errorf("run setting %q must be one of %s", key, p.ChoiceList())
 	}
 	return nil
 }
@@ -136,8 +139,9 @@ func (s RunSettings) keys() []string {
 }
 
 // checkRunSetting refuses a run setting a run could not set safely: one that
-// is not an optional text parameter with a closed set of choices, or that
-// takes secret references, or is an alias or has one. A run setting crosses
+// is not an optional text parameter with a closed set of choices and a
+// default, or that takes secret references, is an alias or has one, holds a
+// dot, or selects a call shape. A run setting crosses
 // the Controller's job record and the dispatch as plain text, so it must be
 // one of a set of words; and a task giving an alias would leave the run's
 // value filling the parameter the alias stands for.
@@ -156,6 +160,18 @@ func checkRunSetting(d Descriptor, p Param) error {
 		return fmt.Errorf("collection: %q declares run setting %q taking secret references; a run setting is never a secret", d.Name, p.Name)
 	case p.AliasOf != "":
 		return fmt.Errorf("collection: %q declares run setting %q, an alias of %q; mark %q instead", d.Name, p.Name, p.AliasOf, p.AliasOf)
+	case p.Default == "":
+		return fmt.Errorf("collection: %q declares run setting %q with no default; a run setting states the value a task gets when nothing sets it, which is also what a Runner older than run settings gives it, so it must be the stricter choice", d.Name, p.Name)
+	case strings.Contains(p.Name, "."):
+		// A setting is named <method>.<parameter>, split at the last dot. (A
+		// parameter named target, the task's own, is refused for every
+		// parameter, run setting or not.)
+		return fmt.Errorf("collection: %q declares run setting %q; a run setting's name holds no dot", d.Name, p.Name)
+	}
+	for _, shape := range d.Manifest.Shapes {
+		if shape.Param == p.Name {
+			return fmt.Errorf("collection: %q declares run setting %q, which selects a call shape; validation reads a task's own parameters, so a shape chosen by a run setting would be checked as another", d.Name, p.Name)
+		}
 	}
 	for _, other := range d.Manifest.Doc.Params {
 		if other.AliasOf == p.Name {

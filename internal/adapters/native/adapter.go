@@ -223,7 +223,11 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// Controller held them to its catalog: a setting this build does not know,
 	// or a value outside its choices, refuses the dispatch rather than running
 	// every task with the parameter's default in its place.
-	settings := collection.RunSettings(launch.MethodSettings(launch.Fields(payload.Fields)))
+	raw, err := launch.StrictMethodSettings(launch.Fields(payload.Fields))
+	if err != nil {
+		return wire.Outcome{}, a.refuse(ctx, payload, err)
+	}
+	settings := collection.RunSettings(raw)
 	if err := settings.Check(); err != nil {
 		return wire.Outcome{}, a.refuse(ctx, payload, err)
 	}

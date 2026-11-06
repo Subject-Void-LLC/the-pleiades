@@ -1,6 +1,8 @@
 // Package launch: the launch field that gives a run's method settings.
 package launch
 
+import "fmt"
+
 // MethodSettingsField is the job's method settings: values for the
 // parameters a method declares a run may set (collection.Param.RunSetting),
 // keyed <method>.<parameter> (file.remove.check_forbidden: warn), for every
@@ -26,4 +28,16 @@ func MethodSettings(f Fields) map[string]string {
 		}
 	}
 	return out
+}
+
+// StrictMethodSettings is MethodSettings for a reader that must not drop
+// anything, a Runner: a value that is not text is an error naming its key,
+// so the dispatch is refused rather than run with the parameter's default.
+func StrictMethodSettings(f Fields) (map[string]string, error) {
+	for k, v := range f.Map(MethodSettingsField) {
+		if _, ok := v.(string); !ok {
+			return nil, fmt.Errorf("run setting %q is not text, one of its choices", k)
+		}
+	}
+	return MethodSettings(f), nil
 }

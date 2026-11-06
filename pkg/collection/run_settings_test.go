@@ -38,6 +38,8 @@ func TestRegister_ARunSettingIsAClosedSetOfWords(t *testing.T) {
 		"taking secret":           {with(func(p *collection.Param) { p.SecretRefs = true })},
 		"an alias of":             {{Name: "real", Type: "string", Choices: []string{"a"}}, with(func(p *collection.Param) { p.AliasOf, p.Choices, p.Default = "real", []string{"a"}, "" })},
 		"which parameter \"alt\"": {mode, {Name: "alt", Type: "string", AliasOf: "mode"}},
+		"with no default":         {with(func(p *collection.Param) { p.Default = "" })},
+		"holds no dot":            {with(func(p *collection.Param) { p.Name = "a.b" })},
 	}
 	i := 0
 	for want, params := range refused {
@@ -46,6 +48,11 @@ func TestRegister_ARunSettingIsAClosedSetOfWords(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: Register = %v, want a refusal saying %q", want, err, want)
 		}
+	}
+	shaped := settingDescriptor("test.runsetting_shape", mode)
+	shaped.Manifest.Shapes = []collection.CallShape{{Param: "mode", SupportedTransports: []string{"ssh"}}}
+	if err := collection.Register(shaped); err == nil || !strings.Contains(err.Error(), "selects a call shape") {
+		t.Errorf("a run setting selecting a call shape: Register = %v, want it refused", err)
 	}
 	if err := collection.Register(settingDescriptor("test.runsetting_good", mode)); err != nil {
 		t.Fatalf("a valid run setting was refused: %v", err)

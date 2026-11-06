@@ -180,7 +180,9 @@ func refuseEngineActionBecome(task *Task) error {
 func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device inventory.InventoryItem, desc collection.Descriptor, mode collection.Mode) (ActionResult, error) {
 	// The run's method settings fill the parameters the task left out, on a
 	// copy, so every step below (the call's shape, the method itself, the
-	// read-only hold) sees the parameters the method is handed.
+	// read-only hold) sees the parameters the method is handed. Validation
+	// and admission read the task's own, which is why a run setting may not
+	// select a call shape (collection.Param.RunSetting).
 	if filled, changed := e.settings.Fill(task.FQCN, desc.Manifest.Doc, task.Params); changed {
 		withSettings := *task
 		withSettings.Params = filled
