@@ -5,11 +5,13 @@ package testsupport
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
@@ -45,10 +47,22 @@ func SSHGreeting(port string) wait.Strategy {
 	return ForGreeting(port, "SSH-", "SSH")
 }
 
-// greeting is ForGreeting's strategy.
+// ForPublishedPort waits until a connection made from the host, through
+// port's mapped host port, is accepted, for a server that says nothing
+// first (Postgres). protocol names it in a refusal. Like ForGreeting it
+// fails at once on a published port Docker Desktop lost to a socket of this
+// machine's own (hostport.go), where testcontainers' ForListeningPort dials
+// for its whole bound.
+func ForPublishedPort(port, protocol string) wait.Strategy {
+	return &greeting{port: port, protocol: protocol, timeout: ContainerStartupTimeout, connectOnly: true}
+}
+
+// greeting is ForGreeting's and ForPublishedPort's strategy.
 type greeting struct {
 	port, prefix, protocol string
 	timeout                time.Duration
+	// connectOnly accepts a connection without reading a first line.
+	connectOnly bool
 }
 
 // Timeout reports the bound this step keeps.
@@ -63,6 +77,13 @@ func (g *greeting) WaitUntilReady(ctx context.Context, target wait.StrategyTarge
 		err := g.attempt(ctx, target)
 		if err == nil {
 			return nil
+		}
+		// A refused host port a socket of ours holds is lost for good, so
+		// waiting out the bound would only delay the same failure.
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			if lost := g.lostPort(ctx, target); lost != nil {
+				return lost
+			}
 		}
 		if state, stateErr := target.State(ctx); stateErr == nil && !state.Running {
 			return fmt.Errorf("the container stopped (exit %d) before port %s sent the %s greeting: %w", state.ExitCode, g.port, g.protocol, err)
@@ -86,7 +107,29 @@ func (g *greeting) attempt(ctx context.Context, target wait.StrategyTarget) erro
 	if err != nil {
 		return err
 	}
-	return readGreeting(net.JoinHostPort(host, mapped.Port()), g.prefix, g.protocol, natsGreetingAttempt)
+	addr := net.JoinHostPort(host, mapped.Port())
+	if g.connectOnly {
+		conn, err := net.DialTimeout("tcp", addr, natsGreetingAttempt)
+		if err != nil {
+			return err
+		}
+		return conn.Close()
+	}
+	return readGreeting(addr, g.prefix, g.protocol, natsGreetingAttempt)
+}
+
+// lostPort returns lostPortError when a socket of this user holds the host
+// port the wait dials, and nil otherwise.
+func (g *greeting) lostPort(ctx context.Context, target wait.StrategyTarget) error {
+	mapped, err := target.MappedPort(ctx, g.port)
+	if err != nil {
+		return nil
+	}
+	hostPort := mapped.Num()
+	if holders := ownSocketsOn(int(hostPort)); len(holders) > 0 {
+		return lostPortError(g.port, int(hostPort), holders)
+	}
+	return nil
 }
 
 // readGreeting makes one connection to addr, under a deadline of timeout,
@@ -114,8 +157,9 @@ func readGreeting(addr, prefix, protocol string, timeout time.Duration) error {
 const evidenceTimeout = 5 * time.Second
 
 // evidence says what a wait that timed out could not: where Docker says it
-// publishes the port, which host port the wait was dialing by then, and
-// whether anything inside the container listens on the port at all. A
+// publishes the port, which host port the wait was dialing by then, whether
+// a socket of this user holds that host port here, and whether anything
+// inside the container listens on the port at all. A
 // refused mapped port has three different causes (no forwarding on the
 // host, the wrong host port, no server inside), and the dial alone cannot
 // tell them apart; this was missing when the openssh fixture's port was
@@ -141,7 +185,7 @@ func (g *greeting) evidence(target wait.StrategyTarget) string {
 		parts = append(parts, fmt.Sprintf("Docker publishes it at [%s]", strings.Join(bound, " ")))
 	}
 	if mapped, err := target.MappedPort(ctx, g.port); err == nil {
-		parts = append(parts, "the mapped port is now "+mapped.Port())
+		parts = append(parts, "the mapped port is now "+mapped.Port(), hostSideEvidence(int(mapped.Num())))
 	}
 	parts = append(parts, insideListener(ctx, target, g.port))
 	return strings.Join(parts, "; ")
