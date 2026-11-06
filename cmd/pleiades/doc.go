@@ -373,6 +373,11 @@ func printParams(doc collection.Doc) {
 		if len(p.Choices) > 0 {
 			fmt.Printf("    choices: %s\n", p.ChoiceList())
 		}
+		// A run setting is said apart, since a run's --setting (or the
+		// Controller's method_settings) fills it for every task leaving it out.
+		if p.RunSetting {
+			fmt.Println("    run setting: a run may set it for every task that leaves it out (--setting <method>.<parameter>=<value>)")
+		}
 	}
 }
 
