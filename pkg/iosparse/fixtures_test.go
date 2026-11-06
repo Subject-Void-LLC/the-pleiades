@@ -254,15 +254,19 @@ func TestShowIpInterfaceBrief(t *testing.T) {
 
 // TestShowInterfaces holds ShowInterfaces to every genieparser fixture.
 func TestShowInterfaces(t *testing.T) {
-	holdToFixtures(t, "ShowInterfaces", func(a fixtureArgs) string {
-		switch {
-		case a.s("interface") != "":
-			return "show interfaces " + a.s("interface")
-		case a.s("include") != "":
-			return "show interfaces | include " + a.s("include")
-		}
-		return "show interfaces"
-	})
+	holdToFixtures(t, "ShowInterfaces", showInterfacesCommand)
+}
+
+// showInterfacesCommand renders the show interfaces command a
+// ShowInterfaces fixture's arguments name.
+func showInterfacesCommand(a fixtureArgs) string {
+	switch {
+	case a.s("interface") != "":
+		return "show interfaces " + a.s("interface")
+	case a.s("include") != "":
+		return "show interfaces | include " + a.s("include")
+	}
+	return "show interfaces"
 }
 
 // TestShowIpRoute holds ShowIpRoute to every genieparser fixture.

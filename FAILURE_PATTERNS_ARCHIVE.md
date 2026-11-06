@@ -15234,6 +15234,17 @@ differences.
 **Lesson.** A port held to upstream fixtures inherits upstream's defects. Name each one where users read about the
 port, and fix it as a deliberate, tested difference.
 
+**Fixed (2026-11-06, `f129e543`, branch `fix/open-patterns-fable`).** `ShowInterfaces` now reads the medium from the
+match that holds it (`m1` in `encapsulation`), so an "Encapsulation X, medium is Y" line gives the interface its medium
+rather than a `*ParserError`. It is the deliberate, tested difference this entry's lesson asks for: genieparser still
+has the defect at 26.7, and `pkg/iosparse/doc.go`'s list of known differences now says so.
+`TestShowInterfaces_MediumLine` takes two real genieparser fixtures and swaps one Encapsulation line for its medium
+form ("Encapsulation ARPA, medium is broadcast", and a dot1q VLAN line with "medium is p2p" in a three-interface
+output). Each failed with the KeyError before the fix and now yields the fixture's result plus the medium. The refusal
+case that pinned the KeyError is gone. Caveat: the medium lines come from genieparser's own source comments; no device
+capture with one exists here. The fix began as a second model's proposal, and its test was rebuilt on the fixtures
+(LESSONS 403).
+
 ## 611. pkg/iosparse's ShowVlan joins wrapped lines quadratically on pathological output, bounded only by netcli's read limit (a sibling of 48) (open)
 
 **Symptom.** Found 2026-10-23 while porting genieparser's `ShowVlan` (`pkg/iosparse/show_vlan.go`). No real device's
@@ -15247,6 +15258,17 @@ takes from the device.
 
 **Lesson.** As 48 found, a loop that rebuilds its accumulated text on every step needs either a builder or a bound on
 its input, and a read limit sized for transport is not a bound sized for a parser.
+
+**Fixed (2026-11-06, `dd7e7905`, branch `fix/open-patterns-fable`).** `ShowVlan` keeps the joined text in a
+`strings.Builder`, reseeded from the previous line unless the builder already holds it, so a run of continuation lines
+costs time linear in its length. The output is unchanged: every fixture and the fuzz seed corpus pass, and a
+throwaway differential test over 300,000 seeded random inputs built from `ShowVlan`'s line shapes found no difference.
+`TestShowVlan_WrappedRunIsLinear` counts bytes allocated, not time, for 1,024 and 4,096 copies of a real wrapped status
+line, after checking that no pattern handles that line. Before the fix the larger run cost about 15 times the smaller
+(about 10 under `-race`); now it costs about 3.8 times (3.3 under `-race`), and the test holds it to at most 6.
+`TestShowVlan_WrappedNamesInARow` guards the reseed. The fix began as a second model's proposal, whose 2x/3x bound
+passed on the old code under `-race`, so its test could not have failed in that mode. The test was rebuilt with a 4x
+step in input and a bound of 6, set from the costs measured in both modes (LESSONS 403).
 
 ## 612. net.ios.config's checkpoint files stay on the device until the change is undone, and nothing prunes them (fixed in 129a)
 
@@ -15649,6 +15671,16 @@ import a changed package (reverse dependents).
 **Lesson.** A change to a shared package's behavior needs its consumers' tests run before the push, not only its own:
 select reverse dependents from the module graph rather than from a list. Plan it with the pr-check leg reruns
 (memory note pr-check-leg-reruns).
+
+**Resolution of the scope gap (fixed 2026-10-24 by `76cd78ce`; recorded 2026-11-06 on branch
+`fix/open-patterns-fable`).** `76cd78ce` ("feat(prscope): run the direct importers of each changed package") built
+this entry's lesson on the day the entry was written, and the index went on saying open for 13 days. `tools/prscope`
+now runs every package that imports a changed one directly, in its code or its tests, and says so on standard error:
+"prscope: N package(s) import a changed one, so they run too (FAILURE_PATTERNS 631)".
+`TestChangedPackages_AddsEachDirectImporter` holds it, with this entry's case (`pkg/netcli` changed,
+`internal/catalog/wait` run). The caveat stays: importers of importers do not run (for `pkg/netcli` that would be 209
+of the module's 336 packages, by the commit's count), so a consumer two steps from a change is still CI's to find.
+940 (2026-11-06) rested on this entry being open; see the note added to it.
 
 ## 632. A Telnet test's "device never goes quiet" depended on a 200 ms quiet window beating a 50 ms dribble, which a loaded Windows VM did not hold (fixed before push)
 
@@ -16727,6 +16759,25 @@ to it.
 
 **Lesson.** A generator's "already exists" asks the registry or the source for the thing itself, not for the file name
 it would have chosen.
+
+**Fixed (2026-11-06, `999e9694`, branch `fix/open-patterns-fable`), and the defect had grown past this entry.** The
+eight files were the whole of it when this entry was written (`eb376546`, 2026-10-27). `4425b6d1` (2026-10-30) then
+added `virt.clab`, whose 44 methods have entries in `internal/forge/catalogdata` (`collections_clab.go`) but are
+registered at run time from a map in `internal/catalog/virt/clab/register.go`, through `clabapi.Specs()`: the shape
+this entry names, a method registered from a file of another name. On `main` at `53fd1eec` the generate run wrote 96
+files: the 8 CML ones, plus 88 stubs, two for each `virt.clab` method. It also rewrote `internal/catalog/builtins.go`,
+dropping the `virt/clab` import and adding 11 packages that held only stubs. This entry was not updated when the
+defect grew.
+
+The fix follows the lesson above. `forge new-collection --skip-existing` also skips an entry the registry already
+holds (`collection.Lookup`; the binary links the whole built-in catalog, built from the tree gencatalog writes into),
+still per entry and before any file is written, as 160 requires. `tools/gencatalog` imports the package that holds an
+entry's methods (`holdingPackage`, `tools/gencatalog/builtins.go`): the entry's own directory when that has Go source,
+else the nearest parent under `internal/catalog` that does. After the fix the generate run writes 0 files and leaves
+the tree as it was. `TestForgeNewCollectionSkipExisting_SkipsARegisteredMethod` (CML link start, CML capture stop, a
+clab lab list, and an unregistered control) and `TestWriteCatalogBuiltins_ImportsThePackageThatHoldsTheMethods`
+failed before the fix. The fix began as a second model's proposal, which scanned only the target directory's source
+for a registration and so could not see the clab methods; asking the registry does (LESSONS 403).
 
 ## 678. README's check-mode count stayed at 191 of 204 after three Fusion methods were added (a repeat of 459 and 661) (fixed before push)
 
@@ -22569,6 +22620,13 @@ under 631.
 **Lesson.** A field added to a type that a renderer or scaffold reflects over needs that consumer's tests run in the
 same commit, whatever pr-check selects. Until 631 is built, list a changed type's reverse dependents by hand
 (`go_symbol_references` on the type) and run the ones that copy or render every field.
+
+**Note (2026-11-06, branch `fix/open-patterns-fable`).** The root cause above rests on 631 being open, and it was not:
+`76cd78ce` (2026-10-24) made prscope run every direct importer of a changed package. `go list` shows
+`internal/forge/collectionscaffold` importing `pkg/collection` directly, and `6f79f42f` changed `pkg/collection`, so by
+prscope's code pr-check would have selected it. This is reasoned from the import graph and prscope's code, not
+measured by running prscope at that commit. The fix and the lesson stand. Only a consumer two steps from the change
+would still be left to CI.
 
 ## 941. A run setting's refusal quoted the value it refused ("got %q"), so a value pasted into the wrong place would be printed back in the CLI's message and the API's 422 (a repeat of 457, the class of 298 and LESSONS 266) (fixed before push)
 

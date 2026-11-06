@@ -38,6 +38,13 @@ type vlanState struct {
 	// prevLine is the last line no pattern handled, joined to a following
 	// line that holds only a status.
 	prevLine string
+	// joined is where join builds prevLine + " " + line. It holds prevLine
+	// exactly when joinedIsPrev is set, which is after a joined line no
+	// pattern handled. join then appends the next status line to it
+	// rather than copying all the text again, so a run of such lines
+	// costs their length once rather than the square of it.
+	joined       strings.Builder
+	joinedIsPrev bool
 	// vlanID is the VLAN being read, when one has been seen.
 	vlanID    string
 	hasVlanID bool
@@ -52,14 +59,37 @@ func parseShowVlan(out string, _ map[string]string) *dict {
 		}
 		line := rstrip(raw)
 		// A name long enough to wrap leaves its status on the next line.
-		if vlanP0.match(line) != nil {
-			line = s.prevLine + " " + line
+		wrapped := vlanP0.match(line) != nil
+		if wrapped {
+			line = s.join(line)
 		}
 		if !s.line(line) {
 			s.prevLine = line
+			// prevLine is now the builder's text only if it was a join.
+			s.joinedIsPrev = wrapped
 		}
 	}
 	return s.out
+}
+
+// join returns prevLine + " " + line, genieparser's prev_line + ' ' +
+// line, built in joined: seeded from prevLine unless joined already holds
+// it, then appended to. The result shares joined's bytes. That is safe
+// because an append never rewrites bytes already written and Reset drops
+// the buffer rather than reusing it, so the result, and every group a
+// pattern takes from it, keeps its value.
+func (s *vlanState) join(line string) string {
+	if !s.joinedIsPrev {
+		s.joined.Reset()
+		s.joined.WriteString(s.prevLine)
+	}
+	s.joined.WriteString(" ")
+	s.joined.WriteString(line)
+	// joined now holds the joined line, not prevLine. parseShowVlan sets
+	// joinedIsPrev again if no pattern handles the line and it becomes
+	// prevLine.
+	s.joinedIsPrev = false
+	return s.joined.String()
 }
 
 // line handles one line in genieparser's order and reports whether a

@@ -7348,3 +7348,28 @@ beside it.
 just whether the patch applies: a patch can apply cleanly over code that has since moved past it. Keep a hunk only
 with a test that fails on `main`'s code. Name what was left out, and why, in the commit message and the handoff. Drop
 the stash or branch only once the pull request carrying its kept part has merged.
+
+## 403. A fix proposed by an outside model is a hypothesis, its test included: hold the test red on the old code under `-race` as well as without it, since the race detector changed a cost ratio enough to pass a bound, and check an "already exists" scan against every way the code registers the thing; two of three such fixes needed correcting (extends 392 and 393; 136's rule, in the mode CI runs) (2026-11-06).
+
+**Why.** Branch `fix/open-patterns-fable`. Three open failure patterns (610, 611 and 677) went to a second model,
+Fable 5.1, through the Batch API (about $5.86 for all three), each with its code. An agent applied each proposal and
+proved it with a test that fails on `main`'s code. Two of the three needed correcting first:
+
+- For 611, the proposed test held the cost of a longer wrapped run to a 2x/3x bound, and on the old, quadratic code it
+  passed under `-race`. CI's test jobs run with `-race`, so the test would have been green there on the defect it names.
+  Measured on the rebuilt test, which counts bytes allocated for 1,024 and 4,096 wrapped lines, the old code's ratio
+  was about 15 without `-race` and about 10 with it; the fixed code's is about 3.8 and 3.3. The bound is now 6.
+- For 677, the proposed check scanned only the target directory's source for a registration. `virt.clab`'s 44 methods
+  are registered from a map in their parent package (`internal/catalog/virt/clab/register.go`), so it could not see
+  them. The fix asks the registry (`collection.Lookup`) instead.
+
+610's proposal held, and its test was rebuilt on real genieparser fixtures. LESSONS 392 says to verify every claim a
+second model makes before acting on it, and 393 says a mapper's map is a hypothesis to hold to tests. LESSONS 136 says
+only restoring the broken code proves a test can fail. This adds two things: a test watched red only without `-race`
+has not been watched in the mode CI runs, and a proposal that decides whether something exists is only as good as the
+places it looks.
+
+**Rule in practice.** Restore `main`'s code and run the proposed test under `-race` and without it. Set a ratio or
+timing bound from both measurements, with room on each side, and write both into the commit. When a proposal decides
+whether something exists, list every way the code creates that thing (a map, a parent package, generated code) and
+test each. Say in the commit what was corrected and why.
