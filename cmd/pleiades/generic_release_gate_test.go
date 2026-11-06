@@ -118,9 +118,12 @@ func TestGenericReleaseGate_SSH(t *testing.T) {
 	host, port := startGateContainer(t, testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{Context: filepath.Join("testdata", "debian-sshd")},
 		ExposedPorts:   []string{"22/tcp"},
+		// The greeting first: it fails at once on a host port Docker
+		// Desktop lost to a socket of ours (FAILURE_PATTERNS 481, 470),
+		// where ForListeningPort would dial out its three minutes.
 		WaitingFor: wait.ForAll(
-			wait.ForListeningPort("22/tcp").WithStartupTimeout(3*time.Minute),
 			testsupport.SSHGreeting("22/tcp"),
+			wait.ForListeningPort("22/tcp").WithStartupTimeout(3*time.Minute),
 		),
 	}, "22/tcp")
 	env := map[string]string{remoteexec.KnownHostsEnv: trustHostKey(t, net.JoinHostPort(host, strconv.Itoa(port)))}

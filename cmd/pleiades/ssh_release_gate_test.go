@@ -76,8 +76,10 @@ func startReleaseGateSSHD(t *testing.T) (testcontainers.Container, string, int) 
 		// the group allows (FAILURE_PATTERNS 350).
 		WaitingFor: wait.ForAll(
 			wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
-			wait.ForListeningPort("2222/tcp").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			// The greeting before ForListeningPort, so a host port Docker
+			// Desktop lost to a socket of ours fails at once (FAILURE_PATTERNS 470).
 			testsupport.SSHGreeting("2222/tcp"),
+			wait.ForListeningPort("2222/tcp").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 		).WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

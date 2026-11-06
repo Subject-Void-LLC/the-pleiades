@@ -51,6 +51,7 @@ func allChecks() []line {
 	var lines []line
 	lines = append(lines, checkGo()...)
 	lines = append(lines, checkDocker())
+	lines = append(lines, checkPortRange()...)
 	lines = append(lines, checkTools()...)
 	lines = append(lines, checkHooks())
 	return append(lines, checkOptional()...)
@@ -167,5 +168,43 @@ func TestCheckGo_AnOlderToolchainIsAFix(t *testing.T) {
 	got := checkGo()
 	if len(got) != 1 || got[0].status != "fix" || !strings.Contains(got[0].detail, "go1.20, and go.mod asks for") {
 		t.Fatalf("checkGo on go1.20 = %+v, want a fix naming both toolchains", got)
+	}
+}
+
+// TestCheckPortRange answers for each engine and range: Docker Desktop on
+// Linux with ephemeral ports reaching its published ones is a fix naming
+// the command, the same range moved below them is ok, a native engine needs
+// nothing, Docker Desktop off Linux is not checked, an unreadable range is a fix, and
+// an unreachable daemon is left to checkDocker.
+func TestCheckPortRange(t *testing.T) {
+	const info = "docker info --format {{.OperatingSystem}}"
+	const rng = "cat /proc/sys/net/ipv4/ip_local_port_range"
+	for _, tc := range []struct {
+		name, goos string
+		commands   map[string]string
+		status     string
+		says       string
+	}{
+		{"desktop, overlapping", "linux", map[string]string{info: "Docker Desktop", rng: "32768\t60999"}, "fix", "sudo tee /etc/sysctl.d/60-pleiades-docker-ports.conf"},
+		{"desktop, moved below", "linux", map[string]string{info: "Docker Desktop", rng: "20000\t32767"}, "ok", "20000-32767 sit below"},
+		{"desktop, unreadable", "linux", map[string]string{info: "Docker Desktop"}, "fix", "could not read"},
+		{"desktop, garbage", "linux", map[string]string{info: "Docker Desktop", rng: "60999 32768"}, "fix", "could not read"},
+		{"native engine", "linux", map[string]string{info: "Ubuntu 24.04.3 LTS"}, "ok", "where the tests run"},
+		{"desktop on macOS", "darwin", map[string]string{info: "Docker Desktop"}, "info", "not checked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeMachine{commands: tc.commands}.install(t)
+			saved := goos
+			t.Cleanup(func() { goos = saved })
+			goos = tc.goos
+			got := checkPortRange()
+			if len(got) != 1 || got[0].status != tc.status || !strings.Contains(got[0].detail, tc.says) {
+				t.Errorf("= %+v, want one %s line saying %q", got, tc.status, tc.says)
+			}
+		})
+	}
+	fakeMachine{}.install(t)
+	if got := checkPortRange(); got != nil {
+		t.Errorf("an unreachable daemon: %+v, want nothing (checkDocker says it)", got)
 	}
 }

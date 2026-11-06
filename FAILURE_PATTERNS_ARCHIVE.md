@@ -12276,6 +12276,66 @@ be told apart, because the wait reported only its last dial.
 **Fix.** Diagnosis first: `8fb70883` makes a timed-out greeting wait report Docker's bindings for the port, the port
 it was dialing, and whether a socket inside listens on it (from `/proc/net/tcp`). The next occurrence names its cause.
 
+**Cause, found 2026-11-06.** Docker Desktop lost the host port to a socket of the tests' own, and never tried
+another. Diagnosed on branch `fix/docker-desktop-lost-ports`. Four outside diagnoses (two models, two runs each, sent
+through the Batch API for about $9 of API credit) were given the records; three of the four ranked this cause first.
+It was then proven on this machine.
+
+- Docker Desktop 29.8.0's engine runs in the `docker-desktop` distro's own network namespace (`net:[4026532247]`),
+  not in the one the tests run in (`net:[4026531833]`, which has no `docker0`). It picks each published host port from
+  about 32768 to 65535 without seeing the tests' sockets. Measured allocations ran from 33274 to 65381: in sequence
+  from testcontainers, at random from `docker run`.
+- Its WSL-side forwarder (`/run/docker-desktop/docker-desktop-user-distro proxy`, running as root in the Ubuntu
+  distro) then binds `0.0.0.0:P` in the tests' namespace. When a socket of the tests' own already holds P (the local
+  end of an outgoing connection, or a server on `:0`, both drawn from the kernel's ephemeral range 32768 to 60999,
+  which overlaps), the bind fails with `listen tcp 0.0.0.0:P: bind: address already in use`. Docker Desktop logs that
+  only as `[wsl-bootstrap][W] failed to expose port` in its host-side logs (`monitor.log`,
+  `com.docker.backend.exe.log`) and never retries. Inspect still reports P, and Windows still reaches P. So every
+  check made through the API says the port is published, while from the tests' side it refuses for the container's
+  whole life.
+- Every refused port in the failure ledger is even. That is the parity Linux gives the local port of an outgoing
+  connection (`connect()` autobind).
+- "Passes alone" followed from the cause. A test alone holds few sockets, so it rarely draws a port one of them
+  holds; a full gate holds thousands at once. Load raised the odds of a collision; it was not the defect (LESSONS 401).
+
+**Proof.** With 8,000 even ports held, 8 of 8 containers that drew a held port refused, 32 of 32 others answered, and
+none recovered within 130 s after the ports were released. testcontainers' reaper drew a held port once and failed
+`reaper: new reaper ... retries: 568 address: localhost:32966`, the shape of 483's local sightings. The first run of
+the proof showed held ports working; that was the proof's own defect (942). CI's runners run a native `dockerd`, which
+binds in the tests' own namespace and picks another port on `EADDRINUSE`, so this cannot happen there.
+
+**Why the diagnosis in `8fb70883` did not find it.** It reported Docker's bindings for the port and the sockets
+inside the container. Both were right: the port was published, and the server listened. The failure was between the
+engine's namespace and the tests', and the evidence was in the engine's own host-side logs and in the tests' own
+socket table, where nothing looked.
+
+**Fixed 2026-11-06,** in three parts:
+
+- The machine: the owner applied `/etc/sysctl.d/60-pleiades-docker-ports.conf`, setting
+  `net.ipv4.ip_local_port_range = 20000 32767`, below Docker Desktop's range. Afterwards 40 of 40 containers answered
+  with 8,000 ordinary sockets open.
+- `e16a1337`: `internal/testsupport`'s greeting wait fails at once with `ErrPublishedPortLost` when a refused host port
+  is held by a socket of this user (read from `/proc/self/net/tcp` and `tcp6`), naming the holder and the fix, and a
+  timed-out wait's evidence says whether such a socket holds the port. `ForPublishedPort` is the same wait for a server
+  that sends nothing first; `PostgresReady` runs it before `ForListeningPort` (471). Proven against Docker Desktop: 6
+  of 6 real testcontainers containers on held ports failed in about 200 ms with the cause, where they used to wait two
+  minutes. Tests: `TestSocketsOwnedOn`, `TestGreeting_FailsAtOnceOnAPortASocketOfOursHolds`, `TestForPublishedPort`.
+- `4d2d0cb4`: `make doctor` (`checkPortRange` in `tools/doctor`) reports a fix on Docker Desktop on Linux when the
+  ephemeral range reaches 32768.
+
+The branch's review (fp-reviewer, 2026-11-06) found the fast failure first reached only `ForGreeting` and Postgres, and
+the follow-up commit carries it further: NATS (`waitForNATSGreeting`, where 353's two minutes now read as this cause),
+and the three `cmd/pleiades` waits that dialed `ForListeningPort` before the greeting (481's own Debian sshd in
+`generic_release_gate_test.go`, `ssh_release_gate_test.go`, `testdata_device_test.go`), which now greet first. The
+fast path is taken only for a loopback host and after the container's state, so a stopped container is still
+reported as stopped; a root run reads no holder, and TIME_WAIT is never counted. Still without it, and so waiting
+their full time on a machine without the setting: `ForHTTP` waits (toxiproxy, LocalStack, Batfish, GNS3, Vault,
+the ticket and ServiceNow gates), other `ForListeningPort`-only sites (telnetd, k3s, the gRPC gate, the e2e WSS
+mesh), and testcontainers' own Ryuk reaper, whose wait is the library's; `make doctor` is what tells such a machine.
+
+**Lesson.** See LESSONS 401: "passed alone" can be a property of collision odds, not of load, and the engine's own
+logs are read before a failure is called contention.
+
 ## 471. The Postgres fixture's mapped port never answered while the server had logged ready (a repeat of 470) (open)
 
 **Symptom.** 2026-10-15, on the db branch, in a loop of five `internal/catalog/db/pg` runs (and once earlier the same
@@ -12294,6 +12354,13 @@ whether a socket inside listens) belongs in the Postgres fixture's wait too, so 
 
 **Lesson.** A diagnosis added to one fixture's wait does not cover a fixture that waits another way: when a class
 recurs, find every wait that can fail the same way, not only the one that failed first.
+
+**Cause, found 2026-11-06.** 470's: Docker Desktop's forwarder could not bind the host port, because a socket of
+the tests' own held it, and never retried. Postgres was listening the whole time, as its log said.
+
+**Fixed 2026-11-06** by 470's fix. This entry's lesson is why the fast failure went into the Postgres wait as well:
+`PostgresReady` now runs `ForPublishedPort` before `ForListeningPort`, so this fixture fails at once with
+`ErrPublishedPortLost` (`e16a1337`).
 
 ## 472. file.yaml read every key behind a line comment as changed, because the comparison kept the comment
 
@@ -12478,6 +12545,13 @@ openssh fixture's own wait only; this one waits through testcontainers' check, w
 **Lesson.** Three images, one shape: the cause is below the images, in the host's port forwarding under load, and
 a report from inside the wait is how it will be found.
 
+**Cause, found 2026-11-06.** 470's. The lesson above was half right: the cause was below the images, but it was
+not the host's forwarding failing under load. It was a port collision, whose odds rise with the number of sockets the
+tests hold, and which load only makes more likely (LESSONS 401).
+
+**Fixed 2026-11-06** by 470's fix: the machine's port range and `make doctor`'s line. Whether this fixture's wait
+(testcontainers' check) has the fast failure is part of the review 470 names.
+
 ## 482. A test of a package pkg/external reaches imported internal/testsupport, putting testcontainers-go into every external author's go.sum (fixed)
 
 **Symptom.** 2026-10-15, PR #59 at `5d4dc00c`: `fast-macos` failed `internal/forge/externalscaffold`'s
@@ -12522,6 +12596,13 @@ container shards start the reaper image ahead of the tests.
 
 **Lesson.** A tolerated failure in a step no test code reaches is still worth a line: it is the only way a recurrence
 will be recognised as one.
+
+**Local sightings, explained 2026-11-06.** The reaper failures on this machine in the pr-check ledger
+(`TestRoutes_WaitsForARouteOSPFLearns` on 2026-10-24 and `TestApply_APartitionedWinnerReleasesItsClaim` on
+2026-10-31, each "reaper: new reaper: ... external check: check target: retries: 569 address: localhost:<port>") are
+470's cause: the reaper's published port was lost to a socket of the tests' own. Reproduced with held ports, which
+gave `retries: 568 address: localhost:32966`. The CI sighting above is a different thing: a native engine cannot lose
+a port this way, and its message is the reaper's 60 s readiness wait, not a refused port check. It stays open.
 
 ## 484. A Cargo.toml nested a megabyte deep ended the process: go-toml recurses with no limit (a repeat of 62) (fixed)
 
@@ -22512,4 +22593,24 @@ gate's refused cases assert the message `must be one of refuse, warn`, not the v
 
 **Lesson.** A refusal of a value that should be one of a closed set lists the set and never quotes the value: what
 fails to match the set is exactly what nobody checked.
+
+## 942. The proof's port holder dropped its connections and Go's finalizers closed them, so the first proof of 470's cause showed held ports working (a repeat in kind of 436 and 679) (fixed before push)
+
+**Symptom.** 2026-11-06, branch `fix/docker-desktop-lost-ports`, proving 470's cause. The first run of the harness that
+held ports and then started containers showed containers on "held" ports answering, which read as evidence against
+the cause.
+
+**Root cause.** The helper that held the ports opened each connection and discarded the `net.Conn` it got back. Go
+closes a socket's file descriptor through a finalizer once nothing refers to it, so after a garbage collection the
+ports were free again before the containers drew them. The harness never checked that the ports were still held when
+it measured. It is the class of 436 and 679, a check that passes without its precondition; here the language undid
+the precondition silently.
+
+**Fix.** The helper keeps every connection it opens until the measurement ends. With the connections kept, the proof
+gave 470's result: 8 of 8 containers on held ports refused, 32 of 32 others answered.
+
+**Lesson.** An instrument that holds a resource for a proof keeps a live reference to it until the measurement ends,
+and the proof checks its precondition at the moment it measures (the socket table holds the port), not the helper's
+own count. A proof that contradicts a well-supported diagnosis is a reason to test the proof first (LESSONS 357: an
+instrument is a check too).
 

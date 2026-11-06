@@ -472,8 +472,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 467. The rollback gate's check step asserted what the check left alone, never what it reported (the class of 54)
 468. The twin of 211's test kept 211's race, and failed CI's fast job (a repeat of 211)
 469. The reaper test read the job's state on the first delivery to return, which was the one that did nothing
-470. The openssh fixture's mapped port refused every connection for two minutes while sshd said it was listening (open)
-471. The Postgres fixture's mapped port never answered while the server had logged ready (a repeat of 470) (open)
+470. The openssh fixture's mapped port refused every connection for two minutes while sshd said it was listening (fixed; cause found 2026-11-06: Docker Desktop's forwarder could not bind a host port a socket of the tests' own held, and never retried)
+471. The Postgres fixture's mapped port never answered while the server had logged ready (a repeat of 470) (fixed; 470's cause, found 2026-11-06)
 472. file.yaml read every key behind a line comment as changed, because the comparison kept the comment
 473. yaml.v3 accepts a duplicate key when decoding into nodes, which pkg/docedit had to refuse itself
 474. A fuzz target that started a server per input exhausted the ephemeral ports, and the "crash" was the harness
@@ -483,9 +483,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 478. The gate's TCP precondition test made its closed endpoint by releasing a port (a repeat of 123, 177 and 183) (fixed)
 479. The gate's parallelism test asserted an upper bound on elapsed time (a repeat of 211 and 422) (fixed)
 480. The test SSH server's forward dialed with no bound, and Close waited for it (a repeat of 339 and 444) (fixed)
-481. A Debian sshd fixture's mapped port never answered while sshd said it was listening (a repeat of 470 and 471) (open)
+481. A Debian sshd fixture's mapped port never answered while sshd said it was listening (a repeat of 470 and 471) (fixed; 470's cause, found 2026-11-06)
 482. A test of a package pkg/external reaches imported internal/testsupport, putting testcontainers-go into every external author's go.sum (fixed)
-483. testcontainers' reaper container never became ready within its 60 s wait on a CI containers shard (open)
+483. testcontainers' reaper container never became ready within its 60 s wait on a CI containers shard (open; its local sightings are 470's cause, found 2026-11-06; the CI one is not)
 484. A Cargo.toml nested a megabyte deep ended the process: go-toml recurses with no limit (a repeat of 62) (fixed)
 485. Lockfile readers matched keys regardless of case, so a "Resolved" replaced the source npm fetches from (a repeat of 325) (fixed)
 486. The build-file reader saw less than a build does: heredocs at any "<<", one ARG scope, merge keys and aliases unfollowed, duplicate keys kept (a repeat of 473 and 332) (fixed)
@@ -945,6 +945,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 939. POST /jobs/{id}/rollback merged a request's method_settings over the job's own without the template's lock that a launch is held to, so a caller could set on a rollback what the template's author had locked (a repeat in kind of 268; LESSONS 363) (fixed before push)
 940. internal/forge/collectionscaffold's renderDoc dropped the new collection.Param.RunSetting, and its every-field fixture would have failed only in CI's fast job, since pr-check selects neither that package nor its census (a repeat of 631, which is open; LESSONS 380) (fixed before push)
 941. A run setting's refusal quoted the value it refused ("got %q"), so a value pasted into the wrong place would be printed back in the CLI's message and the API's 422 (a repeat of 457, the class of 298 and LESSONS 266) (fixed before push)
+942. The proof's port holder dropped its connections and Go's finalizers closed them, so the first proof of 470's cause showed held ports working (a repeat in kind of 436 and 679) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

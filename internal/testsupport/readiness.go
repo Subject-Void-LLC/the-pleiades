@@ -69,11 +69,15 @@ import (
 // BasicWaitStrategies: the readiness log line twice, because postgres
 // restarts itself once after initialising, and then the published port,
 // because Docker Desktop and Rancher Desktop start a separate proxy for it
-// that can lag the server.
+// that can lag the server. The published port is waited on through
+// ForPublishedPort, which fails at once on a port Docker Desktop lost to a
+// socket of this machine's own (FAILURE_PATTERNS 471), and then through
+// ForListeningPort as the module does.
 func PostgresReady() testcontainers.CustomizeRequestOption {
 	return testcontainers.WithWaitStrategyAndDeadline(ContainerStartupTimeout,
 		wait.ForLog("database system is ready to accept connections").WithOccurrence(2).
 			WithStartupTimeout(ContainerStartupTimeout),
+		ForPublishedPort("5432/tcp", "Postgres"),
 		wait.ForListeningPort("5432/tcp").WithStartupTimeout(ContainerStartupTimeout),
 	)
 }

@@ -47,7 +47,12 @@ func startTestdataDevice(t *testing.T, dir, rootPassword string, hostConfig func
 			FromDockerfile:     testcontainers.FromDockerfile{Context: filepath.Join("testdata", dir)},
 			ExposedPorts:       []string{"22/tcp"},
 			HostConfigModifier: hostConfig,
-			WaitingFor:         wait.ForListeningPort("22/tcp").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			// The greeting first, which fails at once on a host port Docker
+			// Desktop lost to a socket of ours (FAILURE_PATTERNS 470).
+			WaitingFor: wait.ForAll(
+				testsupport.SSHGreeting("22/tcp"),
+				wait.ForListeningPort("22/tcp").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+			),
 		},
 		Started: true,
 	})

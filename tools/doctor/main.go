@@ -25,6 +25,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dockerports"
 )
 
 // line is one answer: its status, what was checked, and what to do.
@@ -38,6 +40,7 @@ func main() {
 	var lines []line
 	lines = append(lines, checkGo()...)
 	lines = append(lines, checkDocker())
+	lines = append(lines, checkPortRange()...)
 	lines = append(lines, checkTools()...)
 	lines = append(lines, checkHooks())
 	lines = append(lines, checkOptional()...)
@@ -66,6 +69,7 @@ var (
 	lookPath  = exec.LookPath
 	getenv    = os.Getenv
 	goVersion = runtime.Version
+	goos      = runtime.GOOS
 )
 
 // output runs a command with a short deadline and returns its trimmed
@@ -101,6 +105,39 @@ func checkDocker() line {
 		return line{"fix", "Docker daemon", "not reachable, so the 31 container packages cannot run: start Docker, or use `make ci-fast`, which needs none"}
 	}
 	return line{"ok", "Docker daemon", "server " + version}
+}
+
+// checkPortRange asks, where the engine is Docker Desktop's on Linux (WSL),
+// whether this machine's ephemeral ports sit below the ones Docker Desktop
+// publishes. Docker Desktop's engine picks a published port in a network
+// namespace of its own, and its forwarder then binds the port in this one;
+// when a socket of this machine's own already has it, the bind fails, is
+// logged as a warning and never retried, and the container's port refuses
+// every connection for its life (FAILURE_PATTERNS 470, 471 and 481). A
+// native engine binds the port where the tests run, so it needs nothing.
+// Docker Desktop elsewhere (macOS, Windows) is not measured, so it is
+// reported as not checked rather than as fine.
+func checkPortRange() []line {
+	engine, err := run("docker", "info", "--format", "{{.OperatingSystem}}")
+	if err != nil || engine == "" {
+		return nil // checkDocker already says the daemon is unreachable
+	}
+	if !strings.Contains(engine, "Docker Desktop") {
+		return []line{{"ok", "published ports", "the engine publishes ports where the tests run (" + engine + ")"}}
+	}
+	if goos != "linux" {
+		return []line{{"info", "published ports", "not checked: whether Docker Desktop on " + goos + " can lose a published port to a test's own socket has not been measured"}}
+	}
+	raw, err := run("cat", "/proc/sys/net/ipv4/ip_local_port_range")
+	lo, hi, ok := portRange(raw)
+	if err != nil || !ok {
+		return []line{{"fix", "published ports", "could not read /proc/sys/net/ipv4/ip_local_port_range, so whether a test's own socket can take a container's published port is unknown"}}
+	}
+	if hi >= dockerports.DesktopLowest {
+		return []line{{"fix", "published ports", fmt.Sprintf("ephemeral ports %d-%d overlap the ones Docker Desktop publishes (from %d), so a container's port can be lost to a test's own socket and refuse for the container's life: %s",
+			lo, hi, dockerports.DesktopLowest, dockerports.RangeFix)}}
+	}
+	return []line{{"ok", "published ports", fmt.Sprintf("ephemeral ports %d-%d sit below Docker Desktop's (from %d)", lo, hi, dockerports.DesktopLowest)}}
 }
 
 // checkTools compares each pinned scanner on PATH with the Makefile's pin.

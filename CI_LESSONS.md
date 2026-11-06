@@ -90,6 +90,15 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
    contention only until it repeats. FAILURE_PATTERNS 61, 575, 601, 622, 629.
 9. **Clean Docker only when nothing is using it**, and never the cached test images or named volumes (the
    docker-clean skill and the docker-cleaner agent hold the procedure).
+28. **A published port that refuses while the server says it listens is a lost bind until `make doctor` says
+    otherwise, not contention.** Docker Desktop on Linux picks a container's host port from 32768 up without seeing
+    the tests' sockets, and its forwarder cannot bind a port a test's own socket already holds (the kernel hands out
+    ephemeral ports from the same range). It logs a warning in its own host-side logs and never retries, so the port
+    refuses for the container's life while inspect still reports it, and the test passes alone because alone it
+    holds few sockets. `make doctor` names the fix (an ephemeral port range below 32768); `internal/testsupport`'s
+    greeting waits fail at once with `ErrPublishedPortLost` when a socket of ours holds the port. A native engine,
+    as on CI, picks another port. Read the engine's own logs before calling any such failure contention.
+    FAILURE_PATTERNS 470, 471, 481, 483; LESSONS_LEARNED 401.
 
 ## Reading a failure
 
