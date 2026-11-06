@@ -4,6 +4,7 @@ package main
 import (
 	"go/version"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -60,4 +61,19 @@ func moduleVersion(modinfo string) string {
 		}
 	}
 	return ""
+}
+
+// portRange reads /proc/sys/net/ipv4/ip_local_port_range: two numbers, the
+// lowest and highest ephemeral port.
+func portRange(raw string) (lo, hi int, ok bool) {
+	fields := strings.Fields(raw)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	lo, errLo := strconv.Atoi(fields[0])
+	hi, errHi := strconv.Atoi(fields[1])
+	if errLo != nil || errHi != nil || lo > hi {
+		return 0, 0, false
+	}
+	return lo, hi, true
 }
