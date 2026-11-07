@@ -129,8 +129,8 @@ func TestCLI_AProgramCannotDeclareABuiltInFact(t *testing.T) {
 	for _, tc := range []struct {
 		name, fact, want string
 	}{
-		{name: "spoof", fact: `{"key":"catalyst.devices","kind":"volatile","type":"list","description":"x"}`, want: `declares fact "catalyst.devices", which the reserved family "catalyst."* holds`},
-		{name: "family", fact: `{"key":"package.","prefix":true,"item_names":true,"kind":"stable","type":"object","description":"x"}`, want: `declares fact "package."*, which the reserved family "package."* holds`},
+		{name: "spoof", fact: `{"key":"catalyst.devices","kind":"volatile","type":"list","description":"x"}`, want: `declares fact "catalyst.devices", which the reserved family or first-party namespace "catalyst."* holds`},
+		{name: "family", fact: `{"key":"package.","prefix":true,"item_names":true,"kind":"stable","type":"object","description":"x"}`, want: `declares fact "package."*, which the reserved family or first-party namespace "package."* holds`},
 		{name: "own", fact: `{"key":"clitest.widgets","kind":"stable","type":"integer","description":"widgets"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

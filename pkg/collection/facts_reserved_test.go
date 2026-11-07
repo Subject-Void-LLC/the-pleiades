@@ -28,12 +28,12 @@ func TestRegister_RefusesAnExternalMethodsReservedFact(t *testing.T) {
 		want string
 	}{
 		{"acme.spoof", stable("resbuiltin.kernel", false), `built-in method "resbuiltin.gather"`},
-		{"acme.family", stable("package.", true), `the reserved family "package."*`},
-		{"acme.item", stable("user.root", false), `the reserved family "user."*`},
-		{"acme.wide", stable("serv", true), `the reserved family "service."*`},
-		{"acme.case", stable("Package.openssh", false), `the reserved family "package."*`},
-		{"acme.bare", stable("ansible_", false), `the reserved family "ansible_"*`},
-		{"acme.native", stable("os.distribution", false), `the reserved family "os."*`},
+		{"acme.family", stable("package.", true), `the reserved family or first-party namespace "package."*`},
+		{"acme.item", stable("user.root", false), `the reserved family or first-party namespace "user."*`},
+		{"acme.wide", stable("serv", true), `the reserved family or first-party namespace "service."*`},
+		{"acme.case", stable("Package.openssh", false), `the reserved family or first-party namespace "package."*`},
+		{"acme.bare", stable("ansible_", false), `the reserved family or first-party namespace "ansible_"*`},
+		{"acme.native", stable("os.distribution", false), `the reserved family or first-party namespace "os."*`},
 		{"acme.lookalike", stable("p\u0430ckage.openssh", false), "is not ASCII"},
 		{"acme.builtincase", stable("RESBUILTIN.KERNEL", false), `built-in method "resbuiltin.gather"`},
 	} {

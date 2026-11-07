@@ -38,7 +38,7 @@ func ReservedFact(s FactSpec) (string, bool) {
 	folded := FactSpec{Key: strings.ToLower(s.Key), Prefix: s.Prefix}
 	for _, family := range FactFloor() {
 		if folded.Key == family || overlaps(folded, FactSpec{Key: family, Prefix: true}) {
-			return fmt.Sprintf("the reserved family %q*", family), true
+			return fmt.Sprintf("the reserved family or first-party namespace %q*", family), true
 		}
 	}
 	for name, d := range collections.All() {

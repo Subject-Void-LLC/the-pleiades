@@ -225,7 +225,7 @@ func Register(d Descriptor) error {
 	// this keeps Register the authority for every caller that sets a
 	// Provider, the loader's second pass among them. Phase 136e admits a
 	// program signed by the first-party key here.
-	if d.Provider != nil && IsFirstPartyNamespace(namespace) {
+	if d.Provider != nil && IsFirstPartyNamespace(strings.ToLower(namespace)) {
 		return fmt.Errorf("collection: %q is an external Collection's method in the namespace %q, which is reserved for first-party Collections", d.Name, namespace)
 	}
 

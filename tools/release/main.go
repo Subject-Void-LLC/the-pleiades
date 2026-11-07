@@ -131,10 +131,13 @@ func ldflags(version, revision string) string {
 }
 
 // build compiles ./cmd/<name> for p into dir and returns the file written.
-// Cgo is off, as a static release binary is built.
+// Cgo is off, as a static release binary is built. -tags= is explicit, since a
+// flag on the command line wins over GOFLAGS: a release environment carrying
+// GOFLAGS=-tags=nocatalog would otherwise ship a pleiades with no built-in
+// method (cmd/pleiades/catalog_builtins.go).
 func build(name string, p Platform, version, revision, dir string) (string, error) {
 	out := filepath.Join(dir, binaryName(name, p))
-	cmd := exec.Command("go", "build", "-trimpath", "-ldflags="+ldflags(version, revision), "-o", out, "./cmd/"+name) // #nosec G204 -- fixed flags; name is checked by parseBinaries and the platform by parsePlatforms
+	cmd := exec.Command("go", "build", "-trimpath", "-tags=", "-ldflags="+ldflags(version, revision), "-o", out, "./cmd/"+name) // #nosec G204 -- fixed flags; name is checked by parseBinaries and the platform by parsePlatforms
 	cmd.Env = append(os.Environ(), "GOOS="+p.OS, "GOARCH="+p.Arch, "CGO_ENABLED=0")
 	if msg, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build %s for %s: %v\n%s", name, p, err, msg)

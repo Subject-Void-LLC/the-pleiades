@@ -35,8 +35,8 @@ func rules(t *testing.T, cur string, patch bool) []string {
 // TestCompareFirstParty_NewlyReservedNamesAreBreaks: a namespace, a fact
 // prefix or a group added refuses a program the release before loaded, so it
 // is a break on any line (a minor names it in a fragment); a first-party group
-// gaining a fact prefix to fill refuses nobody, so it counts on a patch line
-// only; a new method routed to a group counts on neither.
+// gaining a fact prefix to fill refuses nobody, and a new method routed to a
+// group is a method added: neither is a break on either line.
 func TestCompareFirstParty_NewlyReservedNamesAreBreaks(t *testing.T) {
 	grown := `{"schema_version":1,
  "groups":[{"name":"facts","core":true},{"name":"file"},{"name":"net"},{"name":"virt.clab"}],
@@ -48,9 +48,8 @@ func TestCompareFirstParty_NewlyReservedNamesAreBreaks(t *testing.T) {
 	if got := rules(t, grown, false); !slices.Equal(got, minor) {
 		t.Errorf("a minor line reported %v, want %v", got, minor)
 	}
-	patch := []string{"first-party-fact-owner-added", "first-party-fact-prefix-added", "first-party-group-added", "first-party-namespace-added"}
-	if got := rules(t, grown, true); !slices.Equal(got, patch) {
-		t.Errorf("a patch line reported %v, want %v", got, patch)
+	if got := rules(t, grown, true); !slices.Equal(got, minor) {
+		t.Errorf("a patch line reported %v, want %v", got, minor)
 	}
 	newMethodOnly := `{"schema_version":1,
  "groups":[{"name":"facts","core":true},{"name":"file"},{"name":"net"}],

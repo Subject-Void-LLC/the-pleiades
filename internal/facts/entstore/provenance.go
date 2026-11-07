@@ -34,7 +34,7 @@ func BuiltinMethods(catalog []byte) (map[string]bool, error) {
 
 // WithBuiltinProvenance drops, from a batch whose emitting method is not one
 // of builtins, every entry a built-in holds: a key the catalog declares
-// (WithDeclarations) or one in collection.ReservedFactFamilies, compared
+// (WithDeclarations) or one under the fact floor (collection.FactFloor), compared
 // without case.
 func WithBuiltinProvenance(builtins map[string]bool) SubscriberOption {
 	return func(s *Subscriber) { s.builtins = builtins }
@@ -47,9 +47,12 @@ func (s *Subscriber) heldByBuiltin(key string) bool {
 			return true
 		}
 	}
+	// The same floor the Runner's loader holds an external method's facts to
+	// (collection.FactFloor, Phase 136a): the reserved families and every
+	// first-party namespace as a prefix, whether or not a build links it.
 	folded := strings.ToLower(key)
-	for _, family := range collection.ReservedFactFamilies {
-		if strings.HasPrefix(folded, family) {
+	for _, prefix := range collection.FactFloor() {
+		if strings.HasPrefix(folded, prefix) {
 			return true
 		}
 	}

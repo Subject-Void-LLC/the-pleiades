@@ -70,7 +70,7 @@ func TestRegister_RefusesAnExternalMethodInAFirstPartyNamespace(t *testing.T) {
 			Provider: &collection.Provider{Program: "acme-tools", Digest: strings.Repeat("a", 64)},
 		}
 	}
-	for _, name := range []string{"container.image.pull", "kubernetes.apply", "os.release", "ansible.builtin.copy"} {
+	for _, name := range []string{"container.image.pull", "Container.image.pull", "kubernetes.apply", "os.release", "ansible.builtin.copy"} {
 		if err := collection.Register(external(name)); err == nil || !strings.Contains(err.Error(), "reserved for first-party Collections") {
 			t.Errorf("Register(%s) = %v, want a refusal naming the first-party reservation", name, err)
 		}

@@ -9,9 +9,9 @@
 // there. A name added to a list refuses a program the release before loaded.
 // Each of those is a break: a minor release names it in a
 // `changelog/*.breaking.md` fragment, and a patch release cannot make it. A
-// first-party group gaining a fact prefix it may fill refuses nobody, so it is
-// held only on a patch line. A new method routed to a group is not a break: a
-// patch release may add a method.
+// first-party group gaining a fact prefix to fill refuses nobody, and a new
+// method routed to a group is a method added, which a patch release may do:
+// neither is a break.
 package main
 
 // compareFirstParty compares two first-party documents; patch says the tree
@@ -39,7 +39,7 @@ func (c *schemaComparer) compareFirstParty(o, n map[string]any, patch bool) int 
 	oldOwners, _ := o["fact_family_owners"].(map[string]any)
 	newOwners, _ := n["fact_family_owners"].(map[string]any)
 	for _, prefix := range sortedKeys(oldOwners) {
-		c.compareLists(oldOwners[prefix], newOwners[prefix], "/fact_family_owners/"+escape(prefix), "first-party-fact-owner", patch)
+		c.compareLists(oldOwners[prefix], newOwners[prefix], "/fact_family_owners/"+escape(prefix), "first-party-fact-owner", false)
 	}
 	oldMethods, _ := o["methods"].(map[string]any)
 	newMethods, _ := n["methods"].(map[string]any)
