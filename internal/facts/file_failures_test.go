@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,12 +64,16 @@ func TestFileStore_AnEmptyStateFileIsReadAsNoState(t *testing.T) {
 			t.Fatalf("Current over a state file left %s = %+v, %v; want the history's 6.1", name, current, err)
 		}
 	}
-	next := facts.Observation{Entries: prepared(t, map[string]any{"ansible_kernel": "6.2"}), At: at.Add(time.Minute)}
+	// A stable change and a volatile value: since 41h only a volatile value
+	// rewrites the state, so the next one written is whole again.
+	up := prepared(t, map[string]any{"uptime": 30})
+	up[0].Kind = facts.KindVolatile
+	next := facts.Observation{Entries: append(prepared(t, map[string]any{"ansible_kernel": "6.2"}), up...), At: at.Add(time.Minute)}
 	if err := store.Record(ctx, "dev1", next); err != nil {
 		t.Fatalf("Record over an empty state: %v", err)
 	}
-	if info, err := os.Stat(statePath); err != nil || info.Size() == 0 {
-		t.Fatalf("the state was not written whole again: %v, %v", info, err)
+	if raw, err := os.ReadFile(statePath); err != nil || !strings.Contains(string(raw), `"uptime"`) {
+		t.Fatalf("the state was not written whole again: %q, %v", raw, err)
 	}
 	if v, err := store.Verify(ctx, "dev1"); err != nil || v.Break != nil || v.Values != 2 {
 		t.Errorf("Verify = %+v, %v; want two chained values", v, err)
