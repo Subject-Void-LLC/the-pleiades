@@ -685,11 +685,17 @@ withdraw a program's approvals, so it stops running from its next call
 
 ### pleiades collection list
 
-list every approved build, who approved it and when
+list the external Collection protocols this build speaks and every approved build, who approved it and when
 
 `pleiades collection list [flags]`
 
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --describe | `bool` | `false` | also run each approved program's describe, confined as approve does, and show the protocol this build agrees with it: supported, deprecated with the release that removes it, or unsupported |
+
 `pleiades collection list`
+
+`pleiades collection list --describe`
 
 ## pleiades ai
 
@@ -968,9 +974,15 @@ look up a Collection method's or a device type's reference from the live registr
 
 ## pleiades version
 
-print the pleiades version
+print the pleiades version and the external Collection protocols it speaks
 
 `pleiades version [flags]`
 
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --json | `bool` | `false` | print the version, release name and external Collection protocols as one JSON document (docs/reference/schemas/version.json) |
+
 `pleiades version`
+
+`pleiades version --json`
 

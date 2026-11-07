@@ -63,6 +63,7 @@ var contracts = map[string]kind{
 	"doc-conditions.json":      outputSchema,
 	"migration-report.json":    outputSchema,
 	"pr-check-report.json":     outputSchema,
+	"version.json":             outputSchema,
 	"openapi.json":             openAPI,
 	"module-catalog.json":      catalog,
 	"collection-coverage.json": notAContract,
