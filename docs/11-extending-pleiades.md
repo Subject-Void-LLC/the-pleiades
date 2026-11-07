@@ -850,7 +850,7 @@ program built with `pkg/external` prints `protocol` (the newest) and `protocol_m
 The Pleiades takes the highest version both sides speak, and refuses a program that shares
 none, naming the versions each side speaks. It speaks the newest version and the one before
 it, so a program keeps loading for at least one minor release after the next protocol
-version ships; a program agreed at a deprecated version warns once on every run, naming the
+version ships; a program agreed at a deprecated version warns once each time programs load (every command, every Runner start), naming the
 release that stops speaking it. `pleiades version`, `runner version`, the Controller's
 `/.well-known/pleiades/extension-protocols.json` and `pleiades collection list` name the
 versions a build speaks, and `pleiades collection list --describe` names the version each
@@ -859,9 +859,12 @@ approved program is agreed at.
 **Facts.** A method may declare facts it records, under its own namespace (`acme.widgets`
 for an `acme.*` method). It may not declare a fact a built-in method holds, nor one inside a
 built-in family (`package.`, `service.`, `service_state.`, `file.`, `port.`, `user.`,
-`group.`, `ansible_`): facts drive targeting, baselines and conditions, and a program that
-could write a built-in fact could make a device read as something it is not. Such a program
-is refused at load, naming what holds the fact. A fact outside the program's own namespace
+`group.`, `os.`, `host.`, `hardware.`, `network.`, `catalyst.`, `ansible_`), compared
+without case, and its fact names are ASCII: facts drive targeting, baselines and
+conditions, and a program that could write a built-in fact could make a device read as
+something it is not. Such a program is refused at load, naming what holds the fact, and
+the Controller also drops a built-in fact from any batch a method outside its catalog
+emitted. A fact outside the program's own namespace
 that no built-in holds loads with a warning today; a later protocol version requires the
 namespace.
 

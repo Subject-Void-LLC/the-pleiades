@@ -213,7 +213,7 @@ list`.
   and the one before it; the one before stays at least one minor release after the
   newest goes final (longer after 1.0), and is deprecated, with the release that
   removes it named, before it goes. A program agreed at a deprecated version warns
-  once per run.
+  once each time programs are loaded (every command, every Runner start).
 - **A point release never moves the window.** A patch release never removes or
   deprecates a version, starts or shortens a window, adds a rule refusing a program
   the release before loaded, or changes which builds an approval list admits. It may

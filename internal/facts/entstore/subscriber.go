@@ -39,6 +39,9 @@ type Subscriber struct {
 	// dropped.
 	digestOpen  *sealed.PrivateKey
 	digestKeyer *facts.Keyer
+	// builtins names the built-in methods (WithBuiltinProvenance); a fact a
+	// built-in holds is stored only from one of them. Nil holds no batch to it.
+	builtins map[string]bool
 }
 
 // SubscriberOption configures a Subscriber.
@@ -124,6 +127,11 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// keyed (or dropped) before anything is written.
 	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared, AllowSealed: true}
 	entries, refused, err := facts.Verify(batch.Entries, guard)
+	entries, spoofed := s.builtinProvenance(by.Method, entries)
+	if len(spoofed) > 0 {
+		s.logger.Warn("dropping facts a built-in holds that a batch says a method outside the catalog emitted",
+			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", by.Method), slog.Any("facts", spoofed))
+	}
 	entries, lost := s.keyDigests(batch.JobID, batch.DeviceID, entries)
 	if len(lost) > 0 {
 		// Named by fact, never by value: a Controller without the digest

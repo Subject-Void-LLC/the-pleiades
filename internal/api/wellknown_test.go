@@ -28,6 +28,7 @@ func TestWellKnownRoutes(t *testing.T) {
 		{"/.well-known/pleiades/runbook.schema.json", wellknown.RunbookSchema},
 		{"/.well-known/pleiades/inventory.schema.json", wellknown.InventorySchema},
 		{"/.well-known/pleiades/module-catalog.json", wellknown.ModuleCatalog},
+		{"/.well-known/pleiades/extension-protocols.json", wellknown.ExtensionProtocols},
 		{"/api/v1/openapi.json", wellknown.OpenAPISpec},
 	}
 

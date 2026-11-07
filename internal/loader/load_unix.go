@@ -161,7 +161,9 @@ func inspectAndDescribe(ctx context.Context, path string, approved map[string][]
 func validateCandidates(found []candidate, running string, reserved map[string]bool) (warnings []string, problems []error) {
 	claimedBy := map[string]string{}
 	capabilitiesClaimedBy := map[capability.Name]string{}
+	factsDeclared := map[string]declaredFact{}
 	for _, c := range found {
+		problems = append(problems, crossProgramFacts(c, factsDeclared)...)
 		defined, capabilityProblems := validateCapabilities(c, reserved, capabilitiesClaimedBy)
 		problems = append(problems, capabilityProblems...)
 		var unchecked []string
@@ -192,6 +194,40 @@ func validateCandidates(found []candidate, running string, reserved map[string]b
 		}
 	}
 	return warnings, problems
+}
+
+// declaredFact is one program's declaration of a fact, kept to compare
+// another program's with.
+type declaredFact struct {
+	path string
+	spec collection.FactSpec
+}
+
+// crossProgramFacts refuses a fact c declares that an earlier program in the
+// directory declares with another kind or type. Register would refuse the
+// second program in pass two, after the first had registered, leaving the
+// directory loaded halfway; pass one says it first. Facts are compared by key
+// (a family by its prefix); a family holding another program's key is left
+// to Register.
+func crossProgramFacts(c candidate, seen map[string]declaredFact) []error {
+	var problems []error
+	for _, m := range c.desc.Methods {
+		for _, s := range m.Manifest.Facts {
+			id := s.Key
+			if s.Prefix {
+				id += "*"
+			}
+			prev, ok := seen[id]
+			switch {
+			case !ok:
+				seen[id] = declaredFact{path: c.path, spec: s}
+			case prev.path != c.path && (prev.spec.Kind != s.Kind || prev.spec.Type != s.Type):
+				problems = append(problems, fmt.Errorf("fact %q is declared %s %s by %s and %s %s by %s; neither was loaded",
+					s.Key, prev.spec.Kind, prev.spec.Type, prev.path, s.Kind, s.Type, c.path))
+			}
+		}
+	}
+	return problems
 }
 
 // factsOutsideNamespace lists, quoted and in order, the fact keys a

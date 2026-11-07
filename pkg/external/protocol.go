@@ -25,7 +25,8 @@ const (
 	// ProtocolSupported is a version this build speaks with no warning.
 	ProtocolSupported ProtocolStatus = "supported"
 	// ProtocolDeprecated is a version this build still speaks, warning once
-	// per program on every run, and that a named later release removes.
+	// per program each time programs are loaded (each command, each Runner
+	// start), and that a named later release removes.
 	ProtocolDeprecated ProtocolStatus = "deprecated"
 )
 

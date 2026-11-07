@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -320,6 +321,49 @@ func TestSubscriber_HoldsBatchesToTheEmbeddedCatalog(t *testing.T) {
 	want := map[string]facts.Kind{"ansible_uptime_seconds": facts.KindVolatile, "acme_widgets": facts.KindVolatile}
 	if len(kinds) != len(want) || kinds["ansible_uptime_seconds"] != want["ansible_uptime_seconds"] || kinds["acme_widgets"] != want["acme_widgets"] {
 		t.Fatalf("stored %v, want %v: the kernel claimed volatile and a memory size that is not an integer are refused", kinds, want)
+	}
+}
+
+// TestSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod: with the built-in
+// methods named, a batch from any other method stores its own facts and
+// drops each one a built-in holds (a declared key, a reserved family's,
+// whatever its case); the same batch from a built-in method stores them.
+func TestSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod(t *testing.T) {
+	index, err := entstore.CatalogIndex(wellknown.ModuleCatalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtins, err := entstore.BuiltinMethods(wellknown.ModuleCatalog)
+	if err != nil || !builtins["facts.gather"] {
+		t.Fatalf("BuiltinMethods = %d methods, %v; want facts.gather among them", len(builtins), err)
+	}
+	if _, err := entstore.BuiltinMethods([]byte("not json")); err == nil {
+		t.Error("a catalog that does not decode was read")
+	}
+	for _, tc := range []struct {
+		method string
+		want   []string
+	}{
+		{method: "acme.facts.read", want: []string{"acme.widgets"}},
+		{method: "facts.gather", want: []string{"Package.openssh", "acme.widgets", "ansible_hostname"}},
+	} {
+		client, device := open(t)
+		store := entstore.New(client)
+		entries, _, _ := facts.Prepare(map[string]any{"ansible_hostname": "web1", "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
+		batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(), Entries: entries, By: facts.Provenance{Method: tc.method}}
+		sub := entstore.NewSubscriber(store, nil, nil, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins))
+		if err := handle(t, sub, batch); err != nil {
+			t.Fatal(err)
+		}
+		current, _ := store.Current(context.Background(), device)
+		var got []string
+		for _, e := range current {
+			got = append(got, e.Key)
+		}
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("from %s: stored %q, want %q", tc.method, got, tc.want)
+		}
 	}
 }
 

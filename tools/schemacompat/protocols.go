@@ -8,7 +8,7 @@
 package main
 
 // compareProtocols compares two protocol documents.
-func (c *schemaComparer) compareProtocols(o, n map[string]any) {
+func (c *schemaComparer) compareProtocols(o, n map[string]any) int {
 	olds, news := byVersion(o["versions"]), byVersion(n["versions"])
 	for _, v := range sortedKeys(olds) {
 		at := "/versions/" + escape(v)
@@ -26,6 +26,7 @@ func (c *schemaComparer) compareProtocols(o, n map[string]any) {
 	if oc, nc := o["current"].(float64), n["current"].(float64); nc < oc {
 		c.report("protocol-current-lowered", "/current", both, input)
 	}
+	return len(olds)
 }
 
 // earlierRelease reports whether release a is earlier than release b, both

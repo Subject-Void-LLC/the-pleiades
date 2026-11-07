@@ -113,6 +113,13 @@ func TestACatalogWithNothingImplementedIsAProblemNotAPass(t *testing.T) {
 	}
 }
 
+func TestAWindowWithNothingReadableIsAProblemNotAPass(t *testing.T) {
+	old := `{"schema_version":1,"current":1,"protocols":[{"version":1}]}`
+	if _, err := compareFile("extension-protocols.json", protocols, []byte(old), []byte(old)); err == nil {
+		t.Error("a window the check read nothing in passed")
+	}
+}
+
 func TestProtocolWindowChecks(t *testing.T) {
 	doc := func(current int, vs string) string {
 		return `{"schema_version":1,"current":` + strconv.Itoa(current) + `,"versions":[` + vs + `]}`

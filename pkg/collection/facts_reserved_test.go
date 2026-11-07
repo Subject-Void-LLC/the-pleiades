@@ -31,6 +31,11 @@ func TestRegister_RefusesAnExternalMethodsReservedFact(t *testing.T) {
 		{"acme.family", stable("package.", true), `the reserved family "package."*`},
 		{"acme.item", stable("user.root", false), `the reserved family "user."*`},
 		{"acme.wide", stable("serv", true), `the reserved family "service."*`},
+		{"acme.case", stable("Package.openssh", false), `the reserved family "package."*`},
+		{"acme.bare", stable("ansible_", false), `the reserved family "ansible_"*`},
+		{"acme.native", stable("os.distribution", false), `the reserved family "os."*`},
+		{"acme.lookalike", stable("p\u0430ckage.openssh", false), "is not ASCII"},
+		{"acme.builtincase", stable("RESBUILTIN_KERNEL", false), `built-in method "resbuiltin.gather"`},
 	} {
 		err := collection.Register(external(tc.name, tc.spec))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

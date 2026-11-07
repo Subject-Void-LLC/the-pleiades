@@ -200,7 +200,11 @@ func compareFile(name string, k kind, oldB, newB []byte) ([]Finding, error) {
 			return nil, fmt.Errorf("%s at the base has %d methods and none is implemented: the catalog's shape changed, so the check compared nothing", name, len(om))
 		}
 	case protocols:
-		c.compareProtocols(om, nm)
+		// A window with no readable version at the base is a shape change,
+		// not a pass over nothing.
+		if c.compareProtocols(om, nm) == 0 {
+			return nil, fmt.Errorf("%s at the base lists no protocol version this check can read, so it compared nothing", name)
+		}
 	}
 	return c.findings, nil
 }

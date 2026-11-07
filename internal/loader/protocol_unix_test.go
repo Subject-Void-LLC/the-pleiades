@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 )
 
@@ -53,5 +54,26 @@ func TestProgramDigest_HashesWithoutRunning(t *testing.T) {
 	}
 	if _, err := ProgramDigest(filepath.Join(dir, "no-such-dir"), "prog"); err == nil {
 		t.Error("a directory that does not exist was read")
+	}
+}
+
+// TestValidateCandidates_TwoProgramsDisagreeingOnAFactAreBothRefused proves
+// pass one refuses a fact two programs declare with different kinds, before
+// either registers, rather than Register refusing the second after the first
+// is in (FuzzRegistrationParity's halfway load).
+func TestValidateCandidates_TwoProgramsDisagreeingOnAFactAreBothRefused(t *testing.T) {
+	method := func(name string, kind collection.FactKind) external.DescribedMethod {
+		m := implemented(false)
+		m.Facts = []collection.FactSpec{{Key: "acme.widgets", Kind: kind, Type: collection.FactInteger, Description: "widgets"}}
+		return external.DescribedMethod{Name: name, Manifest: m}
+	}
+	a := candidate{path: "/c/a", desc: external.Description{Protocol: 1, Methods: []external.DescribedMethod{method("acme.a.read", collection.FactStable)}}}
+	b := candidate{path: "/c/b", desc: external.Description{Protocol: 1, Methods: []external.DescribedMethod{method("acme.b.read", collection.FactVolatile)}}}
+	_, problems := validateCandidates([]candidate{a, b}, "0.4.0", reservedNamespaces())
+	if len(problems) != 1 || !strings.Contains(problems[0].Error(), `fact "acme.widgets" is declared stable integer by /c/a and volatile integer by /c/b`) {
+		t.Errorf("problems %v, want one naming both programs", problems)
+	}
+	if _, problems := validateCandidates([]candidate{a, {path: "/c/c", desc: a.desc}}, "0.4.0", reservedNamespaces()); len(problems) != 1 || !strings.Contains(problems[0].Error(), "claimed by both") {
+		t.Errorf("an agreeing declaration from a second program: %v, want only the method-name clash", problems)
 	}
 }

@@ -19,7 +19,7 @@ import (
 // Collection window before upgrading it.
 func printVersion(w io.Writer, args []string) int {
 	switch {
-	case len(args) == 1 && args[0] == "--json":
+	case len(args) == 1 && (args[0] == "--json" || args[0] == "-json"):
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(clireport.NewVersionReport("runner", buildinfo.Version())); err != nil {

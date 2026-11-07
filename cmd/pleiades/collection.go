@@ -232,6 +232,9 @@ func runCollectionList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	// First, so it is said even where no directory is set or programs cannot
+	// load (every platform but Linux).
+	fmt.Println("this build speaks external collection protocols: " + external.SpokenText())
 	dir, err := collectionsDir()
 	if err != nil {
 		return err
@@ -240,7 +243,6 @@ func runCollectionList(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("this build speaks external collection protocols: " + external.SpokenText())
 	if len(approvals) == 0 {
 		fmt.Println("no approved builds")
 		return nil
