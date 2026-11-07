@@ -146,7 +146,16 @@ func readStaged() ([]stagedEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, stagedEntry{stagedFile: file, Content: content})
+		entry := stagedEntry{stagedFile: file, Content: content}
+		// What a modified schema file held before, so checkEntRegenerated can
+		// tell a comment fix from a schema change. A rename's old path is not
+		// read here, so a renamed schema file counts as changed.
+		if file.Kind == changeModified && isEntSchema(file.Path) {
+			if before, err := git("show", baseRef()+":"+file.Path); err == nil {
+				entry.Before = before
+			}
+		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }
