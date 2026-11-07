@@ -125,6 +125,26 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// record for that device, and internal/dispatch.Reaper republishes,
 	// roughly ten to twenty minutes later and therefore far outside
 	// JetStream's producer-side duplicate window.
+	// A payload from a newer Controller than this Runner reads is refused
+	// before any work, and reported the way a kind with no adapter is (see
+	// below): the job fails with the reason, rather than saying
+	// "dispatched" forever, and the message is terminated, since this
+	// binary will not learn the newer shape between two deliveries.
+	if verr := payload.CheckVersion(); verr != nil {
+		span.RecordError(verr)
+		span.SetStatus(codes.Error, "dispatch payload version not supported")
+		a.logger.Error("refusing a dispatch this runner cannot read",
+			slog.String("job_id", payload.JobID),
+			slog.String("device_id", payload.DeviceID),
+			slog.Int("payload_version", payload.PayloadVersion),
+			slog.String("error", verr.Error()))
+		a.reportResult(ctx, payload, wire.Outcome{}, verr)
+		settle()
+		a.termMalformed(msg, "dropping a dispatch this runner cannot read", verr,
+			slog.Int("payload_version", payload.PayloadVersion))
+		return
+	}
+
 	if a.alreadyExecuted(ctx, payload) {
 		a.logger.Info("skipping a dispatch that already executed",
 			slog.String("job", payload.JobID),

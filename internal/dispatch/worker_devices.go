@@ -217,8 +217,11 @@ func methodsAdmit(device pkginventory.InventoryItem, methods []string) error {
 func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared PreparedDefinition, injected credtype.Artifact, device pkginventory.InventoryItem, a admission) wire.DispatchPayload {
 	host, mode := a.host, a.mode
 	payload := wire.DispatchPayload{
-		JobID:     job.JobID,
-		RunbookID: job.RunbookID,
+		// The shape this Controller writes, so a Runner of an older release
+		// refuses a dispatch it would misread (wire.DispatchPayload.CheckVersion).
+		PayloadVersion: wire.DispatchPayloadVersion,
+		JobID:          job.JobID,
+		RunbookID:      job.RunbookID,
 		// The kind travels with the dispatch so the Runner routes on a
 		// value it was given rather than on a set it was compiled with.
 		// Empty for a job that names no template, which the Runner
