@@ -102,7 +102,7 @@ func TestRecordUsesTheSnakeCaseNamesAsTheFormat(t *testing.T) {
 
 	line := readLines(t, root, "run-a")[0]
 	for _, key := range []string{
-		"job_id", "attempt", "run_id", "sequence", "node_id", "dag_id", "dag_version",
+		"format", "job_id", "attempt", "run_id", "sequence", "node_id", "dag_id", "dag_version",
 		"fqcn", "fqcn_unresolved", "provider_program", "provider_digest",
 		"task_name", "register", "device_id",
 		"started_at", "finished_at", "outcome", "failure_stage",
@@ -117,8 +117,12 @@ func TestRecordUsesTheSnakeCaseNamesAsTheFormat(t *testing.T) {
 			t.Errorf("the record has no %q key: %v", key, line)
 		}
 	}
-	if len(line) != 39 {
-		t.Errorf("the record holds %d keys, want 39: no field carries omitempty, so every line is whole", len(line))
+	if len(line) != 40 {
+		t.Errorf("the record holds %d keys, want 40: no field carries omitempty, so every line is whole", len(line))
+	}
+	// The line names the format it was written in (format.go).
+	if got := line["format"]; got != float64(journal.FormatVersion) {
+		t.Errorf("format = %v, want %d", got, journal.FormatVersion)
 	}
 	// An entry with no recorded undo values writes [], never null, as the
 	// three key vectors do.
