@@ -137,7 +137,8 @@ func TestPackageParsers_ReadEachDatabasesOwnOutput(t *testing.T) {
 func TestParseSystemd_MergesUnitFilesAndLoadedUnits(t *testing.T) {
 	out := "ssh.service enabled enabled\ncron.service disabled enabled\ngetty@.service enabled enabled\nsystemd-fsck-root.service static -\n" +
 		serviceSectionMark + "\n" +
-		"ssh.service loaded active running OpenBSD Secure Shell server\n● failing.service loaded failed failed A unit that failed\ngetty@tty1.service loaded active running Getty on tty1\n"
+		"ssh.service loaded active running OpenBSD Secure Shell server\n● failing.service loaded failed failed A unit that failed\ngetty@tty1.service loaded active running Getty on tty1\n" +
+		serviceSectionMark + "\n"
 	got := map[string]map[string]any{}
 	for _, f := range parseSystemd(out) {
 		got[f.key] = f.value.(map[string]any)
@@ -154,6 +155,9 @@ func TestParseSystemd_MergesUnitFilesAndLoadedUnits(t *testing.T) {
 	}
 	if parseSystemd("no mark here") != nil {
 		t.Error("output with no section mark was read")
+	}
+	if parseSystemd(strings.TrimSuffix(out, serviceSectionMark+"\n")) != nil {
+		t.Error("output with no socket listing was read")
 	}
 }
 

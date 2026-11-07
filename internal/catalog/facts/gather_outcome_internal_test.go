@@ -95,14 +95,19 @@ func TestGatherNamed_FollowsAnsiblesRuleInAnyOrder(t *testing.T) {
 // structure it always has, and accepted with it.
 func TestStructureChecks(t *testing.T) {
 	unit := "sshd.service loaded active running OpenSSH\n"
+	socket := "sshd.socket loaded active listening OpenSSH Server Socket\n"
 	cases := []struct {
 		name  string
 		check func(string) error
 		out   string
 		ok    bool
 	}{
-		{"systemd, both sections", checkSystemd, "sshd.service enabled\n" + serviceSectionMark + "\n" + unit, true},
-		{"systemd, no loaded service", checkSystemd, "sshd.service enabled\n" + serviceSectionMark + "\n", false},
+		{"systemd, all three sections", checkSystemd, "sshd.service enabled\n" + serviceSectionMark + "\n" + unit + serviceSectionMark + "\n" + socket, true},
+		{"systemd, no loaded service", checkSystemd, "sshd.service enabled\n" + serviceSectionMark + "\n" + serviceSectionMark + "\n" + socket, false},
+		// Cut off before the socket listing: parsed, it would read as no
+		// sockets and keep every per-connection instance.
+		{"systemd, no socket listing", checkSystemd, "sshd.service enabled\n" + serviceSectionMark + "\n" + unit, false},
+		{"systemd, a fourth section", checkSystemd, "sshd.service enabled\n" + serviceSectionMark + "\n" + unit + serviceSectionMark + "\n" + socket + serviceSectionMark + "\n", false},
 		{"systemd, one section", checkSystemd, "sshd.service enabled\n", false},
 		{"openrc, three sections", checkOpenRC, "sshd\n" + serviceSectionMark + "\n" + serviceSectionMark + "\n", true},
 		{"openrc, no script", checkOpenRC, "\n" + serviceSectionMark + "\n" + serviceSectionMark + "\n", false},
