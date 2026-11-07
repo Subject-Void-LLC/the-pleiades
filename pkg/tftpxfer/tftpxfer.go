@@ -63,7 +63,8 @@
 // ReadFrom or WriteTo is called, it blocks until the transfer completes,
 // fails, or its own internal Timeout/Retries budget is exhausted - there
 // is no hook this package can use to interrupt it early. Get and Put
-// check ctx only before starting a transfer, not during one; a caller
+// check ctx before starting a transfer and while resolving the server's
+// name, not during the transfer itself; a caller
 // wanting a hard ceiling should set Options.Timeout (paired with
 // Options.Retries) to bound the transfer's own worst case, since ctx
 // cancellation alone cannot do it here. Stated plainly rather than
@@ -85,8 +86,8 @@
 //
 // tftp.NewClient failing is real defensive coverage but not reachable
 // from this package's own test suite: it only fails on a malformed
-// address string, and newClient always builds one from a validated
-// host/port pair via net.JoinHostPort. The identical class of gap
+// address string, and newClient always hands it an address it has already
+// resolved itself (localaddr.go says why). The identical class of gap
 // pkg/serialexec, pkg/serialtcp, pkg/telnetexec and pkg/rfc2217 each
 // already document for their own always-valid construction paths.
 package tftpxfer
@@ -95,8 +96,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
-	"strconv"
 	"time"
 
 	tftp "github.com/pin/tftp/v3"
@@ -164,11 +163,34 @@ func preflight(ctx context.Context, opts Options, remoteFilename string) error {
 	return nil
 }
 
-func newClient(host string, port int, opts Options) (*tftp.Client, error) {
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
+// newClient builds one transfer's client for the server at host:port, bound
+// to the local address localaddr.go chooses so that an IPv4 server's replies
+// cannot be taken by another socket, with the caller's timeout, retries and
+// block size. ctx bounds resolving host, which is the only part of the
+// transfer this package can end early.
+func newClient(ctx context.Context, host string, port int, opts Options) (*tftp.Client, error) {
+	raddr, err := resolveServer(ctx, host, port)
+	if err != nil {
+		return nil, err
+	}
+	// The library is handed the address already resolved, so it sends to
+	// the same address localIPFor chose a source for.
+	addr := raddr.String()
 	c, err := tftp.NewClient(addr)
 	if err != nil {
 		return nil, fmt.Errorf("tftpxfer: creating client for %s: %w", addr, err)
+	}
+	localIP, err := localIPFor(raddr)
+	if err != nil {
+		return nil, err
+	}
+	if localIP != "" {
+		// An IPv4 address from the kernel's own route lookup always parses,
+		// so SetLocalAddr's refusals of an empty or malformed address
+		// cannot be reached here.
+		if err := c.SetLocalAddr(localIP); err != nil {
+			return nil, fmt.Errorf("tftpxfer: binding the client to %s: %w", localIP, err)
+		}
 	}
 
 	timeout := opts.Timeout
@@ -196,13 +218,13 @@ func Get(ctx context.Context, host string, port int, opts Options, remoteFilenam
 	if err := preflight(ctx, opts, remoteFilename); err != nil {
 		return 0, err
 	}
-	return receive(host, port, opts, remoteFilename, w)
+	return receive(ctx, host, port, opts, remoteFilename, w)
 }
 
 // receive is Get past its refusals, kept apart so a test can hand the
 // library a request those refusals would stop and prove its panic comes
 // back as an error.
-func receive(host string, port int, opts Options, remoteFilename string, w io.Writer) (n int64, err error) {
+func receive(ctx context.Context, host string, port int, opts Options, remoteFilename string, w io.Writer) (n int64, err error) {
 	dst := &callerWriter{w: w}
 	defer func() {
 		if v := recover(); v != nil {
@@ -210,7 +232,7 @@ func receive(host string, port int, opts Options, remoteFilename string, w io.Wr
 		}
 	}()
 
-	c, err := newClient(host, port, opts)
+	c, err := newClient(ctx, host, port, opts)
 	if err != nil {
 		return 0, err
 	}
@@ -233,11 +255,11 @@ func Put(ctx context.Context, host string, port int, opts Options, remoteFilenam
 	if err := preflight(ctx, opts, remoteFilename); err != nil {
 		return 0, err
 	}
-	return send(host, port, opts, remoteFilename, r)
+	return send(ctx, host, port, opts, remoteFilename, r)
 }
 
 // send is Put past its refusals, kept apart for the same reason as receive.
-func send(host string, port int, opts Options, remoteFilename string, r io.Reader) (n int64, err error) {
+func send(ctx context.Context, host string, port int, opts Options, remoteFilename string, r io.Reader) (n int64, err error) {
 	src := &callerReader{r: r}
 	defer func() {
 		if v := recover(); v != nil {
@@ -245,7 +267,7 @@ func send(host string, port int, opts Options, remoteFilename string, r io.Reade
 		}
 	}()
 
-	c, err := newClient(host, port, opts)
+	c, err := newClient(ctx, host, port, opts)
 	if err != nil {
 		return 0, err
 	}

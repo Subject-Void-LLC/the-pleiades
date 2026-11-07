@@ -347,9 +347,11 @@ tasks:
 		// A later run changed the same device: undoing beneath it is refused
 		// until named.
 		later, laterCode := g.run(t, "g2l", "id: g2l\nhosts: container1\ntasks:\n  - name: another\n    file.directory:\n      path: /tmp/rb-g2-later\n")
-		// A later run that failed before its task acted changed nothing a
-		// rollback has to respect, so the refusal below would be wrong to
-		// expect; say so rather than report a rollback that ran.
+		// This case is about how "later" is decided, so the later run must
+		// have changed the device. One that failed before its task reached
+		// the device changed nothing a rollback has to respect, and one that
+		// failed during its action is the case below; say which rather than
+		// report a rollback that ran.
 		if laterCode != 0 {
 			out, _ := g.pleiades(t, "journal", "show", later)
 			t.Fatalf("the later run failed (exit %d), so it is no later change:\n%s", laterCode, out)
@@ -386,6 +388,43 @@ tasks:
 		}
 		if out, code := g.pleiades(t, "rollback", failed, "--allow-unknown", "tasks[0]"); code != 0 {
 			t.Errorf("with --allow-unknown, exit %d\n%s", code, out)
+		}
+	})
+
+	t.Run("G2 a later run that failed during its action refuses", func(t *testing.T) {
+		g := newRollbackGate(t, container, host, port)
+		g.device(t, "rm -rf /tmp/rb-g2f /tmp/rb-g2f-later")
+		runID, code := g.run(t, "g2f", "id: g2f\nhosts: container1\ntasks:\n  - name: make\n    file.directory:\n      path: /tmp/rb-g2f\n")
+		if code != 0 {
+			t.Fatalf("the run to undo exited %d", code)
+		}
+		// The later run changes the device and then fails, all in one task:
+		// its journal records a failure during the action and no change,
+		// which is all a journal can say of a task that failed partway.
+		later, laterCode := g.run(t, "g2fl", "id: g2fl\nhosts: container1\ntasks:\n  - name: change then fail\n    exec.shell:\n      cmd: mkdir /tmp/rb-g2f-later && exit 3\n")
+		if laterCode == 0 {
+			t.Fatal("the later run succeeded, want it to fail during its action")
+		}
+		if got := g.device(t, "test -d /tmp/rb-g2f-later && echo changed"); got != "changed" {
+			t.Fatalf("the later run did not change the device before it failed: %q", got)
+		}
+		logins := sshdLogins(t, container)
+		rep := g.report(t, "rollback", runID)
+		if rep.Outcome.ExitCode != 1 || rep.Rollback == nil || len(rep.Rollback.Problems) != 1 ||
+			rep.Rollback.Problems[0].Accept != "--despite-run "+later ||
+			!strings.Contains(rep.Rollback.Problems[0].Reason, "exec.shell failed during its action") {
+			t.Fatalf("a rollback beneath a later run that failed during its action: %+v", rep)
+		}
+		g.noLoginSince(t, logins)
+		if got := g.device(t, "test -d /tmp/rb-g2f && echo dir"); got != "dir" {
+			t.Error("a rollback refused for a later run changed the device")
+		}
+		// Named, it undoes the run beneath it and leaves the later change.
+		if out, code := g.pleiades(t, "rollback", runID, "--despite-run", later); code != 0 {
+			t.Fatalf("with --despite-run %s: exit %d\n%s", later, code, out)
+		}
+		if got := g.device(t, "test -d /tmp/rb-g2f && echo dir || echo gone; test -d /tmp/rb-g2f-later && echo later"); got != "gone\nlater" {
+			t.Errorf("after --despite-run the device holds %q", got)
 		}
 	})
 

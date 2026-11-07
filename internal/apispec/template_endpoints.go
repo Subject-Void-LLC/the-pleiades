@@ -585,6 +585,10 @@ var RollbackJob = Endpoint{
 							"reason": stringSchema("What is wrong."),
 							"field":  stringSchema("The request field that accepts it; absent when nothing can."),
 							"value":  stringSchema("What to put in that field."),
+							"kind": stringSchema("For a later job: undo_first (it has changes of its own to undo), cannot_undo (its changes there cannot be undone), " +
+								"nothing_to_undo (its runbook says none needs undoing) or unknown_effect (a task of it failed during its action there, and it recorded no change there that is still to undo); " +
+								"no_runbook for a change whose undo needs a runbook not found. Absent otherwise."),
+							"unknown_effects": namesSchema("For a later job, the methods whose tasks failed during their action on the devices this problem names, so may have changed them partway, whatever its kind. Absent when none did."),
 						},
 					},
 				},

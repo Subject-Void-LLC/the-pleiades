@@ -664,14 +664,29 @@ ordinary run of ordinary tasks, journaled like any other.
   every problem, each with the flag or field that accepts it: leave a change in
   place, run a partial undo anyway, accept an unknown effect, or undo beneath a
   later run. You accept exactly what you read.
-- **A later run, by kind.** A later run on the same device is refused in one of three
+- **A later run, by kind.** A later run on the same device is refused in one of four
   ways, each accepted with `--despite-run <run-id>` but each with its own advice. If it
   has changes of its own to undo, roll it back first (`pleiades rollback <run-id>`). If
   its changes there recorded no undo (a capture stopped, a command run), rolling it back
-  first would refuse too, so read it (`pleiades journal show <run-id>`) and step over it.
+  first would refuse too, so read it (`pleiades journal show <run-id>`) and step over it
+  with `--despite-run`.
   If its runbook says none of them needs undoing (`rollback: []`, which the journal
-  records), stepping over it is safe as long as that still holds. `--json` gives each
-  problem's `kind`: `undo_first`, `cannot_undo` or `nothing_to_undo`.
+  records), stepping over it is safe as long as that still holds. If it recorded no
+  change there but a task of it failed there during its action, it may have changed the
+  device partway, exactly as such a task in the run being undone may have, so read it
+  and step over it once the device is known to be as this run left it; a run that
+  failed before it reached the device (a lock it could not take, a parameter that
+  would not render) is no reason to refuse. A later run with any task that failed
+  during its action there, in a method that is not read-only, refuses a rollback
+  beneath it until `--despite-run`, as the
+  run being undone does, and that includes an `until:` poll's failed tries and a failure
+  `ignore_errors` let the run go past, which stay failures in the journal. Rolling that
+  later run back does not clear it, since no rollback undoes a failed task: the
+  refusal stays, as `unknown_effect`, until you step over it. `--json` gives each
+  problem's `kind`: `undo_first`, `cannot_undo`, `nothing_to_undo` or `unknown_effect`,
+  and `unknown_effects` names the methods that failed during their action there,
+  whatever the kind. A Controller's refusal gives both too, as `kind` and
+  `unknown_effects` on each problem.
 - **How "later" is decided.** Not by the clock: a machine's clock can be set back
   between two runs, and two Runners' clocks can disagree, and either would hide a later
   run. On the CLI, every run ticks a counter in `.pleiades/clock` as it begins and as it

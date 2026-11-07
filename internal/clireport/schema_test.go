@@ -51,7 +51,7 @@ func fullRunReport() RunReport {
 				FQCN: "file.remove", Params: map[string]any{"path": "/x"}, Name: "undo", Source: "recorded", Partial: true, Become: "root"}}},
 			Left: []rollback.Gap{gap}, Unknown: []rollback.Gap{gap}, UnacceptedUnknown: 1, AlreadyUndone: []rollback.Gap{gap},
 			NothingToUndo: []rollback.Gap{gap}, OrderedByClock: []string{"0f8fad5b-d9cb-469f-a165-70867728950e"},
-			Problems:    []rollback.Problem{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Reason: "no undo", Kind: "later_run", Accept: "--despite-run run-2"}},
+			Problems:    []rollback.Problem{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Reason: "no undo", Kind: "later_run", Accept: "--despite-run run-2", UnknownEffects: []string{"exec.shell"}}},
 			Provisional: []ProvisionalStep{{Name: "undo", Device: "r1", Reason: "an earlier step changes it"}},
 		},
 		Outcome: RunOutcome{Status: "incomplete", Message: "check incomplete", ExitCode: 3, Unchecked: 1, AllowedUnchecked: []string{"tasks[3] [r1]"}},

@@ -178,6 +178,16 @@
         "reason": {
           "description": "Reason says why the plan was refused.",
           "type": "string"
+        },
+        "unknown_effects": {
+          "description": "UnknownEffects names, for a later run, the methods whose tasks failed during their action on the devices this problem names, so may have changed them partway, whatever its Kind; empty when none did.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [

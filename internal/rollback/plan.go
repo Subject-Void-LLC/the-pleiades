@@ -216,6 +216,10 @@ type Problem struct {
 	// Accept names the flag, and its argument, that accepts this problem,
 	// empty when nothing can.
 	Accept string `json:"accept,omitempty"`
+	// UnknownEffects names, for a later run, the methods whose tasks failed
+	// during their action on the devices this problem names, so may have
+	// changed them partway, whatever its Kind; empty when none did.
+	UnknownEffects []string `json:"unknown_effects,omitempty"`
 }
 
 // RefusedError is the planner's refusal: every problem found, so an

@@ -7413,3 +7413,47 @@ only running it twice, and across a sign-in, shows what the login itself adds.
 **Rule in practice.** For each family a gatherer reports (packages, services, ports, users, files), a lab gate
 gathers twice on an unchanged machine and compares the two, and a second gate compares across a sign-in or a reboot.
 The open case is Linux: systemd lists `sshd@` and `user@` units per login, which a follow-up branch is taking.
+
+**Update (2026-11-06, `fix/open-patterns-batch2`).** The open Linux case is closed by FAILURE_PATTERNS 954: the systemd
+probe leaves out transient units, `user@` and `user-runtime-dir@` instances, and the per-connection instances of a
+loaded socket (`sshd@<n>-<peer>.service`), proven by `TestCLI_ServiceFactsHoldStillWhileLoginsComeAndGo`, which
+gathers twice through the real binary on a systemd host with a socket-activated sshd. On systemd before 230 a
+transient unit is not marked, so one is still listed there.
+
+## 406. Before ruling out a CI-only failure by local runs, compare the versions of what the runner runs (container engine, kernel, OS build, toolchain) with this machine's, and reproduce on the runner's version: FAILURE_PATTERNS 560 was a Docker Engine bug fixed in 28.3.0, CI ran 28.0.4 and this machine 29.8.0, so no local run could fail (a repeat in kind of 365 and 93) (2026-11-06).
+
+**Why.** Branch `fix/open-patterns-batch2`. FAILURE_PATTERNS 560 (a check of `container.prune` listing no stopped
+container while inspect said it had exited) failed twice in CI, in a pull request's shard and in the nightly job. The
+second sighting was met with 300 local runs, all passing, and the entry stayed open for two weeks with "not
+reproduced here". The cause was moby issue 50133, fixed in Docker Engine 28.3.0. CI's daemon was 28.0.4; this machine
+runs 29.8.0. Inside `docker:28.0.4-dind` the real test binary failed 36 times in 400 with the CI words, and inside
+`docker:28.3.0-dind` 0 times in 300. The 300 local runs were evidence about Docker 29.8.0 only. FAILURE_PATTERNS 448
+is the same shape on another axis: its cause was XNU's port choice, which no Linux run could show, and it took a probe
+on a Mac.
+
+**Why 365 and 93 did not hold.** 365 says to run a feature's tests where CI runs them, and names the kind of engine (a
+native engine against Docker Desktop's VM), not its version. 93 says to verify a dependency's interface against the
+version really installed, and was written for a specification describing a CLI tool. Neither was applied to a
+diagnosis: when a failure would not reproduce, nobody asked what version the runner had.
+
+**Rule in practice.** For a failure seen only in CI, read the runner's versions from the job log (the engine's
+`docker version`, the runner image, the kernel, the Go toolchain) and set them beside this machine's. Where they
+differ, read the dependency's changelog and issues between the two, and reproduce on the runner's version: a
+`docker:<version>-dind` container runs a given engine here. Only then call a failure unreproducible. CI_LESSONS 29.
+
+## 407. A planner that judges the run being undone by a rule judges every later run by the same rule, in every path that can skip a run: 551's fix applied the rule for tasks that failed during their action to later runs, but a "cancels out" skip ran first (FAILURE_PATTERNS 551 and 957; a repeat in kind of 371) (2026-11-06).
+
+**Why.** Branch `fix/open-patterns-batch2`. A rollback already refused to undo a run with a task that failed during
+its action, since such a task may have changed the device partway. The planner did not apply that rule to later runs:
+`laterRunProblems` dropped their failed tasks, so a later `exec.shell` that made a directory and then failed let a
+rollback beneath it succeed (551). The fix added the rule for later runs, but a later run whose changes its own
+rollback had undone ("cancels out") was skipped before the rule was reached, though its failed task's partial effect
+was still on the device, and its advice could not clear it (957). Review found the second gap, before any push.
+
+**Why 371 did not hold.** 371 says that when a clock is taken out of a decision, every time comparison the decision
+reaches goes, not only the one a symptom pointed at. It is the same shape for a rule instead of a clock, and it was
+written about ordering, so nobody read it as asking for a sweep of the skip paths.
+
+**Rule in practice.** When a safety rule is added for one of the runs a planner reads, list every path by which the
+planner can skip or excuse a run (cancels out, nothing to undo, ordered by clock, before the target) and give each a
+test with the rule's case in it.

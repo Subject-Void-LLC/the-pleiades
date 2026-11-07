@@ -6,6 +6,7 @@ package container
 import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // Shared parameters and returns.
@@ -16,7 +17,15 @@ var (
 	idReturn    = collection.ReturnField{Name: statID, Type: "string", Returned: "when the container exists", Description: "The container's ID."}
 	nameReturn  = collection.ReturnField{Name: statName, Type: "string", Returned: "always", Description: "The container's name."}
 	stateReturn = collection.ReturnField{Name: statState, Type: "string", Returned: "when the container exists or would", Description: "The container's state as the engine names it (created, running, exited, paused), after the task."}
+
+	// settleWarnings is what start, stop and restart warn of once their
+	// change is made.
+	settleWarnings = collection.ReturnField{Name: sdk.StatWarnings, Type: "list of string", Returned: "when there is one", Description: "What the run must say once the change was made: that the container could not be read back afterwards, or that a stopped container removed itself, so its stop has no undo."}
 )
+
+// settleNote is start's, stop's and restart's sentence on a read after
+// the change that fails.
+const settleNote = " Once the change is made, a failed read of the container afterwards is a warning, not a failure, so the task keeps its undo."
 
 // imageReturns are what run and create report of the image.
 var imageReturns = []collection.ReturnField{
@@ -74,30 +83,30 @@ func lifecycleDoc(fqcn string) collection.Doc {
 	case "container.start":
 		return collection.Doc{
 			Summary:     "Starts a stopped container.",
-			Description: "Starts the container named name when it is created or exited; a running one is left alone, and a paused or dead one is refused. With id, a container that no longer has that ID is refused, so an undo never starts another container that took the name. Records stopping it as the undo. A check reads the container and starts nothing." + containerengine.ReachNote,
+			Description: "Starts the container named name when it is created or exited; a running one is left alone, and a paused or dead one is refused. With id, a container that no longer has that ID is refused, so an undo never starts another container that took the name. Records stopping it as the undo. A check reads the container and starts nothing." + settleNote + containerengine.ReachNote,
 			Params:      []collection.Param{nameParam, idParam, containerengine.HostKeyParam},
 			Fragments:   []string{"container_engine"},
-			Returns:     []collection.ReturnField{nameReturn, idReturn, stateReturn},
+			Returns:     []collection.ReturnField{nameReturn, idReturn, stateReturn, settleWarnings},
 			Examples:    []collection.Example{{Name: "Start the backup job", RunbookYAML: "- name: Start backup\n  container.start:\n    name: backup\n"}},
 			SeeAlso:     []string{"container.stop", "container.run"},
 		}
 	case "container.stop":
 		return collection.Doc{
 			Summary:     "Stops a running container.",
-			Description: "Stops the container named name when it is running, restarting or paused: SIGTERM, then SIGKILL after timeout seconds. A stopped one is left alone. With id, a container that no longer has that ID is refused. Records starting it as the undo. A check stops nothing." + containerengine.ReachNote,
+			Description: "Stops the container named name when it is running, restarting or paused: SIGTERM, then SIGKILL after timeout seconds. A stopped one is left alone. With id, a container that no longer has that ID is refused. Records starting it as the undo, save for a container that removes itself when it stops (auto-remove), which is gone afterwards: that stop records no undo and says so in warnings. A check stops nothing." + settleNote + containerengine.ReachNote,
 			Params:      []collection.Param{nameParam, idParam, timeout, containerengine.HostKeyParam},
 			Fragments:   []string{"container_engine"},
-			Returns:     []collection.ReturnField{nameReturn, idReturn, stateReturn},
+			Returns:     []collection.ReturnField{nameReturn, idReturn, stateReturn, settleWarnings},
 			Examples:    []collection.Example{{Name: "Stop the web server", RunbookYAML: "- name: Stop web\n  container.stop:\n    name: web\n    timeout: 30\n"}},
 			SeeAlso:     []string{"container.start", "container.remove"},
 		}
 	case "container.restart":
 		return collection.Doc{
 			Summary:     "Restarts a container.",
-			Description: "Restarts the container named name, running or stopped: SIGTERM, SIGKILL after timeout seconds, then a start. A paused or dead one is refused. With id, a container that no longer has that ID is refused. A restart has no undo. A check restarts nothing." + containerengine.ReachNote,
+			Description: "Restarts the container named name, running or stopped: SIGTERM, SIGKILL after timeout seconds, then a start. A paused or dead one is refused. With id, a container that no longer has that ID is refused. A restart has no undo. A check restarts nothing." + settleNote + containerengine.ReachNote,
 			Params:      []collection.Param{nameParam, idParam, timeout, containerengine.HostKeyParam},
 			Fragments:   []string{"container_engine"},
-			Returns:     []collection.ReturnField{nameReturn, idReturn, stateReturn},
+			Returns:     []collection.ReturnField{nameReturn, idReturn, stateReturn, settleWarnings},
 			Examples:    []collection.Example{{Name: "Restart after a configuration change", RunbookYAML: "- name: Restart web\n  container.restart:\n    name: web\n"}},
 			SeeAlso:     []string{"container.stop", "container.start"},
 		}

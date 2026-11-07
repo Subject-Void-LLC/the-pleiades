@@ -6,7 +6,7 @@ status: beta
 
 Starts a stopped container.
 
-Starts the container named name when it is created or exited; a running one is left alone, and a paused or dead one is refused. With id, a container that no longer has that ID is refused, so an undo never starts another container that took the name. Records stopping it as the undo. A check reads the container and starts nothing. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
+Starts the container named name when it is created or exited; a running one is left alone, and a paused or dead one is refused. With id, a container that no longer has that ID is refused, so an undo never starts another container that took the name. Records stopping it as the undo. A check reads the container and starts nothing. Once the change is made, a failed read of the container afterwards is a warning, not a failure, so the task keeps its undo. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.
 
 ## Attributes
 
@@ -35,6 +35,7 @@ Starts the container named name when it is created or exited; a running one is l
 | `name` | `string` | always | The container's name. |
 | `id` | `string` | when the container exists | The container's ID. |
 | `state` | `string` | when the container exists or would | The container's state as the engine names it (created, running, exited, paused), after the task. |
+| `warnings` | `list of string` | when there is one | What the run must say once the change was made: that the container could not be read back afterwards, or that a stopped container removed itself, so its stop has no undo. |
 
 ## Undoing this
 

@@ -6,6 +6,7 @@ package container
 import (
 	"context"
 	"fmt"
+	"time"
 
 	moby "github.com/moby/moby/api/types/container"
 
@@ -39,6 +40,9 @@ type action struct {
 	after string
 	// inverse is the undo, or "" for none.
 	inverse string
+	// removesAutoRemove says the change removes a container the engine
+	// removes when it stops (auto-remove), so it records no undo there.
+	removesAutoRemove bool
 }
 
 // registerAction registers one state change. Its undo is the opposite
@@ -110,16 +114,70 @@ func change(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err := a.do(ctx, s, c, params); err != nil {
 		return fail(fmt.Errorf("container %s: %w", name, err))
 	}
-	if a.inverse != "" {
+	// From here the change is on the device, so nothing that only reads
+	// fails the task: the engine drops a failed task's undo before the
+	// journal sees it, which would leave a change rollback cannot undo
+	// (FAILURE_PATTERNS 563). Such a read is a warning instead.
+	var warnings []string
+	removed := a.removesAutoRemove && autoRemoves(c)
+	switch {
+	case removed:
+		// An auto-remove container is gone once it stops, so starting it
+		// again cannot be its undo.
+		warnings = append(warnings, fmt.Sprintf("container %s removes itself when it stops (auto-remove), so this stop has no undo", name))
+	case a.inverse != "":
 		if err := containerengine.RecordUndo(rc, s, sdk.Inverse{
 			FQCN:        a.inverse,
 			Params:      map[string]any{paramName: name, paramID: c.ID},
 			Description: "Put the container back in the state this task found it in.",
 		}); err != nil {
-			return collection.Result{}, err
+			return collection.Result{Changed: true}, err
 		}
 	}
+	gone, err := settle(ctx, s, c.ID)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("%s changed container %s, but reading it back afterwards failed, so a container list made at once may not show the change yet: %v", a.fqcn, name, err))
+	}
+	if err := sdk.RecordWarnings(rc, warnings); err != nil {
+		return collection.Result{Changed: true}, err
+	}
+	if gone {
+		// Nothing is left to have a state.
+		return collection.Result{Changed: true}, nil
+	}
 	return collection.Result{Changed: true}, rc.SetStat(statState, a.after)
+}
+
+// settleTimeout bounds settle's read, which runs even once the task's own
+// context has ended, so the read cannot hold a run that was stopped.
+const settleTimeout = 10 * time.Second
+
+// settle waits until the engine's container list shows the change just
+// made, by inspecting the container once more, and reports whether the
+// container is gone. Docker before 28.3.0 (moby issue 50133) answers a
+// stop while its exit handler still holds the container's lock and has not
+// yet written the new state to the copy a list reads, so a list right
+// after the stop can still say "running"; inspect takes that lock, so once
+// it answers the list is written too. On an engine with the fix, and on
+// Podman, it is one more read. A container gone by then (removed when it
+// stopped) is settled, since inspect reads the engine's 404 as no
+// container and no error; the state read is not compared, since another
+// client may have changed it since.
+//
+// The read ignores the task's cancellation, bounded by settleTimeout
+// instead: a run stopped just after the change still gets a list that
+// agrees with it.
+func settle(ctx context.Context, s *containerengine.Session, id string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
+	defer cancel()
+	_, found, err := inspect(ctx, s, id)
+	return err == nil && !found, err
+}
+
+// autoRemoves says whether the engine removes c when it stops (docker run
+// --rm).
+func autoRemoves(c moby.InspectResponse) bool {
+	return c.HostConfig != nil && c.HostConfig.AutoRemove
 }
 
 // stopSeconds reads the stop timeout, in whole seconds.

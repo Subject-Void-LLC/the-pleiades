@@ -1,0 +1,79 @@
+// This file holds how the client picks the local address its socket binds,
+// so that an IPv4 server's replies always reach it.
+//
+// github.com/pin/tftp/v3 opens its client socket with net.ListenUDP("udp")
+// on the wildcard address, which Go makes a dual-stack IPv6 socket. On macOS
+// (XNU) the kernel can hand that socket an ephemeral port another socket
+// already holds on 127.0.0.1 or another IPv4 address, with no error, and the
+// IPv4 socket bound to the specific address then receives every reply sent
+// to that port. Measured on macOS 27: of 2,000 dual-stack sockets opened
+// beside 2,000 IPv4 loopback ones, 253 shared a port, and every datagram sent
+// to 127.0.0.1 on a shared port reached the IPv4 socket. Linux refuses the
+// shared port, so it never happens there. The transfer then times out after
+// every retry, which is how the package's tests failed on macOS runners.
+//
+// Binding the client to the IPv4 address it will send from makes the socket
+// an IPv4 one, whose port the kernel checks against every other IPv4 socket.
+// An IPv6 server keeps the library's own wildcard socket. That it is safe
+// there is reasoned, not measured: the kernel checks an IPv6 port against
+// every other IPv6 socket, so the shared port should not happen for IPv6
+// replies, but no test has shown it on macOS the way the IPv4 case was
+// shown.
+package tftpxfer
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"strconv"
+)
+
+// resolveServer turns host and port into the one UDP address every datagram
+// of a transfer goes to. Resolving once here, rather than letting the library
+// resolve the name again, means the local address chosen for the socket and
+// the server address the library sends to can never be different families.
+// The lookup ends with ctx, and an IPv4 address is taken first when the name
+// has both, as net.ResolveUDPAddr("udp") does; an IPv4-mapped IPv6 literal
+// (::ffff:192.0.2.1) is an IPv4 address.
+func resolveServer(ctx context.Context, host string, port int) (*net.UDPAddr, error) {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	if port < 0 || port > 65535 {
+		return nil, fmt.Errorf("tftpxfer: resolving %s: invalid port", addr)
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("tftpxfer: resolving %s: %w", addr, err)
+	}
+	if len(ips) == 0 {
+		// The resolver answers an error rather than no address, but an empty
+		// answer is refused all the same rather than read as the wildcard.
+		return nil, fmt.Errorf("tftpxfer: resolving %s: no address", addr)
+	}
+	chosen := ips[0]
+	for _, ip := range ips {
+		if ip.IP.To4() != nil {
+			chosen = ip
+			break
+		}
+	}
+	return &net.UDPAddr{IP: chosen.IP, Port: port, Zone: chosen.Zone}, nil
+}
+
+// localIPFor returns the local IPv4 address the kernel would send to an IPv4
+// server from, for the client socket to bind, or "" for an IPv6 server,
+// whose wildcard socket is safe as it is. A connected UDP socket sends
+// nothing: connecting it only asks the kernel which route, and so which
+// source address, it would use.
+func localIPFor(raddr *net.UDPAddr) (string, error) {
+	if raddr.IP.To4() == nil {
+		// An IPv6 server: its replies are IPv6 datagrams, and an IPv6
+		// socket's port is checked against every other IPv6 socket.
+		return "", nil
+	}
+	probe, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: raddr.IP.To4(), Port: raddr.Port})
+	if err != nil {
+		return "", fmt.Errorf("tftpxfer: choosing a local address for %s: %w", raddr, err)
+	}
+	defer func() { _ = probe.Close() }()
+	return probe.LocalAddr().(*net.UDPAddr).IP.String(), nil
+}

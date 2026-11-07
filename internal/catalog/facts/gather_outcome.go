@@ -7,7 +7,7 @@
 // listing only where its source is present, printing gatherAbsentMark
 // otherwise, and each listing whose failure matters prints gatherFailedMark
 // when it fails. A source whose output lacks the structure it always has
-// (systemd's two sections, a JSON document) failed too, whatever it exited
+// (systemd's three sections, a JSON document) failed too, whatever it exited
 // with.
 package facts
 

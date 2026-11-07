@@ -11920,6 +11920,28 @@ above (client on `[::]`, server answering from `127.0.0.1`) but does not prove i
 candidates are to pin the client to `udp4` and `127.0.0.1`, or a recorded, counted retry on darwin (CI_LESSONS 24).
 The ledger entries are annotated with this pattern.
 
+**Resolved 2026-11-06 (fixed on `fix/open-patterns-batch2`, `8a7b91fd` and `07929043`).** **Cause, measured** on the
+owner's Mac (macOS 27.0.1, XNU arm64) through `pleiades`: pin/tftp's client opens `net.ListenUDP("udp",
+&net.UDPAddr{})`, a dual-stack IPv6 wildcard socket. XNU can give that socket an ephemeral port that an IPv4 socket
+bound to `127.0.0.1` already holds, with no error, and a datagram sent to `127.0.0.1` on that port then goes to the
+IPv4 socket. A probe on the Mac: of 2,000 dual-stack sockets, 253 shared a port with an IPv4 loopback socket, and 253
+of 253 datagrams sent to such a port reached the IPv4 socket. With the sockets bound to `127.0.0.1` instead, none
+shared a port; on Linux, none did either way. This is the hypothesis above, now measured, and it matches the third
+occurrence's dump: the server sent to `127.0.0.1:<client port>` six times, about 32 seconds each, `sent=6 acked=0`,
+and the client never read a reply because another socket received them. Linux runs could never have shown it.
+
+**Fix.** `newClient` (`pkg/tftpxfer/tftpxfer.go`) resolves the server through `net.DefaultResolver` with the task's
+context (`net.ResolveUDPAddr` takes no context, so a lookup used to run past a cancelled task), and for an IPv4
+server binds the client socket to the source address of the route to the server (`pkg/tftpxfer/localaddr.go`). An
+IPv4-mapped IPv6 literal takes the IPv4 path. An IPv6 server keeps the library's own socket; that this is safe is
+reasoned, not measured.
+
+**Tests.** `TestAnIPv4ClientSocketLeavesItsPortFreeOnIPv6`, `TestTransfersSurviveIPv4SocketsHoldingManyPorts` (on the
+Mac with `main`'s code, 9 of 40 Gets timed out with the CI signature) and `TestResolveServer_EndsWithItsContext`, each
+red on the old code. `TestResolveServer_TakesTheIPv4Address` and the mapped-literal subtests guard against a regression
+only. The first version of the bind test could pass with the fix reverted (958). A second model's research (r448)
+agreed with the cause. The ledger entries are annotated with it.
+
 ## 449. A touched package CI could not floor-check was left out of the pre-push measurement
 
 **Symptom.** `make pr-check`'s first full run found `pkg/awscloud` at 94.9% against its 95.8% floor. 119c had added
@@ -13860,6 +13882,29 @@ were checked to fail (exit 0, no refusal) with the planner forced to order by cl
 run that failed before it acted and so recorded no change, is unchanged: the gate still fails naming such a run with
 its journal. The entry stays open for that reading.
 
+**Resolved 2026-11-06 (fixed on `fix/open-patterns-batch2`, `4f8a30fe`, with `b39700eb` and `b4a32d91` from review),
+except for one case left to the owner.** **Cause, measured:** the first reading above, that the planner was right to
+ignore such a run, was wrong. `laterRunProblems` (`internal/rollback/history.go`) dropped a later run's failed tasks, including those that
+failed during their action, not only those that failed before the run reached the device. A refused SSH login inside a
+method is a failure during the action, which fits the gate's first symptom under its rapid logins. Proven through the
+real binary: on `main`, a later run whose task was `exec.shell: mkdir ... && exit 3` (it changed the device, then
+failed) let `pleiades rollback` of the earlier run exit 0.
+
+**Fix.** A later run's task that failed during its action, on a device the rollback undoes on, refuses the rollback
+unless `--despite-run` names that run, as a failed task in the run being undone already does. A failure before the run
+began (a lock not taken, a parameter that would not render) does not refuse. A later run that recorded no change there,
+or whose changes there its own rollback undid, but has such a task, is the new kind `unknown_effect`. The new field
+`Problem.UnknownEffects` (`unknown_effects` in `--json`, additive within the run-report schema) names the methods that
+failed, whatever the kind. The Controller's `RollbackProblem` now carries `kind` and `unknown_effects` too, and the
+OpenAPI document is regenerated (958). The "cancels out" case this fix first left is 957.
+
+**Tests.** `TestBuild_ALaterRunThatFailedDuringItsActionRefuses`, `TestBuild_AFailureBeforeTheRunBeganDoesNotRefuse`,
+the gate case `TestCLI_RollbackReleaseGate/G2_a_later_run_that_failed_during_its_action_refuses`, and
+`TestRollbackJob_NamesALaterJobsKindAndWhatFailedThere`.
+
+**Still open (owner design call).** A later run killed mid-task before its seal that wrote no journal entry for the
+device is never counted.
+
 ## 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
 
 **Symptom.** 2026-10-20 and 21, `make pr-check` on 27a440a1: every leg had passed once, then three reruns died at
@@ -14120,6 +14165,28 @@ now, and a probe with a running container, which the status filter must hide, pr
 
 **Status.** Still open. Decide the fix, in `container.prune` or in the test, only from that output. See
 LESSONS_LEARNED 357 for why the test was instrumented rather than fixed or re-run until green.
+
+**Resolved 2026-11-06 (fixed on `fix/open-patterns-batch2`, `5d468d73`, with `501f7196` from review).** **Cause,
+measured:** a Docker Engine bug, moby issue 50133, fixed in Docker Engine 28.3.0 (moby pull request 50136). The engine
+answers a stop while its exit handler still holds the container's lock and has not yet written the new state to the
+copy a list reads, so a list made at once can still say "running", while inspect, which takes that lock, reads the new
+state.
+CI's daemon is 28.0.4; this machine runs 29.8.0, which has the fix, so the 300 local runs above could never fail.
+Reproduced with the real test binary inside `docker:28.0.4-dind`: 36 of 400 prune runs failed with the CI words.
+Inside `docker:28.3.0-dind`: 0 of 300.
+
+**Fix.** `settle` (`internal/catalog/container/lifecycle.go`) runs one inspect, which takes the container's lock, after
+`container.start`, `container.stop` and `container.restart`, so each returns only once the engine's own list shows the
+change. Test: `TestStop_TheListShowsTheStopWhenTheMethodReturns`; on 28.0.4 with `main`'s code, 200 of 200 stops were
+still listed as running when the method returned. Review found that a failed settle read dropped the change's undo
+(955), and that stopping an auto-remove container recorded an undo that could never run (956). A second model's
+research (r560) was part of the search.
+
+**Why it stayed open so long.** Nobody compared the engine CI runs with the one here (LESSONS 406, CI_LESSONS 29).
+
+**Likely sibling, not changed.** `Session.RunToExit` (`pkg/containerengine/runtoexit.go`) and `Session.RunOnce`
+(`pkg/containerengine/runonce.go`) wait on `WaitConditionNotRunning`. No caller lists right after, but on an engine
+before 28.3.0 a later task's list could still see the old state.
 
 ## 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (fixed)
 
@@ -22961,4 +23028,126 @@ nothing ties it to them.
 
 **Lesson.** A lab test that changes a guest's sign-in settings must expect its cleanup to fail when a restart hangs;
 after a power cycle, check the guest for what the test left before anything else runs.
+
+## 954. facts.gather listed systemd units that last only as long as a login, a connection or a process, so service.<name> keys came and went on an unchanged host, and a socket-activated sshd's per-connection key held the peer's address and port (a repeat in kind of 948 and 949) (fixed)
+
+**Symptom.** Found and fixed on 2026-11-06 on `fix/open-patterns-batch2`; the defect was on `main`. Measured on a
+booted `pleiades-probe/rocky-systemd:1` container (systemd 252, dbus-broker 28, sshd started from an `Accept=yes`
+socket). Each gather is an SSH login, and each one added a new key, `service.sshd@<n>-172.17.0.4:22-172.17.0.1:<port>.service`,
+so the key also stored the client's address and port. `user@1000.service` and `user-runtime-dir@1000.service`
+appeared while a user lingered and left 12 seconds after the lingering ended. A D-Bus activation added the transient
+`dbus-:1.1-org.pleiades.Probe@0.service`. None of these is a configured service.
+
+**Root cause.** The systemd probe took every unit `systemctl` lists, and some units exist only for one connection, one
+login session or one process.
+
+**Why 948 and 949 did not hold.** Each fixed its own system's per-login source: launchd's per-connection labels (948)
+and Windows' per-user service instances (949). LESSONS 405 named systemd's `sshd@` and `user@` units as the open Linux
+case. A gather of an sshd run as an ordinary service makes no per-connection unit, so a Linux test needs a
+socket-activated sshd to see this.
+
+**Fix.** `62033dae` and `b4338348` (`internal/catalog/facts/gather_services.go`): `sessionUnit` leaves out transient
+units, `user@` and `user-runtime-dir@` instances (a lingering user's too, on purpose, though it lasts as long as the
+host), and `<socket>@<n>-...` instances of a loaded `<socket>.socket`. To tell those apart, the probe prints a third
+listing, the loaded sockets. `getty@tty1`, `modprobe@*` and `sshd-keygen@*` stay. On systemd before 230,
+`list-unit-files` does not mark a transient unit (systemd NEWS, CHANGES WITH 230), so one is still listed there; the
+module's documentation says so. Tests: `TestCLI_ServiceFactsHoldStillWhileLoginsComeAndGo`
+(`cmd/pleiades/services_facts_release_gate_test.go`, through the real binary: two gathers, with a socket-activated
+sshd, a lingering user and a transient unit coming and going between them) and
+`TestParseSystemd_LeavesOutUnitsThatLastOnlyAsLongAsALogin`. A probe answer cut off before the new third listing is
+958's.
+
+**Lesson.** LESSONS 405, whose open Linux case this closes. A fact's key built from a device's own names is device
+data: a per-connection name can carry a peer's address into the store.
+
+## 955. The 560 fix's settle read, when it failed after a successful start, stop or restart, failed the task, so the engine journaled a failure during the action with no undo, and with 551's fix a known, undoable change became an unknown_effect (a repeat of 563, 452 and 638) (fixed before push)
+
+**Symptom.** Found on 2026-11-06 on `fix/open-patterns-batch2` by the fp-reviewer agent and a second model's review
+(rv2), before any push. 560's fix (`5d468d73`) made `container.start`, `container.stop` and `container.restart` read
+the container once after the change (`settle`). When that read failed after the change had succeeded, the method
+returned the error.
+
+**Root cause.** 452's class. A failed task's undo is dropped before the journal unless the method marks it
+`sdk.Inverse.KeepOnFailure` and its manifest allows that with `MayKeepOnFailure` (`keepsUndo`,
+`internal/engine/collection_action.go`, used by `internal/engine/executor.go`); the container methods set neither.
+So the journal held a failure during the action and no undo for a change that did happen. With 551's fix (on the same
+branch), that failure also turned a known, undoable change into an `unknown_effect` refusal for any rollback beneath
+the run.
+
+**Why 563, 452 and 638 did not hold.** 563 fixed its four methods, and 638 already said nothing makes a method that
+reads after its change keep its undo. 563's lesson is that an undo is proven where a rollback reads it, the journal.
+`5d468d73`'s test called the method directly, below the step that drops the undo, so it could not see this.
+
+**Fix.** `501f7196` (`internal/catalog/container/lifecycle.go`): a failed settle read is a warning
+(`sdk.RecordWarnings`), and the method returns success with its undo. The read runs on `context.WithoutCancel`, even after
+the task's own context has ended, with its own 10 second bound (`settleTimeout`) so it cannot hold a stopped run. Test:
+`TestStop_AFailedReadAfterTheStopKeepsTheUndoInTheJournal` (`internal/catalog/container/settle_engine_test.go`), through
+the real executor and dispatcher, with a socket proxy that refuses every inspect after the stop.
+
+**Lesson.** 563's, again: a method that reads after its change is tested through the engine to the journal, never by
+calling the method.
+
+## 956. container.stop of an auto-remove container recorded container.start as its undo, which no rollback could ever run, since the engine removes the container when it stops (a repeat in kind of 666 and 156) (fixed)
+
+**Symptom.** Found on 2026-11-06 on `fix/open-patterns-batch2` while checking 955; the defect was on `main`. A
+container created with auto-remove (`docker run --rm`) is deleted by the engine when it stops. `container.stop`
+still recorded `container.start` of it as the undo, so a rollback would fail on a container that no longer exists.
+
+**Root cause.** 666's and 156's: the undo was chosen by the method (a stop undoes to a start), not by what the stop
+leaves behind.
+
+**Why 666 and 156 did not hold.** Each was fixed in its own method. 666's lesson asks for an undo written for every
+state a target can start in; auto-remove is a setting of the container, not a state, and no check reads it.
+
+**Fix.** `501f7196` (`internal/catalog/container/stop.go`, `lifecycle.go`): a stop of an auto-remove container records
+no undo and a warning saying why. Test: `TestStop_AnAutoRemoveContainerIsSettledAndHasNoUndo`.
+
+**Lesson.** Before recording an undo, ask whether the change leaves anything the undo can act on.
+
+## 957. 551's fix kept the "cancels out" skip ahead of its new rule, so a later run that had been rolled back was skipped although a task of it had failed during its action on the device, and its advice to roll that run back first could never clear it (a case 551's fix left; the class of 652) (fixed before push)
+
+**Symptom.** Found on 2026-11-06 on `fix/open-patterns-batch2` in review, before any push. 551's fix (`4f8a30fe`)
+made a later run's task that failed during its action refuse a rollback beneath it. But the planner skipped a later
+run whose changes its own rollback had undone ("cancels out", from 652's work) before it applied that rule. Such a
+run could be rolled back with `--allow-unknown` accepting its failed task, and was then skipped, though the failed
+task's partial effect was still on the device. Its advice ("roll it back first") also could not clear it, since no
+rollback undoes a failed task.
+
+**Root cause.** The new rule was added to one path of `laterRunProblems` (`internal/rollback/history.go`), and the
+skip ran first.
+
+**Fix.** `b39700eb` (`internal/rollback/history.go`, `later_run.go`): a rolled-back later run is skipped only when none
+of its tasks failed during their action on the shared devices; otherwise it is reported as `unknown_effect`. The
+advice names `--allow-unknown` for the rollback of that run, then `--despite-run` to step over it. A device that saw
+only a failed action is named as "may have changed". Tests:
+`TestBuild_ARolledBackLaterRunStillRefusesForWhatFailedDuringItsAction`,
+`TestBuild_ALaterRunsAdviceSaysWhatClearsAFailedTask`.
+
+**Still open (owner design call).** A later rollback run skipped as "cancels out" when it ran after the target.
+
+**Lesson.** LESSONS 407: a rule for the run being undone applies to every later run, in every path that can skip one.
+
+## 958. Three small defects from review: the Controller's rollback refusal had no kind or unknown_effects though the production guide says a refusal gives them (a repeat in kind of 571 and 789), the tftpxfer bind test passed with the fix reverted (the class of 54), and checkSystemd still asked for two listings after the probe grew a third (the class of 571) (fixed before push)
+
+**Symptom and fix.** Found on 2026-11-06 on `fix/open-patterns-batch2` in review, before any push.
+
+- **The Controller's refusal.** `RollbackProblem` (`internal/api/dispatcher_rollback.go`) kept each problem's node,
+  device, reason and accepting field, and dropped the planner's `kind` and `unknown_effects`, which the CLI's `--json`
+  carries and docs/10 describes as part of a refusal. `kind` was missing on `main` too, since the planner gained it in
+  652's fix; `unknown_effects` is this branch's. Fixed in `b4a32d91`: each problem carries both, omitted when empty,
+  and the OpenAPI document (`internal/apispec/template_endpoints.go`) describes them. Test:
+  `TestRollbackJob_NamesALaterJobsKindAndWhatFailedThere`. 571's and 789's class: text promising more than the code
+  gives.
+- **A false green in 448's test.** `TestAnIPv4ClientSocketLeavesItsPortFreeOnIPv6` gave the client 300 ms and one
+  retry, so a delayed goroutine let the client close its socket before the test's `[::1]` bind, and the test passed
+  with the fix reverted. Fixed in `07929043`: the client waits 30 seconds, and the server ends the transfer with a TFTP
+  error only after the bind, which must reach the client (a client that had closed its socket would never see it).
+  The class of 54: a test that cannot fail on the defect proves nothing.
+- **checkSystemd.** 954's probe prints three listings, but `checkSystemd` still asked for two sections, so an answer
+  cut off before the socket listing was parsed with no sockets and kept every per-connection unit the gather leaves
+  out. Fixed in `b4338348`: `checkSystemd` and `parseSystemd` require exactly three, and the comments that said two
+  say three.
+
+**Lesson.** When a change adds a field or a section, every reader and every checker of the old shape is part of the
+change: the API's copy of the planner's problem, and the probe's own answer check.
 

@@ -38,7 +38,7 @@ var overlongRequest = struct {
 // past the refusals that now stop it, and requires an error, not a crash.
 func TestReceive_LibraryPanicComesBackAsAnError(t *testing.T) {
 	var got bytes.Buffer
-	n, err := receive("127.0.0.1", heldPort(t), overlongRequest.opts, overlongRequest.name, &got)
+	n, err := receive(context.Background(), "127.0.0.1", heldPort(t), overlongRequest.opts, overlongRequest.name, &got)
 	if !errors.Is(err, errLibraryPanic) {
 		t.Fatalf("receive() error = %v, want errLibraryPanic (if pin/tftp now bounds-checks its request, this test needs another way to make it panic)", err)
 	}
@@ -49,7 +49,7 @@ func TestReceive_LibraryPanicComesBackAsAnError(t *testing.T) {
 
 // TestSend_LibraryPanicComesBackAsAnError is the same proof for an upload.
 func TestSend_LibraryPanicComesBackAsAnError(t *testing.T) {
-	n, err := send("127.0.0.1", heldPort(t), overlongRequest.opts, overlongRequest.name, strings.NewReader("image"))
+	n, err := send(context.Background(), "127.0.0.1", heldPort(t), overlongRequest.opts, overlongRequest.name, strings.NewReader("image"))
 	if !errors.Is(err, errLibraryPanic) {
 		t.Fatalf("send() error = %v, want errLibraryPanic (if pin/tftp now bounds-checks its request, this test needs another way to make it panic)", err)
 	}
