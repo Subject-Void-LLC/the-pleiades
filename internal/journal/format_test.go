@@ -39,6 +39,9 @@ func TestReadRunRefusesANewerFormatByName(t *testing.T) {
 			wantErr: "is journal format 2, and this build reads formats up to 1"},
 		{name: "a newer format alone", line: strings.Replace(line, `"format":1,`, `"format":2,`, 1),
 			wantErr: "is journal format 2"},
+		{name: "a negative format", line: strings.Replace(line, `"format":1,`, `"format":-1,`, 1),
+			wantErr: "names format -1, which is not a format version"},
+		{name: "not an object at all", line: `["format",2]`, wantErr: "not a journal entry"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.line+"\n"), 0o600); err != nil {
