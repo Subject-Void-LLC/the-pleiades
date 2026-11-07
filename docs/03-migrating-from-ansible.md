@@ -351,14 +351,14 @@ mapping the measured comparison with Ansible holds:
 | `ansible_os_family` | `os.family` | lowercase (`debian`, `redhat`, `suse`, `freebsd`, `windows`) |
 | `ansible_distribution_version` | `os.version` | the same |
 | `ansible_distribution_major_version` | `os.version_major` | an integer, where Ansible writes a string; absent where the version has none |
-| `ansible_distribution_release` | `os.codename` | the codename only (`bookworm`, `noble`); Ansible's other release values come from the distribution and version |
+| `ansible_distribution_release` | `os.codename` | the codename only (`bookworm`, `noble`); Ansible's other release values come from the distribution and version. On FreeBSD and macOS Ansible reports the kernel release here; native has none |
 | (Windows' `ansible_distribution`) | `os.edition` | the Windows caption |
 | `ansible_system` | `os.kernel.name` | lowercase (`linux`, `freebsd`, `darwin`, `windows`) |
 | `ansible_kernel` | `os.kernel.release` | the same |
 | `ansible_hostname`, `ansible_nodename` | `host.name`, `host.nodename` | the same |
 | `ansible_uptime_seconds` | `host.uptime_seconds` | the same |
 | `ansible_architecture` | `hardware.architecture` | the machine name (`x86_64`, `aarch64`), where Ansible writes `64-bit` on Windows |
-| `ansible_memtotal_mb`, `ansible_swaptotal_mb` | `hardware.memory_mb`, `hardware.swap_mb` | whole megabytes, truncated; swap absent on Windows, where Ansible writes `0` |
+| `ansible_memtotal_mb`, `ansible_swaptotal_mb` | `hardware.memory_mb`, `hardware.swap_mb` | whole megabytes, truncated; on Windows Ansible rounds memory up, so a threshold at a whole megabyte can come out one lower; swap absent on Windows, where Ansible writes `0` |
 | `ansible_processor_count`, `_cores`, `_vcpus` | `hardware.cpu.sockets`, `.cores`, `.threads` | the same |
 | `ansible_net_hostname`, `_version`, `_model`, `_serialnum`, `_image`, `_uptime`, `_interfaces` | `host.name`, `os.version`, `hardware.model`, `hardware.serial`, `os.image`, `host.uptime`, `network.interfaces` | the same; `os.distribution` is `ios` or `ios_xe` |
 

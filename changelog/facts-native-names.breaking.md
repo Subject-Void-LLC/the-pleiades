@@ -6,7 +6,9 @@ when the version has none), `os.codename`, `os.edition` (Windows), `os.kernel.na
 `net.ios.facts` reports `host.name`, `os.distribution` (`ios` or `ios_xe`), `os.version`, `os.image`, `hardware.model`,
 `hardware.serial`, `host.uptime` and `network.interfaces` where it reported `ansible_net_*`; and the Catalyst methods'
 facts are `catalyst.*`. A registered result has the same names, read by index (`result.r1["os.distribution"]`).
-Ansible's names are no longer stored: `pleiades forge migrate-playbook` maps them. Facts stored under the old names
+Ansible's names are no longer stored; `pleiades forge migrate-playbook` flags a condition reading one for review, and
+the migration guide's table gives the native name. Mapped back to Ansible's names, a distribution whose ID nobody has
+measured against Ansible has no `ansible_distribution`, and a CentOS 8 has no release. Facts stored under the old names
 stay as history and are not updated; delete `.pleiades/facts` in a project to drop them.
 
 The result fields renamed, as the schema check names them:

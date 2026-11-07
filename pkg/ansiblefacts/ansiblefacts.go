@@ -20,6 +20,7 @@
 package ansiblefacts
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 )
@@ -177,13 +178,27 @@ func ansibleMajor(native map[string]any) (string, bool) {
 		major, _, _ := strings.Cut(version, ".")
 		return major, true
 	}
-	switch n := native[keyVersionMajor].(type) {
-	case int:
-		return strconv.Itoa(n), true
-	case int64:
+	if n, ok := wholeNumber(native[keyVersionMajor]); ok {
 		return strconv.FormatInt(n, 10), true
 	}
 	return "", false
+}
+
+// wholeNumber reads a native integer however it arrived: an int from the
+// method itself, or a float64 or json.Number from a decoded report.
+func wholeNumber(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float64:
+		return int64(n), n == float64(int64(n))
+	case json.Number:
+		i, err := n.Int64()
+		return i, err == nil
+	}
+	return 0, false
 }
 
 // ansibleRelease is Ansible's distribution release. On the SUSE family it is
@@ -206,7 +221,11 @@ func ansibleRelease(distribution string, native map[string]any) (string, bool) {
 	if codename, ok := native[keyCodename].(string); ok && codename != "" {
 		return codename, true
 	}
-	if distribution == "centos" {
+	// Ansible reports CentOS Stream's release as "Stream", reading NAME, which
+	// is not a native fact. CentOS Linux ended at 8, so from 9 on a CentOS is a
+	// Stream; a CentOS 8 with no codename could be either, and is left out
+	// rather than guessed.
+	if major, ok := wholeNumber(native[keyVersionMajor]); distribution == "centos" && ok && major >= 9 {
 		return "Stream", true
 	}
 	return "", false

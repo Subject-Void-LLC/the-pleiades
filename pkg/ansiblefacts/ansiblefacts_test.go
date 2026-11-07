@@ -6,6 +6,7 @@
 package ansiblefacts
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -97,9 +98,12 @@ func TestToAnsible_GivesAnsiblesNamesAndWords(t *testing.T) {
 				"ansible_distribution_major_version": "15"}},
 		{"suse no version", map[string]any{keyDistribution: "sled"}, map[string]any{}},
 		// CentOS Stream names no codename; Ansible says Stream. CentOS Linux
-		// names one.
-		{"centos stream", map[string]any{keyDistribution: "centos"},
-			map[string]any{"ansible_distribution": "CentOS", "ansible_distribution_release": "Stream"}},
+		// ended at 8 and names one; a CentOS 8 with none could be either, so
+		// it gets no release rather than a guess.
+		{"centos stream", map[string]any{keyDistribution: "centos", keyVersionMajor: 9},
+			map[string]any{"ansible_distribution": "CentOS", "ansible_distribution_release": "Stream", "ansible_distribution_major_version": "9"}},
+		{"centos 8 with no codename", map[string]any{keyDistribution: "centos", keyVersionMajor: 8},
+			map[string]any{"ansible_distribution": "CentOS", "ansible_distribution_major_version": "8"}},
 		{"centos linux", map[string]any{keyDistribution: "centos", keyCodename: "Core"},
 			map[string]any{"ansible_distribution": "CentOS", "ansible_distribution_release": "Core"}},
 		// What this package has not measured is left out, never guessed.
@@ -140,5 +144,21 @@ func TestFamilyOfName_ReadsAnsiblesTableAsNativeWords(t *testing.T) {
 		if got, ok := FamilyOfName(name); ok {
 			t.Errorf("FamilyOfName(%q) = %q, want none", name, got)
 		}
+	}
+}
+
+func TestWholeNumberReadsEveryShapeAReportGives(t *testing.T) {
+	for _, tc := range []struct {
+		v    any
+		want int64
+		ok   bool
+	}{{9, 9, true}, {int64(9), 9, true}, {float64(9), 9, true}, {9.5, 9, false}, {json.Number("9"), 9, true}, {json.Number("x"), 0, false}, {"9", 0, false}} {
+		if got, ok := wholeNumber(tc.v); ok != tc.ok || (ok && got != tc.want) {
+			t.Errorf("wholeNumber(%#v) = %d, %v; want %d, %v", tc.v, got, ok, tc.want, tc.ok)
+		}
+	}
+	// A decoded report's float64 reaches the CentOS rule.
+	if got := ToAnsible(map[string]any{keyDistribution: "centos", keyVersionMajor: float64(9)}); got["ansible_distribution_release"] != "Stream" {
+		t.Errorf("a decoded CentOS 9 maps to %v", got)
 	}
 }
