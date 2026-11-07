@@ -127,3 +127,25 @@ func TestFactFamilyOwners_NamesTheGroupsThatFillEachPrefix(t *testing.T) {
 		t.Errorf("ansible_ owners = %v (%v), want present and empty", got, ok)
 	}
 }
+
+// TestFirstPartyGroups_SortedAndACopy: the groups come back sorted, each once,
+// with the core ones marked, and changing the result changes nothing stored.
+func TestFirstPartyGroups_SortedAndACopy(t *testing.T) {
+	groups := collection.FirstPartyGroups()
+	names := make([]string, len(groups))
+	core := map[string]bool{}
+	for i, g := range groups {
+		names[i] = g.Name
+		core[g.Name] = g.Core
+	}
+	if !slices.IsSorted(names) || len(slices.Compact(slices.Clone(names))) != len(names) {
+		t.Fatalf("groups not sorted and unique: %v", names)
+	}
+	if !core["facts"] || !core["pleiades"] || core["file"] {
+		t.Errorf("core marks = %v, want facts and pleiades only", core)
+	}
+	groups[0].Name = "changed"
+	if collection.FirstPartyGroups()[0].Name == "changed" {
+		t.Error("FirstPartyGroups returned the stored slice")
+	}
+}
