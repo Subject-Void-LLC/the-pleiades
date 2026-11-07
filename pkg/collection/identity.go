@@ -6,8 +6,9 @@
 // depends on the declarations alone: two builds of one source agree on it, a
 // development build marked dirty with unchanged declarations matches a clean
 // one, and the binary and the version string play no part. An external
-// program's identity takes the same digest over the manifests its describe
-// gave, which the loader computes (internal/loader).
+// program's identity takes DescriptionDigest over what its describe gave (its
+// manifests and the capabilities it defines), which the loader computes
+// (internal/loader).
 package collection
 
 import (
@@ -55,9 +56,12 @@ var (
 // of what is digested: two declarations listing one set in another order
 // read as different. A field this build does not
 // know (an external program's describe can carry one) was dropped when the
-// manifest was decoded, and a field left at its zero value under omitempty
-// writes nothing, so adding such a field to Manifest moves no digest until a
-// method sets it.
+// manifest was decoded. A new field of a basic, slice or map type left empty
+// under omitempty writes nothing, so it moves no digest until a method sets
+// it; a new struct field is written even when zero (encoding/json does not
+// omit a struct), so it moves every digest. Every part of a manifest is
+// digested, its documentation included: a corrected sentence in a method's
+// doc moves its group's digest.
 func ManifestSetDigest(manifests map[string]Manifest) string {
 	if manifests == nil {
 		// An empty set and a nil one are the same set.
@@ -105,7 +109,16 @@ func DescriptionDigest(manifests map[string]Manifest, capabilities []capability.
 		manifests = map[string]Manifest{}
 	}
 	defs := append([]capability.DataDefinition(nil), capabilities...)
-	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
+	// By name, and two definitions of one name (which the loader refuses) by
+	// their encoding, so the order the program listed them in never matters.
+	sort.SliceStable(defs, func(i, j int) bool {
+		if defs[i].Name != defs[j].Name {
+			return defs[i].Name < defs[j].Name
+		}
+		a, _ := marshalJSON(defs[i])
+		b, _ := marshalJSON(defs[j])
+		return string(a) < string(b)
+	})
 	if defs == nil {
 		defs = []capability.DataDefinition{}
 	}

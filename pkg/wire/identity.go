@@ -64,7 +64,7 @@ type CollectionIdentity struct {
 	// so a reader tells the two apart by this field, never by Group alone.
 	Program bool `json:"program,omitempty"`
 	// Manifests is the digest of the group's canonical manifest set
-	// (collection.ManifestSetDigest): ManifestDigestPrefix and 64 hex
+	// (collection.ManifestSetDigest for a first-party group, collection.DescriptionDigest for a program): ManifestDigestPrefix and 64 hex
 	// digits. It is what tells two builds' declarations apart, since it
 	// depends on the declarations alone, not on the binary or the version.
 	Manifests string `json:"manifests,omitempty"`
@@ -95,6 +95,9 @@ func (id CollectionIdentity) Valid() error {
 		// format character (an escape, a newline, a direction override)
 		// could make it read as something else.
 		return fmt.Errorf("%w: its group %q holds a control or format character", ErrInvalidIdentity, id.Group)
+	case id.Program && id.Version != "":
+		// No build writes a version for a program: the loader knows none.
+		return fmt.Errorf("%w: a program's identity carries no version, and this one names %q", ErrInvalidIdentity, id.Version)
 	case len(id.Version) > MaxIdentityVersionBytes:
 		return fmt.Errorf("%w: its version is over %d bytes", ErrInvalidIdentity, MaxIdentityVersionBytes)
 	case !printableASCII(id.Version):
@@ -105,10 +108,17 @@ func (id CollectionIdentity) Valid() error {
 	return nil
 }
 
-// controlOrFormat reports whether r is a control character or a Unicode
-// format character (category Cf, such as a direction override).
+// controlOrFormat reports whether r could make a group read as something
+// else: a character that is not graphic (a control, a line or paragraph
+// separator), a format character (category Cf, such as a direction
+// override), a variation selector, or a Hangul filler, which draws as
+// nothing.
 func controlOrFormat(r rune) bool {
-	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+	switch r {
+	case 0x115F, 0x1160, 0x3164, 0xFFA0:
+		return true
+	}
+	return !unicode.IsGraphic(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Variation_Selector, r)
 }
 
 // printableASCII reports whether every byte of s is a visible ASCII

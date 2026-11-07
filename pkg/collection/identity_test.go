@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -124,6 +125,24 @@ func TestManifestEncodingCannotFail(t *testing.T) {
 		}
 	}
 	walk("Manifest", reflect.TypeFor[collection.Manifest]())
+	// DescriptionDigest encodes a program's capability definitions too.
+	walk("DataDefinition", reflect.TypeFor[capability.DataDefinition]())
+}
+
+// TestDescriptionDigest_IsPinned: a program's description digest is the
+// SHA-256 of one canonical form written out here, its keys sorted, so a change
+// to DescriptionDigest's shape (its keys, its sort) fails here rather than
+// moving every program's identity unseen.
+func TestDescriptionDigest_IsPinned(t *testing.T) {
+	got := collection.DescriptionDigest(nil, []capability.DataDefinition{
+		{Name: "acme.b", Doc: "second"},
+		{Name: "acme.a", Doc: "first", Provider: "acme_tools"},
+	})
+	canonical := `{"capabilities":[{"doc":"first","name":"acme.a","provider":"acme_tools"},{"doc":"second","name":"acme.b"}],"methods":{}}`
+	sum := sha256.Sum256([]byte(canonical))
+	if want := "sha256:" + hex.EncodeToString(sum[:]); got != want {
+		t.Errorf("DescriptionDigest = %s, want %s, the SHA-256 of %s", got, want, canonical)
+	}
 }
 
 // TestGroupManifests_RegistryThenCatalog: a group's set is its registered

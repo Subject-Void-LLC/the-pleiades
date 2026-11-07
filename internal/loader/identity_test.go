@@ -134,6 +134,13 @@ func TestProgramIdentity_DigestsTheCapabilitiesItDefines(t *testing.T) {
 	if got := identity(reordered); got != before {
 		t.Errorf("the same capabilities in another order give %+v, want %+v", got, before)
 	}
+	// A capability's provider is the program's own word for itself, which
+	// the loader replaces with the file name: it moves nothing.
+	claimed := defs("a widget")
+	claimed[0].Provider, claimed[1].Provider = "file", "the first-party file Collection"
+	if got := identity(claimed); got != before {
+		t.Errorf("a program's own provider text moved its identity: %+v, want %+v", got, before)
+	}
 	if none := identity(nil); none == before || none.Manifests == collection.ManifestSetDigest(map[string]collection.Manifest{methods[0].Name: methods[0].Manifest, methods[1].Name: methods[1].Manifest}) {
 		t.Errorf("a description with no capabilities digests as a manifest set or as one with capabilities: %+v", none)
 	}

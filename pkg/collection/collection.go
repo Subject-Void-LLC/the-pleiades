@@ -176,10 +176,13 @@ type Provider struct {
 	Digest string
 
 	// Identity is the program's Collection identity (Phase 136b): the
-	// program's file name as its approval names it, no version, and the
-	// digest of the manifests its describe gave (ManifestSetDigest), which
-	// the loader computes from what it decoded. Nothing the program says
-	// about itself sets it. It differs from Digest, which is the file's
+	// program's file name as its approval names it, marked as a program's,
+	// no version, and the digest of its whole description (DescriptionDigest:
+	// its manifests and the capabilities it defines), which the loader
+	// computes from what it decoded. Nothing the program says about itself
+	// sets it. It is not encoded (json:"-"), so it is lost at every JSON
+	// boundary a descriptor crosses: a record that carries it takes it from
+	// the registered descriptor, never from a decoded report or result. It differs from Digest, which is the file's
 	// bytes: a rebuild that changes no declaration keeps this and changes
 	// that.
 	//

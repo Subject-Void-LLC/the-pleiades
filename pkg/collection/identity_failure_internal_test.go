@@ -76,6 +76,13 @@ func TestDescriptionDigest_NilIsEmptyAndOrderIsFree(t *testing.T) {
 	if DescriptionDigest(m, a) != DescriptionDigest(m, b) {
 		t.Error("capability order moved the digest")
 	}
+	// Two definitions of one name (the loader refuses them, the function
+	// does not) digest the same whichever came first.
+	twin := []capability.DataDefinition{{Name: "acme.a", Doc: "one"}, {Name: "acme.a", Doc: "two"}}
+	swapped := []capability.DataDefinition{twin[1], twin[0]}
+	if DescriptionDigest(m, twin) != DescriptionDigest(m, swapped) {
+		t.Error("two definitions of one name digest by the order they came in")
+	}
 	if DescriptionDigest(m, nil) == ManifestSetDigest(m) {
 		t.Error("a description digested as a bare manifest set")
 	}
