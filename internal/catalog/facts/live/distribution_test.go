@@ -27,6 +27,13 @@ import (
 var ansibleDistributionFacts = []string{"ansible_distribution", "ansible_os_family", "ansible_distribution_version",
 	"ansible_distribution_major_version", "ansible_distribution_release"}
 
+// The pinned images CI runs, beside rpm_test.go's rockyImage and
+// openrc_test.go's openrcImage; each is the image ansible.json measured.
+const (
+	debianImage = "debian:12.12"
+	ubuntuImage = "ubuntu:24.04"
+)
+
 // osReleaseIDCommand prints the image's os-release ID by the shell's own
 // reading of the file, apart from the parser under test.
 const osReleaseIDCommand = `. /etc/os-release && printf '%s' "$ID"`
@@ -49,14 +56,31 @@ func TestGatherDistribution_MapsToAnsibleOnRealDistributions(t *testing.T) {
 	if len(probes) != 1 {
 		t.Fatalf("%d os-release probes", len(probes))
 	}
+	// CI runs the pinned images, each named in Go so tools/testimages caches
+	// and checks it, and each held to the image ansible.json measured. Every
+	// measured image, the rolling ones (Tumbleweed, Arch, Kali, Debian testing)
+	// among them, whose values move with each snapshot, runs only when asked
+	// (PLEIADES_LIVE_ALL_DISTRIBUTIONS=1), as a measurement on a given day.
+	pinned := map[string]string{
+		"debian-12.12": debianImage, "ubuntu-24.04": ubuntuImage,
+		"rockylinux-rockylinux-9.6-minimal": rockyImage, "alpine-3.20.10": openrcImage,
+	}
 	slugs := make([]string, 0, len(measured.Images))
 	for slug := range measured.Images {
-		slugs = append(slugs, slug)
+		if _, ok := pinned[slug]; ok || os.Getenv("PLEIADES_LIVE_ALL_DISTRIBUTIONS") == "1" {
+			slugs = append(slugs, slug)
+		}
 	}
 	sort.Strings(slugs)
+	if len(slugs) < len(pinned) {
+		t.Fatalf("ansible.json lacks a pinned image: running %q", slugs)
+	}
 	for _, slug := range slugs {
 		ansible := measured.Images[slug]
 		t.Run(slug, func(t *testing.T) {
+			if image, ok := pinned[slug]; ok && ansible["image"] != image {
+				t.Fatalf("ansible.json measured %q for %s, not the pinned %s", ansible["image"], slug, image)
+			}
 			c := start(t, ansible["image"])
 			out, _ := runAs(t, c, "", probes[0].Command)
 			native := probes[0].Read(out)

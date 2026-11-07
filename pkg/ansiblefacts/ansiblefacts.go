@@ -5,9 +5,11 @@
 // facts.gather stores facts under native, typed keys (os.distribution,
 // hardware.memory_mb) holding native values (the os-release ID, a lowercase
 // family, an integer major version). A converted playbook still reads
-// Ansible's names (ansible_distribution == "Debian"), so the converter and a
-// reader that wants Ansible's view go through this package: AnsibleKey and
-// NativeKey are the key table, and ToAnsible applies the value rules too.
+// Ansible's names (ansible_distribution == "Debian"); this package is the one
+// place those names and values are known: AnsibleKey and NativeKey are the
+// key table, ToAnsible applies the value rules too, and the playbook
+// converter's translation of a fact read is to be built on it (today the
+// converter flags such a read for review).
 //
 // The value rules are measured, not read from Ansible's source: the facts
 // package's live tests gather the native facts in each distribution's own
@@ -151,8 +153,12 @@ func ToAnsible(native map[string]any) map[string]any {
 		}
 	}
 	if windows {
-		// Ansible's Windows setup reports 0: a page file is not swap.
-		out[ansibleByNative[keySwapMB]] = 0
+		// Ansible's Windows setup reports 0: a page file is not swap. Only
+		// beside a gathered hardware fact, so a gather that read no hardware
+		// (filter: [os.*]) is not given a swap value nobody measured.
+		if _, gathered := native[keyMemoryMB]; gathered {
+			out[ansibleByNative[keySwapMB]] = 0
+		}
 	} else if v, ok := native[keySwapMB]; ok {
 		out[ansibleByNative[keySwapMB]] = v
 	}
@@ -229,4 +235,12 @@ func ansibleRelease(distribution string, native map[string]any) (string, bool) {
 		return "Stream", true
 	}
 	return "", false
+}
+
+// HasDistributionName reports whether the mapping knows Ansible's name for
+// the os-release ID id, measured against Ansible; an ID it does not know maps
+// to no ansible_distribution rather than a guess.
+func HasDistributionName(id string) bool {
+	_, ok := distributionNames[id]
+	return ok
 }

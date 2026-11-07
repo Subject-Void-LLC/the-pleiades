@@ -12040,7 +12040,7 @@
         "key": "os.distribution",
         "kind": "stable",
         "type": "string",
-        "description": "Which Cisco IOS the device runs, read from \"show version\": \"ios_xe\" when it prints the \"Cisco IOS XE Software\" line or a \"Cisco IOS Software\" line naming IOS XE (\"[IOSXE]\" on an IOL XE router, \"IOS-XE Software\" on the 3.x trains), and \"ios\" when its \"Cisco IOS Software\" line names classic IOS only. The same fact facts.gather records for a server (\"ubuntu\", \"windows\"), so one condition can tell a router from a server."
+        "description": "Which Cisco IOS the device runs, read from \"show version\": \"ios_xe\" when it prints the \"Cisco IOS XE Software\" line or a \"Cisco IOS Software\" line naming IOS XE (\"[IOSXE]\" on an IOL XE router, \"IOS-XE Software\" on the 3.x trains), and \"ios\" when its \"Cisco IOS Software\" line names classic IOS only (the 3.x and classic banners are not yet measured on a device). The same fact facts.gather records for a server (\"ubuntu\", \"windows\"), so one condition can tell a router from a server."
       },
       {
         "key": "hardware.model",
@@ -12120,7 +12120,7 @@
           "name": "os.distribution",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
-          "description": "Which Cisco IOS the device runs, read from \"show version\": \"ios_xe\" when it prints the \"Cisco IOS XE Software\" line or a \"Cisco IOS Software\" line naming IOS XE (\"[IOSXE]\" on an IOL XE router, \"IOS-XE Software\" on the 3.x trains), and \"ios\" when its \"Cisco IOS Software\" line names classic IOS only. The same fact facts.gather records for a server (\"ubuntu\", \"windows\"), so one condition can tell a router from a server."
+          "description": "Which Cisco IOS the device runs, read from \"show version\": \"ios_xe\" when it prints the \"Cisco IOS XE Software\" line or a \"Cisco IOS Software\" line naming IOS XE (\"[IOSXE]\" on an IOL XE router, \"IOS-XE Software\" on the 3.x trains), and \"ios\" when its \"Cisco IOS Software\" line names classic IOS only (the 3.x and classic banners are not yet measured on a device). The same fact facts.gather records for a server (\"ubuntu\", \"windows\"), so one condition can tell a router from a server."
         },
         {
           "name": "hardware.model",

@@ -105,7 +105,10 @@ var miscModules = []Entry{
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "gathering facts reads and changes nothing"},
 		Adjust:  setupSubset,
 		Args: []Arg{
-			{Name: "filter", To: "filter"},
+			// Ansible's filter names Ansible's facts, and facts.gather's names
+			// native ones (os.*, hardware.*), so a pattern copied across would
+			// match nothing and fail on every host.
+			{Name: "filter", Handling: ArgBlock, Code: "args.unmapped", Reason: "setup's filter names Ansible's facts and facts.gather filters native names (os.*, host.*, hardware.*); write the filter from the migration guide's fact table"},
 			{Name: "gather_subset", To: "gather_subset"},
 		},
 	},

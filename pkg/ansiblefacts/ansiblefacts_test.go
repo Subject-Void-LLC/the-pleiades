@@ -67,10 +67,14 @@ func TestToAnsible_GivesAnsiblesNamesAndWords(t *testing.T) {
 		}},
 		// A Windows architecture the lab has not measured is left out, and so
 		// is a caption the host did not give; swap is still Ansible's 0.
+		// Swap is 0 only beside a gathered hardware fact (memory): a gather
+		// that read none is given no swap value.
 		{"windows arm", map[string]any{keyKernelName: "windows", keyArchitecture: "aarch64", keySwapMB: 5},
-			map[string]any{"ansible_system": "Win32NT", "ansible_swaptotal_mb": 0}},
+			map[string]any{"ansible_system": "Win32NT"}},
+		{"windows arm with memory", map[string]any{keyKernelName: "windows", keyArchitecture: "aarch64", keySwapMB: 5, keyMemoryMB: 4095},
+			map[string]any{"ansible_system": "Win32NT", "ansible_memtotal_mb": 4095, "ansible_swaptotal_mb": 0}},
 		{"windows i686 by family alone", map[string]any{keyFamily: "windows", keyArchitecture: "i686"},
-			map[string]any{"ansible_os_family": "Windows", "ansible_architecture": "32-bit", "ansible_swaptotal_mb": 0}},
+			map[string]any{"ansible_os_family": "Windows", "ansible_architecture": "32-bit"}},
 		{"macos", map[string]any{keyKernelName: "darwin", keyDistribution: "macos", keyFamily: "macos", keyVersion: "15.1",
 			keyVersionMajor: 15, keyArchitecture: "arm64"}, map[string]any{
 			"ansible_system": "Darwin", "ansible_distribution": "MacOSX", "ansible_os_family": "Darwin",
@@ -160,5 +164,11 @@ func TestWholeNumberReadsEveryShapeAReportGives(t *testing.T) {
 	// A decoded report's float64 reaches the CentOS rule.
 	if got := ToAnsible(map[string]any{keyDistribution: "centos", keyVersionMajor: float64(9)}); got["ansible_distribution_release"] != "Stream" {
 		t.Errorf("a decoded CentOS 9 maps to %v", got)
+	}
+}
+
+func TestHasDistributionName(t *testing.T) {
+	if !HasDistributionName("debian") || HasDistributionName("sled") {
+		t.Error("HasDistributionName disagrees with the measured table")
 	}
 }

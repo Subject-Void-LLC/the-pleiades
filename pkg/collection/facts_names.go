@@ -7,8 +7,9 @@
 //   - a key has a family: a dot that is neither first nor last, the family
 //     being the text before the first dot (`os.version`, the family `package.`);
 //   - no key is both a fact and the start of another of the same method's facts
-//     (`os.version` beside `os.version.major`), so a nested reading of the names
-//     and the flat one always agree.
+//     (`os.version` beside `os.version.major`), so within a method a nested
+//     reading of the names and the flat one agree. Across methods it is not
+//     checked here; the built-in names are chosen so no such pair exists.
 package collection
 
 import (
