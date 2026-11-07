@@ -129,6 +129,16 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 	if err := collection.ValidateFacts(m.Manifest.Facts); err != nil {
 		return false, fmt.Errorf("method %q %w", m.Name, err)
 	}
+	// Register refuses a fact a built-in holds (collection.ReservedFact),
+	// since a spoofed one would steer targeting and baselines; said here so a
+	// directory does not load halfway.
+	ns, _, _ := strings.Cut(m.Name, ".")
+	for _, s := range m.Manifest.Facts {
+		if by, reserved := collection.ReservedFact(s); reserved {
+			return false, fmt.Errorf("method %q declares fact %q, which %s holds; an external Collection's facts go under its own namespace, such as %q",
+				m.Name, s.Key, by, ns+"."+strings.TrimPrefix(s.Key, "."))
+		}
+	}
 	for _, p := range m.Manifest.Doc.Params {
 		// Register refuses the same thing (checkReservedParams); saying so
 		// here keeps a whole directory from loading halfway.

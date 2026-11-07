@@ -183,11 +183,31 @@ func validateCandidates(found []candidate, running string, reserved map[string]b
 		if len(unchecked) > 0 {
 			warnings = append(warnings, developmentBuildWarning(c.path, running, unchecked))
 		}
+		if outside := factsOutsideNamespace(c.desc.Methods); len(outside) > 0 {
+			warnings = append(warnings, fmt.Sprintf("program %s declares facts outside its own namespace: %s; name each after its method's namespace (acme.widgets for an acme.* method), which a later protocol requires",
+				c.path, strings.Join(outside, ", ")))
+		}
 		if c.protocol.Status == external.ProtocolDeprecated {
 			warnings = append(warnings, deprecatedProtocolWarning(c.path, c.protocol))
 		}
 	}
 	return warnings, problems
+}
+
+// factsOutsideNamespace lists, quoted and in order, the fact keys a
+// program's methods declare that do not start with the declaring method's
+// own namespace and a dot.
+func factsOutsideNamespace(methods []external.DescribedMethod) []string {
+	var out []string
+	for _, m := range methods {
+		ns, _, _ := strings.Cut(m.Name, ".")
+		for _, s := range m.Manifest.Facts {
+			if !strings.HasPrefix(s.Key, ns+".") {
+				out = append(out, fmt.Sprintf("%q", s.Key))
+			}
+		}
+	}
+	return out
 }
 
 // deprecatedProtocolWarning is the one warning a program speaking a

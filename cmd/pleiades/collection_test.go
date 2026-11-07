@@ -116,6 +116,46 @@ func TestCLI_AProgramCannotClaimACatalogNamespace(t *testing.T) {
 	}
 }
 
+// TestCLI_AProgramCannotDeclareABuiltInFact proves, through the real binary
+// with the whole built-in catalog registered, that an approved external
+// program cannot declare a fact a built-in holds, a security rule: a spoofed
+// fact would steer targeting and baselines. A built-in's exact key with the
+// built-in's own kind and type (which used to load) and a reserved family are
+// both refused, each naming what holds it; one under the program's own
+// namespace loads.
+func TestCLI_AProgramCannotDeclareABuiltInFact(t *testing.T) {
+	for _, tc := range []struct {
+		name, fact, want string
+	}{
+		{name: "spoof", fact: `{"key":"devices","kind":"volatile","type":"list","description":"x"}`, want: `declares fact "devices", which built-in method "net.catalyst.`},
+		{name: "family", fact: `{"key":"package.","prefix":true,"item_names":true,"kind":"stable","type":"object","description":"x"}`, want: `declares fact "package.", which the reserved family "package."* holds`},
+		{name: "own", fact: `{"key":"clitest.widgets","kind":"stable","type":"integer","description":"widgets"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			collections := t.TempDir()
+			if err := os.Chmod(collections, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			program := strings.Replace(promptProgram, `"supportsCheck":false}`, `"supportsCheck":false,"reversibility":{"readOnly":true,"notes":"a test"},"facts":[`+tc.fact+`]}`, 1)
+			if err := os.WriteFile(filepath.Join(collections, "facts"), []byte(program), 0o700); err != nil { // #nosec G306 -- a test program that must be executable
+				t.Fatal(err)
+			}
+			env := map[string]string{"PLEIADES_COLLECTIONS_DIR": collections}
+			dir := t.TempDir()
+			if out, err := runWithStdin(t, dir, env, "", "collection", "approve", "facts", "--yes"); err != nil {
+				t.Fatalf("approving: %v\n%s", err, out)
+			}
+			out, err := runWithStdin(t, dir, env, "", "doc", "--list")
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatalf("a fact under the program's own namespace was refused: %v\n%s", err, out)
+			case tc.want != "" && (err == nil || !strings.Contains(out, tc.want)):
+				t.Fatalf("doc --list = %v, want a refusal containing %q:\n%s", err, tc.want, out)
+			}
+		})
+	}
+}
+
 // TestCLI_CollectionApproveEscapesTheProgramsText proves the approve
 // prompt shows a program's own text escaped. The program describes itself
 // with a summary that clears the screen and draws a fake "approved" line;

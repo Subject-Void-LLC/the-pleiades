@@ -116,6 +116,11 @@ func TestCLI_ExternalCollectionRunsAgainstARealDevice(t *testing.T) {
 	if listed, err := runPleiadesWithEnv(t, dir, env, "collection", "list"); err != nil || !strings.Contains(listed, "note  sha256:") {
 		t.Errorf("collection list does not show the approval: %v\n%s", err, listed)
 	}
+	// The program, built with pkg/external, names its protocol range, and
+	// this build agrees on version 1 with it (Phase 135b).
+	if listed, err := runPleiadesWithEnv(t, dir, env, "collection", "list", "--describe"); err != nil || !strings.Contains(listed, "protocol: 1, supported") {
+		t.Errorf("collection list --describe does not name the agreed protocol: %v\n%s", err, listed)
+	}
 
 	// The reference reader sees the method, says where it came from, and
 	// reports its check support.

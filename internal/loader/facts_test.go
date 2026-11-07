@@ -45,6 +45,13 @@ func TestLoad_FactDeclarationsAreHeldToRegistersRules(t *testing.T) {
 		{"acme.facts.bad", []collection.FactSpec{{Key: "a b", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "not a fact name"},
 		{"acme.facts.nokind", []collection.FactSpec{{Key: "k", Type: collection.FactString, Description: "x"}}, "neither"},
 		{"acme.facts.clash", []collection.FactSpec{{Key: "loadertest_kernel", Kind: collection.FactVolatile, Type: collection.FactString, Description: "x"}}, "factbuiltin.gather.kernel"},
+		// The security rule (collection.ReservedFact): a built-in's key is
+		// refused even with the same kind and type, which used to load, and so
+		// is a reserved family or a name inside one.
+		{"acme.facts.spoof", []collection.FactSpec{{Key: "loadertest_kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "which built-in method \"factbuiltin.gather.kernel\""},
+		{"acme.facts.family", []collection.FactSpec{{Key: "package.", Prefix: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family \"package.\"*"},
+		{"acme.facts.item", []collection.FactSpec{{Key: "service.sshd", Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family \"service.\"*"},
+		{"acme.facts.ansible", []collection.FactSpec{{Key: "ansible_distribution", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "the reserved family \"ansible_\"*"},
 		{"acme.facts.sound", []collection.FactSpec{{Key: "acme_widgets", Kind: collection.FactVolatile, Type: collection.FactInteger, Description: "widgets"}}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,8 +67,14 @@ func TestLoad_FactDeclarationsAreHeldToRegistersRules(t *testing.T) {
 			// Load itself, not tryLoad, which puts the registry back.
 			restore := collection.SnapshotForTest()
 			defer restore()
-			if _, err := Load(t.Context(), dir, testOptions()); err != nil {
+			set, err := Load(t.Context(), dir, testOptions())
+			if err != nil {
 				t.Fatalf("Load: %v", err)
+			}
+			// Under protocol 1 a fact outside the program's own namespace
+			// (acme_widgets, not acme.widgets) loads with a warning.
+			if w := strings.Join(set.Warnings(), "\n"); !strings.Contains(w, `declares facts outside its own namespace: "acme_widgets"`) {
+				t.Errorf("warnings %q, want one naming acme_widgets", w)
 			}
 			d, ok := collection.Lookup(tc.name)
 			if !ok || len(d.Manifest.Facts) != 1 || d.Manifest.Facts[0].Kind != collection.FactVolatile {
