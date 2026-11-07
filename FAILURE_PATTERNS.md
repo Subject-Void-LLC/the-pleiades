@@ -450,7 +450,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 445. Pull request #55 failed CI twice on checks that run locally in minutes (a repeat in kind of 427)
 446. k3s died at startup in CI because the fixture's readiness exec raced its cgroup move
 447. The container-list guard read a proxy, so pkg/kubeapi reached CI unlisted (a repeat of 239)
-448. pkg/tftpxfer timed out on macOS three times (two Gets on PR #55, a Put's request on PR #112), and the cause is still unknown (open)
+448. pkg/tftpxfer timed out on macOS three times (two Gets on PR #55, a Put's request on PR #112), and the cause was unknown until 2026-11-06 (fixed: XNU gave the client's dual-stack socket a port an IPv4 loopback socket held, which took the replies)
 449. A touched package CI could not floor-check was left out of the pre-push measurement
 450. The docker CLI methods passed names and images unchecked, so an image of `--privileged` ran a privileged container (a repeat of 148)
 451. docker inspect read any non-zero exit as an absent container, so an unreachable daemon let run create one elsewhere
@@ -553,7 +553,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 548. The upgrade_ios example validated clean and could not run past its first task (a repeat of 324) (fixed)
 549. netcli.IOS read IOS's "%Error ..." as output, so a failed save could report success (fixed)
 550. pleiades validate did not refuse a task missing a parameter its method marks required, and three runbooks left one out (fixed)
-551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (open: its wall-clock reading is closed by Phase 40a on feat/c2a-rollback-ordering; a later run that failed before acting is still the gate's to name)
+551. The rollback gate's "beneath a later run" check let a rollback run, intermittently, on the commit before this work too (fixed: the planner dropped a later run's tasks that failed during their action; a later run killed mid-task with no entry is left to the owner)
 552. govulncheck was killed for memory at the gate three times, and the memory was a new advisory making it trace a vulnerable call (fixed)
 553. The Controller's result consumer shipped without its dead-letter grant (a repeat of 258) (fixed)
 554. Dead letters copied the whole message, so every dead-lettered dispatch put its secrets on the stream twice (fixed)
@@ -562,7 +562,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 557. validate and a Controller's admission checked no Collection method's required capabilities, only the engine did (a repeat of 151) (fixed)
 558. The reaper's leadership test gave the leader a fixed 60 ms, and a slow machine spent it on the first query (fixed)
 559. The capability check reached validate with no census of what already validates, and two cmd/pleiades gates failed in CI (a repeat of 550) (fixed)
-560. A check of container.prune listed no stopped container while inspect said it had exited (open; seen again on 2026-10-30, a repeat of 560; the test now prints the engine's list)
+560. A check of container.prune listed no stopped container while inspect said it had exited (fixed: a Docker Engine bug fixed in 28.3.0; CI runs 28.0.4, this machine 29.8.0)
 561. pleiades validate checks the registers a template reads but not the ones a when: condition reads, so a misspelled register fails at run time (a sibling of 515) (fixed)
 562. A subcommand's --help exits 1, and one that takes a name prints no flags until a name comes first (fixed in 129d)
 563. Four methods recorded their undo only after reads that can fail, and a failed task's undo never reaches the journal (a repeat of 452 and 487) (fixed)
@@ -957,6 +957,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 951. Hardware facts held values Ansible does not report: a swap total on macOS, the page file size on Windows where Ansible reports 0, and Windows memory rounded down where Ansible rounds up (the class of 947) (fixed)
 952. The Mac lab gate compared the launchd fact count with the services block's line count, which 935's fix had made unequal wherever an installed daemon is disabled, and the gate runs only where a Mac is configured, so nothing noticed (a repeat in kind of 790) (fixed)
 953. win-check hung at a black screen on the boot after a guest restart, so win.reboot timed out after 600 s, and the sign-in test's cleanup could not reach the guest (possibly in kind of 362; open: cause not proven)
+954. facts.gather listed systemd units that last only as long as a login, a connection or a process, so service.<name> keys came and went on an unchanged host, and a socket-activated sshd's per-connection key held the peer's address and port (a repeat in kind of 948 and 949) (fixed)
+955. The 560 fix's settle read, when it failed after a successful start, stop or restart, failed the task, so the engine journaled a failure during the action with no undo, and with 551's fix a known, undoable change became an unknown_effect (a repeat of 563, 452 and 638) (fixed before push)
+956. container.stop of an auto-remove container recorded container.start as its undo, which no rollback could ever run, since the engine removes the container when it stops (a repeat in kind of 666 and 156) (fixed)
+957. 551's fix kept the "cancels out" skip ahead of its new rule, so a later run that had been rolled back was skipped although a task of it had failed during its action on the device, and its advice to roll that run back first could never clear it (a case 551's fix left; the class of 652) (fixed before push)
+958. Three small defects from review: the Controller's rollback refusal had no kind or unknown_effects though the production guide says a refusal gives them (a repeat in kind of 571 and 789), the tftpxfer bind test passed with the fix reverted (the class of 54), and checkSystemd still asked for two listings after the probe grew a third (the class of 571) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

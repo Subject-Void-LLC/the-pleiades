@@ -1,0 +1,1 @@
+TFTP transfers to an IPv4 device from a macOS host no longer time out. macOS could give the transfer's socket a port another program's IPv4 socket already held, and the device's replies then went to that program; the transfer now uses an IPv4 socket on the address its route leaves from.

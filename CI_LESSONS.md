@@ -137,3 +137,10 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     `vulns` job are where a later advisory shows. Read the trace, take the released fix as its own commit on the
     branch in hand, and report it as a security finding. A rerun cannot turn it green, and `main` stays red until the
     fix merges. FAILURE_PATTERNS 552, 938.
+29. **A failure only CI shows is unreproducible only on the runner's own versions.** Before ruling a CI-only failure
+    out by local runs, read from the job log the versions the runner ran (the container engine, the runner image, the
+    kernel, the toolchain) and set them beside this machine's. Where they differ, read the dependency's changes
+    between the two and reproduce on the runner's version; a `docker:<version>-dind` container runs a given engine
+    version. A `container.prune` check failed in CI on Docker Engine 28.0.4 from a bug fixed in 28.3.0, and 300 runs on
+    29.8.0 here could never fail; a TFTP timeout came from the macOS kernel's port choice, which no Linux run could
+    show. FAILURE_PATTERNS 448, 560; LESSONS_LEARNED 406.
