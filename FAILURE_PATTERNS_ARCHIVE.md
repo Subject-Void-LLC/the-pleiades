@@ -23610,3 +23610,26 @@ rule, and `TestCheckEntRegeneratedStillRefusesACodeChangeBesideComments`).
 
 **Lesson.** A gate whose only exit is skipping every rule teaches skipping; give each rule the precision its sibling
 already documented.
+
+## 978. Two new ent tables reached CI with the backup listing fixture still holding the old table count (fixed before the pull request, a third time of a class two recaptures never indexed)
+
+**Symptom.** 2026-11-07, Phase 41h. `make branch-containers` failed shard 6: `internal/backup`'s
+`TestParseTOC_ReadsARealBackupOfThisSchema` said "the backup carries data for 38 tables, and this version knows 40".
+Deterministic; it failed again alone.
+
+**Root cause.** The test holds a recorded `pg_restore --list` of a real backup (`internal/backup/testdata/toc_migrated.txt`)
+to `backup.KnownTables()`, so every new table needs the listing captured again from a real database. The branch added
+`fact_observations` and `fact_coverages` and did not. `internal/backup` is a container package that imports the changed
+`internal/ent`, so pr-check left it to CI by design, and `make branch-containers` caught it before the pull request.
+
+**Why the earlier two did not prevent it.** The same fixture was recaptured on 2026-09-19 (launchables) and 2026-09-21
+(controller_instances) for the same reason, written down only in the test file's header, where nobody adding a table
+looks.
+
+**Fix.** Both fixtures recaptured from PostgreSQL 15.19 through the real controller binary (`bootstrap-admin` on a fresh
+database, `pg_dump -Fc` and `pg_restore --list` inside the container, the three objects planted for
+`toc_planted.txt`); the test's counts are 290 entries, 40 tables, 46 foreign keys. commitgate now warns when a commit
+adds an ent schema file without the recaptured listing (`checkBackupListing`, a warning, since the capture needs
+PostgreSQL).
+
+**Lesson.** A fixture that every new table invalidates is named at the place a table is added, not only in its test.
