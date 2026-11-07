@@ -23151,3 +23151,119 @@ only a failed action is named as "may have changed". Tests:
 **Lesson.** When a change adds a field or a section, every reader and every checker of the old shape is part of the
 change: the API's copy of the planner's problem, and the probe's own answer check.
 
+
+## 959. The strict journal reader kept its own copies of the engine's stages, skip kinds and node id grammar, so it refused a handler's entries and a parallel group's fan-out and join entries, and one such run made `journal list` and `rollback` refuse every journal (a repeat in kind of 768; the parallel case shipped in v0.3.0) (fixed)
+
+**Symptom.** Found on 2026-11-06 on `feat/contracts-135`, before any push, in two steps.
+
+- **Handlers.** `TestCLI_HandlersRunOnceInTheirOrderOnlyWhenNotified` (`cmd/pleiades/handlers_release_gate_test.go`),
+  extended to run `pleiades journal list --json` through the real binary, failed: "the journal of run <id>, line 4:
+  names node \"tasks.handlers[0]\", which is not a graph id". The reader also had no place for the handlers' skip kind
+  `not_notified`. A handler's copy is journaled as `tasks.handlers[N]` or `pretasks.handlers[N]`. Found while writing
+  golden tests.
+- **Parallel groups.** Review of the first fix (fp-reviewer, finding F2) found a second shape the reader refused: a
+  parallel group's synthetic fan-out and join nodes (`tasks[N].fanout`, `tasks[N].block[M].join`), which the engine
+  journals with outcome `not_reached`. `TestEveryNodeIDTheBuilderMakesReadsBack` (`internal/journal/node_ids_test.go`)
+  showed it: a DAG built by `engine.NewBuilder(eval).BuildFromYAML`, recorded by `FileStore` and read by `ReadRun` failed
+  with "names node \"tasks[0].block[1].fanout\"".
+
+One such run broke more than itself. `journal.ListRuns` returns on the first journal that fails to read, so `pleiades
+journal list` and `pleiades rollback` (which reads every later run) refused every journal in the project's directory.
+`journal show` reads one run through `ReadRun`, so it refused the bad run only.
+
+**Who met it.** Handlers (Phase 90) came after v0.3.0 and are not in a release, so no user met that half; `main` has it.
+Parallel groups did ship: in v0.3.0 the builder makes `<group>.fanout` and `<group>.join` nodes, the engine journals
+them as `not_reached` (`journalEntry`, `internal/engine/journal_entry.go`), and the reader's `nodeIDPattern` has no
+`.fanout` or `.join`. That was read in the tag's source, not reproduced with a v0.3.0 binary.
+
+**Root cause.** `internal/journal/reader.go` kept its own copies of what the engine writes: the failure stages
+(`knownStage`), the skip kinds (`knownSkip`) and the builder's id grammar (`nodeIDPattern`). Handlers and the parallel
+nodes added shapes the copies never learned, and no test built every shape the builder makes and read it back.
+
+**Fix.** `343edef1` (handlers) and `bf331d04` (parallel nodes and the builder test). The reader holds stages and skip
+kinds to `engine.IsRecordedFailureStage` and `engine.IsRecordedSkipKind`, whose lists the engine documents as only
+growing, so the reader's maps are gone. `nodeIDPattern` takes `.handlers[N]` after a section and `.fanout` or `.join`
+after a group. `TestEveryNodeIDTheBuilderMakesReadsBack` holds the pattern to the builder's own output, and
+`TestJournalFormatOneReadsEveryKind` (`internal/journal/golden_test.go`, from `44068d03`, extended in `bf331d04`) reads
+a frozen format-1 journal (`internal/journal/testdata/format-1/every-kind.jsonl`) holding every stage, skip kind,
+outcome and node shape, so removing one from the reader fails.
+
+**Still open.** One copy remains: `knownOutcome` in `reader.go`, five values with no validator exported by the engine.
+The frozen journal holds each of them, so a removal fails, but a new outcome the engine starts to write would still be
+refused until the reader learns it.
+
+**Why 768's fix did not hold.** 768 found a hand-kept list of engine names in `internal/validate` and made it read the
+engine's own table. Its review looked at that one list and did not look for other copies of the engine's closed sets
+in other readers; the journal reader's copies predated it.
+
+**Lesson.** LESSONS 408: a reader of a format holds it to the writer's own source, never to a copy beside the reader,
+and the format's tests read a frozen file of every kind the writer has written.
+
+## 960. A depth-1 CI checkout with `fetch-tags: true` holds no release tag, so `schema-compat` in `ci-remote` would have failed the `ci` job's Linux row on every pull request (a repeat of 418; the class of 416) (fixed before push)
+
+**Symptom.** Found on 2026-11-06 on `feat/contracts-135` by fp-reviewer, before any pull-request run. `e1c5505a` added
+`make schema-compat` (`tools/schemacompat`) to `ci-remote`. It reads the newest release's schemas with `git tag --list`
+and `git show v0.3.0:<path>`, and with no tag it stops with "no release tag at or below ...". To give it the tags, the
+same commit set `fetch-tags: true` on the `ci` job's `actions/checkout`, which fetches one commit. fp-reviewer and a
+depth-1 clone made here both measured that such a fetch holds no `v0.3.0`: `fetch-tags` only drops the `--no-tags`
+flag, and a shallow fetch brings only tags that point at the fetched commit. `ci-remote` runs only on the Linux row
+(`ci (ubuntu-24.04, true)`, a required check), so that row would have failed on every pull request.
+
+**Root cause.** The step assumed that asking for tags brings every tag. A checkout shaped like CI's was not tried before
+the step was written, and the workflow lint checks a step's shape, not what git fetches.
+
+**Fix.** `bf331d04` (`.github/workflows/ci.yml`): `fetch-tags` is gone, and a step before `ci-remote`, Linux only, runs
+`git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`, which brings each release tag one commit deep. The
+step's comment says why `fetch-tags` is not enough.
+
+**Why 418's fix did not hold.** 418 found that a CI checkout has one commit and no `main`, and fixed it for the jobs that
+needed `main` (the containers and nightly jobs fetch full history). Its fix was per job and per ref: the `ci` job kept
+its one-commit checkout, and tags are a different ref from `main`. 418's lesson ("anything that names a ref by its local
+name has to be proved in a checkout shaped like CI's") covers this case. It was not applied when the new gate was
+added, and nothing checks for it. 416's lesson, that a step only CI runs is unverified until it has run somewhere, is the
+same miss.
+
+**Not yet proven on a runner.** The new step has not run in GitHub Actions yet. The first pull-request run of the
+branch is its proof: the `ci (ubuntu-24.04, true)` row passing `schema-compat`.
+
+**Lesson.** 418's lesson, unchanged; no new lesson. A gate that reads git history needs a test in a depth-1 clone of the
+kind `actions/checkout` makes before it is wired into a CI job.
+
+Verified after the fix (2026-11-06): in a `git clone --depth=1 --no-tags` of the branch, that refspec fetch brought `v0.3.0` and `git show v0.3.0:docs/reference/schemas/run-report.json` read it.
+
+## 961. A Runner terminated a newer dispatch it could not decode with no reported result, since the `payload_version` check ran only after a full decode, so the job would read dispatched until the Reaper republished it into the same refusal (the class of 208; its test a repeat in kind of 380) (fixed before push)
+
+**Symptom.** Found on 2026-11-06 on `feat/contracts-135` by fp-reviewer (findings F3 and F4), before any push; never
+released. `0332b8cd` gave the dispatch payload a `payload_version` and made a Runner refuse a newer one by name. The
+check ran only on a payload that decoded. A newer Controller that retypes a field (say `capabilities` from a list to an
+object) sends a payload this Runner cannot decode, and the decode-failure path terminated the message with no result.
+Its job would then read dispatched until the Reaper republished it, and a Runner of the same build would drop it the
+same way. This was read from the code; the second half of the finding is why the test did not show it.
+
+**The test could not fail on it.** `TestAgent_HandleMessage_ANewerPayloadIsRefusedNeverRun`
+(`internal/runner/agent_payload_version_test.go`) built its Agent with no result bus, so it checked that the message was
+terminated and the adapter never ran, and could not see a missing report. The real Runner always passes
+`runner.WithResultReporting`. That is 380's shape: a harness Agent composed with less than the binary's options.
+
+**Root cause.** The decode-failure path treated every payload that would not decode as malformed. Whether redelivery can
+help was decided right (it cannot, so the message is terminated), but whether the failure is the Runner's to report
+was not asked: a payload from a newer Controller is a job someone is waiting on. 208's class, a failure split on the
+wrong axis.
+
+**Fix.** `bf331d04`. On a decode failure, `newerUndecodable` (`internal/runner/agent_version.go`) reads only the
+version and the job's identity (job, device, device name, runbook). When the version is past this build's, the job is
+reported failed with a reason naming the version, then the message is terminated; any other decode failure is malformed
+as before. The test now passes `runner.WithResultReporting(bus)`, subscribes to the job's results, and fails with "no
+failed result was published" when none arrives. Its subtest
+`TestAgent_HandleMessage_ANewerPayloadIsRefusedNeverRun/version_2_with_a_field_retyped` is red without the fix.
+
+**Still open.** `TestAgent_HandleMessage_AnUnroutableKindIsReportedThenTerminated` (`internal/runner/agent_test.go`) has
+the same gap: its name says the dispatch is reported, and it builds its Agent with no result bus, so it cannot fail on a
+missing report.
+
+**Why 380's fix did not hold.** 380 fixed `cmd/runner`'s release-gate harness to report results as the real Runner does.
+The unit tests in `internal/runner` construct their own Agents and were not swept.
+
+**Lesson.** No new lesson. LESSONS 351: a harness wiring a production object copies every option the composition root
+passes. And 208's: split a consumer's failures on what each one means, not on which layer said no; here, a message
+terminated for a job someone is waiting on is reported first.
