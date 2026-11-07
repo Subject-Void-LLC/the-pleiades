@@ -193,7 +193,10 @@ the run:
   its latest value is kept and a change is never drift. A key the method did not
   declare, or a value of another type, is not stored, and the run's log says so.
 - Each stored value says which run, task and method first observed it and which
-  run last confirmed it. Values are ordered by an order the system keeps, not by a
+  run last confirmed it. Confirming a value writes nothing to it: each task that
+  stores facts adds one record of the gather (its run, its time and the keys it
+  covered), and the last confirmation is read from those, so nothing already
+  stored is ever edited. Values are ordered by an order the system keeps, not by a
   clock: on the command line a tick of the project's run counter taken when the
   task finished, so two runs at once on one host order by when each observed; on
   the Controller the device lease's fencing token. A result stored late does not

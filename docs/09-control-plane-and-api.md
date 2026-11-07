@@ -135,7 +135,10 @@ publishes each task's facts on the job's own facts subject
 (`pleiades.jobs.facts.<job>`); the Controller checks them again (each fact's name,
 size and hash) and stores them only for a device it dispatched that job to. A
 value is stored again only when it changes, so a fact's stored values are its
-history, and each says when a run last confirmed it. A check stores nothing. A
+history, and each says when a run last confirmed it. A confirmation edits
+nothing: each stored batch adds one record of the gather (its run, its time and
+the keys it covered), and when a value was last confirmed is read from those
+records, so a stored value is never updated. A check stores nothing. A
 fact named like a secret, whose value has a field named like one, or whose value
 holds one of the run's secrets or text shaped like one, is never stored: the Runner leaves it out and the Controller
 refuses it again. Every fact a built-in method declares is held to that
