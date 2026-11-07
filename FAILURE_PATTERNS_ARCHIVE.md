@@ -23294,3 +23294,40 @@ for the owner, with the golden pinning today's shape.
 **Lesson.** The new contract (docs/13: "the same journal producing a different plan" breaks rollback planning) made the
 property testable; a golden test of a whole plan is what found it. Any order built from a map is total by construction:
 the sort that follows names every field down to a unique one.
+
+## 963. `pleiades collection list --describe` ran a program before checking its bytes were the approved build (fixed before merge)
+
+**Symptom.** Found in review of the protocol window branch (fp-reviewer F2, Fable's independent review item 3), never
+released. `describeProtocol` (`cmd/pleiades/collection.go`) called `loader.Inspect`, which runs the program's
+`describe`, and compared the file's digest with the approval only afterwards; the first version of
+`TestCLI_CollectionListNamesEachBuildsProtocol` even approved a program under a digest it did not have and listed it.
+
+**Root cause.** `Inspect` exists for `approve`, where running an unapproved program is the operator's explicit act on
+it. Reused for a list, it put the approval check after the work it gates: a check-after-use (CWE-696). Bytes swapped
+into the collections directory after approval ran, confined by Landlock and given no secret, whenever someone listed
+approvals; each old approval of the same program ran it again.
+
+**Fix.** `edf183b3`. `loader.ProgramDigest` hashes the file with the same directory and file checks and runs nothing;
+`describeProtocol` names a mismatch "not this build" without running the program. The test's `replaced` program fails
+its `describe`, so running it would print "unknown"; the test requires "not this build" and no "unknown". Submitted to
+vuln-corpus as a C10 lead.
+
+**Lesson.** A function that runs code under an explicit approval step is not a read; a caller that only lists or
+inspects runs the integrity check first and the code only when it passes.
+
+## 964. The loader agreed a protocol version with a program and never told the program (fixed before merge)
+
+**Symptom.** Found in review of the protocol window branch (Fable item 1, fp-reviewer F1), never released. The loader
+picked the highest version both sides speak and kept it on `Program.Protocol`, which nothing read, and the invoke
+request carried no version. A program speaking 1 and 2 agreed at 1 by a 0.4.0 loader would have answered in 2.
+
+**Root cause.** The negotiation was built where the ranges are known (describe) and stopped there; the invoke side,
+where the agreed version has to be used, was never part of the change. 116's shape: a value resolved and never read.
+
+**Fix.** `edf183b3`. `wire.ChildRequest.Protocol` carries the agreed version on every call (absent means a loader
+from before the field, which spoke only the program's newest), the SDK refuses one it does not speak
+(`checkRequestProtocol`), and `TestProxy_DeliversTheRequestAndReturnsTheResponse` reads the version from the request a
+real child received.
+
+**Lesson.** A negotiation is finished only when both sides act on its result: test the agreed value at the place it
+is used, not where it is chosen (a repeat in kind of 116).

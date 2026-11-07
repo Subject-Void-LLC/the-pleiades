@@ -966,6 +966,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 960. A depth-1 CI checkout with `fetch-tags: true` holds no release tag, so `schema-compat` in `ci-remote` would have failed the `ci` job's Linux row on every pull request (a repeat of 418; the class of 416) (fixed before push)
 961. A Runner terminated a newer dispatch it could not decode with no reported result, since the `payload_version` check ran only after a full decode, so the job would read dispatched until the Reaper republished it into the same refusal (the class of 208; its test a repeat in kind of 380) (fixed before push)
 962. The rollback planner ordered one node's changes on two devices by Go's map order, so one journal planned two different rollbacks (fixed)
+963. `pleiades collection list --describe` ran a program before checking its bytes were the approved build (fixed before merge)
+964. The loader agreed a protocol version with a program and never told the program (a repeat in kind of 116) (fixed before merge)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
