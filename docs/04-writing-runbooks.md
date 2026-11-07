@@ -178,8 +178,8 @@ Fact names are dotted families: `os.` (the operating system as installed), `host
 manages. Values are typed and native: `os.distribution` is the system's own lowercase
 identifier (`ubuntu`, `rhel`, `windows`), `os.version_major` an integer, and a value the
 device does not give is absent rather than a placeholder. Ansible's own names
-(`ansible_distribution` and the rest) are not stored; the playbook converter flags a condition
-reading one for review, and the migration guide's table gives each native name.
+(`ansible_distribution` and the rest) are not stored; the playbook converter turns a condition
+reading one into the native condition, and the migration guide's table gives each native name.
 In the run those are part of the task's result, read through `register:` like any
 other value. A real run also keeps them as the device's facts, and they outlast
 the run:

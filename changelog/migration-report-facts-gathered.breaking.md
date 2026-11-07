@@ -1,0 +1,1 @@
+The migration report has a new finding code, `play.facts_gathered` (info): a play that gathers and reads Ansible facts keeps its gather as an inserted `facts.gather`. A reader of the report that holds its codes to the published list learns the new one (`enum-value-added migration-report.json#/$defs/Finding/properties/code/enum`).

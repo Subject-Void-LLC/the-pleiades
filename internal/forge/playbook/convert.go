@@ -134,7 +134,7 @@ func (t *translator) conditionAs(src string, bindings map[string]any, at Positio
 	if err != nil {
 		return "", false, unsupported("%v", err)
 	}
-	c := &celCtx{r: t.res, bindings: bindings, use: at, registers: registers, perDevice: map[string]bool{}, own: own, loopNames: t.loopNames, loopVar: t.loopVarName}
+	c := &celCtx{r: t.res, bindings: bindings, use: at, registers: registers, perDevice: map[string]bool{}, own: own, loopNames: t.loopNames, loopVar: t.loopVarName, facts: t.factsRegister}
 	term, cerr := c.toCEL(e)
 	if cerr != nil {
 		return "", false, cerr

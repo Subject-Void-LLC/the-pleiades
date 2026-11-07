@@ -184,6 +184,13 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 		// (x == false), which the defined rule must see.
 		return term{}, unsupported("a condition compared with a constant; write the condition itself")
 	}
+	if open.fact != "" {
+		// Ansible's value written the native way ("Debian" is "debian").
+		var ferr *celError
+		if fixed, ferr = nativeOperand(open.fact, fixed); ferr != nil {
+			return term{}, ferr
+		}
+	}
 	lit, lerr := celLiteral(fixed.value)
 	if lerr != nil {
 		return term{}, unsupported("%v", lerr)

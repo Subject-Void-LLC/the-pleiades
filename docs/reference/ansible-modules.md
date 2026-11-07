@@ -730,6 +730,7 @@ Every finding in a migration report carries one of these codes. The set is close
 | `module.semantics` | review | The native method does what the module does, except in the way the finding says. | - |
 | `module.unmapped` | blocked | No native method does what this module does. | Write the task by hand with a native method, or run the playbook unchanged as a playbook job. |
 | `play.facts` | info | gather_facts dropped: facts are not gathered. | facts.gather, where the device supports it. |
+| `play.facts_gathered` | info | gather_facts kept: the play reads Ansible facts the native facts map, so facts.gather is inserted at its start and registered, and each read reads the native fact. | - |
 | `play.hosts_all` | review | hosts: all needs an inventory tag named all. | - |
 | `play.hosts_local` | review | hosts: localhost has no native equivalent; the tasks run with no target. | - |
 | `play.hosts_pattern` | blocked | hosts: is a pattern or a list, which a runbook's single host or tag cannot express. | Tag the devices and name the tag. |

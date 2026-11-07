@@ -53,6 +53,10 @@ type translator struct {
 	// synth numbers the registers made for a changed_when or failed_when
 	// task that wrote none.
 	synth int
+	// factsRegister is the register of the facts.gather task inserted at the
+	// start of the play being converted, which its fact reads use; empty when
+	// the play gathers none (facts_reads.go).
+	factsRegister string
 }
 
 // Translate converts the playbook named name inside src, which should be

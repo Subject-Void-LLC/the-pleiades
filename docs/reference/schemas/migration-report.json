@@ -117,6 +117,7 @@
             "module.semantics",
             "module.unmapped",
             "play.facts",
+            "play.facts_gathered",
             "play.hosts_all",
             "play.hosts_local",
             "play.hosts_pattern",
