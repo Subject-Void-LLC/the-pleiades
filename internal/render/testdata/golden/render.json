@@ -1,0 +1,297 @@
+[
+  {
+    "name": "variable substitution",
+    "source": "hello {{ name }}",
+    "names": [
+      "name"
+    ],
+    "output": "hello web"
+  },
+  {
+    "name": "a nested path and a number",
+    "source": "{{ server.host }}:{{ server.port }}",
+    "names": [
+      "server"
+    ],
+    "output": "db1:22"
+  },
+  {
+    "name": "a list index",
+    "source": "{{ hosts[1] }}",
+    "names": [
+      "hosts"
+    ],
+    "output": "b"
+  },
+  {
+    "name": "a boolean and a float as text",
+    "source": "{{ flag }} {{ ratio }}",
+    "names": [
+      "flag",
+      "ratio"
+    ],
+    "output": "true 1.5"
+  },
+  {
+    "name": "none is not the empty string",
+    "source": "{{ nothing }}",
+    "names": [
+      "nothing"
+    ],
+    "render_error": "render: value has no string form: the value is null, which is not the empty string (in \"nothing\")"
+  },
+  {
+    "name": "one expression keeps its list type",
+    "source": "{{ hosts }}",
+    "names": [
+      "hosts"
+    ],
+    "value": [
+      "a",
+      "b",
+      "c"
+    ],
+    "value_type": "[]interface {}",
+    "is_value": true
+  },
+  {
+    "name": "one expression keeps its number type",
+    "source": "{{ server.port }}",
+    "names": [
+      "server"
+    ],
+    "value": 22,
+    "value_type": "int",
+    "is_value": true
+  },
+  {
+    "name": "text around an expression is not a value",
+    "source": "port {{ server.port }}",
+    "names": [
+      "server"
+    ],
+    "is_value": false
+  },
+  {
+    "name": "default for a missing name",
+    "source": "{{ region | default('us-east-1') }}",
+    "names": [
+      "region"
+    ],
+    "output": "us-east-1"
+  },
+  {
+    "name": "default ignored for a present name",
+    "source": "{{ name | default('other') }}",
+    "names": [
+      "name"
+    ],
+    "output": "web"
+  },
+  {
+    "name": "quote with an apostrophe",
+    "source": "{{ tricky | quote }}",
+    "names": [
+      "tricky"
+    ],
+    "output": "'it'\\''s here'"
+  },
+  {
+    "name": "to_json of a list",
+    "source": "{{ hosts | to_json }}",
+    "names": [
+      "hosts"
+    ],
+    "output": "[\"a\",\"b\",\"c\"]"
+  },
+  {
+    "name": "join is not a filter",
+    "source": "{{ hosts | join(',') }}",
+    "compile_error": "render: unknown filter: \"join\" (in \"hosts | join(',')\")"
+  },
+  {
+    "name": "filters chain left to right",
+    "source": "{{ padded | trim | upper }}",
+    "names": [
+      "padded"
+    ],
+    "output": "MIXED CASE"
+  },
+  {
+    "name": "urlencode encodes a slash",
+    "source": "{{ path | urlencode }}",
+    "names": [
+      "path"
+    ],
+    "output": "a%20b%2Fc"
+  },
+  {
+    "name": "b64encode",
+    "source": "{{ name | b64encode }}",
+    "names": [
+      "name"
+    ],
+    "output": "d2Vi"
+  },
+  {
+    "name": "cli_token refuses a quote",
+    "source": "{{ tricky | cli_token }}",
+    "names": [
+      "tricky"
+    ],
+    "render_error": "render: value has no string form: cli_token admits only letters, digits and . _ - : / @ , and this value has something else (in \"tricky | cli_token\")"
+  },
+  {
+    "name": "concatenation",
+    "source": "{{ name ~ '-' ~ env }}",
+    "names": [
+      "env",
+      "name"
+    ],
+    "output": "web-prod"
+  },
+  {
+    "name": "or returns an operand",
+    "source": "{{ empty_str or 'fallback' }}",
+    "names": [
+      "empty_str"
+    ],
+    "output": "fallback"
+  },
+  {
+    "name": "is defined",
+    "source": "{{ name is defined }} {{ region is defined }}",
+    "names": [
+      "name",
+      "region"
+    ],
+    "output": "true false"
+  },
+  {
+    "name": "if, elif and else",
+    "source": "{% if env == 'dev' %}D{% elif env == 'prod' %}P{% else %}O{% endif %}",
+    "names": [
+      "env"
+    ],
+    "output": "P"
+  },
+  {
+    "name": "for with loop.index",
+    "source": "{% for h in hosts %}{{ loop.index }}={{ h }} {% endfor %}",
+    "names": [
+      "hosts"
+    ],
+    "output": "1=a 2=b 3=c "
+  },
+  {
+    "name": "for over a mapping's items, sorted",
+    "source": "{% for k, v in server.items() %}{{ k }}={{ v }};{% endfor %}",
+    "names": [
+      "server"
+    ],
+    "output": "host=db1;port=22;"
+  },
+  {
+    "name": "for else on an empty list",
+    "source": "{% for x in empty %}x{% else %}none{% endfor %}",
+    "names": [
+      "empty"
+    ],
+    "output": "none"
+  },
+  {
+    "name": "set",
+    "source": "{% set greeting = 'hi ' ~ name %}{{ greeting }}",
+    "names": [
+      "name"
+    ],
+    "output": "hi web"
+  },
+  {
+    "name": "raw and a comment",
+    "source": "{% raw %}{{ kept }}{% endraw %}a{# gone #}b",
+    "output": "{{ kept }}ab"
+  },
+  {
+    "name": "minus whitespace control",
+    "source": "a\n  {%- if flag %} b {%- endif %}\nc",
+    "names": [
+      "flag"
+    ],
+    "output": "a b\nc"
+  },
+  {
+    "name": "block whitespace by default",
+    "source": "{% if flag %}\n  yes\n  {% endif %}\nend\n",
+    "names": [
+      "flag"
+    ],
+    "output": "\n  yes\n  \nend\n"
+  },
+  {
+    "name": "trim_blocks",
+    "source": "{% if flag %}\n  yes\n  {% endif %}\nend\n",
+    "trim_blocks": true,
+    "names": [
+      "flag"
+    ],
+    "output": "  yes\n  end\n"
+  },
+  {
+    "name": "trim_blocks and lstrip_blocks",
+    "source": "{% if flag %}\n  yes\n  {% endif %}\nend\n",
+    "trim_blocks": true,
+    "lstrip_blocks": true,
+    "names": [
+      "flag"
+    ],
+    "output": "  yes\nend\n"
+  },
+  {
+    "name": "an undefined name",
+    "source": "{{ missing }}",
+    "names": [
+      "missing"
+    ],
+    "render_error": "render: no value supplied for \"missing\""
+  },
+  {
+    "name": "an undefined key",
+    "source": "{{ server.missing }}",
+    "names": [
+      "server"
+    ],
+    "render_error": "render: no value supplied for \"server.missing\""
+  },
+  {
+    "name": "a mapping has no text form",
+    "source": "{{ server }}",
+    "names": [
+      "server"
+    ],
+    "render_error": "render: value has no string form: a map[string]interface {} has no text form, use the to_json filter (in \"server\")"
+  },
+  {
+    "name": "ordering a number and a string",
+    "source": "{{ 1 \u003c 'a' }}",
+    "render_error": "render: values cannot be compared: a number and a text cannot be ordered (in \"1 \u003c 'a'\")"
+  },
+  {
+    "name": "looping over a number",
+    "source": "{% for x in server.port %}{% endfor %}",
+    "names": [
+      "server"
+    ],
+    "render_error": "render: value cannot be looped over: a int has no items (in \"server.port\")"
+  },
+  {
+    "name": "an unsupported statement",
+    "source": "{% macro m() %}{% endmacro %}",
+    "compile_error": "render: template is not valid: the macro statement is not supported; this renderer has if, for, set and raw (in {% macro m() %})"
+  },
+  {
+    "name": "arithmetic is refused",
+    "source": "{{ server.port + 1 }}",
+    "compile_error": "render: template is not valid: arithmetic ('+') is not supported; compute the value in a task (in \"server.port + 1\")"
+  }
+]

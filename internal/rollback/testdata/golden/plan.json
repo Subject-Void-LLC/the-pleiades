@@ -1,0 +1,139 @@
+{
+  "refused": [
+    {
+      "reason": "run run-B changed name-of-h2 after this run began, so undoing this run beneath it could undo on top of its changes; it has changes of its own to undo, so roll it back first (pleiades rollback run-B), or step over it with --despite-run run-B; one of the two carries no run order (its journal predates run ordering, or it ran under a shared device lease, whose holders overlap), so this was decided by the journals' clock times",
+      "kind": "undo_first",
+      "accept": "--despite-run run-B"
+    },
+    {
+      "node": "tasks[6]",
+      "device_id": "h2",
+      "device": "name-of-h2",
+      "reason": "rb.copy's undo through rb.edit is partial: it does not put back everything the task overwrote",
+      "accept": "--allow-partial tasks[6]"
+    },
+    {
+      "node": "tasks[2]",
+      "device_id": "h1",
+      "device": "name-of-h1",
+      "reason": "rb.shell changed the device and cannot be undone (an arbitrary command); give the task a rollback: list in its runbook, or leave the change in place",
+      "accept": "--leave tasks[2]"
+    }
+  ],
+  "plan": {
+    "of": "run-A",
+    "levels": [
+      [
+        {
+          "node": "tasks[6]",
+          "device_id": "h2",
+          "device": "name-of-h2",
+          "index": 0,
+          "emitter": "rb.copy",
+          "method": "rb.edit",
+          "params": {
+            "name": "f"
+          },
+          "name": "undo tasks[6] (task tasks[6])",
+          "source": "recorded",
+          "partial": true
+        }
+      ],
+      [
+        {
+          "node": "tasks[3]",
+          "device_id": "h1",
+          "device": "name-of-h1",
+          "index": 0,
+          "emitter": "rb.shell",
+          "method": "rb.stop",
+          "params": {
+            "name": "svc"
+          },
+          "name": "undo tasks[3] (task tasks[3]), step 1: stop it",
+          "source": "authored"
+        }
+      ],
+      [
+        {
+          "node": "tasks[3]",
+          "device_id": "h1",
+          "device": "name-of-h1",
+          "index": 1,
+          "emitter": "rb.shell",
+          "method": "rb.delete",
+          "params": {
+            "name": "svc"
+          },
+          "name": "undo tasks[3] (task tasks[3]), step 2: then remove it",
+          "source": "authored"
+        }
+      ],
+      [
+        {
+          "node": "tasks[0]",
+          "device_id": "h1",
+          "device": "name-of-h1",
+          "index": 0,
+          "emitter": "rb.make",
+          "method": "rb.delete",
+          "params": {
+            "name": "vm",
+            "uuid": "u-1"
+          },
+          "name": "undo tasks[0] (task tasks[0])",
+          "source": "recorded"
+        }
+      ],
+      [
+        {
+          "node": "tasks[0]",
+          "device_id": "h2",
+          "device": "name-of-h2",
+          "index": 0,
+          "emitter": "rb.make",
+          "method": "rb.delete",
+          "params": {
+            "name": "vm",
+            "uuid": "u-2"
+          },
+          "name": "undo tasks[0] (task tasks[0])",
+          "source": "recorded"
+        }
+      ]
+    ],
+    "left": [
+      {
+        "node": "tasks[2]",
+        "device_id": "h1",
+        "device": "name-of-h1",
+        "reason": "rb.shell changed the device and cannot be undone (an arbitrary command); give the task a rollback: list in its runbook, or leave the change in place"
+      }
+    ],
+    "unknown": [
+      {
+        "node": "tasks[5]",
+        "device_id": "h1",
+        "device": "name-of-h1",
+        "reason": "rb.shell failed during its action, so it may have changed part of what it meant to; the journal cannot say what, and nothing undoes it"
+      }
+    ],
+    "unaccepted_unknown": 0,
+    "already_undone": [
+      {
+        "node": "tasks[1]",
+        "device_id": "h1",
+        "device": "name-of-h1",
+        "reason": "an earlier rollback of this run undid it"
+      }
+    ],
+    "nothing_to_undo": [
+      {
+        "node": "tasks[4]",
+        "device_id": "h1",
+        "device": "name-of-h1",
+        "reason": "its rollback: list is empty, which says undoing it means doing nothing"
+      }
+    ]
+  }
+}
