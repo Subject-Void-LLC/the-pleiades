@@ -798,8 +798,11 @@ The Pleiades includes that Collection: the namespace of each first-party Collect
 [`docs/reference/schemas/first-party.json`](reference/schemas/first-party.json), with the
 routing table from each first-party method to its Collection. A name joins the list only
 on a minor release, never on a patch. A program using a reserved namespace is refused at
-load, naming the namespace. A prefix counts only at a dot: `net` reserves `net.acme.x`, and
-`netbox.x` is yours.
+load, naming the namespace, and loading stops there: the other programs in its directory
+load again once it is renamed or removed. A prefix counts only at a dot: `net` reserves
+`net.acme.x`, and `netbox.x` is yours. The same list holds for capabilities a program
+defines as data (their namespace is the part before the dot). Device types are not
+something a program can define yet, so no list of type names exists.
 
 ### Installing it
 
