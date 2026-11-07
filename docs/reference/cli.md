@@ -579,7 +579,7 @@ what this project's runs observed about a host: each fact's current value, or on
 
 `pleiades facts web1`
 
-`pleiades facts web1 ansible_kernel --json`
+`pleiades facts web1 os.kernel.release --json`
 
 `pleiades facts web1 --verify`
 

@@ -99,7 +99,7 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 		t.Fatal(err)
 	}
 	asVolatile := func(string) (facts.Spec, bool) { return facts.Spec{Kind: facts.KindVolatile}, true }
-	entries, _, _ := facts.Prepare(map[string]any{"ansible_kernel": "6.1", "ansible_uptime_seconds": 5}, facts.Guard{Declared: asVolatile})
+	entries, _, _ := facts.Prepare(map[string]any{"os.kernel.release": "6.1", "host.uptime_seconds": 5}, facts.Guard{Declared: asVolatile})
 	data, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
 		By: facts.Provenance{Method: "facts.gather"}})
 	if err != nil {
@@ -108,7 +108,7 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data}); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.got) != 1 || store.got[0].Key != "ansible_uptime_seconds" {
+	if len(store.got) != 1 || store.got[0].Key != "host.uptime_seconds" {
 		t.Errorf("stored %+v, want only the uptime: the kernel is declared stable", store.got)
 	}
 }
@@ -124,7 +124,7 @@ func TestNewFactsSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, _, _ := facts.Prepare(map[string]any{"ansible_uptime_seconds": 5, "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
+	entries, _, _ := facts.Prepare(map[string]any{"host.uptime_seconds": 5, "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
 	data, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
 		By: facts.Provenance{Method: "acme.facts.read"}})
 	if err != nil {

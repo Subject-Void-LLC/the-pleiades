@@ -29,8 +29,8 @@ Reads every tag the targeted Catalyst Center knows about, and separates the cont
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `tags` | `list of map` | always | One entry per tag: id, name, system_tag. |
-| `operator_tags` | `list of string` | always | Names of every tag not created by the controller itself. |
+| `catalyst.tags` | `list of map` | always | One entry per tag: id, name, system_tag. |
+| `catalyst.operator_tags` | `list of string` | always | Names of every tag not created by the controller itself. |
 
 ## Undoing this
 
@@ -46,8 +46,8 @@ A real run stores each of these as the device's fact. A **stable** fact keeps ev
 
 | Fact | Kind | Type | Description |
 | --- | --- | --- | --- |
-| `tags` | stable | list | One entry per tag: id, name, system_tag. |
-| `operator_tags` | stable | list | Names of every tag not created by the controller itself. |
+| `catalyst.tags` | stable | list | One entry per tag: id, name, system_tag. |
+| `catalyst.operator_tags` | stable | list | Names of every tag not created by the controller itself. |
 
 ## Examples
 

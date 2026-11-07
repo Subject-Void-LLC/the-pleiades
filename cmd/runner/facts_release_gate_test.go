@@ -184,12 +184,12 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	}
 	kernel := ""
 	for _, f := range body.Facts {
-		if f.Key == "ansible_kernel" {
+		if f.Key == "os.kernel.release" {
 			kernel, _ = f.Value.(string)
 		}
 	}
 	if want := h.onDevice(t, "uname -r"); body.Device != deviceName || kernel != want {
-		t.Fatalf("the route read device %q with ansible_kernel %q; the device says %q (%d facts)", body.Device, kernel, want, len(body.Facts))
+		t.Fatalf("the route read device %q with os.kernel.release %q; the device says %q (%d facts)", body.Device, kernel, want, len(body.Facts))
 	}
 	if n := client.Fact.Query().CountX(ctx); n == 0 || n != len(body.Facts) {
 		t.Errorf("%d rows for %d current facts after one gather", n, len(body.Facts))
@@ -216,7 +216,7 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 			t.Errorf("%s: provenance %+v, want this job, its attempt, facts.gather, the gate's Runner and the lease's token", f.Key, by)
 		}
 	}
-	if kinds["ansible_kernel"] != "stable" || kinds["ansible_uptime_seconds"] != "volatile" {
+	if kinds["os.kernel.release"] != "stable" || kinds["host.uptime_seconds"] != "volatile" {
 		t.Errorf("kinds = %v, want the kernel stable and the uptime volatile as declared", kinds)
 	}
 	rr := httptest.NewRecorder()

@@ -41,34 +41,34 @@ func registerFactMethods(t *testing.T) {
 	t.Helper()
 	t.Cleanup(collection.SnapshotForTest())
 	gather := func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, params map[string]any) (collection.Result, error) {
-		if err := rc.EmitFact("ansible_kernel", "6.1"); err != nil {
+		if err := rc.EmitFact("os.kernel.release", "6.1"); err != nil {
 			return collection.Result{}, err
 		}
 		if err := rc.SetStat("elapsed_ms", 12); err != nil {
 			return collection.Result{}, err
 		}
 		if params["leak"] == true {
-			if err := rc.EmitFact("token", "Bearer s3cr3t-pass"); err != nil {
+			if err := rc.EmitFact("test.token", "Bearer s3cr3t-pass"); err != nil {
 				return collection.Result{}, err
 			}
 		}
 		if params["shaped"] == true {
-			if err := rc.EmitFact("banner", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU=\n-----END OPENSSH PRIVATE KEY-----"); err != nil {
+			if err := rc.EmitFact("test.banner", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU=\n-----END OPENSSH PRIVATE KEY-----"); err != nil {
 				return collection.Result{}, err
 			}
-			if err := rc.EmitFact("db_password", "hunter2"); err != nil {
+			if err := rc.EmitFact("test.db_password", "hunter2"); err != nil {
 				return collection.Result{}, err
 			}
 		}
 		if params["note"] == true {
 			// An ordinary name and no secret's shape: only a secret_mask
 			// naming it can say it is secret.
-			if err := rc.EmitFact("login_note", "Lattice7Harbor"); err != nil {
+			if err := rc.EmitFact("test.login_note", "Lattice7Harbor"); err != nil {
 				return collection.Result{}, err
 			}
 		}
 		if params["more"] == true {
-			for key, value := range map[string]any{"uptime": 42, "undeclared": "x", "cores": "four"} {
+			for key, value := range map[string]any{"test.uptime": 42, "test.undeclared": "x", "test.cores": "four"} {
 				if err := rc.EmitFact(key, value); err != nil {
 					return collection.Result{}, err
 				}
@@ -82,15 +82,15 @@ func registerFactMethods(t *testing.T) {
 	if err := collection.Register(collection.Descriptor{Name: "enginefacts.gather", Invoke: gather, Check: gather,
 		Manifest: collection.Manifest{Status: collection.StatusImplemented, SupportsCheck: true, Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a test fixture"},
 			Facts: []collection.FactSpec{
-				{Key: "ansible_kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"},
-				{Key: "uptime", Kind: collection.FactVolatile, Type: collection.FactInteger, Description: "the uptime"},
-				{Key: "cores", Kind: collection.FactStable, Type: collection.FactInteger, Description: "the cores"},
+				{Key: "os.kernel.release", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"},
+				{Key: "test.uptime", Kind: collection.FactVolatile, Type: collection.FactInteger, Description: "the uptime"},
+				{Key: "test.cores", Kind: collection.FactStable, Type: collection.FactInteger, Description: "the cores"},
 				// Declared, so the secret tests below refuse them for what
 				// they hold rather than for being undeclared.
-				{Key: "token", Kind: collection.FactStable, Type: collection.FactString, Description: "a token"},
-				{Key: "banner", Kind: collection.FactStable, Type: collection.FactString, Description: "a banner"},
-				{Key: "db_password", Kind: collection.FactStable, Type: collection.FactString, Description: "a password"},
-				{Key: "login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a note a later task marks secret"},
+				{Key: "test.token", Kind: collection.FactStable, Type: collection.FactString, Description: "a token"},
+				{Key: "test.banner", Kind: collection.FactStable, Type: collection.FactString, Description: "a banner"},
+				{Key: "test.db_password", Kind: collection.FactStable, Type: collection.FactString, Description: "a password"},
+				{Key: "test.login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a note a later task marks secret"},
 			}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -109,8 +109,8 @@ func TestFacts_ARealRunStoresWhatItsTasksEmitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sink.got["dev-1"]
-	if len(got) != 1 || got[0].Key != "ansible_kernel" || got[0].Value != "6.1" || len(got[0].Hash) != 64 {
-		t.Fatalf("stored %+v, want ansible_kernel alone", got)
+	if len(got) != 1 || got[0].Key != "os.kernel.release" || got[0].Value != "6.1" || len(got[0].Hash) != 64 {
+		t.Fatalf("stored %+v, want os.kernel.release alone", got)
 	}
 	if got[0].Kind != facts.KindStable {
 		t.Errorf("kind = %q, want stable as declared", got[0].Kind)
@@ -124,7 +124,7 @@ func TestFacts_ARealRunStoresWhatItsTasksEmitted(t *testing.T) {
 		if _, leaked := n.Stats[sdk.StatFactKeys]; leaked {
 			t.Errorf("the reserved %s reached a result: %v", sdk.StatFactKeys, n.Stats)
 		}
-		if n.Stats["ansible_kernel"] != "6.1" || n.Stats["elapsed_ms"] != 12 {
+		if n.Stats["os.kernel.release"] != "6.1" || n.Stats["elapsed_ms"] != 12 {
 			t.Errorf("a fact or stat is missing from the result: %v", n.Stats)
 		}
 	}
@@ -167,7 +167,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 		for _, e := range sink.got["dev-1"] {
 			stored[e.Key] = true
 		}
-		if stored["banner"] || stored["db_password"] || !stored["ansible_kernel"] {
+		if stored["test.banner"] || stored["test.db_password"] || !stored["os.kernel.release"] {
 			t.Errorf("stored %v: want the kernel alone", stored)
 		}
 	})
@@ -183,7 +183,7 @@ func TestFacts_NothingIsStoredFromACheckAFailureOrASecret(t *testing.T) {
 		for _, e := range sink.got["dev-1"] {
 			stored[e.Key] = true
 		}
-		if stored["token"] || !stored["ansible_kernel"] {
+		if stored["test.token"] || !stored["os.kernel.release"] {
 			t.Errorf("stored %v: want the kernel and not the fact holding the run's secret", stored)
 		}
 	})
@@ -219,8 +219,8 @@ func TestFacts_OnlyWhatTheMethodDeclaresIsStoredAsDeclared(t *testing.T) {
 	for _, e := range sink.got["dev-1"] {
 		kinds[e.Key] = e.Kind
 	}
-	want := map[string]facts.Kind{"ansible_kernel": facts.KindStable, "uptime": facts.KindVolatile}
-	if len(kinds) != len(want) || kinds["ansible_kernel"] != want["ansible_kernel"] || kinds["uptime"] != want["uptime"] {
+	want := map[string]facts.Kind{"os.kernel.release": facts.KindStable, "test.uptime": facts.KindVolatile}
+	if len(kinds) != len(want) || kinds["os.kernel.release"] != want["os.kernel.release"] || kinds["test.uptime"] != want["test.uptime"] {
 		t.Errorf("stored %v, want %v: undeclared and cores (a string declared integer) left out", kinds, want)
 	}
 }
@@ -235,7 +235,7 @@ func TestFacts_AFieldALaterSecretMaskMarksIsNeverStored(t *testing.T) {
 	sink := &factSink{got: map[string][]facts.Entry{}}
 	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), buildDAG(t, `{"id": "facts", "tasks": [
 		{"name": "g", "register": "g", "enginefacts.gather": {"target": "fleet", "note": true}},
-		{"name": "mask", "secret_mask": {"register": "g", "fields": ["login_note"]}, "enginefacts.gather": {"target": "fleet"}}
+		{"name": "mask", "secret_mask": {"register": "g", "fields": ["test.login_note"]}, "enginefacts.gather": {"target": "fleet"}}
 	]}`))
 	if err != nil || result.HasErrors() {
 		t.Fatalf("run: %v, %+v", err, result)
@@ -247,7 +247,7 @@ func TestFacts_AFieldALaterSecretMaskMarksIsNeverStored(t *testing.T) {
 			t.Errorf("the masked value was stored under %s", e.Key)
 		}
 	}
-	if stored["login_note"] || !stored["ansible_kernel"] {
+	if stored["test.login_note"] || !stored["os.kernel.release"] {
 		t.Errorf("stored %v: want the kernel and not the field the later secret_mask marks", stored)
 	}
 }
@@ -303,7 +303,7 @@ func TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut(t *testing.T) 
 	registerFactMethods(t)
 	built := buildDAG(t, `{"id": "facts", "tasks": [
 		{"name": "g", "register": "g", "tags": ["gather"], "enginefacts.gather": {"target": "fleet", "note": true}},
-		{"name": "mask", "tags": ["mask"], "secret_mask": {"register": "g", "fields": ["login_note"]}, "enginefacts.gather": {"target": "fleet"}}
+		{"name": "mask", "tags": ["mask"], "secret_mask": {"register": "g", "fields": ["test.login_note"]}, "enginefacts.gather": {"target": "fleet"}}
 	]}`)
 	selected, err := engine.Select(built, engine.TagFilter{Tags: []string{"gather"}})
 	if err != nil {
@@ -317,7 +317,7 @@ func TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, e := range sink.got["dev-1"] {
-		if e.Key == "login_note" {
+		if e.Key == "test.login_note" {
 			t.Fatalf("the masked field was stored: %+v", e)
 		}
 	}

@@ -14,7 +14,7 @@ func TestRegister_RefusesAnExternalMethodsReservedFact(t *testing.T) {
 	stable := func(key string, prefix bool) collection.FactSpec {
 		return collection.FactSpec{Key: key, Prefix: prefix, Kind: collection.FactStable, Type: collection.FactString, Description: "a fact"}
 	}
-	if err := collection.Register(factMethod("resbuiltin.gather", stable("resbuiltin_kernel", false))); err != nil {
+	if err := collection.Register(factMethod("resbuiltin.gather", stable("resbuiltin.kernel", false))); err != nil {
 		t.Fatalf("a built-in's own fact: %v", err)
 	}
 	external := func(name string, s collection.FactSpec) collection.Descriptor {
@@ -27,7 +27,7 @@ func TestRegister_RefusesAnExternalMethodsReservedFact(t *testing.T) {
 		spec collection.FactSpec
 		want string
 	}{
-		{"acme.spoof", stable("resbuiltin_kernel", false), `built-in method "resbuiltin.gather"`},
+		{"acme.spoof", stable("resbuiltin.kernel", false), `built-in method "resbuiltin.gather"`},
 		{"acme.family", stable("package.", true), `the reserved family "package."*`},
 		{"acme.item", stable("user.root", false), `the reserved family "user."*`},
 		{"acme.wide", stable("serv", true), `the reserved family "service."*`},
@@ -35,7 +35,7 @@ func TestRegister_RefusesAnExternalMethodsReservedFact(t *testing.T) {
 		{"acme.bare", stable("ansible_", false), `the reserved family "ansible_"*`},
 		{"acme.native", stable("os.distribution", false), `the reserved family "os."*`},
 		{"acme.lookalike", stable("p\u0430ckage.openssh", false), "is not ASCII"},
-		{"acme.builtincase", stable("RESBUILTIN_KERNEL", false), `built-in method "resbuiltin.gather"`},
+		{"acme.builtincase", stable("RESBUILTIN.KERNEL", false), `built-in method "resbuiltin.gather"`},
 	} {
 		err := collection.Register(external(tc.name, tc.spec))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

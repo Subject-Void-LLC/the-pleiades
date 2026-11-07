@@ -340,6 +340,28 @@ from the device, and `http.request` calls it from wherever the task runs, so whi
 should make the call is a person's decision. The converter maps `wait_for`'s port form
 to `pleiades.builtin.wait.port` and `setup` to `facts.gather` itself.
 
+**Fact names.** The Pleiades stores facts under native, dotted names with typed values,
+not under Ansible's. The converter flags a condition or template reading an Ansible fact
+for review (`when.fact`, `template.fact`); this table is the translation, from the same
+mapping the measured comparison with Ansible holds:
+
+| Ansible fact | Native fact | Value |
+|---|---|---|
+| `ansible_distribution` | `os.distribution` | the system's own lowercase identifier (`ubuntu`, `rhel`, `ol`, `macos`, `windows`), where Ansible writes `Ubuntu`, `RedHat`, `OracleLinux`, `MacOSX` or the Windows caption |
+| `ansible_os_family` | `os.family` | lowercase (`debian`, `redhat`, `suse`, `freebsd`, `windows`) |
+| `ansible_distribution_version` | `os.version` | the same |
+| `ansible_distribution_major_version` | `os.version_major` | an integer, where Ansible writes a string; absent where the version has none |
+| `ansible_distribution_release` | `os.codename` | the codename only (`bookworm`, `noble`); Ansible's other release values come from the distribution and version |
+| (Windows' `ansible_distribution`) | `os.edition` | the Windows caption |
+| `ansible_system` | `os.kernel.name` | lowercase (`linux`, `freebsd`, `darwin`, `windows`) |
+| `ansible_kernel` | `os.kernel.release` | the same |
+| `ansible_hostname`, `ansible_nodename` | `host.name`, `host.nodename` | the same |
+| `ansible_uptime_seconds` | `host.uptime_seconds` | the same |
+| `ansible_architecture` | `hardware.architecture` | the machine name (`x86_64`, `aarch64`), where Ansible writes `64-bit` on Windows |
+| `ansible_memtotal_mb`, `ansible_swaptotal_mb` | `hardware.memory_mb`, `hardware.swap_mb` | whole megabytes, truncated; swap absent on Windows, where Ansible writes `0` |
+| `ansible_processor_count`, `_cores`, `_vcpus` | `hardware.cpu.sockets`, `.cores`, `.threads` | the same |
+| `ansible_net_hostname`, `_version`, `_model`, `_serialnum`, `_image`, `_uptime`, `_interfaces` | `host.name`, `os.version`, `hardware.model`, `hardware.serial`, `os.image`, `host.uptime`, `network.interfaces` | the same; `os.distribution` is `ios` or `ios_xe` |
+
 `pleiades.builtin.wait.port` and `set_metadata` are not 1:1 ports of an Ansible
 module; they are native to The Pleiades, which is why the first lives under a reserved
 `pleiades.builtin.` namespace and the second is an engine builtin reachable by its

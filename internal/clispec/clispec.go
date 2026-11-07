@@ -541,7 +541,7 @@ var Root = Command{
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 				{Name: "verify", Type: "bool", Default: "false", Doc: "check the host's fact chain instead of showing its facts; exits non-zero when it is broken"},
 			},
-			Examples: []string{"pleiades facts web1", "pleiades facts web1 ansible_kernel --json", "pleiades facts web1 --verify"},
+			Examples: []string{"pleiades facts web1", "pleiades facts web1 os.kernel.release --json", "pleiades facts web1 --verify"},
 		},
 		{
 			Name:     "journal",

@@ -29,7 +29,7 @@ type factReader struct {
 
 func (r *factReader) Current(_ context.Context, device string) ([]facts.Entry, error) {
 	r.asked = device
-	return []facts.Entry{{Key: "ansible_kernel", Value: "6.1", Hash: "h", ObservedAt: time.Unix(0, 0).UTC(), LastSeenAt: time.Unix(60, 0).UTC()}}, r.err
+	return []facts.Entry{{Key: "os.kernel.release", Value: "6.1", Hash: "h", ObservedAt: time.Unix(0, 0).UTC(), LastSeenAt: time.Unix(60, 0).UTC()}}, r.err
 }
 
 func (r *factReader) History(_ context.Context, device, key string) ([]facts.Entry, error) {
@@ -39,7 +39,7 @@ func (r *factReader) History(_ context.Context, device, key string) ([]facts.Ent
 
 func (r *factReader) Verify(_ context.Context, device string) (facts.Verdict, error) {
 	r.asked = device + " verify"
-	return facts.Verdict{Values: 2, Head: "abc", Break: &facts.Break{Index: 1, Key: "ansible_kernel", Reason: "edited"}}, r.err
+	return facts.Verdict{Values: 2, Head: "abc", Break: &facts.Break{Index: 1, Key: "os.kernel.release", Reason: "edited"}}, r.err
 }
 
 func factsRouter(t *testing.T, repo *stubDeviceRepo, reader api.FactReader) http.Handler {
@@ -88,8 +88,8 @@ func TestDeviceFacts_ReadsByDeviceIDAndAnswersEachOutcome(t *testing.T) {
 	if reader.asked != string(item.ID()) {
 		t.Errorf("the reader was asked for %q, want the device's ID", reader.asked)
 	}
-	rr = factsGet(router, "/inventory/devices/web1/facts/ansible_kernel")
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"facts":[]`) || reader.asked != string(item.ID())+"/ansible_kernel" {
+	rr = factsGet(router, "/inventory/devices/web1/facts/os.kernel.release")
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"facts":[]`) || reader.asked != string(item.ID())+"/os.kernel.release" {
 		t.Errorf("history: %d %s (asked %q)", rr.Code, rr.Body.String(), reader.asked)
 	}
 	if rr := factsGet(router, "/inventory/devices/web1/facts/bad%20key"); rr.Code != http.StatusBadRequest || strings.Contains(rr.Body.String(), "bad key") {

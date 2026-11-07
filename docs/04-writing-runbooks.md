@@ -170,17 +170,24 @@ appears, as a registered result is.
 ## Gathered facts: what a run keeps about a device
 
 `set_fact` values last for the run. A method can also report what it observed
-about a device, as `facts.gather` does (`ansible_kernel`, `ansible_hostname`,
-`ansible_memtotal_mb` and the rest) and `net.ios.facts` does for a Cisco device.
+about a device, as `facts.gather` does (`os.distribution`, `os.kernel.release`,
+`host.name`, `hardware.memory_mb` and the rest) and `net.ios.facts` does for a Cisco device.
+Fact names are dotted families: `os.` (the operating system as installed), `host.`,
+`hardware.`, `network.`, the item families `package.`, `service.`, `service_state.`,
+`file.`, `port.`, `user.` and `group.`, and `catalyst.` for what a Catalyst Center
+manages. Values are typed and native: `os.distribution` is the system's own lowercase
+identifier (`ubuntu`, `rhel`, `windows`), `os.version_major` an integer, and a value the
+device does not give is absent rather than a placeholder. Ansible's own names
+(`ansible_distribution` and the rest) are not stored; the playbook converter maps them.
 In the run those are part of the task's result, read through `register:` like any
 other value. A real run also keeps them as the device's facts, and they outlast
 the run:
 
 - Every method declares each fact it may emit, with its type and its kind
   (`pleiades doc <method>` lists them under "facts"). A **stable** fact, such as
-  `ansible_kernel`, is stored again only when it changes, so its stored values are
+  `os.kernel.release`, is stored again only when it changes, so its stored values are
   its history and the newest is its current value; a change is drift. A
-  **volatile** fact, such as `ansible_uptime_seconds`, moves on its own, so only
+  **volatile** fact, such as `host.uptime_seconds`, moves on its own, so only
   its latest value is kept and a change is never drift. A key the method did not
   declare, or a value of another type, is not stored, and the run's log says so.
 - Each stored value says which run, task and method first observed it and which
@@ -217,7 +224,8 @@ the run:
 
 A runbook does not read stored facts yet: a value from an earlier run can be
 stale, and reading one waits for a way to say how fresh it must be. A task reads
-facts gathered in the same run through `register:`:
+facts gathered in the same run through `register:`. A fact's name holds dots, so a
+condition reads it by index, `result.gathered["os.kernel.name"]`:
 
 ```yaml
 # Gathers a host's facts, which this run reads and the project keeps.
@@ -233,7 +241,7 @@ tasks:
   - name: Refuse anything but Linux
     assert:
       that:
-        - "result.gathered.ansible_system == 'Linux'"
+        - "result.gathered['os.kernel.name'] == 'linux'"
       fail_msg: this runbook expects a Linux host
 ```
 
