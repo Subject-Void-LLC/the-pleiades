@@ -31,13 +31,18 @@ type engineDevice struct {
 	*inventorytest.Stub
 	id   capability.EngineID
 	user string
+	// socket is the engine's socket; "" is dockerSocket.
+	socket capability.SocketAddress
 }
 
 func (d *engineDevice) ContainerEngines() []capability.EngineKind {
 	return []capability.EngineKind{capability.EngineDocker}
 }
-func (d *engineDevice) DockerEndpoint() capability.SocketAddress { return dockerSocket }
+func (d *engineDevice) DockerEndpoint() capability.SocketAddress { return d.EngineSocket("") }
 func (d *engineDevice) EngineSocket(capability.EngineKind) capability.SocketAddress {
+	if d.socket != "" {
+		return d.socket
+	}
 	return dockerSocket
 }
 func (d *engineDevice) EngineID(capability.EngineKind) capability.EngineID { return d.id }

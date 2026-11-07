@@ -4,9 +4,14 @@ package container_test
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
+	moby "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // TestStop_TheListShowsTheStopWhenTheMethodReturns stops one container
@@ -46,5 +51,44 @@ func TestStop_TheListShowsTheStopWhenTheMethodReturns(t *testing.T) {
 	}
 	if missed > 0 {
 		t.Errorf("%d of 20 stops were not yet in the engine's list of stopped containers when container.stop returned", missed)
+	}
+}
+
+// TestStop_AnAutoRemoveContainerIsSettledAndHasNoUndo stops a container
+// the engine removes when it stops (docker run --rm). The read after the
+// stop finds it gone or going, which inspect reads as no container rather
+// than an error, so the stop succeeds; and since starting a removed
+// container cannot undo the stop, it records no undo and says why, where
+// it used to record container.start, an undo no rollback could run.
+func TestStop_AnAutoRemoveContainerIsSettledAndHasNoUndo(t *testing.T) {
+	h := newHarness(t)
+	name := h.name(t)
+	ctx := context.Background()
+	if _, err := h.api.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: name, Image: h.nginx, HostConfig: &moby.HostConfig{AutoRemove: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.api.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	rc := fresh()
+	res, err := call(t, h, rc, "container.stop", false, map[string]any{"name": name, "timeout": 1})
+	if err != nil || !res.Changed {
+		t.Fatalf("stop of an auto-remove container = %+v, %v; want a change", res, err)
+	}
+	if fqcn, p := inverseOf(rc); fqcn != "" {
+		t.Errorf("the stop recorded %s %v as its undo, though the container removes itself", fqcn, p)
+	}
+	warnings, _ := rc.stats[sdk.StatWarnings].([]string)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "auto-remove") {
+		t.Errorf("warnings = %q, want the missing undo explained", warnings)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for h.state(t, name) != "" {
+		if time.Now().After(deadline) {
+			t.Fatalf("the auto-remove container is still %q after its stop", h.state(t, name))
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

@@ -31,6 +31,8 @@ var stopAction = action{
 	},
 	after:   "exited",
 	inverse: "container.start",
+	// A stopped auto-remove container is gone, so starting it is no undo.
+	removesAutoRemove: true,
 }
 
 func init() { registerAction(stopAction) }
