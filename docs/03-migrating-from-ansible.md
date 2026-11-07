@@ -346,9 +346,15 @@ reads one of Ansible's in a condition is converted with `facts.gather` inserted 
 start and registered as `gathered_facts`, and the condition reads the native fact on each
 device, its value written the native way: `when: ansible_os_family == "Debian"` becomes
 `nodes.gathered_facts[device.id]["os.family"] == "debian"`, decided per host as Ansible
-decides it. A value with no one native word (a Windows caption, CentOS Stream's `Stream`)
-stays a finding to review (`when.fact`), and so does a template reading a fact, since a
-template cannot index the facts by the device it runs on (`template.fact`). The table is
+decides it; `ansible_facts['os_family']` and `ansible_facts.os_family` read the same. A
+fact the device does not give compares as Ansible's placeholder does: not equal to
+anything. A value with no one native word (a Windows caption, CentOS Stream's `Stream`), a
+major version Ansible compares as text (an ordering without `| int`), a filter other than
+`int`, and a template reading a fact (a template cannot index the facts by the device it
+runs on) stay findings to review (`when.fact`, `template.fact`). The inserted `facts.gather`
+needs a device that can gather facts: on one that cannot (a network device), the converted
+play fails where Ansible's gather would have done nothing to it, so convert such a play
+with `gather_facts: false`. The table is
 the translation, from the same mapping the measured comparison with Ansible holds:
 
 | Ansible fact | Native fact | Value |
