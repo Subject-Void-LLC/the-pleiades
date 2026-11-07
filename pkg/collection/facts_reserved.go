@@ -26,18 +26,19 @@ var ReservedFactFamilies = []string{
 	"package.", "port.", "service.", "service_state.", "user.",
 }
 
-// ReservedFact reports what reserves a key or family s declares: one of
-// ReservedFactFamilies, or a built-in method's declaration that can name the
-// same key. It reports false when nothing does. Names are compared without
+// ReservedFact reports what reserves a key or family s declares: the fact
+// floor (FactFloor: ReservedFactFamilies and every first-party namespace as a
+// prefix, whether or not this binary links its methods), or a built-in
+// method's declaration that can name the same key. It reports false when nothing does. Names are compared without
 // case, and a key equal to a family's own name (package.) counts as inside
 // it, so neither Package.x nor the bare family name slips past. Built-in
 // methods register at package init, before the loader registers any external
 // one, so every built-in declaration is known when an external one is checked.
 func ReservedFact(s FactSpec) (string, bool) {
 	folded := FactSpec{Key: strings.ToLower(s.Key), Prefix: s.Prefix}
-	for _, family := range ReservedFactFamilies {
+	for _, family := range FactFloor() {
 		if folded.Key == family || overlaps(folded, FactSpec{Key: family, Prefix: true}) {
-			return fmt.Sprintf("the reserved family %q*", family), true
+			return fmt.Sprintf("the reserved family or first-party namespace %q*", family), true
 		}
 	}
 	for name, d := range collections.All() {

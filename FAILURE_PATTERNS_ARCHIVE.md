@@ -23633,3 +23633,53 @@ adds an ent schema file without the recaptured listing (`checkBackupListing`, a 
 PostgreSQL).
 
 **Lesson.** A fixture that every new table invalidates is named at the place a table is added, not only in its test.
+
+## 979. The Controller's check of which facts only a built-in may write kept the old family list when the Runner's floor grew (fixed before push, a repeat in kind of 837 and 749)
+
+**Symptom.** Found 2026-11-07 by fp-reviewer on Phase 136a. The branch moved the loader's fact reservation from
+`ReservedFactFamilies` to `collection.FactFloor` (the families plus every first-party namespace as a prefix), but
+`internal/facts/entstore/provenance.go`'s `heldByBuiltin`, which drops a built-in's facts from a batch a method outside
+the catalog sent, still looped over the families. A batch from an older or development-build Runner carrying
+`edge.site` or `kubernetes.version` from a non-catalog method was stored on the Controller while the Runner's loader
+refused the same declaration.
+
+**Root cause.** Two tiers enforce one rule, and the rule's data had two readers; the change edited the one in the
+package it was writing and missed the other. gopls showed `ReservedFactFamilies` had exactly one other reader.
+
+**Why 837 and 749 did not prevent it.** Both were tiers disagreeing on one decision, each fixed at its site. LESSONS 350
+says such a rule is one function every tier calls; here the function existed (`ReservedFact`) and the Controller read
+the raw list instead.
+
+**Fix.** `heldByBuiltin` reads `collection.FactFloor()`; `TestSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod` adds
+`edge.site` and is red without the change.
+
+**Lesson.** LESSONS 350 again: before changing a rule's data, list every reader of it (go_symbol_references) and move
+all of them in the same commit.
+
+## 980. A new build tag could drop the catalog from a release build through GOFLAGS (fixed before push)
+
+**Symptom.** fp-reviewer, Phase 136a: `cmd/pleiades/catalog_builtins.go` gained `//go:build !nocatalog` for the release
+gate, and `tools/release` built with the caller's environment and no `-tags`. A release environment with
+`GOFLAGS=-tags=nocatalog` would ship a `pleiades` with no built-in method, the same version string, and a release test
+that only runs `version`.
+
+**Root cause.** A tag added for a test changes what every build of the package may produce, and the release path
+trusted the environment for flags it never set.
+
+**Fix.** The release build passes `-tags=` explicitly (a command-line flag wins over GOFLAGS).
+
+**Lesson.** A build tag that removes function needs the release build to pin its tags.
+
+## 981. The playbook converter reported a missing native method as a missing parameter (fixed before push)
+
+**Symptom.** Phase 136a's release gate, on a `pleiades` built with no catalog: `ansible.builtin.file` converted to
+`file.directory` and the report said "file.directory has no parameter for path" instead of naming the missing method.
+
+**Root cause.** `setParam` looked up the method's parameters, found none for an unregistered method, and blamed the
+parameter; the registration check (`checkRequired`) ran later. In a full build every mapped method is registered, so
+the order never showed.
+
+**Fix.** `setParam` checks registration first and reports `module.unmapped` with the Collection that holds the method.
+
+**Lesson.** A check that two lookups share should test the outer one first; a build with less linked is the cheapest
+place to see the order.

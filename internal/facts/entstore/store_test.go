@@ -350,12 +350,14 @@ func TestSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod(t *testing.T) {
 		method string
 		want   []string
 	}{
+		// edge.site: under a first-party namespace no built-in declares a fact
+		// in, held by the same floor the Runner's loader reads (Phase 136a).
 		{method: "acme.facts.read", want: []string{"acme.widgets"}},
-		{method: "facts.gather", want: []string{"Package.openssh", "acme.widgets", "host.name"}},
+		{method: "facts.gather", want: []string{"Package.openssh", "acme.widgets", "edge.site", "host.name"}},
 	} {
 		client, device := open(t)
 		store := entstore.New(client)
-		entries, _, _ := facts.Prepare(map[string]any{"host.name": "web1", "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
+		entries, _, _ := facts.Prepare(map[string]any{"host.name": "web1", "Package.openssh": "9.6", "acme.widgets": 3, "edge.site": "dc1"}, facts.Guard{})
 		batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(), Entries: entries, By: facts.Provenance{Method: tc.method}}
 		sub := entstore.NewSubscriber(store, nil, nil, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins))
 		if err := handle(t, sub, batch); err != nil {

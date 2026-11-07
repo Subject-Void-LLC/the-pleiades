@@ -79,6 +79,7 @@ func run() error {
 		{"openapi", generateOpenAPI},
 		{"collection coverage", generateCoverage},
 		{"extension protocols", generateExtensionProtocols},
+		{"first-party lists", generateFirstParty},
 	}
 
 	for _, step := range steps {
@@ -131,6 +132,7 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Collection coverage data](schemas/collection-coverage.json) (data, not a schema: the coverage pages as JSON)
 - [OpenAPI document](schemas/openapi.json) (also served live at ` + "`/api/v1/openapi.json`" + `)
 - [External Collection protocols](schemas/extension-protocols.json) (data, not a schema: the protocol versions this release speaks, also served at ` + "`/.well-known/pleiades/extension-protocols.json`" + `)
+- [First-party lists](schemas/first-party.json) (data, not a schema: the first-party Collections, the namespaces and fact prefixes they reserve, and the routing table from each first-party method to its Collection)
 `
 	return os.WriteFile(filepath.Join(outputDir, "index.md"), []byte(content), 0o644) // #nosec G306 -- generated docs, not secret material
 }

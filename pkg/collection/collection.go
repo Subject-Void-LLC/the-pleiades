@@ -220,6 +220,14 @@ func Register(d Descriptor) error {
 	if !ok || namespace == "" || method == "" {
 		return fmt.Errorf("collection: %q is not namespaced (requires <namespace>.<method>)", d.Name)
 	}
+	// A method from outside this binary may not take a first-party name,
+	// whatever this binary links (Phase 136a). The loader refuses it first;
+	// this keeps Register the authority for every caller that sets a
+	// Provider, the loader's second pass among them. Phase 136e admits a
+	// program signed by the first-party key here.
+	if d.Provider != nil && IsFirstPartyNamespace(strings.ToLower(namespace)) {
+		return fmt.Errorf("collection: %q is an external Collection's method in the namespace %q, which is reserved for first-party Collections", d.Name, namespace)
+	}
 
 	for _, name := range d.Manifest.RequiredCapabilities {
 		if _, known := capability.Lookup(name); !known {
@@ -327,8 +335,8 @@ func Lookup(name string) (Descriptor, bool) {
 // BuiltinNamespaces returns, sorted, the namespace (the first dotted part
 // of the name) of every registered method compiled into this binary,
 // that is every method with no Provider, implemented or declared. A
-// loader of external Collections reserves these, so a name in one of
-// them can only ever mean code that ships with Pleiades.
+// loader of external Collections reserves these beside FirstPartyNamespaces,
+// which internal/archtest holds to contain every one of them.
 func BuiltinNamespaces() []string {
 	seen := map[string]bool{}
 	for name, d := range collections.All() {

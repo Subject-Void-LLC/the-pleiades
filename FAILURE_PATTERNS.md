@@ -982,6 +982,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 976. Six comments and a changelog sentence claimed more than the seen-versus-changed code does (fixed before push, a repeat of 571 and 789)
 977. commitgate refused a comment-only ent schema edit, which go generate writes nothing for, so the only way through was --no-verify (fixed)
 978. Two new ent tables reached CI with the backup listing fixture still holding the old table count (fixed before the pull request, a third time of a class two recaptures never indexed)
+979. The Controller's check of which facts only a built-in may write kept the old family list when the Runner's floor grew (fixed before push, a repeat in kind of 837 and 749)
+980. A new build tag could drop the catalog from a release build through GOFLAGS (fixed before push)
+981. The playbook converter reported a missing native method as a missing parameter (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

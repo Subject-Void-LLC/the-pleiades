@@ -7538,3 +7538,17 @@ suite can still disagree wherever the suite has no case.
 write a seeded random generator over the inputs that matter (orders, times, kinds, values), and require equal reads
 after every step on every backend. Keep the oracle after the change: it is the definition of "same answers as
 before".
+
+## 412. The release that introduces a compatibility contract is the one release its checker cannot see: write that release's breaking fragment by hand
+
+**Rule.** When a change adds a new contract file that `tools/schemacompat` will compare from the next release on, the
+change itself is compared against nothing (the base tag lacks the file), so whatever it reserves or removes at once must
+be named in a `changelog/*.breaking.md` fragment written by hand, from a list of what a full build newly refuses.
+
+**Incident.** Phase 136a (2026-11-07) added `first-party.json` and with it reserved twelve new namespaces and every
+first-party namespace as a fact prefix. schemacompat passed, because v0.3.0 has no such file, and the first fragment was
+a `.security.md` that left out the fact half. fp-reviewer listed what a full build newly refuses; the fragment became
+`.breaking.md` naming both halves and the directory-wide refusal.
+
+**Rule in practice.** For a new contract file, diff the behavior the old code and the new code allow (what loads, what
+is refused) and write that as the breaking fragment in the same branch.

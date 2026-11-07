@@ -49,9 +49,9 @@ func TestLoad_FactDeclarationsAreHeldToRegistersRules(t *testing.T) {
 		// refused even with the same kind and type, which used to load, and so
 		// is a reserved family or a name inside one.
 		{"acme.facts.spoof", []collection.FactSpec{{Key: "loadertest.kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "which built-in method \"factbuiltin.gather.kernel\""},
-		{"acme.facts.family", []collection.FactSpec{{Key: "package.", Prefix: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family \"package.\"*"},
-		{"acme.facts.item", []collection.FactSpec{{Key: "service.sshd", Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family \"service.\"*"},
-		{"acme.facts.ansible", []collection.FactSpec{{Key: "ansible_distribution", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "the reserved family \"ansible_\"*"},
+		{"acme.facts.family", []collection.FactSpec{{Key: "package.", Prefix: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family or first-party namespace \"package.\"*"},
+		{"acme.facts.item", []collection.FactSpec{{Key: "service.sshd", Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family or first-party namespace \"service.\"*"},
+		{"acme.facts.ansible", []collection.FactSpec{{Key: "ansible_distribution", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "the reserved family or first-party namespace \"ansible_\"*"},
 		{"acme.facts.sound", []collection.FactSpec{{Key: "acme_widgets", Kind: collection.FactVolatile, Type: collection.FactInteger, Description: "widgets"}}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -202,23 +202,18 @@ func clip(s string, limit int) string {
 	return strings.ToValidUTF8(s[:limit], "") + "..."
 }
 
-// alwaysReserved are namespaces reserved whether or not anything in this
-// build registers in them: The Pleiades's own, and Ansible's, whose names a
-// migrating playbook already uses and which a third party must not be
-// able to impersonate.
-var alwaysReserved = []string{"pleiades", "ansible"}
-
-// reservedNamespaces is every namespace an external method may not use:
-// each one a method compiled into this binary uses, read from the
-// registry when Load runs, so a namespace the catalog adds is reserved
-// with no second edit, plus alwaysReserved. A name in any of them can
-// then only mean code that ships with The Pleiades.
+// reservedNamespaces is every namespace an external method may not use: the
+// static first-party list (collection.FirstPartyNamespaces, Phase 136a),
+// which holds whether or not this binary links a group's methods, and, so a
+// namespace a built-in adds is never claimable even before the list is
+// edited, every namespace a method compiled into this binary uses
+// (internal/archtest holds the list to contain them all).
 func reservedNamespaces() map[string]bool {
 	reserved := map[string]bool{}
-	for _, ns := range collection.BuiltinNamespaces() {
+	for _, ns := range collection.FirstPartyNamespaces() {
 		reserved[ns] = true
 	}
-	for _, ns := range alwaysReserved {
+	for _, ns := range collection.BuiltinNamespaces() {
 		reserved[ns] = true
 	}
 	return reserved

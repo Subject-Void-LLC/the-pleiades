@@ -31,3 +31,11 @@ var OpenAPISpec []byte
 //
 //go:embed extension-protocols.json
 var ExtensionProtocols []byte
+
+// FirstParty is the first-party lists the core ships (Phase 136a): the
+// groups, the namespaces and fact floor they reserve, and the routing table
+// from each first-party method to its group (pkg/collection's static lists,
+// written by tools/gendocs).
+//
+//go:embed first-party.json
+var FirstParty []byte

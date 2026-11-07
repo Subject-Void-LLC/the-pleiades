@@ -48,6 +48,8 @@ const (
 	catalog
 	// protocols is the external Collection protocol window.
 	protocols
+	// firstParty is the first-party lists and routing table (Phase 136a).
+	firstParty
 	// notAContract is a generated file nothing outside the repository reads.
 	notAContract
 )
@@ -68,6 +70,7 @@ var contracts = map[string]kind{
 	"module-catalog.json":      catalog,
 	"collection-coverage.json": notAContract,
 	"extension-protocols.json": protocols,
+	"first-party.json":         firstParty,
 }
 
 // main runs the check and exits non-zero when the tree fails it.
@@ -157,7 +160,7 @@ func run(t tree, base, lineArg, dir, fragments string) (Verdict, error) {
 			v.Problems = append(v.Problems, fmt.Sprintf("%s was in %s and is not classified: add it to the contracts table", name, base))
 			continue
 		}
-		f, err := compareFile(name, k, old, cur)
+		f, err := compareFileOn(name, k, old, cur, v.Patch)
 		if err != nil {
 			v.Problems = append(v.Problems, err.Error())
 			continue
@@ -173,8 +176,14 @@ func run(t tree, base, lineArg, dir, fragments string) (Verdict, error) {
 	return v, nil
 }
 
-// compareFile decodes one file at both versions and compares it by kind.
+// compareFile is compareFileOn for a minor line.
 func compareFile(name string, k kind, oldB, newB []byte) ([]Finding, error) {
+	return compareFileOn(name, k, oldB, newB, false)
+}
+
+// compareFileOn decodes one file at both versions and compares it by kind;
+// patch says the tree is on a patch line, which the first-party lists read.
+func compareFileOn(name string, k kind, oldB, newB []byte, patch bool) ([]Finding, error) {
 	var o, n any
 	if err := json.Unmarshal(oldB, &o); err != nil {
 		return nil, fmt.Errorf("%s at the base is not JSON: %w", name, err)
@@ -204,6 +213,10 @@ func compareFile(name string, k kind, oldB, newB []byte) ([]Finding, error) {
 		// not a pass over nothing.
 		if c.compareProtocols(om, nm) == 0 {
 			return nil, fmt.Errorf("%s at the base lists no protocol version this check can read, so it compared nothing", name)
+		}
+	case firstParty:
+		if c.compareFirstParty(om, nm, patch) == 0 {
+			return nil, fmt.Errorf("%s at the base lists no first-party group this check can read, so it compared nothing", name)
 		}
 	}
 	return c.findings, nil
