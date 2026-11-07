@@ -685,7 +685,8 @@ ordinary run of ordinary tasks, journaled like any other.
   refusal stays, as `unknown_effect`, until you step over it. `--json` gives each
   problem's `kind`: `undo_first`, `cannot_undo`, `nothing_to_undo` or `unknown_effect`,
   and `unknown_effects` names the methods that failed during their action there,
-  whatever the kind.
+  whatever the kind. A Controller's refusal gives both too, as `kind` and
+  `unknown_effects` on each problem.
 - **How "later" is decided.** Not by the clock: a machine's clock can be set back
   between two runs, and two Runners' clocks can disagree, and either would hide a later
   run. On the CLI, every run ticks a counter in `.pleiades/clock` as it begins and as it

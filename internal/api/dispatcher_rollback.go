@@ -106,6 +106,14 @@ type RollbackProblem struct {
 	// to put in it; both empty when nothing can.
 	Field string `json:"field,omitempty"`
 	Value string `json:"value,omitempty"`
+	// Kind says, for a later job, which kind of job it is
+	// (rollback.KindUndoFirst and the rest), and for a change whose undo
+	// needs a runbook not found, rollback.KindNoRunbook; empty otherwise.
+	Kind string `json:"kind,omitempty"`
+	// UnknownEffects names, for a later job, the methods whose tasks failed
+	// during their action on the devices this problem names, so may have
+	// changed them partway, whatever its Kind.
+	UnknownEffects []string `json:"unknown_effects,omitempty"`
 }
 
 // acceptFields maps the planner's flag spelling to the request's fields.
@@ -118,7 +126,7 @@ var acceptFields = map[string]string{
 
 // problemFrom renders a planner problem for the API.
 func problemFrom(p rollback.Problem) RollbackProblem {
-	out := RollbackProblem{Node: p.Node, Device: p.DeviceName, Reason: p.Reason}
+	out := RollbackProblem{Node: p.Node, Device: p.DeviceName, Reason: p.Reason, Kind: p.Kind, UnknownEffects: p.UnknownEffects}
 	if flag, value, ok := strings.Cut(p.Accept, " "); ok {
 		if field, known := acceptFields[flag]; known {
 			out.Field, out.Value = field, value
