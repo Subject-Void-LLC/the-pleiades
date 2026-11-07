@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
@@ -83,6 +84,39 @@ func TestFirstPartyGroups_EachHoldsAMethod(t *testing.T) {
 	for _, g := range collection.FirstPartyGroups() {
 		if !filled[g.Name] && ahead[g.Name] == "" {
 			t.Errorf("first-party group %q holds no method; remove it or say why it is reserved ahead", g.Name)
+		}
+	}
+}
+
+// TestFirstPartyFacts_EveryBuiltInDeclarationIsInsideTheFloor: a built-in
+// fact declared outside the floor would be dropped from the fact family map,
+// and the day each first-party program is held to that map it would be refused
+// for a fact it has always written.
+func TestFirstPartyFacts_EveryBuiltInDeclarationIsInsideTheFloor(t *testing.T) {
+	var catalog map[string]collection.Manifest
+	if err := json.Unmarshal(wellknown.ModuleCatalog, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	// Against the floor alone: collection.ReservedFact also matches the
+	// registry's own declarations, so every built-in would match itself.
+	floor := collection.FactFloor()
+	inside := func(key string) bool {
+		key = strings.ToLower(key)
+		for _, prefix := range floor {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	if inside("vlan.x") || !inside("OS.family") {
+		t.Fatal("control: the floor check reads vlan.x as inside or OS.family as outside")
+	}
+	for _, name := range slices.Sorted(maps.Keys(catalog)) {
+		for _, f := range catalog[name].Facts {
+			if !inside(f.Key) {
+				t.Errorf("%s declares fact %q outside the fact floor; put it under a reserved family or its own namespace", name, f.Key)
+			}
 		}
 	}
 }

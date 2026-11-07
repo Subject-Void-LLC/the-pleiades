@@ -5,12 +5,12 @@ package playbook
 import (
 	"errors"
 	"fmt"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/firstparty"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/firstparty"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -127,12 +127,12 @@ type resolvedItem struct{ v any }
 // c. item, when not nil, is one unrolled element instead: a written node,
 // or a resolvedItem.
 func (t *translator) setParam(c *plannedCall, param string, item any, in argIn, bindings map[string]any) *blockReason {
-	types := paramTypes(c.call.FQCN)
-	if types == nil {
+	if _, registered := collection.Lookup(c.call.FQCN); !registered {
 		// The method itself is missing (a build without its Collection), so
 		// say that rather than blame the parameter (Phase 136a).
 		return &blockReason{"module.unmapped", in.at, fmt.Sprintf("%s is not a registered native method%s", c.call.FQCN, firstparty.Hint(c.call.FQCN))}
 	}
+	types := paramTypes(c.call.FQCN)
 	typ, declared := types[param]
 	if !declared {
 		return &blockReason{"args.unmapped", in.at, fmt.Sprintf("%s has no parameter for %s", c.call.FQCN, in.name)}

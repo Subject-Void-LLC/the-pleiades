@@ -2,10 +2,10 @@ package validate
 
 import (
 	"fmt"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/firstparty"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/firstparty"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 

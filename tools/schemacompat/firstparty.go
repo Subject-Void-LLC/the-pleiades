@@ -6,10 +6,12 @@
 // each first-party method to its group. A name taken off the list frees it for
 // anyone, a method moved to another group changes what a user is told to
 // install, and a group losing a fact prefix strands a program that writes
-// there: each is a break a minor release names in a fragment. A name added to
-// the list refuses a program the release before loaded, so the lists grow on a
-// minor only: on a patch line every addition is a break too. A new method
-// routed to a group is not: a patch release may add a method.
+// there. A name added to a list refuses a program the release before loaded.
+// Each of those is a break: a minor release names it in a
+// `changelog/*.breaking.md` fragment, and a patch release cannot make it. A
+// first-party group gaining a fact prefix it may fill refuses nobody, so it is
+// held only on a patch line. A new method routed to a group is not a break: a
+// patch release may add a method.
 package main
 
 // compareFirstParty compares two first-party documents; patch says the tree
@@ -27,13 +29,11 @@ func (c *schemaComparer) compareFirstParty(o, n map[string]any, patch bool) int 
 			c.report("first-party-group-core-changed", at+"/core", both, input)
 		}
 	}
-	c.compareLists(o["namespaces"], n["namespaces"], "/namespaces", "first-party-namespace", patch)
-	c.compareLists(o["fact_floor"], n["fact_floor"], "/fact_floor", "first-party-fact-prefix", patch)
-	if patch {
-		for _, name := range sortedKeys(newGroups) {
-			if _, was := oldGroups[name]; !was {
-				c.report("first-party-group-added-on-a-patch", "/groups/"+escape(name), both, input)
-			}
+	c.compareLists(o["namespaces"], n["namespaces"], "/namespaces", "first-party-namespace", true)
+	c.compareLists(o["fact_floor"], n["fact_floor"], "/fact_floor", "first-party-fact-prefix", true)
+	for _, name := range sortedKeys(newGroups) {
+		if _, was := oldGroups[name]; !was {
+			c.report("first-party-group-added", "/groups/"+escape(name), both, input)
 		}
 	}
 	oldOwners, _ := o["fact_family_owners"].(map[string]any)
@@ -52,19 +52,19 @@ func (c *schemaComparer) compareFirstParty(o, n map[string]any, patch bool) int 
 }
 
 // compareLists reports each entry of the old list the new one lacks as
-// rule+"-removed", and, on a patch line, each entry the new one adds as
-// rule+"-added-on-a-patch".
-func (c *schemaComparer) compareLists(o, n any, at, rule string, patch bool) {
+// rule+"-removed", and, when added says growth counts, each entry the new one
+// adds as rule+"-added".
+func (c *schemaComparer) compareLists(o, n any, at, rule string, added bool) {
 	olds, news := stringSet(o), stringSet(n)
 	for _, v := range sortedKeys(olds) {
 		if !news[v] {
 			c.report(rule+"-removed", at+"/"+escape(v), both, input)
 		}
 	}
-	if patch {
+	if added {
 		for _, v := range sortedKeys(news) {
 			if !olds[v] {
-				c.report(rule+"-added-on-a-patch", at+"/"+escape(v), both, input)
+				c.report(rule+"-added", at+"/"+escape(v), both, input)
 			}
 		}
 	}

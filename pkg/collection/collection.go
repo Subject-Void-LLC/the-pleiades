@@ -222,8 +222,9 @@ func Register(d Descriptor) error {
 	}
 	// A method from outside this binary may not take a first-party name,
 	// whatever this binary links (Phase 136a). The loader refuses it first;
-	// this keeps Register the authority, so no path around the loader can.
-	// Phase 136e admits a program signed by the first-party key here.
+	// this keeps Register the authority for every caller that sets a
+	// Provider, the loader's second pass among them. Phase 136e admits a
+	// program signed by the first-party key here.
 	if d.Provider != nil && IsFirstPartyNamespace(namespace) {
 		return fmt.Errorf("collection: %q is an external Collection's method in the namespace %q, which is reserved for first-party Collections", d.Name, namespace)
 	}

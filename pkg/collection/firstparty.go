@@ -169,9 +169,8 @@ func FirstPartyRoutes(manifests map[string]Manifest) (map[string]string, error) 
 // groups whose methods in manifests declare a fact inside it, each list sorted
 // (empty for a prefix no method fills yet, ansible_ among them). It is the map
 // a later release holds each first-party program's declarations to (the
-// split's S4); every built-in declaration lies inside the floor by
-// construction, since a built-in's facts sit under a reserved family or its
-// own first-party namespace.
+// split's S4). A declaration outside the floor would be dropped here, so
+// internal/archtest holds every built-in declaration inside it.
 func FactFamilyOwners(manifests map[string]Manifest) map[string][]string {
 	owners := map[string]map[string]bool{}
 	floor := FactFloor()

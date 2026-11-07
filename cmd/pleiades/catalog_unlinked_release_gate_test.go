@@ -42,12 +42,6 @@ func TestCLI_WithNoCollectionLinkedTheCoreStillReservesAndRoutes(t *testing.T) {
 		return string(out), err
 	}
 
-	// No catalog: doc --list holds no first-party method at all (it may
-	// exit non-zero for having nothing to list).
-	if out, _ := run(t.TempDir(), nil, "doc", "--list"); strings.Contains(out, "file.copy") {
-		t.Fatalf("doc --list on the unlinked build lists a built-in method:\n%s", out)
-	}
-
 	collections := t.TempDir()
 	if err := os.Chmod(collections, 0o700); err != nil {
 		t.Fatal(err)
@@ -63,6 +57,18 @@ func TestCLI_WithNoCollectionLinkedTheCoreStillReservesAndRoutes(t *testing.T) {
 	if out, err := run(t.TempDir(), env, "doc", "--list"); err == nil || !strings.Contains(out, `"container" namespace, which belongs to The Pleiades itself`) {
 		t.Fatalf("doc --list with the impostor = %v, want it refused for the container namespace:\n%s", err, out)
 	}
+	// A prefix counts only at a dot: a program named netbox is its own, and
+	// loads once the impostor is gone.
+	if err := os.Remove(filepath.Join(collections, "impostor")); err != nil {
+		t.Fatal(err)
+	}
+	netbox := strings.Replace(strings.ReplaceAll(promptProgram, "clitest.prompt.run", "netbox.devices.sync"), `"supportsCheck":false}`, `"supportsCheck":false,"reversibility":{"readOnly":true,"notes":"a test"}}`, 1)
+	if err := os.WriteFile(filepath.Join(collections, "netbox"), []byte(netbox), 0o700); err != nil { // #nosec G306 -- a test program that must be executable
+		t.Fatal(err)
+	}
+	if out, err := run(t.TempDir(), env, "collection", "approve", "netbox", "--yes"); err != nil {
+		t.Fatalf("approving netbox: %v\n%s", err, out)
+	}
 
 	dir := t.TempDir()
 	for _, args := range [][]string{{"init"}, {"add-host", "dockerhost", "--type", "linux_server"}} {
@@ -73,6 +79,21 @@ func TestCLI_WithNoCollectionLinkedTheCoreStillReservesAndRoutes(t *testing.T) {
 	runbook := "# Pulls one image (the release gate's runbook; changes nothing, no undo).\nid: pull\nhosts: dockerhost\ntasks:\n  - name: pull alpine\n    container.image.pull:\n      image: alpine:3\n"
 	if err := os.WriteFile(filepath.Join(dir, "runbooks", "pull.yaml"), []byte(runbook), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	// No catalog: even file.copy is a method this build does not include.
+	copyRunbook := "# Copies one file (the release gate's runbook; one file written, undo removes it).\nid: copy\nhosts: dockerhost\ntasks:\n  - name: copy a file\n    file.copy:\n      src: a.txt\n      dest: /tmp/a.txt\n"
+	if err := os.WriteFile(filepath.Join(dir, "runbooks", "copy.yaml"), []byte(copyRunbook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(dir, nil, "validate", "runbooks/copy.yaml"); err == nil || !strings.Contains(out, "it belongs to the first-party file Collection, which this build does not include") {
+		t.Fatalf("validate copy.yaml = %v, want the file Collection named:\n%s", err, out)
+	}
+	netboxRunbook := "# Reads devices from NetBox (the release gate's runbook; changes nothing, no undo).\nid: sync\nhosts: dockerhost\ntasks:\n  - name: sync\n    netbox.devices.sync: {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "runbooks", "sync.yaml"), []byte(netboxRunbook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(dir, env, "validate", "runbooks/sync.yaml"); strings.Contains(out, "belongs to The Pleiades itself") || strings.Contains(out, "not a registered collection name") {
+		t.Fatalf("validate sync.yaml = %v, want the netbox program loaded and its method known:\n%s", err, out)
 	}
 	out, err := run(dir, nil, "validate", "runbooks/pull.yaml")
 	if err == nil || !strings.Contains(out, `"container.image.pull", which is not a registered collection name; it belongs to the first-party container Collection, which this build does not include`) {

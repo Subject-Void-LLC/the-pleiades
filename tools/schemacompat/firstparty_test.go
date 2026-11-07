@@ -2,7 +2,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -29,22 +32,25 @@ func rules(t *testing.T, cur string, patch bool) []string {
 	return out
 }
 
-// TestCompareFirstParty_GrowsOnAMinorOnly: a namespace, a fact prefix, a
-// group or an owner added is a break on a patch line and nothing on a minor; a
-// new method routed to a group is nothing on either.
-func TestCompareFirstParty_GrowsOnAMinorOnly(t *testing.T) {
+// TestCompareFirstParty_NewlyReservedNamesAreBreaks: a namespace, a fact
+// prefix or a group added refuses a program the release before loaded, so it
+// is a break on any line (a minor names it in a fragment); a first-party group
+// gaining a fact prefix to fill refuses nobody, so it counts on a patch line
+// only; a new method routed to a group counts on neither.
+func TestCompareFirstParty_NewlyReservedNamesAreBreaks(t *testing.T) {
 	grown := `{"schema_version":1,
  "groups":[{"name":"facts","core":true},{"name":"file"},{"name":"net"},{"name":"virt.clab"}],
  "namespaces":["facts","file","net","virt"],
  "fact_floor":["file.","net.","os.","virt."],
  "fact_family_owners":{"os.":["facts","net"],"file.":["facts","net"],"net.":[],"virt.":[]},
  "methods":{"facts.gather":"facts","file.copy":"file","file.stat":"file","net.ios.config":"net","virt.clab.lab.deploy":"virt.clab"}}`
-	if got := rules(t, grown, false); len(got) != 0 {
-		t.Errorf("a minor line reported %v for growth alone", got)
+	minor := []string{"first-party-fact-prefix-added", "first-party-group-added", "first-party-namespace-added"}
+	if got := rules(t, grown, false); !slices.Equal(got, minor) {
+		t.Errorf("a minor line reported %v, want %v", got, minor)
 	}
-	want := []string{"first-party-fact-owner-added-on-a-patch", "first-party-fact-prefix-added-on-a-patch", "first-party-group-added-on-a-patch", "first-party-namespace-added-on-a-patch"}
-	if got := rules(t, grown, true); !slices.Equal(got, want) {
-		t.Errorf("a patch line reported %v, want %v", got, want)
+	patch := []string{"first-party-fact-owner-added", "first-party-fact-prefix-added", "first-party-group-added", "first-party-namespace-added"}
+	if got := rules(t, grown, true); !slices.Equal(got, patch) {
+		t.Errorf("a patch line reported %v, want %v", got, patch)
 	}
 	newMethodOnly := `{"schema_version":1,
  "groups":[{"name":"facts","core":true},{"name":"file"},{"name":"net"}],
@@ -54,6 +60,61 @@ func TestCompareFirstParty_GrowsOnAMinorOnly(t *testing.T) {
  "methods":{"facts.gather":"facts","file.copy":"file","file.stat":"file","net.ios.config":"net"}}`
 	if got := rules(t, newMethodOnly, true); len(got) != 0 {
 		t.Errorf("a new method on a patch line reported %v", got)
+	}
+}
+
+// fileTree is a tree holding one schema directory's files at every tag.
+type fileTree struct{ files map[string]string }
+
+// tags implements tree.
+func (fileTree) tags() ([]string, error) { return []string{"v0.4.0"}, nil }
+
+// list implements tree.
+func (f fileTree) list(string, string) ([]string, error) {
+	var out []string
+	for name := range f.files {
+		out = append(out, name)
+	}
+	return out, nil
+}
+
+// read implements tree.
+func (f fileTree) read(_, path string) ([]byte, error) {
+	return []byte(f.files[filepath.Base(path)]), nil
+}
+
+// TestRun_TheLineDecidesForTheFirstPartyLists: through run, as the tool
+// runs, a namespace added since v0.4.0 fails a patch line outright, fails a
+// minor line with no fragment, and passes a minor line whose fragment names it.
+func TestRun_TheLineDecidesForTheFirstPartyLists(t *testing.T) {
+	grown := strings.Replace(firstPartyBase, `"namespaces":["facts","file","net"]`, `"namespaces":["facts","file","net","os"]`, 1)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "first-party.json"), []byte(grown), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := fileTree{files: map[string]string{"first-party.json": firstPartyBase}}
+	token := "first-party-namespace-added first-party.json#/namespaces/os"
+	for _, tc := range []struct {
+		line, fragment string
+		pass           bool
+	}{
+		{line: "0.4.1", fragment: token, pass: false},
+		{line: "0.5.0", pass: false},
+		{line: "0.5.0", fragment: token, pass: true},
+	} {
+		fragments := t.TempDir()
+		if tc.fragment != "" {
+			if err := os.WriteFile(filepath.Join(fragments, "os.breaking.md"), []byte("The os namespace is reserved (`"+tc.fragment+"`).\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		v, err := run(base, "", tc.line, dir, fragments)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.Pass != tc.pass || len(v.Findings) != 1 || v.Findings[0].Token() != token {
+			t.Errorf("line %s fragment %q: pass %v findings %+v, want pass %v and the one finding", tc.line, tc.fragment, v.Pass, v.Findings, tc.pass)
+		}
 	}
 }
 
