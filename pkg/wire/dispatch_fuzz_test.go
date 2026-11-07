@@ -198,7 +198,7 @@ func FuzzJobEventDecode(f *testing.F) {
 // so treating them as equal here is what keeps this property about
 // content rather than about encoding trivia.
 func dispatchPayloadsEqual(a, b wire.DispatchPayload) bool {
-	if a.JobID != b.JobID ||
+	if a.PayloadVersion != b.PayloadVersion || a.JobID != b.JobID ||
 		a.RunbookID != b.RunbookID ||
 		a.Kind != b.Kind ||
 		a.DeviceID != b.DeviceID ||

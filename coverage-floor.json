@@ -190,7 +190,10 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/loader": 85.7,
     "github.com/Subject-Void-LLC/the-pleiades/tools/doctor": 82.2,
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/externalscaffold": 92.7,
-    "github.com/Subject-Void-LLC/the-pleiades/tools/prscope": 91.3
+    "github.com/Subject-Void-LLC/the-pleiades/tools/prscope": 91.3,
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/wire": 82.1,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/golden": 91.1,
+    "github.com/Subject-Void-LLC/the-pleiades/tools/schemacompat": 85.2
   },
   "_exceptions": {
     "github.com/Subject-Void-LLC/the-pleiades/internal/runner": "Phase 15 (Runner Agent Scaffold) lowered this floor from 93.5 to 87.1, the one deliberate exception to this file's own 'never silently down' rule, recorded here rather than silently edited. The prior 93.5 was measured against a small pull-loop-plus-backoff Agent; this phase roughly quadrupled the package (a bounded worker pool, a per-device lock/heartbeat/self-abort supervisor, and a full Write-Ahead-Log subsystem: wal.go, wal_file.go, agent_wal.go), each with real, RULE-0-representative tests (real lock.NewInProcessManager(), real fileWAL file I/O, a real NATS container for the Release Gate). 87.1% was reached after closing every reasonably-reachable gap; the remainder is concentrated in atomicWriteFile/NewFileWAL's OS-failure branches (CreateTemp/Chmod/Sync/Rename, and a permission-denied probe), which this sandbox cannot exercise because it runs as root (permission bits do not block root writes) -- HANDOFF_DOCUMENT.md's own Phase 15 session notes record this in full.",
@@ -278,7 +281,6 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest": "test-support package, not shippable product code: the conformance suite both fact stores (internal/facts and internal/facts/entstore) run through, exercised only by their tests, never its own, so go test reports it at 0%",
     "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest": "test-double helper package, not shippable product code",
     "github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest": "test-double helper package, not shippable product code, mirroring pkg/inventory/inventorytest above. It is a real SSH server rather than a stub, and every package importing it exercises it on each run: pkg/sdk's connect tests and internal/catalog/exec's whole suite fail immediately if it stops handshaking, running a command, reporting an exit status or honoring its session limit.",
-    "github.com/Subject-Void-LLC/the-pleiades/pkg/wire": "a data-only package: struct definitions with json tags and no logic to cover. Phase 16 grew it from one struct to four (DispatchPayload, JobEvent, ChildRequest, ChildResponse); the exclusion still holds because every one of them is a plain field set, and the encode/decode behavior that matters is exercised where it is used, including the two fuzz targets over the IPC frames in internal/adapters/native.",
     "github.com/Subject-Void-LLC/the-pleiades/tests/e2e": "test-only package (integration tests); no non-test source exists to measure",
     "github.com/Subject-Void-LLC/the-pleiades/tools/coverage-check": "CI meta-tooling, not shippable product code",
     "github.com/Subject-Void-LLC/the-pleiades/tools/docs-lint": "CI meta-tooling, not shippable product code",

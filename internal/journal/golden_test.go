@@ -171,7 +171,7 @@ func TestJournalFormatOneReadsEveryKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a format-1 journal holding every kind no longer reads: %v", err)
 	}
-	if len(run.Entries) != 26 {
-		t.Errorf("read %d entries, want 26", len(run.Entries))
+	if len(run.Entries) != 28 {
+		t.Errorf("read %d entries, want 28", len(run.Entries))
 	}
 }

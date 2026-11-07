@@ -150,10 +150,11 @@ The journal under `.pleiades/journal` records every task of a run, for audit and
 rollback. Each line carries `format`, the version of its shape; a line without one
 was written before the field existed and reads as format 1.
 
-**Until 1.0, the format may change at any minor release.** A build reads every format
-up to its own and refuses a newer one by name, so an older build never plans a
-rollback from fields it does not understand. A journal written by one release is
-read by every later one. 0.3.0 predates the field: it refuses a journal 0.4.0 wrote,
+**Until 1.0, the format may change at any minor release.** A build refuses a format
+newer than its own by name, so an older build never plans a rollback from fields it
+does not understand. A journal written by one release is read by every later one: the
+change that adds a format keeps every earlier one readable, and a frozen format-1
+journal holding every kind of entry is read back by every build's tests. 0.3.0 predates the field: it refuses a journal 0.4.0 wrote,
 naming the unknown `format` key rather than the version.
 
 ### Dispatch payload
@@ -165,7 +166,13 @@ The message a Controller sends a Runner for each device of a job. It carries
 Runners are upgraded to the same release. A new field whose absence means the old
 behavior needs no new version. A field an older Runner would misread raises the
 version, and a Runner refuses a payload newer than it reads: the job fails with the
-reason rather than running part of what was asked.
+reason rather than running part of what was asked. Runners from before 0.4.0 predate
+the field and cannot refuse one.
+
+Two other Walk-tier messages carry no version yet: the journal batch a Runner sends
+the Controller, and a job's result. Each is read leniently, so a field a newer Runner
+adds is dropped by an older Controller. Upgrading the Controller and its Runners
+together, as above, is what keeps them in step.
 
 ### The database schema's compatibility window
 
@@ -215,9 +222,11 @@ compares each schema in `docs/reference/schemas` with the same file at the newes
 release tag at or below this tree's release line. A change to a schema for something a
 user writes (a runbook, an inventory file, an API request) breaks when it refuses a
 document the release accepted. A change to a schema for something the platform writes
-(the run report, an API response) breaks when it lets the platform write a document a
-reader of the release was never told about. The module catalog is checked for the
-removals and changes listed above.
+(the run report, an API response) breaks when it removes a field or makes one
+optional, or widens a type, an `enum` or a bound, so a reader meets something it was
+never told about; a new field is not a break, since a reader ignores a field it does
+not know. A keyword the check has no rule for counts as a break whenever it changes.
+The module catalog is checked for the removals and changes listed above.
 
 Each break is printed as one token, such as
 `property-removed run-report.json#/properties/nodes`. On the 0.4.0 line, a

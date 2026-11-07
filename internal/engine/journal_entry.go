@@ -530,7 +530,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	case n.Skipped:
 		if !validSkipKind(n.skipKind) {
 			return JournalEntry{}, fmt.Errorf(
-				"node %q (device %q) was skipped for reason kind %q, which is not one of the four this journal records",
+				"node %q (device %q) was skipped for reason kind %q, which is not one this journal records",
 				n.NodeID, n.Device, n.skipKind)
 		}
 		entry.Outcome = OutcomeSkipped

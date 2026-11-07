@@ -4,11 +4,13 @@
 // It compares each file with the same file at the newest release tag at or
 // below this tree's release line (buildinfo.CurrentRelease) and reports
 // every breaking change: for an input schema (a runbook, an inventory file,
-// an API request) a change that refuses a document the release accepted, for
-// an output schema (the run report, an API response) a change that lets the
-// platform write a document a reader of the release was never told about,
-// and for the module catalog a method, parameter, return or fact gone or
-// changed. On a later minor line each break must be named by a
+// an API request) a change that refuses a document the release accepted; for
+// an output schema (the run report, an API response) a field removed or made
+// optional, or a type, enum or bound widened, so a reader meets what it was
+// never told about (a new field is not a break, since a reader ignores a
+// field it does not know); and for the module catalog a method, parameter,
+// return or fact gone or changed. A keyword the check has no rule for is
+// reported whenever it changes. On a later minor line each break must be named by a
 // `changelog/*.breaking.md` fragment; on a patch line nothing accepts one.
 // docs/13-releases-and-stability.md states the contracts this enforces.
 //

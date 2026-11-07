@@ -4,30 +4,45 @@ package runner_test
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 // TestAgent_HandleMessage_ANewerPayloadIsRefusedNeverRun proves a payload
-// version past this Runner's is terminated before the adapter runs: not
-// executed with the fields this Runner would silently drop, not acked as if
-// it ran, and not Nak'd, since redelivery to the same binary cannot help.
+// version past this Runner's is reported failed, naming the version, and
+// terminated before the adapter runs: not executed with the fields this
+// Runner would silently drop, not acked as if it ran, and not Nak'd, since
+// redelivery to the same binary cannot help. A newer payload whose new
+// shape fails to decode here (a field retyped) is reported the same way.
 // The same payload at version 1 runs, which is the control.
 func TestAgent_HandleMessage_ANewerPayloadIsRefusedNeverRun(t *testing.T) {
 	for _, tc := range []struct {
+		name    string
 		version int
+		extra   string
 		wantRun bool
-	}{{version: 2, wantRun: false}, {version: 1, wantRun: true}} {
-		t.Run(fmt.Sprintf("version %d", tc.version), func(t *testing.T) {
-			body := fmt.Sprintf(`{"payload_version":%d,"job_id":%q,"runbook_id":"pb-1","device_id":"device-1","device_name":"router-1","device_host":"10.0.0.1","interruptible":true}`,
-				tc.version, testJobID)
+	}{
+		{name: "version 2", version: 2},
+		{name: "version 2 with a field retyped", version: 2, extra: `,"capabilities":{"ssh":true}`},
+		{name: "version 1", version: 1, wantRun: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"payload_version":%d,"job_id":%q,"runbook_id":"pb-1","device_id":"device-1","device_name":"router-1","device_host":"10.0.0.1","interruptible":true%s}`,
+				tc.version, testJobID, tc.extra)
+			bus := event.NewInProcessBus()
+			defer bus.Close()
+			received := subscribeResultEntries(t, bus, testJobID)
 			msg := &nakTrackingMsg{MockMsg: &MockMsg{data: wireWrapDispatchPayload(body)}}
 			consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
 			adapter := newCountingAdapter()
-			agent := runner.NewAgent(consumer, adapter, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
+			agent := runner.NewAgent(consumer, adapter, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
+				runner.WithResultReporting(bus))
 
 			if tc.wantRun {
 				runAgentUntil(t, agent, msg.ack.Load, agentSettleTimeout)
@@ -37,8 +52,19 @@ func TestAgent_HandleMessage_ANewerPayloadIsRefusedNeverRun(t *testing.T) {
 			if ran := adapter.total() > 0; ran != tc.wantRun {
 				t.Errorf("adapter ran = %v, want %v", ran, tc.wantRun)
 			}
-			if !tc.wantRun && (msg.naked.Load() || msg.ack.Load()) {
+			if tc.wantRun {
+				return
+			}
+			if msg.naked.Load() || msg.ack.Load() {
 				t.Errorf("a newer payload was Nak'd (%v) or acked (%v); want it terminated", msg.naked.Load(), msg.ack.Load())
+			}
+			select {
+			case entry := <-received:
+				if entry.Outcome != "failed" || !strings.Contains(entry.Reason, "version 2 and this runner reads up to 1") {
+					t.Errorf("result %q %q, want failed naming the version", entry.Outcome, entry.Reason)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no failed result was published, so the job would read dispatched forever")
 			}
 		})
 	}

@@ -164,6 +164,12 @@ func TestSchemaRulesBreakOnlyInTheirDirection(t *testing.T) {
 			wantOutput: []string{},
 		},
 		{
+			name: "a keyword with no rule fails closed",
+			old:  `{"type":"array"}`, new: `{"type":"array","uniqueItems":true}`,
+			wantInput:  []string{"schema-changed x.json#/uniqueItems"},
+			wantOutput: []string{"schema-changed x.json#/uniqueItems"},
+		},
+		{
 			name: "an item schema change is found under items",
 			old:  `{"type":"array","items":{"type":["string","null"]}}`, new: `{"type":"array","items":{"type":"string"}}`,
 			wantInput: []string{"type-narrowed x.json#/items/type"}, wantOutput: []string{},

@@ -122,11 +122,39 @@ func (c *schemaComparer) compare(o, n any, ptr string, d direction) {
 	c.compareItems(om, nm, ptr, d)
 	c.compareBranches(om, nm, ptr, d, "oneOf")
 	c.compareBranches(om, nm, ptr, d, "anyOf")
-	for _, k := range []string{"allOf", "not", "if", "then", "else", "patternProperties", "prefixItems"} {
+	// Every other keyword is compared whole, so one this comparer has no
+	// rule for (uniqueItems, propertyNames, unevaluatedProperties, allOf,
+	// not, and any added to JSON Schema later) fails closed, as a change
+	// that may break either side, rather than passing unseen.
+	for _, k := range otherKeywords(om, nm) {
 		if canonical(om[k]) != canonical(nm[k]) {
-			c.report("schema-changed", ptr+"/"+k, both, d)
+			c.report("schema-changed", ptr+"/"+escape(k), both, d)
 		}
 	}
+}
+
+// ruled are the keywords compare has a rule for, and the containers of
+// definitions it reaches only through $ref.
+var ruled = map[string]bool{
+	"$ref": true, "type": true, "enum": true, "const": true, "pattern": true, "format": true,
+	"default": true, "properties": true, "required": true, "additionalProperties": true,
+	"items": true, "oneOf": true, "anyOf": true, "$defs": true, "definitions": true,
+	"minimum": true, "exclusiveMinimum": true, "minLength": true, "minItems": true, "minProperties": true,
+	"maximum": true, "exclusiveMaximum": true, "maxLength": true, "maxItems": true, "maxProperties": true,
+}
+
+// otherKeywords lists, in order, the keywords either side has that compare
+// has no rule for and that are not annotations.
+func otherKeywords(om, nm map[string]any) []string {
+	keys := map[string]bool{}
+	for _, m := range []map[string]any{om, nm} {
+		for k := range m {
+			if !ruled[k] && !annotations[k] {
+				keys[k] = true
+			}
+		}
+	}
+	return sortedKeys(keys)
 }
 
 // followRefs resolves a $ref on either side and compares what it names,

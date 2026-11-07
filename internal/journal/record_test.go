@@ -118,7 +118,7 @@ func TestRecordUsesTheSnakeCaseNamesAsTheFormat(t *testing.T) {
 		}
 	}
 	if len(line) != 40 {
-		t.Errorf("the record holds %d keys, want 40: no field carries omitempty, so every line is whole", len(line))
+		t.Errorf("the record holds %d keys, want 40: every key this entry sets is written", len(line))
 	}
 	// The line names the format it was written in (format.go).
 	if got := line["format"]; got != float64(journal.FormatVersion) {

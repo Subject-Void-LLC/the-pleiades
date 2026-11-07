@@ -1,0 +1,4 @@
+# Golden and frozen test files are compared byte for byte, so a clone that
+# converts line endings (core.autocrlf on Windows) must leave them as written.
+**/testdata/golden/** -text
+**/testdata/format-1/** -text
