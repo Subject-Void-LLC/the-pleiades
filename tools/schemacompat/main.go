@@ -46,6 +46,8 @@ const (
 	openAPI
 	// catalog is the module catalog.
 	catalog
+	// protocols is the external Collection protocol window.
+	protocols
 	// notAContract is a generated file nothing outside the repository reads.
 	notAContract
 )
@@ -64,6 +66,7 @@ var contracts = map[string]kind{
 	"openapi.json":             openAPI,
 	"module-catalog.json":      catalog,
 	"collection-coverage.json": notAContract,
+	"extension-protocols.json": protocols,
 }
 
 // main runs the check and exits non-zero when the tree fails it.
@@ -195,6 +198,8 @@ func compareFile(name string, k kind, oldB, newB []byte) ([]Finding, error) {
 		if c.compareCatalog(om, nm) == 0 && len(om) > 0 {
 			return nil, fmt.Errorf("%s at the base has %d methods and none is implemented: the catalog's shape changed, so the check compared nothing", name, len(om))
 		}
+	case protocols:
+		c.compareProtocols(om, nm)
 	}
 	return c.findings, nil
 }

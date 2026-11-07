@@ -35,7 +35,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -133,11 +132,7 @@ func main() {
 	case routeHealthcheck:
 		os.Exit(runHealthcheck(os.Args[1:]))
 	case routeVersion:
-		fmt.Println("runner " + buildinfo.Version())
-		if name := buildinfo.Codename(); name != "" {
-			fmt.Println(name)
-		}
-		os.Exit(0)
+		os.Exit(printVersion(os.Stdout, os.Args[2:]))
 	case routeAgent:
 		// Fall through into the body below, which is the Agent.
 	}

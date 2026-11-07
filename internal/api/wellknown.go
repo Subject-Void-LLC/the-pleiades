@@ -20,7 +20,7 @@ func wellKnownHandler(body []byte) http.HandlerFunc {
 	}
 }
 
-// registerWellKnown mounts the three /.well-known/pleiades/*.json routes
+// registerWellKnown mounts the four /.well-known/pleiades/*.json routes
 // documented in docs/reference/schemas/, all reads served from
 // internal/api/wellknown's embedded copies (tools/gendocs writes both
 // from one source, so they cannot disagree).
@@ -28,6 +28,7 @@ func registerWellKnown(r chi.Router) {
 	r.Get("/.well-known/pleiades/runbook.schema.json", wellKnownHandler(wellknown.RunbookSchema))
 	r.Get("/.well-known/pleiades/inventory.schema.json", wellKnownHandler(wellknown.InventorySchema))
 	r.Get("/.well-known/pleiades/module-catalog.json", wellKnownHandler(wellknown.ModuleCatalog))
+	r.Get("/.well-known/pleiades/extension-protocols.json", wellKnownHandler(wellknown.ExtensionProtocols))
 }
 
 // registerOpenAPI mounts APIVersionPrefix+"/openapi.json", deliberately

@@ -24,6 +24,8 @@ type candidate struct {
 	path   string
 	digest string
 	desc   external.Description
+	// protocol is the version this build and the program agreed on.
+	protocol external.Protocol
 }
 
 // Load loads every external Collection program in dir and registers its
@@ -139,7 +141,13 @@ func inspectAndDescribe(ctx context.Context, path string, approved map[string][]
 	if err != nil {
 		return candidate{}, fmt.Errorf("program %s: %w", path, err)
 	}
-	return candidate{path: path, digest: digest, desc: desc}, nil
+	// parseDescription already refused a range this build shares nothing
+	// with, so this is the agreed version.
+	protocol, err := external.Negotiate(desc.Range())
+	if err != nil {
+		return candidate{}, fmt.Errorf("program %s: %w", path, err)
+	}
+	return candidate{path: path, digest: digest, desc: desc, protocol: protocol}, nil
 }
 
 // validateCandidates is pass one's cross-program half: every method of
@@ -175,8 +183,19 @@ func validateCandidates(found []candidate, running string, reserved map[string]b
 		if len(unchecked) > 0 {
 			warnings = append(warnings, developmentBuildWarning(c.path, running, unchecked))
 		}
+		if c.protocol.Status == external.ProtocolDeprecated {
+			warnings = append(warnings, deprecatedProtocolWarning(c.path, c.protocol))
+		}
 	}
 	return warnings, problems
+}
+
+// deprecatedProtocolWarning is the one warning a program speaking a
+// deprecated protocol gets, once per program on every command, naming the
+// release that stops speaking it.
+func deprecatedProtocolWarning(path string, p external.Protocol) string {
+	return fmt.Sprintf("program %s speaks protocol %d, which is deprecated and removed in %s; rebuild it against a release that speaks a newer one (this build speaks %s)",
+		path, p.Version, p.RemovedIn, external.SpokenText())
 }
 
 // developmentBuildWarning is the one warning a program gets when this is
@@ -207,7 +226,7 @@ func register(found []candidate, o Options) ([]Program, error) {
 	var registered []string
 	for _, c := range found {
 		prog := &program{path: c.path, dir: filepath.Dir(c.path), digest: c.digest, opts: o}
-		p := Program{Path: c.path, Digest: c.digest}
+		p := Program{Path: c.path, Digest: c.digest, Protocol: c.protocol.Version}
 		// The program's capabilities first, so its methods may require them.
 		// The provider is the loader's own name for the program, never the
 		// program's description of itself.

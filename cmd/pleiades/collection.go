@@ -220,9 +220,15 @@ func runCollectionRevoke(args []string) error {
 	return nil
 }
 
-// runCollectionList prints every approved build.
+// runCollectionList prints the external Collection protocols this build
+// speaks and every approved build. With --describe it also asks each
+// approved program present in the directory to describe itself, confined as
+// `approve` does, and names the protocol it and this build agree on:
+// supported, deprecated with the release that removes it, or unsupported.
+// It never does so unasked, since describing runs the program.
 func runCollectionList(args []string) error {
 	fs := flag.NewFlagSet("collection list", flag.ContinueOnError)
+	describe := fs.Bool("describe", false, "run each approved program's describe and show the protocol this build agrees with it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -234,6 +240,7 @@ func runCollectionList(args []string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println("this build speaks external collection protocols: " + external.SpokenText())
 	if len(approvals) == 0 {
 		fmt.Println("no approved builds")
 		return nil
@@ -242,6 +249,35 @@ func runCollectionList(args []string) error {
 		// The account and time are whatever the list holds, and anyone who
 		// can write the list can write anything there.
 		fmt.Printf("%s  %s  approved by %s at %s\n", a.Program, a.Digest, termsafe.EscapeLine(a.ApprovedBy), termsafe.EscapeLine(a.ApprovedAt))
+		if *describe {
+			fmt.Println("  " + describeProtocol(dir, a))
+		}
 	}
 	return nil
+}
+
+// describeProtocol names the protocol this build and the approved build a
+// agree on, or why there is none: the program is absent, its bytes are not
+// the approved build's, or the two share no version.
+func describeProtocol(dir string, a loader.Approval) string {
+	found, desc, err := loader.Inspect(context.Background(), dir, a.Program, loader.Options{
+		EngineVersion: version,
+		Logger:        slog.New(slog.NewTextHandler(os.Stderr, redact.Shared().HandlerOptions(slog.LevelWarn))),
+	})
+	switch {
+	case errors.Is(err, external.ErrNoCommonProtocol):
+		return "protocol: unsupported (" + termsafe.EscapeLine(err.Error()) + ")"
+	case err != nil:
+		return "protocol: unknown (" + termsafe.EscapeLine(err.Error()) + ")"
+	case found != a.Digest:
+		return "protocol: not this build (the program in the directory is " + found + ")"
+	}
+	p, err := external.Negotiate(desc.Range())
+	if err != nil {
+		return "protocol: unsupported (" + termsafe.EscapeLine(err.Error()) + ")"
+	}
+	if p.Status == external.ProtocolDeprecated {
+		return fmt.Sprintf("protocol: %d, deprecated, removed in %s", p.Version, p.RemovedIn)
+	}
+	return fmt.Sprintf("protocol: %d, supported", p.Version)
 }

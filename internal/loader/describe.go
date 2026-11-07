@@ -72,8 +72,10 @@ func parseDescription(data []byte) (external.Description, error) {
 			return external.Description{}, fmt.Errorf("describe printed invalid JSON: %w", err)
 		}
 	}
-	if d.Protocol != external.ProtocolVersion {
-		return external.Description{}, fmt.Errorf("describe reports protocol %d, and this build speaks protocol %d", d.Protocol, external.ProtocolVersion)
+	// The highest version both sides speak, or a refusal naming each side's
+	// versions; the loaded program keeps what was agreed (negotiated).
+	if _, err := external.Negotiate(d.Range()); err != nil {
+		return external.Description{}, err
 	}
 	if len(d.Methods) == 0 {
 		return external.Description{}, errors.New("describe lists no methods")

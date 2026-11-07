@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "current": 1,
+  "protocols": [
+    {
+      "version": 1,
+      "status": "supported"
+    }
+  ]
+}

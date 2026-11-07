@@ -626,8 +626,11 @@ var Root = Command{
 				},
 				{
 					Name:     "list",
-					Synopsis: "list every approved build, who approved it and when",
-					Examples: []string{"pleiades collection list"},
+					Synopsis: "list the external Collection protocols this build speaks and every approved build, who approved it and when",
+					Flags: []Flag{
+						{Name: "describe", Type: "bool", Default: "false", Doc: "also run each approved program's describe, confined as approve does, and show the protocol this build agrees with it: supported, deprecated with the release that removes it, or unsupported"},
+					},
+					Examples: []string{"pleiades collection list", "pleiades collection list --describe"},
 				},
 			},
 		},
@@ -860,8 +863,11 @@ var Root = Command{
 		},
 		{
 			Name:     "version",
-			Synopsis: "print the pleiades version",
-			Examples: []string{"pleiades version"},
+			Synopsis: "print the pleiades version and the external Collection protocols it speaks",
+			Flags: []Flag{
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the version, release name and external Collection protocols as one JSON document (docs/reference/schemas/version.json)"},
+			},
+			Examples: []string{"pleiades version", "pleiades version --json"},
 		},
 	},
 }

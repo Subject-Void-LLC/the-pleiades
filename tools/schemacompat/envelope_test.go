@@ -111,3 +111,24 @@ func TestACatalogWithNothingImplementedIsAProblemNotAPass(t *testing.T) {
 		t.Error("a catalog the check compared nothing in passed")
 	}
 }
+
+func TestProtocolWindowChecks(t *testing.T) {
+	doc := func(ps string) string { return `{"schemaVersion":1,"current":2,"protocols":[` + ps + `]}` }
+	old := doc(`{"version":1,"status":"supported"},{"version":2,"status":"supported"}`)
+	cases := []struct {
+		name, new string
+		want      []string
+	}{
+		{name: "a new version added", new: doc(`{"version":1,"status":"supported"},{"version":2,"status":"supported"},{"version":3,"status":"supported"}`), want: []string{}},
+		{name: "a version deprecated", new: doc(`{"version":1,"status":"deprecated","removed_in":"0.6.0"},{"version":2,"status":"supported"}`),
+			want: []string{"protocol-deprecated x.json#/protocols/1/status"}},
+		{name: "a version removed", new: doc(`{"version":2,"status":"supported"}`), want: []string{"protocol-removed x.json#/protocols/1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tokens(t, protocols, old, tc.new); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("findings %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

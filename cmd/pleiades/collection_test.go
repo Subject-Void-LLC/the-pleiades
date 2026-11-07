@@ -160,3 +160,51 @@ func TestCLI_CollectionApproveEscapesTheProgramsText(t *testing.T) {
 		}
 	}
 }
+
+// TestCLI_CollectionListNamesEachBuildsProtocol proves, through the real
+// binary, that `collection list` names the protocols this build speaks and
+// that --describe names, for each approved build present, the protocol the
+// two agree on: supported for a program speaking 1, unsupported naming both
+// sides for one speaking only 2 to 3, and "not this build" for an approval
+// whose digest the program in the directory no longer has.
+func TestCLI_CollectionListNamesEachBuildsProtocol(t *testing.T) {
+	collections := t.TempDir()
+	if err := os.Chmod(collections, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	newer := strings.Replace(promptProgram, `"protocol":1`, `"protocol":3,"protocol_min":2,"protocol_max":3`, 1)
+	for name, body := range map[string]string{"prompt": promptProgram, "newer": newer} {
+		if err := os.WriteFile(filepath.Join(collections, name), []byte(body), 0o700); err != nil { // #nosec G306 -- a test program that must be executable
+			t.Fatal(err)
+		}
+	}
+	env := map[string]string{"PLEIADES_COLLECTIONS_DIR": collections}
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"collection", "approve", "prompt", "--yes"},
+		{"collection", "approve", "prompt", "--digest", "sha256:" + strings.Repeat("c", 64)},
+		{"collection", "approve", "newer", "--digest", "sha256:" + strings.Repeat("d", 64)},
+	} {
+		if out, err := runWithStdin(t, dir, env, "", args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	listed, err := runWithStdin(t, dir, env, "", "collection", "list")
+	if err != nil || !strings.Contains(listed, "this build speaks external collection protocols: 1") || strings.Contains(listed, "protocol: ") {
+		t.Fatalf("list without --describe = %v, want the window and no program run:\n%s", err, listed)
+	}
+	described, err := runWithStdin(t, dir, env, "", "collection", "list", "--describe")
+	if err != nil {
+		t.Fatalf("list --describe: %v\n%s", err, described)
+	}
+	for _, want := range []string{"protocol: 1, supported", "protocol: not this build", "protocol: unsupported ("} {
+		if !strings.Contains(described, want) {
+			t.Errorf("list --describe lacks %q:\n%s", want, described)
+		}
+	}
+	// The newer program is refused at describe for its range: say which
+	// versions each side speaks.
+	if !strings.Contains(described, "describe speaks protocol 2 to 3, and this build speaks protocol 1") {
+		t.Errorf("list --describe does not name both sides' protocols for the newer program:\n%s", described)
+	}
+}
